@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Vercel
 .vercel
+
+# MCP config — contains access tokens, never commit
+.mcp.json
