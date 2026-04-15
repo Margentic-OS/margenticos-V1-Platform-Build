@@ -1,5 +1,5 @@
 # sections/05-intake.md — Questionnaire, File Upload, Website Ingestion
-# MargenticOS PRD | April 2026 — updated with five-theme framework
+# MargenticOS PRD | April 2026 — updated with five-theme framework, currency selector, split fields
 # Read prd/PRD.md first, then this section when working on intake, onboarding, or document generation inputs.
 
 ---
@@ -36,12 +36,15 @@ If a critical open-text response is under 20 words:
 
 ## Dictation prompt
 
-At the top of the questionnaire, before the first question, display this prompt:
+At the top of the questionnaire, before the first question, display this exact text:
 
-  "These questions are designed to get the real story — not the polished version.
-   Your answers will be better if you speak them rather than type them.
-   On your phone: tap the microphone icon on your keyboard.
-   On desktop: use your browser's built-in voice input (right-click any text field).
+  "The quality of your strategy documents depends entirely on what you put in here.
+   Thin answers produce generic documents.
+
+   If you can, speak your answers rather than type them — people say 3x more when
+   talking than typing, and that extra detail is what makes the difference.
+   We recommend Wispr Flow for Mac users: wisprflow.ai
+
    Don't edit yourself. Raw and honest beats neat and vague every time."
 
 On each open-text narrative question (marked below), display a shorter inline prompt:
@@ -59,12 +62,34 @@ not the structure. Do not penalise or flag unpolished language in intake respons
 Maps to: all four strategy documents (foundational context)
 
   field_key: company_name
-  Label: What's your company name and website URL?
+  Label: What's your company name?
   is_critical: true
   Type: short text
 
+  field_key: company_url
+  Label: What's your website URL?
+  is_critical: false
+  Type: short text (URL)
+  Note: also used by website ingestion agent — same as assets_website
+
+  field_key: company_currency
+  Label: What currency do you work in?
+  is_critical: true
+  Type: select
+  Options: GBP (£) / EUR (€) / USD ($)
+  Note: controls the currency symbol shown in the revenue range options
+
+  field_key: company_revenue_range
+  Label: What's your current annual revenue range?
+  is_critical: true
+  Type: select
+  Options: dynamic — symbol matches company_currency selection
+    GBP: Under £100K / £100K–£300K / £300K–£600K / £600K–£1M / £1M–£2M / Over £2M
+    EUR: Under €100K / €100K–€300K / €300K–€600K / €600K–€1M / €1M–€2M / Over €2M
+    USD: Under $100K / $100K–$300K / $300K–$600K / $600K–$1M / $1M–$2M / Over $2M
+
   field_key: company_what_you_do
-  Label: What does your business do — in plain English, not your website version?
+  Label: Who do you help and what problem do you solve for them?
   is_critical: true
   Type: long text
   Dictation prompt: yes
@@ -74,12 +99,6 @@ Maps to: all four strategy documents (foundational context)
   is_critical: true
   Type: short text
 
-  field_key: company_revenue_range
-  Label: What's your current annual revenue range?
-  is_critical: true
-  Type: select
-  Options: Under £100K / £100K–£300K / £300K–£600K / £600K–£1M / £1M–£2M / Over £2M
-
   field_key: company_differentiators
   Label: What makes your firm genuinely different from others who do what you do?
         Not the marketing answer — the real one.
@@ -87,7 +106,7 @@ Maps to: all four strategy documents (foundational context)
   Type: long text
   Dictation prompt: yes
 
-Section total: 5 questions, 5 critical
+Section total: 7 questions, 6 critical
 
 ---
 
@@ -140,8 +159,8 @@ Maps to: ICP document, positioning document, outreach sequences
 Theme coverage: foundational — required by all agents
 
   field_key: offer_structure
-  Label: What exactly are you selling? Describe the service or engagement structure
-         as you'd explain it to someone who's never heard of you.
+  Label: How does your service actually work? What does a client buy and what does
+         the engagement look like?
   is_critical: true
   Type: long text
 
@@ -178,13 +197,18 @@ Theme coverage: foundational for TOV agent
   Type: long text (multi-sample, separated by line breaks)
   Note: client may also upload files — see File Upload section below
 
+  field_key: voice_style
+  Label: How would you describe your communication style in your own words?
+  is_critical: false
+  Type: long text
+
   field_key: voice_dislikes
   Label: Is there anything you hate seeing in business communication?
          Phrases, styles, tones that make you cringe.
   is_critical: false
   Type: long text
 
-Section total: 2 questions, 1 critical
+Section total: 3 questions, 1 critical
 
 ---
 
@@ -256,16 +280,16 @@ Post-generation total: 4 questions, 0 critical
 ## Summary
 
   Section         Questions   Critical
-  company         5           5
+  company         7           6
   clients         5           5
   offer           4           4
-  voice           2           1
+  voice           3           1
   assets          3           0
   enrichment      4           0
   ———————————————————————————————————
-  Total           23          15
+  Total           26          16
 
-  80% threshold = 12 of 15 critical fields completed before generation triggers.
+  80% threshold = 13 of 16 critical fields completed before generation triggers.
   Enrichment prompts are surfaced post-generation only — not part of initial intake flow.
 
 ---
