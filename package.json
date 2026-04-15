@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@eslint/eslintrc": "^3.3.5",
+    "@supabase/ssr": "^0.10.2",
+    "@supabase/supabase-js": "^2.103.2",
     "next": "^16.2.3",
     "react": "^18",
     "react-dom": "^18"
