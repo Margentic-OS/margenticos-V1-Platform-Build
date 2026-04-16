@@ -36,3 +36,49 @@ export type ConnectionStatus = 'connected' | 'disconnected' | 'error'
 export type SuggestionStatus = 'pending' | 'approved' | 'rejected' | 'superseded'
 
 export type ConfidenceLevel = 'low' | 'medium' | 'high'
+
+// ─── ICP Document types ───────────────────────────────────────────────────────
+// These describe the JSON structure stored in strategy_documents.content
+// and in document_suggestions.suggested_value for ICP documents.
+
+export interface IcpBuyerProfile {
+  title: string
+  seniority: string
+  day_to_day: string
+  identity: string
+}
+
+export interface IcpCompanyProfile {
+  revenue_range: string
+  headcount: string
+  stage: string
+  industries: string[]
+  geography: string
+  business_model: string
+}
+
+export interface IcpFourForces {
+  push: string[]
+  pull: string[]
+  anxiety: string[]
+  habit: string[]
+}
+
+export interface IcpTier {
+  label: string
+  description: string
+  company_profile: IcpCompanyProfile
+  buyer_profile: IcpBuyerProfile
+  four_forces: IcpFourForces
+  triggers: string[]
+  switching_costs: string[]
+  disqualifiers: string[]
+}
+
+export interface IcpDocument {
+  jtbd_statement: string
+  summary: string
+  tier_1: IcpTier
+  tier_2: IcpTier
+  tier_3: IcpTier
+}
