@@ -13,6 +13,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { runResearchQueries, formatResearchForPrompt, type ResearchBundle } from '@/lib/agents/tools/webSearch'
 
 // The model specified in the PRD for document generation agents.
 const ICP_MODEL = 'claude-opus-4-6'
@@ -105,20 +106,36 @@ export async function runIcpGenerationAgent(
   // Step 4: Read patterns table (cross-client, read-only, may be empty in phase one).
   const patterns = await fetchPatterns(supabase)
 
-  // Step 5: Build the user message from intake data.
+  // Step 5: Run web research — market intelligence to inform the ICP.
+  // Queries are derived from the client's intake data, not hardcoded.
+  // Research INFORMS the ICP — it does not override intake. Conflicts are flagged
+  // in suggestion_reason, not silently resolved. Fails gracefully if unavailable.
+  logger.info('ICP agent: running web research', { organisation_id })
+  const researchQueries = buildResearchQueries(intake)
+  const research = await runResearchQueries(researchQueries)
+
+  if (research.anyLimited) {
+    logger.warn('ICP agent: some research queries returned limited results', {
+      organisation_id,
+      limitedNote: research.limitedNote,
+    })
+  }
+
+  // Step 6: Build the user message from intake data + research.
   const userMessage = buildUserMessage({
     organisation_id,
     intake,
     existingDocument,
     patterns,
     completeness,
+    research,
   })
 
-  // Step 6: Call Claude.
+  // Step 7: Call Claude.
   logger.info('ICP agent: calling Claude', { organisation_id, model: ICP_MODEL })
   const generatedContent = await callClaude(userMessage)
 
-  // Step 7: Validate the response is parseable JSON before writing anything.
+  // Step 8: Validate the response is parseable JSON before writing anything.
   let parsedDocument: Record<string, unknown>
   try {
     parsedDocument = JSON.parse(generatedContent)
@@ -129,7 +146,7 @@ export async function runIcpGenerationAgent(
     )
   }
 
-  // Step 8: Write to document_suggestions — never to strategy_documents directly.
+  // Step 9: Write to document_suggestions — never to strategy_documents directly.
   const suggestionId = await writeDocumentSuggestion(supabase, {
     organisation_id,
     existingDocument,
@@ -138,6 +155,7 @@ export async function runIcpGenerationAgent(
     intake,
     completeness,
     is_refresh,
+    researchLimitedNote: research.limitedNote,
   })
 
   logger.info('ICP agent: suggestion written successfully', { organisation_id, suggestion_id: suggestionId })
@@ -209,6 +227,57 @@ async function fetchPatterns(supabase: SupabaseClient): Promise<PatternRow[]> {
   return (data ?? []) as PatternRow[]
 }
 
+// ─── Research query builder ───────────────────────────────────────────────────
+
+// Derives 4 targeted search queries from the client's intake data.
+// Queries cover: buyer pain points, client revenue plateau patterns,
+// competitive landscape, and sector-specific buying behaviour.
+// All queries are purposeful — each one informs a distinct part of the ICP.
+function buildResearchQueries(intake: IntakeRow[]): string[] {
+  const val = (key: string) =>
+    intake.find(r => r.field_key === key)?.response_value?.trim() ?? ''
+
+  const whatYouDo   = val('company_what_you_do')
+  const cloneClient = val('clients_clone')
+  const trigger     = val('clients_trigger')
+  const currency    = val('company_currency')
+
+  // Infer a market label from the service description and currency.
+  // Used to add geographic context to queries without hardcoding.
+  const geoHint = currency === 'GBP' ? 'UK'
+    : currency === 'EUR' ? 'Europe'
+    : currency === 'USD' ? 'US'
+    : 'English-speaking markets'
+
+  // Query 1: Buyer pain points — what language do real buyers use to describe
+  // the problem this service solves? Grounds four_forces.push entries in market reality.
+  const buyerPainQuery =
+    whatYouDo.length > 20
+      ? `B2B consulting firm founder pipeline challenges feast famine revenue plateau ${geoHint} 2025`
+      : `boutique consulting firm owner outbound sales challenges pipeline predictability 2025`
+
+  // Query 2: Trigger events — what specific business events cause buyers to act?
+  // Validates or enriches the triggers section of each tier.
+  const triggerQuery =
+    trigger.length > 20
+      ? `founder-led consulting referral dependency ceiling growth trigger events outbound investment`
+      : `when do consulting firm owners invest in lead generation outbound pipeline agency`
+
+  // Query 3: Buyer profile reality check — what does the research say about
+  // team size, revenue range norms, and stage descriptions in this sector?
+  const buyerProfileQuery =
+    cloneClient.length > 20
+      ? `solo micro team B2B consultant annual revenue range UK professional services market size 2024 2025`
+      : `boutique B2B consulting firm revenue headcount typical profile UK 2025`
+
+  // Query 4: Competitive landscape — how do competitors position to the same buyer?
+  // Surfaces language real buyers hear, which informs disqualifiers and switching costs.
+  const competitorQuery =
+    `cold email outbound lead generation service for consultants competitors positioning UK 2025`
+
+  return [buyerPainQuery, triggerQuery, buyerProfileQuery, competitorQuery]
+}
+
 // ─── Prompt construction ──────────────────────────────────────────────────────
 
 function buildUserMessage(params: {
@@ -217,8 +286,9 @@ function buildUserMessage(params: {
   existingDocument: ExistingDocument | null
   patterns: PatternRow[]
   completeness: number
+  research: ResearchBundle
 }): string {
-  const { intake, existingDocument, patterns, completeness } = params
+  const { intake, existingDocument, patterns, completeness, research } = params
 
   // Group intake responses by section for readability in the prompt.
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
@@ -260,17 +330,28 @@ function buildUserMessage(params: {
 
   const completenessNote = completeness < 80
     ? `\n\n⚠️ INTAKE COMPLETENESS NOTE: Only ${completeness}% of critical fields have been answered. ` +
-      'Derive what you can from what is available. Flag any significant gaps in the suggestion_reason ' +
-      'that you will include in your output context. Do not hallucinate specifics.'
+      'Derive what you can from what is available. Flag any significant gaps. Do not hallucinate specifics.'
     : ''
 
-  return `You are generating an ICP document for a founder-led B2B consulting firm.
+  // Research section: included only when searches returned usable results.
+  // When research conflicts with intake data, your data quality rules apply:
+  // flag the conflict rather than silently overriding either source.
+  const researchSection = formatResearchForPrompt(research)
+  const researchBlock = researchSection
+    ? `\n\n---\n\n${researchSection}\n\n` +
+      `RESEARCH WEIGHTING RULE: Use research to validate, enrich, and sharpen the language ` +
+      `in the ICP. If research findings conflict with intake data, do NOT silently override ` +
+      `intake. Instead, use the intake data as primary and note the conflict in your ` +
+      `generation — it will surface in the suggestion_reason.`
+    : '\n\n---\n\n## WEB RESEARCH\n\nNo usable research results available. ' +
+      'Base your analysis entirely on intake data and framework logic.'
 
+  return `You are generating an ICP document for a founder-led B2B consulting firm.
 ${completenessNote}
 
 ## INTAKE QUESTIONNAIRE RESPONSES
 
-${intakeSections}${refreshContext}${patternContext}
+${intakeSections}${researchBlock}${refreshContext}${patternContext}
 
 ---
 
@@ -362,6 +443,7 @@ async function writeDocumentSuggestion(
     intake: IntakeRow[]
     completeness: number
     is_refresh: boolean
+    researchLimitedNote: string
   }
 ): Promise<string> {
   const {
@@ -370,6 +452,7 @@ async function writeDocumentSuggestion(
     generatedContent,
     completeness,
     is_refresh,
+    researchLimitedNote,
   } = params
 
   // Build the human-readable reason that will appear in Doug's approval queue.
@@ -390,7 +473,8 @@ async function writeDocumentSuggestion(
   const suggestionReason =
     `ICP document generated by icp-generation-agent using ${ICP_MODEL}.` +
     refreshNote +
-    completenessNote
+    completenessNote +
+    researchLimitedNote
 
   const { data, error } = await supabase
     .from('document_suggestions')
