@@ -408,3 +408,43 @@ Any developer or agent working on the feedback loop must not implement threshold
 evaluation or A/B generation unless Doug has explicitly approved it for the current phase.
 Flag to Doug when founding client campaign data reaches a volume where this logic
 becomes meaningful — this is the trigger to begin phase two feedback loop work.
+
+---
+
+## ADR-012 — Messaging agent writes four document_suggestions rows per run, grouped by sequence_position
+Date: April 2026 | Status: Accepted
+
+Context:
+The messaging agent generates a four-email cold outbound sequence. The question is
+whether to write the full sequence as a single row in document_suggestions or as four
+separate rows, one per email.
+
+Decision:
+The messaging agent writes four separate rows to document_suggestions per sequence run.
+Each row is tagged with sequence_position (integer 1–4) and document_type 'messaging'.
+The four rows share the same organisation_id and are written in a single batch insert
+so all four succeed or none are saved.
+
+Reasoning:
+Instantly (the email sending platform) loads sequences as individual emails. Each email
+in a sequence has its own subject line, body, and send delay. Writing four separate rows
+maps directly to this structure, making it straightforward to load the sequence into
+Instantly without parsing a single compound document.
+Emails 2 and 3 have subject_line set to null — threading must be configured in Instantly
+when the sequence is loaded. A compound single-row document would require the dashboard
+to parse and split the sequence before it could be used, adding unnecessary complexity.
+
+Rejected alternatives:
+- Single row with full sequence as compound JSON: rejected because it requires parsing
+  at display time and at load time, and does not map to the Instantly email-per-row model.
+- Separate agent runs per email: rejected because the four emails must be generated as a
+  coherent unit — angle progression, threading, and word count relationships are enforced
+  across the sequence.
+
+Consequences:
+The Session 4 dashboard approval UI must display messaging suggestions grouped by
+sequence_position order (Email 1 → 2 → 3 → 4), not as four independent unrelated
+suggestions. The grouping key is: same organisation_id + same document_type 'messaging'
++ status 'pending' + sequence_position 1–4. Approving the sequence should approve all
+four rows together, or surface them as a sequence for review before approval.
+

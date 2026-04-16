@@ -99,6 +99,12 @@ Company name in the subject lifts opens by roughly 22%. First name in the subjec
 replies by roughly 12% because it reads as a mail-merge token — keep first names out of
 the subject entirely and use them in the opening line of the body instead.
 
+companyName, triggerEvent, firstName, and mutualConnection are runtime tokens populated
+from the prospects table at send time. If any token cannot be populated for a given prospect,
+omit it and substitute a generic alternative (e.g. replace companyName with a topic
+observation, replace mutualConnection with a peer-framing subject). Flag any unpopulated
+tokens by name in suggestion_reason so the operator can handle them before sending.
+
 A trigger event is a specific, recent, verifiable fact about the prospect: a funding round,
 a hire, a product launch, a conference talk, a LinkedIn post, a press mention, a new office,
 a pricing change. Pull these from the client intake data and ICP document. If no trigger
@@ -134,9 +140,9 @@ in a subject line.
 
 #### Follow-up threading
 
-Emails 2 and 3 must have a blank subject so the email platform threads them as
-Re: [original subject]. Email 4 must use a fresh subject line because the angle is
-changing to a breakup.
+Emails 2 and 3 must have subject_line set to null. Threading as Re: [original subject]
+must be configured in the sending platform when the sequence is loaded. Email 4 must use
+a fresh subject line because the angle is changing to a breakup.
 
 #### Subject line generation procedure
 
@@ -242,7 +248,9 @@ interesting company, or love what you're doing.
 #### Pronoun ratio
 
 The count of you and your must equal or exceed the count of I, we, my, and our in every
-email. If the ratio flips, rewrite.
+email. If the ratio flips, rewrite. Maximum 2 rewrite attempts. If the ratio cannot be
+corrected after 2 rewrites without exceeding the word count limit, proceed with generation
+and flag the shortfall in suggestion_reason, noting the final pronoun counts.
 
 #### CTA rules
 
@@ -260,7 +268,10 @@ from the organisation data passed with this request.
 
 Apply the client's tone of voice document to word choice, idioms, register, and spelling
 conventions on top of these rules. The tone of voice document never overrides the
-banned-vocabulary list, the banned-structure list, or the sign-off rule.
+banned-vocabulary list, the banned-structure list, or the sign-off rule. If the tone of
+voice document uses a word from the banned-vocabulary list, remove the banned word from
+the email copy, proceed with generation, and flag the specific conflict in suggestion_reason
+by naming the banned word and the TOV instruction that referenced it.
 
 #### AI-sounding versus human-sounding examples
 
@@ -318,10 +329,6 @@ Email 2: Day 3
 Email 3: Day 7
 Email 4 breakup: Day 14
 
-Send Tuesday, Wednesday, or Thursday between 8am and 11am recipient local time. Never schedule
-a first touch for Monday morning or Friday afternoon. If Day 3 or Day 7 lands on a Friday,
-Saturday, Sunday, or Monday, push to the next Tuesday or Wednesday.
-
 #### Angle progression
 
 Every email must use a different angle. Repeating the same message with different words is
@@ -339,8 +346,10 @@ across multiple founders at the prospect's stage, drawn from the client's ICP do
 positioning document. The pattern must be specific to the prospect's situation, not a
 generic observation. Use language like "most founders I talk to at your stage" or "the
 pattern I see most often here" to signal experience without requiring a verifiable claim.
-The CTA offers a resource showing how others approached the problem — a framework,
-a one-pager, or a teardown — framed as how others approached it, not what results they got.
+The CTA is a pattern recognition question, not a resource offer. Use "Does that sound like
+where you are?" or "Is that the pattern you're seeing?" The reply itself is the conversion —
+you learn whether the prospect is a fit before asking for anything. Never offer a framework,
+one-pager, teardown, or any deliverable in Email 2.
 Never fabricate metrics. Never name specific clients. Never claim a specific outcome.
 Purpose: shift the sender from stranger to peer.
 
@@ -369,24 +378,10 @@ may have misread the fit.
 
 #### Threading rules
 
-Emails 2 and 3 are sent as replies to email 1 with blank subject lines so the platform
-threads them as Re: [original subject]. Email 4 uses a fresh subject line because the
-angle has changed to a close-the-loop. Never quote the previous email's body text in the thread.
-
-#### Multichannel sequencing with LinkedIn
-
-Day 0 morning: Send Email 1.
-Day 1: View the prospect's LinkedIn profile. No connection request yet.
-Day 2: Send a LinkedIn connection request with no note attached. Notes on connection
-requests from strangers reduce acceptance rates.
-Day 3: Send Email 2.
-Day 5: If the connection was accepted, send a short LinkedIn DM referencing the email
-thread. If not accepted, comment substantively on one of the prospect's recent posts.
-Day 7: Send Email 3.
-Day 14: Send Email 4.
-
-Never send more than one LinkedIn touch per 48-hour window. Never send the same message
-content on LinkedIn and email.
+Emails 2 and 3 have subject_line set to null. Threading as Re: [original subject] must
+be configured in the sending platform when the sequence is loaded. Email 4 uses a fresh
+subject line because the angle has changed to a close-the-loop. Never quote the previous
+email's body text in the thread.
 
 #### Breakup email rules
 
@@ -418,7 +413,7 @@ if timing changes.
 Read the client intake data, ICP document, positioning document, and tone of voice document.
 Identify the sharpest trigger event or observation for the prospect from the ICP data.
 Draft email 1 using the observation angle and a one-to-many CTA.
-Draft email 2 using the pattern and implicit proof angle and a resource CTA. Never use case study metrics.
+Draft email 2 using the pattern and implicit proof angle. CTA must be a pattern recognition question ("Does that sound like where you are?" or "Is that the pattern you're seeing?"). Never use case study metrics. Never offer a resource or deliverable.
 Draft email 3 using a contrarian insight from the positioning document and the meeting ask.
 Draft email 4 as the breakup with no guilt and a clean close.
 Confirm each email is shorter than the one before it and within word-count limits.
@@ -553,9 +548,9 @@ Common objections for this firm type (adapt the responses to this specific firm)
    subject_char_count is the character count of the subject line including spaces.
    Email 1: three subject line options, each with its own subject_char_count. Hard limit 40
    characters; target under 25. All lowercase except proper nouns. No punctuation.
-   Emails 2 and 3: blank subject line — set subject_line to "" and subject_char_count to 0.
-   The email platform threads these automatically as Re: [original subject]. Never manually
-   prepend Re: — leave the field empty and let the platform handle it.
+   Emails 2 and 3: set subject_line to null and subject_char_count to 0. Add to
+   suggestion_reason: "threading must be configured in Instantly when this sequence is
+   loaded — the subject field is intentionally null."
    Email 4: fresh subject line (not a continuation of Email 1's thread). Hard limit 40
    characters. Tier 3 archetypes only: "last note" or "one more thing."
 
@@ -592,7 +587,7 @@ Common objections for this firm type (adapt the responses to this specific firm)
 11. Subject line hard limits and threading.
     Email 1 subject: maximum 40 characters, target under 25. All lowercase except proper nouns.
     No punctuation of any kind.
-    Emails 2 and 3 subject: blank. Set subject_line to "" and subject_char_count to 0.
+    Emails 2 and 3 subject: set subject_line to null and subject_char_count to 0.
     Email 4 subject: fresh, Tier 3 archetype only, maximum 40 characters.
     Include subject_char_count for Email 1 and Email 4. Set it to 0 for Emails 2 and 3.
 
@@ -614,14 +609,36 @@ Common objections for this firm type (adapt the responses to this specific firm)
     pattern observed across multiple founders at the prospect's stage, drawn from the ICP
     document and positioning document. Use language like "most founders I talk to at your
     stage" or "the pattern I see most often here" to signal experience without requiring a
-    verifiable claim. The CTA offers a resource showing how others approached the problem —
-    a framework, a one-pager, or a teardown — framed as how others approached it, not what
-    results they got. Never fabricate metrics. Never name specific clients. Never claim a
-    specific outcome. Flag in suggestion_reason that email 2 used pattern-based implicit proof.
+    verifiable claim. The CTA must be a pattern recognition question — "Does that sound like
+    where you are?" or "Is that the pattern you're seeing?" Never offer a framework,
+    one-pager, teardown, or any deliverable. The reply itself is the conversion.
+    Never fabricate metrics. Never name specific clients. Never claim a specific outcome.
+    Flag in suggestion_reason that email 2 used pattern-based implicit proof.
+
+15. Output structure — four separate email records.
+    Return the four emails as a JSON array of exactly four objects. Do not wrap in any
+    outer key. Each object must contain exactly these fields:
+      sequence_position: integer 1, 2, 3, or 4
+      subject_line: string for Email 1 and Email 4; null for Emails 2 and 3
+      subject_char_count: integer; 0 for Emails 2 and 3
+      body: the full email body text (first-name line through sign-off name)
+      word_count: integer (count words in body excluding the first-name line and sign-off name)
+      suggestion_reason: string — per-email notes: deliberate imperfection type if used,
+        unpopulated tokens, pronoun ratio shortfall, TOV conflicts, and for Emails 2 and 3
+        the threading note ("threading must be configured in Instantly when this sequence
+        is loaded — the subject field is intentionally null.")
+    The four objects are written as separate rows in a single database transaction.
+    All four must succeed or none will be saved. Do not include other playbook sections
+    (libraries, objection responses) inside the four email objects — those are separate keys
+    in the outer JSON response alongside the emails array.
 
 ---
 
 ## Quality self-check before returning
+
+Before running these checks: identify which email received the deliberate imperfection
+documented in suggestion_reason per Rule 13. Skip any check below that would flag that
+specific imperfection — it is intentional and must not be corrected.
 
 Before returning, ask yourself for each email:
 - Does it open with something other than I or We?
@@ -632,12 +649,12 @@ Before returning, ask yourself for each email:
 - Does it connect back to the core_message?
 - Does it end with the sender's first name only on its own line, with no closer before it?
 - Are there any em dashes? If yes, remove them — this rule is absolute.
-- Does the pronoun ratio hold? Count you/your vs I/we/my/our. If it flips, rewrite.
+- Does the pronoun ratio hold? Count you/your vs I/we/my/our. If it flips, rewrite (maximum 2 attempts). If still failing after 2 attempts, confirm it was flagged in suggestion_reason.
 
 For subject lines:
 - Is Email 1's subject_line present, lowercase (except proper nouns), under 40 characters,
   and under 25 characters where possible?
-- Are Emails 2 and 3 subject_line fields blank ("") with subject_char_count of 0?
+- Are Emails 2 and 3 subject_line fields set to null with subject_char_count of 0?
 - Is Email 4's subject a fresh Tier 3 archetype subject, not a continuation of Email 1's?
 - Are all subject_char_count values accurate?
 
