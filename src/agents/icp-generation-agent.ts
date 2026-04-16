@@ -17,8 +17,9 @@ import { logger } from '@/lib/logger'
 // The model specified in the PRD for document generation agents.
 const ICP_MODEL = 'claude-opus-4-6'
 
-// Maximum tokens for the ICP response. The document is detailed but bounded.
-const MAX_TOKENS = 4096
+// Maximum tokens for the ICP response. 8192 needed — three full tiers with all fields
+// can exceed 4096 tokens, causing truncated JSON that fails to parse.
+const MAX_TOKENS = 8192
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -312,7 +313,17 @@ async function callClaude(userMessage: string): Promise<string> {
     throw new Error('ICP agent: Claude returned no text content in response.')
   }
 
-  return content.text.trim()
+  // Strip markdown code fences if present. Claude sometimes wraps JSON in ```json ... ```
+  // despite explicit instructions not to. Strip defensively so parsing never fails on fences.
+  return stripMarkdownFences(content.text.trim())
+}
+
+function stripMarkdownFences(text: string): string {
+  // Remove opening fence: ```json or ``` at the very start
+  const withoutOpen = text.replace(/^```(?:json)?\s*\n?/i, '')
+  // Remove closing fence: ``` at the very end
+  const withoutClose = withoutOpen.replace(/\n?```\s*$/i, '')
+  return withoutClose.trim()
 }
 
 async function loadSystemPrompt(): Promise<string> {
