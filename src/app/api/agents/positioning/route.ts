@@ -128,16 +128,13 @@ export async function POST(request: NextRequest) {
       { organisation_id, error: message }
     )
 
-    // Surface a helpful message if the ICP document is missing — this is the most
-    // likely reason this agent fails, and the fix is clear.
-    if (message.includes('no active ICP document')) {
-      return NextResponse.json(
-        {
-          error: 'Positioning agent requires an approved ICP document. ' +
-                 'Run the ICP agent first and approve the result before triggering positioning.',
-        },
-        { status: 422 }
-      )
+    // Surface ICP dependency errors directly — these are operator-actionable.
+    // Covers: document not found, document not approved, wrong status.
+    if (
+      message.includes('no ICP document found') ||
+      message.includes('ICP document exists but has status')
+    ) {
+      return NextResponse.json({ error: message }, { status: 422 })
     }
 
     // Return a safe error message — do not leak internal details to the client.

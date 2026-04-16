@@ -56,6 +56,7 @@ interface IcpDocument {
   version: string
   plain_text: string | null
   content: Record<string, unknown>
+  status: string
 }
 
 interface ExistingPositioningDocument {
@@ -111,14 +112,8 @@ export async function runPositioningGenerationAgent(
   // Step 3: Fetch the ICP document — required, not optional.
   // The ICP is the primary anchor for buyer language, four_forces, and best-fit characteristics.
   // Positioning cannot be generated without it.
+  // fetchIcpDocument throws with a plain-English message if the document is missing or not approved.
   const icpDocument = await fetchIcpDocument(supabase, organisation_id)
-
-  if (!icpDocument) {
-    throw new Error(
-      `Positioning agent: no active ICP document found for organisation ${organisation_id}. ` +
-      'Generate and approve the ICP document before running the positioning agent.'
-    )
-  }
 
   // Step 4: Fetch existing positioning document if this is a refresh.
   let existingDocument: ExistingPositioningDocument | null = null
@@ -218,22 +213,35 @@ async function fetchIntakeResponses(
 async function fetchIcpDocument(
   supabase: SupabaseClient,
   organisation_id: string
-): Promise<IcpDocument | null> {
-  // Fetch the most recently approved ICP document for this organisation.
+): Promise<IcpDocument> {
+  // Fetch the most recent ICP document for this organisation regardless of status,
+  // then check status explicitly so we can give a specific error message.
   // Explicit organisation_id filter + RLS enforces isolation.
   const { data, error } = await supabase
     .from('strategy_documents')
-    .select('id, version, plain_text, content')
+    .select('id, version, plain_text, content, status')
     .eq('organisation_id', organisation_id) // explicit isolation filter
     .eq('document_type', 'icp')
-    .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(1)
-    .single()
+    .maybeSingle()
 
   if (error) {
-    // .single() throws if no row — treat as no ICP document exists
-    return null
+    throw new Error(`Positioning agent: failed to fetch ICP document — ${error.message}`)
+  }
+
+  if (!data) {
+    throw new Error(
+      'Positioning agent: no ICP document found for this organisation. ' +
+      'Run the ICP agent first and approve the result in the dashboard before running the positioning agent.'
+    )
+  }
+
+  if (data.status !== 'approved') {
+    throw new Error(
+      `Positioning agent: ICP document exists but has status "${data.status}". ` +
+      'Approve the ICP document in the dashboard before running the positioning agent.'
+    )
   }
 
   return data as IcpDocument
@@ -248,7 +256,7 @@ async function fetchExistingPositioningDocument(
     .select('id, version, plain_text, content')
     .eq('organisation_id', organisation_id) // explicit isolation filter
     .eq('document_type', 'positioning')
-    .eq('status', 'active')
+    .eq('status', 'approved')
     .order('created_at', { ascending: false })
     .limit(1)
     .single()

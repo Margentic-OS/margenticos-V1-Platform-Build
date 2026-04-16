@@ -75,6 +75,15 @@ interface StrategyDocument {
   version: string
   plain_text: string | null
   content: Record<string, unknown>
+  status: string
+}
+
+// Validated pre-flight context — org name, sender first name, prospect company name.
+// These are required for email generation. Missing any of them aborts the run.
+interface PreflightContext {
+  org_name: string
+  sender_first_name: string
+  company_name: string
 }
 
 interface ExistingMessagingDocument {
@@ -117,12 +126,17 @@ export async function runMessagingGenerationAgent(
     )
   }
 
-  // Step 2: Fetch all three required strategy documents.
-  // Each must exist and be active — the messaging agent synthesises all three.
-  // If any is missing, throw with a clear message naming which document is absent.
+  // Step 2: Pre-flight checks — verify required name fields before any generation work.
+  // Aborts immediately if organisation name, sender first name, or company name is missing.
+  // Emails with blank sign-offs or missing company context must never be generated.
+  const preflight = await runPreflightChecks(supabase, organisation_id, intake)
+
+  // Step 3: Fetch all three required strategy documents.
+  // Each must exist and have status 'approved' — the messaging agent synthesises all three.
+  // If any is missing or not approved, throws with specific messages naming each problem.
   const requiredDocs = await fetchRequiredDocuments(supabase, organisation_id)
 
-  // Step 3: Check overall intake completeness.
+  // Step 4: Check overall intake completeness.
   const criticalFields = intake.filter(r => r.is_critical)
   const answeredCritical = criticalFields.filter(
     r => r.response_value && r.response_value.trim().length > 0
@@ -138,18 +152,19 @@ export async function runMessagingGenerationAgent(
     )
   }
 
-  // Step 4: Fetch existing messaging document if this is a refresh.
+  // Step 5: Fetch existing messaging document if this is a refresh.
   let existingDocument: ExistingMessagingDocument | null = null
   if (is_refresh) {
     existingDocument = await fetchExistingMessagingDocument(supabase, organisation_id)
   }
 
-  // Step 5: Read patterns table (cross-client, read-only, may be empty in phase one).
+  // Step 6: Read patterns table (cross-client, read-only, may be empty in phase one).
   const patterns = await fetchPatterns(supabase)
 
-  // Step 6: Build the user message.
+  // Step 7: Build the user message.
   // The three strategy documents are included in full — they are the primary context.
   // No web research: market intelligence was incorporated at the ICP and Positioning stages.
+  // Preflight context (org name, sender first name) is included so Claude can use them in sign-offs.
   const userMessage = buildUserMessage({
     organisation_id,
     intake,
@@ -157,13 +172,14 @@ export async function runMessagingGenerationAgent(
     existingDocument,
     patterns,
     completeness,
+    preflight,
   })
 
-  // Step 7: Call Claude.
+  // Step 8: Call Claude.
   logger.info('Messaging agent: calling Claude', { organisation_id, model: MESSAGING_MODEL })
   const generatedContent = await callClaude(userMessage)
 
-  // Step 8: Parse and validate the four-email array.
+  // Step 9: Parse and validate the four-email array.
   // Claude returns a JSON array of exactly 4 email objects per Rule 15 in the system prompt.
   let emails: EmailRecord[]
   try {
@@ -181,7 +197,7 @@ export async function runMessagingGenerationAgent(
     )
   }
 
-  // Step 9: Write 4 rows in a single batch insert — never to strategy_documents directly.
+  // Step 10: Write 4 rows in a single batch insert — never to strategy_documents directly.
   // All four succeed or none are saved (Supabase insert is atomic for a single call).
   const suggestionIds = await writeDocumentSuggestions(supabase, {
     organisation_id,
@@ -225,19 +241,87 @@ async function fetchIntakeResponses(
   return (data ?? []) as IntakeRow[]
 }
 
+// ─── Pre-flight checks ────────────────────────────────────────────────────────
+
+async function runPreflightChecks(
+  supabase: SupabaseClient,
+  organisation_id: string,
+  intake: IntakeRow[]
+): Promise<PreflightContext> {
+  // Three checks before any generation work begins.
+  // All failures are collected before throwing so the operator sees everything at once.
+  const missing: string[] = []
+
+  // Check 1: Organisation name from the organisations table.
+  const { data: orgRow } = await supabase
+    .from('organisations')
+    .select('name')
+    .eq('id', organisation_id)
+    .single()
+
+  const orgName = orgRow?.name?.trim() ?? ''
+  if (!orgName) {
+    missing.push(
+      'Organisation name is missing. Add it under Settings → Organisation.'
+    )
+  }
+
+  // Check 2: Sender first name from the operator user record.
+  // The first name is the first word of display_name.
+  // It goes on the email sign-off line — blank sign-offs must never reach a prospect.
+  const { data: operatorRow } = await supabase
+    .from('users')
+    .select('display_name')
+    .eq('organisation_id', organisation_id)
+    .eq('role', 'operator')
+    .limit(1)
+    .single()
+
+  const displayName = operatorRow?.display_name?.trim() ?? ''
+  const senderFirstName = displayName.split(/\s+/)[0] ?? ''
+  if (!senderFirstName) {
+    missing.push(
+      'Sender first name is missing. Add a display name for the operator account under Settings → Profile.'
+    )
+  }
+
+  // Check 3: Company name from intake responses.
+  // Used to contextualise the emails and populate the companyName token.
+  const companyNameRow = intake.find(r => r.field_key === 'company_name')
+  const companyName = companyNameRow?.response_value?.trim() ?? ''
+  if (!companyName) {
+    missing.push(
+      'Company name is missing from the intake questionnaire. Complete the "Company name" field in the intake form.'
+    )
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      'Messaging agent: cannot generate emails — the following required fields are missing:\n' +
+      missing.map((m, i) => `  ${i + 1}. ${m}`).join('\n')
+    )
+  }
+
+  return {
+    org_name: orgName,
+    sender_first_name: senderFirstName,
+    company_name: companyName,
+  }
+}
+
 async function fetchRequiredDocuments(
   supabase: SupabaseClient,
   organisation_id: string
 ): Promise<RequiredDocuments> {
-  // Fetch all active strategy documents for this organisation in one query.
-  // Then verify all three required types are present — if any are missing,
-  // build a clear error message naming exactly which documents are absent.
+  // Fetch the most recent document of each required type, regardless of status.
+  // Status is checked explicitly below so we can give a specific error for each problem:
+  //   - not found → "run the agent first"
+  //   - found but not approved → "approve it in the dashboard"
   const { data, error } = await supabase
     .from('strategy_documents')
-    .select('id, document_type, version, plain_text, content')
+    .select('id, document_type, version, plain_text, content, status')
     .eq('organisation_id', organisation_id) // explicit isolation filter
     .in('document_type', ['icp', 'positioning', 'tov'])
-    .eq('status', 'active')
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -246,7 +330,7 @@ async function fetchRequiredDocuments(
 
   const docs = (data ?? []) as StrategyDocument[]
 
-  // Deduplicate — take the most recent active document of each type.
+  // Deduplicate — take the most recent document of each type.
   // The query is ordered by created_at DESC so the first match for each type wins.
   const byType: Partial<Record<string, StrategyDocument>> = {}
   for (const doc of docs) {
@@ -255,23 +339,38 @@ async function fetchRequiredDocuments(
     }
   }
 
-  const missing: string[] = []
-  if (!byType['icp'])         missing.push('ICP document')
-  if (!byType['positioning']) missing.push('Positioning document')
-  if (!byType['tov'])         missing.push('Tone of Voice guide')
+  const docLabels: Record<string, string> = {
+    icp: 'ICP document',
+    positioning: 'Positioning document',
+    tov: 'Tone of Voice guide',
+  }
+  const errors: string[] = []
 
-  if (missing.length > 0) {
+  for (const [type, label] of Object.entries(docLabels)) {
+    const doc = byType[type]
+    if (!doc) {
+      errors.push(
+        `${label} has not been generated yet. Run the ${label.split(' ')[0]} agent first.`
+      )
+    } else if (doc.status !== 'approved') {
+      errors.push(
+        `${label} exists but has status "${doc.status}". ` +
+        `Approve it in the dashboard before running the messaging agent.`
+      )
+    }
+  }
+
+  if (errors.length > 0) {
     throw new Error(
-      `Messaging agent: the following documents must be generated and approved before ` +
-      `running the messaging agent: ${missing.join(', ')}. ` +
-      `Run the missing agents first and approve the results in the dashboard.`
+      `Messaging agent: cannot run — the following documents need attention:\n` +
+      errors.map((e, i) => `  ${i + 1}. ${e}`).join('\n')
     )
   }
 
   return {
-    icp:        byType['icp']!,
+    icp:         byType['icp']!,
     positioning: byType['positioning']!,
-    tov:        byType['tov']!,
+    tov:         byType['tov']!,
   }
 }
 
@@ -284,7 +383,7 @@ async function fetchExistingMessagingDocument(
     .select('id, version, plain_text, content')
     .eq('organisation_id', organisation_id) // explicit isolation filter
     .eq('document_type', 'messaging')
-    .eq('status', 'active')
+    .eq('status', 'approved')
     .order('created_at', { ascending: false })
     .limit(1)
     .single()
@@ -322,8 +421,9 @@ function buildUserMessage(params: {
   existingDocument: ExistingMessagingDocument | null
   patterns: PatternRow[]
   completeness: number
+  preflight: PreflightContext
 }): string {
-  const { intake, requiredDocs, existingDocument, patterns, completeness } = params
+  const { intake, requiredDocs, existingDocument, patterns, completeness, preflight } = params
 
   // Group intake by section.
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
@@ -401,6 +501,14 @@ function buildUserMessage(params: {
       'Do not hallucinate specifics.'
     : ''
 
+  // Sender context: validated by pre-flight checks before this function is called.
+  // Claude must use sender_first_name on the sign-off line of every email.
+  const senderContext =
+    `\n\n---\n\n## SENDER CONTEXT\n\n` +
+    `Organisation name: ${preflight.org_name}\n` +
+    `Sender first name (use this on the sign-off line of every email — never leave it blank): ${preflight.sender_first_name}\n` +
+    `Client company name (use for context and the companyName token): ${preflight.company_name}`
+
   return `You are generating a Messaging Playbook for a founder-led B2B consulting firm.
 ${completenessNote}
 
@@ -409,7 +517,7 @@ to write copy that is specific, grounded, and consistent. Do not invent details 
 
 ## INTAKE QUESTIONNAIRE RESPONSES
 
-${intakeSections}${icpBlock}${positioningBlock}${tovBlock}${refreshContext}${patternContext}
+${intakeSections}${icpBlock}${positioningBlock}${tovBlock}${senderContext}${refreshContext}${patternContext}
 
 ---
 

@@ -129,13 +129,14 @@ export async function POST(request: NextRequest) {
       { organisation_id, error: message }
     )
 
-    // Surface a helpful message when one or more prerequisite documents are missing.
-    // This is the most likely failure mode — the error names exactly what's needed.
-    if (message.includes('must be generated and approved')) {
-      return NextResponse.json(
-        { error: message },
-        { status: 422 }
-      )
+    // Surface pre-flight errors directly — missing name fields are operator-actionable.
+    if (message.includes('required fields are missing')) {
+      return NextResponse.json({ error: message }, { status: 422 })
+    }
+
+    // Surface document status errors directly — names exactly what needs approval.
+    if (message.includes('documents need attention') || message.includes('has status "')) {
+      return NextResponse.json({ error: message }, { status: 422 })
     }
 
     return NextResponse.json(
