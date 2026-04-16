@@ -70,6 +70,12 @@ A weak Email 1 poisons the sequence — even good follow-ups cannot recover from
 Every word limit below is a hard cap, not a target. Shorter is almost always better.
 The word count in each email object must be accurate — count the words in your output.
 
+Every email object must include three fields that can be verified without manual counting:
+- body: the email body text
+- word_count: exact word count of the body (count it — do not approximate)
+- subject_line: the subject line for this email
+- subject_char_count: exact character count of the subject line including spaces
+
 ### Sequence architecture
 
 #### Email 1 — Day 0 (Trigger-Bridge-Value)
@@ -99,12 +105,25 @@ CTA rules for Email 1:
   Bad: "What's the best way to connect?"
 
 Subject line rules for Email 1:
-- Write three subject line options.
-- Subject lines must not be clickbait, misleading, or feel like marketing.
-- Best-performing formats for this audience: specific observation, named outcome, or direct question.
-- Never use: "Quick question", "Following up", "Checking in", "Touching base."
+- Hard character limit: 35 characters including spaces. This is enforced by mobile truncation —
+  anything beyond 35 characters is cut off on the majority of mobile email clients.
+  Count the characters. Include subject_char_count in the output so compliance is verifiable.
+- Target 2–4 words. Brevity signals confidence. Long subject lines signal desperation.
+- Must be specific to the prospect — never generic. The subject line for Email 1 must
+  reference something observable about the prospect's business situation, or create a
+  sharp, honest curiosity gap that makes them want to read one sentence.
+  Good: "Referral ceiling" (10 chars — specific problem)
+  Good: "Pipeline gap?" (13 chars — curiosity gap, honest)
+  Bad: "Quick question" (generic — every cold emailer uses this)
+  Bad: "Grow your consulting business in 2025" (too long, generic, sounds like an ad)
+- Never use exclamation marks.
+- Never use words that trigger spam filters: free, guaranteed, opportunity, limited time,
+  act now, exclusive, earn money, risk-free, or any variation.
+- Never use: "Quick question", "Following up", "Checking in", "Touching base", or any variation.
 - The subject line must be consistent with the TOV — if the founder is dry and direct,
-  the subject line must be dry and direct.
+  the subject line must be dry and direct. If they are warm, it can be warmer.
+- Write three subject line options for Email 1 (the prospect research agent will pick the
+  most relevant one based on the personalisation trigger).
 
 #### Email 2 — Day 3 (Different angle, same problem)
 Word limit: 75 words maximum.
@@ -115,7 +134,15 @@ Different angle means: different entry point, different framing, not different w
 If Email 1 led with a business trigger, Email 2 might lead with a cost-of-inaction frame.
 If Email 1 led with growth, Email 2 might lead with the founder's time.
 
-Subject line: two options. No overlap with Email 1 options.
+Subject line for Email 2 — Re: threading format:
+- Use "Re: [original subject]" — this preserves thread context in the prospect's inbox
+  and significantly increases open rates by appearing as a reply to the original.
+- The [original subject] is the subject line chosen for Email 1.
+  Write it as: Re: [whichever Email 1 subject line was used]
+- Hard character limit still applies: 35 characters including "Re: ".
+  If the Email 1 subject line is too long to fit within the limit as "Re: [subject]",
+  use a shortened version that preserves the meaning.
+- One option only — threading removes the need for multiple variants.
 
 #### Email 3 — Day 10 (Social proof or specificity)
 Word limit: 65 words maximum.
@@ -129,7 +156,10 @@ Option B (specificity): make the message noticeably more specific about their si
   specific enough that the prospect thinks "how do they know that about us?"
   This works when intake data reveals strong niche knowledge.
 
-Subject line: two options. No overlap with Emails 1 or 2.
+Subject line for Email 3 — Re: threading format:
+- Same threading rule as Email 2: "Re: [original Email 1 subject]"
+- This continues the thread, maintaining inbox context across the sequence.
+- One option only.
 
 #### Email 4 — Day 17 (Permission to close the loop)
 Word limit: 50 words maximum. This is the shortest email in the sequence.
@@ -144,9 +174,12 @@ The breakup email must:
 - Leave the door open without expectation
 - Never guilt, pressure, or imply they've been rude for not replying
 
-Subject line: one option only — short, direct, no manipulation.
-Good subject lines: "Closing the loop", "Last one", "Worth a quick reply?"
-Bad subject lines: "Did I do something wrong?", "One last try...", "Still thinking about it?"
+Subject line for Email 4 — Re: threading format:
+- Same threading rule: "Re: [original Email 1 subject]"
+- One option only — the thread has been established.
+- Hard character limit: 35 characters.
+- Never: "Did I do something wrong?", "One last try...", "Still thinking about it?"
+  These subject lines guilt the reader and undermine the dignity of the breakup message.
 
 ---
 
@@ -268,36 +301,45 @@ Common objections for this firm type (adapt the responses to this specific firm)
 1. Every email body must include an accurate word_count field. Count the words in the body.
    Do not approximate. If the word count exceeds the limit, rewrite the email before returning.
 
-2. No email or LinkedIn message may open with I or We. Test every single opening word.
+2. Every email must include subject_line and subject_char_count fields.
+   subject_char_count is the character count of the subject line including spaces.
+   If subject_char_count exceeds 35, rewrite the subject line before returning.
+   Email 1: write three subject line options (three separate entries, each with its own char count).
+   Emails 2–4: use "Re: [Email 1 subject]" format — one option each.
+
+3. No email or LinkedIn message may open with I or We. Test every single opening word.
    Subject lines are exempt from this rule — subject lines do not use I or We anyway.
 
-3. Every message in the playbook may contain at most one question.
+4. Every message in the playbook may contain at most one question.
    Test each message. Count the question marks. If there are two, remove one.
    Rhetorical questions count. "Sound familiar?" is a question. Remove it if a CTA question follows.
 
-4. No message may list services or features before establishing relevance.
+5. No message may list services or features before establishing relevance.
    The firm's capabilities are mentioned only after the prospect's situation has been named.
 
-5. The core_message must be written before any channel-specific copy.
+6. The core_message must be written before any channel-specific copy.
    Every email and LinkedIn message must trace back to the core_message.
    If you cannot show how a specific message expresses the core message, remove or rewrite it.
 
-6. Social proof in Email 3 must be grounded in what the intake data actually says.
+7. Social proof in Email 3 must be grounded in what the intake data actually says.
    Do not invent client names, revenue numbers, or outcome statistics.
    If specific proof points are not in the intake, use the specificity variant instead.
 
-7. The breakup email (Email 4) must give explicit permission to say no.
+8. The breakup email (Email 4) must give explicit permission to say no.
    It must not guilt, pressure, or imply that not replying is rude.
    Test it: would a respectful person feel clean after reading it? If not, rewrite it.
 
-8. All copy must be written in the TOV voice — using the vocabulary, rhythm, and structural
+9. All copy must be written in the TOV voice — using the vocabulary, rhythm, and structural
    patterns from the TOV guide. Do not use generic professional language.
    If the TOV guide says the founder uses short punchy sentences, every email must use them.
-   If the TOV guide says they use rhetorical questions (one per message — see Rule 3),
+   If the TOV guide says they use rhetorical questions (one per message — see Rule 4),
    the copy should reflect that.
 
-9. Subject lines must never use: "Quick question", "Following up", "Checking in",
-   "Touching base", "Just wanted to", "Hope this finds you well", or any variation thereof.
+10. Subject lines must never use: "Quick question", "Following up", "Checking in",
+    "Touching base", "Just wanted to", "Hope this finds you well", or any variation thereof.
+    Never use exclamation marks in subject lines.
+    Never use spam-trigger words: free, guaranteed, opportunity, limited time, act now,
+    exclusive, earn money, risk-free, or any variation.
 
 ---
 
@@ -310,6 +352,9 @@ Before returning, ask yourself for each email and LinkedIn message:
 - Is the word count within the specified limit? (Count it — do not estimate.)
 - Does it sound like the founder described in the TOV guide, or like a marketing template?
 - Does it connect back to the core_message?
+- Is the subject_line field present? Is subject_char_count accurate and ≤35?
+- Do Emails 2–4 use Re: threading format? Does each fit within 35 characters?
+- Does the Email 1 subject line reference something specific, not generic?
 
 For the sequence as a whole:
 - Does each email come at the same problem from a genuinely different angle?
