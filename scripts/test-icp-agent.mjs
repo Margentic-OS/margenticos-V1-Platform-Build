@@ -575,13 +575,15 @@ No pattern data available yet (phase one).
 
 Using the frameworks and rules in your system prompt, produce the Messaging Playbook now.
 
-Critical reminders:
-- Write the core_message first — every piece of copy must trace back to it
-- Email 1 is where 58% of replies come from — quality here is everything
-- Word counts are hard caps: Email 1 ≤100 words, Email 2 ≤75, Email 3 ≤65, Email 4 ≤50
-- Count every word. Include the accurate word_count in each email object.
-- Every message must pass the TOV writing_rules — apply them before returning
-- No I/We openers. One question per message. No service-led language.
+Critical reminders — three frameworks apply:
+- Framework 3 sets the angle per email: E1 observation, E2 pattern+implicit proof, E3 contrarian+meeting ask, E4 breakup
+- Framework 2 governs every word: no em dashes (absolute), no banned vocab, 70% contractions, sentence length variation required
+- Framework 1 governs subjects: E1 lowercase no-punctuation subject ≤40 chars (target <25), E2+E3 blank subject (""), E4 fresh Tier 3 subject
+- Word counts: E1 40-90 words, E2 30-70 words, E3 shorter than E2, E4 30-50 words. Count every word.
+- Sign-off: first name only, on its own line, no closer before it
+- Deliberate imperfection: flag in suggestion_reason which email and which type (fragment / But-And opener / missing Oxford comma)
+- Email 2 must use pattern-based implicit proof — no case study metrics. Flag in suggestion_reason.
+- Pronoun ratio: you/your must equal or exceed I/we/my/our in every email
 
 Return raw JSON only. No preamble, no explanation, no markdown fencing.`
 
