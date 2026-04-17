@@ -240,6 +240,20 @@ RLS:
   Operator: full access
   Client:   no access (signals surface only via dashboard views)
 
+Indexes (added migration add_signals_indexes, 2026-04-17 while table was empty):
+
+  idx_signals_org_type         — (organisation_id, signal_type)
+                                  Primary pattern query shape: all signals of type X for org Y
+  idx_signals_org_processed_at — (organisation_id, processed_at)
+                                  Signals for org Y in a time range
+  idx_signals_type_processed_at — (signal_type, processed_at)
+                                   Cross-org pattern queries by type and time (pattern aggregation agent)
+  idx_signals_processed        — (processed)
+                                  Pattern agent's unprocessed signal scan
+
+If new query patterns emerge, add indexes with CREATE INDEX CONCURRENTLY to avoid locking
+a live table with data already in it.
+
 ---
 
 ## Table: meetings
