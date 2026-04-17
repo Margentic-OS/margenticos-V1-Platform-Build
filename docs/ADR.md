@@ -411,40 +411,94 @@ becomes meaningful — this is the trigger to begin phase two feedback loop work
 
 ---
 
-## ADR-012 — Messaging agent writes four document_suggestions rows per run, grouped by sequence_position
+## ADR-012 — Messaging agent writes one document_suggestions row with full_document replacement
+Date: April 2026 | Status: Accepted
+Note: supersedes the four-row approach described in an earlier draft of this entry (refactored in commit fb5b5af).
+
+Context:
+The messaging agent generates a cold outbound email sequence. An earlier implementation
+wrote four separate rows to document_suggestions — one per email, tagged with
+sequence_position. This was refactored because it diverged from the pattern used by
+all other document generation agents and complicated the approval handler.
+
+Decision:
+The messaging agent writes one row to document_suggestions per run.
+- field_path: 'full_document'
+- suggested_value: a structured JSON object containing { emails: [...] }, where each
+  element in the array is one email with its subject line, body, and position
+- document_type: 'messaging'
+
+This matches the full-document replacement pattern used by the ICP, positioning, and
+tone of voice agents. All four agents write one row; all four use field_path 'full_document'.
+
+The array length is not hardcoded. A sequence of 4 emails is the current default,
+but changing to 5, 6, or more emails requires only a prompt change — no schema
+migration and no handler change.
+
+Reasoning:
+All other document agents write a single full-document suggestion row. The four-row
+approach created a special case in the approval handler — the handler had to detect
+messaging suggestions, group them by position, and treat them differently from every
+other document type. That conditional complexity is eliminated by using the same pattern.
+The full sequence must be generated as a coherent unit regardless of how it is stored —
+angle progression, threading, and word count relationships are enforced in the prompt,
+not by the storage model. There is no functional reason to split storage.
+
+Rejected alternatives:
+- Four separate rows (previous implementation): rejected because it required special
+  approval handler logic and diverged from the full-document pattern without benefit.
+- Separate agent runs per email: rejected because coherence across the sequence
+  (angle progression, threading) requires all emails to be generated together.
+
+Consequences:
+The approval handler treats messaging suggestions identically to all other document types:
+one pending row, one approval action, one approved row written to strategy_documents.
+The dashboard renders the emails array from suggested_value.emails — no special grouping
+logic required. Sequence length changes require only prompt edits.
+
+---
+
+## ADR-013 — Model version selection for agents
 Date: April 2026 | Status: Accepted
 
 Context:
-The messaging agent generates a four-email cold outbound sequence. The question is
-whether to write the full sequence as a single row in document_suggestions or as four
-separate rows, one per email.
+CLAUDE.md specifies model versions for each task category. As the agents were built,
+actual model selections diverged from the CLAUDE.md references — the agents are
+implemented and the spec document was not kept in sync. This ADR records the settled
+decisions so the agents remain the authoritative source of truth.
 
 Decision:
-The messaging agent writes four separate rows to document_suggestions per sequence run.
-Each row is tagged with sequence_position (integer 1–4) and document_type 'messaging'.
-The four rows share the same organisation_id and are written in a single batch insert
-so all four succeed or none are saved.
+Document generation agents (ICP, positioning, tone of voice, messaging): claude-opus-4-6
+Web search utility (lightweight synthesis in prospect research agent): claude-haiku-4-5-20251001
+Building, debugging, refactoring (Claude Code tasks): claude-sonnet-4-6
+Signal processing and batch tasks: claude-haiku-4-5-20251001
+
+Model versions must be passed explicitly in every Anthropic API call.
+Never rely on API defaults. If a model is retired or replaced, update the relevant
+agent file directly — CLAUDE.md is a human reference, not the source of truth.
 
 Reasoning:
-Instantly (the email sending platform) loads sequences as individual emails. Each email
-in a sequence has its own subject line, body, and send delay. Writing four separate rows
-maps directly to this structure, making it straightforward to load the sequence into
-Instantly without parsing a single compound document.
-Emails 2 and 3 have subject_line set to null — threading must be configured in Instantly
-when the sequence is loaded. A compound single-row document would require the dashboard
-to parse and split the sequence before it could be used, adding unnecessary complexity.
+claude-opus-4-6 is the current production Opus model. The CLAUDE.md reference to
+claude-opus-4-5 was written before claude-opus-4-6 was confirmed as the build target.
+Document generation is the highest-value, most context-intensive task in the system —
+using the most capable available model is correct.
+claude-haiku-4-5-20251001 is appropriate for the web search synthesis step, which
+requires lightweight summarisation of fetched content, not deep reasoning.
 
 Rejected alternatives:
-- Single row with full sequence as compound JSON: rejected because it requires parsing
-  at display time and at load time, and does not map to the Instantly email-per-row model.
-- Separate agent runs per email: rejected because the four emails must be generated as a
-  coherent unit — angle progression, threading, and word count relationships are enforced
-  across the sequence.
+- claude-opus-4-5 for document generation: superseded by claude-opus-4-6; no reason
+  to use an older model when the newer one is available and supported.
+- claude-sonnet-4-6 for document generation: considered as a cost reduction, but
+  document quality is the primary value delivered to clients — this is not the place
+  to optimise for cost at the expense of output quality.
+- Relying on API defaults: rejected because defaults change without notice and would
+  produce silent model switches in production.
 
 Consequences:
-The Session 4 dashboard approval UI must display messaging suggestions grouped by
-sequence_position order (Email 1 → 2 → 3 → 4), not as four independent unrelated
-suggestions. The grouping key is: same organisation_id + same document_type 'messaging'
-+ status 'pending' + sequence_position 1–4. Approving the sequence should approve all
-four rows together, or surface them as a sequence for review before approval.
+All four document generation agent files must specify claude-opus-4-6 explicitly.
+The web search utility must specify claude-haiku-4-5-20251001 explicitly.
+CLAUDE.md model selection table is updated to match (claude-opus-4-5 → claude-opus-4-6,
+claude-sonnet-4-5 → claude-sonnet-4-6).
+When Anthropic releases a new model family, update agent files directly and record
+the change here — do not rely on CLAUDE.md as a change trigger.
 

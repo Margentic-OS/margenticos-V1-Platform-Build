@@ -198,8 +198,8 @@ The /prd folder holds the product specification (see PRD.md).
 
 ## Model selection — right model for each task
 
-Building, debugging, refactoring:                    claude-sonnet-4-5
-Document generation agents (ICP, Pos, TOV, Msg):     claude-opus-4-5
+Building, debugging, refactoring:                    claude-sonnet-4-6
+Document generation agents (ICP, Pos, TOV, Msg):     claude-opus-4-6
 Signal processing, lightweight agent tasks:          claude-haiku-4-5-20251001
 Batch processing, transcript ingestion:              claude-haiku-4-5-20251001
 
