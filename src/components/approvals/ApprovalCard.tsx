@@ -16,30 +16,50 @@ export type PendingSuggestion = {
 
 // ─── Document-specific types ──────────────────────────────────────────────────
 
-type EmailTemplate = {
-  body?: string
-  word_count?: number
-  cta_type?: string
-  trigger_filled?: string
+// Subject line can be a plain string or an object with metadata
+type SubjectLineOption = {
+  subject_line: string
+  subject_char_count?: number
+  format_type?: string
+  note?: string
 }
 
 type MessagingEmail = {
   day?: number
-  framework?: string
-  word_limit?: number
-  subject_line_options?: string[]
-  template?: EmailTemplate
-  worked_example?: EmailTemplate
+  angle?: string        // newer format
+  framework?: string    // older format fallback
+  body?: string
+  word_count?: number
+  // Email 1: subject_line_options is an array of objects
+  subject_line_options?: SubjectLineOption[]
+  // Email 2+: threaded, subject_line is a direct empty string
+  subject_line?: string
+}
+
+type SequenceOverview = {
+  total_emails?: number
+  cadence?: string
+  send_window?: string
+  threading_rules?: string
+}
+
+type MessagingColdEmailSequence = {
+  sequence_overview?: SequenceOverview
+  [key: string]: MessagingEmail | SequenceOverview | undefined
+}
+
+type MessagingCoreMessage = {
+  who_specifically?: string
+  what_outcome?: string           // older format
+  what_outcome_they_get?: string  // newer format
+  how_this_firm_is_the_guide?: string
+  spine?: string
 }
 
 type MessagingDoc = {
-  core_message?: {
-    who_specifically?: string
-    what_outcome?: string
-    how_this_firm_is_the_guide?: string
-  }
-  cold_email_sequence?: Record<string, MessagingEmail>
-  messaging_playbook?: MessagingDoc
+  core_message?: MessagingCoreMessage
+  cold_email_sequence?: MessagingColdEmailSequence
+  messaging_playbook?: MessagingDoc  // wrapper present on some generations
 }
 
 type TovCharacteristic = {
@@ -94,12 +114,40 @@ function parseSuggestedValue(raw: string): unknown {
   }
 }
 
+// Extracts a plain string from a subject_line_option (object or legacy string)
+function extractSubjectLine(opt: SubjectLineOption | unknown): string {
+  if (typeof opt === 'string') return opt
+  if (typeof opt === 'object' && opt !== null && 'subject_line' in opt) {
+    return String((opt as SubjectLineOption).subject_line)
+  }
+  return ''
+}
+
+function extractCharCount(opt: SubjectLineOption | unknown): number | null {
+  if (typeof opt === 'object' && opt !== null && 'subject_char_count' in opt) {
+    const n = (opt as SubjectLineOption).subject_char_count
+    return typeof n === 'number' ? n : null
+  }
+  return null
+}
+
 // ─── Collapsible email section ────────────────────────────────────────────────
 
 function EmailSection({ label, email }: { label: string; email: MessagingEmail }) {
   const [open, setOpen] = useState(false)
+
   const emailNum = label.replace('email_', 'Email ')
-  const firstSubject = email.subject_line_options?.[0]
+  const angle = email.angle ?? email.framework ?? ''
+
+  const hasSubjectOptions =
+    Array.isArray(email.subject_line_options) && email.subject_line_options.length > 0
+
+  // For threaded emails (email 2+), subject_line is a direct empty string
+  const isThreaded = !hasSubjectOptions
+
+  const previewSubject = hasSubjectOptions
+    ? extractSubjectLine(email.subject_line_options![0])
+    : null
 
   return (
     <div className="border border-border-card rounded-[8px] overflow-hidden">
@@ -107,7 +155,7 @@ function EmailSection({ label, email }: { label: string; email: MessagingEmail }
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-start justify-between px-4 py-3 bg-surface-content hover:bg-[#EDE6D8] transition-colors text-left"
       >
-        <div className="flex flex-col gap-0.5 min-w-0">
+        <div className="flex flex-col gap-0.5 min-w-0 pr-3">
           <div className="flex items-center gap-2">
             <span className="text-[12px] font-medium text-text-primary">{emailNum}</span>
             {email.day !== undefined && (
@@ -115,60 +163,58 @@ function EmailSection({ label, email }: { label: string; email: MessagingEmail }
                 Day {email.day}
               </span>
             )}
+            {isThreaded && (
+              <span className="text-[10px] text-text-muted">Threads under email 1</span>
+            )}
           </div>
-          {email.framework && (
-            <span className="text-[11px] text-text-secondary truncate">{email.framework}</span>
+          {angle && (
+            <span className="text-[11px] text-text-secondary truncate">{angle}</span>
           )}
-          {!open && firstSubject && (
-            <span className="text-[11px] text-text-muted truncate">"{firstSubject}"</span>
+          {!open && previewSubject && (
+            <span className="text-[11px] text-text-muted truncate">"{previewSubject}"</span>
           )}
         </div>
-        <span className="text-text-muted text-[10px] shrink-0 mt-0.5 ml-3">
-          {open ? '▲' : '▼'}
-        </span>
+        <span className="text-text-muted text-[10px] shrink-0 mt-0.5">{open ? '▲' : '▼'}</span>
       </button>
 
       {open && (
         <div className="px-4 pt-3 pb-4 space-y-4 bg-surface-card">
-          {/* Subject lines */}
-          {(email.subject_line_options ?? []).length > 0 && (
+          {/* Subject line options (email 1 — array of objects) */}
+          {hasSubjectOptions && (
             <div>
               <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1.5">
                 Subject line options
               </p>
-              <ul className="space-y-1">
-                {email.subject_line_options!.map((s, i) => (
-                  <li key={i} className="text-xs text-text-primary">
-                    <span className="text-text-muted mr-1.5">·</span>{s}
-                  </li>
-                ))}
+              <ul className="space-y-1.5">
+                {email.subject_line_options!.map((opt, i) => {
+                  const text = extractSubjectLine(opt)
+                  const chars = extractCharCount(opt)
+                  if (!text) return null
+                  return (
+                    <li key={i} className="flex items-baseline gap-2">
+                      <span className="text-text-muted shrink-0">·</span>
+                      <span className="text-xs text-text-primary">{text}</span>
+                      {chars !== null && (
+                        <span className="text-[10px] text-text-muted shrink-0">{chars} chars</span>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           )}
 
-          {/* Template body */}
-          {email.template?.body && (
+          {/* Body */}
+          {email.body && (
             <div>
-              <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1.5">
-                Template
-              </p>
+              <div className="flex items-baseline justify-between mb-1.5">
+                <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary">Body</p>
+                {email.word_count && (
+                  <span className="text-[10px] text-text-muted">{email.word_count} words</span>
+                )}
+              </div>
               <p className="text-xs text-text-primary leading-relaxed whitespace-pre-line bg-surface-content rounded-[6px] px-3 py-2.5">
-                {email.template.body}
-              </p>
-              {email.template.word_count && (
-                <p className="text-[10px] text-text-muted mt-1">{email.template.word_count} words · {email.template.cta_type ?? ''} CTA</p>
-              )}
-            </div>
-          )}
-
-          {/* Worked example */}
-          {email.worked_example?.body && (
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1.5">
-                Worked example
-              </p>
-              <p className="text-xs text-text-secondary leading-relaxed whitespace-pre-line bg-surface-content rounded-[6px] px-3 py-2.5">
-                {email.worked_example.body}
+                {email.body}
               </p>
             </div>
           )}
@@ -182,14 +228,19 @@ function EmailSection({ label, email }: { label: string; email: MessagingEmail }
 
 function renderMessaging(parsed: unknown) {
   const raw = parsed as MessagingDoc
-  // Handle optional messaging_playbook wrapper
+  // Unwrap messaging_playbook wrapper if present
   const doc: MessagingDoc = raw.messaging_playbook ?? raw
   const { core_message, cold_email_sequence } = doc
 
-  const emailEntries = Object.entries(cold_email_sequence ?? {}).sort(([a], [b]) => {
-    const n = (k: string) => parseInt(k.replace(/\D/g, ''), 10) || 0
-    return n(a) - n(b)
-  })
+  // Filter to email_N keys only — skip sequence_overview and any other metadata
+  const emailEntries = Object.entries(cold_email_sequence ?? {})
+    .filter(([key]) => /^email_\d+/.test(key))
+    .sort(([a], [b]) => {
+      const n = (k: string) => parseInt(k.replace(/\D/g, ''), 10) || 0
+      return n(a) - n(b)
+    }) as [string, MessagingEmail][]
+
+  const outcome = core_message?.what_outcome_they_get ?? core_message?.what_outcome
 
   return (
     <div className="space-y-5">
@@ -203,19 +254,31 @@ function renderMessaging(parsed: unknown) {
             {core_message.who_specifically && (
               <div>
                 <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">Who</p>
-                <p className="text-xs text-text-primary leading-relaxed">{core_message.who_specifically}</p>
+                <p className="text-xs text-text-primary leading-relaxed">
+                  {core_message.who_specifically}
+                </p>
               </div>
             )}
-            {core_message.what_outcome && (
+            {outcome && (
               <div>
                 <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">Outcome</p>
-                <p className="text-xs text-text-primary leading-relaxed">{core_message.what_outcome}</p>
+                <p className="text-xs text-text-primary leading-relaxed">{outcome}</p>
               </div>
             )}
             {core_message.how_this_firm_is_the_guide && (
               <div>
                 <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">How</p>
-                <p className="text-xs text-text-primary leading-relaxed">{core_message.how_this_firm_is_the_guide}</p>
+                <p className="text-xs text-text-primary leading-relaxed">
+                  {core_message.how_this_firm_is_the_guide}
+                </p>
+              </div>
+            )}
+            {core_message.spine && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">Spine</p>
+                <p className="text-xs text-text-primary leading-relaxed italic">
+                  "{core_message.spine}"
+                </p>
               </div>
             )}
           </div>
@@ -244,7 +307,6 @@ function renderTov(parsed: unknown) {
 
   return (
     <div className="space-y-5">
-      {/* Voice summary */}
       {doc.voice_summary && (
         <div>
           <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">
@@ -254,20 +316,21 @@ function renderTov(parsed: unknown) {
         </div>
       )}
 
-      {/* Voice characteristics */}
       {(doc.voice_characteristics ?? []).length > 0 && (
         <div>
           <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">
             Voice characteristics · {doc.voice_characteristics!.length}
           </p>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {doc.voice_characteristics!.map((c, i) => (
               <div key={i} className="bg-surface-content rounded-[6px] px-3 py-2.5">
                 {c.characteristic && (
                   <p className="text-xs font-medium text-text-primary mb-1">{c.characteristic}</p>
                 )}
                 {c.description && (
-                  <p className="text-xs text-text-secondary leading-relaxed mb-1.5">{c.description}</p>
+                  <p className="text-xs text-text-secondary leading-relaxed mb-1.5">
+                    {c.description}
+                  </p>
                 )}
                 {c.evidence && (
                   <p className="text-[11px] text-text-muted italic leading-relaxed">{c.evidence}</p>
@@ -286,7 +349,6 @@ function renderPositioning(parsed: unknown) {
 
   return (
     <div className="space-y-5">
-      {/* Positioning summary */}
       {doc.positioning_summary && (
         <div>
           <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">
@@ -296,7 +358,6 @@ function renderPositioning(parsed: unknown) {
         </div>
       )}
 
-      {/* Competitive alternatives */}
       {(doc.competitive_alternatives ?? []).length > 0 && (
         <div>
           <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">
@@ -309,7 +370,9 @@ function renderPositioning(parsed: unknown) {
                   <p className="text-xs font-medium text-text-primary mb-1">{alt.name}</p>
                 )}
                 {alt.buyer_reasoning && (
-                  <p className="text-xs text-text-secondary leading-relaxed mb-1">{alt.buyer_reasoning}</p>
+                  <p className="text-xs text-text-secondary leading-relaxed mb-1">
+                    {alt.buyer_reasoning}
+                  </p>
                 )}
                 {alt.limitation && (
                   <p className="text-[11px] text-[#8B2020] leading-relaxed">{alt.limitation}</p>
@@ -324,17 +387,12 @@ function renderPositioning(parsed: unknown) {
 }
 
 function renderGeneric(parsed: unknown, raw: string) {
-  // Flat string or unparseable — just render as text
   if (parsed === null) {
     return <p className="text-xs text-text-primary leading-relaxed whitespace-pre-line">{raw}</p>
   }
-
-  // Simple string value after parse (e.g. a JSON-encoded string)
   if (typeof parsed === 'string') {
     return <p className="text-xs text-text-primary leading-relaxed">{parsed}</p>
   }
-
-  // Object — render top-level string fields as labelled blocks
   if (typeof parsed === 'object' && !Array.isArray(parsed)) {
     const entries = Object.entries(parsed as Record<string, unknown>).filter(
       ([, v]) => typeof v === 'string' || typeof v === 'number'
@@ -354,8 +412,6 @@ function renderGeneric(parsed: unknown, raw: string) {
       )
     }
   }
-
-  // Fallback: something complex we didn't anticipate — show a neutral message
   return (
     <p className="text-xs text-text-secondary italic">
       Content generated — approve to apply it to the strategy document.
@@ -365,11 +421,9 @@ function renderGeneric(parsed: unknown, raw: string) {
 
 function renderSuggestedContent(docType: string, raw: string) {
   const parsed = parseSuggestedValue(raw)
-
   if (docType === 'messaging') return renderMessaging(parsed)
   if (docType === 'tov') return renderTov(parsed)
   if (docType === 'positioning') return renderPositioning(parsed)
-
   return renderGeneric(parsed, raw)
 }
 
@@ -425,20 +479,28 @@ export default function ApprovalCard({ suggestion, onResolved }: Props) {
         {/* Agent reasoning */}
         {suggestion.suggestion_reason && (
           <div className="bg-[#FEF7E6] border border-[#F0D080] rounded-[6px] px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.07em] text-[#7A4800] mb-1">Agent reasoning</p>
+            <p className="text-[10px] uppercase tracking-[0.07em] text-[#7A4800] mb-1">
+              Agent reasoning
+            </p>
             <p className="text-xs text-[#7A4800] leading-relaxed">{suggestion.suggestion_reason}</p>
           </div>
         )}
 
-        {/* Before/after for field-level suggestions */}
+        {/* Field-level: side-by-side before/after */}
         {!isFullDocument && suggestion.current_value && (
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1.5">Current</p>
-              <p className="text-xs text-text-secondary leading-relaxed">{suggestion.current_value}</p>
+              <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1.5">
+                Current
+              </p>
+              <p className="text-xs text-text-secondary leading-relaxed">
+                {suggestion.current_value}
+              </p>
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1.5">Suggested</p>
+              <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1.5">
+                Suggested
+              </p>
               <div className="text-xs text-text-primary leading-relaxed">
                 {renderSuggestedContent(suggestion.document_type, suggestion.suggested_value)}
               </div>
@@ -446,7 +508,7 @@ export default function ApprovalCard({ suggestion, onResolved }: Props) {
           </div>
         )}
 
-        {/* Full document content */}
+        {/* Full document or new field (no current value) */}
         {(isFullDocument || !suggestion.current_value) && (
           <div>
             {suggestion.current_value && (
