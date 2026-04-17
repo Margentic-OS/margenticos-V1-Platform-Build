@@ -132,7 +132,7 @@ export async function runMessagingGenerationAgent(
   const preflight = await runPreflightChecks(supabase, organisation_id, intake)
 
   // Step 3: Fetch all three required strategy documents.
-  // Each must exist and have status 'approved' — the messaging agent synthesises all three.
+  // Each must exist and have status 'active' — the messaging agent synthesises all three.
   // If any is missing or not approved, throws with specific messages naming each problem.
   const requiredDocs = await fetchRequiredDocuments(supabase, organisation_id)
 
@@ -353,7 +353,7 @@ async function fetchRequiredDocuments(
       errors.push(
         `${label} has not been generated yet. Run the ${label.split(' ')[0]} agent first.`
       )
-    } else if (doc.status !== 'approved') {
+    } else if (doc.status !== 'active') {
       errors.push(
         `${label} exists but has status "${doc.status}". ` +
         `Approve it in the dashboard before running the messaging agent.`
@@ -384,7 +384,7 @@ async function fetchExistingMessagingDocument(
     .select('id, version, plain_text, content')
     .eq('organisation_id', organisation_id) // explicit isolation filter
     .eq('document_type', 'messaging')
-    .eq('status', 'approved')
+    .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(1)
     .single()

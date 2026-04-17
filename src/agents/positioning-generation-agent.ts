@@ -237,7 +237,7 @@ async function fetchIcpDocument(
     )
   }
 
-  if (data.status !== 'approved') {
+  if (data.status !== 'active') {
     throw new Error(
       `Positioning agent: ICP document exists but has status "${data.status}". ` +
       'Approve the ICP document in the dashboard before running the positioning agent.'
@@ -256,7 +256,7 @@ async function fetchExistingPositioningDocument(
     .select('id, version, plain_text, content')
     .eq('organisation_id', organisation_id) // explicit isolation filter
     .eq('document_type', 'positioning')
-    .eq('status', 'approved')
+    .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(1)
     .single()

@@ -26,7 +26,46 @@ All four document generation agents follow the same output pattern:
   - status: 'pending' — Doug approves before anything reaches strategy_documents
   - Returns: { suggestion_id: string, organisation_id, document_type, status: 'pending' }
 
-The approval handler (not yet built) reads the suggestion and creates the strategy_documents row.
+The approval handler reads the suggestion and creates the strategy_documents row.
+See the Approval Handler section below.
+
+---
+
+## Approval Handler
+
+Not an agent — a pair of API routes that promote or discard suggestions.
+This is the only path by which strategy_documents rows are created or updated.
+
+Routes:
+  POST /api/suggestions/[id]/approve  →  src/app/api/suggestions/[id]/approve/route.ts
+  POST /api/suggestions/[id]/reject   →  src/app/api/suggestions/[id]/reject/route.ts
+
+Approve flow (atomic via Postgres function approve_document_suggestion):
+  1. Verify suggestion exists and is 'pending'
+  2. Archive any currently active strategy_document for the same org + document_type
+  3. Insert a new strategy_document with status 'active', version = prior version + 1
+     (version 1 if no prior document exists)
+  4. Mark suggestion 'approved', reviewed_at = now(), reviewed_by = operator user id
+  If any step fails, the whole transaction rolls back — suggestion returns to 'pending'.
+
+Reject flow (simple update, no transaction needed):
+  Mark suggestion 'rejected', reviewed_at = now(), reviewed_by = operator user id.
+  No document changes.
+
+Messaging special case:
+  The messaging agent writes { emails: [...] } in suggested_value (ADR-012).
+  The approval handler stores the emails array as the strategy_document content,
+  not the wrapper object. All other document types store suggested_value directly.
+
+Version numbering:
+  Integer only ("1", "2", "3"). The PRD specifies decimals ("1.0") — intentional
+  deviation recorded in the Postgres function and in ADR-013.
+
+What to check if approve fails:
+  - 'Suggestion not found or not in pending status' → suggestion was already actioned
+  - 'suggested_value is not valid JSON' → the generating agent wrote malformed JSON
+  - 'Messaging suggestion is missing the emails key' → messaging agent output format changed
+  - Supabase RPC error → check the approve_document_suggestion function in the database
 
 ---
 
@@ -132,7 +171,7 @@ Max tokens:   8192
 
 Purpose: Generate a 4-email cold outreach sequence by synthesising ICP, Positioning, and TOV.
 
-Dependencies: All three of the following must exist with status = 'approved' in strategy_documents:
+Dependencies: All three of the following must exist with status = 'active' in strategy_documents:
   - ICP document
   - Positioning document
   - Tone of Voice guide
