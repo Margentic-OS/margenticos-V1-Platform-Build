@@ -1,5 +1,5 @@
 # data-model.md — Database Tables, Fields, RLS Policies
-# Last updated: April 2026 — client_organisation_view added; client direct SELECT on organisations removed
+# Last updated: April 2026 — pipeline_unlock_manual_override added to organisations; sequence_position documented on document_suggestions; generated types written to src/types/database.ts
 # Written for non-developers. Update this file whenever a table is added or changed.
 # The spec is in /prd/sections/03-data-model.md — this is the living reference.
 
@@ -33,8 +33,11 @@ Fields:
   contract_status     — active / paused / churned (operator only)
   engagement_month    — months since contract start (operator only)
   payment_status      — current / overdue / etc. (operator only)
-  pipeline_unlocked   — whether the pipeline view is visible to the client
-  pipeline_unlock_at  — when the unlock trigger was met
+  pipeline_unlocked                — whether the pipeline view is visible to the client
+  pipeline_unlock_at               — when the unlock trigger was met
+  pipeline_unlock_manual_override  — operator-only toggle; when true, forces pipeline visible
+                                     regardless of the automatic unlock rules (2 months / 5 meetings).
+                                     Default false. Never exposed to clients via client_organisation_view.
   meetings_count      — running count of qualified meetings booked
   created_at / updated_at
 
@@ -194,6 +197,8 @@ Fields:
   signal_count              — how many signals triggered this (schema only in phase one)
   ab_variant                — A/B test variant text (schema only in phase one)
   conflicting_suggestion_id — links to a competing suggestion for the same field (phase one schema only)
+  sequence_position         — ordering field for suggestions within a sequence (nullable integer).
+                              Present in database but not yet used by any logic. Phase two.
   status                    — pending / approved / rejected / superseded
   created_at
   reviewed_at               — when Doug reviewed it
