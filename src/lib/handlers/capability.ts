@@ -11,6 +11,8 @@
 //   can_book_meeting            → Calendly (URL stored per client in registry)
 //   can_validate_email          → Hunter.io (phase two — not yet active)
 
+import { getCapabilityRow } from '@/lib/registry-cache'
+
 export type Capability =
   | 'can_send_email'
   | 'can_schedule_linkedin_post'
@@ -22,16 +24,43 @@ export type Capability =
 export type CapabilityPayload = Record<string, unknown>
 export type CapabilityResult = Record<string, unknown>
 
-// TODO: Implement after integrations_registry table is created in Supabase.
-// Each handler will be imported here and mapped to its capability.
+// Handler implementations are added here as each integration is built.
 // Only this file may contain tool-specific import references.
+// Adding a new tool: write a handler in src/lib/handlers/, import it here,
+// and add it to the map below. Register the tool in integrations_registry.
+const handlers: Partial<Record<Capability, (payload: CapabilityPayload) => Promise<CapabilityResult>>> = {
+  // Handlers are registered here once each integration is built.
+  // Example: can_send_email: instantlyHandler,
+}
 
 export async function executeCapability(
   capability: Capability,
   payload: CapabilityPayload
 ): Promise<CapabilityResult> {
-  throw new Error(
-    `executeCapability('${capability}') is not yet implemented. ` +
-    `Build the integrations_registry table and register a handler first.`
-  )
+  const registryRow = await getCapabilityRow(capability)
+
+  if (!registryRow) {
+    throw new Error(
+      `executeCapability('${capability}'): no active registry entry found. ` +
+      `Register the capability in integrations_registry and set is_active = true.`
+    )
+  }
+
+  if (registryRow.connection_status !== 'connected') {
+    throw new Error(
+      `executeCapability('${capability}'): tool '${registryRow.tool_name}' ` +
+      `has connection_status '${registryRow.connection_status}'. Check the integration.`
+    )
+  }
+
+  const handler = handlers[capability]
+
+  if (!handler) {
+    throw new Error(
+      `executeCapability('${capability}'): registry entry exists for '${registryRow.tool_name}' ` +
+      `but no handler is implemented yet. Build the handler and register it in capability.ts.`
+    )
+  }
+
+  return handler(payload)
 }
