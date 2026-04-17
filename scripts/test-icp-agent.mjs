@@ -3,9 +3,9 @@
 // Run with: node scripts/test-icp-agent.mjs
 //
 // Sequence:
-//   1. ICP          — intake + web research → document_suggestions
-//   2. Positioning  — intake + ICP + web research → document_suggestions  } parallel
-//      TOV          — intake + voice_samples/voice_style → document_suggestions }
+//   1. ICP + TOV    — ICP: intake + web research (parallel with TOV Claude call)
+//                     TOV: intake only — no document dependencies, starts immediately
+//   2. Positioning  — intake + ICP + web research → document_suggestions
 //   3. Messaging    — intake + ICP + Positioning + TOV → document_suggestions
 //
 // Each agent's suggestion is read back from document_suggestions after writing
@@ -211,10 +211,98 @@ console.log(`Fetched ${intake.length} intake fields | Completeness: ${completene
 console.log(`Organisation: ${ORGANISATION_ID} | Geo hint: ${geoHint}`)
 
 // ══════════════════════════════════════════════════════════════════════════════
-// STEP 1 — ICP AGENT
+// STEP 1 — ICP + TOV (parallel)
 // ══════════════════════════════════════════════════════════════════════════════
 
-header('STEP 1 — ICP AGENT (intake + web research → document_suggestions)')
+header('STEP 1 — ICP + TOV (parallel: ICP does research first, TOV starts immediately)')
+
+// ── TOV: start immediately — intake is all it needs, no document dependencies ──
+// TOV parallelisation is intentional — it has no document dependencies, only intake dependencies.
+
+const voiceSamples = intakeVal('voice_samples')
+const voiceStyle   = intakeVal('voice_style')
+
+const sampleWordCount = wordCount(voiceSamples)
+const samplesEmpty    = sampleWordCount === 0
+const samplesThin     = !samplesEmpty && sampleWordCount < 100
+
+// Heuristic contradiction check (mirrors tov-generation-agent.ts logic)
+let apparentContradiction = false
+if (!samplesEmpty && voiceStyle.length > 0) {
+  const styleLower   = voiceStyle.toLowerCase()
+  const samplesLower = voiceSamples.toLowerCase()
+  const sentences    = voiceSamples.split(/[.!?]+/).filter(s => s.trim().length > 5)
+  const avgSentLen   = sentences.length > 0 ? wordCount(voiceSamples) / sentences.length : 0
+  const jargonTerms  = ['leverage', 'synergy', 'scalable', 'robust', 'seamless', 'holistic', 'ecosystem']
+  if (
+    ((styleLower.includes('direct') || styleLower.includes('concise')) && avgSentLen > 25) ||
+    (styleLower.includes('no jargon') && jargonTerms.some(t => samplesLower.includes(t))) ||
+    ((styleLower.includes('warm') || styleLower.includes('friendly')) &&
+      (samplesLower.includes('dear ') || samplesLower.includes('kind regards')))
+  ) {
+    apparentContradiction = true
+  }
+}
+
+console.log(`  voice_samples: ${samplesEmpty ? '⚠ EMPTY' : samplesThin ? `⚠ thin (${sampleWordCount} words)` : `${sampleWordCount} words ✓`}`)
+console.log(`  voice_style:   ${voiceStyle.length > 0 ? `"${voiceStyle.slice(0, 60)}..."` : '⚠ not provided'}`)
+if (apparentContradiction) console.log('  ⚠ Apparent contradiction detected between voice_style and samples')
+
+const tovSystemPrompt = loadPrompt('tov-agent.md')
+
+const tovIntakeSections = buildIntakeSections(intake, ['voice_samples', 'voice_style'])
+
+const sampleStatus = samplesEmpty
+  ? '⚠️ NO SAMPLES PROVIDED — generate from voice_style and intake preferences only. Mark confidence as low.'
+  : samplesThin
+    ? `⚠️ THIN SAMPLES (${sampleWordCount} words) — extract what you can. Note the limitation. Mark confidence as low.`
+    : `${sampleWordCount} words across samples — full extraction is possible.`
+
+const voiceSamplesBlock = samplesEmpty
+  ? `## WRITING SAMPLES (primary extraction source)\n\n${sampleStatus}\n\n[No samples provided]`
+  : `## WRITING SAMPLES (primary extraction source)\n\n${sampleStatus}\n\n${voiceSamples}`
+
+const contradictionHint = apparentContradiction
+  ? '\n\n⚠️ PRE-CHECK: A surface-level scan suggests the self-description may not match the samples. Look carefully and surface any contradiction in voice_style_note.'
+  : ''
+
+const voiceStyleBlock = voiceStyle.length > 0
+  ? `## FOUNDER'S SELF-DESCRIPTION OF VOICE (voice_style — secondary, cross-reference only)\n\n` +
+    'This is how the founder describes their style. Cross-reference against samples. If they contradict, samples win.' +
+    contradictionHint + `\n\n${voiceStyle}`
+  : `## FOUNDER'S SELF-DESCRIPTION OF VOICE (voice_style)\n\n[Not provided — base guide entirely on writing samples.]`
+
+const tovUserMessage = `You are generating a Tone of Voice guide for a founder-led B2B consulting firm.
+
+## INTAKE QUESTIONNAIRE RESPONSES (excluding voice fields — those are below)
+
+${tovIntakeSections}
+
+---
+
+${voiceSamplesBlock}
+
+---
+
+${voiceStyleBlock}
+
+---
+
+## CROSS-CLIENT PATTERNS
+
+No pattern data available yet (phase one).
+
+---
+
+Using the frameworks and rules in your system prompt, produce the Tone of Voice guide now.
+voice_samples is your primary source. voice_style is a secondary cross-reference only.
+The five mandatory corrections apply always: no I/We opener, one question max, no feature listing before relevance, no service-led language, first touch under 100 words.
+Return raw JSON only. No preamble, no explanation, no markdown fencing.`
+
+// Fire TOV Claude call now — runs in parallel with ICP research below
+const tovClaudePromise = callClaude(tovSystemPrompt, tovUserMessage, 'TOV generation')
+
+// ── ICP: research first, then Claude call (runs while TOV Claude call is in flight) ──
 
 // ICP research queries — buyer pain, trigger events, buyer profile, competitors
 const icpQueries = [
@@ -289,13 +377,57 @@ const icpSuggestionId = await writeSuggestion({
 
 confirmWrite('ICP', icpSuggestionId)
 
+// Await TOV (likely already finished while ICP research + Claude were running)
+const tovRaw = await tovClaudePromise
+
+let tovParsed
+try {
+  tovParsed = JSON.parse(tovRaw)
+  console.log('  TOV JSON valid ✓')
+} catch (e) {
+  console.error('  TOV returned invalid JSON:', e.message)
+  console.error(tovRaw.slice(0, 500))
+  process.exit(1)
+}
+
+const tovConfidence = samplesEmpty || samplesThin || completeness < 80 ? 'low' : 'high'
+const tovSampleNote = samplesEmpty
+  ? ' ⚠️ No writing samples provided — generated from self-description only.'
+  : samplesThin
+    ? ` ⚠️ Thin samples (${sampleWordCount} words).`
+    : ` Writing samples: ${sampleWordCount} words.`
+const tovContradictionNote = apparentContradiction
+  ? ' ⚠️ Potential contradiction between voice_style and samples — check voice_style_note.'
+  : ''
+
+const tovSuggestionReason =
+  `TOV guide generated by test script using ${OPUS_MODEL}. ` +
+  `Initial generation. Intake completeness: ${completeness}%.` +
+  tovSampleNote +
+  tovContradictionNote
+
+const tovSuggestionId = await writeSuggestion({
+  organisation_id:   ORGANISATION_ID,
+  document_id:       null,
+  document_type:     'tov',
+  field_path:        'full_document',
+  current_value:     null,
+  suggested_value:   tovRaw,
+  suggestion_reason: tovSuggestionReason,
+  confidence_level:  tovConfidence,
+  signal_count:      0,
+  status:            'pending',
+})
+
+confirmWrite('TOV', tovSuggestionId)
+
 // ══════════════════════════════════════════════════════════════════════════════
-// STEP 2 — POSITIONING + TOV (parallel)
+// STEP 2 — POSITIONING
 // ══════════════════════════════════════════════════════════════════════════════
 
-header('STEP 2 — POSITIONING + TOV (parallel)')
+header('STEP 2 — POSITIONING (intake + ICP + web research → document_suggestions)')
 
-// ── 2a: Positioning research queries — competitor-focused ─────────────────────
+// Positioning research queries — competitor-focused
 
 const posQueries = [
   `outbound lead generation agency consulting firms positioning messaging claims ${geoHint} 2025`,
@@ -304,100 +436,12 @@ const posQueries = [
   `outbound agency consulting "didn't work" OR "failed" OR "disappointed" OR "frustration" review complaints 2025`,
 ]
 
-// ── 2b: TOV — extract voice_samples and voice_style from intake ───────────────
-
-const voiceSamples = intakeVal('voice_samples')
-const voiceStyle   = intakeVal('voice_style')
-
-const sampleWordCount = wordCount(voiceSamples)
-const samplesEmpty    = sampleWordCount === 0
-const samplesThin     = !samplesEmpty && sampleWordCount < 100
-
-// Heuristic contradiction check (mirrors tov-generation-agent.ts logic)
-let apparentContradiction = false
-if (!samplesEmpty && voiceStyle.length > 0) {
-  const styleLower   = voiceStyle.toLowerCase()
-  const samplesLower = voiceSamples.toLowerCase()
-  const sentences    = voiceSamples.split(/[.!?]+/).filter(s => s.trim().length > 5)
-  const avgSentLen   = sentences.length > 0 ? wordCount(voiceSamples) / sentences.length : 0
-  const jargonTerms  = ['leverage', 'synergy', 'scalable', 'robust', 'seamless', 'holistic', 'ecosystem']
-  if (
-    ((styleLower.includes('direct') || styleLower.includes('concise')) && avgSentLen > 25) ||
-    (styleLower.includes('no jargon') && jargonTerms.some(t => samplesLower.includes(t))) ||
-    ((styleLower.includes('warm') || styleLower.includes('friendly')) &&
-      (samplesLower.includes('dear ') || samplesLower.includes('kind regards')))
-  ) {
-    apparentContradiction = true
-  }
-}
-
-console.log(`  voice_samples: ${samplesEmpty ? '⚠ EMPTY' : samplesThin ? `⚠ thin (${sampleWordCount} words)` : `${sampleWordCount} words ✓`}`)
-console.log(`  voice_style:   ${voiceStyle.length > 0 ? `"${voiceStyle.slice(0, 60)}..."` : '⚠ not provided'}`)
-if (apparentContradiction) console.log('  ⚠ Apparent contradiction detected between voice_style and samples')
-
-// Run positioning research and both Claude calls in parallel
-console.log('\n  Running Positioning research + both Claude calls in parallel...')
-
-const posSystemPrompt  = loadPrompt('positioning-agent.md')
-const tovSystemPrompt  = loadPrompt('tov-agent.md')
-const icpDocContent    = icpRaw  // the ICP suggestion content from Step 1
+const posSystemPrompt = loadPrompt('positioning-agent.md')
+const icpDocContent   = icpRaw  // the ICP suggestion content from Step 1
 
 const posIntakeSections = buildIntakeSections(intake)
 
 const posResearchPromise = runResearchQueries(posQueries, 'Positioning')
-
-// Build TOV user message (no research — uses samples only)
-const tovIntakeSections = buildIntakeSections(intake, ['voice_samples', 'voice_style'])
-
-const sampleStatus = samplesEmpty
-  ? '⚠️ NO SAMPLES PROVIDED — generate from voice_style and intake preferences only. Mark confidence as low.'
-  : samplesThin
-    ? `⚠️ THIN SAMPLES (${sampleWordCount} words) — extract what you can. Note the limitation. Mark confidence as low.`
-    : `${sampleWordCount} words across samples — full extraction is possible.`
-
-const voiceSamplesBlock = samplesEmpty
-  ? `## WRITING SAMPLES (primary extraction source)\n\n${sampleStatus}\n\n[No samples provided]`
-  : `## WRITING SAMPLES (primary extraction source)\n\n${sampleStatus}\n\n${voiceSamples}`
-
-const contradictionHint = apparentContradiction
-  ? '\n\n⚠️ PRE-CHECK: A surface-level scan suggests the self-description may not match the samples. Look carefully and surface any contradiction in voice_style_note.'
-  : ''
-
-const voiceStyleBlock = voiceStyle.length > 0
-  ? `## FOUNDER'S SELF-DESCRIPTION OF VOICE (voice_style — secondary, cross-reference only)\n\n` +
-    'This is how the founder describes their style. Cross-reference against samples. If they contradict, samples win.' +
-    contradictionHint + `\n\n${voiceStyle}`
-  : `## FOUNDER'S SELF-DESCRIPTION OF VOICE (voice_style)\n\n[Not provided — base guide entirely on writing samples.]`
-
-const tovUserMessage = `You are generating a Tone of Voice guide for a founder-led B2B consulting firm.
-
-## INTAKE QUESTIONNAIRE RESPONSES (excluding voice fields — those are below)
-
-${tovIntakeSections}
-
----
-
-${voiceSamplesBlock}
-
----
-
-${voiceStyleBlock}
-
----
-
-## CROSS-CLIENT PATTERNS
-
-No pattern data available yet (phase one).
-
----
-
-Using the frameworks and rules in your system prompt, produce the Tone of Voice guide now.
-voice_samples is your primary source. voice_style is a secondary cross-reference only.
-The five mandatory corrections apply always: no I/We opener, one question max, no feature listing before relevance, no service-led language, first touch under 100 words.
-Return raw JSON only. No preamble, no explanation, no markdown fencing.`
-
-// Run TOV Claude call immediately (no research to wait for)
-const tovClaudePromise = callClaude(tovSystemPrompt, tovUserMessage, 'TOV generation')
 
 // Wait for positioning research, then run positioning Claude call
 const posResearch = await posResearchPromise
@@ -440,10 +484,8 @@ Return raw JSON only. No preamble, no explanation, no markdown fencing.`
 
 const posClaudePromise = callClaude(posSystemPrompt, posUserMessage, 'Positioning generation')
 
-// Await both Claude calls
-const [posRaw, tovRaw] = await Promise.all([posClaudePromise, tovClaudePromise])
+const posRaw = await posClaudePromise
 
-// Validate positioning JSON
 let posParsed
 try {
   posParsed = JSON.parse(posRaw)
@@ -454,68 +496,25 @@ try {
   process.exit(1)
 }
 
-// Validate TOV JSON
-let tovParsed
-try {
-  tovParsed = JSON.parse(tovRaw)
-  console.log('  TOV JSON valid ✓')
-} catch (e) {
-  console.error('  TOV returned invalid JSON:', e.message)
-  console.error(tovRaw.slice(0, 500))
-  process.exit(1)
-}
-
-// Write both suggestions
 const posSuggestionReason =
   `Positioning document generated by test script using ${OPUS_MODEL}. ` +
   `Initial generation. ICP v(test) used as primary anchor. Intake completeness: ${completeness}%.` +
   posResearchLimitedNote
 
-const tovConfidence = samplesEmpty || samplesThin || completeness < 80 ? 'low' : 'high'
-const tovSampleNote = samplesEmpty
-  ? ' ⚠️ No writing samples provided — generated from self-description only.'
-  : samplesThin
-    ? ` ⚠️ Thin samples (${sampleWordCount} words).`
-    : ` Writing samples: ${sampleWordCount} words.`
-const tovContradictionNote = apparentContradiction
-  ? ' ⚠️ Potential contradiction between voice_style and samples — check voice_style_note.'
-  : ''
-
-const tovSuggestionReason =
-  `TOV guide generated by test script using ${OPUS_MODEL}. ` +
-  `Initial generation. Intake completeness: ${completeness}%.` +
-  tovSampleNote +
-  tovContradictionNote
-
-const [posSuggestionId, tovSuggestionId] = await Promise.all([
-  writeSuggestion({
-    organisation_id:   ORGANISATION_ID,
-    document_id:       null,
-    document_type:     'positioning',
-    field_path:        'full_document',
-    current_value:     null,
-    suggested_value:   posRaw,
-    suggestion_reason: posSuggestionReason,
-    confidence_level:  completeness >= 80 ? 'high' : 'low',
-    signal_count:      0,
-    status:            'pending',
-  }),
-  writeSuggestion({
-    organisation_id:   ORGANISATION_ID,
-    document_id:       null,
-    document_type:     'tov',
-    field_path:        'full_document',
-    current_value:     null,
-    suggested_value:   tovRaw,
-    suggestion_reason: tovSuggestionReason,
-    confidence_level:  tovConfidence,
-    signal_count:      0,
-    status:            'pending',
-  }),
-])
+const posSuggestionId = await writeSuggestion({
+  organisation_id:   ORGANISATION_ID,
+  document_id:       null,
+  document_type:     'positioning',
+  field_path:        'full_document',
+  current_value:     null,
+  suggested_value:   posRaw,
+  suggestion_reason: posSuggestionReason,
+  confidence_level:  completeness >= 80 ? 'high' : 'low',
+  signal_count:      0,
+  status:            'pending',
+})
 
 confirmWrite('Positioning', posSuggestionId)
-confirmWrite('TOV', tovSuggestionId)
 
 // ══════════════════════════════════════════════════════════════════════════════
 // STEP 3 — MESSAGING AGENT
