@@ -1,5 +1,5 @@
 # data-model.md — Database Tables, Fields, RLS Policies
-# Last updated: April 2026 — initial schema applied
+# Last updated: April 2026 — client_organisation_view added; client direct SELECT on organisations removed
 # Written for non-developers. Update this file whenever a table is added or changed.
 # The spec is in /prd/sections/03-data-model.md — this is the living reference.
 
@@ -39,10 +39,42 @@ Fields:
   created_at / updated_at
 
 RLS:
-  Operator: full access (read, write, update all rows)
-  Client:   read only, their own row only
-  Sensitive fields (contract_status, payment_status, engagement_month) are never
-  returned in client-facing queries — filtered at the application layer.
+  Operator: full access (read, write, update all rows) — queries organisations directly.
+  Client:   NO direct SELECT access. Must use client_organisation_view (see below).
+            The client SELECT policy (clients_read_own_organisation) was dropped so
+            that sensitive fields are blocked at the database layer, not just in code.
+
+---
+
+## View: client_organisation_view
+
+A read-only view over the organisations table for client-role queries.
+Excludes the three operator-only fields: contract_status, payment_status, engagement_month.
+
+This is the required path for any client-facing query that needs organisation data.
+Direct SELECT on organisations is permitted for operators only.
+
+Columns exposed (all others excluded):
+  id, name, slug, contract_start_date,
+  pipeline_unlocked, pipeline_unlock_at, meetings_count,
+  created_at, updated_at
+
+How it works:
+  The view is security_invoker=false (runs as postgres superuser), so it can read from
+  organisations even though clients have no direct SELECT policy on that table.
+  The WHERE clause (id = get_my_organisation_id()) is the security boundary —
+  each client user sees only their own organisation row.
+
+Permissions:
+  SELECT granted to: authenticated (operators and clients)
+  Operators will typically query organisations directly for full field access.
+  Only clients are restricted to this view.
+
+If you add a new operator-only field to organisations:
+  Do not add it to this view. It will remain invisible to clients automatically.
+
+If you add a new client-safe field to organisations:
+  Add it to the SELECT list in the view definition (re-run the CREATE OR REPLACE VIEW).
 
 ---
 

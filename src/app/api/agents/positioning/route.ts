@@ -92,6 +92,8 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 5. Verify the organisation exists ──────────────────────────────────────
+  // Operator-only: direct SELECT from organisations is restricted to operators.
+  // Client-role queries must use client_organisation_view instead.
   const { data: org, error: orgError } = await supabase
     .from('organisations')
     .select('id, name')

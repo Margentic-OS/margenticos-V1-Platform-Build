@@ -254,6 +254,8 @@ async function runPreflightChecks(
   const missing: string[] = []
 
   // Check 1: Organisation name from the organisations table.
+  // Operator-only: direct SELECT from organisations is restricted to operators.
+  // Client-role queries must use client_organisation_view instead.
   const { data: orgRow } = await supabase
     .from('organisations')
     .select('name')
