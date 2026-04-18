@@ -16,6 +16,7 @@ type FieldType = 'short' | 'long' | 'select' | 'currency'
 interface Question {
   fieldKey: string
   label: string
+  helpText?: string
   isCritical: boolean
   type: FieldType
   options?: string[]
@@ -177,7 +178,8 @@ const SECTIONS: Section[] = [
     questions: [
       {
         fieldKey: 'voice_samples',
-        label: "Paste 3–5 examples of how you write naturally. Emails, LinkedIn posts, messages to clients — the more unpolished the better. We're looking for your real voice, not your best work.",
+        label: "Paste 3–5 examples of how you write naturally. We need raw, unedited writing — voice note transcripts, rough first-draft emails, Slack or WhatsApp messages, unpolished LinkedIn drafts. Polished published content is less useful than a messy message you sent quickly.",
+        helpText: "Good example: a WhatsApp message you sent to a client, a rough email you wrote before editing it, or a voice note transcript.",
         isCritical: true,
         type: 'long',
       },
@@ -395,6 +397,13 @@ export default function IntakeForm({ initialValues }: IntakeFormProps) {
                         <span className="ml-1 text-text-muted font-normal">*</span>
                       )}
                     </label>
+
+                    {/* Help text */}
+                    {question.helpText && (
+                      <p className="text-[11px] text-text-muted mb-2 leading-relaxed">
+                        {question.helpText}
+                      </p>
+                    )}
 
                     {/* Dictation nudge */}
                     {question.dictation && (

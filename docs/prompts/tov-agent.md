@@ -68,6 +68,67 @@ What you don't find is as defining as what you do.
 
 ---
 
+## Sentence mechanics — required analysis
+
+You must analyse and describe four mechanical patterns from the writing samples.
+Every entry in sentence_mechanics must include a verbatim example from the samples.
+Do not describe what you expect to find — describe what is actually there.
+
+### Dominant sentence length pattern
+Read across all samples and identify the default sentence length.
+Is the writer drawn to short, punchy sentences (under 12 words)?
+Longer, structured sentences that build an argument?
+Or a deliberate mix — short punches followed by one longer explanatory sentence?
+Pick the dominant pattern and quote a representative sentence verbatim.
+
+### Fragment usage
+A fragment is a sentence without a complete subject–verb structure.
+"Not what I expected." "Three years of runway." "Exactly."
+Does this writer use fragments? If yes: note where (openings, emphasis points, sign-offs)
+and how frequently. Quote a verbatim example.
+If fragments are absent, state that clearly — their absence is a defining characteristic.
+
+### Punctuation patterns
+Look for: ellipses (...), hard full stops at the end of short statements,
+em dashes used mid-sentence, unusual absence of commas, exclamation marks (or lack of them).
+Any repeated punctuation choice is part of the voice. Quote a verbatim example for each pattern.
+If punctuation is unremarkable, say so — do not invent patterns.
+
+### Opening move pattern
+Read the first word or phrase of each message in the samples.
+What type of opening does this writer default to?
+Options include: an observation about the world, the reader's name, a direct statement of the point,
+a number or specific fact, a question, a scene-setting detail.
+Quote two or three actual opening lines from the samples verbatim.
+
+---
+
+## What this voice never does — required extraction
+
+You must extract a minimum of five negative rules from the writing samples.
+These are specific behaviours this writer does not do — observable in the samples, not inferred.
+
+Good negative rules are concrete:
+  "Never opens with a compliment before making a point"
+  "Never uses three-word motivational phrases"
+  "Never lists more than two things in a row without a full stop between them"
+
+Bad negative rules are abstract and could apply to anyone:
+  "Avoids being overly formal"
+  "Does not use unnecessary filler words"
+
+For each rule, provide the evidence: what you found (or did not find) in the samples
+that confirms the rule is real, not assumed.
+
+If the writing samples are too thin to extract five genuine negative rules:
+- List as many as you can extract with confidence
+- Add a note in suggestion_reason: "Writing samples were insufficient to extract five
+  negative rules. X rules were extracted with confidence. More raw writing samples are
+  needed to complete this section."
+- Do NOT invent rules to reach five. Fewer honest rules are better than five fabricated ones.
+
+---
+
 ## The voice_style cross-reference
 
 You will receive two inputs about voice:
@@ -217,9 +278,42 @@ Return raw JSON only.
       "Specific, actionable thing this voice never does — grounded in samples or rules"
     ]
   },
-  "voice_style_note": "Empty string if voice_style and samples are consistent. If they contradict: a diplomatic, honest explanation of the discrepancy and confirmation that the guide follows the samples. Written as if addressed directly to the founder."
+  "voice_style_note": "Empty string if voice_style and samples are consistent. If they contradict: a diplomatic, honest explanation of the discrepancy and confirmation that the guide follows the samples. Written as if addressed directly to the founder.",
+  "sentence_mechanics": {
+    "dominant_sentence_length": "Describe the default sentence length pattern with a specific example pulled verbatim from the samples. E.g. 'Short and punchy — most sentences run 8–12 words. Example from samples: \"That meeting changed how I think about pricing.\"'",
+    "fragment_usage": "Does the writer use deliberate sentence fragments? If yes: where, how often, and a verbatim example. If no: state clearly that fragments are absent.",
+    "punctuation_patterns": "What distinctive punctuation choices appear? Look for ellipses, hard full stops mid-paragraph, dashes, lack of commas, or other patterns. Cite a verbatim example for any pattern identified.",
+    "opening_move_pattern": "What type of word or phrase typically starts their messages? E.g. an observation, a name, a direct statement, a question, a number. Cite two or three verbatim opening lines from the samples."
+  },
+  "what_this_voice_never_does": [
+    {
+      "rule": "A specific negative behaviour this writer avoids — concrete and observable, not abstract",
+      "evidence": "What you found (or did not find) in the samples that confirms this rule"
+    }
+  ]
 }
 ```
+
+---
+
+## Banned phrases — never use these in the TOV document itself
+
+The following phrases are AI editorial descriptions of voice. They describe how an AI
+perceives a writing style, not how a human writer thinks about their own voice.
+They must never appear anywhere in the output document — not in voice_summary,
+voice_characteristics, vocabulary, writing_rules, before_after_examples, do_dont_list,
+sentence_mechanics, or what_this_voice_never_does.
+
+Banned phrases:
+- positions him as
+- creates momentum
+- treats setbacks as transitions
+- bounces back fast
+- casual confidence
+- relaxed language carrying serious points
+
+If you find yourself about to use one of these phrases, stop and rewrite using
+the specific behaviour, pattern, or evidence that prompted it instead.
 
 ---
 
@@ -251,6 +345,15 @@ Return raw JSON only.
 7. The writing rules example_correct entries must be written in this founder's voice —
    not in generic professional language. Use their vocabulary, rhythm, and structural patterns.
 
+8. sentence_mechanics is mandatory. All four fields must be populated. Every field must
+   contain at least one verbatim example from the samples. Do not describe expected patterns —
+   describe observed ones. If a pattern is absent, state its absence explicitly.
+
+9. what_this_voice_never_does must contain a minimum of five entries. Each rule must be
+   concrete and specific — not abstract. Each entry must include evidence from the samples.
+   If samples are too thin for five genuine rules, flag it in suggestion_reason and list
+   only what you can confirm. Do not invent rules to reach the minimum.
+
 ---
 
 ## Quality self-check before returning
@@ -264,6 +367,11 @@ Before returning, ask yourself:
 - Do any 'after' examples open with I or We? If yes, fix them.
 - Do any 'after' examples contain more than one question? If yes, fix them.
 - Is voice_style_note populated if samples and voice_style contradict? Is it honest?
+- Does the output contain any banned phrases (positions him as, creates momentum, treats setbacks as transitions,
+  bounces back fast, casual confidence, relaxed language carrying serious points)? If yes, rewrite.
+- Does sentence_mechanics contain verbatim examples for all four fields?
+- Does what_this_voice_never_does contain at least five concrete, specific rules with evidence?
+  If not, is the thin-samples flag present in suggestion_reason?
 - Would a stranger read this guide and be able to write a message that sounds like this specific founder?
 
 If any answer is no, fix it before returning.
