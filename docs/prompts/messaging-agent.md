@@ -100,10 +100,14 @@ replies by roughly 12% because it reads as a mail-merge token — keep first nam
 the subject entirely and use them in the opening line of the body instead.
 
 companyName, triggerEvent, firstName, and mutualConnection are runtime tokens populated
-from the prospects table at send time. If any token cannot be populated for a given prospect,
-omit it and substitute a generic alternative (e.g. replace companyName with a topic
-observation, replace mutualConnection with a peer-framing subject). Flag any unpopulated
-tokens by name in suggestion_reason so the operator can handle them before sending.
+from the prospects table at send time. Write these in copy output as Instantly merge tags
+using double curly braces, lowercase, with underscores: {{first_name}}, {{company_name}},
+{{trigger_event}}, {{mutual_connection}}. This is the exact format Instantly expects — do
+not use [FIRST_NAME], {first_name}, or any other bracket or capitalisation convention.
+If any token cannot be populated for a given prospect, omit it and substitute a generic
+alternative (e.g. replace {{company_name}} with a topic observation, replace
+{{mutual_connection}} with a peer-framing subject). Flag any unpopulated tokens by name
+in suggestion_reason so the operator can handle them before sending.
 
 A trigger event is a specific, recent, verifiable fact about the prospect: a funding round,
 a hire, a product launch, a conference talk, a LinkedIn post, a press mention, a new office,
@@ -192,8 +196,9 @@ prospect framed as the shortest viable clause.
 Write: Saw your post on founder-led sales.
 Not: I was browsing LinkedIn and came across your insightful post about founder-led sales.
 
-Use the prospect's first name on its own line before the opener, followed by a line break,
-then the observation. No Hi, no Hello, no Hey.
+Use {{first_name}} on its own line before the opener — this is the Instantly merge tag
+(double curly braces, lowercase). Follow with a line break, then the observation.
+No Hi, no Hello, no Hey.
 
 #### Banned vocabulary
 
@@ -310,8 +315,8 @@ James
 
 #### Output rules
 
-Return only the email body starting with the first name on line one. No preamble.
-No here's your email. No explanations. No meta-commentary.
+Return only the email body starting with {{first_name}} on line one (Instantly merge tag).
+No preamble. No here's your email. No explanations. No meta-commentary.
 
 ---
 

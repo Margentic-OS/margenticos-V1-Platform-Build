@@ -459,7 +459,7 @@ logic required. Sequence length changes require only prompt edits.
 ---
 
 ## ADR-013 — Model version selection for agents
-Date: April 2026 | Status: Accepted
+Date: April 2026 | Status: Accepted (updated April 2026 — messaging agent switched to Sonnet)
 
 Context:
 CLAUDE.md specifies model versions for each task category. As the agents were built,
@@ -468,7 +468,8 @@ implemented and the spec document was not kept in sync. This ADR records the set
 decisions so the agents remain the authoritative source of truth.
 
 Decision:
-Document generation agents (ICP, positioning, tone of voice, messaging): claude-opus-4-6
+Document generation agents (ICP, positioning, tone of voice): claude-opus-4-6
+Messaging generation agent: claude-sonnet-4-6 (see update note below)
 Web search utility (lightweight synthesis in prospect research agent): claude-haiku-4-5-20251001
 Building, debugging, refactoring (Claude Code tasks): claude-sonnet-4-6
 Signal processing and batch tasks: claude-haiku-4-5-20251001
@@ -477,28 +478,37 @@ Model versions must be passed explicitly in every Anthropic API call.
 Never rely on API defaults. If a model is retired or replaced, update the relevant
 agent file directly — CLAUDE.md is a human reference, not the source of truth.
 
+Update — April 2026 (messaging agent model change):
+The messaging agent was switched from claude-opus-4-6 to claude-sonnet-4-6 after
+Opus API calls consistently timed out at approximately 180 seconds during local
+development. The root cause is the local network (router/macOS TCP stack) dropping
+connections that appear idle — Opus takes longer to begin streaming tokens, which
+triggers the idle-connection timeout before the first byte arrives.
+Switching the API call to streaming mode (client.messages.stream) resolved the
+issue for Sonnet, which begins returning tokens faster. Opus with streaming was not
+fully tested because the connection dropped before the first token arrived.
+Action required before production: test the messaging agent with claude-opus-4-6
+and streaming mode on a stable connection (production server or wired connection).
+If the timeout no longer occurs, revert MESSAGING_MODEL in the agent file and
+update this entry.
+
 Reasoning:
-claude-opus-4-6 is the current production Opus model. The CLAUDE.md reference to
-claude-opus-4-5 was written before claude-opus-4-6 was confirmed as the build target.
-Document generation is the highest-value, most context-intensive task in the system —
-using the most capable available model is correct.
+claude-opus-4-6 is the intended model for all document generation — highest-value,
+most context-intensive task in the system. The Sonnet switch is a pragmatic
+local-dev workaround, not a quality decision. Sonnet output for the messaging agent
+was reviewed and judged acceptable for the client-zero test run.
 claude-haiku-4-5-20251001 is appropriate for the web search synthesis step, which
 requires lightweight summarisation of fetched content, not deep reasoning.
 
 Rejected alternatives:
-- claude-opus-4-5 for document generation: superseded by claude-opus-4-6; no reason
-  to use an older model when the newer one is available and supported.
-- claude-sonnet-4-6 for document generation: considered as a cost reduction, but
-  document quality is the primary value delivered to clients — this is not the place
-  to optimise for cost at the expense of output quality.
-- Relying on API defaults: rejected because defaults change without notice and would
-  produce silent model switches in production.
+- claude-opus-4-5 for document generation: superseded by claude-opus-4-6.
+- Relying on API defaults: rejected because defaults change without notice.
 
 Consequences:
-All four document generation agent files must specify claude-opus-4-6 explicitly.
-The web search utility must specify claude-haiku-4-5-20251001 explicitly.
-CLAUDE.md model selection table is updated to match (claude-opus-4-5 → claude-opus-4-6,
-claude-sonnet-4-5 → claude-sonnet-4-6).
+ICP, positioning, and tone of voice agent files specify claude-opus-4-6 explicitly.
+Messaging agent file specifies claude-sonnet-4-6 until Opus connection issue resolved.
+The web search utility specifies claude-haiku-4-5-20251001 explicitly.
+CLAUDE.md model selection table reflects current state (Sonnet for messaging).
 When Anthropic releases a new model family, update agent files directly and record
 the change here — do not rely on CLAUDE.md as a change trigger.
 

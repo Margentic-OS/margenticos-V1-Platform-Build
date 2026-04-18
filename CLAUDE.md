@@ -199,7 +199,10 @@ The /prd folder holds the product specification (see PRD.md).
 ## Model selection — right model for each task
 
 Building, debugging, refactoring:                    claude-sonnet-4-6
-Document generation agents (ICP, Pos, TOV, Msg):     claude-opus-4-6
+Document generation agents (ICP, Pos, TOV):          claude-opus-4-6
+Messaging generation agent:                          claude-sonnet-4-6
+  (Opus hits TCP idle-connection timeout on local dev at ~180s.
+   Switch to Opus only after confirming on a stable connection or in production.)
 Signal processing, lightweight agent tasks:          claude-haiku-4-5-20251001
 Batch processing, transcript ingestion:              claude-haiku-4-5-20251001
 

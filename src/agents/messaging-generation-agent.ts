@@ -26,7 +26,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 
-const MESSAGING_MODEL = 'claude-opus-4-6'
+const MESSAGING_MODEL = 'claude-sonnet-4-6' // TEST ONLY — revert to claude-opus-4-6 for production
 
 // 8192 tokens — the Messaging Playbook is the largest output: full 4-email sequence
 // with templates and examples, LinkedIn messages, subject line library (8+ options),
@@ -180,16 +180,30 @@ export async function runMessagingGenerationAgent(
   const generatedContent = await callClaude(userMessage)
 
   // Step 9: Parse and validate the four-email array.
-  // Claude returns a JSON array of exactly 4 email objects per Rule 15 in the system prompt.
+  // Claude returns a JSON array of exactly 4 email objects per Rule 16 in the system prompt.
+  // Some models wrap the array in an outer object — handle both { emails: [...] } and bare [...].
   let emails: EmailRecord[]
   try {
     const parsed: unknown = JSON.parse(generatedContent)
-    if (!Array.isArray(parsed) || parsed.length !== 4) {
-      throw new Error(
-        `Expected an array of 4 emails, got ${Array.isArray(parsed) ? parsed.length : typeof parsed}`
-      )
+    let candidates: unknown[]
+
+    if (Array.isArray(parsed)) {
+      candidates = parsed
+    } else if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'emails' in parsed &&
+      Array.isArray((parsed as Record<string, unknown>).emails)
+    ) {
+      candidates = (parsed as Record<string, unknown>).emails as unknown[]
+    } else {
+      throw new Error(`Expected an array of 4 emails, got ${typeof parsed}`)
     }
-    emails = parsed as EmailRecord[]
+
+    if (candidates.length !== 4) {
+      throw new Error(`Expected 4 emails, got ${candidates.length}`)
+    }
+    emails = candidates as EmailRecord[]
   } catch (err) {
     throw new Error(
       'Messaging agent: Claude returned invalid JSON. Expected array of 4 email objects. ' +
@@ -552,7 +566,10 @@ async function callClaude(userMessage: string): Promise<string> {
 
   const systemPrompt = await loadSystemPrompt()
 
-  const message = await client.messages.create({
+  // Use streaming to keep the TCP connection alive during long generations.
+  // Without streaming, routers and macOS drop connections that look idle after ~180s,
+  // even though the server is still working. Tokens arrive continuously in stream mode.
+  const stream = client.messages.stream({
     model: MESSAGING_MODEL,
     max_tokens: MAX_TOKENS,
     system: systemPrompt,
@@ -563,6 +580,8 @@ async function callClaude(userMessage: string): Promise<string> {
       },
     ],
   })
+
+  const message = await stream.finalMessage()
 
   const content = message.content.find(block => block.type === 'text')
   if (!content || content.type !== 'text') {
