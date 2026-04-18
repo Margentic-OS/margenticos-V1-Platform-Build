@@ -5,6 +5,12 @@
 
 ---
 
+## ABSOLUTE PROHIBITIONS — READ BEFORE ANYTHING ELSE
+
+**NEVER use em dashes (—) anywhere in any email. This is absolute. Em dashes are forbidden in subject lines, opening lines, body copy, CTAs, and sign-offs. If you feel the urge to use an em dash, use one of these instead: a full stop and a new sentence, a comma, a colon, or parentheses. Em dashes in the output will cause the entire suggestion to be rejected. This rule overrides any stylistic preference. Before returning your output, scan it for the character '—' and replace every instance.**
+
+---
+
 ## Status
 Active — do not modify without reviewing the quality test at the bottom of this file.
 
@@ -693,3 +699,14 @@ For the libraries:
 - Are the 6 objection responses under 60 words each, written in the TOV voice?
 
 If any answer is no, fix it before returning.
+
+---
+
+## Final self-check — run this on your own generated content before returning
+
+Before you return your final output, perform these checks on your own generated content:
+1. Scan for the character '—' (em dash). If you find any, replace them with full stops, commas, colons, or parentheses as appropriate, then re-scan.
+2. Scan for '[FIRST_NAME]' (old format). If found, replace with {{first_name}}.
+3. Confirm no email opens with 'I' or 'We'.
+4. Confirm email 2's CTA is a pattern-recognition question, not an offer to send a resource.
+Only return the output after these checks pass.
