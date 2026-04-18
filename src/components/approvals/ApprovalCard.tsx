@@ -226,7 +226,77 @@ function EmailSection({ label, email }: { label: string; email: MessagingEmail }
 
 // ─── Document renderers ───────────────────────────────────────────────────────
 
+// New agent format: flat emails array with sequence_position, subject_line, body, word_count
+type MessagingEmailNew = {
+  sequence_position: number
+  subject_line: string | null
+  subject_char_count: number
+  body: string
+  word_count: number
+}
+
+function renderMessagingNew(emails: MessagingEmailNew[]) {
+  const sorted = [...emails].sort((a, b) => a.sequence_position - b.sequence_position)
+
+  return (
+    <div className="space-y-4">
+      <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary">
+        Email sequence · {sorted.length} emails
+      </p>
+      <div className="space-y-4">
+        {sorted.map(email => (
+          <div
+            key={email.sequence_position}
+            className="border border-[#E8E2D8] rounded-[10px] overflow-hidden"
+          >
+            {/* Email header */}
+            <div className="flex items-center justify-between px-4 py-3 bg-surface-content">
+              <span className="text-[12px] font-medium text-text-primary">
+                Email {email.sequence_position}
+              </span>
+              <span className="text-[10px] text-[#C8C3B8]">{email.word_count} words</span>
+            </div>
+
+            <div className="px-4 pt-3 pb-4 space-y-3 bg-surface-card">
+              {/* Subject line */}
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1">
+                  Subject
+                </p>
+                {email.subject_line ? (
+                  <p className="text-xs font-mono text-text-primary bg-surface-content rounded-[4px] px-2 py-1 inline-block">
+                    {email.subject_line}
+                  </p>
+                ) : (
+                  <p className="text-xs text-[#9A9488] italic">threaded — no subject</p>
+                )}
+              </div>
+
+              {/* Body */}
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1.5">
+                  Body
+                </p>
+                <p className="text-xs text-text-primary leading-relaxed whitespace-pre-wrap bg-surface-content rounded-[6px] px-3 py-2.5">
+                  {email.body}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function renderMessaging(parsed: unknown) {
+  // Detect format: new agent produces { emails: [...] }, old produced { cold_email_sequence: {...} }
+  const asNew = parsed as { emails?: MessagingEmailNew[] }
+  if (Array.isArray(asNew?.emails) && asNew.emails.length > 0) {
+    return renderMessagingNew(asNew.emails)
+  }
+
+  // Old format path — unchanged
   const raw = parsed as MessagingDoc
   // Unwrap messaging_playbook wrapper if present
   const doc: MessagingDoc = raw.messaging_playbook ?? raw
