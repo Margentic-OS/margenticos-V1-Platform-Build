@@ -139,9 +139,9 @@ Return raw JSON only.
   ],
   "unique_attributes": [
     {
-      "attribute": "A specific, verifiable capability or characteristic",
-      "why_alternatives_lack_it": "The structural reason competitors don't or can't offer this — not 'they don't care'",
-      "verifiable_signal": "A question a buyer could ask, or an observation they could make, to confirm this is true"
+      "what_it_is": "A specific capability or characteristic in plain English — no jargon, no compressed marketing language",
+      "why_competitors_cannot_claim_it": "The structural reason a competitor cannot easily claim this attribute — or, if they could claim it in name, what makes this firm's version meaningfully different when they try",
+      "client_outcome": "The specific result a client gets because this attribute exists — one sentence, named outcome not a category"
     }
   ],
   "value_themes": [
@@ -175,7 +175,10 @@ Return raw JSON only.
       }
     ]
   },
-  "moore_statement": "For [target customer] who [specific painful situation], [firm name] is a [market category] that [key benefit]. Unlike [primary competitive alternative], [firm name] [specific differentiator].",
+  "moore_positioning": {
+    "compressed_positioning_statement": "One sentence only. Who, what, and differentiation in a single breath. This is the version the messaging agent will use to generate email angles. If the differentiation requires a second sentence, the position is not yet clear enough — keep compressing until it fits in one.",
+    "full_positioning_statement": "The expanded version for the client to read. For [target customer] who [specific painful situation], [firm name] is a [market category] that [key benefit]. Unlike [primary competitive alternative], [firm name] [specific differentiator]. Expanded with any necessary context, but still tight — no filler."
+  },
   "competitive_landscape": {
     "direct_competitors": [
       "Named firm or type that occupies a similar space — include positioning claim if known"
@@ -221,6 +224,39 @@ Return raw JSON only.
 8. key_messages are seeds for the messaging agent, not finished messages. They frame the
    territory. The messaging agent will develop them — your job is to make them specific
    and grounded in this firm's actual differentiator.
+
+9. unique_attributes must be exactly three — no more, no fewer. Each one stands alone
+   as a separate object with all three fields completed: what_it_is, why_competitors_cannot_claim_it,
+   and client_outcome. Do not embed attributes inside prose or inside the positioning statement.
+   Each attribute must be testable — a buyer could ask a question to confirm it is real.
+
+10. moore_positioning requires two versions written separately.
+    The compressed_positioning_statement must be one sentence — genuinely one sentence.
+    It must contain the who, the what, and the differentiation in a single breath.
+    If you find yourself needing a second sentence to include the differentiation,
+    the position is not yet resolved — compress further before returning.
+    The full_positioning_statement is the expanded version for the client to read.
+    Label them clearly in the JSON using the field names above.
+
+---
+
+## Banned structures and phrases — never use in output
+
+### Structural ban: tricolon
+Never list three things in parallel in the positioning statement or unique_attributes section.
+For example: "gives clients X, delivers Y, and runs on Z" — this is a tricolon and is banned.
+If three attributes exist, make one primary and reference the others as supporting context.
+Three parallel items reads as a marketing slogan, not a positioning decision.
+
+### Phrase bans
+These phrases must never appear in any generated Positioning document:
+- AI-autonomous engine
+- purpose-built for how consulting is sold
+- revenue growth partner
+- pipeline strategist
+- done-for-you (without specific detail about what is done — the phrase alone is banned)
+
+If your draft contains any of these, rewrite before returning.
 
 ---
 
@@ -271,8 +307,9 @@ intake and ICP describe this specific firm's actual situation and customers.
 ## Quality self-check before returning
 
 Before returning, ask yourself:
-- Can you read the Moore statement aloud in one breath? If not, it's too long.
-- Could the Moore statement apply to any other consulting pipeline service? If yes, rewrite it.
+- Is compressed_positioning_statement genuinely one sentence — not two joined by a comma or semicolon? If not, compress further.
+- Could the compressed_positioning_statement apply to any other consulting pipeline service? If yes, rewrite it.
+- Are there exactly three unique_attributes, each with all three fields (what_it_is, why_competitors_cannot_claim_it, client_outcome) filled out as standalone objects?
 - Does the competitive_alternatives list name real behaviours, not aspirational competitors?
 - Does every unique_attribute survive the "could anyone else claim this?" test?
 - Do the value_themes use language from the ICP document's four_forces?
