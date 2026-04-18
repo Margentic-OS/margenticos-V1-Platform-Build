@@ -451,10 +451,21 @@ Rejected alternatives:
   (angle progression, threading) requires all emails to be generated together.
 
 Consequences:
-The approval handler treats messaging suggestions identically to all other document types:
-one pending row, one approval action, one approved row written to strategy_documents.
-The dashboard renders the emails array from suggested_value.emails — no special grouping
-logic required. Sequence length changes require only prompt edits.
+The approval handler treats messaging suggestions identically to all other document types
+at the API layer: one pending row, one approval action, one approved row written to
+strategy_documents. However, the approve_document_suggestion Postgres function contains
+a messaging-specific branch that unwraps the { emails: [...] } wrapper object before
+writing to strategy_documents.content — storing the bare JSON array rather than the
+envelope object. All other document types (ICP, positioning, TOV) store the full JSON
+object as content. This means messaging content in strategy_documents is a JSON array
+while all other document types are JSON objects. Any future messaging renderer must
+handle Array.isArray(content) as the primary format check before any object-based
+key lookups. Sequence length changes require only prompt edits.
+
+Follow-ups:
+- Consider normalising messaging storage to { emails: [...] } object shape to match
+  ICP/positioning/TOV pattern. Would require a database migration for existing rows
+  and an update to the approve_document_suggestion function. Defer until post-client-zero.
 
 ---
 
