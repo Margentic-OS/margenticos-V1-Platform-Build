@@ -124,6 +124,16 @@ export default async function DashboardPage() {
     .select('document_type, status, version, generated_at, last_updated_at')
     .eq('organisation_id', org.id)
 
+  // Fetch pending document suggestions — used to show 'In review' even when no
+  // strategy_documents row exists yet (suggestion generated but not yet approved).
+  const { data: pendingSuggRows } = await supabase
+    .from('document_suggestions')
+    .select('document_type')
+    .eq('organisation_id', org.id)
+    .eq('status', 'pending')
+
+  const pendingTypes = new Set((pendingSuggRows ?? []).map(s => s.document_type))
+
   // ─── Determine dashboard state ────────────────────────────────────────────
 
   const rows = intakeRows ?? []
@@ -180,6 +190,7 @@ export default async function DashboardPage() {
       type,
       status: row?.status ?? null,
       version: row?.version ?? '1.0',
+      hasPendingSuggestions: pendingTypes.has(type),
     }
   })
 

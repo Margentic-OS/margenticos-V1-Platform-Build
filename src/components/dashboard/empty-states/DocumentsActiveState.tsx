@@ -1,4 +1,5 @@
 import type { DocumentType } from '@/types'
+import { DOCUMENT_META, DOCUMENT_ORDER } from '@/lib/document-labels'
 
 export interface ActiveDocument {
   type: DocumentType
@@ -14,26 +15,6 @@ interface DocumentsActiveStateProps {
   contractStartDate: string | null
 }
 
-const DOC_META: Record<DocumentType, { label: string; desc: string }> = {
-  icp: {
-    label: 'Prospect profile',
-    desc: 'Who your ideal clients are and why they buy',
-  },
-  positioning: {
-    label: 'Positioning',
-    desc: 'Your competitive edge and core value proposition',
-  },
-  tov: {
-    label: 'Voice guide',
-    desc: 'Tone, style, and communication rules',
-  },
-  messaging: {
-    label: 'Messaging',
-    desc: 'Email and LinkedIn outreach frameworks',
-  },
-}
-
-const DOC_ORDER: DocumentType[] = ['icp', 'positioning', 'tov', 'messaging']
 
 const NAV_DOC_HREFS: Record<DocumentType, string> = {
   icp: '/dashboard/strategy/icp',
@@ -211,9 +192,9 @@ export function DocumentsActiveState({
               </div>
 
               <ul className="space-y-4">
-                {DOC_ORDER.map((type) => {
+                {DOCUMENT_ORDER.map((type) => {
                   const doc = docMap.get(type)
-                  const meta = DOC_META[type]
+                  const meta = DOCUMENT_META[type]
                   const version = doc ? formatVersion(doc.version) : 'v1.0'
                   const updatedText = doc ? formatRelativeDate(doc.generatedAt) : '—'
 

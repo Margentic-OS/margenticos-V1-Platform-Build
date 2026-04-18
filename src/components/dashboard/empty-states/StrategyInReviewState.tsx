@@ -1,9 +1,11 @@
 import type { DocumentType } from '@/types'
+import { DOCUMENT_META, DOCUMENT_ORDER } from '@/lib/document-labels'
 
 export interface DocumentReviewStatus {
   type: DocumentType
   status: string | null
   version: string
+  hasPendingSuggestions: boolean
 }
 
 interface StrategyInReviewStateProps {
@@ -11,63 +13,27 @@ interface StrategyInReviewStateProps {
   documents: DocumentReviewStatus[]
 }
 
-const DOC_META: Record<DocumentType, { label: string; desc: string }> = {
-  icp: {
-    label: 'Prospect profile',
-    desc: 'Who your ideal clients are and why they buy',
-  },
-  positioning: {
-    label: 'Positioning',
-    desc: 'Your competitive edge and core value proposition',
-  },
-  tov: {
-    label: 'Voice guide',
-    desc: 'Tone, style, and communication rules',
-  },
-  messaging: {
-    label: 'Messaging',
-    desc: 'Email and LinkedIn outreach frameworks',
-  },
-}
 
-const DOC_ORDER: DocumentType[] = ['icp', 'positioning', 'tov', 'messaging']
-
-function getDocDisplay(doc: DocumentReviewStatus | undefined): {
+function getDocDisplay(doc: DocumentReviewStatus): {
   statusLabel: string
   pill: string
   dot: string
   text: string
 } {
-  if (!doc || !doc.status) {
-    return {
-      statusLabel: 'Queued',
-      pill: 'bg-[#F0ECE4]',
-      dot: 'bg-text-muted',
-      text: 'text-text-secondary',
-    }
-  }
-  if (doc.status === 'generating') {
-    return {
-      statusLabel: 'Generating',
-      pill: 'bg-[#FAEEDA]',
-      dot: 'bg-brand-amber',
-      text: 'text-[#7A4800]',
-    }
-  }
-  if (doc.status === 'pending_review') {
-    return {
-      statusLabel: 'In review',
-      pill: 'bg-[#FAEEDA]',
-      dot: 'bg-brand-amber',
-      text: 'text-[#7A4800]',
-    }
-  }
   if (doc.status === 'approved' || doc.status === 'active') {
     return {
       statusLabel: `Ready v${doc.version}`,
       pill: 'bg-[#EBF5E6]',
       dot: 'bg-brand-green-success',
       text: 'text-brand-green-success',
+    }
+  }
+  if (doc.status === 'generating' || doc.status === 'pending_review' || doc.hasPendingSuggestions) {
+    return {
+      statusLabel: 'In review',
+      pill: 'bg-[#FAEEDA]',
+      dot: 'bg-brand-amber',
+      text: 'text-[#7A4800]',
     }
   }
   return {
@@ -161,9 +127,9 @@ export function StrategyInReviewState({ orgName: _orgName, documents }: Strategy
               </p>
 
               <ul className="space-y-4">
-                {DOC_ORDER.map((type) => {
-                  const doc = docMap.get(type)
-                  const meta = DOC_META[type]
+                {DOCUMENT_ORDER.map((type) => {
+                  const doc = docMap.get(type)!
+                  const meta = DOCUMENT_META[type]
                   const display = getDocDisplay(doc)
 
                   return (
