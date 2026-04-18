@@ -1,7 +1,6 @@
 import type { Json } from '@/types/database'
 import type { IcpDocument, IcpTier } from '@/types'
 
-// Section heading with dark green left border accent — design.md spec.
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
     <h3 className="text-[14px] font-medium text-text-primary border-l-[3px] border-brand-green pl-3 mb-4">
@@ -34,16 +33,19 @@ function FieldRow({ label, value }: { label: string; value: string | string[] | 
 }
 
 function TierBlock({ tier, tierNum }: { tier: IcpTier; tierNum: 1 | 2 | 3 }) {
-  const tierLabel = tierNum === 1 ? 'Tier 1 — Primary target' : tierNum === 2 ? 'Tier 2 — Secondary target' : 'Tier 3 — Opportunistic'
+  const tierLabel =
+    tierNum === 1
+      ? 'Tier 1 — Primary target'
+      : tierNum === 2
+        ? 'Tier 2 — Secondary target'
+        : 'Tier 3 — Opportunistic'
 
   return (
     <div className="bg-surface-card border border-border-card rounded-[10px] p-5">
       <SectionHeading>{tierLabel}</SectionHeading>
 
       {tier.description && (
-        <p className="text-[13px] text-text-primary leading-relaxed mb-5">
-          {tier.description}
-        </p>
+        <p className="text-[13px] text-text-primary leading-relaxed mb-5">{tier.description}</p>
       )}
 
       <div className="grid grid-cols-2 gap-5 mb-5">
@@ -73,7 +75,6 @@ function TierBlock({ tier, tierNum }: { tier: IcpTier; tierNum: 1 | 2 | 3 }) {
       </div>
 
       <div className="border-t border-border-card pt-5 space-y-4">
-        {/* Four forces */}
         {tier.four_forces && (
           <div>
             <p className="text-[11px] font-medium text-text-secondary uppercase tracking-[0.06em] mb-3">
@@ -117,43 +118,46 @@ interface IcpDocumentViewProps {
 }
 
 export function IcpDocumentView({ content, plainText }: IcpDocumentViewProps) {
-  // Try to parse as structured IcpDocument first.
   const doc = content as Record<string, unknown>
   const hasStructured = doc && (doc.jtbd_statement || doc.tier_1 || doc.summary)
 
   if (!hasStructured) {
-    // Fall back to plain text rendering.
     return <PlainTextView text={plainText} />
   }
 
   const icp = doc as unknown as IcpDocument
 
   return (
-    <div className="space-y-5">
-      {/* JTBD statement — highlighted */}
-      {icp.jtbd_statement && (
-        <div className="bg-[#EAF3DE] border border-[#C0DD97] rounded-[10px] p-5">
-          <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-brand-green-success mb-2">
-            Job to be done
-          </p>
-          <p className="text-[14px] font-medium text-brand-green leading-relaxed">
-            {icp.jtbd_statement}
-          </p>
-        </div>
-      )}
+    <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-5 max-w-[960px]">
 
-      {/* Summary */}
-      {icp.summary && (
-        <div className="bg-surface-card border border-border-card rounded-[10px] p-5">
-          <SectionHeading>Summary</SectionHeading>
-          <p className="text-[13px] text-text-primary leading-[1.65]">{icp.summary}</p>
-        </div>
-      )}
+      {/* Left column — tier blocks */}
+      <div className="space-y-5">
+        {icp.tier_1 && <TierBlock tier={icp.tier_1} tierNum={1} />}
+        {icp.tier_2 && <TierBlock tier={icp.tier_2} tierNum={2} />}
+        {icp.tier_3 && <TierBlock tier={icp.tier_3} tierNum={3} />}
+      </div>
 
-      {/* Three tiers */}
-      {icp.tier_1 && <TierBlock tier={icp.tier_1} tierNum={1} />}
-      {icp.tier_2 && <TierBlock tier={icp.tier_2} tierNum={2} />}
-      {icp.tier_3 && <TierBlock tier={icp.tier_3} tierNum={3} />}
+      {/* Right column — JTBD + summary */}
+      <div className="space-y-4">
+        {icp.jtbd_statement && (
+          <div className="bg-[#EAF3DE] border border-[#C0DD97] rounded-[10px] p-5">
+            <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-brand-green-success mb-2">
+              Job to be done
+            </p>
+            <p className="text-[13px] font-medium text-brand-green leading-relaxed">
+              {icp.jtbd_statement}
+            </p>
+          </div>
+        )}
+        {icp.summary && (
+          <div className="bg-surface-card border border-border-card rounded-[10px] p-5">
+            <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-text-secondary mb-2">
+              Summary
+            </p>
+            <p className="text-[13px] text-text-primary leading-[1.65]">{icp.summary}</p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -161,7 +165,7 @@ export function IcpDocumentView({ content, plainText }: IcpDocumentViewProps) {
 function PlainTextView({ text }: { text: string | null }) {
   if (!text) {
     return (
-      <div className="bg-surface-card border border-border-card rounded-[10px] p-6">
+      <div className="bg-surface-card border border-border-card rounded-[10px] p-6 max-w-[640px]">
         <p className="text-[12px] text-text-secondary">
           Document content is being processed. Check back shortly.
         </p>
@@ -169,7 +173,7 @@ function PlainTextView({ text }: { text: string | null }) {
     )
   }
   return (
-    <div className="bg-surface-card border border-border-card rounded-[10px] p-6">
+    <div className="bg-surface-card border border-border-card rounded-[10px] p-6 max-w-[640px]">
       <p className="text-[13px] text-text-primary leading-[1.7] whitespace-pre-line">{text}</p>
     </div>
   )

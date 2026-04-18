@@ -7,6 +7,7 @@ import { IcpDocumentView } from '@/components/dashboard/strategy/IcpDocumentView
 import { PositioningDocumentView } from '@/components/dashboard/strategy/PositioningDocumentView'
 import { TovDocumentView } from '@/components/dashboard/strategy/TovDocumentView'
 import { getDocumentLabel, DOCUMENT_META } from '@/lib/document-labels'
+import { PrintButton } from '@/components/dashboard/strategy/PrintButton'
 import type { DocumentType } from '@/types'
 import type { Json } from '@/types/database'
 
@@ -85,17 +86,36 @@ export default async function StrategyDocumentPage({
         orgInitials={orgInitials}
       />
 
-      <div className="flex-1 overflow-y-auto bg-surface-content">
-        <div className="px-7 py-7 max-w-[820px]">
+      <div className="flex-1 overflow-y-auto print:overflow-visible bg-surface-content">
+        <div className="px-7 py-7">
+          {/* Print-only header with MargenticOS branding */}
+          {doc && (
+            <div className="hidden print:block mb-6 pb-4 border-b border-gray-200">
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">MargenticOS</p>
+              <h1 className="text-[20px] font-medium text-gray-900">{docLabel}</h1>
+              <p className="text-[11px] text-gray-500 mt-1">
+                v{doc.version} · Generated{' '}
+                {new Date(doc.generated_at ?? doc.last_updated_at).toLocaleDateString('en-GB', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </p>
+            </div>
+          )}
+
           {!doc ? (
             <NotYetGeneratedState docLabel={docLabel} docType={docType} />
           ) : (
             <>
-              <DocumentHeader
-                version={doc.version}
-                updatedAt={doc.last_updated_at}
-                updateTrigger={doc.update_trigger}
-              />
+              <div className="flex items-center justify-between mb-4 print:hidden">
+                <DocumentHeader
+                  version={doc.version}
+                  updatedAt={doc.last_updated_at}
+                  updateTrigger={doc.update_trigger}
+                />
+                <PrintButton />
+              </div>
               <DocumentContent
                 docType={docType}
                 content={doc.content}

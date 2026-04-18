@@ -59,7 +59,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState }: SidebarPr
   }
 
   return (
-    <aside className="w-[210px] min-h-screen bg-brand-green flex flex-col shrink-0">
+    <aside className="w-[210px] min-h-screen bg-brand-green flex flex-col shrink-0 print:hidden">
       {/* Wordmark */}
       <div className="px-5 pt-6 pb-4">
         <span className="text-[#F5F0E8] text-[15px] font-medium tracking-[-0.01em]">

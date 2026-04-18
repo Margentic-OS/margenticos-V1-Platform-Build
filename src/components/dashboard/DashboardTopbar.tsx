@@ -41,7 +41,7 @@ export function DashboardTopbar({
   const s = STATUS_STYLES[statusVariant]
 
   return (
-    <header className="h-14 bg-surface-content border-b border-border-card flex items-center justify-between px-7 shrink-0">
+    <header className="h-14 bg-surface-content border-b border-border-card flex items-center justify-between px-7 shrink-0 print:hidden">
       <div>
         <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-text-secondary mb-[2px]">
           {eyebrow}
