@@ -8,6 +8,22 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   )
 }
 
+interface MoorePositioning {
+  compressed_positioning_statement?: string
+  full_positioning_statement?: string
+}
+
+interface UniqueAttribute {
+  // New schema fields
+  what_it_is?: string
+  why_competitors_cannot_claim_it?: string
+  client_outcome?: string
+  // Legacy schema fields — retained for backward compat with pre-existing approved documents
+  attribute?: string
+  why_alternatives_lack_it?: string
+  verifiable_signal?: string
+}
+
 interface MarketCategory {
   chosen_category?: string
   why_this_frame?: string
@@ -32,7 +48,11 @@ interface ValueTheme {
 interface PositioningDoc {
   positioning_summary?: string
   core_message?: string
+  // New schema: object with compressed + full versions
+  moore_positioning?: MoorePositioning
+  // Legacy schema: single string — retained for backward compat with pre-existing approved documents
   moore_statement?: string
+  unique_attributes?: UniqueAttribute[]
   target_customer?: string | null
   market_category?: MarketCategory | string | null
   unique_value?: string | null
@@ -74,6 +94,7 @@ export function PositioningDocumentView({ content, plainText }: PositioningDocum
   const hasStructured =
     doc &&
     (doc.positioning_summary ||
+      doc.moore_positioning ||
       doc.moore_statement ||
       doc.core_message ||
       doc.market_category ||
@@ -95,14 +116,78 @@ export function PositioningDocumentView({ content, plainText }: PositioningDocum
       {/* Left column — main content */}
       <div className="space-y-5">
 
-        {/* Moore statement */}
-        {doc.moore_statement && (
+        {/* Moore positioning — new schema: compressed + full */}
+        {doc.moore_positioning && (
+          <div className="bg-surface-card border border-border-card rounded-[10px] p-5">
+            <SectionHeading>Positioning statement</SectionHeading>
+            {doc.moore_positioning.compressed_positioning_statement && (
+              <div className="bg-[#EAF3DE] border border-[#C0DD97] rounded-[8px] px-4 py-3.5 mb-4">
+                <p className="text-[10px] uppercase tracking-[0.07em] text-brand-green-success mb-2">
+                  Core positioning
+                </p>
+                <p className="text-[13px] font-medium text-brand-green leading-[1.65] italic">
+                  &ldquo;{doc.moore_positioning.compressed_positioning_statement}&rdquo;
+                </p>
+              </div>
+            )}
+            {doc.moore_positioning.full_positioning_statement && (
+              <div className="bg-surface-content rounded-[8px] px-4 py-3.5">
+                <p className="text-[12px] text-text-primary leading-[1.65]">
+                  {doc.moore_positioning.full_positioning_statement}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Moore statement — legacy schema: single string */}
+        {!doc.moore_positioning && doc.moore_statement && (
           <div className="bg-surface-card border border-border-card rounded-[10px] p-5">
             <SectionHeading>Positioning statement</SectionHeading>
             <div className="bg-surface-content rounded-[8px] px-4 py-3.5">
               <p className="text-[13px] text-text-primary leading-[1.65] italic">
                 &ldquo;{doc.moore_statement}&rdquo;
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Unique attributes */}
+        {doc.unique_attributes && doc.unique_attributes.length > 0 && (
+          <div className="bg-surface-card border border-border-card rounded-[10px] p-5">
+            <SectionHeading>Unique attributes</SectionHeading>
+            <div className="space-y-4">
+              {doc.unique_attributes.map((attr, i) => {
+                // Support both new field names and legacy field names
+                const label = attr.what_it_is ?? attr.attribute
+                const differentiation = attr.why_competitors_cannot_claim_it ?? attr.why_alternatives_lack_it
+                const outcome = attr.client_outcome ?? attr.verifiable_signal
+                return (
+                  <div key={i} className="bg-surface-content rounded-[8px] px-4 py-3.5">
+                    {label && (
+                      <p className="text-[12px] font-medium text-text-primary mb-2">{label}</p>
+                    )}
+                    {differentiation && (
+                      <div className="mb-2">
+                        <p className="text-[9px] uppercase tracking-[0.07em] text-text-muted mb-1">
+                          Why competitors cannot claim it
+                        </p>
+                        <p className="text-[11px] text-text-secondary leading-relaxed">
+                          {differentiation}
+                        </p>
+                      </div>
+                    )}
+                    {outcome && (
+                      <div>
+                        <p className="text-[9px] uppercase tracking-[0.07em] text-text-muted mb-1">
+                          Client outcome
+                        </p>
+                        <p className="text-[11px] text-text-primary leading-relaxed">{outcome}</p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
