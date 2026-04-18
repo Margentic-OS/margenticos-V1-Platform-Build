@@ -284,11 +284,15 @@ interface MessagingDocumentViewProps {
 export function MessagingDocumentView({ content }: MessagingDocumentViewProps) {
   const raw = content as MessagingContent
 
+  // ADR-012: approve_document_suggestion unwraps { emails: [...] } and stores
+  // the bare array as content. Normalise it before the object-based checks below.
+  const directArray = Array.isArray(content) ? (content as unknown as EmailRecord[]) : null
+
   // Unwrap messaging_playbook wrapper if present (old format)
   const doc: MessagingContent = raw.messaging_playbook ?? raw
 
   // New format: { emails: [...] }
-  const newFormatEmails = doc.emails
+  const newFormatEmails = directArray ?? doc.emails
 
   // Old format: { cold_email_sequence: { email_1: {...}, ... } }
   const legacySequence = doc.cold_email_sequence
