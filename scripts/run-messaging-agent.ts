@@ -110,7 +110,7 @@ async function main() {
   console.log('  MargenticOS — Messaging Generation Agent')
   console.log('================================================')
   console.log(`  Org:     MargenticOS`)
-  console.log(`  Model:   claude-opus-4-6`)
+  console.log(`  Model:   claude-sonnet-4-6`)
   console.log(`  Started: ${startedAt.toLocaleTimeString()}`)
   console.log(`  Timeout: 5 minutes (retries once if hit)`)
   console.log('================================================')
@@ -127,7 +127,7 @@ async function main() {
   // ── Stage 2: run agent ──────────────────────────────────────────────────────
   console.log('[2/4] Running agent...')
   console.log('      Fetching intake responses and strategy documents from database.')
-  console.log('      Then calling claude-opus-4-6 to generate the 4-email sequence.')
+  console.log('      Then calling claude-sonnet-4-6 to generate the 4-email sequence.')
   console.log('      A heartbeat shows every 20 seconds while the API call is in flight.\n')
 
   const heartbeatStart = Date.now()
