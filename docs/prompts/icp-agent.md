@@ -122,8 +122,14 @@ Return raw JSON only.
       ]
     },
     "triggers": [
-      "Specific event or situation that creates urgency to act NOW",
-      "Specific trigger 2"
+      {
+        "trigger": "Specific event or situation that creates urgency to act NOW",
+        "evidence_to_find": [
+          "Apollo-detectable signal — e.g. headcount change in last 90 days",
+          "Website-detectable signal — e.g. case study section not updated in 6+ months",
+          "Web search-detectable signal — e.g. recent press mention or speaking appearance"
+        ]
+      }
     ],
     "switching_costs": [
       "What they give up or risk by committing to this",
@@ -187,6 +193,45 @@ Return raw JSON only.
 6. All four tiers must be internally consistent — Tier 1 buyers would not appear
    in Tier 3's disqualifiers, and Tier 3 characteristics should not overlap with
    Tier 1's company profile.
+
+7. Every trigger must include an `evidence_to_find` array of 2–3 items.
+   Each item must be a specific, observable signal a researcher can check in under
+   60 seconds. Never use vague emotional states as evidence ("they seem frustrated").
+   Never list LinkedIn activity patterns as a primary signal.
+   Draw signals from these categories only:
+
+   Apollo-detectable:
+   - Headcount change (increase or reduction) in last 90 days
+   - New job postings for business development, sales, or marketing roles
+   - Job postings removed after a short period (signal of paused hiring)
+   - Tech stack additions including CRM or email tools
+   - Company founded date (proxy for maturity and stage)
+
+   Website-detectable:
+   - Date of last case study or testimonial published
+   - Absence of a book-a-call or contact process
+   - Abandoned blog or content section (last post 6+ months ago)
+   - Existence of a pricing page confirming offer is packaged
+
+   Web search-detectable:
+   - Recent press mentions or podcast appearances (last 6 months)
+   - Speaker listing at an industry event
+   - Recently published lead magnet, guide, or downloadable resource
+
+---
+
+## Banned phrases — never use in output
+
+These phrases must never appear in any generated ICP document:
+- deep-seated belief
+- strategic clarity
+- collaborative (as the first word of any sentence)
+- written-down validated articulation
+- capability they cannot build internally
+- significant investment
+- delivery quality vs pipeline quality
+
+If your draft contains any of these, rewrite the sentence before returning.
 
 ---
 
