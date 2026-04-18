@@ -211,14 +211,29 @@ export async function runMessagingGenerationAgent(
     )
   }
 
-  // Step 10: Write a single row to document_suggestions — never to strategy_documents directly.
-  // All four emails are stored as a structured array inside suggested_value.
-  // This matches the full_document pattern used by every other document generation agent.
+  // Step 10: Post-process — auto-fix em dashes, then validate before writing.
+  // Category A fixes are applied silently and logged. Category B violations abort the run.
+  const { emails: fixedEmails, totalReplacements, perEmail } = applyEmDashFixes(emails)
+  if (totalReplacements > 0) {
+    const detail = Object.entries(perEmail)
+      .map(([pos, n]) => `email ${pos} (${n})`)
+      .join(', ')
+    console.log(`Post-processing: replaced ${totalReplacements} em dash(es) across ${detail}`)
+  }
+
+  const violations = validateEmails(fixedEmails, preflight.sender_first_name)
+  if (violations.length > 0) {
+    const error = new MessagingValidationError(violations, fixedEmails)
+    await saveFailedGeneration(fixedEmails, violations, organisation_id)
+    throw error
+  }
+
+  // Step 11: Write validated (and auto-fixed) content to document_suggestions.
   const suggestionId = await writeDocumentSuggestion(supabase, {
     organisation_id,
     requiredDocs,
     existingDocument,
-    emails,
+    emails: fixedEmails,
     intake,
     completeness,
     is_refresh,
@@ -617,6 +632,162 @@ async function loadSystemPrompt(): Promise<string> {
   } catch (err) {
     throw new Error(`Messaging agent: failed to load system prompt — ${String(err)}`)
   }
+}
+
+// ─── Post-processing validation ──────────────────────────────────────────────
+
+interface ValidationViolation {
+  email: number
+  issue: string
+}
+
+class MessagingValidationError extends Error {
+  constructor(
+    public readonly violations: ValidationViolation[],
+    public readonly emails: EmailRecord[]
+  ) {
+    const lines = violations.map(v => `  Email ${v.email}: ${v.issue}`)
+    super(`Messaging agent: post-processing validation failed.\n${lines.join('\n')}`)
+    this.name = 'MessagingValidationError'
+  }
+}
+
+// Category A: replace em dashes with period or comma based on what follows.
+// Lowercase start after the dash = dependent clause -> comma. Otherwise -> period.
+function applyEmDashFixes(emails: EmailRecord[]): {
+  emails: EmailRecord[]
+  totalReplacements: number
+  perEmail: Record<number, number>
+} {
+  const perEmail: Record<number, number> = {}
+  let totalReplacements = 0
+
+  const fixed = emails.map(email => {
+    let count = 0
+    const fixedBody = email.body.replace(
+      /\s*—\s*/g,
+      (match: string, offset: number, str: string) => {
+        count++
+        const firstCharAfter = str.slice(offset + match.length).trimStart()[0] ?? ''
+        const isLower =
+          firstCharAfter.length > 0 &&
+          firstCharAfter === firstCharAfter.toLowerCase() &&
+          firstCharAfter !== firstCharAfter.toUpperCase()
+        return isLower ? ', ' : '. '
+      }
+    )
+    if (count > 0) {
+      perEmail[email.sequence_position] = count
+      totalReplacements += count
+    }
+    return { ...email, body: fixedBody.trim() }
+  })
+
+  return { emails: fixed, totalReplacements, perEmail }
+}
+
+// Category B: collect all violations across all four emails. Returns empty array if clean.
+function validateEmails(
+  emails: EmailRecord[],
+  senderFirstName: string
+): ValidationViolation[] {
+  const violations: ValidationViolation[] = []
+
+  for (const email of emails) {
+    const pos = email.sequence_position
+    const body = email.body
+    const nonEmptyLines = body.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+
+    // B1: old merge tag format
+    if (body.includes('[FIRST_NAME]')) {
+      violations.push({ email: pos, issue: 'contains old [FIRST_NAME] merge tag — must be {{first_name}}' })
+    }
+
+    // B2: I/We opener — check the first substantive line after {{first_name}}
+    const firstNameIdx = nonEmptyLines.findIndex(l => l === '{{first_name}}')
+    const openerLine = firstNameIdx >= 0
+      ? (nonEmptyLines[firstNameIdx + 1] ?? '')
+      : (nonEmptyLines[0] ?? '')
+    if (/^(i|we)\s/i.test(openerLine)) {
+      violations.push({
+        email: pos,
+        issue: `opener starts with "${openerLine.split(' ')[0]}" — I/We openers are banned`,
+      })
+    }
+
+    // B3–B6: word counts
+    const wc = email.word_count
+    if (pos === 1 && wc > 100) violations.push({ email: pos, issue: `word count ${wc} exceeds 100-word limit` })
+    if (pos === 2 && wc > 75)  violations.push({ email: pos, issue: `word count ${wc} exceeds 75-word limit` })
+    if (pos === 3 && wc > 75)  violations.push({ email: pos, issue: `word count ${wc} exceeds 75-word limit` })
+    if (pos === 4 && (wc < 30 || wc > 50)) {
+      violations.push({ email: pos, issue: `word count ${wc} is outside the 30–50 word range` })
+    }
+
+    // B7: emails 2 and 3 must have null subject lines
+    if ((pos === 2 || pos === 3) && email.subject_line !== null) {
+      violations.push({
+        email: pos,
+        issue: `subject line must be null for threading, got "${email.subject_line}"`,
+      })
+    }
+
+    // B8: email 4 subject line ≤ 9 chars
+    if (pos === 4 && email.subject_line !== null && email.subject_line.length > 9) {
+      violations.push({
+        email: pos,
+        issue: `subject line "${email.subject_line}" is ${email.subject_line.length} chars, limit is 9`,
+      })
+    }
+
+    // B9: sign-off — final non-empty line must be the sender's first name
+    const lastLine = nonEmptyLines[nonEmptyLines.length - 1] ?? ''
+    if (lastLine.toLowerCase() !== senderFirstName.toLowerCase()) {
+      violations.push({
+        email: pos,
+        issue: `missing or incorrect sign-off — last line is "${lastLine}", expected "${senderFirstName}"`,
+      })
+    }
+
+    // B10: banned words — must not reference AI, bots, or automation
+    const bannedMatch = body.match(/\bAI\b|\bautomated\b|\bbot\b|artificial intelligence/i)
+    if (bannedMatch) {
+      violations.push({
+        email: pos,
+        issue: `contains banned word "${bannedMatch[0]}" — must not reference AI, automation, or bots`,
+      })
+    }
+  }
+
+  return violations
+}
+
+async function saveFailedGeneration(
+  emails: EmailRecord[],
+  violations: ValidationViolation[],
+  organisation_id: string
+): Promise<void> {
+  const { mkdir, writeFile } = await import('fs/promises')
+  const { join } = await import('path')
+
+  const dir = join(process.cwd(), 'logs', 'messaging-agent-failures')
+  await mkdir(dir, { recursive: true })
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const filePath = join(dir, `${timestamp}.json`)
+
+  await writeFile(
+    filePath,
+    JSON.stringify(
+      { organisation_id, timestamp: new Date().toISOString(), violations, emails },
+      null,
+      2
+    ),
+    'utf-8'
+  )
+
+  logger.info('Messaging agent: failed generation saved to disk', { path: filePath })
+  console.log(`Post-processing: failure log saved to ${filePath}`)
 }
 
 // ─── Write to document_suggestions ───────────────────────────────────────────
