@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Sidebar } from '@/components/dashboard/Sidebar'
@@ -50,6 +51,15 @@ export default async function DashboardLayout({
     redirect('/login')
   }
 
+  // Check whether the current user is an operator viewing the client experience
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  const isOperator = userRow?.role === 'operator'
+
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, pipeline_unlocked')
@@ -66,7 +76,26 @@ export default async function DashboardLayout({
         pipelineUnlocked={org?.pipeline_unlocked ?? false}
         dashboardState={dashboardState}
       />
-      <div className="flex-1 flex flex-col min-w-0">{children}</div>
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Banner shown when an operator is viewing the client experience */}
+        {isOperator && (
+          <div className="flex items-center justify-between px-7 py-2 bg-[#FEF7E6] border-b border-[#F0D080] shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-amber shrink-0" />
+              <span className="text-[11px] text-[#7A4800]">
+                You are viewing the client experience
+              </span>
+            </div>
+            <Link
+              href="/dashboard/operator"
+              className="text-[11px] font-medium text-[#7A4800] hover:underline"
+            >
+              Return to operator view →
+            </Link>
+          </div>
+        )}
+        {children}
+      </div>
     </div>
   )
 }
