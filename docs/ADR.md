@@ -523,3 +523,96 @@ CLAUDE.md model selection table reflects current state (Sonnet for messaging).
 When Anthropic releases a new model family, update agent files directly and record
 the change here — do not rely on CLAUDE.md as a change trigger.
 
+---
+
+## ADR-014 — Sequence composition approach: multi-variant template rotation with generated mode planned
+Date: April 2026 | Status: Accepted
+
+Context:
+The prospect research agent produces a personalisation trigger per prospect using the
+Trigger-Bridge-Value framework. A decision was needed on how that trigger is used to
+compose the outbound email sequence for each prospect. Three original options were
+evaluated (trigger replaces opener, trigger injected as sentence, per-prospect
+generation), then refined through analysis into two viable approaches.
+
+Decision:
+Implement Option E — multi-variant template rotation — as the default composition mode
+for all clients. Option D — per-prospect generated sequences — is specced as a named
+future mode, togglable per client, with explicit prerequisites before it can be enabled.
+
+Option E — what gets built now:
+The messaging agent generates four distinct sequence variants at document generation
+time, not one. Each variant covers the same ICP and offer but uses a different angle,
+opening approach, or CTA structure. All four variants go through the existing approval
+flow — the operator reviews and approves all four sequences before any prospect
+receives them.
+
+At send time, the composition handler assigns a variant to each prospect (round-robin
+rotation initially, performance-weighted rotation once signal data exists). The prospect
+research agent's trigger is applied to email 1's opener of the assigned variant. Emails
+2–4 are fixed within the variant.
+
+A variant_id field is added to the prospects table to track which variant each prospect
+received. Reply rate and meeting conversion are tracked per variant via the existing
+signals table. Variant performance surfaces in the operator view signals log.
+
+Option D — specced for future use:
+Option D is a second composition mode where the sequence is generated fresh per prospect
+at send time, using the trigger and the approved variant as structural constraints.
+Every prospect receives unique copy across all four emails.
+
+Option D is not built now. The risks that preclude it at this stage are:
+The quality gate is insufficient. The post-processor catches formatting issues, not copy
+quality. Per-prospect generated sequences cannot be reviewed before sending at volume.
+Without a strong automated quality gate, slop reaches prospects' inboxes undetected.
+The Haiku critic pass is not yet built. This is the prerequisite quality gate for
+Option D — a structured evaluation of generated sequences against TOV compliance,
+messaging rules, and quality standards before sequences are approved to send. It is
+currently in the pre-client-zero gates and must be built and validated before Option D
+is enabled for any client.
+
+When Option D is ready to test, it is enabled via a per-client toggle in the operator
+settings view: "Sequence generation: Template / Generated." Default for all clients is
+Template. The toggle is only switched for a designated test client. All other clients
+remain on Option E.
+
+Prerequisites before Option D can be enabled for any client:
+- Haiku critic pass built and validated against client zero output
+- Post-processor extended to evaluate generated sequences, not just template sequences
+- Generation prompt validated against minimum quality bar (defined by variant
+  performance data from Option E)
+- Operator approval flow confirmed to surface generated sequences before send
+
+Reasoning:
+Option E deploys AI-generated copy that has been reviewed and approved before any
+prospect sees it. The quality floor is whatever passes the approval flow. The ceiling
+is limited by variant rigidity in emails 2–4, but that is a known and manageable
+limitation at founding client volumes.
+
+Option D's quality floor is whatever the model produces at send time, gated only by
+the post-processor. That gate is not strong enough yet. The risk is not AI-generated
+copy — it is ungated AI-generated copy reaching prospects before a sufficient quality
+gate exists. That risk is not mitigated by time or by having more clients — it is
+mitigated by building the Haiku critic pass and validating it against real output.
+
+The per-client toggle means Option D can be tested on one client without exposing all
+clients. The architectural cost of adding the toggle later is minimal — the composition
+handler already exists, the settings UI already exists.
+
+Rejected alternatives:
+- Option A (trigger replaces email 1 opener, single template): rejected because
+  identical emails 2–4 across all prospects on a single sequence is a domain reputation
+  risk at scale and provides no directional performance signal.
+- Option B (trigger injected as sentence): rejected as a subset of Option A's
+  limitations with an additional structural awkwardness at the seam.
+- Option C (per-prospect generation of email 1 only): rejected as the worst of both
+  worlds — pays the generation cost but only personalises one email.
+
+Consequences:
+The messaging agent prompt must be updated to generate four variant sequences instead
+of one. The approval UI must handle four variants per client. The prospects table
+requires a variant_id field. The composition handler reads the assigned variant and
+applies the trigger to email 1. Variant performance is tracked via the existing signals
+infrastructure. The operator settings view gets a "Sequence generation" toggle,
+defaulting to Template for all clients.
+
