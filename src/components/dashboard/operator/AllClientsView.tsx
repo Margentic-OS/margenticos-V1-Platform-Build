@@ -1,15 +1,16 @@
-// OPERATOR ONLY — payment_status, contract_status, and engagement_month displayed
-// here must NEVER appear in client-facing queries or components. These fields are
-// operator-only and exist solely for Doug's operational visibility.
+// OPERATOR ONLY — payment_status, contract_status, engagement_month, and
+// pendingApprovals displayed here must NEVER appear in client-facing queries
+// or components. These fields exist solely for Doug's operational visibility.
 
 export interface ClientSummary {
   id: string
   name: string
   pipeline_unlocked: boolean
-  // TODO: Add payment_status and contract_status when columns are added to the
-  // organisations table. These are operator-only fields and must never be exposed
-  // to client-facing queries or components.
   engagement_month: number | null
+  // Operator-only fields — never expose in client-facing queries or components
+  payment_status: string | null
+  contract_status: string | null
+  pendingApprovals: number
 }
 
 interface AllClientsViewProps {
@@ -67,33 +68,61 @@ function ClientRow({ client }: { client: ClientSummary }) {
       </div>
 
       {/* Payment status — OPERATOR ONLY, never shown in client-facing components */}
-      {/* TODO: Query payment_status from organisations table when column is added */}
       <div className="shrink-0 text-right w-24">
         <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-0.5">
           Payment
         </p>
-        <p className="text-[12px] font-medium text-brand-green-success">
-          Current
+        <p className={`text-[12px] font-medium ${
+          client.payment_status === 'overdue'
+            ? 'text-[#8B2020]'
+            : client.payment_status === 'current'
+            ? 'text-brand-green-success'
+            : 'text-text-muted'
+        }`}>
+          {client.payment_status === 'overdue'
+            ? 'Overdue'
+            : client.payment_status === 'current'
+            ? 'Current'
+            : '—'}
         </p>
       </div>
 
       {/* Contract status — OPERATOR ONLY, never shown in client-facing components */}
-      {/* TODO: Query contract_status from organisations table when column is added */}
       <div className="shrink-0 text-right w-24">
         <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-0.5">
           Contract
         </p>
-        <p className="text-[12px] font-medium text-text-primary">
-          Active
+        <p className={`text-[12px] font-medium ${
+          client.contract_status === 'churned'
+            ? 'text-[#8B2020]'
+            : client.contract_status === 'paused'
+            ? 'text-[#7A4800]'
+            : client.contract_status === 'active'
+            ? 'text-text-primary'
+            : 'text-text-muted'
+        }`}>
+          {client.contract_status === 'active'
+            ? 'Active'
+            : client.contract_status === 'paused'
+            ? 'Paused'
+            : client.contract_status === 'churned'
+            ? 'Churned'
+            : '—'}
         </p>
       </div>
 
-      {/* Pending approvals — TODO: join with document_suggestions count per org */}
+      {/* Pending approvals — live count from document_suggestions, queried server-side */}
       <div className="shrink-0 w-24 text-right">
         <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-0.5">
           Approvals
         </p>
-        <p className="text-[12px] font-medium text-text-muted">—</p>
+        {client.pendingApprovals > 0 ? (
+          <p className="text-[12px] font-medium text-[#7A4800]">
+            {client.pendingApprovals} pending
+          </p>
+        ) : (
+          <p className="text-[12px] font-medium text-text-muted">—</p>
+        )}
       </div>
 
       {/* View action */}

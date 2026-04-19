@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Sidebar } from '@/components/dashboard/Sidebar'
@@ -42,6 +43,19 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
+  // Read the pathname injected by middleware so we can skip the client layout
+  // for /dashboard/operator/* routes — those routes have their own layout and
+  // must not inherit the client sidebar or the "viewing client experience" banner.
+  const headersList = await headers()
+  const pathname = headersList.get('x-pathname') ?? ''
+  const isOperatorRoute = pathname.startsWith('/dashboard/operator')
+
+  // Operator routes have their own layout — pass children through untouched.
+  // Auth is enforced by /dashboard/operator/layout.tsx for those routes.
+  if (isOperatorRoute) {
+    return <>{children}</>
+  }
+
   const supabase = await createClient()
   const {
     data: { user },
@@ -51,7 +65,8 @@ export default async function DashboardLayout({
     redirect('/login')
   }
 
-  // Check whether the current user is an operator viewing the client experience
+  // Check whether the current user is an operator viewing the client experience.
+  // This runs only on genuine client routes (/dashboard, /dashboard/pipeline, etc.).
   const { data: userRow } = await supabase
     .from('users')
     .select('role')
@@ -77,7 +92,9 @@ export default async function DashboardLayout({
         dashboardState={dashboardState}
       />
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Banner shown when an operator is viewing the client experience */}
+        {/* Banner shown only when an operator has clicked "View as client" and is
+            on a genuine client route. Never shown on /dashboard/operator/* — those
+            routes are caught by the isOperatorRoute check above and short-circuit. */}
         {isOperator && (
           <div className="flex items-center justify-between px-7 py-2 bg-[#FEF7E6] border-b border-[#F0D080] shrink-0">
             <div className="flex items-center gap-2">

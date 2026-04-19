@@ -20,19 +20,35 @@ export default async function OperatorPage() {
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
-  // Fetch all client organisations with the fields available in the current schema
-  // TODO: Add payment_status and contract_status to this query when those columns
-  // are added to the organisations table.
-  const { data: orgs } = await supabase
-    .from('organisations')
-    .select('id, name, pipeline_unlocked, engagement_month')
-    .order('name')
+  // Fetch all client organisations and pending approval counts in parallel.
+  // Explicit client_id filter on the suggestions query — do not rely on RLS alone.
+  const [{ data: orgs }, { data: suggestions }] = await Promise.all([
+    supabase
+      .from('organisations')
+      .select('id, name, pipeline_unlocked, engagement_month, payment_status, contract_status')
+      .order('name'),
+    supabase
+      .from('document_suggestions')
+      .select('organisation_id')
+      .eq('status', 'pending'),
+  ])
+
+  // Build a per-org pending count from the flat suggestions list — single query, no N+1.
+  const approvalCounts: Record<string, number> = {}
+  for (const row of suggestions ?? []) {
+    if (row.organisation_id) {
+      approvalCounts[row.organisation_id] = (approvalCounts[row.organisation_id] ?? 0) + 1
+    }
+  }
 
   const clients: ClientSummary[] = (orgs ?? []).map(o => ({
     id: o.id,
     name: o.name,
     pipeline_unlocked: o.pipeline_unlocked ?? false,
     engagement_month: o.engagement_month ?? null,
+    payment_status: o.payment_status ?? null,
+    contract_status: o.contract_status ?? null,
+    pendingApprovals: approvalCounts[o.id] ?? 0,
   }))
 
   return (
