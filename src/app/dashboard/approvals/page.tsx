@@ -28,7 +28,7 @@ export default async function ApprovalsPage() {
   // ── 3. Fetch pending suggestions across all clients ────────────────────────
   const { data: raw } = await supabase
     .from('document_suggestions')
-    .select('id, document_type, field_path, current_value, suggested_value, suggestion_reason, organisations(name)')
+    .select('id, organisation_id, document_type, field_path, current_value, suggested_value, suggestion_reason, organisations(name)')
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
 

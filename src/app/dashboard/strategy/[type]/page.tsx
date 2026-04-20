@@ -8,6 +8,7 @@ import { PositioningDocumentView } from '@/components/dashboard/strategy/Positio
 import { TovDocumentView } from '@/components/dashboard/strategy/TovDocumentView'
 import { getDocumentLabel, DOCUMENT_META } from '@/lib/document-labels'
 import { PrintButton } from '@/components/dashboard/strategy/PrintButton'
+import { RegenerateButton } from '@/components/dashboard/strategy/RegenerateButton'
 import type { DocumentType } from '@/types'
 import type { Json } from '@/types/database'
 
@@ -114,7 +115,10 @@ export default async function StrategyDocumentPage({
                   updatedAt={doc.last_updated_at}
                   updateTrigger={doc.update_trigger}
                 />
-                <PrintButton />
+                <div className="flex items-center gap-4">
+                  <RegenerateButton clientId={org.id} docType={docType} />
+                  <PrintButton />
+                </div>
               </div>
               <DocumentContent
                 docType={docType}

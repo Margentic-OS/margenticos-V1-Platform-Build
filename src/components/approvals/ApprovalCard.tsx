@@ -6,6 +6,7 @@ import { useState } from 'react'
 
 export type PendingSuggestion = {
   id: string
+  organisation_id: string
   document_type: string
   field_path: string
   current_value: string | null
@@ -560,23 +561,63 @@ type Props = {
 }
 
 export default function ApprovalCard({ suggestion, onResolved }: Props) {
-  const [loading, setLoading] = useState<'approve' | 'reject' | null>(null)
+  const [loading, setLoading] = useState<'approve' | 'reject' | 'regenerate' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [showRejectForm, setShowRejectForm] = useState(false)
+  const [rejectionReason, setRejectionReason] = useState('')
+  const [confirmedMessage, setConfirmedMessage] = useState<string | null>(null)
 
-  async function handleAction(action: 'approve' | 'reject') {
-    setLoading(action)
+  async function handleApprove() {
+    setLoading('approve')
     setError(null)
-
-    const res = await fetch(`/api/suggestions/${suggestion.id}/${action}`, { method: 'POST' })
-
+    const res = await fetch(`/api/suggestions/${suggestion.id}/approve`, { method: 'POST' })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       setError((body as { error?: string }).error ?? 'Something went wrong. Try again.')
       setLoading(null)
       return
     }
-
     onResolved(suggestion.id)
+  }
+
+  async function handleConfirmReject() {
+    setLoading('reject')
+    setError(null)
+    const res = await fetch(`/api/suggestions/${suggestion.id}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rejection_reason: rejectionReason }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setError((body as { error?: string }).error ?? 'Something went wrong. Try again.')
+      setLoading(null)
+      return
+    }
+    onResolved(suggestion.id)
+  }
+
+  async function handleRejectAndRegenerate() {
+    setLoading('regenerate')
+    setError(null)
+    const res = await fetch('/api/suggestions/regenerate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        suggestion_id: suggestion.id,
+        client_id: suggestion.organisation_id,
+        document_type: suggestion.document_type,
+        rejection_reason: rejectionReason,
+      }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setError((body as { error?: string }).error ?? 'Something went wrong. Try again.')
+      setLoading(null)
+      return
+    }
+    setConfirmedMessage('Rejected. New suggestion generating — check back shortly.')
+    setTimeout(() => onResolved(suggestion.id), 3000)
   }
 
   const docLabel = DOC_TYPE_LABELS[suggestion.document_type] ?? suggestion.document_type
@@ -652,23 +693,63 @@ export default function ApprovalCard({ suggestion, onResolved }: Props) {
           </p>
         )}
 
+        {/* Post-regenerate confirmation message */}
+        {confirmedMessage && (
+          <p className="text-xs text-[#7A4800] bg-[#FEF7E6] border border-[#F0D080] rounded-[6px] px-3 py-2">
+            {confirmedMessage}
+          </p>
+        )}
+
+        {/* Inline rejection form */}
+        {showRejectForm && !confirmedMessage && (
+          <div className="bg-[#FEF7E6] border border-[#F0D080] rounded-[8px] px-4 py-3 space-y-3">
+            <p className="text-[11px] text-[#7A4800] font-medium">Reason for rejection (optional)</p>
+            <input
+              type="text"
+              value={rejectionReason}
+              onChange={e => setRejectionReason(e.target.value)}
+              placeholder="e.g. tone is off, variant B opener too salesy"
+              disabled={isLoading}
+              className="w-full bg-white border border-[#E8E2D8] rounded-[10px] px-3 py-2 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-[#A8D4B8] disabled:opacity-50"
+            />
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={handleConfirmReject}
+                disabled={isLoading}
+                className="flex-1 py-2 rounded-full text-[12px] font-medium text-text-primary bg-white border border-[#C8C3B8] hover:border-[#EFBCAA] hover:text-[#8B2020] disabled:opacity-40 transition-colors"
+              >
+                {loading === 'reject' ? 'Rejecting…' : 'Confirm rejection'}
+              </button>
+              <button
+                onClick={handleRejectAndRegenerate}
+                disabled={isLoading}
+                className="flex-1 py-2 rounded-full text-[12px] font-medium text-white bg-[#1C3A2A] hover:bg-[#152e21] disabled:opacity-40 transition-colors"
+              >
+                {loading === 'regenerate' ? 'Queuing…' : 'Reject and regenerate →'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
-        <div className="flex items-center gap-3 pt-1">
-          <button
-            onClick={() => handleAction('reject')}
-            disabled={isLoading}
-            className="flex-1 py-2.5 rounded-full text-sm font-medium text-text-primary border border-border-card hover:bg-[#FDEEE8] hover:border-[#EFBCAA] hover:text-[#8B2020] disabled:opacity-40 transition-colors"
-          >
-            {loading === 'reject' ? 'Rejecting…' : 'Reject'}
-          </button>
-          <button
-            onClick={() => handleAction('approve')}
-            disabled={isLoading}
-            className="flex-1 py-2.5 rounded-full text-sm font-medium text-white bg-brand-green hover:bg-[#152e21] disabled:opacity-40 transition-colors"
-          >
-            {loading === 'approve' ? 'Approving…' : 'Approve →'}
-          </button>
-        </div>
+        {!showRejectForm && !confirmedMessage && (
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              onClick={() => setShowRejectForm(true)}
+              disabled={isLoading}
+              className="flex-1 py-2.5 rounded-full text-sm font-medium text-text-primary border border-border-card hover:bg-[#FDEEE8] hover:border-[#EFBCAA] hover:text-[#8B2020] disabled:opacity-40 transition-colors"
+            >
+              Reject
+            </button>
+            <button
+              onClick={handleApprove}
+              disabled={isLoading}
+              className="flex-1 py-2.5 rounded-full text-sm font-medium text-white bg-brand-green hover:bg-[#152e21] disabled:opacity-40 transition-colors"
+            >
+              {loading === 'approve' ? 'Approving…' : 'Approve →'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

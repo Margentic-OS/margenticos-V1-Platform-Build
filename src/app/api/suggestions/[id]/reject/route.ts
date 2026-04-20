@@ -14,10 +14,13 @@ import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
+
+  const body = await request.json().catch(() => ({})) as { rejection_reason?: string }
+  const rejectionReason = typeof body.rejection_reason === 'string' ? body.rejection_reason.trim() || null : null
 
   if (!id || typeof id !== 'string') {
     return NextResponse.json({ error: 'Suggestion ID is required.' }, { status: 400 })
@@ -90,9 +93,10 @@ export async function POST(
   const { data: updated, error: updateError } = await supabase
     .from('document_suggestions')
     .update({
-      status:      'rejected',
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: user.id,
+      status:           'rejected',
+      reviewed_at:      new Date().toISOString(),
+      reviewed_by:      user.id,
+      rejection_reason: rejectionReason,
     })
     .eq('id', id)
     .select()
