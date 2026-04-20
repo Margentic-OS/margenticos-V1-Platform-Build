@@ -370,6 +370,8 @@ Purpose: shift the sender from stranger to peer.
 Email 3 — Contrarian insight or direct ask:
 Share one counter-intuitive observation from the positioning document. End with a direct
 but casual meeting offer. This is the only email in the sequence that asks for a call.
+Word budget is 75 words maximum. One contrarian observation, one direct ask. Nothing else.
+If the observation requires more than two sentences to land, it is too complex — simplify it.
 Purpose: convert warm interest into booked time.
 
 Email 4 — Breakup:
@@ -557,6 +559,9 @@ Common objections for this firm type (adapt the responses to this specific firm)
 1. Every email body must include an accurate word_count field. Count the words in the body
    (excluding the first-name line and the sign-off name). Do not approximate. If the word
    count exceeds the limit, rewrite the email before returning.
+   Email 3 word limit is 75 words maximum — this is the hardest constraint in the sequence.
+   If you are over, cut the contrarian observation first, not the ask. The ask is the point
+   of this email. Every word in Email 3 must earn its place.
 
 2. Every email must include subject_line and subject_char_count fields.
    subject_char_count is the character count of the subject line including spaces.
@@ -565,8 +570,9 @@ Common objections for this firm type (adapt the responses to this specific firm)
    Emails 2 and 3: set subject_line to null and subject_char_count to 0. Add to
    suggestion_reason: "threading must be configured in Instantly when this sequence is
    loaded — the subject field is intentionally null."
-   Email 4: fresh subject line (not a continuation of Email 1's thread). Hard limit 40
-   characters. Tier 3 archetypes only: "last note" or "one more thing."
+   Email 4: fresh subject line (not a continuation of Email 1's thread). Hard limit 9
+   characters. Tier 3 archetypes only: "last note" (9 chars). Do not use "one more thing"
+   (14 chars — too long).
 
 3. No email or LinkedIn message may open with I or We. Test every single opening word.
    Subject lines are exempt from this rule — subject lines do not use I or We anyway.
@@ -602,13 +608,32 @@ Common objections for this firm type (adapt the responses to this specific firm)
     Email 1 subject: maximum 40 characters, target under 25. All lowercase except proper nouns.
     No punctuation of any kind.
     Emails 2 and 3 subject: set subject_line to null and subject_char_count to 0.
-    Email 4 subject: fresh, Tier 3 archetype only, maximum 40 characters.
+    Email 4 subject: fresh, Tier 3 archetype only, maximum 9 characters. Valid options are
+    "last note" (9 chars) or shorter. Do not use "one more thing" — it is 14 characters and
+    will be rejected. "last note" is the default safe choice.
     Include subject_char_count for Email 1 and Email 4. Set it to 0 for Emails 2 and 3.
 
 12. Sign-off rule.
-    End every email with the sender's first name only, on its own line, with no pleasantry
-    before it. Never write Best, Regards, Warm regards, Cheers, Thanks, or any closer
-    before the name. Pull the sender's first name from the organisation data. Just the name.
+    The sender's first name is always the last non-empty line of every email body — including
+    emails that end with a CTA question. The CTA question is NEVER the last line.
+
+    Required structure for every email that has a CTA question (emails 1, 2, and 3):
+
+    {{first_name}}
+
+    [body copy]
+
+    [CTA question]
+
+    Doug
+
+    (Write the literal sender first name from the SENDER CONTEXT block — this is NOT an
+    Instantly merge tag. The blank line before the name is required. Never write Best,
+    Regards, Warm regards, Cheers, or any closer before the name.)
+
+    After drafting each email, read the last three lines. If the last non-empty line is not
+    the sender's first name, it is wrong. Add a blank line and the sender's first name
+    after the CTA question before returning.
 
 13. Deliberate imperfection rule.
     On approximately one in every three emails in the sequence, introduce exactly one minor

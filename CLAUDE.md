@@ -252,6 +252,29 @@ One file = one agent = one clear purpose.
 
 ---
 
+## Prompt and validator consistency rules
+
+When a prompt and a validator enforce the same rule, they must agree exactly.
+If one is updated, the other must be checked and updated in the same session.
+
+Known validator thresholds — these are code-enforced and cannot be overridden by the prompt:
+  Email 1 subject:   maximum 40 characters (target < 25)
+  Emails 2 and 3:    subject_line must be null; subject_char_count must be 0
+  Email 4 subject:   maximum 9 characters ("last note" = 9 chars; "one more thing" = 14, rejected)
+  Email 1 body:      40–90 words
+  Email 2 body:      30–70 words, must be shorter than Email 1
+  Email 3 body:      maximum 75 words (hardest limit — cut observation before ask)
+  Email 4 body:      30–50 words
+  Sign-off:          last non-empty line of every email body must be the sender's first name only
+  Opening word:      must not be I or We (applied to body after first-name line)
+  Em dashes:         zero tolerance; any instance causes the entire variant to be flagged
+
+When writing or editing an agent prompt, check the corresponding validator before committing.
+When writing or editing a validator, check the corresponding prompt before committing.
+Never update one without confirming the other still agrees.
+
+---
+
 ## Feedback loop — suggestion queue, never direct document updates
 
 Agents write suggestions to the document_suggestions table.

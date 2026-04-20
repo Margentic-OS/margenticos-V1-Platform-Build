@@ -280,7 +280,7 @@ async function runPreflightChecks(
 
   const { data: orgRow } = await supabase
     .from('organisations')
-    .select('name')
+    .select('name, founder_first_name')
     .eq('id', organisation_id)
     .single()
 
@@ -289,19 +289,10 @@ async function runPreflightChecks(
     missing.push('Organisation name is missing. Add it under Settings → Organisation.')
   }
 
-  const { data: operatorRow } = await supabase
-    .from('users')
-    .select('display_name')
-    .eq('organisation_id', organisation_id)
-    .eq('role', 'operator')
-    .limit(1)
-    .single()
-
-  const displayName = operatorRow?.display_name?.trim() ?? ''
-  const senderFirstName = displayName.split(/\s+/)[0] ?? ''
+  const senderFirstName = orgRow?.founder_first_name?.trim() ?? ''
   if (!senderFirstName) {
     missing.push(
-      'Sender first name is missing. Add a display name for the operator account under Settings → Profile.'
+      'Founder first name is missing. Add it under Settings → Organisation (founder_first_name field).'
     )
   }
 
@@ -545,10 +536,13 @@ All four variants must:
 - Apply every word count limit, TOV rule, banned structure rule, and sign-off rule from the system prompt
 
 Critical reminders:
-- Word counts are hard caps: Email 1 ≤100 words, Emails 2-3 ≤75 words, Email 4 30-50 words
+- Word counts are hard caps: Email 1 ≤90 words, Email 2 ≤70 words, Email 3 ≤75 words, Email 4 30-50 words
 - Count every word. Include the accurate word_count in each email object.
 - No I/We openers. One question per message. No service-led language. No em dashes.
-- Every email ends with first name only on its own line — no pleasantry before it.
+- Sign-off is mandatory on EVERY email: the sender's first name ("${preflight.sender_first_name}") must be the last non-empty line.
+  For emails 1, 2, and 3 the CTA question is NOT the last line — the name goes after it.
+  Structure: [CTA question] → blank line → ${preflight.sender_first_name}
+  If the last non-empty line is not "${preflight.sender_first_name}", the email will be rejected.
 
 Return ONLY the four-variant JSON below. No subject line libraries. No CTA libraries. No objection responses. No explanation. No markdown fencing.
 
@@ -727,20 +721,45 @@ async function processAllVariants(
       )
     }
 
-    const violations = validateEmails(fixedEmails, senderFirstName)
+    const { emails: signedEmails, fixed: signOffFixes } = applySignOffFix(fixedEmails, senderFirstName)
+    if (signOffFixes > 0) {
+      logger.info(
+        `Messaging agent: Variant ${variantKey} — auto-injected sign-off on ${signOffFixes} email(s)`
+      )
+    }
+
+    const violations = validateEmails(signedEmails, senderFirstName)
     if (violations.length > 0) {
       variantFailures.push({ variant: variantKey, violations })
       logger.warn(`Messaging agent: Variant ${variantKey} failed validation`, {
         variantKey,
         violations: violations.map(v => `Email ${v.email}: ${v.issue}`),
       })
-      await saveFailedGeneration(fixedEmails, violations, organisation_id, variantKey)
+      await saveFailedGeneration(signedEmails, violations, organisation_id, variantKey)
     } else {
-      passedVariants[variantKey] = fixedEmails
+      passedVariants[variantKey] = signedEmails
     }
   }
 
   return { passedVariants, variantFailures }
+}
+
+// Category A (sign-off): append sender name if missing from the last non-empty line.
+// The model consistently omits the sign-off on emails that end with a CTA question.
+// Deterministic fix — the correct value is always senderFirstName from preflight.
+function applySignOffFix(
+  emails: EmailRecord[],
+  senderFirstName: string
+): { emails: EmailRecord[]; fixed: number } {
+  let fixed = 0
+  const result = emails.map(email => {
+    const nonEmptyLines = email.body.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+    const lastLine = nonEmptyLines[nonEmptyLines.length - 1] ?? ''
+    if (lastLine.toLowerCase() === senderFirstName.toLowerCase()) return email
+    fixed++
+    return { ...email, body: email.body.trimEnd() + `\n\n${senderFirstName}` }
+  })
+  return { emails: result, fixed }
 }
 
 // Category A: replace em dashes with period or comma based on what follows.
