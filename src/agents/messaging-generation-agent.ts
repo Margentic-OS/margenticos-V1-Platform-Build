@@ -861,6 +861,21 @@ function validateEmails(
         issue: `contains banned word "${bannedMatch[0]}" — must not reference AI, automation, or bots`,
       })
     }
+
+    // Scan body and subject line for unsupported merge tags.
+    // Only {{first_name}} is permitted in MargenticOS sequences.
+    // Other tags (including snake_case like {{company_name}}) are not supported by Instantly.
+    const allText = [body, email.subject_line ?? ''].join('\n')
+    const tagMatches = [...allText.matchAll(/\{\{([^}]+)\}\}/g)]
+    for (const match of tagMatches) {
+      const tag = match[0]
+      if (tag !== '{{first_name}}') {
+        violations.push({
+          email: pos,
+          issue: `unsupported merge tag "${tag}" — only {{first_name}} is permitted; Instantly does not support this tag`,
+        })
+      }
+    }
   }
 
   return violations

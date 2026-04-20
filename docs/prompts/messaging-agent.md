@@ -209,6 +209,11 @@ conversation. Outcome-led variants must open by reflecting the prospect's curren
 not by projecting what happens after they buy. The outcome is implied by solving the
 problem — never state it upfront.
 
+This applies to body copy as well as openers. Do not describe the post-purchase state in
+email 1 — not in the subject, not in the opener, not in the body. The outcome is never
+named in email 1. Email 1 reflects the prospect's current situation and asks one question.
+The outcome is implied by solving the problem, not described.
+
 Use {{first_name}} on its own line before the opener — this is the Instantly merge tag
 (double curly braces, lowercase). Follow with a line break, then the observation.
 No Hi, no Hello, no Hey.
