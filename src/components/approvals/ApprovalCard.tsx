@@ -235,6 +235,11 @@ type MessagingEmailNew = {
   word_count: number
 }
 
+// Four-variant format: { variants: { A: { emails: [...] }, B: {...}, C: {...}, D: {...} } }
+type FourVariantDoc = {
+  variants: Record<string, { emails: MessagingEmailNew[] }>
+}
+
 function renderMessagingNew(emails: MessagingEmailNew[]) {
   const sorted = [...emails].sort((a, b) => a.sequence_position - b.sequence_position)
 
@@ -289,8 +294,58 @@ function renderMessagingNew(emails: MessagingEmailNew[]) {
   )
 }
 
+// Four-variant tab renderer (ADR-014 Option E).
+// Tabs labelled A / B / C / D — active tab shows that variant's 4 emails.
+// Approve/Reject act on the whole suggestion, not individual variants.
+function MessagingVariantsRenderer({ doc }: { doc: FourVariantDoc }) {
+  const variantKeys = Object.keys(doc.variants).sort()
+  const [activeVariant, setActiveVariant] = useState(variantKeys[0] ?? 'A')
+
+  const activeEmails = doc.variants[activeVariant]?.emails ?? []
+
+  return (
+    <div className="space-y-4">
+      {/* Eyebrow + tab row */}
+      <div>
+        <p className="text-[10px] uppercase tracking-[0.07em] text-[#9A9488] mb-2">
+          Sequence variants · {variantKeys.length} options
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          {variantKeys.map(key => (
+            <button
+              key={key}
+              onClick={() => setActiveVariant(key)}
+              className={[
+                'px-3 py-1.5 rounded-[6px] text-[11px] font-medium transition-colors',
+                activeVariant === key
+                  ? 'bg-[#1C3A2A] text-[#F5F0E8]'
+                  : 'bg-[#F8F4EE] border border-[#E8E2D8] text-[#9A9488] hover:text-[#1A1916]',
+              ].join(' ')}
+            >
+              Variant {key}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Active variant's emails */}
+      {renderMessagingNew(activeEmails)}
+    </div>
+  )
+}
+
 function renderMessaging(parsed: unknown) {
-  // Detect format: new agent produces { emails: [...] }, old produced { cold_email_sequence: {...} }
+  // Four-variant format (ADR-014): { variants: { A: { emails: [...] }, B: {...}, ... } }
+  const asFourVariant = parsed as { variants?: Record<string, { emails: MessagingEmailNew[] }> }
+  if (
+    asFourVariant?.variants &&
+    typeof asFourVariant.variants === 'object' &&
+    Object.keys(asFourVariant.variants).length > 0
+  ) {
+    return <MessagingVariantsRenderer doc={asFourVariant as FourVariantDoc} />
+  }
+
+  // Single-sequence new agent format: { emails: [...] }
   const asNew = parsed as { emails?: MessagingEmailNew[] }
   if (Array.isArray(asNew?.emails) && asNew.emails.length > 0) {
     return renderMessagingNew(asNew.emails)

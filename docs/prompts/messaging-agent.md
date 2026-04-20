@@ -640,9 +640,25 @@ Common objections for this firm type (adapt the responses to this specific firm)
     are?" or "Is that the pattern you're seeing?" No other CTA formulation is permitted for
     Email 2. The reply itself is the conversion.
 
-16. Output structure — four separate email records.
-    Return the four emails as a JSON array of exactly four objects. Do not wrap in any
-    outer key. Each object must contain exactly these fields:
+16. Output structure — four-variant JSON.
+    Generate four distinct sequence variants: A, B, C, and D.
+    Angle assignments (these determine how Email 1 opens — all other rules unchanged):
+      Variant A: Pain-led — email 1 opens with the implied cost or consequence of the current situation
+      Variant B: Outcome-led — email 1 opens with what their world looks like after the problem is resolved
+      Variant C: Peer pattern — email 1 opens with what similar founders at this stage experience
+      Variant D: Pattern interrupt — email 1 opens with an observation that challenges a common assumption
+
+    Return raw JSON with this exact structure. No preamble. No markdown fencing. No explanation.
+    {
+      "variants": {
+        "A": { "emails": [/* 4 email objects */] },
+        "B": { "emails": [/* 4 email objects */] },
+        "C": { "emails": [/* 4 email objects */] },
+        "D": { "emails": [/* 4 email objects */] }
+      }
+    }
+
+    Each email object must contain exactly these fields:
       sequence_position: integer 1, 2, 3, or 4
       subject_line: string for Email 1 and Email 4; null for Emails 2 and 3
       subject_char_count: integer; 0 for Emails 2 and 3
@@ -652,20 +668,23 @@ Common objections for this firm type (adapt the responses to this specific firm)
         unpopulated tokens, pronoun ratio shortfall, TOV conflicts, and for Emails 2 and 3
         the threading note ("threading must be configured in Instantly when this sequence
         is loaded — the subject field is intentionally null.")
-    The four objects are written as separate rows in a single database transaction.
-    All four must succeed or none will be saved. Do not include other playbook sections
-    (libraries, objection responses) inside the four email objects — those are separate keys
-    in the outer JSON response alongside the emails array.
+
+    Each variant must use different subject lines — no subject can appear in more than one variant.
+    Each variant's email 1 must have a meaningfully different opening line (the angle varies, the rules do not).
+    Do not generate subject line libraries, CTA libraries, or objection responses.
+    Return only the four-variant JSON object.
 
 ---
 
 ## Quality self-check before returning
 
-Before running these checks: identify which email received the deliberate imperfection
+Run this check on every email in every variant. Four variants × four emails = sixteen checks.
+
+Before running these checks: identify which email in each variant received the deliberate imperfection
 documented in suggestion_reason per Rule 13. Skip any check below that would flag that
 specific imperfection — it is intentional and must not be corrected.
 
-Before returning, ask yourself for each email:
+Before returning, ask yourself for each email in each variant:
 - Does it open with something other than I or We?
 - Does it contain at most one question?
 - Does it lead with the prospect's situation before naming the firm's service?
@@ -704,9 +723,12 @@ If any answer is no, fix it before returning.
 
 ## Final self-check — run this on your own generated content before returning
 
-Before you return your final output, perform these checks on your own generated content:
-1. Scan for the character '—' (em dash). If you find any, replace them with full stops, commas, colons, or parentheses as appropriate, then re-scan.
+Run these checks across all four variants before returning.
+
+1. Scan every email body across all variants for '—' (em dash). Replace with full stops, commas, colons, or parentheses, then re-scan.
 2. Scan for '[FIRST_NAME]' (old format). If found, replace with {{first_name}}.
-3. Confirm no email opens with 'I' or 'We'.
-4. Confirm email 2's CTA is a pattern-recognition question, not an offer to send a resource.
+3. Confirm no email in any variant opens with 'I' or 'We'.
+4. Confirm every email 2 in every variant uses a pattern-recognition CTA, not a resource offer.
+5. Confirm that variant A, B, C, and D each use a genuinely different opening line in email 1 — not the same line with minor word changes.
+6. Confirm the JSON structure is exactly { "variants": { "A": { "emails": [...] }, "B": {...}, "C": {...}, "D": {...} } }.
 Only return the output after these checks pass.

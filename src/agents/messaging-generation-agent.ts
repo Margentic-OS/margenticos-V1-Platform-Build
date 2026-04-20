@@ -1,6 +1,6 @@
 // Messaging Playbook Generation Agent
 // Entry point for generating the Messaging Playbook.
-// Model: claude-opus-4-6
+// Model: claude-sonnet-4-6 (see ADR-013 — revert to claude-opus-4-6 on stable connection)
 // Prompt: /docs/prompts/messaging-agent.md
 //
 // ISOLATION RULES (enforced at three levels):
@@ -13,25 +13,21 @@
 //   - Positioning doc  (strategy_documents WHERE document_type = 'positioning' AND status = 'active')
 //   - TOV guide        (strategy_documents WHERE document_type = 'tov' AND status = 'active')
 //
-//   This agent is the final document in the generation sequence. It synthesises all
-//   three preceding documents into a practical, deploy-ready Messaging Playbook.
-//   If any document is missing, the agent throws with a clear explanation.
-//
-// NO WEB SEARCH: the three strategy documents provide sufficient context.
-//   Market intelligence has already been incorporated at the ICP and Positioning stages.
-//
-// OUTPUT: writes to document_suggestions only — never to strategy_documents directly.
+// OUTPUT: Generates four distinct sequence variants (A, B, C, D) per ADR-014.
+//   Writes a single row to document_suggestions with suggested_value:
+//   { variants: { A: { emails: [...] }, B: { emails: [...] }, ... } }
+//   Each variant that passes the post-processor gate is stored.
+//   Variants that fail are flagged in the suggestion_reason; other variants are unaffected.
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { startAgentRun } from '@/lib/agents/log-agent-run'
 
-const MESSAGING_MODEL = 'claude-sonnet-4-6' // TEST ONLY — revert to claude-opus-4-6 for production
+const MESSAGING_MODEL = 'claude-sonnet-4-6' // TEST ONLY — revert to claude-opus-4-6 for production (ADR-013)
 
-// 8192 tokens — the Messaging Playbook is the largest output: full 4-email sequence
-// with templates and examples, LinkedIn messages, subject line library (8+ options),
-// opening line library (12+ options), CTA library (12+ options), objection responses.
-const MAX_TOKENS = 8192
+// 4 variants × 4 emails each — increase tokens to accommodate the larger output.
+const MAX_TOKENS = 16384
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -48,6 +44,8 @@ export interface MessagingAgentResult {
   organisation_id: string
   document_type: 'messaging'
   status: 'pending'
+  variants_generated: number
+  variants_failed: string[]
 }
 
 // One email object as returned by Claude in the four-element array.
@@ -58,6 +56,11 @@ interface EmailRecord {
   body: string
   word_count: number
   suggestion_reason?: string
+}
+
+interface VariantFailure {
+  variant: string
+  violations: ValidationViolation[]
 }
 
 interface IntakeRow {
@@ -116,139 +119,134 @@ export async function runMessagingGenerationAgent(
 
   logger.info('Messaging agent: starting', { organisation_id, is_refresh })
 
-  // Step 1: Fetch intake responses for this client only.
-  const intake = await fetchIntakeResponses(supabase, organisation_id)
-
-  if (intake.length === 0) {
-    throw new Error(
-      `Messaging agent: no intake responses found for organisation ${organisation_id}. ` +
-      'Intake data is required to generate a Messaging Playbook.'
-    )
-  }
-
-  // Step 2: Pre-flight checks — verify required name fields before any generation work.
-  // Aborts immediately if organisation name, sender first name, or company name is missing.
-  // Emails with blank sign-offs or missing company context must never be generated.
-  const preflight = await runPreflightChecks(supabase, organisation_id, intake)
-
-  // Step 3: Fetch all three required strategy documents.
-  // Each must exist and have status 'active' — the messaging agent synthesises all three.
-  // If any is missing or not approved, throws with specific messages naming each problem.
-  const requiredDocs = await fetchRequiredDocuments(supabase, organisation_id)
-
-  // Step 4: Check overall intake completeness.
-  const criticalFields = intake.filter(r => r.is_critical)
-  const answeredCritical = criticalFields.filter(
-    r => r.response_value && r.response_value.trim().length > 0
-  )
-  const completeness = criticalFields.length > 0
-    ? Math.round((answeredCritical.length / criticalFields.length) * 100)
-    : 0
-
-  if (completeness < 80) {
-    logger.warn(
-      `Messaging agent: intake completeness is ${completeness}% — below 80% threshold.`,
-      { organisation_id, completeness }
-    )
-  }
-
-  // Step 5: Fetch existing messaging document if this is a refresh.
-  let existingDocument: ExistingMessagingDocument | null = null
-  if (is_refresh) {
-    existingDocument = await fetchExistingMessagingDocument(supabase, organisation_id)
-  }
-
-  // Step 6: Read patterns table (cross-client, read-only, may be empty in phase one).
-  const patterns = await fetchPatterns(supabase)
-
-  // Step 7: Build the user message.
-  // The three strategy documents are included in full — they are the primary context.
-  // No web research: market intelligence was incorporated at the ICP and Positioning stages.
-  // Preflight context (org name, sender first name) is included so Claude can use them in sign-offs.
-  const userMessage = buildUserMessage({
-    organisation_id,
-    intake,
-    requiredDocs,
-    existingDocument,
-    patterns,
-    completeness,
-    preflight,
+  // Start agent run logging — every run is recorded to agent_runs table.
+  const agentRun = await startAgentRun({
+    client_id: organisation_id,
+    agent_name: 'messaging-generation',
   })
 
-  // Step 8: Call Claude.
-  logger.info('Messaging agent: calling Claude', { organisation_id, model: MESSAGING_MODEL })
-  const generatedContent = await callClaude(userMessage)
-
-  // Step 9: Parse and validate the four-email array.
-  // Claude returns a JSON array of exactly 4 email objects per Rule 16 in the system prompt.
-  // Some models wrap the array in an outer object — handle both { emails: [...] } and bare [...].
-  let emails: EmailRecord[]
   try {
-    const parsed: unknown = JSON.parse(generatedContent)
-    let candidates: unknown[]
+    // Step 1: Fetch intake responses for this client only.
+    const intake = await fetchIntakeResponses(supabase, organisation_id)
 
-    if (Array.isArray(parsed)) {
-      candidates = parsed
-    } else if (
-      parsed !== null &&
-      typeof parsed === 'object' &&
-      'emails' in parsed &&
-      Array.isArray((parsed as Record<string, unknown>).emails)
-    ) {
-      candidates = (parsed as Record<string, unknown>).emails as unknown[]
-    } else {
-      throw new Error(`Expected an array of 4 emails, got ${typeof parsed}`)
+    if (intake.length === 0) {
+      throw new Error(
+        `Messaging agent: no intake responses found for organisation ${organisation_id}. ` +
+        'Intake data is required to generate a Messaging Playbook.'
+      )
     }
 
-    if (candidates.length !== 4) {
-      throw new Error(`Expected 4 emails, got ${candidates.length}`)
-    }
-    emails = candidates as EmailRecord[]
-  } catch (err) {
-    throw new Error(
-      'Messaging agent: Claude returned invalid JSON. Expected array of 4 email objects. ' +
-      String(err)
+    // Step 2: Pre-flight checks — verify required name fields before any generation work.
+    const preflight = await runPreflightChecks(supabase, organisation_id, intake)
+
+    // Step 3: Fetch all three required strategy documents.
+    const requiredDocs = await fetchRequiredDocuments(supabase, organisation_id)
+
+    // Step 4: Check overall intake completeness.
+    const criticalFields = intake.filter(r => r.is_critical)
+    const answeredCritical = criticalFields.filter(
+      r => r.response_value && r.response_value.trim().length > 0
     )
-  }
+    const completeness = criticalFields.length > 0
+      ? Math.round((answeredCritical.length / criticalFields.length) * 100)
+      : 0
 
-  // Step 10: Post-process — auto-fix em dashes, then validate before writing.
-  // Category A fixes are applied silently and logged. Category B violations abort the run.
-  const { emails: fixedEmails, totalReplacements, perEmail } = applyEmDashFixes(emails)
-  if (totalReplacements > 0) {
-    const detail = Object.entries(perEmail)
-      .map(([pos, n]) => `email ${pos} (${n})`)
-      .join(', ')
-    console.log(`Post-processing: replaced ${totalReplacements} em dash(es) across ${detail}`)
-  }
+    if (completeness < 80) {
+      logger.warn(
+        `Messaging agent: intake completeness is ${completeness}% — below 80% threshold.`,
+        { organisation_id, completeness }
+      )
+    }
 
-  const violations = validateEmails(fixedEmails, preflight.sender_first_name)
-  if (violations.length > 0) {
-    const error = new MessagingValidationError(violations, fixedEmails)
-    await saveFailedGeneration(fixedEmails, violations, organisation_id)
-    throw error
-  }
+    // Step 5: Fetch existing messaging document if this is a refresh.
+    let existingDocument: ExistingMessagingDocument | null = null
+    if (is_refresh) {
+      existingDocument = await fetchExistingMessagingDocument(supabase, organisation_id)
+    }
 
-  // Step 11: Write validated (and auto-fixed) content to document_suggestions.
-  const suggestionId = await writeDocumentSuggestion(supabase, {
-    organisation_id,
-    requiredDocs,
-    existingDocument,
-    emails: fixedEmails,
-    intake,
-    completeness,
-    is_refresh,
-  })
+    // Step 6: Read patterns table (cross-client, read-only, may be empty in phase one).
+    const patterns = await fetchPatterns(supabase)
 
-  logger.info('Messaging agent: suggestion written successfully', {
-    organisation_id,
-    suggestion_id: suggestionId,
-  })
+    // Step 7: Build the user message requesting four variants.
+    const userMessage = buildUserMessage({
+      organisation_id,
+      intake,
+      requiredDocs,
+      existingDocument,
+      patterns,
+      completeness,
+      preflight,
+    })
 
-  return {
-    suggestion_id: suggestionId,
-    organisation_id,
-    document_type: 'messaging',
-    status: 'pending',
+    // Step 8: Call Claude.
+    logger.info('Messaging agent: calling Claude for four variants', {
+      organisation_id,
+      model: MESSAGING_MODEL,
+    })
+    const generatedContent = await callClaude(userMessage)
+
+    // Step 9: Parse the four-variant structure.
+    // Expected: { variants: { A: { emails: [...] }, B: { emails: [...] }, C: {...}, D: {...} } }
+    const rawVariants = parseVariantsFromClaude(generatedContent)
+
+    // Step 10: Post-process each variant independently.
+    // Em-dash auto-fix + 10-rule gate runs per variant.
+    // A failing variant is flagged and excluded — passing variants proceed to storage.
+    const { passedVariants, variantFailures } = await processAllVariants(
+      rawVariants,
+      preflight.sender_first_name,
+      organisation_id
+    )
+
+    if (Object.keys(passedVariants).length === 0) {
+      const failSummary = variantFailures
+        .map(f => `Variant ${f.variant}: ${f.violations.map(v => `Email ${v.email}: ${v.issue}`).join('; ')}`)
+        .join(' | ')
+      await agentRun.fail(`All 4 variants failed post-processing validation. ${failSummary}`)
+      throw new MessagingValidationError(
+        variantFailures.flatMap(f => f.violations),
+        Object.values(rawVariants).flat()
+      )
+    }
+
+    // Step 11: Write validated variants to document_suggestions.
+    const suggestionId = await writeDocumentSuggestion(supabase, {
+      organisation_id,
+      requiredDocs,
+      existingDocument,
+      variants: passedVariants,
+      variantFailures,
+      intake,
+      completeness,
+      is_refresh,
+    })
+
+    const failedKeys = variantFailures.map(f => f.variant)
+    await agentRun.complete(
+      `Generated ${Object.keys(passedVariants).length}/4 variants.` +
+      (failedKeys.length > 0 ? ` Failed: ${failedKeys.join(', ')}.` : ' All variants passed.')
+    )
+
+    logger.info('Messaging agent: suggestion written successfully', {
+      organisation_id,
+      suggestion_id: suggestionId,
+      variants_generated: Object.keys(passedVariants).length,
+      variants_failed: failedKeys,
+    })
+
+    return {
+      suggestion_id: suggestionId,
+      organisation_id,
+      document_type: 'messaging',
+      status: 'pending',
+      variants_generated: Object.keys(passedVariants).length,
+      variants_failed: failedKeys,
+    }
+  } catch (err) {
+    if (!(err instanceof MessagingValidationError)) {
+      await agentRun.fail(err instanceof Error ? err.message : String(err))
+    }
+    throw err
   }
 }
 
@@ -278,13 +276,8 @@ async function runPreflightChecks(
   organisation_id: string,
   intake: IntakeRow[]
 ): Promise<PreflightContext> {
-  // Three checks before any generation work begins.
-  // All failures are collected before throwing so the operator sees everything at once.
   const missing: string[] = []
 
-  // Check 1: Organisation name from the organisations table.
-  // Operator-only: direct SELECT from organisations is restricted to operators.
-  // Client-role queries must use client_organisation_view instead.
   const { data: orgRow } = await supabase
     .from('organisations')
     .select('name')
@@ -293,14 +286,9 @@ async function runPreflightChecks(
 
   const orgName = orgRow?.name?.trim() ?? ''
   if (!orgName) {
-    missing.push(
-      'Organisation name is missing. Add it under Settings → Organisation.'
-    )
+    missing.push('Organisation name is missing. Add it under Settings → Organisation.')
   }
 
-  // Check 2: Sender first name from the operator user record.
-  // The first name is the first word of display_name.
-  // It goes on the email sign-off line — blank sign-offs must never reach a prospect.
   const { data: operatorRow } = await supabase
     .from('users')
     .select('display_name')
@@ -317,8 +305,6 @@ async function runPreflightChecks(
     )
   }
 
-  // Check 3: Company name from intake responses.
-  // Used to contextualise the emails and populate the companyName token.
   const companyNameRow = intake.find(r => r.field_key === 'company_name')
   const companyName = companyNameRow?.response_value?.trim() ?? ''
   if (!companyName) {
@@ -345,10 +331,6 @@ async function fetchRequiredDocuments(
   supabase: SupabaseClient,
   organisation_id: string
 ): Promise<RequiredDocuments> {
-  // Fetch the most recent document of each required type, regardless of status.
-  // Status is checked explicitly below so we can give a specific error for each problem:
-  //   - not found → "run the agent first"
-  //   - found but not approved → "approve it in the dashboard"
   const { data, error } = await supabase
     .from('strategy_documents')
     .select('id, document_type, version, plain_text, content, status')
@@ -362,8 +344,6 @@ async function fetchRequiredDocuments(
 
   const docs = (data ?? []) as StrategyDocument[]
 
-  // Deduplicate — take the most recent document of each type.
-  // The query is ordered by created_at DESC so the first match for each type wins.
   const byType: Partial<Record<string, StrategyDocument>> = {}
   for (const doc of docs) {
     if (!byType[doc.document_type]) {
@@ -420,9 +400,7 @@ async function fetchExistingMessagingDocument(
     .limit(1)
     .single()
 
-  if (error) {
-    return null
-  }
+  if (error) return null
 
   return data as ExistingMessagingDocument
 }
@@ -457,7 +435,6 @@ function buildUserMessage(params: {
 }): string {
   const { intake, requiredDocs, existingDocument, patterns, completeness, preflight } = params
 
-  // Group intake by section.
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
     if (!acc[row.section]) acc[row.section] = []
     acc[row.section].push(row)
@@ -478,8 +455,6 @@ function buildUserMessage(params: {
     })
     .join('\n\n---\n\n')
 
-  // Strategy documents — the primary context for this agent.
-  // Each is included in full. The messaging agent synthesises all three.
   const formatDoc = (doc: StrategyDocument, label: string, guidance: string): string => {
     const body = doc.plain_text ?? JSON.stringify(doc.content, null, 2)
     return `\n\n---\n\n## ${label} (version ${doc.version})\n\n${guidance}\n\n${body}`
@@ -511,7 +486,6 @@ function buildUserMessage(params: {
     'The before_after_examples show the register. The do_dont_list is a copy checklist.'
   )
 
-  // Refresh context.
   const refreshContext = existingDocument
     ? `\n\n---\n\n## EXISTING MESSAGING PLAYBOOK (version ${existingDocument.version})\n\n` +
       'This is a refresh. Review the existing playbook and produce an improved version. ' +
@@ -533,15 +507,13 @@ function buildUserMessage(params: {
       'Do not hallucinate specifics.'
     : ''
 
-  // Sender context: validated by pre-flight checks before this function is called.
-  // Claude must use sender_first_name on the sign-off line of every email.
   const senderContext =
     `\n\n---\n\n## SENDER CONTEXT\n\n` +
     `Organisation name: ${preflight.org_name}\n` +
     `Sender first name (use this on the sign-off line of every email — never leave it blank): ${preflight.sender_first_name}\n` +
     `Client company name (use for context and the companyName token): ${preflight.company_name}`
 
-  return `You are generating a Messaging Playbook for a founder-led B2B consulting firm.
+  return `You are generating four distinct messaging sequence variants for a founder-led B2B consulting firm.
 ${completenessNote}
 
 The three strategy documents below are your primary context. They contain everything you need
@@ -553,17 +525,50 @@ ${intakeSections}${icpBlock}${positioningBlock}${tovBlock}${senderContext}${refr
 
 ---
 
-Using the frameworks and rules in your system prompt, produce the Messaging Playbook now.
+## FOUR-VARIANT SEQUENCE INSTRUCTION
+
+Generate four distinct email sequence variants: A, B, C, and D.
+Each variant is a complete 4-email sequence targeting the same ICP, offer, and positioning.
+The primary angle changes across variants. The TOV voice, rules, and offer framing do not change.
+
+Angle assignments — these determine how Email 1 opens:
+- Variant A: Pain-led — email 1 opens with the implied cost or consequence of the current situation
+- Variant B: Outcome-led — email 1 opens with what their world looks like after the problem is resolved
+- Variant C: Peer pattern — email 1 opens with what similar founders at this stage are experiencing
+- Variant D: Pattern interrupt — email 1 opens with a direct observation that challenges a common assumption
+
+All four variants must:
+- Follow every rule in the system prompt without exception
+- Use different subject lines — no subject line is reused across variants
+- Use a meaningfully different opening sentence in email 1 (the angle changes the first line after {{first_name}})
+- Keep the sequence structure: Email 1 problem/CTA, Email 2 pattern proof, Email 3 insight/meeting ask, Email 4 breakup
+- Apply every word count limit, TOV rule, banned structure rule, and sign-off rule from the system prompt
 
 Critical reminders:
-- Write the core_message first — every piece of copy must trace back to it
-- Email 1 is where 58% of replies come from — quality here is everything
-- Word counts are hard caps: Email 1 ≤100 words, Email 2 ≤75, Email 3 ≤65, Email 4 ≤50
+- Word counts are hard caps: Email 1 ≤100 words, Emails 2-3 ≤75 words, Email 4 30-50 words
 - Count every word. Include the accurate word_count in each email object.
-- Every message must pass the TOV writing_rules — apply them before returning
-- No I/We openers. One question per message. No service-led language.
+- No I/We openers. One question per message. No service-led language. No em dashes.
+- Every email ends with first name only on its own line — no pleasantry before it.
 
-Return raw JSON only. No preamble, no explanation, no markdown fencing.`
+Return ONLY the four-variant JSON below. No subject line libraries. No CTA libraries. No objection responses. No explanation. No markdown fencing.
+
+Return raw JSON with this exact structure:
+{
+  "variants": {
+    "A": { "emails": [/* 4 email objects */] },
+    "B": { "emails": [/* 4 email objects */] },
+    "C": { "emails": [/* 4 email objects */] },
+    "D": { "emails": [/* 4 email objects */] }
+  }
+}
+
+Each email object must contain exactly these fields:
+  sequence_position: integer 1-4
+  subject_line: string for emails 1 and 4, null for emails 2 and 3
+  subject_char_count: integer, 0 for emails 2 and 3
+  body: full email body from {{first_name}} through the sign-off name
+  word_count: integer (count body words excluding the first-name line and sign-off name)
+  suggestion_reason: per-email notes (deliberate imperfection, unpopulated tokens, pronoun ratio shortfall)`
 }
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
@@ -588,12 +593,7 @@ async function callClaude(userMessage: string): Promise<string> {
     model: MESSAGING_MODEL,
     max_tokens: MAX_TOKENS,
     system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: userMessage,
-      },
-    ],
+    messages: [{ role: 'user', content: userMessage }],
   })
 
   const message = await stream.finalMessage()
@@ -634,7 +634,49 @@ async function loadSystemPrompt(): Promise<string> {
   }
 }
 
-// ─── Post-processing validation ──────────────────────────────────────────────
+// ─── Parsing ──────────────────────────────────────────────────────────────────
+
+// Parses the four-variant JSON structure returned by Claude.
+// Expected: { variants: { A: { emails: [...] }, B: { emails: [...] }, C: {...}, D: {...} } }
+function parseVariantsFromClaude(raw: string): Record<string, EmailRecord[]> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (err) {
+    throw new Error(
+      'Messaging agent: Claude returned invalid JSON for four-variant response. ' + String(err)
+    )
+  }
+
+  if (
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    'variants' in parsed
+  ) {
+    const variants = (parsed as Record<string, unknown>).variants
+    if (typeof variants === 'object' && variants !== null) {
+      const result: Record<string, EmailRecord[]> = {}
+      for (const [key, value] of Object.entries(variants as Record<string, unknown>)) {
+        if (
+          typeof value === 'object' &&
+          value !== null &&
+          'emails' in value &&
+          Array.isArray((value as Record<string, unknown>).emails)
+        ) {
+          result[key] = (value as Record<string, unknown>).emails as EmailRecord[]
+        }
+      }
+      if (Object.keys(result).length > 0) return result
+    }
+  }
+
+  throw new Error(
+    `Messaging agent: expected { variants: { A: { emails: [...] }, ... } }, got: ${typeof parsed}. ` +
+    'Check that the system prompt correctly instructs four-variant JSON output.'
+  )
+}
+
+// ─── Post-processing ──────────────────────────────────────────────────────────
 
 interface ValidationViolation {
   email: number
@@ -652,8 +694,56 @@ class MessagingValidationError extends Error {
   }
 }
 
+// Processes all four variants independently.
+// Each variant's emails go through em-dash auto-fix, then the 10-rule validation gate.
+// Passing variants are collected. Failing variants are flagged and logged.
+async function processAllVariants(
+  rawVariants: Record<string, EmailRecord[]>,
+  senderFirstName: string,
+  organisation_id: string
+): Promise<{ passedVariants: Record<string, EmailRecord[]>; variantFailures: VariantFailure[] }> {
+  const passedVariants: Record<string, EmailRecord[]> = {}
+  const variantFailures: VariantFailure[] = []
+
+  for (const [variantKey, emails] of Object.entries(rawVariants)) {
+    if (!Array.isArray(emails) || emails.length !== 4) {
+      variantFailures.push({
+        variant: variantKey,
+        violations: [{
+          email: 0,
+          issue: `Expected 4 emails, got ${Array.isArray(emails) ? emails.length : 'non-array'}`,
+        }],
+      })
+      continue
+    }
+
+    const { emails: fixedEmails, totalReplacements, perEmail } = applyEmDashFixes(emails)
+    if (totalReplacements > 0) {
+      const detail = Object.entries(perEmail)
+        .map(([pos, n]) => `email ${pos} (${n})`)
+        .join(', ')
+      logger.info(
+        `Messaging agent: Variant ${variantKey} — replaced ${totalReplacements} em dash(es) across ${detail}`
+      )
+    }
+
+    const violations = validateEmails(fixedEmails, senderFirstName)
+    if (violations.length > 0) {
+      variantFailures.push({ variant: variantKey, violations })
+      logger.warn(`Messaging agent: Variant ${variantKey} failed validation`, {
+        variantKey,
+        violations: violations.map(v => `Email ${v.email}: ${v.issue}`),
+      })
+      await saveFailedGeneration(fixedEmails, violations, organisation_id, variantKey)
+    } else {
+      passedVariants[variantKey] = fixedEmails
+    }
+  }
+
+  return { passedVariants, variantFailures }
+}
+
 // Category A: replace em dashes with period or comma based on what follows.
-// Lowercase start after the dash = dependent clause -> comma. Otherwise -> period.
 function applyEmDashFixes(emails: EmailRecord[]): {
   emails: EmailRecord[]
   totalReplacements: number
@@ -698,12 +788,10 @@ function validateEmails(
     const body = email.body
     const nonEmptyLines = body.split('\n').map(l => l.trim()).filter(l => l.length > 0)
 
-    // B1: old merge tag format
     if (body.includes('[FIRST_NAME]')) {
       violations.push({ email: pos, issue: 'contains old [FIRST_NAME] merge tag — must be {{first_name}}' })
     }
 
-    // B2: I/We opener — check the first substantive line after {{first_name}}
     const firstNameIdx = nonEmptyLines.findIndex(l => l === '{{first_name}}')
     const openerLine = firstNameIdx >= 0
       ? (nonEmptyLines[firstNameIdx + 1] ?? '')
@@ -715,7 +803,6 @@ function validateEmails(
       })
     }
 
-    // B3–B6: word counts
     const wc = email.word_count
     if (pos === 1 && wc > 100) violations.push({ email: pos, issue: `word count ${wc} exceeds 100-word limit` })
     if (pos === 2 && wc > 75)  violations.push({ email: pos, issue: `word count ${wc} exceeds 75-word limit` })
@@ -724,7 +811,6 @@ function validateEmails(
       violations.push({ email: pos, issue: `word count ${wc} is outside the 30–50 word range` })
     }
 
-    // B7: emails 2 and 3 must have null subject lines
     if ((pos === 2 || pos === 3) && email.subject_line !== null) {
       violations.push({
         email: pos,
@@ -732,7 +818,6 @@ function validateEmails(
       })
     }
 
-    // B8: email 4 subject line ≤ 9 chars
     if (pos === 4 && email.subject_line !== null && email.subject_line.length > 9) {
       violations.push({
         email: pos,
@@ -740,7 +825,6 @@ function validateEmails(
       })
     }
 
-    // B9: sign-off — final non-empty line must be the sender's first name
     const lastLine = nonEmptyLines[nonEmptyLines.length - 1] ?? ''
     if (lastLine.toLowerCase() !== senderFirstName.toLowerCase()) {
       violations.push({
@@ -749,7 +833,6 @@ function validateEmails(
       })
     }
 
-    // B10: banned words — must not reference AI, bots, or automation
     const bannedMatch = body.match(/\bAI\b|\bautomated\b|\bbot\b|artificial intelligence/i)
     if (bannedMatch) {
       violations.push({
@@ -765,7 +848,8 @@ function validateEmails(
 async function saveFailedGeneration(
   emails: EmailRecord[],
   violations: ValidationViolation[],
-  organisation_id: string
+  organisation_id: string,
+  variantKey?: string
 ): Promise<void> {
   const { mkdir, writeFile } = await import('fs/promises')
   const { join } = await import('path')
@@ -774,35 +858,35 @@ async function saveFailedGeneration(
   await mkdir(dir, { recursive: true })
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const filePath = join(dir, `${timestamp}.json`)
+  const variantSuffix = variantKey ? `-variant-${variantKey}` : ''
+  const filePath = join(dir, `${timestamp}${variantSuffix}.json`)
 
   await writeFile(
     filePath,
     JSON.stringify(
-      { organisation_id, timestamp: new Date().toISOString(), violations, emails },
+      { organisation_id, timestamp: new Date().toISOString(), variantKey, violations, emails },
       null,
       2
     ),
     'utf-8'
   )
 
-  logger.info('Messaging agent: failed generation saved to disk', { path: filePath })
-  console.log(`Post-processing: failure log saved to ${filePath}`)
+  logger.info('Messaging agent: failed generation saved to disk', { path: filePath, variantKey })
 }
 
 // ─── Write to document_suggestions ───────────────────────────────────────────
 
-// Writes a single row to document_suggestions — all four emails stored as a
-// structured array inside suggested_value: { emails: [...] }.
-// Matches the full_document pattern used by every other document generation agent.
-// The approval handler reads { emails: [...] } to construct the strategy_documents row.
+// Writes a single row to document_suggestions.
+// suggested_value stores: { variants: { A: { emails: [...] }, B: {...}, ... } }
+// Matches the full_document pattern used by all document generation agents.
 async function writeDocumentSuggestion(
   supabase: SupabaseClient,
   params: {
     organisation_id: string
     requiredDocs: RequiredDocuments
     existingDocument: ExistingMessagingDocument | null
-    emails: EmailRecord[]
+    variants: Record<string, EmailRecord[]>
+    variantFailures: VariantFailure[]
     intake: IntakeRow[]
     completeness: number
     is_refresh: boolean
@@ -812,7 +896,8 @@ async function writeDocumentSuggestion(
     organisation_id,
     requiredDocs,
     existingDocument,
-    emails,
+    variants,
+    variantFailures,
     completeness,
     is_refresh,
   } = params
@@ -822,32 +907,39 @@ async function writeDocumentSuggestion(
   ).length
   const totalCount = params.intake.length
 
+  const variantKeys = Object.keys(variants).sort()
+  const failedKeys = variantFailures.map(f => f.variant)
+
   const refreshNote = is_refresh
-    ? ` This is a refresh — the existing v${existingDocument?.version ?? '?'} document was used as context.`
-    : ' This is the initial generation — no prior Messaging Playbook existed.'
+    ? ` Refresh — existing v${existingDocument?.version ?? '?'} document used as context.`
+    : ' Initial generation.'
 
-  const completenessNote =
-    completeness < 80
-      ? ` ⚠️ Intake completeness was ${completeness}% (${answeredCount}/${totalCount} fields answered).`
-      : ` Intake completeness: ${completeness}% (${answeredCount}/${totalCount} fields answered).`
+  const completenessNote = completeness < 80
+    ? ` ⚠️ Intake completeness: ${completeness}% (${answeredCount}/${totalCount} fields).`
+    : ` Intake completeness: ${completeness}% (${answeredCount}/${totalCount} fields).`
 
-  // Record which versions of the three source documents were used.
-  // This matters for refresh decisions — if any source document has been updated
-  // since the playbook was generated, a refresh is warranted.
+  const variantNote = ` Variants generated: ${variantKeys.join(', ')}.` +
+    (failedKeys.length > 0 ? ` Variants failed post-processing: ${failedKeys.join(', ')}.` : '')
+
   const sourceVersions =
-    ` Source documents used: ICP v${requiredDocs.icp.version}, ` +
+    ` Source documents: ICP v${requiredDocs.icp.version}, ` +
     `Positioning v${requiredDocs.positioning.version}, ` +
     `TOV v${requiredDocs.tov.version}.`
 
   const suggestionReason =
-    `Messaging Playbook generated by messaging-generation-agent using ${MESSAGING_MODEL}.` +
+    `Four-variant Messaging Playbook generated by messaging-generation-agent using ${MESSAGING_MODEL}.` +
     refreshNote +
     completenessNote +
+    variantNote +
     sourceVersions
 
-  // Strip suggestion_reason from each email before storing — it's agent metadata,
-  // not part of the document content. The document content is the 4 email objects only.
-  const emailsForStorage = emails.map(({ suggestion_reason: _unused, ...email }) => email)
+  // Strip per-email suggestion_reason before storing — it's agent metadata, not document content.
+  const variantsForStorage = Object.fromEntries(
+    variantKeys.map(key => [
+      key,
+      { emails: variants[key].map(({ suggestion_reason: _unused, ...email }) => email) },
+    ])
+  )
 
   const { data, error } = await supabase
     .from('document_suggestions')
@@ -857,7 +949,7 @@ async function writeDocumentSuggestion(
       document_type: 'messaging',
       field_path: 'full_document',
       current_value: existingDocument?.plain_text ?? null,
-      suggested_value: JSON.stringify({ emails: emailsForStorage }),
+      suggested_value: JSON.stringify({ variants: variantsForStorage }),
       suggestion_reason: suggestionReason,
       confidence_level: completeness >= 80 ? 'high' : 'low',
       signal_count: 0,
