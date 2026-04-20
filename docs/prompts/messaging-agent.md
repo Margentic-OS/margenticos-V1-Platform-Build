@@ -202,6 +202,13 @@ prospect framed as the shortest viable clause.
 Write: Saw your post on founder-led sales.
 Not: I was browsing LinkedIn and came across your insightful post about founder-led sales.
 
+Never open with a projected future state or imagined outcome. Do not use constructions like
+"Imagine your calendar...", "Picture a pipeline that...", "What if you could...", or any
+variant that asks the prospect to visualise a result before they have agreed to a
+conversation. Outcome-led variants must open by reflecting the prospect's current situation,
+not by projecting what happens after they buy. The outcome is implied by solving the
+problem — never state it upfront.
+
 Use {{first_name}} on its own line before the opener — this is the Instantly merge tag
 (double curly braces, lowercase). Follow with a line break, then the observation.
 No Hi, no Hello, no Hey.

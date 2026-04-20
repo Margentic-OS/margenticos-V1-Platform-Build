@@ -811,10 +811,12 @@ function validateEmails(
       violations.push({ email: pos, issue: 'contains old [FIRST_NAME] merge tag — must be {{first_name}}' })
     }
 
-    const firstNameIdx = nonEmptyLines.findIndex(l => l === '{{first_name}}')
-    const openerLine = firstNameIdx >= 0
-      ? (nonEmptyLines[firstNameIdx + 1] ?? '')
-      : (nonEmptyLines[0] ?? '')
+    // Find the actual opening sentence — always the first non-empty line after {{first_name}}.
+    // Never check {{first_name}} itself or any line before it.
+    const firstNameLineIdx = nonEmptyLines.findIndex(l => l === '{{first_name}}')
+    const openerLine = firstNameLineIdx >= 0
+      ? (nonEmptyLines.slice(firstNameLineIdx + 1).find(l => l.length > 0) ?? '')
+      : (nonEmptyLines.find(l => l !== '{{first_name}}' && l.length > 0) ?? '')
     if (/^(i|we)\s/i.test(openerLine)) {
       violations.push({
         email: pos,
