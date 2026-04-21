@@ -12,6 +12,16 @@ It delivers AI-powered pipeline generation for founder-led B2B consulting firms.
 Agents execute through existing tools. Clients see results and strategy documents.
 This is not a SaaS product. Clients never touch the execution layer.
 
+MargenticOS is industry-agnostic infrastructure. The 
+current go-to-market focus is B2B consulting and 
+coaching firms — this is a starting point, not a 
+product constraint. Every build decision must work 
+correctly for any B2B industry. No agent prompt, 
+template, or example may hardcode consulting-specific 
+assumptions as universal defaults. The long-term 
+vision is a full AI agentic-led marketing department 
+for hire, deployable across any B2B business.
+
 The build is structured as four phases. We are currently in phase one.
 CLAUDE.md and /prd/PRD.md (with 14 section files) are the complete specification.
 Read CLAUDE.md first at the start of every session. Then read the relevant PRD section.

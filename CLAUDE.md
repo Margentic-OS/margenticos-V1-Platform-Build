@@ -252,6 +252,51 @@ One file = one agent = one clear purpose.
 
 ---
 
+## Product scope and industry agnosticism
+
+MargenticOS is industry-agnostic infrastructure. The 
+agent pipeline, document generation system, composition 
+layer, approval flow, and all supporting architecture 
+are designed to serve any B2B business regardless of 
+industry, buyer type, company size, or growth model.
+
+The current go-to-market focus is founder-led B2B 
+consulting and coaching firms. This is a starting point 
+based on Doug's access, validated pain data from 1,311 
+Lean Marketing sales call transcripts, and 
+founder-market fit. It is not a product constraint.
+
+The long-term vision is a full AI agentic-led marketing 
+department for hire, deployable across any B2B industry.
+
+Build decisions must reflect this:
+
+- No agent prompt may hardcode industry-specific 
+  assumptions, buyer archetypes, pain points, growth 
+  models, or competitive sets as universal defaults
+- All agent prompts must derive industry, buyer type, 
+  and pain language from runtime documents — the ICP 
+  document, positioning document, TOV guide, and 
+  intake data
+- When intake data is thin, agents must flag the gap 
+  and derive from context — they must never fill gaps 
+  with consulting assumptions
+- Example values in prompt templates, output format 
+  schemas, and worked examples must be industry-neutral
+- Any new agent, prompt, or feature built must pass 
+  this test: "Would this work correctly for an AI 
+  voice calling company, a SaaS business, or a 
+  logistics firm?" If not, it is not ready
+
+The only exception: MargenticOS's own client-zero 
+campaigns target consulting and coaching firms because 
+that is Doug's ICP for MargenticOS itself. This is 
+operationally correct and does not contradict the 
+above — it is one client's ICP, not a universal 
+assumption baked into the product.
+
+---
+
 ## Prompt and validator consistency rules
 
 When a prompt and a validator enforce the same rule, they must agree exactly.
