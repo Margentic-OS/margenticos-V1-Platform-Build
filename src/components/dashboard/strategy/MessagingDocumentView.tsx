@@ -3,13 +3,17 @@
 import { useState } from 'react'
 import type { Json } from '@/types/database'
 
-// New agent format: { emails: EmailRecord[] }
 interface EmailRecord {
   sequence_position: number
   subject_line: string | null
   subject_char_count?: number
   body: string
   word_count: number
+}
+
+// Four-variant format: { variants: { A: { emails: [...] }, B: {...}, C: {...}, D: {...} } }
+interface VariantDoc {
+  emails: EmailRecord[]
 }
 
 // Old agent format fallback (pre-current agent)
@@ -24,6 +28,7 @@ interface LegacyEmail {
 }
 
 interface MessagingContent {
+  variants?: Record<string, VariantDoc>
   emails?: EmailRecord[]
   // Legacy format keys
   core_message?: Record<string, unknown>
@@ -275,6 +280,59 @@ function CoreMessageBlock({ coreMessage }: { coreMessage: Record<string, unknown
   )
 }
 
+// ─── Variant tab labels ───────────────────────────────────────────────────────
+
+const VARIANT_LABELS: Record<string, string> = {
+  A: 'Pain-led',
+  B: 'Outcome-led',
+  C: 'Peer pattern',
+  D: 'Pattern interrupt',
+}
+
+// ─── Four-variant view ────────────────────────────────────────────────────────
+
+function VariantSequenceView({ variants }: { variants: Record<string, VariantDoc> }) {
+  const keys = Object.keys(variants).sort()
+  const [activeKey, setActiveKey] = useState(keys[0] ?? 'A')
+
+  const activeEmails = variants[activeKey]?.emails ?? []
+
+  return (
+    <div className="space-y-4">
+      {/* Variant tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {keys.map(key => (
+          <button
+            key={key}
+            onClick={() => setActiveKey(key)}
+            className={[
+              'px-3 py-1.5 rounded-[6px] text-[11px] font-medium transition-colors',
+              activeKey === key
+                ? 'bg-brand-green text-white'
+                : 'bg-surface-content text-text-secondary hover:bg-[#EDE6D8]',
+            ].join(' ')}
+          >
+            {key} — {VARIANT_LABELS[key] ?? key}
+          </button>
+        ))}
+      </div>
+
+      {/* Active variant emails */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[14px] font-medium text-text-primary border-l-[3px] border-brand-green pl-3">
+            Variant {activeKey}
+          </h3>
+          <span className="text-[11px] text-text-secondary">{activeEmails.length} emails</span>
+        </div>
+        {activeEmails.map((email, i) => (
+          <EmailSection key={email.sequence_position ?? i} email={email} index={i} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface MessagingDocumentViewProps {
@@ -284,14 +342,16 @@ interface MessagingDocumentViewProps {
 export function MessagingDocumentView({ content }: MessagingDocumentViewProps) {
   const raw = content as MessagingContent
 
-  // ADR-012: approve_document_suggestion unwraps { emails: [...] } and stores
-  // the bare array as content. Normalise it before the object-based checks below.
-  const directArray = Array.isArray(content) ? (content as unknown as EmailRecord[]) : null
-
   // Unwrap messaging_playbook wrapper if present (old format)
   const doc: MessagingContent = raw.messaging_playbook ?? raw
 
-  // New format: { emails: [...] }
+  // Four-variant format (current): { variants: { A: { emails: [...] }, ... } }
+  if (doc.variants && Object.keys(doc.variants).length > 0) {
+    return <VariantSequenceView variants={doc.variants} />
+  }
+
+  // Single-sequence format: { emails: [...] } or bare array (pre-four-variant)
+  const directArray = Array.isArray(content) ? (content as unknown as EmailRecord[]) : null
   const newFormatEmails = directArray ?? doc.emails
 
   // Old format: { cold_email_sequence: { email_1: {...}, ... } }
