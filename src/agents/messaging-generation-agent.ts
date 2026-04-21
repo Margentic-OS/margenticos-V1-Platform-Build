@@ -17,7 +17,8 @@
 //   Writes a single row to document_suggestions with suggested_value:
 //   { variants: { A: { emails: [...] }, B: { emails: [...] }, ... } }
 //   Each variant that passes the post-processor gate is stored.
-//   Variants that fail are flagged in the suggestion_reason; other variants are unaffected.
+//   Variants that fail are retried (up to 3 times on original angle, then 3 fallback angles).
+//   Minimum 3 variants must pass or the run fails without writing to document_suggestions.
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -28,6 +29,35 @@ const MESSAGING_MODEL = 'claude-sonnet-4-6' // TEST ONLY — revert to claude-op
 
 // 4 variants × 4 emails each — increase tokens to accommodate the larger output.
 const MAX_TOKENS = 16384
+
+// Maximum retry attempts on the same angle before moving to fallback angles.
+const MAX_RETRY_ATTEMPTS = 3
+
+// ─── Angle definitions ────────────────────────────────────────────────────────
+
+// Maps each variant key to its original angle instruction for retry calls.
+const VARIANT_ANGLE_INSTRUCTIONS: Record<string, string> = {
+  A: 'Pain-led — email 1 opens with the implied cost or consequence of the current situation',
+  B: "Outcome-led — email 1 opens with what their world looks like after the problem is resolved. Reflect the prospect's current situation first — do not open with the post-purchase state or project an imagined outcome. The outcome is implied by solving the problem, never stated directly.",
+  C: "Peer pattern — email 1 opens with what similar buyers at this stage are experiencing. Draw the buyer archetype directly from the Tier 1 profile in the ICP document. Do not assume the prospect is a founder or runs a consulting firm unless the ICP document explicitly says so.",
+  D: 'Pattern interrupt — email 1 opens with a direct observation that challenges one assumption the prospect holds about their current approach to the problem the client solves',
+}
+
+// Fallback angles tried in order when a slot exhausts retries on its original angle.
+const FALLBACK_ANGLES = [
+  {
+    name: 'curiosity_gap' as const,
+    instruction: "Email 1 opens with an observation that creates a question in the prospect's mind without answering it. The observation is drawn from the ICP document. The email deliberately withholds the resolution — the question is implied, not stated. No promise-forward language. No outcome description.",
+  },
+  {
+    name: 'contrarian_reframe' as const,
+    instruction: "Email 1 opens by directly challenging one assumption the prospect likely holds about their current approach to the problem the client solves. The assumption is drawn from the ICP Four Forces anxiety or habit force. One sentence challenge, one sentence implication, one CTA question.",
+  },
+  {
+    name: 'direct_ask' as const,
+    instruction: "Email 1 is the shortest possible email. One sentence stating the prospect's core problem as identified in the ICP document. One direct question asking if it is relevant. Nothing else. Under 40 words total.",
+  },
+] as const
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -110,6 +140,35 @@ interface RequiredDocuments {
   tov: StrategyDocument
 }
 
+// Context passed to single-variant generation calls (retry and fallback).
+// Same fields as buildUserMessage params, without organisation_id (not used in message construction).
+interface VariantGenerationContext {
+  intake: IntakeRow[]
+  requiredDocs: RequiredDocuments
+  existingDocument: ExistingMessagingDocument | null
+  patterns: PatternRow[]
+  completeness: number
+  preflight: PreflightContext
+}
+
+// Records the outcome for one variant slot after first pass + any retries/fallbacks.
+interface SlotOutcome {
+  variant: string
+  result: 'first_pass' | 'retry' | 'fallback' | 'dropped'
+  retryAttempts: number
+  fallbackName?: string
+  fallbackAttempt?: number
+  apiCallsUsed: number
+  dropReason?: string
+}
+
+// Accumulated stats for the full run — written to agent_runs and suggestion_reason.
+interface RunStats {
+  slotOutcomes: SlotOutcome[]
+  totalApiCalls: number
+  durationMs: number
+}
+
 // ─── Main agent function ──────────────────────────────────────────────────────
 
 export async function runMessagingGenerationAgent(
@@ -126,6 +185,8 @@ export async function runMessagingGenerationAgent(
   })
 
   try {
+    const startedAt = Date.now()
+
     // Step 1: Fetch intake responses for this client only.
     const intake = await fetchIntakeResponses(supabase, organisation_id)
 
@@ -178,7 +239,7 @@ export async function runMessagingGenerationAgent(
       preflight,
     })
 
-    // Step 8: Call Claude.
+    // Step 8: Call Claude — one API call for all four variants.
     logger.info('Messaging agent: calling Claude for four variants', {
       organisation_id,
       model: MESSAGING_MODEL,
@@ -190,26 +251,76 @@ export async function runMessagingGenerationAgent(
     const rawVariants = parseVariantsFromClaude(generatedContent)
 
     // Step 10: Post-process each variant independently.
-    // Em-dash auto-fix + 10-rule gate runs per variant.
-    // A failing variant is flagged and excluded — passing variants proceed to storage.
+    // Em-dash auto-fix + sign-off fix + 10-rule validation gate runs per variant.
     const { passedVariants, variantFailures } = await processAllVariants(
       rawVariants,
       preflight.sender_first_name,
       organisation_id
     )
 
-    if (Object.keys(passedVariants).length === 0) {
-      const failSummary = variantFailures
-        .map(f => `Variant ${f.variant}: ${f.violations.map(v => `Email ${v.email}: ${v.issue}`).join('; ')}`)
-        .join(' | ')
-      await agentRun.fail(`All 4 variants failed post-processing validation. ${failSummary}`)
-      throw new MessagingValidationError(
-        variantFailures.flatMap(f => f.violations),
-        Object.values(rawVariants).flat()
-      )
+    // Step 11: Initialise run stats. The initial four-variant call counts as 1 API call.
+    const runStats: RunStats = {
+      slotOutcomes: [],
+      totalApiCalls: 1,
+      durationMs: 0,
     }
 
-    // Step 11: Write validated variants to document_suggestions.
+    for (const key of Object.keys(rawVariants)) {
+      if (passedVariants[key]) {
+        runStats.slotOutcomes.push({
+          variant: key,
+          result: 'first_pass',
+          retryAttempts: 0,
+          apiCallsUsed: 0,
+        })
+      }
+    }
+
+    // Step 12: Retry any failing variants (up to 3 attempts on original angle,
+    // then fallback angles). Only fires if variants actually failed.
+    if (variantFailures.length > 0) {
+      const retryContext: VariantGenerationContext = {
+        intake,
+        requiredDocs,
+        existingDocument,
+        patterns,
+        completeness,
+        preflight,
+      }
+
+      for (const failure of variantFailures) {
+        const { emails, outcome } = await retryVariantSlot(
+          failure.variant,
+          retryContext,
+          organisation_id,
+        )
+        runStats.slotOutcomes.push(outcome)
+        runStats.totalApiCalls += outcome.apiCallsUsed
+        if (emails !== null) {
+          passedVariants[failure.variant] = emails
+        }
+      }
+    }
+
+    runStats.durationMs = Date.now() - startedAt
+
+    // Step 13: Minimum threshold check — 3 or 4 variants must pass.
+    const passedCount = Object.keys(passedVariants).length
+    if (passedCount < 3) {
+      const droppedOutcomes = runStats.slotOutcomes.filter(o => o.result === 'dropped')
+      const droppedSummary = droppedOutcomes
+        .map(o => `${o.variant}: ${o.dropReason ?? 'unknown reason'}`)
+        .join('; ')
+      const failureMessage =
+        `Messaging generation failed: only ${passedCount} of 4 variants passed after retries and fallback substitution. ` +
+        `Variants that failed: ${droppedSummary || 'none recorded'}. ` +
+        `Regenerate manually from the dashboard.`
+
+      await agentRun.fail(failureMessage)
+      throw new Error(failureMessage)
+    }
+
+    // Step 14: Write validated variants to document_suggestions.
     const suggestionId = await writeDocumentSuggestion(supabase, {
       organisation_id,
       requiredDocs,
@@ -219,19 +330,34 @@ export async function runMessagingGenerationAgent(
       intake,
       completeness,
       is_refresh,
+      runStats,
     })
 
-    const failedKeys = variantFailures.map(f => f.variant)
+    // Step 15: Complete the agent run with full stats.
+    const firstPassCount = runStats.slotOutcomes.filter(o => o.result === 'first_pass').length
+    const retryCount = runStats.slotOutcomes.filter(o => o.result === 'retry').length
+    const fallbackCount = runStats.slotOutcomes.filter(o => o.result === 'fallback').length
+    const droppedCount = runStats.slotOutcomes.filter(o => o.result === 'dropped').length
+
     await agentRun.complete(
-      `Generated ${Object.keys(passedVariants).length}/4 variants.` +
-      (failedKeys.length > 0 ? ` Failed: ${failedKeys.join(', ')}.` : ' All variants passed.')
+      `Generated ${passedCount}/4 variants. ` +
+      `First pass: ${firstPassCount}.` +
+      (retryCount > 0 ? ` Retry: ${retryCount}.` : '') +
+      (fallbackCount > 0 ? ` Fallback: ${fallbackCount}.` : '') +
+      (droppedCount > 0 ? ` Dropped: ${droppedCount}.` : '') +
+      ` Total API calls: ${runStats.totalApiCalls}.` +
+      ` Duration: ${Math.round(runStats.durationMs / 1000)}s.`
     )
+
+    const finalDropped = runStats.slotOutcomes
+      .filter(o => o.result === 'dropped')
+      .map(o => o.variant)
 
     logger.info('Messaging agent: suggestion written successfully', {
       organisation_id,
       suggestion_id: suggestionId,
-      variants_generated: Object.keys(passedVariants).length,
-      variants_failed: failedKeys,
+      variants_generated: passedCount,
+      variants_failed: finalDropped,
     })
 
     return {
@@ -239,8 +365,8 @@ export async function runMessagingGenerationAgent(
       organisation_id,
       document_type: 'messaging',
       status: 'pending',
-      variants_generated: Object.keys(passedVariants).length,
-      variants_failed: failedKeys,
+      variants_generated: passedCount,
+      variants_failed: finalDropped,
     }
   } catch (err) {
     if (!(err instanceof MessagingValidationError)) {
@@ -415,15 +541,12 @@ async function fetchPatterns(supabase: SupabaseClient): Promise<PatternRow[]> {
 
 // ─── Prompt construction ──────────────────────────────────────────────────────
 
-function buildUserMessage(params: {
-  organisation_id: string
-  intake: IntakeRow[]
-  requiredDocs: RequiredDocuments
-  existingDocument: ExistingMessagingDocument | null
-  patterns: PatternRow[]
-  completeness: number
-  preflight: PreflightContext
-}): string {
+// Builds the shared context block used by both buildUserMessage and buildSingleVariantUserMessage.
+// Returns the completeness note and all context sections (intake, documents, sender, refresh, patterns).
+function buildBaseContext(params: VariantGenerationContext): {
+  completenessNote: string
+  contextBlocks: string
+} {
   const { intake, requiredDocs, existingDocument, patterns, completeness, preflight } = params
 
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
@@ -504,15 +627,31 @@ function buildUserMessage(params: {
     `Sender first name (use this on the sign-off line of every email — never leave it blank): ${preflight.sender_first_name}\n` +
     `Client company name (use for context in copy — write as plain text, never as a merge tag): ${preflight.company_name}`
 
+  const contextBlocks =
+    `## INTAKE QUESTIONNAIRE RESPONSES\n\n${intakeSections}` +
+    icpBlock + positioningBlock + tovBlock + senderContext + refreshContext + patternContext
+
+  return { completenessNote, contextBlocks }
+}
+
+function buildUserMessage(params: {
+  organisation_id: string
+  intake: IntakeRow[]
+  requiredDocs: RequiredDocuments
+  existingDocument: ExistingMessagingDocument | null
+  patterns: PatternRow[]
+  completeness: number
+  preflight: PreflightContext
+}): string {
+  const { completenessNote, contextBlocks } = buildBaseContext(params)
+
   return `You are generating four distinct messaging sequence variants for the client described in the ICP document provided.
 ${completenessNote}
 
 The three strategy documents below are your primary context. They contain everything you need
 to write copy that is specific, grounded, and consistent. Do not invent details not present in them.
 
-## INTAKE QUESTIONNAIRE RESPONSES
-
-${intakeSections}${icpBlock}${positioningBlock}${tovBlock}${senderContext}${refreshContext}${patternContext}
+${contextBlocks}
 
 ---
 
@@ -539,10 +678,10 @@ Critical reminders:
 - Word counts are hard caps: Email 1 ≤90 words, Email 2 ≤70 words, Email 3 ≤75 words, Email 4 30-50 words
 - Count every word. Include the accurate word_count in each email object.
 - No I/We openers. One question per message. No service-led language. No em dashes.
-- Sign-off is mandatory on EVERY email: the sender's first name ("${preflight.sender_first_name}") must be the last non-empty line.
+- Sign-off is mandatory on EVERY email: the sender's first name ("${params.preflight.sender_first_name}") must be the last non-empty line.
   For emails 1, 2, and 3 the CTA question is NOT the last line — the name goes after it.
-  Structure: [CTA question] → blank line → ${preflight.sender_first_name}
-  If the last non-empty line is not "${preflight.sender_first_name}", the email will be rejected.
+  Structure: [CTA question] → blank line → ${params.preflight.sender_first_name}
+  If the last non-empty line is not "${params.preflight.sender_first_name}", the email will be rejected.
 
 Return ONLY the four-variant JSON below. No subject line libraries. No CTA libraries. No objection responses. No explanation. No markdown fencing.
 
@@ -553,6 +692,55 @@ Return raw JSON with this exact structure:
     "B": { "emails": [/* 4 email objects */] },
     "C": { "emails": [/* 4 email objects */] },
     "D": { "emails": [/* 4 email objects */] }
+  }
+}
+
+Each email object must contain exactly these fields:
+  sequence_position: integer 1-4
+  subject_line: string for emails 1 and 4, null for emails 2 and 3
+  subject_char_count: integer, 0 for emails 2 and 3
+  body: full email body from {{first_name}} through the sign-off name
+  word_count: integer (count body words excluding the first-name line and sign-off name)
+  suggestion_reason: per-email notes (deliberate imperfection, unpopulated tokens, pronoun ratio shortfall)`
+}
+
+// Builds the user message for a single-variant retry or fallback call.
+// Full context is always passed — no abbreviated context on retries.
+function buildSingleVariantUserMessage(
+  context: VariantGenerationContext,
+  angleInstruction: string,
+): string {
+  const { completenessNote, contextBlocks } = buildBaseContext(context)
+
+  return `You are generating a single email sequence variant for the client described in the ICP document provided.
+${completenessNote}
+
+The three strategy documents below are your primary context. They contain everything you need
+to write copy that is specific, grounded, and consistent. Do not invent details not present in them.
+
+${contextBlocks}
+
+---
+
+## SINGLE-VARIANT SEQUENCE INSTRUCTION
+
+Generate ONE email sequence variant. The angle assignment for Email 1 is:
+
+${angleInstruction}
+
+Apply all rules from the system prompt without exception — word counts, TOV rules, banned structures, sign-off rules, and the four-email sequence structure (Email 1 problem/CTA, Email 2 pattern proof, Email 3 insight/meeting ask, Email 4 breakup).
+
+Critical reminders:
+- Word counts are hard caps: Email 1 ≤90 words, Email 2 ≤70 words, Email 3 ≤75 words, Email 4 30-50 words
+- Count every word. Include the accurate word_count in each email object.
+- No I/We openers. One question per message. No service-led language. No em dashes.
+- Sign-off is mandatory on EVERY email: "${context.preflight.sender_first_name}" must be the last non-empty line.
+  Structure: [CTA question] → blank line → ${context.preflight.sender_first_name}
+
+Return ONLY the following JSON. No preamble. No markdown fencing. No explanation.
+{
+  "variant": {
+    "emails": [/* 4 email objects */]
   }
 }
 
@@ -630,7 +818,7 @@ async function loadSystemPrompt(): Promise<string> {
 
 // ─── Parsing ──────────────────────────────────────────────────────────────────
 
-// Parses the four-variant JSON structure returned by Claude.
+// Parses the four-variant JSON structure returned by Claude on the initial call.
 // Expected: { variants: { A: { emails: [...] }, B: { emails: [...] }, C: {...}, D: {...} } }
 function parseVariantsFromClaude(raw: string): Record<string, EmailRecord[]> {
   let parsed: unknown
@@ -670,6 +858,40 @@ function parseVariantsFromClaude(raw: string): Record<string, EmailRecord[]> {
   )
 }
 
+// Parses the single-variant JSON returned by retry and fallback calls.
+// Expected: { variant: { emails: [...] } }
+function parseSingleVariantFromClaude(raw: string): EmailRecord[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (err) {
+    throw new Error(
+      'Messaging agent: single-variant retry — Claude returned invalid JSON. ' + String(err)
+    )
+  }
+
+  if (
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    'variant' in parsed
+  ) {
+    const variant = (parsed as Record<string, unknown>).variant
+    if (
+      typeof variant === 'object' &&
+      variant !== null &&
+      'emails' in variant &&
+      Array.isArray((variant as Record<string, unknown>).emails)
+    ) {
+      return (variant as Record<string, unknown>).emails as EmailRecord[]
+    }
+  }
+
+  throw new Error(
+    `Messaging agent: single-variant retry — expected { variant: { emails: [...] } }, got: ${typeof parsed}. ` +
+    'Check that the single-variant instruction correctly specifies JSON output.'
+  )
+}
+
 // ─── Post-processing ──────────────────────────────────────────────────────────
 
 interface ValidationViolation {
@@ -688,9 +910,66 @@ class MessagingValidationError extends Error {
   }
 }
 
-// Processes all four variants independently.
-// Each variant's emails go through em-dash auto-fix, then the 10-rule validation gate.
-// Passing variants are collected. Failing variants are flagged and logged.
+// Runs the full post-processor on one variant's emails.
+// Applies em-dash auto-fix, sign-off fix, then the 10-rule validation gate.
+// Returns { passed } if clean, { failure } if violations remain.
+async function processOneVariant(
+  variantKey: string,
+  emails: EmailRecord[],
+  senderFirstName: string,
+  organisation_id: string,
+  attemptLabel?: string
+): Promise<{ passed: EmailRecord[] } | { failure: VariantFailure }> {
+  const label = attemptLabel ? ` (${attemptLabel})` : ''
+
+  if (emails.length !== 4) {
+    const failure: VariantFailure = {
+      variant: variantKey,
+      violations: [{
+        email: 0,
+        issue: `Expected 4 emails, got ${emails.length}`,
+      }],
+    }
+    return { failure }
+  }
+
+  const { emails: fixedEmails, totalReplacements, perEmail } = applyEmDashFixes(emails)
+  if (totalReplacements > 0) {
+    const detail = Object.entries(perEmail)
+      .map(([pos, n]) => `email ${pos} (${n})`)
+      .join(', ')
+    logger.info(
+      `Messaging agent: Variant ${variantKey}${label} — replaced ${totalReplacements} em dash(es) across ${detail}`
+    )
+  }
+
+  const { emails: signedEmails, fixed: signOffFixes } = applySignOffFix(fixedEmails, senderFirstName)
+  if (signOffFixes > 0) {
+    logger.info(
+      `Messaging agent: Variant ${variantKey}${label} — auto-injected sign-off on ${signOffFixes} email(s)`
+    )
+  }
+
+  const violations = validateEmails(signedEmails, senderFirstName)
+  if (violations.length > 0) {
+    const failure: VariantFailure = { variant: variantKey, violations }
+    logger.warn(`Messaging agent: Variant ${variantKey}${label} failed validation`, {
+      variantKey,
+      violations: violations.map(v => `Email ${v.email}: ${v.issue}`),
+    })
+    await saveFailedGeneration(
+      signedEmails,
+      violations,
+      organisation_id,
+      `${variantKey}${attemptLabel ? `-${attemptLabel}` : ''}`
+    )
+    return { failure }
+  }
+
+  return { passed: signedEmails }
+}
+
+// Processes all four variants from the initial Claude call.
 async function processAllVariants(
   rawVariants: Record<string, EmailRecord[]>,
   senderFirstName: string,
@@ -700,44 +979,11 @@ async function processAllVariants(
   const variantFailures: VariantFailure[] = []
 
   for (const [variantKey, emails] of Object.entries(rawVariants)) {
-    if (!Array.isArray(emails) || emails.length !== 4) {
-      variantFailures.push({
-        variant: variantKey,
-        violations: [{
-          email: 0,
-          issue: `Expected 4 emails, got ${Array.isArray(emails) ? emails.length : 'non-array'}`,
-        }],
-      })
-      continue
-    }
-
-    const { emails: fixedEmails, totalReplacements, perEmail } = applyEmDashFixes(emails)
-    if (totalReplacements > 0) {
-      const detail = Object.entries(perEmail)
-        .map(([pos, n]) => `email ${pos} (${n})`)
-        .join(', ')
-      logger.info(
-        `Messaging agent: Variant ${variantKey} — replaced ${totalReplacements} em dash(es) across ${detail}`
-      )
-    }
-
-    const { emails: signedEmails, fixed: signOffFixes } = applySignOffFix(fixedEmails, senderFirstName)
-    if (signOffFixes > 0) {
-      logger.info(
-        `Messaging agent: Variant ${variantKey} — auto-injected sign-off on ${signOffFixes} email(s)`
-      )
-    }
-
-    const violations = validateEmails(signedEmails, senderFirstName)
-    if (violations.length > 0) {
-      variantFailures.push({ variant: variantKey, violations })
-      logger.warn(`Messaging agent: Variant ${variantKey} failed validation`, {
-        variantKey,
-        violations: violations.map(v => `Email ${v.email}: ${v.issue}`),
-      })
-      await saveFailedGeneration(signedEmails, violations, organisation_id, variantKey)
+    const result = await processOneVariant(variantKey, emails, senderFirstName, organisation_id)
+    if ('passed' in result) {
+      passedVariants[variantKey] = result.passed
     } else {
-      passedVariants[variantKey] = signedEmails
+      variantFailures.push(result.failure)
     }
   }
 
@@ -910,6 +1156,156 @@ async function saveFailedGeneration(
   logger.info('Messaging agent: failed generation saved to disk', { path: filePath, variantKey })
 }
 
+// ─── Retry logic ──────────────────────────────────────────────────────────────
+
+// Retries a single failing variant slot through the full hierarchy:
+//   1. Up to MAX_RETRY_ATTEMPTS on the original angle
+//   2. Up to MAX_RETRY_ATTEMPTS on each fallback angle, in order
+// Returns the first passing result, or null if all attempts are exhausted.
+async function retryVariantSlot(
+  variantKey: string,
+  context: VariantGenerationContext,
+  organisation_id: string,
+): Promise<{ emails: EmailRecord[] | null; outcome: SlotOutcome }> {
+  const senderFirstName = context.preflight.sender_first_name
+  let apiCallsUsed = 0
+
+  const originalAngle = VARIANT_ANGLE_INSTRUCTIONS[variantKey]
+  if (!originalAngle) {
+    return {
+      emails: null,
+      outcome: {
+        variant: variantKey,
+        result: 'dropped',
+        retryAttempts: 0,
+        apiCallsUsed: 0,
+        dropReason: `No angle instruction defined for variant key "${variantKey}"`,
+      },
+    }
+  }
+
+  // Phase 1: retry on original angle
+  for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+    logger.info(
+      `Messaging agent: Variant ${variantKey} — retry ${attempt}/${MAX_RETRY_ATTEMPTS} on original angle`,
+      { organisation_id, variantKey, attempt }
+    )
+
+    apiCallsUsed++
+    try {
+      const userMessage = buildSingleVariantUserMessage(context, originalAngle)
+      const raw = await callClaude(userMessage)
+      const emails = parseSingleVariantFromClaude(raw)
+      const result = await processOneVariant(
+        variantKey, emails, senderFirstName, organisation_id, `retry-${attempt}`
+      )
+      if ('passed' in result) {
+        logger.info(
+          `Messaging agent: Variant ${variantKey} passed on retry attempt ${attempt}`,
+          { organisation_id, variantKey, attempt }
+        )
+        return {
+          emails: result.passed,
+          outcome: { variant: variantKey, result: 'retry', retryAttempts: attempt, apiCallsUsed },
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        `Messaging agent: Variant ${variantKey} retry attempt ${attempt} error — ${String(err)}`,
+        { organisation_id, variantKey, attempt }
+      )
+    }
+  }
+
+  // Phase 2: fallback angles
+  for (const fallback of FALLBACK_ANGLES) {
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      logger.info(
+        `Messaging agent: Variant ${variantKey} — fallback "${fallback.name}" attempt ${attempt}/${MAX_RETRY_ATTEMPTS}`,
+        { organisation_id, variantKey, fallbackName: fallback.name, attempt }
+      )
+
+      apiCallsUsed++
+      try {
+        const userMessage = buildSingleVariantUserMessage(context, fallback.instruction)
+        const raw = await callClaude(userMessage)
+        const emails = parseSingleVariantFromClaude(raw)
+        const result = await processOneVariant(
+          variantKey, emails, senderFirstName, organisation_id,
+          `fallback-${fallback.name}-attempt-${attempt}`
+        )
+        if ('passed' in result) {
+          logger.info(
+            `Messaging agent: Variant ${variantKey} passed on fallback "${fallback.name}" attempt ${attempt}`,
+            { organisation_id, variantKey, fallbackName: fallback.name, attempt }
+          )
+          return {
+            emails: result.passed,
+            outcome: {
+              variant: variantKey,
+              result: 'fallback',
+              retryAttempts: MAX_RETRY_ATTEMPTS,
+              fallbackName: fallback.name,
+              fallbackAttempt: attempt,
+              apiCallsUsed,
+            },
+          }
+        }
+      } catch (err) {
+        logger.warn(
+          `Messaging agent: Variant ${variantKey} fallback "${fallback.name}" attempt ${attempt} error — ${String(err)}`,
+          { organisation_id, variantKey, fallbackName: fallback.name, attempt }
+        )
+      }
+    }
+  }
+
+  // All angles and fallbacks exhausted — slot is dropped
+  const dropReason =
+    `Exhausted ${MAX_RETRY_ATTEMPTS} retries on original angle and all ${FALLBACK_ANGLES.length} ` +
+    `fallback angles (${MAX_RETRY_ATTEMPTS} attempts each)`
+  logger.warn(
+    `Messaging agent: Variant ${variantKey} dropped after all retries and fallbacks`,
+    { organisation_id, variantKey, apiCallsUsed }
+  )
+  return {
+    emails: null,
+    outcome: {
+      variant: variantKey,
+      result: 'dropped',
+      retryAttempts: MAX_RETRY_ATTEMPTS,
+      apiCallsUsed,
+      dropReason,
+    },
+  }
+}
+
+// Builds the retry summary appended to suggestion_reason.
+// Returns empty string when all variants passed on first pass (no note needed).
+function buildRetryNote(stats: RunStats): string {
+  const firstPass = stats.slotOutcomes.filter(o => o.result === 'first_pass').map(o => o.variant)
+  const retried = stats.slotOutcomes.filter(o => o.result === 'retry')
+  const fallback = stats.slotOutcomes.filter(o => o.result === 'fallback')
+  const dropped = stats.slotOutcomes.filter(o => o.result === 'dropped')
+
+  if (retried.length === 0 && fallback.length === 0 && dropped.length === 0) return ''
+
+  const parts: string[] = []
+  if (firstPass.length > 0) parts.push(`Passed first pass: ${firstPass.join(', ')}.`)
+  if (retried.length > 0) {
+    parts.push(`Passed on retry: ${retried.map(o => `${o.variant} (attempt ${o.retryAttempts})`).join(', ')}.`)
+  }
+  if (fallback.length > 0) {
+    parts.push(`Used fallback angle: ${fallback.map(o => `${o.variant} (${o.fallbackName ?? 'unknown'}, attempt ${o.fallbackAttempt ?? '?'})`).join(', ')}.`)
+  }
+  if (dropped.length > 0) {
+    parts.push(`Dropped after all retries: ${dropped.map(o => o.variant).join(', ')}.`)
+  }
+  parts.push(`Total API calls: ${stats.totalApiCalls}. Duration: ${Math.round(stats.durationMs / 1000)}s.`)
+
+  return ' ' + parts.join(' ')
+}
+
 // ─── Write to document_suggestions ───────────────────────────────────────────
 
 // Writes a single row to document_suggestions.
@@ -926,6 +1322,7 @@ async function writeDocumentSuggestion(
     intake: IntakeRow[]
     completeness: number
     is_refresh: boolean
+    runStats?: RunStats
   }
 ): Promise<string> {
   const {
@@ -933,18 +1330,15 @@ async function writeDocumentSuggestion(
     requiredDocs,
     existingDocument,
     variants,
-    variantFailures,
     completeness,
     is_refresh,
+    runStats,
   } = params
 
   const answeredCount = params.intake.filter(
     r => r.response_value && r.response_value.trim().length > 0
   ).length
   const totalCount = params.intake.length
-
-  const variantKeys = Object.keys(variants).sort()
-  const failedKeys = variantFailures.map(f => f.variant)
 
   const refreshNote = is_refresh
     ? ` Refresh — existing v${existingDocument?.version ?? '?'} document used as context.`
@@ -954,8 +1348,23 @@ async function writeDocumentSuggestion(
     ? ` ⚠️ Intake completeness: ${completeness}% (${answeredCount}/${totalCount} fields).`
     : ` Intake completeness: ${completeness}% (${answeredCount}/${totalCount} fields).`
 
-  const variantNote = ` Variants generated: ${variantKeys.join(', ')}.` +
-    (failedKeys.length > 0 ? ` Variants failed post-processing: ${failedKeys.join(', ')}.` : '')
+  // Use runStats for the variant summary when available (reflects post-retry final state).
+  let variantNote: string
+  if (runStats) {
+    const passedKeys = Object.keys(variants).sort()
+    const droppedKeys = runStats.slotOutcomes
+      .filter(o => o.result === 'dropped')
+      .map(o => o.variant)
+    variantNote = ` Variants passed: ${passedKeys.join(', ')}.` +
+      (droppedKeys.length > 0 ? ` Variants dropped after retries: ${droppedKeys.join(', ')}.` : '')
+  } else {
+    const variantKeys = Object.keys(variants).sort()
+    const failedKeys = params.variantFailures.map(f => f.variant)
+    variantNote = ` Variants generated: ${variantKeys.join(', ')}.` +
+      (failedKeys.length > 0 ? ` Variants failed post-processing: ${failedKeys.join(', ')}.` : '')
+  }
+
+  const retryNote = runStats ? buildRetryNote(runStats) : ''
 
   const sourceVersions =
     ` Source documents: ICP v${requiredDocs.icp.version}, ` +
@@ -967,9 +1376,11 @@ async function writeDocumentSuggestion(
     refreshNote +
     completenessNote +
     variantNote +
+    retryNote +
     sourceVersions
 
   // Strip per-email suggestion_reason before storing — it's agent metadata, not document content.
+  const variantKeys = Object.keys(variants).sort()
   const variantsForStorage = Object.fromEntries(
     variantKeys.map(key => [
       key,
