@@ -616,3 +616,566 @@ applies the trigger to email 1. Variant performance is tracked via the existing 
 infrastructure. The operator settings view gets a "Sequence generation" toggle,
 defaulting to Template for all clients.
 
+---
+
+## ADR-015 — ICP Filter Specification and tool-agnostic sourcing
+Date: April 2026 | Status: Accepted
+
+Context:
+The product needs to source prospects at scale (~400–1,300 qualified prospects per
+client per month at planning-to-pessimistic volume) and the sourcing tool must remain
+swappable per ADR-001. Without a structured specification layer between the ICP
+document and the sourcing tool, every tool swap would require re-deriving filter
+criteria from the unstructured ICP document. That makes the tool-agnostic pattern
+break down exactly where it matters most.
+
+The additional risk: if every client's ICP is translated ad-hoc into Apollo filters
+at onboarding time, there is no persistent record of what filters are actually being
+applied, no way to audit or refresh them, and no way to ensure consistency across
+sourcing runs.
+
+Decision:
+The ICP generation agent produces two artefacts per run, not one:
+  1. The ICP strategy document (unchanged, human-readable, stored in strategy_documents)
+  2. An ICP filter specification (new, machine-readable, structured JSON)
+
+The filter specification is stored alongside the ICP document and approved by Doug
+via the same approval flow — one review, one approval, both artefacts activate together.
+
+The filter specification is tool-agnostic. Each sourcing handler declares which fields
+it supports. The sourcing orchestrator refuses to execute a run if the active handler
+cannot support every field the client's spec uses.
+
+Filter specification v1 schema (13 filter fields + 1 meta field):
+  Universal fields (every tier-1 B2B data provider supports these):
+    job_titles                  array of strings
+    job_titles_excluded         array of strings
+    seniority_levels            array: c_suite, vp, director, manager, senior, entry
+    departments                 array of strings (sales, marketing, engineering, etc.)
+    person_countries            array of ISO-3166 alpha-2 codes
+    company_countries           array of ISO-3166 alpha-2 codes
+    company_headcount_min       integer
+    company_headcount_max       integer
+    industries                  array of canonical NAICS-derived names
+    industries_excluded         array of canonical NAICS-derived names
+    keywords                    array of free-text company keywords
+    keywords_excluded           array of free-text company keywords
+
+  Extended fields (supported by most tier-1 providers, occasional gaps):
+    company_revenue_min         integer, optional
+    company_revenue_max         integer, optional
+    company_age_min_years       integer, optional
+    company_age_max_years       integer, optional
+    technologies_used           array, optional
+    funding_stage               array, optional
+    funded_since                ISO date, optional
+
+  Meta field:
+    notes                       freetext — operator-only, strategic rationale
+
+Canonical industry taxonomy:
+  Internal storage uses NAICS-derived canonical names (e.g. "Management Consulting",
+  not Apollo's "Business Services" or Instantly's "Consulting"). Each handler owns
+  its own translation table from canonical names to tool-specific names.
+  NAICS is the standard reference taxonomy for B2B data providers; most publish
+  mappings to it. Doug never sees NAICS codes directly — the UI shows canonical
+  names only.
+
+Handler capability declaration:
+  Each sourcing handler exports a supported_fields manifest listing which fields
+  from the spec it can apply as filters. The sourcing orchestrator checks the
+  active handler's manifest against the client's approved spec before running.
+  If a client's spec uses fields the active handler cannot support, the run fails
+  with a specific warning to the operator ("Active handler X cannot filter on
+  field Y used in this client's ICP. Options: switch handler, remove field from spec").
+
+Signal-based fields (intent data, hiring signals, recent tech changes) are NOT
+included in v1. They are tool-specific in how they work, and modelling them in a
+tool-agnostic way requires per-handler design that is not worth doing until the
+need is real. They are deferred to a future version of the spec.
+
+Reasoning:
+The spec is forward-compatible with every major B2B data provider (Apollo, Clay,
+ZoomInfo, Cognism, Lusha, Instantly B2B Lead Finder, UpLead, Prospeo). All 13 fields
+are standard dimensions in the industry. Storing them as structured data rather than
+free-text in the ICP document means sourcing runs are deterministic and auditable.
+
+Handler-declared capabilities let the system detect fidelity loss at swap time
+rather than silently producing lower-quality results. If Instantly B2B Lead Finder
+replaces Apollo for a specific client and cannot support the `funding_stage` filter
+in that client's ICP, the operator sees a warning and decides how to proceed.
+
+NAICS as the canonical taxonomy was chosen because it is a government standard,
+comprehensively covers B2B industry categories, and is either used directly or
+mapped to by every serious B2B data provider. Custom taxonomies were considered
+and rejected because the per-provider translation cost would be higher, not lower.
+
+Rejected alternatives:
+- Lowest-common-denominator schema (only fields every tool supports): rejected
+  because it loses filtering capability Apollo genuinely provides, forcing low-quality
+  sourcing at launch.
+- Per-client custom filter formats: rejected because it eliminates the auditability
+  benefit and makes sourcing non-portable across handlers.
+- Letting the sourcing handler parse the ICP document text directly: rejected because
+  it produces non-deterministic results and breaks the tool-agnostic principle.
+- Including signal-based fields (intent, hiring signals) in v1: rejected because
+  modelling them in a tool-agnostic way requires design work not yet justified.
+
+Consequences:
+The ICP generation agent must be extended to produce the structured filter spec
+alongside the human-readable document, in a single run.
+A new column icp_filter_spec (jsonb) is added to strategy_documents, populated
+when document_type = 'icp'.
+The approval UI must surface the filter spec as a secondary panel so Doug can
+sanity-check filter translations before approving.
+Each sourcing handler must export a supported_fields manifest.
+The sourcing orchestrator must verify handler support before executing a run.
+Signal-based fields (intent, hiring, technographic change) are backlog items,
+to be addressed when a client need justifies them.
+
+Follow-ups (tracked in /docs/BACKLOG.md):
+- Monitor whether v1's 13 fields prove sufficient across the first 3 founding clients
+- Add signal-based fields when the first client's ICP genuinely requires them
+- Build the approval UI's filter spec panel (secondary to the document renderer)
+
+---
+
+## ADR-016 — TAM gate and inventory-driven sourcing
+Date: April 2026 | Status: Accepted
+
+Context:
+Two related problems need to be solved before the sourcing pipeline runs live:
+
+1. Total Addressable Market (TAM) gate: some prospects will have ICPs so narrow
+   that the service cannot deliver the promised meeting volume at pessimistic
+   conversion rates. Detecting this before taking their money, or at latest before
+   campaigns begin, is a quality-of-service and commercial integrity issue.
+
+2. Sourcing cadence: a calendar-based sourcing schedule ("source every Monday")
+   produces either stale prospects (data decay ~30% over 6 months) or empty
+   inventory (client runs out mid-week and campaigns stall). Neither is acceptable.
+
+Both problems share a root cause: sourcing must be driven by actual client state
+(inventory level, addressable universe size) rather than a fixed schedule.
+
+Decision:
+
+Part A — TAM report as a three-state gate:
+
+A TAM query runs at two points in the client lifecycle:
+
+  Pre-sale (operator tool, during discovery call):
+    Doug inputs rough ICP criteria in the dashboard operator view.
+    The tool calls Apollo's People API Search with per_page=1 and reads
+    pagination.total_entries. This endpoint does not consume credits.
+    Response time ~2–3 seconds — fast enough for live use on a call.
+    Output: estimated addressable universe size, with a classification.
+
+  Post-intake (precise):
+    After the client's ICP is formally approved and the filter spec is locked,
+    the TAM query re-runs against the exact spec. This either confirms or
+    re-classifies the pre-sale estimate.
+
+Three classifications, based on months of coverage at pessimistic volume
+(pessimistic = ~1,300 qualified prospects per client per month):
+
+  GREEN — 6+ months of coverage (~7,800+ addressable prospects)
+    Strict tiering active, Tier 3 disabled.
+    No operator action required.
+
+  AMBER — 4–6 months of coverage (~5,200–7,800 addressable prospects)
+    Tier 3 sourcing enabled with loosening rules defined at onboarding.
+    Flagged to operator at onboarding and re-flagged when Tier 1+2 inventory depletes.
+    Meeting quality per tier monitored to catch Tier 3 degradation.
+
+  RED — below 4 months of coverage (~5,200 or fewer addressable prospects)
+    Do not proceed. Commercial conversation required.
+    Options: decline, restructure the offer (lower meeting target, higher price
+    per meeting), or explicitly agree multi-source strategy with the client.
+    Red state blocks automatic activation of the client's sourcing pipeline.
+
+The 4-month red threshold is deliberate: below this, even Tier 3 loosening cannot
+maintain the promised volume for a sensible campaign duration. Taking the client
+means under-delivering. Operator must consciously override with a recorded reason
+if proceeding anyway.
+
+Part B — Inventory-driven sourcing:
+
+A daily Inventory Monitor (deterministic scheduled job, no LLM) runs per client:
+
+  1. Count unused qualified prospects (prospects table, not yet added to a campaign)
+  2. Read current send velocity from client config (sends/day across all active
+     campaigns and mailboxes)
+  3. Calculate business days of sending capacity in current inventory
+  4. Evaluate against thresholds:
+
+  FLOOR: 10 business days of send capacity remaining
+    → trigger sourcing run automatically
+    → sourcing run targets replenishment to ceiling (40 business days)
+    → prevents run-dry before sourcing completes and validates
+
+  CEILING: 40 business days of send capacity already in inventory
+    → do not source more even if other triggers apply
+    → prevents stale inventory (Apollo data decay ~30% within 6 months)
+
+The Monitor does not decide how many prospects to source — it sets a target.
+The Sourcing Orchestrator (also deterministic) calculates the actual batch size
+needed to replenish to ceiling, applies the client's ICPFilterSpec, routes to the
+active sourcing handler, and writes qualified prospects to the prospects table.
+
+Both components are deterministic code. No LLM calls. Low cost, low latency,
+predictable failure modes.
+
+Reasoning:
+
+On the TAM gate: pessimistic volume is the right planning basis (see session
+architecture work). Four months is the minimum sensible campaign duration before
+a client would start questioning results. Below this, the commercial promise
+("7–10 qualified meetings per month") cannot be honoured even with Tier 3
+loosening. The red state forces an explicit commercial decision rather than a
+silent under-delivery.
+
+On inventory-driven sourcing: calendar schedules are what you build when you
+don't know what the right trigger is. The right trigger is "client is about to
+run out." A 10-day floor gives enough time for sourcing to complete and for
+qualified prospects to be verified before campaigns would actually run dry.
+A 40-day ceiling prevents stockpiling stale data.
+
+On making the TAM tool work pre-sale: Apollo's People API Search does not consume
+credits, runs in seconds, and requires only rough ICP parameters that emerge
+naturally in a discovery call. This makes the tool usable as a live sales aid,
+which is a commercial win on top of the quality-gate function.
+
+Rejected alternatives:
+
+- Running the TAM check only post-intake: rejected because it means taking money
+  from a client who cannot be served. Pre-sale check is a commercial integrity
+  requirement.
+- Calendar-based sourcing (weekly, per client, fixed day): rejected because it
+  produces stale or empty inventory unpredictably, and load-spikes sourcing
+  infrastructure on the same day across all clients.
+- No ceiling on inventory: rejected because data decay makes stockpiled prospects
+  materially worse over time; sourcing extra "just in case" degrades campaign quality.
+- Two-state gate (acceptable / unacceptable): rejected because amber is a real
+  category — workable with operator awareness and tier loosening rules in place.
+  Collapsing it into either green or red produces either false rejections or
+  silent under-delivery.
+- Relying on operator to manually trigger sourcing: rejected because it requires
+  Doug to remember to check inventory per client, which does not scale past ~5 clients.
+
+Consequences:
+
+A new operator dashboard page — TAM Tool — runs Apollo People API Search queries
+from operator-entered ICP inputs. Single-purpose, minimal UI, optimised for speed.
+
+The sourcing orchestrator component is built as deterministic code (not an agent).
+It reads the approved ICPFilterSpec, the tier configuration for the client, and
+the active handler from integrations_registry.
+
+A new field tam_status (text: green / amber / red / override) is added to the
+organisations table, set at post-intake TAM report and updated if the ICP changes.
+
+A new field tier_3_enabled (boolean, default false) is added to the organisations
+table. Green = false always. Amber = true with loosening rules in client config.
+Red with manual override = true with loosening rules and recorded operator reason.
+
+A new field send_velocity_per_day (integer) is added to the organisations table,
+calculated from active campaign send limits across mailboxes.
+
+A new Inventory Monitor scheduled job runs daily. Deterministic, no LLM. Logs
+execution to agent_runs for observability.
+
+The Sourcing Orchestrator runs when triggered by the Inventory Monitor, or when
+manually triggered by the operator. Deterministic, no LLM. Logs execution.
+
+Per-tier meeting quality tracking is added to the signals infrastructure:
+prospects carry their tier classification, meetings reference prospects, and the
+warnings engine evaluates qualified-meeting-rate per tier. If Tier 3 qualified
+rate drops below 40% while Tier 1 is above 70%, a warning surfaces recommending
+Tier 3 pause or criteria review.
+
+Follow-ups (tracked in /docs/BACKLOG.md):
+- If pessimistic assumptions prove wrong in either direction after client zero,
+  recalibrate the green/amber/red thresholds with real conversion data.
+- TAM tool caching: if operator runs the same query multiple times during a sales
+  call, cache the last N minutes to avoid rate limit issues.
+- Consider adding an operator "re-run TAM report" action on the client settings
+  page for cases where the client's ICP has meaningfully evolved mid-engagement.
+
+---
+
+## ADR-017 — Tiered enrichment and sending routing
+Date: April 2026 | Status: Accepted
+
+Context:
+The tier system established in ADR-016 (Tier 1 ideal, Tier 2 good, Tier 3 loosened
+for narrow-TAM clients) raises two downstream questions:
+
+1. Enrichment budget: running the full prospect research agent (Apollo enrichment
+   + web search + website fetch + LLM trigger synthesis) on every sourced prospect
+   is expensive and produces diminishing returns at Tier 3 where conversion is
+   naturally lower. Equal research spend across tiers is inefficient.
+
+2. Sending infrastructure risk: Tier 3 templated outreach at volume is inherently
+   more spam-sensitive than Tier 1 hyper-personalised emails. If Tier 3 sends
+   burn a sending domain's reputation, it cannot be allowed to contaminate the
+   Tier 1/2 sends that drive the majority of the client's pipeline.
+
+Both issues have the same shape: tier-based routing decisions affect cost, quality,
+and risk in materially different ways, and need to be formalised architecturally.
+
+Decision:
+
+Tiered enrichment — three levels, matching the three tiers:
+
+  Tier 1 — Full research
+    Apollo enrichment API (full profile + company data)
+    Targeted web search for Google-indexed content
+    Direct company website fetch
+    LLM trigger synthesis (Trigger-Bridge-Value framework)
+    Email 1 opener personalised with the synthesised trigger
+    Emails 2–4 follow variant-specific templates
+    Cost: ~1–2 Apollo credits per prospect + 1 LLM call per prospect
+
+  Tier 2 — Light research
+    Apollo enrichment API only (to verify email and basic firmographic data)
+    No web search, no LLM trigger synthesis
+    Email 1 opener uses role-based pain proxy (from Messaging Playbook templates)
+    Emails 2–4 follow variant-specific templates (same as Tier 1)
+    Cost: ~1 Apollo credit per prospect, zero LLM calls
+
+  Tier 3 — Verification only
+    Email verification (0.25 Apollo credits per prospect or via Hunter.io once active)
+    No enrichment beyond what the sourcing tool returned at list build
+    Fully templated sequence with segment-level personalisation only
+    (industry + role level, no individual-level touches)
+    Cost: minimal per prospect
+
+The composition handler reads the prospect's tier (stored on the prospects table
+as sourced_tier) and routes to the appropriate enrichment path. The existing
+prospect research agent runs only for Tier 1 and Tier 2 prospects. Tier 3
+prospects skip the research step entirely.
+
+Sending routing — separate sending identities per tier:
+
+  Tier 1/2 prospects are sent from the client's primary sending domains.
+  These are the reputational assets that carry most of the pipeline value.
+
+  Tier 3 prospects are sent from separate sending domains (a "Tier 3 pool")
+  provisioned per client during onboarding only if Tier 3 is enabled
+  (i.e. amber TAM status or red with override).
+
+  This isolation is achieved via Instantly's sequence/mailbox assignment, not
+  via MargenticOS's own routing. When configuring campaigns in Instantly, the
+  operator assigns Tier 1/2 campaigns to the primary mailbox pool and Tier 3
+  campaigns to the Tier 3 pool. MargenticOS respects whichever mailbox pool
+  Instantly returns on webhook events.
+
+  Domain/mailbox provisioning is covered in /docs/runbooks/sending-setup.md.
+  Green-state clients never need a Tier 3 pool (Tier 3 is disabled). Amber
+  clients need the pool from onboarding. Red-with-override clients need the
+  pool and explicit operator acknowledgement of the quality tradeoff.
+
+Per-tier performance tracking:
+
+  Prospects carry their sourced_tier through the signals pipeline.
+  Signals are filterable by tier in the operator view signals log.
+  Campaign metrics (reply rate, positive reply rate, meeting rate, qualified
+  rate) are calculated both overall and per-tier.
+  Warnings engine includes per-tier thresholds: if Tier 3 qualified meeting
+  rate falls below 40% while Tier 1 is above 70%, a warning surfaces recommending
+  Tier 3 pause or criteria review.
+
+Reasoning:
+
+On enrichment: Tier 1 prospects are where personalisation genuinely moves reply
+rate from ~3% to ~6–8%. The research spend justifies itself. Tier 3 prospects,
+by definition, are borderline fit — their reply rate will be lower regardless of
+personalisation, and the marginal lift from trigger research is small. Spending
+equal research dollars across tiers is inefficient. The tier system exists to
+let low-TAM clients reach volume; tiered enrichment lets them do so cost-effectively.
+
+On sending isolation: if Tier 3 burns a mailbox (spam complaint rate spikes,
+bounce rate climbs), that mailbox goes into quarantine or is rebuilt. If that
+mailbox was also sending Tier 1/2 email, the client's best prospects start
+landing in spam. The blast radius of Tier 3 mistakes must be bounded.
+Per-tier domain pools are the cleanest way to ensure this.
+
+On per-tier quality tracking: without it, a silent Tier 3 quality collapse would
+drag down overall metrics without making the cause visible. With it, the operator
+sees exactly which tier is struggling and can act.
+
+Rejected alternatives:
+
+- Single enrichment level across all tiers: rejected because it wastes money on
+  Tier 3 prospects where research lift is small, and makes Tier 3 campaigns
+  economically unviable at pessimistic volume.
+- No sending isolation, all tiers on same mailboxes: rejected because it creates
+  a systemic risk where a Tier 3 spam incident damages Tier 1/2 pipeline.
+- Building a dedicated Tier 3 agent: rejected as scope creep. Tier 3 doesn't need
+  an agent — it needs deterministic templated composition. Reuse the existing
+  composition handler with a tier-aware branch.
+- Tracking all metrics only as an overall average: rejected because it hides
+  tier-level quality issues and prevents targeted warnings.
+
+Consequences:
+
+A sourced_tier field (text: tier_1 / tier_2 / tier_3) is added to the prospects table.
+Set by the Sourcing Orchestrator at the point of writing qualified prospects.
+
+The prospect research agent entry point is extended to check sourced_tier and exit
+early (with a "tier_skipped" status in agent_runs) for Tier 3 prospects.
+
+The composition handler branches on sourced_tier:
+  Tier 1: use trigger (from prospect research agent) for email 1
+  Tier 2: use role-based pain proxy from the Messaging Playbook templates
+  Tier 3: use fully-templated variant with segment-level placeholders only
+
+The signals infrastructure indexes signals by sourced_tier (via prospect_id → tier).
+The warnings engine gets a per-tier variant of the qualified_meeting_rate warning.
+The operator view signals log gets a tier filter.
+
+The sending-setup runbook (docs/runbooks/sending-setup.md) covers provisioning
+rules for the Tier 3 pool — only created if Tier 3 is enabled for that client.
+
+Tier 2 clients may not need per-prospect Apollo enrichment if the sourcing tool
+already returned verified email + firmographic data. The composition handler
+should check what's already present before calling Apollo again. Apollo is only
+called for Tier 2 if data is missing.
+
+Follow-ups (tracked in /docs/BACKLOG.md):
+- Monitor per-tier economics once client zero has ~200 prospects in each tier
+- Revisit Tier 2 enrichment scope if data from sourcing tool proves sufficient
+  without an additional Apollo call
+- Consider a "Tier 3 pause" toggle in the operator view for quick deactivation
+  during quality incidents
+
+---
+
+## ADR-018 — Deterministic code vs LLM usage principles
+Date: April 2026 | Status: Accepted
+
+Context:
+As the build progresses, there is a temptation to reach for an LLM whenever a
+decision needs to be made. Every LLM call adds cost, latency, and a non-deterministic
+failure surface. Used where rules would suffice, LLMs increase operational risk
+without increasing quality. Used where judgment is genuinely required, LLMs are
+what makes the product work.
+
+Without an explicit principle, future Claude Code sessions will drift toward
+"use an LLM" by default because it is the more flexible-feeling option in the
+moment. This degrades the system over time.
+
+Decision:
+
+LLMs are used where judgment or synthesis is genuinely required.
+Deterministic code is used where the decision is rule-based or thresholded.
+
+Default: deterministic code. An LLM must be justified by a specific judgment or
+synthesis requirement that rules cannot meet at acceptable quality.
+
+LLM is appropriate when:
+  - The input is unstructured (free text, web content, varied writing samples)
+    and must be turned into structured output
+  - The decision involves tone, voice, persuasion, or other qualities that cannot
+    be specified as rules without producing low-quality output
+  - The task is creative synthesis (generating a strategy document from an intake,
+    composing email copy, researching a prospect trigger)
+  - Nuanced classification is required where pattern matching fails (reply intent:
+    positive vs information request vs hostile)
+  - Quality judgment is required on other LLM output (critic pass on generated copy)
+
+Deterministic code is appropriate when:
+  - Inputs are structured (database fields, API responses, numeric thresholds)
+  - The decision can be expressed as rules, conditions, or thresholds
+  - The task is counting, filtering, routing, or aggregating
+  - The task is pattern matching on predictable text (OOO detection, unsubscribe
+    keywords, email format validation)
+  - The task is scheduling, monitoring, or alerting based on measurable conditions
+
+Current implementation map (Phase 1):
+
+  LLM-driven (judgment):
+    ICP / Positioning / TOV / Messaging generation agents
+    Prospect research agent (trigger synthesis)
+    Reply handling agent (classification and response generation)
+    Future: Haiku critic pass on generated copy
+
+  Deterministic (rules):
+    Inventory Monitor (count, compare, trigger)
+    Sourcing Orchestrator (read spec, call handler, route results)
+    TAM Handler (translate UI input to API call, return count)
+    Tier Classification (rule-based on filter spec match)
+    Deliverability Monitor (threshold evaluation on metrics)
+    Signal Processing Agent (logging and categorisation — Phase 1 scope only)
+    OOO pattern matching in replies
+    Suppression keyword detection
+
+Borderline cases — decide consciously:
+  Some qualification tasks may seem to need judgment but actually resolve with
+  rules. Before building an agent for borderline cases, first write out the
+  rules that would apply. If the rules produce acceptable quality, use them.
+  Only if rules genuinely fail should an LLM be introduced, and it should be
+  scoped narrowly (e.g. "LLM evaluates only this one ambiguity, everything else
+  is rules").
+
+When introducing an LLM call:
+  - Specify the model version explicitly (no defaults) per ADR-013
+  - Log the run to agent_runs for observability
+  - Define the failure mode (what happens if the call fails or returns bad output)
+  - Cost-estimate at the volumes the system will actually run at
+
+When introducing deterministic logic that might later need LLM judgment:
+  - Build the rule-based version first
+  - Log inputs and outcomes so the rule's failure cases can be identified
+  - If failure cases accumulate, revisit with an LLM layer that handles only
+    those cases (not the whole task)
+
+Reasoning:
+
+Every LLM call has three costs: the API cost (non-trivial at pessimistic volume
+across 10+ clients), the latency (seconds vs milliseconds for rules), and the
+non-deterministic failure surface (retries, hallucinations, prompt drift).
+These costs are justified when the task genuinely requires judgment or synthesis.
+They are waste when the task is mechanical.
+
+Deterministic code is faster, cheaper, predictable, testable, and auditable.
+Every time a rule can replace an LLM call with no quality loss, it should.
+
+At the same time, under-using LLMs where they add value is equally wrong.
+A reply classification done by keyword matching would miss half the nuance of
+real replies. A messaging document composed by template filling would be the
+AI slop the product exists to avoid. LLMs are the product's strategic edge
+where they genuinely apply.
+
+The discipline is to distinguish correctly, session by session, and to default
+to the cheaper option when the boundary is unclear.
+
+Rejected alternatives:
+
+- LLM-first default: rejected because it increases cost, latency, and failure
+  surface without proportional quality gain on most tasks.
+- Rules-only approach: rejected because it cannot produce the document generation
+  and personalisation quality the product requires.
+- Per-agent decision with no principle: rejected because it produces drift over
+  time as different sessions make different calls.
+
+Consequences:
+
+Every Claude Code session that introduces a new component must state explicitly
+whether the component is deterministic or LLM-driven, and justify the choice
+against this principle.
+
+Reviews (manual or assisted) should flag any LLM call that could plausibly be
+a deterministic rule, and any rule that is producing quality issues an LLM
+could solve.
+
+When in doubt, build the deterministic version first. It is almost always
+cheaper and faster to add an LLM layer later than to simplify an LLM-dependent
+system.
+
+Follow-ups (tracked in /docs/BACKLOG.md):
+- Review Phase 1 implementation against this principle after client zero goes live
+- Identify any agents currently using LLMs that could be downgraded to rules
+- Identify any rules that are producing edge-case failures that justify LLM layers
+

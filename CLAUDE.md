@@ -3,6 +3,20 @@
 
 ---
 
+## Session start ritual — read these before anything else
+
+Every new Claude Code session must read, in order:
+  1. /CLAUDE.md (this file)
+  2. /docs/BACKLOG.md (deferred items and follow-ups)
+  3. /docs/ADR.md (architecture decisions)
+  4. The relevant /prd/sections/NN-*.md file for the current task
+
+Do not skip BACKLOG.md. It captures items consciously deferred in earlier sessions
+that you would otherwise forget. Missing an item in BACKLOG.md has cost real hours
+of rework more than once.
+
+---
+
 ## Who is building this
 
 Doug is building MargenticOS while learning Claude Code. He is not a developer.
@@ -196,19 +210,43 @@ The /prd folder holds the product specification (see PRD.md).
 
 ---
 
+## Before ending any session — update BACKLOG.md
+
+If the session defers any scope item, decides to revisit something later, or hits
+a known limitation that future-Doug will forget about, the item goes in
+/docs/BACKLOG.md before the session ends.
+
+This is not optional. The discipline is:
+  1. Session surfaces something to defer.
+  2. Claude Code flags it explicitly in the session summary.
+  3. Doug confirms the item should be deferred (versus addressed now).
+  4. Claude Code writes the item to BACKLOG.md with tag, date, and context.
+  5. Only then does the session end.
+
+Without this, the backlog stays in Doug's head and in individual chat threads,
+and the one that matters slips through when he's switching contexts.
+
+---
+
 ## Model selection — right model for each task
 
-Building, debugging, refactoring:                    claude-sonnet-4-6
-Document generation agents (ICP, Pos, TOV):          claude-opus-4-6
-Messaging generation agent:                          claude-sonnet-4-6
-  (Opus hits TCP idle-connection timeout on local dev at ~180s.
-   Switch to Opus only after confirming on a stable connection or in production.)
-Signal processing, lightweight agent tasks:          claude-haiku-4-5-20251001
-Batch processing, transcript ingestion:              claude-haiku-4-5-20251001
+Per ADR-013, current agent model assignments:
 
-Always pass model name explicitly in every Anthropic API call.
-Never rely on defaults. Never use a more expensive model than the task requires.
-Test Opus vs Sonnet for document generation before locking in a choice.
+  Document generation agents (ICP, positioning, TOV):  claude-opus-4-6
+  Messaging generation agent:                          claude-sonnet-4-6
+                                                       (local-dev workaround —
+                                                        revert to opus-4-6 when
+                                                        streaming works stable)
+  Prospect research — web search synthesis step:       claude-haiku-4-5-20251001
+  Signal processing, batch tasks:                      claude-haiku-4-5-20251001
+  Reply handling (positive reply classification):      claude-haiku-4-5-20251001
+  Claude Code itself (build, debug, refactor):         claude-sonnet-4-6
+
+Model versions must be passed explicitly in every Anthropic API call.
+Never rely on API defaults.
+
+If a model is retired or replaced, update the relevant agent file directly.
+Update this list and ADR-013 in the same commit.
 
 ---
 
@@ -294,6 +332,22 @@ that is Doug's ICP for MargenticOS itself. This is
 operationally correct and does not contradict the 
 above — it is one client's ICP, not a universal 
 assumption baked into the product.
+
+## Industry naming is always canonical — never tool-specific
+
+Internal storage, agent prompts, filter specifications, and database fields always
+use canonical NAICS-derived industry names (e.g. "Management Consulting",
+"Software Publishers", "Marketing Consultancy"). Never store or reference Apollo's
+industry names, Instantly's industry names, LinkedIn's industry names, or any
+other tool-specific taxonomy in application code, agent prompts, or client
+records.
+
+Each sourcing handler owns its own translation table from canonical names to
+tool-specific names. Translation is the handler's responsibility. Nothing
+upstream of the handler sees tool-specific names.
+
+Doug never sees NAICS codes in the UI. The UI displays canonical industry names
+directly.
 
 ---
 
@@ -571,3 +625,68 @@ For multi-step tasks, state a brief plan:
 ```
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+## Deterministic code first — LLM only when judgment is required
+
+See ADR-018.
+
+When introducing any new component, state explicitly whether it is deterministic
+code or uses an LLM call. Default: deterministic. An LLM must be justified by a
+specific judgment or synthesis requirement that rules cannot meet at acceptable
+quality.
+
+Use LLMs for: creative synthesis (document generation, prospect research triggers,
+reply classification, generated copy critique).
+
+Use deterministic code for: counting, filtering, routing, threshold evaluation,
+scheduling, pattern matching on predictable text.
+
+When in doubt, build the deterministic version first. It is almost always cheaper
+and faster to add an LLM layer later than to simplify an LLM-dependent system.
+
+---
+
+## ADR reference list — as of April 2026
+
+For quick reference. Full text in /docs/ADR.md.
+
+  ADR-001  Tool-agnostic capability registry over direct integrations
+  ADR-002  Suggestion queue over autonomous document updates
+  ADR-003  Agent isolation enforced at three levels (RLS + app filter + prompt)
+  ADR-004  Taplio as publishing layer only, dashboard as approval layer
+  ADR-005  No LinkedIn scraping in prospect research
+  ADR-006  Lemlist for LinkedIn DMs, not La Growth Machine
+  ADR-007  Reply handling automated for positive replies only in Phase 1
+  ADR-008  Pipeline view hidden for first two months
+  ADR-009  MargenticOS runs as client zero before any paying clients
+  ADR-010  Taplio integration is dashboard content delivery, not scheduling API
+  ADR-011  Signal threshold logic and A/B testing deferred to Phase 2
+  ADR-012  Messaging agent writes one document_suggestions row with full_document replacement
+  ADR-013  Model version selection for agents
+  ADR-014  Multi-variant template rotation now, per-prospect generation future
+  ADR-015  ICP Filter Specification and tool-agnostic sourcing
+  ADR-016  TAM gate and inventory-driven sourcing
+  ADR-017  Tiered enrichment and sending routing
+  ADR-018  Deterministic code vs LLM usage principles
+
+---
+
+## PRD section reference list — as of April 2026
+
+  01-product.md         Target client, offer, commercial model
+  02-stack.md           Technology stack, tool registry pattern
+  03-data-model.md      All database tables, fields, RLS policies
+  04-auth.md            Authentication, roles, multi-user access
+  05-intake.md          Questionnaire, file upload, website ingestion
+  06-agents.md          All agents: purpose, inputs, outputs, isolation
+  07-feedback-loop.md   Signal thresholds, suggestion queue, A/B testing
+  08-approval.md        Channel modes, notification timing, batch sampling
+  09-reply-handling.md  Reply types, routing, escalation, opt-out
+  10-signals.md         Signal types, processing, pattern library
+  11-warnings.md        Warning types, thresholds, tiered response protocol
+  12-dashboard.md       All views, components, phased unlock
+  13-integrations.md    Registry pattern, each tool, webhook events, setup
+  14-phasing.md         Phase one through four with deliverables
+  15-sourcing.md        Prospect sourcing pipeline (new, April 2026)
