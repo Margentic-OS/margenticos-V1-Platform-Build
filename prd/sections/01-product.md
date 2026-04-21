@@ -6,6 +6,8 @@
 
 ## The target client
 
+Note: This describes Doug's current go-to-market ICP. It is not a permanent product constraint. The platform is industry-agnostic — see CLAUDE.md.
+
 Founder-led B2B consulting or professional services firm.
 
 Qualifying criteria:

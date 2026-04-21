@@ -35,7 +35,8 @@ The tool-agnostic architecture and modular agent design make the rest addable la
 ## Product summary
 
 MargenticOS is an agentic services platform. Doug delivers AI-powered pipeline
-generation for founder-led B2B consulting firms ($300K–$3M revenue, 3+ years
+generation for founder-led B2B consulting firms (current go-to-market focus — the platform is
+industry-agnostic; see CLAUDE.md) ($300K–$3M revenue, 3+ years
 operating, referral-dependent pipeline, no repeatable marketing system).
 
 Clients receive: four living strategy documents + a results dashboard.

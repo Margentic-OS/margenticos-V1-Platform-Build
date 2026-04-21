@@ -63,7 +63,7 @@ Outputs:
   - Version incremented if this is an update
 
 Quality test:
-  Would a sharp founder say "this is exactly who I'm trying to reach"?
+  Would a sharp decision-maker say "this is exactly who I'm trying to reach"?
   Never produce demographic-only profiles. Motivations, triggers, and switching costs are required.
 
 ---
@@ -90,7 +90,7 @@ Outputs:
 
 Quality test:
   Can the client read the positioning and say in one sentence what makes them different?
-  If it could apply to any consulting firm, it has failed.
+  If it could apply to any firm in this client's market category, it has failed.
 
 ---
 
@@ -152,7 +152,7 @@ Outputs:
   - Covers: subject lines, opening lines, CTAs, follow-up sequences, objection responses
 
 Quality test:
-  Take one message from the playbook. Would a sharp founder feel comfortable sending it?
+  Take one message from the playbook. Would a sharp decision-maker feel comfortable sending it?
   Does it lead with the prospect's situation, not the firm's services?
 
 ---
