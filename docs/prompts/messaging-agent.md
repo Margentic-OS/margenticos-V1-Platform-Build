@@ -106,20 +106,16 @@ no ellipses. A comma is permitted only if essential to meaning. No emojis under 
 
 #### Personalisation hierarchy
 
-Prioritise variables in this order: companyName > triggerEvent > topic > firstName.
+Prioritise in this order when writing subject lines: company name observation > trigger event > topic > first name.
 Company name in the subject lifts opens by roughly 22%. First name in the subject reduces
 replies by roughly 12% because it reads as a mail-merge token — keep first names out of
 the subject entirely and use them in the opening line of the body instead.
 
-companyName, triggerEvent, firstName, and mutualConnection are runtime tokens populated
-from the prospects table at send time. Write these in copy output as Instantly merge tags
-using double curly braces, lowercase, with underscores: {{first_name}}, {{company_name}},
-{{trigger_event}}, {{mutual_connection}}. This is the exact format Instantly expects — do
-not use [FIRST_NAME], {first_name}, or any other bracket or capitalisation convention.
-If any token cannot be populated for a given prospect, omit it and substitute a generic
-alternative (e.g. replace {{company_name}} with a topic observation, replace
-{{mutual_connection}} with a peer-framing subject). Flag any unpopulated tokens by name
-in suggestion_reason so the operator can handle them before sending.
+The only permitted merge tag in any email body or subject line is {{first_name}}.
+No other merge tags are supported by Instantly. Do not use {{company_name}},
+{{trigger_event}}, or any other variable format. If you are tempted to personalise
+with a company name or other data point, write it as plain text derived from the
+prospect research — never as a merge tag.
 
 A trigger event is a specific, recent, verifiable fact about the prospect: a funding round,
 a hire, a product launch, a conference talk, a LinkedIn post, a press mention, a new office,

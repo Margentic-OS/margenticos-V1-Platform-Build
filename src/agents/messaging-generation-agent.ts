@@ -502,9 +502,9 @@ function buildUserMessage(params: {
     `\n\n---\n\n## SENDER CONTEXT\n\n` +
     `Organisation name: ${preflight.org_name}\n` +
     `Sender first name (use this on the sign-off line of every email — never leave it blank): ${preflight.sender_first_name}\n` +
-    `Client company name (use for context and the companyName token): ${preflight.company_name}`
+    `Client company name (use for context in copy — write as plain text, never as a merge tag): ${preflight.company_name}`
 
-  return `You are generating four distinct messaging sequence variants for a founder-led B2B consulting firm.
+  return `You are generating four distinct messaging sequence variants for the client described in the ICP document provided.
 ${completenessNote}
 
 The three strategy documents below are your primary context. They contain everything you need
@@ -525,7 +525,7 @@ The primary angle changes across variants. The TOV voice, rules, and offer frami
 Angle assignments — these determine how Email 1 opens:
 - Variant A: Pain-led — email 1 opens with the implied cost or consequence of the current situation
 - Variant B: Outcome-led — email 1 opens with what their world looks like after the problem is resolved
-- Variant C: Peer pattern — email 1 opens with what similar founders at this stage are experiencing
+- Variant C: Peer pattern — email 1 opens with what similar buyers at this stage are experiencing, as defined by the Tier 1 profile in the ICP document
 - Variant D: Pattern interrupt — email 1 opens with a direct observation that challenges a common assumption
 
 All four variants must:
