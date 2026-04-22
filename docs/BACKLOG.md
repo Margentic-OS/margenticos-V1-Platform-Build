@@ -87,9 +87,12 @@
   Supabase edge function with scheduled trigger. Without this, nothing
   auto-approves after the window.
 
-- [pre-c0] Install Resend and wire transactional emails
-  API key referenced but package not installed. Required for: approval
-  notifications, 90-day refresh email, escalation reminders, operator digest.
+- [DONE 2026-04-22] Install Resend and wire transactional emails.
+  resend SDK installed. Single client instance in src/lib/email/client.ts.
+  Generic sendTransactionalEmail() in src/lib/email/send.ts — Sentry-logged failures,
+  dev-only onboarding@resend.dev fallback, throws at load in non-dev if RESEND_FROM_EMAIL missing.
+  Test route at /api/resend-test (dev-gated). Verified: email delivered to doug@margenticos.com inbox.
+  Sending domain: notifications.margenticos.com (Resend EU). Templates deferred until features need them.
 
 - [DONE 2026-04-22] Wire Sentry for error monitoring. Commits 99e8b03, 9547d18.
   @sentry/nextjs v10 installed. EU region confirmed (.ingest.de.sentry.io). Server, client,
