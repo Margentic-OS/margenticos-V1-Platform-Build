@@ -100,9 +100,11 @@
   PII scrubber added (beforeSend strips email, token, secret, linkedin, icp, intake fields).
   Test endpoint at /api/sentry-test (dev-gated, permanent). Confirmed live: MARGENTICOS-1.
 
-- [pre-c0] Set up three-environment Git branching and Vercel multi-env deploy
-  Currently only main branch and minimal next.config.ts. Required for safe
-  iteration without touching production.
+- [DONE 2026-04-22] Set up three-environment Git branching and Vercel multi-env deploy
+  staging branch created and pushed. Branch protection on main active (PR required,
+  0 required approvers, no force pushes, no deletions). Repo transferred from
+  personal MargenticOS account to Margentic-OS org (Team plan). Vercel setup
+  continues in 3D/3E of the same session.
 
 - [pre-c0] Build intake file upload (Supabase Storage)
   Intake questionnaire works but file upload for writing samples is missing.
@@ -216,7 +218,39 @@ Revisit once prospect research agent is built and full outbound cycle is working
 
 ---
 
+## Post-Tier-1 items
+
+- [post-tier1] Flip repo to private + upgrade Vercel to Pro ($20/month)
+  Trigger: First signed paying-client contract OR first founding-client public
+  testimonial naming the platform, whichever comes first.
+  Required steps: (a) upgrade Vercel project to Pro before flipping repo,
+  (b) flip repo to private on GitHub, (c) verify deploys still work,
+  (d) re-run env var audit to confirm nothing leaked during the public period.
+  Budget: 30 minutes.
+
+- [post-tier1] Custom staging subdomain (staging.margenticos.com)
+  Replace default Vercel preview URL for cleaner internal sharing with Rui or
+  founding clients. Not needed until staging URL is being handed to external parties.
+
+- [post-tier1] Consolidate remaining repos under Margentic-OS org
+  The following repos remain under the personal MargenticOS account:
+  website-test, sales-intel, margenticos-landing, biaog.
+  Review which are still live. Archive dead ones. Transfer live ones to the org.
+  Non-urgent but keeps GitHub structure aligned with the business entity on Team plan.
+
+---
+
 ## Phase 2 deferred items (from ADR-011, ADR-013, ADR-014, ADR-015, ADR-017)
+
+- [phase2] Split Supabase into dev/staging/prod projects when client count justifies data isolation
+  Target trigger: 3+ paying clients with production data. Currently using single
+  project for all environments. Flagged 2026-04-22.
+
+- [phase2] Add Vercel build status check to required_status_checks on main branch protection
+  Once Vercel's GitHub Check integration is confirmed working (i.e. a PR shows the
+  Vercel check status), update branch protection via:
+  gh api repos/Margentic-OS/margenticos-V1-Platform-Build/branches/main/protection
+  with required_status_checks pointing to the Vercel check name. Flagged 2026-04-22.
 
 - [phase2] Signal threshold processing logic (3/5/10 tier evaluation)
 - [phase2] A/B variant generation when 5-signal threshold crossed
@@ -275,6 +309,21 @@ Revisit once prospect research agent is built and full outbound cycle is working
   At 10+ clients with 6 mailboxes each, sending infrastructure becomes a meaningful
   operator task. Consider Mailreef, Instantly's DFY, or similar managed service
   when client count justifies.
+
+---
+
+## Founding-client onboarding pre-flight checklist
+
+Complete all items before the first paying client goes live:
+
+- [ ] Flip GitHub repo from public to private
+- [ ] Upgrade Vercel from Hobby to Pro
+- [ ] Run gstack security audit (install: https://github.com/garrytan/gstack)
+- [ ] Run /cso security audit command
+- [ ] Run /design-review on client-facing dashboard
+- [ ] Run /qa on staging URL
+- [ ] Confirm all Calendly routing forms are configured per-client (Layer 3 qualification)
+- [ ] Review Lean Marketing contractor agreement for conflict-of-interest resolution
 
 ---
 

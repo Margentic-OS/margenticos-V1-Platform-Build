@@ -3,6 +3,19 @@
 
 ---
 
+## Active temporary states — read before touching infrastructure
+
+- **Repo is currently PUBLIC on GitHub** to enable Vercel Hobby deploys.
+  Acceptable at pre-revenue stage because no secrets are committed and the
+  source is not the moat. MUST be flipped to PRIVATE before the first paying
+  client is onboarded. This requires upgrading Vercel to Pro ($20/month)
+  simultaneously, since Hobby cannot deploy private org repos.
+
+  Trigger: First signed paying-client contract, OR first founding-client
+  testimonial that references the platform by name publicly, whichever comes first.
+
+---
+
 ## Session start ritual — read these before anything else
 
 Every new Claude Code session must read, in order:
