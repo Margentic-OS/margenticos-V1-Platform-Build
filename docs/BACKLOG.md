@@ -91,9 +91,13 @@
   API key referenced but package not installed. Required for: approval
   notifications, 90-day refresh email, escalation reminders, operator digest.
 
-- [pre-c0] Wire Sentry for error monitoring
-  DSN referenced in .env but no package installed, no initialisation. Required
-  before client zero — silent errors in production are unacceptable.
+- [DONE 2026-04-22] Wire Sentry for error monitoring.
+  @sentry/nextjs v10 installed. EU region confirmed (.ingest.de.sentry.io). Server, client,
+  and edge configs created. instrumentation.ts wired for Next.js App Router. PII scrubber
+  added (beforeSend hook strips email, token, secret, linkedin, icp, intake fields).
+  Test endpoint at /api/sentry-test (dev-gated, permanent).
+  Remaining: add SENTRY_ORG + SENTRY_PROJECT to .env.local for source map uploads and
+  release tagging — find both at Sentry → Settings → Projects → your project → General.
 
 - [pre-c0] Set up three-environment Git branching and Vercel multi-env deploy
   Currently only main branch and minimal next.config.ts. Required for safe
