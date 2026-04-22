@@ -130,6 +130,14 @@
   Also affects post-intake TAM report (uses People API Search which is free,
   but enrichment for Tier 1/2 prospects requires credits).
 
+- [pre-c1] Configure Calendly Routing Forms per client at onboarding
+  Three screening questions: business email (blocks personal domains), company
+  headcount dropdown (confirms firmographic fit live, catches stale Apollo data),
+  short free-text on interest reason. Route qualified → booking page. Route
+  disqualified → nurture thank-you page. ~15 min per client at onboarding.
+  Biggest single lever for perceived meeting quality. Industry-standard among
+  premium agencies (Beanstalk-tier 60-70% positive-reply-to-qualified conversion).
+
 ---
 
 ## Monitor-and-expand (built minimal, needs to grow)
@@ -214,6 +222,16 @@ Revisit once prospect research agent is built and full outbound cycle is working
   Currently on Sonnet 4.6 as local-dev workaround per ADR-013. Revert if Opus
   timeout issue is resolved on production infrastructure.
 
+- [phase2] Human pre-call qualification protocol (Layer 3)
+  Option A: Doug manually qualifies first 5-10 meetings per client to build
+  intuition, then automate via reply handling agent.
+  Option B: hire an SDR/ops person once volume justifies.
+  Target: 60-70% positive-reply-to-qualified-held conversion (tier-1 agency benchmark).
+
+- [phase2] Qualified meeting guarantee language in founding-client contracts
+  Decide: replacement policy, credit policy, or noise-as-overhead.
+  Industry norm: replacement or credit for unqualified meetings.
+
 ---
 
 ## Phase 3 deferred items
@@ -246,3 +264,11 @@ Revisit once prospect research agent is built and full outbound cycle is working
   At 10+ clients with 6 mailboxes each, sending infrastructure becomes a meaningful
   operator task. Consider Mailreef, Instantly's DFY, or similar managed service
   when client count justifies.
+
+---
+
+## Application-layer notes
+
+- [reminder] Application queries against organisations for client-facing views must never
+  SELECT payment_status, contract_status, or engagement_month. RLS filters rows, not columns.
+  App layer is responsible.
