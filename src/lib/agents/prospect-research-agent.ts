@@ -214,7 +214,7 @@ async function fetchICPPainProxy(client_id: string): Promise<string> {
     .select('content')
     .eq('organisation_id', client_id)
     .eq('document_type', 'icp')
-    .eq('status', 'approved')
+    .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(1)
     .single()
@@ -455,9 +455,9 @@ export async function runProspectResearchAgent({
         // If ICP is empty or Haiku still can't form a trigger, build a minimal proxy
         if (!result) {
           result = {
-            trigger: `Most ${prospect.role ?? 'senior leaders'} at ${company} are navigating the same pipeline generation challenge right now`,
-            bridge: 'Building consistent outbound without adding headcount is where most firms get stuck',
-            value: 'A predictable stream of qualified conversations you can hand off',
+            trigger: `Most ${prospect.role ?? 'people in this role'} at ${company} are balancing similar priorities right now`,
+            bridge: 'Making progress on the things that compound, without losing ground on what already works, is where most teams spend their effort',
+            value: 'A clearer path to the outcomes that matter most, without adding complexity to what is already working',
             source: 'pain_proxy',
             confidence: 'low',
             research_notes: `Pain proxy used — no specific trigger found. Steps attempted: ${stepsAttempted.join(', ')}. ICP document ${icpData ? 'found' : 'not found or empty'}.`,
@@ -467,9 +467,9 @@ export async function runProspectResearchAgent({
         logger.warn('prospect-research-agent: pain proxy step failed', { prospect_id, error: String(err) })
         // Absolute last resort — should never reach here
         result = {
-          trigger: `Growing ${company} requires consistent pipeline — most teams at this stage face the same constraint`,
-          bridge: 'The bottleneck is rarely effort; it is a repeatable outbound system',
-          value: 'Qualified conversations arriving without the founder doing the outreach',
+          trigger: `Teams at ${company} are working through the same kinds of decisions most organisations face at this stage`,
+          bridge: 'The harder part is rarely the doing — it is having the right framing to know where effort pays back',
+          value: 'A clearer view of where focus produces the most leverage over the next quarter',
           source: 'pain_proxy',
           confidence: 'low',
           research_notes: `Pain proxy fallback (ICP fetch failed). Steps attempted: ${stepsAttempted.join(', ')}. Error: ${String(err)}`,

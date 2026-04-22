@@ -54,9 +54,15 @@
   only agent_runs has RLS confirmed from code. A client data leak is the most serious
   possible error in this system. Verify and fix before client zero.
 
-- [pre-c0] Fix fetchICPPainProxy undefined in prospect-research-agent.ts
-  Function is referenced mid-file but not defined. Fix before Apollo paid plan
-  activation (currently masked by the Apollo 403 blocking Step 1).
+- [DONE 2026-04-22] fetchICPPainProxy in prospect-research-agent.ts — two bugs fixed.
+  Bug 1: function queried strategy_documents with status='approved', which is not a valid
+  status value (valid: draft/active/archived). Caused function to return empty on every call,
+  silently bypassing the ICP data path entirely. Fixed: status='active'.
+  Bug 2: hardcoded absolute fallback strings contained consulting/founder-led language,
+  violating CLAUDE.md industry-agnosticism. Fixed: replaced with role+company-only copy
+  that makes no assumptions about company structure, growth stage, or leadership model.
+  Original BACKLOG entry said "undefined function" — the function was defined but silently
+  broken. Apollo 403 masked the failure because Step 1 never reached Step 4.
 
 - [pre-c0] Replace TODO placeholders in AgentActivityView and SignalsLogView
   Both views contain placeholder data, not real queries. Required for operator
