@@ -112,13 +112,14 @@
   3F end-to-end verification (feature branch preview + staging merge test) pending
   first real use — verify on next feature branch push.
 
-- [pre-c0] Implement NEXT_PUBLIC_APP_URL fallback to VERCEL_URL in code
-  Preview scope has no NEXT_PUBLIC_APP_URL set — code must fall back to VERCEL_URL.
-  Currently src/app/login/actions.ts:23 uses the var directly with no fallback;
-  if unset, magic link redirect produces undefined/auth/callback (silently broken).
-  Fix: search all NEXT_PUBLIC_APP_URL usages and replace with:
-    process.env.NEXT_PUBLIC_APP_URL ?? `https://${process.env.VERCEL_URL}`
-  One confirmed location; grep for others before fixing. Budget: 15-30 min.
+- [DONE 2026-04-22] Implement NEXT_PUBLIC_APP_URL fallback to VERCEL_URL in code
+  Created src/lib/urls/app-url.ts with getAppUrl() — priority: NEXT_PUBLIC_APP_URL,
+  then https://VERCEL_URL, then http://localhost:3000. One usage site updated:
+  src/app/login/actions.ts:23. Dev-only check route at /api/app-url-check (returns
+  404 on Vercel production, live on preview + local). Verified locally: returns
+  http://localhost:3000 as expected.
+  Post-commit: hit /api/app-url-check on next preview deploy to confirm
+  VERCEL_URL fallback returns the correct preview URL.
 
 - [pre-c0] Build intake file upload (Supabase Storage)
   Intake questionnaire works but file upload for writing samples is missing.

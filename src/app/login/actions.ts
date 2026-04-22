@@ -7,6 +7,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
+import { getAppUrl } from '@/lib/urls/app-url'
 
 export async function sendMagicLink(formData: FormData) {
   const email = (formData.get('email') as string)?.trim().toLowerCase()
@@ -20,7 +21,7 @@ export async function sendMagicLink(formData: FormData) {
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+      emailRedirectTo: `${getAppUrl()}/auth/callback`,
     },
   })
 
