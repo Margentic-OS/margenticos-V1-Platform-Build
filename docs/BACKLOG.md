@@ -103,8 +103,16 @@
 - [DONE 2026-04-22] Set up three-environment Git branching and Vercel multi-env deploy
   staging branch created and pushed. Branch protection on main active (PR required,
   0 required approvers, no force pushes, no deletions). Repo transferred from
-  personal MargenticOS account to Margentic-OS org (Team plan). Vercel setup
-  continues in 3D/3E of the same session.
+  personal MargenticOS account to Margentic-OS org (Team plan). Vercel project
+  margenticos-platform linked to repo. 10 env vars set in Production + Preview scopes.
+  Repo is temporarily public (Hobby plan limitation — see Active temporary states in CLAUDE.md).
+
+- [pre-c0] Fix NEXT_PUBLIC_APP_URL fallback in login/actions.ts before first production deploy
+  src/app/login/actions.ts:23 uses NEXT_PUBLIC_APP_URL for magic link redirect with no fallback.
+  If unset, produces undefined/auth/callback — magic link login silently broken.
+  Fix: process.env.NEXT_PUBLIC_APP_URL ?? `https://${process.env.VERCEL_URL}`
+  After fix: add real production URL to NEXT_PUBLIC_APP_URL in Vercel Production scope.
+  Budget: 15 minutes.
 
 - [pre-c0] Build intake file upload (Supabase Storage)
   Intake questionnaire works but file upload for writing samples is missing.
