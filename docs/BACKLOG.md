@@ -104,15 +104,21 @@
   staging branch created and pushed. Branch protection on main active (PR required,
   0 required approvers, no force pushes, no deletions). Repo transferred from
   personal MargenticOS account to Margentic-OS org (Team plan). Vercel project
-  margenticos-platform linked to repo. 10 env vars set in Production + Preview scopes.
-  Repo is temporarily public (Hobby plan limitation — see Active temporary states in CLAUDE.md).
+  margenticos-platform linked to repo. 11 env vars set in Production scope
+  (including NEXT_PUBLIC_APP_URL=https://margenticos-platform.vercel.app).
+  10 env vars set in Preview scope (NEXT_PUBLIC_APP_URL omitted — VERCEL_URL fallback).
+  First production deploy confirmed Ready (57s build). Repo temporarily public
+  (Hobby plan limitation — see Active temporary states in CLAUDE.md).
+  3F end-to-end verification (feature branch preview + staging merge test) pending
+  first real use — verify on next feature branch push.
 
-- [pre-c0] Fix NEXT_PUBLIC_APP_URL fallback in login/actions.ts before first production deploy
-  src/app/login/actions.ts:23 uses NEXT_PUBLIC_APP_URL for magic link redirect with no fallback.
-  If unset, produces undefined/auth/callback — magic link login silently broken.
-  Fix: process.env.NEXT_PUBLIC_APP_URL ?? `https://${process.env.VERCEL_URL}`
-  After fix: add real production URL to NEXT_PUBLIC_APP_URL in Vercel Production scope.
-  Budget: 15 minutes.
+- [pre-c0] Implement NEXT_PUBLIC_APP_URL fallback to VERCEL_URL in code
+  Preview scope has no NEXT_PUBLIC_APP_URL set — code must fall back to VERCEL_URL.
+  Currently src/app/login/actions.ts:23 uses the var directly with no fallback;
+  if unset, magic link redirect produces undefined/auth/callback (silently broken).
+  Fix: search all NEXT_PUBLIC_APP_URL usages and replace with:
+    process.env.NEXT_PUBLIC_APP_URL ?? `https://${process.env.VERCEL_URL}`
+  One confirmed location; grep for others before fixing. Budget: 15-30 min.
 
 - [pre-c0] Build intake file upload (Supabase Storage)
   Intake questionnaire works but file upload for writing samples is missing.
@@ -227,6 +233,12 @@ Revisit once prospect research agent is built and full outbound cycle is working
 ---
 
 ## Post-Tier-1 items
+
+- [post-tier1] Configure custom domain (app.margenticos.com) on Vercel project
+  Requires CNAME record in Netlify DNS pointing to cname.vercel-dns.com,
+  add domain in Vercel project settings, update NEXT_PUBLIC_APP_URL in
+  Production scope to https://app.margenticos.com. Budget: 15 min.
+  Non-urgent — margenticos-platform.vercel.app works fine until then.
 
 - [post-tier1] Flip repo to private + upgrade Vercel to Pro ($20/month)
   Trigger: First signed paying-client contract OR first founding-client public
