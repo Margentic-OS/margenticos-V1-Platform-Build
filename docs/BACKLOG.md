@@ -91,13 +91,11 @@
   API key referenced but package not installed. Required for: approval
   notifications, 90-day refresh email, escalation reminders, operator digest.
 
-- [DONE 2026-04-22] Wire Sentry for error monitoring.
+- [DONE 2026-04-22] Wire Sentry for error monitoring. Commits 99e8b03, 9547d18.
   @sentry/nextjs v10 installed. EU region confirmed (.ingest.de.sentry.io). Server, client,
-  and edge configs created. instrumentation.ts wired for Next.js App Router. PII scrubber
-  added (beforeSend hook strips email, token, secret, linkedin, icp, intake fields).
-  Test endpoint at /api/sentry-test (dev-gated, permanent).
-  Remaining: add SENTRY_ORG + SENTRY_PROJECT to .env.local for source map uploads and
-  release tagging — find both at Sentry → Settings → Projects → your project → General.
+  and edge configs created. instrumentation.ts wired with register() + onRequestError hook.
+  PII scrubber added (beforeSend strips email, token, secret, linkedin, icp, intake fields).
+  Test endpoint at /api/sentry-test (dev-gated, permanent). Confirmed live: MARGENTICOS-1.
 
 - [pre-c0] Set up three-environment Git branching and Vercel multi-env deploy
   Currently only main branch and minimal next.config.ts. Required for safe
@@ -274,6 +272,17 @@ Revisit once prospect research agent is built and full outbound cycle is working
   At 10+ clients with 6 mailboxes each, sending infrastructure becomes a meaningful
   operator task. Consider Mailreef, Instantly's DFY, or similar managed service
   when client count justifies.
+
+---
+
+## Lessons learned
+
+- [lesson] Next.js 15 App Router does not propagate API route handler errors as
+  unhandled exceptions. Sentry's default integration will not capture them.
+  Fix: export `onRequestError` from instrumentation.ts using
+  Sentry.captureRequestError (available in @sentry/nextjs v10+). This applies
+  to every Next.js 15+ project; stock Sentry tutorials predating Next.js 15
+  do not cover it. Took one diagnostic session to isolate.
 
 ---
 
