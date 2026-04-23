@@ -155,9 +155,20 @@
   Post-commit: hit /api/app-url-check on next preview deploy to confirm
   VERCEL_URL fallback returns the correct preview URL.
 
-- [pre-c0] Build intake file upload (Supabase Storage)
-  Intake questionnaire works but file upload for writing samples is missing.
-  TOV agent needs writing samples to do its job well.
+- [DONE 2026-04-23] Build intake file upload (Supabase Storage)
+  intake_files table + RLS + intake-files Storage bucket (private, 10MB, PDF/DOCX/TXT/MD).
+  POST /api/intake/files/upload: validates, uploads to Storage, extracts text at upload time
+  (pdf-parse for PDF, mammoth for DOCX, direct read for TXT/MD), inserts metadata row.
+  DELETE /api/intake/files/[id]: verifies org ownership before deleting.
+  FileUploadSection component in intake form (voice section): drag-drop + browse, purpose
+  selector per file (voice_sample/icp_doc/case_study/other), delete button, extraction
+  failure warning.
+  TOV agent: now reads both voice_samples pasted field AND intake_files (file_purpose=voice_sample).
+  ICP agent: now reads intake_files (file_purpose IN icp_doc/case_study) as reference docs.
+  End-to-end verified: 3 real writing samples uploaded, extracted cleanly, TOV agent run
+  confirmed dual-source in suggestion_reason ("Writing samples: 1422 words total. Uploaded
+  files: 3 (sample-1-linkedin-layoff.txt, sample-2-caio-followup-email.txt,
+  sample-3-jeff-whatsapp.txt)"). Supabase MCP used to apply migration — no manual SQL needed.
 
 - [pre-c0] Build intake website URL ingestion
   Website fetch for homepage + 3 inner pages missing. ICP/Positioning agents
@@ -178,9 +189,9 @@ Remaining [pre-c0] items in dependency order. Items at the same level can run in
   Note: clock starts now; 2–3 week warming period is elapsed time, not build time.
   Build time is ~2 hrs (domain purchase, DNS config, Instantly mailbox setup).
 
-**Intake file upload** (~1–2 hrs)
-  Depends on: nothing (Supabase Storage, standalone feature)
-  Blocks: TOV agent gets writing samples → better document quality for ICP filter dogfood + TAM
+**Intake file upload** ✓ DONE 2026-04-23
+  TOV agent now reads uploaded files + pasted text field. ICP agent reads uploaded icp_doc/case_study files.
+  3 real writing samples uploaded and verified. New pending TOV suggestion created with dual-source context.
 
 **Intake website URL ingestion** (~1–2 hrs)
   Depends on: nothing (fetch + extract, standalone feature)
