@@ -1,7 +1,3 @@
-// TODO: Replace placeholder data with a real query from an agent_runs table when
-// that table exists. The query should select across all organisations, joining on
-// organisations.name for the client column. Order by started_at desc.
-
 export interface AgentRun {
   id: string
   clientName: string
@@ -11,45 +7,6 @@ export interface AgentRun {
   outputSummary: string
   startedAt: string
 }
-
-const PLACEHOLDER_RUNS: AgentRun[] = [
-  {
-    id: 'r1',
-    clientName: 'Apex Consulting',
-    agentName: 'ICP Generation',
-    status: 'completed',
-    durationMs: 14200,
-    outputSummary: 'ICP document generated — v2.0',
-    startedAt: '2026-04-19T09:14:00Z',
-  },
-  {
-    id: 'r2',
-    clientName: 'Meridian Group',
-    agentName: 'Prospect Research',
-    status: 'completed',
-    durationMs: 8700,
-    outputSummary: '3 prospects researched — Accenture, BCG, Deloitte',
-    startedAt: '2026-04-19T08:52:00Z',
-  },
-  {
-    id: 'r3',
-    clientName: 'Apex Consulting',
-    agentName: 'Reply Handler',
-    status: 'failed',
-    durationMs: 340,
-    outputSummary: 'Could not classify reply — forwarded to operator review',
-    startedAt: '2026-04-18T17:30:00Z',
-  },
-  {
-    id: 'r4',
-    clientName: 'Meridian Group',
-    agentName: 'Positioning Agent',
-    status: 'running',
-    durationMs: null,
-    outputSummary: 'Positioning document in progress',
-    startedAt: '2026-04-18T16:05:00Z',
-  },
-]
 
 const STATUS_STYLES: Record<AgentRun['status'], { label: string; style: string }> = {
   completed: {
@@ -83,10 +40,28 @@ function formatTimestamp(iso: string): string {
 }
 
 interface AgentActivityViewProps {
-  runs?: AgentRun[]
+  runs: AgentRun[]
+  error?: boolean
 }
 
-export function AgentActivityView({ runs = PLACEHOLDER_RUNS }: AgentActivityViewProps) {
+export function AgentActivityView({ runs, error }: AgentActivityViewProps) {
+  if (error) {
+    return (
+      <div className="flex-1 overflow-y-auto bg-surface-content">
+        <div className="px-7 py-6 max-w-[1040px]">
+          <div className="bg-surface-card border border-border-card rounded-[10px] px-8 py-12 text-center">
+            <p className="text-[13px] font-medium text-text-primary mb-2">
+              Could not load agent activity
+            </p>
+            <p className="text-[12px] text-text-secondary">
+              Check server logs for details.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (runs.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto bg-surface-content">

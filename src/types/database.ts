@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_runs: {
+        Row: {
+          agent_name: string
+          client_id: string
+          completed_at: string | null
+          duration_ms: number | null
+          error_message: string | null
+          id: string
+          output_summary: string | null
+          started_at: string
+          status: string
+        }
+        Insert: {
+          agent_name: string
+          client_id: string
+          completed_at?: string | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          output_summary?: string | null
+          started_at?: string
+          status: string
+        }
+        Update: {
+          agent_name?: string
+          client_id?: string
+          completed_at?: string | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          output_summary?: string | null
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_runs_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_runs_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaigns: {
         Row: {
           campaign_type: string
@@ -80,6 +131,7 @@ export type Database = {
           field_path: string
           id: string
           organisation_id: string
+          rejection_reason: string | null
           reviewed_at: string | null
           reviewed_by: string | null
           sequence_position: number | null
@@ -99,6 +151,7 @@ export type Database = {
           field_path: string
           id?: string
           organisation_id: string
+          rejection_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           sequence_position?: number | null
@@ -118,6 +171,7 @@ export type Database = {
           field_path?: string
           id?: string
           organisation_id?: string
+          rejection_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           sequence_position?: number | null
@@ -330,10 +384,12 @@ export type Database = {
       }
       organisations: {
         Row: {
+          auto_approve_window_hours: number
           contract_start_date: string | null
           contract_status: string | null
           created_at: string
           engagement_month: number
+          founder_first_name: string | null
           id: string
           meetings_count: number
           name: string
@@ -345,10 +401,12 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          auto_approve_window_hours?: number
           contract_start_date?: string | null
           contract_status?: string | null
           created_at?: string
           engagement_month?: number
+          founder_first_name?: string | null
           id?: string
           meetings_count?: number
           name: string
@@ -360,10 +418,12 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          auto_approve_window_hours?: number
           contract_start_date?: string | null
           contract_status?: string | null
           created_at?: string
           engagement_month?: number
+          founder_first_name?: string | null
           id?: string
           meetings_count?: number
           name?: string
@@ -417,12 +477,16 @@ export type Database = {
           linkedin_url: string | null
           organisation_id: string
           personalisation_trigger: string | null
+          research_ran_at: string | null
           research_source: string | null
           role: string | null
           suppressed: boolean
           suppressed_at: string | null
           suppression_reason: string | null
+          trigger_confidence: string | null
+          trigger_data: Json | null
           updated_at: string
+          variant_id: string | null
         }
         Insert: {
           company_name?: string | null
@@ -434,12 +498,16 @@ export type Database = {
           linkedin_url?: string | null
           organisation_id: string
           personalisation_trigger?: string | null
+          research_ran_at?: string | null
           research_source?: string | null
           role?: string | null
           suppressed?: boolean
           suppressed_at?: string | null
           suppression_reason?: string | null
+          trigger_confidence?: string | null
+          trigger_data?: Json | null
           updated_at?: string
+          variant_id?: string | null
         }
         Update: {
           company_name?: string | null
@@ -451,12 +519,16 @@ export type Database = {
           linkedin_url?: string | null
           organisation_id?: string
           personalisation_trigger?: string | null
+          research_ran_at?: string | null
           research_source?: string | null
           role?: string | null
           suppressed?: boolean
           suppressed_at?: string | null
           suppression_reason?: string | null
+          trigger_confidence?: string | null
+          trigger_data?: Json | null
           updated_at?: string
+          variant_id?: string | null
         }
         Relationships: [
           {
@@ -486,6 +558,7 @@ export type Database = {
           prospect_id: string | null
           raw_data: Json
           signal_type: string
+          variant_id: string | null
         }
         Insert: {
           campaign_id?: string | null
@@ -497,6 +570,7 @@ export type Database = {
           prospect_id?: string | null
           raw_data?: Json
           signal_type: string
+          variant_id?: string | null
         }
         Update: {
           campaign_id?: string | null
@@ -508,6 +582,7 @@ export type Database = {
           prospect_id?: string | null
           raw_data?: Json
           signal_type?: string
+          variant_id?: string | null
         }
         Relationships: [
           {
