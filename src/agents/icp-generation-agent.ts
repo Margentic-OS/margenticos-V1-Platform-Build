@@ -106,7 +106,15 @@ export async function runIcpGenerationAgent(
   // Step 4: Read patterns table (cross-client, read-only, may be empty in phase one).
   const patterns = await fetchPatterns(supabase)
 
-  // Step 5: Run web research — market intelligence to inform the ICP.
+  // Step 5: Fetch uploaded reference docs (ICP docs and case studies).
+  const refDocs = await fetchUploadedRefDocs(supabase, organisation_id)
+  if (refDocs.length > 0) {
+    logger.info('ICP agent: found uploaded reference docs', {
+      organisation_id, count: refDocs.length,
+    })
+  }
+
+  // Step 6: Run web research — market intelligence to inform the ICP.
   // Queries are derived from the client's intake data, not hardcoded.
   // Research INFORMS the ICP — it does not override intake. Conflicts are flagged
   // in suggestion_reason, not silently resolved. Fails gracefully if unavailable.
@@ -121,7 +129,7 @@ export async function runIcpGenerationAgent(
     })
   }
 
-  // Step 6: Build the user message from intake data + research.
+  // Step 7: Build the user message from intake data + research + uploaded docs.
   const userMessage = buildUserMessage({
     organisation_id,
     intake,
@@ -129,6 +137,7 @@ export async function runIcpGenerationAgent(
     patterns,
     completeness,
     research,
+    refDocs,
   })
 
   // Step 7: Call Claude.
@@ -227,6 +236,37 @@ async function fetchPatterns(supabase: SupabaseClient): Promise<PatternRow[]> {
   return (data ?? []) as PatternRow[]
 }
 
+interface UploadedRefDoc {
+  filename: string
+  purpose: string
+  text: string
+}
+
+async function fetchUploadedRefDocs(
+  supabase: SupabaseClient,
+  organisation_id: string
+): Promise<UploadedRefDoc[]> {
+  const { data, error } = await supabase
+    .from('intake_files')
+    .select('original_filename, file_purpose, extracted_text')
+    .eq('organisation_id', organisation_id)
+    .in('file_purpose', ['icp_doc', 'case_study'])
+    .eq('extraction_status', 'complete')
+
+  if (error) {
+    logger.warn('ICP agent: could not fetch uploaded reference docs — continuing without them', {
+      error: error.message,
+    })
+    return []
+  }
+
+  return (data ?? []).map(row => ({
+    filename: row.original_filename as string,
+    purpose: row.file_purpose as string,
+    text: (row.extracted_text ?? '') as string,
+  })).filter(d => d.text.trim().length > 0)
+}
+
 // ─── Research query builder ───────────────────────────────────────────────────
 
 // Derives 4 targeted search queries from the client's intake data.
@@ -287,8 +327,9 @@ function buildUserMessage(params: {
   patterns: PatternRow[]
   completeness: number
   research: ResearchBundle
+  refDocs: UploadedRefDoc[]
 }): string {
-  const { intake, existingDocument, patterns, completeness, research } = params
+  const { intake, existingDocument, patterns, completeness, research, refDocs } = params
 
   // Group intake responses by section for readability in the prompt.
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
@@ -351,7 +392,14 @@ ${completenessNote}
 
 ## INTAKE QUESTIONNAIRE RESPONSES
 
-${intakeSections}${researchBlock}${refreshContext}${patternContext}
+${intakeSections}${refDocs.length > 0
+    ? '\n\n---\n\n## UPLOADED REFERENCE DOCUMENTS\n\n' +
+      'The client has uploaded the following reference documents. ' +
+      'Use them as primary source material alongside the intake responses above.\n\n' +
+      refDocs.map(d =>
+        `### ${d.filename} (${d.purpose === 'icp_doc' ? 'Existing ICP document' : 'Case study'})\n\n${d.text}`
+      ).join('\n\n---\n\n')
+    : ''}${researchBlock}${refreshContext}${patternContext}
 
 ---
 

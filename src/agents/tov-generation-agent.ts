@@ -78,6 +78,11 @@ interface PatternRow {
   confidence_score: number | null
 }
 
+interface UploadedVoiceSample {
+  filename: string
+  text: string
+}
+
 // Extracted voice inputs — pulled from intake before prompt construction.
 interface VoiceInputs {
   samples: string
@@ -87,6 +92,7 @@ interface VoiceInputs {
   samplesThin: boolean
   /** True if style and samples appear to contradict (heuristic check before Claude). */
   apparentContradiction: boolean
+  uploadedSamples: UploadedVoiceSample[]
 }
 
 // ─── Main agent function ──────────────────────────────────────────────────────
@@ -109,9 +115,18 @@ export async function runTovGenerationAgent(
     )
   }
 
-  // Step 2: Extract voice_samples and voice_style from intake.
-  // These are the two critical TOV inputs and are handled specially before the prompt.
-  const voiceInputs = extractVoiceInputs(intake)
+  // Step 2: Fetch uploaded voice sample files (extraction already done at upload time).
+  const uploadedSamples = await fetchUploadedVoiceSamples(supabase, organisation_id)
+
+  if (uploadedSamples.length > 0) {
+    logger.info('TOV agent: found uploaded voice sample files', {
+      organisation_id, count: uploadedSamples.length,
+    })
+  }
+
+  // Step 3: Extract voice_samples and voice_style from intake.
+  // Also incorporates any uploaded sample files found above.
+  const voiceInputs = extractVoiceInputs(intake, uploadedSamples)
 
   if (voiceInputs.samplesEmpty) {
     logger.warn(
@@ -135,7 +150,7 @@ export async function runTovGenerationAgent(
     )
   }
 
-  // Step 3: Check overall intake completeness — warn if below 80% critical fields answered.
+  // Step 4: Check overall intake completeness — warn if below 80% critical fields answered.
   const criticalFields = intake.filter(r => r.is_critical)
   const answeredCritical = criticalFields.filter(
     r => r.response_value && r.response_value.trim().length > 0
@@ -268,6 +283,30 @@ async function fetchPatterns(supabase: SupabaseClient): Promise<PatternRow[]> {
   return (data ?? []) as PatternRow[]
 }
 
+async function fetchUploadedVoiceSamples(
+  supabase: SupabaseClient,
+  organisation_id: string
+): Promise<UploadedVoiceSample[]> {
+  const { data, error } = await supabase
+    .from('intake_files')
+    .select('original_filename, extracted_text')
+    .eq('organisation_id', organisation_id)
+    .eq('file_purpose', 'voice_sample')
+    .eq('extraction_status', 'complete')
+
+  if (error) {
+    logger.warn('TOV agent: could not fetch uploaded voice samples — continuing without them', {
+      error: error.message,
+    })
+    return []
+  }
+
+  return (data ?? []).map(row => ({
+    filename: row.original_filename as string,
+    text: (row.extracted_text ?? '') as string,
+  })).filter(s => s.text.trim().length > 0)
+}
+
 // ─── Voice input extraction ───────────────────────────────────────────────────
 
 // Pulls voice_samples and voice_style from intake and computes metadata about
@@ -276,16 +315,25 @@ async function fetchPatterns(supabase: SupabaseClient): Promise<PatternRow[]> {
 // Contradiction detection is a heuristic pre-check — it catches the clearest cases
 // (e.g. founder says "direct and concise" but sample is over 200 words per paragraph).
 // Claude's deeper analysis is the authoritative contradiction check.
-function extractVoiceInputs(intake: IntakeRow[]): VoiceInputs {
+function extractVoiceInputs(
+  intake: IntakeRow[],
+  uploadedSamples: UploadedVoiceSample[]
+): VoiceInputs {
   const val = (key: string) =>
     intake.find(r => r.field_key === key)?.response_value?.trim() ?? ''
 
   const samples = val('voice_samples')
   const style   = val('voice_style')
 
-  const sampleWordCount = samples.length > 0
+  // Combined word count across both the pasted text field and any uploaded files.
+  const uploadedWordCount = uploadedSamples.reduce(
+    (sum, s) => sum + s.text.split(/\s+/).filter(w => w.length > 0).length,
+    0
+  )
+  const pastedWordCount = samples.length > 0
     ? samples.split(/\s+/).filter(w => w.length > 0).length
     : 0
+  const sampleWordCount = pastedWordCount + uploadedWordCount
 
   const samplesEmpty = sampleWordCount === 0
   const samplesThin  = !samplesEmpty && sampleWordCount < THIN_SAMPLE_WORD_THRESHOLD
@@ -293,16 +341,18 @@ function extractVoiceInputs(intake: IntakeRow[]): VoiceInputs {
   // Heuristic contradiction check: surface the most obvious mismatches so the
   // agent knows to look carefully, even before Claude's deeper analysis.
   // These are signals, not definitive — Claude makes the authoritative call.
+  // Check across both pasted samples and uploaded file text.
   let apparentContradiction = false
   if (!samplesEmpty && style.length > 0) {
     const styleLower   = style.toLowerCase()
-    const samplesLower = samples.toLowerCase()
+    const allSampleText = [samples, ...uploadedSamples.map(s => s.text)].join('\n\n')
+    const samplesLower = allSampleText.toLowerCase()
 
     const claimsDirect   = styleLower.includes('direct') || styleLower.includes('concise') || styleLower.includes('brief')
-    // Average word count per sentence as a length proxy
-    const sentences      = samples.split(/[.!?]+/).filter(s => s.trim().length > 5)
+    // Average word count per sentence as a length proxy — use combined text
+    const sentences      = allSampleText.split(/[.!?]+/).filter(s => s.trim().length > 5)
     const avgSentenceLen = sentences.length > 0
-      ? samples.split(/\s+/).length / sentences.length
+      ? allSampleText.split(/\s+/).length / sentences.length
       : 0
     const samplesAreVerbose = avgSentenceLen > 25
 
@@ -321,7 +371,7 @@ function extractVoiceInputs(intake: IntakeRow[]): VoiceInputs {
     }
   }
 
-  return { samples, style, sampleWordCount, samplesEmpty, samplesThin, apparentContradiction }
+  return { samples, style, sampleWordCount, samplesEmpty, samplesThin, apparentContradiction, uploadedSamples }
 }
 
 // ─── Prompt construction ──────────────────────────────────────────────────────
@@ -335,7 +385,7 @@ function buildUserMessage(params: {
   completeness: number
 }): string {
   const { intake, voiceInputs, existingDocument, patterns, completeness } = params
-  const { samples, style, samplesEmpty, samplesThin, sampleWordCount, apparentContradiction } = voiceInputs
+  const { samples, style, samplesEmpty, samplesThin, sampleWordCount, apparentContradiction, uploadedSamples } = voiceInputs
 
   // Group intake responses by section, excluding voice_samples and voice_style —
   // those are surfaced separately in a dedicated block so Claude understands
@@ -368,9 +418,23 @@ function buildUserMessage(params: {
       ? `⚠️ THIN SAMPLES (${sampleWordCount} words) — extract what you can. Note the limitation. Mark confidence as low.`
       : `${sampleWordCount} words across samples — full extraction is possible.`
 
-  const voiceSamplesBlock = samplesEmpty
+  // Pasted samples block
+  const pastedBlock = samplesEmpty && uploadedSamples.length === 0
     ? `\n\n---\n\n## WRITING SAMPLES (primary extraction source)\n\n${sampleStatus}\n\n[No samples provided]`
-    : `\n\n---\n\n## WRITING SAMPLES (primary extraction source)\n\n${sampleStatus}\n\n${samples}`
+    : samplesEmpty
+      ? ''
+      : `\n\n---\n\n## WRITING SAMPLES — PASTED TEXT (primary extraction source)\n\n${sampleStatus}\n\n${samples}`
+
+  // Uploaded file samples block — each file labelled by filename.
+  const uploadedBlock = uploadedSamples.length > 0
+    ? '\n\n---\n\n## WRITING SAMPLES — UPLOADED FILES (primary extraction source)\n\n' +
+      `${uploadedSamples.length} file(s) uploaded. Each is labelled below.\n\n` +
+      uploadedSamples
+        .map(s => `### ${s.filename}\n\n${s.text}`)
+        .join('\n\n---\n\n')
+    : ''
+
+  const voiceSamplesBlock = pastedBlock + uploadedBlock
 
   // Voice style block — secondary signal, cross-reference only.
   const contradictionHint = apparentContradiction
@@ -535,11 +599,14 @@ async function writeDocumentSuggestion(
 
   // Voice sample quality note — included in suggestion_reason so Doug knows
   // how much raw material the agent had to work with.
-  const sampleNote = voiceInputs.samplesEmpty
+  const uploadedFileNote = voiceInputs.uploadedSamples.length > 0
+    ? ` Uploaded files: ${voiceInputs.uploadedSamples.length} (${voiceInputs.uploadedSamples.map(s => s.filename).join(', ')}).`
+    : ''
+  const sampleNote = voiceInputs.samplesEmpty && voiceInputs.uploadedSamples.length === 0
     ? ' ⚠️ No writing samples were provided. This guide is based on self-description only — consider providing samples and regenerating.'
     : voiceInputs.samplesThin
-      ? ` ⚠️ Writing samples were thin (${voiceInputs.sampleWordCount} words). More samples will improve accuracy.`
-      : ` Writing samples: ${voiceInputs.sampleWordCount} words provided.`
+      ? ` ⚠️ Writing samples were thin (${voiceInputs.sampleWordCount} words total). More samples will improve accuracy.` + uploadedFileNote
+      : ` Writing samples: ${voiceInputs.sampleWordCount} words total.` + uploadedFileNote
 
   // Contradiction note — surfaces in suggestion_reason when the pre-check flagged one.
   // Claude's analysis is authoritative; this note flags that Doug should read voice_style_note.
