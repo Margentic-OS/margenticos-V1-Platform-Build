@@ -192,6 +192,31 @@ Never assume an account or credential exists. Always check first.
 
 ---
 
+## MCP safety rules
+
+MCPs have the same power to destroy as they do to create. Two rules apply to
+every MCP operation in every session, no exceptions:
+
+**Destructive operations require explicit approval before running.**
+Before executing anything that removes, drops, wipes, disables, unpublishes,
+or force-pushes — show Doug the exact command or API call and wait for a
+clear "yes, do it" before proceeding. This covers: DNS record deletion,
+env var removal, domain removal, database table drops, branch deletions,
+deployment rollbacks, and any operation described with words like delete,
+destroy, remove, disable, or force.
+
+**Additive operations run without confirmation.**
+New DNS records, new env vars, new domains, new tables, new deployments —
+these are safe to execute directly and do not need a confirmation step.
+
+**Never echo secret values.**
+When showing env var commands or confirming what was set, display the key
+name and scope only. Never print the value. Example: "Set
+NEXT_PUBLIC_APP_URL in Production scope" — not the URL if it were a secret,
+and never tokens, passwords, or API keys under any circumstances.
+
+---
+
 ## Documentation — update /docs every session, never skip
 
 All technical documentation lives in /docs at the project root.
