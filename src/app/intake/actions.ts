@@ -72,6 +72,48 @@ export async function saveIntakeResponse(
   return { success: true, wordCount }
 }
 
+export interface IntakeFileRecord {
+  id: string
+  original_filename: string
+  file_size_bytes: number
+  mime_type: string
+  file_purpose: 'voice_sample' | 'icp_doc' | 'case_study' | 'other'
+  extraction_status: 'pending' | 'complete' | 'failed'
+  created_at: string
+}
+
+export async function loadIntakeFiles(): Promise<IntakeFileRecord[]> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const { data: userRecord } = await supabase
+    .from('users')
+    .select('organisation_id')
+    .eq('id', user.id)
+    .single() as { data: { organisation_id: string } | null; error: unknown }
+
+  if (!userRecord) return []
+
+  // intake_files is not yet in the generated Database type — cast required until types are regenerated.
+  const { data } = await (supabase as unknown as {
+    from: (table: string) => {
+      select: (cols: string) => {
+        eq: (col: string, val: string) => {
+          order: (col: string, opts: { ascending: boolean }) => Promise<{ data: IntakeFileRecord[] | null }>
+        }
+      }
+    }
+  })
+    .from('intake_files')
+    .select('id, original_filename, file_size_bytes, mime_type, file_purpose, extraction_status, created_at')
+    .eq('organisation_id', userRecord.organisation_id)
+    .order('created_at', { ascending: false })
+
+  return data ?? []
+}
+
 export async function loadIntakeResponses() {
   const supabase = await createClient()
 
