@@ -4,7 +4,7 @@
 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { loadIntakeResponses } from './actions'
+import { loadIntakeResponses, loadIntakeFiles } from './actions'
 import IntakeForm from '@/components/intake/IntakeForm'
 
 export default async function IntakePage() {
@@ -13,7 +13,10 @@ export default async function IntakePage() {
 
   if (!user) redirect('/login')
 
-  const initialValues = await loadIntakeResponses()
+  const [initialValues, initialFiles] = await Promise.all([
+    loadIntakeResponses(),
+    loadIntakeFiles(),
+  ])
 
-  return <IntakeForm initialValues={initialValues} />
+  return <IntakeForm initialValues={initialValues} initialFiles={initialFiles} />
 }

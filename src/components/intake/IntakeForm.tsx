@@ -8,6 +8,8 @@
 
 import { useState, useCallback, useTransition } from 'react'
 import { saveIntakeResponse } from '@/app/intake/actions'
+import type { IntakeFileRecord } from '@/app/intake/actions'
+import FileUploadSection from './FileUploadSection'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -235,9 +237,10 @@ const inputBase =
 
 interface IntakeFormProps {
   initialValues: Record<string, { value: string; wordCount: number }>
+  initialFiles: IntakeFileRecord[]
 }
 
-export default function IntakeForm({ initialValues }: IntakeFormProps) {
+export default function IntakeForm({ initialValues, initialFiles }: IntakeFormProps) {
   const [values, setValues] = useState<Record<string, string>>(
     Object.fromEntries(Object.entries(initialValues).map(([k, v]) => [k, v.value]))
   )
@@ -486,6 +489,13 @@ export default function IntakeForm({ initialValues }: IntakeFormProps) {
                 )
               })}
             </div>
+
+            {/* File upload — voice section only */}
+            {section.id === 'voice' && (
+              <div className="mt-4 sm:mt-6">
+                <FileUploadSection initialFiles={initialFiles} />
+              </div>
+            )}
 
             {/* Section navigation */}
             <div className="flex justify-between mt-6 sm:mt-8">
