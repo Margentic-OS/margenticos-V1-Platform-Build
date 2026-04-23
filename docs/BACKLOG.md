@@ -386,6 +386,13 @@ Revisit once prospect research agent is built and full outbound cycle is working
   If that returns zero rows, the column can be dropped via migration.
   voice_samples was deprecated 2026-04-23 in favour of file upload as canonical input.
 
+- [post-tier1] Per-client ICPFilterSpec approval UI (per ADR-015)
+  Operator can review generated filter spec before it's used for sourcing.
+  Allows manual tightening of fields that drift on LLM regeneration — e.g.
+  company_headcount_max occasionally exceeds the ICP's own Tier 3 disqualifier
+  zone due to LLM variance. Manual approval step catches and corrects.
+  Trigger: after 3+ client runs, or earlier if drift is observed.
+
 - [post-tier1] Configure custom domain (app.margenticos.com) on Vercel project
   Requires CNAME record in Netlify DNS pointing to cname.vercel-dns.com,
   add domain in Vercel project settings, update NEXT_PUBLIC_APP_URL in
@@ -413,6 +420,12 @@ Revisit once prospect research agent is built and full outbound cycle is working
 ---
 
 ## Phase 2 deferred items (from ADR-011, ADR-013, ADR-014, ADR-015, ADR-017)
+
+- [phase2] Hard-cap company_headcount_max in deriveFilterSpec() derivation logic
+  If the approval UI (above) exists, this becomes redundant. If UI is deferred,
+  deterministic clamp prevents drift from reaching Apollo. E.g. clamp at
+  max(tier3_disqualifier_threshold - 1) or hardcoded 12 for consulting ICPs.
+  Location: src/lib/agents/icp-filter-spec.ts, deriveFilterSpec().
 
 - [phase2] Split Supabase into dev/staging/prod projects when client count justifies data isolation
   Target trigger: 3+ paying clients with production data. Currently using single
