@@ -27,9 +27,10 @@
 
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
 
-- [pre-c0] Haiku critic pass agent for document suggestion quality review
-  Not yet built. Required before first suggestion reaches approval queue in client-zero.
+- [pre-c1] Haiku critic pass agent for document suggestion quality review
+  Not yet built. Required before first paying client's suggestions reach the approval queue.
   Structured evaluation: TOV compliance, messaging rules, quality floor.
+  During client zero (Doug), suggestion quality can be judged manually.
   Also a prerequisite for unlocking Option D (per-prospect generated sequences) per ADR-014.
 
 - [pre-c0] ICP filter spec validated against MargenticOS's own ICP (dogfood check)
@@ -46,8 +47,9 @@
   warming running for 2–3 weeks minimum before live sends.
   Runbook: /docs/runbooks/sending-setup.md
 
-- [pre-c0] Lemlist API capabilities verified before LinkedIn DM build starts
+- [pre-c1] Lemlist API capabilities verified before LinkedIn DM build starts
   Verify endpoint availability, rate limits, webhook support against live docs.
+  LinkedIn DMs not in scope for client zero campaign — verify before first paying client onboards.
 
 - [DONE 2026-04-22] Verify RLS policies on all 11 base tables beyond agent_runs
   Audited all 11 base tables against ADR-003's three-level enforcement requirement.
@@ -94,10 +96,10 @@
   Table and processed field exist. No agent file. No webhook routes. Build
   before client zero — without this, no signals flow through the system.
 
-- [pre-c0] Build the pattern aggregation agent
-  Can run infrequently (sparse data in early months is fine per ADR), but must
-  exist and execute on some trigger. Build before client zero or defer the
-  capability formally in an ADR update.
+- [phase2] Build the pattern aggregation agent
+  ADR-011 already defers signal threshold logic and A/B testing to Phase 2.
+  Aggregation agent feeds those systems — if the consumers are Phase 2, the producer is too.
+  Sparse data during client zero makes this meaningless to run. Build when signal volume justifies it.
 
 - [pre-c0] Build a scheduler for auto-approve timers
   Toggle UI exists, no trigger. Options: Vercel cron, Supabase pg_cron, or
@@ -145,6 +147,80 @@
 - [pre-c0] Build intake website URL ingestion
   Website fetch for homepage + 3 inner pages missing. ICP/Positioning agents
   expect this context.
+
+---
+
+## Pre-client-zero critical path (dependency map)
+# Last updated: 2026-04-23
+
+Remaining [pre-c0] items in dependency order. Items at the same level can run in parallel.
+
+### Layer 0 — no dependencies, can start immediately (parallel)
+
+**Sending infrastructure** (~4–6 hrs over 2–3 weeks elapsed time)
+  Depends on: nothing
+  Blocks: everything live — no sends happen without domains warmed
+  Note: clock starts now; 2–3 week warming period is elapsed time, not build time.
+  Build time is ~2 hrs (domain purchase, DNS config, Instantly mailbox setup).
+
+**Intake file upload** (~1–2 hrs)
+  Depends on: nothing (Supabase Storage, standalone feature)
+  Blocks: TOV agent gets writing samples → better document quality for ICP filter dogfood + TAM
+
+**Intake website URL ingestion** (~1–2 hrs)
+  Depends on: nothing (fetch + extract, standalone feature)
+  Blocks: ICP/Positioning agents get homepage context → better document quality for dogfood runs
+
+**Replace TODO placeholders — AgentActivityView + SignalsLogView** (~2–3 hrs)
+  Depends on: nothing (UI wiring to existing Supabase tables)
+  Blocks: operator visibility during client zero
+
+### Layer 1 — depends on intake being complete (parallel after Layer 0)
+
+**ICP filter spec dogfood check** (~1–2 hrs)
+  Depends on: intake file upload + website ingestion (richer input = meaningful dogfood)
+  Blocks: TAM report dogfood (TAM gate reads the ICP filter spec)
+
+**Build the signal processing agent** (~4–6 hrs)
+  Depends on: nothing structural, but meaningless without campaigns running
+  Blocks: warnings engine (warnings evaluate signals); auto-approve scheduler (timer fires,
+  Resend sends notification — signals are the feedback that makes this worth running)
+
+### Layer 2 — depends on Layer 1
+
+**TAM report validated against MargenticOS's own TAM** (~1 hr)
+  Depends on: ICP filter spec dogfood (TAM gate consumes the filter spec)
+  Blocks: sourcing pipeline confidence — if TAM gate misfires, prospect sourcing is unreliable
+
+**Build the warnings engine backend** (~3–4 hrs)
+  Depends on: signal processing agent (warnings evaluate processed signals)
+  Blocks: client zero campaigns run with silent deliverability risk if this is missing
+
+**Build auto-approve scheduler** (~1 hr — Vercel Cron, bounded task)
+  Depends on: signal processing agent (scheduler fires → Resend notification → signals flow)
+  Blocks: autonomous loop validation — client zero purpose is proving the end-to-end loop
+
+### Critical path (longest chain)
+
+Intake file upload + website ingestion
+  → ICP filter spec dogfood
+  → TAM report dogfood
+
+Signal processing agent
+  → warnings engine backend
+  → auto-approve scheduler
+
+Both chains can run in parallel. Sending infrastructure warming runs concurrently with all of it.
+
+### Total build-time estimate (excluding warming elapsed time)
+
+  Layer 0 (parallel): ~7–11 hrs across 4 workstreams
+  Layer 1 (parallel): ~5–8 hrs across 2 workstreams
+  Layer 2 (parallel): ~5–7 hrs across 3 workstreams
+  ─────────────────────────────────────────────────
+  Sequential minimum: ~17–26 hrs build time
+  With parallelism:   ~15–22 hrs build time (limited by longest chain)
+  Plus 2–3 weeks elapsed for domain warming — the true wall-clock constraint.
 
 ---
 
