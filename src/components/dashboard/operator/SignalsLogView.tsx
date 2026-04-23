@@ -1,6 +1,5 @@
-// TODO: Replace placeholder data with a real query from the signals table when
-// that table exists and has data. Query should join on organisations.name,
-// join on prospects (first_name, last_name, company_name), order by created_at desc.
+// detail column omitted — no detail field exists on signals; raw_data is
+// unstructured until the signal processing agent is built (pre-c0 backlog).
 
 export interface SignalRow {
   id: string
@@ -8,53 +7,9 @@ export interface SignalRow {
   signalType: string
   prospectName: string | null
   prospectCompany: string | null
-  detail: string
   processed: boolean
   createdAt: string
 }
-
-const PLACEHOLDER_SIGNALS: SignalRow[] = [
-  {
-    id: 's1',
-    clientName: 'Apex Consulting',
-    signalType: 'reply_received',
-    prospectName: 'Sarah Chen',
-    prospectCompany: 'Brightfield Partners',
-    detail: 'Positive reply — prospect asked about availability for a call',
-    processed: true,
-    createdAt: '2026-04-19T10:02:00Z',
-  },
-  {
-    id: 's2',
-    clientName: 'Meridian Group',
-    signalType: 'bounce',
-    prospectName: 'James Whitfield',
-    prospectCompany: 'Thornton Advisory',
-    detail: 'Hard bounce — mailbox does not exist',
-    processed: true,
-    createdAt: '2026-04-19T09:45:00Z',
-  },
-  {
-    id: 's3',
-    clientName: 'Apex Consulting',
-    signalType: 'meeting_qualified',
-    prospectName: 'Marcus Rivera',
-    prospectCompany: 'Velocity Consulting',
-    detail: 'Meeting marked qualified — £12,000 estimated value',
-    processed: true,
-    createdAt: '2026-04-18T15:30:00Z',
-  },
-  {
-    id: 's4',
-    clientName: 'Meridian Group',
-    signalType: 'opt_out',
-    prospectName: 'Eleanor Walsh',
-    prospectCompany: 'Pinnacle Strategy',
-    detail: 'Prospect replied "stop" — suppressed from all sequences',
-    processed: true,
-    createdAt: '2026-04-18T11:15:00Z',
-  },
-]
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso)
@@ -68,22 +23,50 @@ function formatTimestamp(iso: string): string {
 
 function signalTypeLabel(type: string): string {
   const map: Record<string, string> = {
-    reply_received: 'Reply received',
-    bounce: 'Bounce',
+    email_open: 'Email open',
+    email_click: 'Email click',
+    email_reply: 'Email reply',
+    email_bounce: 'Bounce',
+    email_spam: 'Spam complaint',
+    linkedin_post_like: 'LinkedIn like',
+    linkedin_post_comment: 'LinkedIn comment',
+    linkedin_post_share: 'LinkedIn share',
+    linkedin_dm_reply: 'LinkedIn DM reply',
+    linkedin_connection_accepted: 'Connection accepted',
     meeting_qualified: 'Meeting qualified',
     meeting_unqualified: 'Meeting unqualified',
+    meeting_no_show: 'No-show',
+    positive_reply: 'Positive reply',
+    information_request: 'Info request',
     opt_out: 'Opt-out',
     out_of_office: 'Out of office',
-    spam_complaint: 'Spam complaint',
   }
   return map[type] ?? type
 }
 
 interface SignalsLogViewProps {
-  signals?: SignalRow[]
+  signals: SignalRow[]
+  error?: boolean
 }
 
-export function SignalsLogView({ signals = PLACEHOLDER_SIGNALS }: SignalsLogViewProps) {
+export function SignalsLogView({ signals, error }: SignalsLogViewProps) {
+  if (error) {
+    return (
+      <div className="flex-1 overflow-y-auto bg-surface-content">
+        <div className="px-7 py-6 max-w-[1040px]">
+          <div className="bg-surface-card border border-border-card rounded-[10px] px-8 py-12 text-center">
+            <p className="text-[13px] font-medium text-text-primary mb-2">
+              Could not load signals
+            </p>
+            <p className="text-[12px] text-text-secondary">
+              Check server logs for details.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (signals.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto bg-surface-content">
@@ -106,8 +89,8 @@ export function SignalsLogView({ signals = PLACEHOLDER_SIGNALS }: SignalsLogView
       <div className="px-7 py-6 max-w-[1040px]">
         <div className="bg-surface-card border border-border-card rounded-[10px] overflow-hidden">
           {/* Column headers */}
-          <div className="grid grid-cols-[130px_120px_130px_150px_1fr_70px] gap-4 px-5 py-2.5 border-b border-border-card">
-            {['Timestamp', 'Client', 'Signal type', 'Prospect', 'Detail', 'Done'].map((col) => (
+          <div className="grid grid-cols-[130px_120px_150px_1fr_70px] gap-4 px-5 py-2.5 border-b border-border-card">
+            {['Timestamp', 'Client', 'Signal type', 'Prospect', 'Done'].map((col) => (
               <p key={col} className="text-[10px] font-normal uppercase tracking-[0.07em] text-text-secondary">
                 {col}
               </p>
@@ -123,7 +106,7 @@ export function SignalsLogView({ signals = PLACEHOLDER_SIGNALS }: SignalsLogView
             return (
               <div
                 key={sig.id}
-                className={`grid grid-cols-[130px_120px_130px_150px_1fr_70px] gap-4 px-5 py-3 items-center ${
+                className={`grid grid-cols-[130px_120px_150px_1fr_70px] gap-4 px-5 py-3 items-center ${
                   i < signals.length - 1 ? 'border-b border-border-card' : ''
                 }`}
               >
@@ -138,9 +121,6 @@ export function SignalsLogView({ signals = PLACEHOLDER_SIGNALS }: SignalsLogView
                 </p>
                 <p className="text-[11px] text-text-secondary truncate">
                   {prospectDisplay}
-                </p>
-                <p className="text-[11px] text-text-secondary truncate">
-                  {sig.detail}
                 </p>
                 <div>
                   {sig.processed ? (
