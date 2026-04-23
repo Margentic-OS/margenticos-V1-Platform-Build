@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--access-token",
+        "YOUR_SUPABASE_PERSONAL_ACCESS_TOKEN"
+      ]
+    },
+    "netlify": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@netlify/mcp"
+      ],
+      "env": {
+        "NETLIFY_PERSONAL_ACCESS_TOKEN": "YOUR_NETLIFY_PERSONAL_ACCESS_TOKEN"
+      }
+    },
+    "instantly": {
+      "url": "https://mcp.instantly.ai/mcp/YOUR_INSTANTLY_MCP_URL_KEY"
+    }
+  }
+}
