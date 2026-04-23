@@ -27,6 +27,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { fetchWebsiteContext, formatWebsiteContextForPrompt, type WebsitePageContext } from '@/lib/agents/website-context'
 
 // The model specified in the PRD for document generation agents.
 const TOV_MODEL = 'claude-opus-4-6'
@@ -175,7 +176,13 @@ export async function runTovGenerationAgent(
   // Step 5: Read patterns table (cross-client, read-only, may be empty in phase one).
   const patterns = await fetchPatterns(supabase)
 
-  // Step 6: Build the user message from intake + voice inputs.
+  // Step 5b: Fetch website pages fetched at intake time.
+  const websitePages = await fetchWebsiteContext(supabase, organisation_id, 'TOV agent')
+  if (websitePages.length > 0) {
+    logger.info('TOV agent: found website pages', { organisation_id, count: websitePages.length })
+  }
+
+  // Step 6: Build the user message from intake + voice inputs + website.
   // No web research step — TOV works from samples only.
   const userMessage = buildUserMessage({
     organisation_id,
@@ -184,6 +191,7 @@ export async function runTovGenerationAgent(
     existingDocument,
     patterns,
     completeness,
+    websitePages,
   })
 
   // Step 7: Call Claude.
@@ -374,8 +382,9 @@ function buildUserMessage(params: {
   existingDocument: ExistingTovDocument | null
   patterns: PatternRow[]
   completeness: number
+  websitePages: WebsitePageContext[]
 }): string {
-  const { intake, voiceInputs, existingDocument, patterns, completeness } = params
+  const { intake, voiceInputs, existingDocument, patterns, completeness, websitePages } = params
   const { style, samplesEmpty, samplesThin, sampleWordCount, apparentContradiction, uploadedSamples } = voiceInputs
 
   // Group intake responses by section, excluding voice_style —
@@ -456,12 +465,14 @@ function buildUserMessage(params: {
       'Derive what you can from the available samples and preferences. Do not hallucinate specifics.'
     : ''
 
+  const websiteBlock = formatWebsiteContextForPrompt(websitePages)
+
   return `You are generating a Tone of Voice guide for a founder-led B2B consulting firm.
 ${completenessNote}
 
 ## INTAKE QUESTIONNAIRE RESPONSES (excluding voice fields — those are below)
 
-${intakeSections}${voiceSamplesBlock}${voiceStyleBlock}${refreshContext}${patternContext}
+${intakeSections}${voiceSamplesBlock}${voiceStyleBlock}${websiteBlock}${refreshContext}${patternContext}
 
 ---
 

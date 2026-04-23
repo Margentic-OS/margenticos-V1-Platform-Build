@@ -216,12 +216,6 @@ Section total: 3 questions, 1 critical
 Maps to: positioning document (enrichment), website ingestion
 Theme coverage: enrichment only — does not block generation
 
-  field_key: assets_website
-  Label: What's your website URL? We'll read it as part of building your strategy.
-  is_critical: false
-  Type: short text (URL)
-  Note: triggers website ingestion agent if provided
-
   field_key: assets_existing_positioning
   Label: Is there any positioning or messaging you currently use that you'd like us to know about?
          Could be a tagline, an about page, a pitch you've used.
@@ -234,7 +228,10 @@ Theme coverage: enrichment only — does not block generation
   is_critical: false
   Type: long text
 
-Section total: 3 questions, 0 critical
+Note: assets_website removed — company_url in Section 1 is canonical.
+Website ingestion triggers from company_url on save.
+
+Section total: 2 questions, 0 critical
 
 ---
 
@@ -284,10 +281,10 @@ Post-generation total: 4 questions, 0 critical
   clients         5           5
   offer           4           4
   voice           3           1
-  assets          3           0
+  assets          2           0
   enrichment      4           0
   ———————————————————————————————————
-  Total           26          16
+  Total           25          16
 
   80% threshold = 13 of 16 critical fields completed before generation triggers.
   Enrichment prompts are surfaced post-generation only — not part of initial intake flow.
@@ -315,11 +312,14 @@ They are not processed immediately on upload.
 
 ## Website ingestion
 
-If assets_website is provided:
-  - The agent fetches the homepage and up to 3 inner pages (About, Services, Case Studies)
-  - Extracted text is stored as an intake_response for the relevant field_key
-  - Used as additional context for positioning and TOV agents
+When company_url is saved in Section 1:
+  - POST /api/intake/website/fetch is called automatically (fire-and-forget)
+  - Fetches the homepage and up to 3 inner pages (About, Services, Case Studies)
+  - Inner pages discovered by scoring same-domain anchor tags on the homepage
+  - Extracted text stored in intake_website_pages table (one row per page)
+  - Used as additional context for ICP, TOV, and Positioning agents
   - A failed fetch (404, timeout, bot-blocked) is logged but does not block document generation
+  - Re-saving company_url triggers a re-fetch (old rows replaced)
 
 ---
 

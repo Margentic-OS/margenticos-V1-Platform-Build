@@ -70,11 +70,13 @@ inline beneath that field asking the client to add more detail.
 | voice_style | false | long text |
 | voice_dislikes | false | long text |
 
-### Section 5: assets (3 questions, 0 critical)
+### Section 5: assets (2 questions, 0 critical)
+
+`assets_website` was removed — `company_url` in Section 1 is the canonical website field.
+Saving `company_url` triggers website ingestion automatically (see Website ingestion below).
 
 | fieldKey | isCritical | Type |
 |---|---|---|
-| assets_website | false | short text |
 | assets_existing_positioning | false | long text |
 | assets_past_outreach | false | long text |
 
@@ -117,3 +119,27 @@ component show a shorter inline prompt: "Speak this one if you can."
 
 **iOS Safari input zoom:**
 - All inputs use `text-[16px]` — do not reduce below 16px or iOS will zoom on focus
+
+---
+
+## Website ingestion
+
+When a client saves `company_url` in Section 1, the form fires a fire-and-forget
+`POST /api/intake/website/fetch` with the URL. The API route:
+
+1. Authenticates the user and resolves their `organisation_id`
+2. Calls `src/lib/intake/fetch-website.ts` — fetches homepage + discovers up to 3 inner pages (About, Services, Case Studies) by scoring same-domain anchor tags
+3. Replaces all existing rows in `intake_website_pages` for that org (delete + insert)
+
+Results are stored in the `intake_website_pages` table. Each row has `fetch_status` of
+`complete` or `failed`. Agents skip failed rows silently.
+
+ICP, TOV, and Positioning agents all call `fetchWebsiteContext()` from
+`src/lib/agents/website-context.ts` to read the successfully-fetched pages.
+Content is injected into the prompt after uploaded files and before web research.
+
+**What to check if website content is missing from agent output:**
+- Check `intake_website_pages` in Supabase — are rows present for the org? What is `fetch_status`?
+- If `fetch_status = 'failed'`, check `error_message`: `timeout`, `http_403`, `fetch_error`, `invalid_url`
+- Many sites block headless fetches with 403. This is non-fatal — agents proceed without it.
+- Re-saving the `company_url` field in the intake form triggers a re-fetch.

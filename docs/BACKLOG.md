@@ -170,9 +170,14 @@
   files: 3 (sample-1-linkedin-layoff.txt, sample-2-caio-followup-email.txt,
   sample-3-jeff-whatsapp.txt)"). Supabase MCP used to apply migration — no manual SQL needed.
 
-- [pre-c0] Build intake website URL ingestion
-  Website fetch for homepage + 3 inner pages missing. ICP/Positioning agents
-  expect this context.
+- [DONE 2026-04-23] Build intake website URL ingestion
+  intake_website_pages table + RLS. fetch-website.ts: simple fetch + node-html-parser,
+  homepage + up to 3 inner pages (About, Services, Case Studies) via anchor scoring.
+  POST /api/intake/website/fetch: auth + org resolve + delete/insert rows.
+  IntakeForm: company_url blur triggers fire-and-forget fetch; assets_website field removed
+  (company_url is canonical). ICP, TOV, Positioning agents all call fetchWebsiteContext()
+  from src/lib/agents/website-context.ts — injected into prompt after uploaded files.
+  Failed fetches (timeout, 403, dead link) are non-fatal — agents proceed without website data.
 
 ---
 
@@ -193,9 +198,9 @@ Remaining [pre-c0] items in dependency order. Items at the same level can run in
   TOV agent now reads uploaded files + pasted text field. ICP agent reads uploaded icp_doc/case_study files.
   3 real writing samples uploaded and verified. New pending TOV suggestion created with dual-source context.
 
-**Intake website URL ingestion** (~1–2 hrs)
-  Depends on: nothing (fetch + extract, standalone feature)
-  Blocks: ICP/Positioning agents get homepage context → better document quality for dogfood runs
+**Intake website URL ingestion** ✓ DONE 2026-04-23
+  company_url triggers fetch on blur. Homepage + up to 3 inner pages stored in intake_website_pages.
+  ICP, TOV, Positioning agents all consume via fetchWebsiteContext().
 
 **Replace TODO placeholders — AgentActivityView + SignalsLogView** (~2–3 hrs)
   Depends on: nothing (UI wiring to existing Supabase tables)

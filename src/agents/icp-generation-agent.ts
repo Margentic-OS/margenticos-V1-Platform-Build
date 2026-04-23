@@ -14,6 +14,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { runResearchQueries, formatResearchForPrompt, type ResearchBundle } from '@/lib/agents/tools/webSearch'
+import { fetchWebsiteContext, formatWebsiteContextForPrompt, type WebsitePageContext } from '@/lib/agents/website-context'
 
 // The model specified in the PRD for document generation agents.
 const ICP_MODEL = 'claude-opus-4-6'
@@ -114,6 +115,12 @@ export async function runIcpGenerationAgent(
     })
   }
 
+  // Step 5b: Fetch website pages fetched at intake time.
+  const websitePages = await fetchWebsiteContext(supabase, organisation_id, 'ICP agent')
+  if (websitePages.length > 0) {
+    logger.info('ICP agent: found website pages', { organisation_id, count: websitePages.length })
+  }
+
   // Step 6: Run web research — market intelligence to inform the ICP.
   // Queries are derived from the client's intake data, not hardcoded.
   // Research INFORMS the ICP — it does not override intake. Conflicts are flagged
@@ -129,7 +136,7 @@ export async function runIcpGenerationAgent(
     })
   }
 
-  // Step 7: Build the user message from intake data + research + uploaded docs.
+  // Step 7: Build the user message from intake data + research + uploaded docs + website.
   const userMessage = buildUserMessage({
     organisation_id,
     intake,
@@ -138,6 +145,7 @@ export async function runIcpGenerationAgent(
     completeness,
     research,
     refDocs,
+    websitePages,
   })
 
   // Step 7: Call Claude.
@@ -328,8 +336,9 @@ function buildUserMessage(params: {
   completeness: number
   research: ResearchBundle
   refDocs: UploadedRefDoc[]
+  websitePages: WebsitePageContext[]
 }): string {
-  const { intake, existingDocument, patterns, completeness, research, refDocs } = params
+  const { intake, existingDocument, patterns, completeness, research, refDocs, websitePages } = params
 
   // Group intake responses by section for readability in the prompt.
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
@@ -387,6 +396,8 @@ function buildUserMessage(params: {
     : '\n\n---\n\n## WEB RESEARCH\n\nNo usable research results available. ' +
       'Base your analysis entirely on intake data and framework logic.'
 
+  const websiteBlock = formatWebsiteContextForPrompt(websitePages)
+
   return `You are generating an ICP document for a founder-led B2B consulting firm.
 ${completenessNote}
 
@@ -399,7 +410,7 @@ ${intakeSections}${refDocs.length > 0
       refDocs.map(d =>
         `### ${d.filename} (${d.purpose === 'icp_doc' ? 'Existing ICP document' : 'Case study'})\n\n${d.text}`
       ).join('\n\n---\n\n')
-    : ''}${researchBlock}${refreshContext}${patternContext}
+    : ''}${websiteBlock}${researchBlock}${refreshContext}${patternContext}
 
 ---
 

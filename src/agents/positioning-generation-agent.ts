@@ -18,6 +18,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { runResearchQueries, formatResearchForPrompt, type ResearchBundle } from '@/lib/agents/tools/webSearch'
+import { fetchWebsiteContext, formatWebsiteContextForPrompt, type WebsitePageContext } from '@/lib/agents/website-context'
 
 // The model specified in the PRD for document generation agents.
 const POSITIONING_MODEL = 'claude-opus-4-6'
@@ -124,6 +125,12 @@ export async function runPositioningGenerationAgent(
   // Step 5: Read patterns table (cross-client, read-only, may be empty in phase one).
   const patterns = await fetchPatterns(supabase)
 
+  // Step 5b: Fetch website pages fetched at intake time.
+  const websitePages = await fetchWebsiteContext(supabase, organisation_id, 'Positioning agent')
+  if (websitePages.length > 0) {
+    logger.info('Positioning agent: found website pages', { organisation_id, count: websitePages.length })
+  }
+
   // Step 6: Run web research — competitor research is the primary use here.
   // Queries target: how competitors position, what buyers search for, what buyers say
   // in case studies, and what failure modes look like. Research INFORMS the positioning
@@ -139,7 +146,7 @@ export async function runPositioningGenerationAgent(
     })
   }
 
-  // Step 7: Build the user message from intake + ICP + research.
+  // Step 7: Build the user message from intake + ICP + research + website.
   const userMessage = buildUserMessage({
     organisation_id,
     intake,
@@ -148,6 +155,7 @@ export async function runPositioningGenerationAgent(
     patterns,
     completeness,
     research,
+    websitePages,
   })
 
   // Step 8: Call Claude.
@@ -347,8 +355,9 @@ function buildUserMessage(params: {
   patterns: PatternRow[]
   completeness: number
   research: ResearchBundle
+  websitePages: WebsitePageContext[]
 }): string {
-  const { intake, icpDocument, existingDocument, patterns, completeness, research } = params
+  const { intake, icpDocument, existingDocument, patterns, completeness, research, websitePages } = params
 
   // Group intake responses by section for readability in the prompt.
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
@@ -421,12 +430,14 @@ function buildUserMessage(params: {
       'Derive competitive_landscape from intake data and framework logic. ' +
       'Do not fabricate competitor names — use types (e.g. "generalist outbound agencies") instead.'
 
+  const websiteBlock = formatWebsiteContextForPrompt(websitePages)
+
   return `You are generating a Positioning document for a founder-led B2B consulting firm.
 ${completenessNote}
 
 ## INTAKE QUESTIONNAIRE RESPONSES
 
-${intakeSections}${researchBlock}${icpBlock}${refreshContext}${patternContext}
+${intakeSections}${websiteBlock}${researchBlock}${icpBlock}${refreshContext}${patternContext}
 
 ---
 

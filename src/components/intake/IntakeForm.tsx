@@ -197,12 +197,6 @@ const SECTIONS: Section[] = [
     title: 'Existing assets',
     questions: [
       {
-        fieldKey: 'assets_website',
-        label: "What's your website URL? We'll read it as part of building your strategy.",
-        isCritical: false,
-        type: 'short',
-      },
-      {
         fieldKey: 'assets_existing_positioning',
         label: "Is there any positioning or messaging you currently use that you'd like us to know about? Could be a tagline, an about page, a pitch you've used.",
         isCritical: false,
@@ -264,6 +258,19 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
     })
   }, [])
 
+  const triggerWebsiteFetch = useCallback((url: string) => {
+    const trimmed = url.trim()
+    if (!trimmed) return
+    // Fire-and-forget — fetch runs server-side, result visible on next agent run.
+    fetch('/api/intake/website/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: trimmed }),
+    }).catch(() => {
+      // Non-fatal — agents proceed with whatever was fetched previously.
+    })
+  }, [])
+
   const handleBlur = useCallback((question: Question) => {
     const value = values[question.fieldKey] ?? ''
     const trimmed = value.trim()
@@ -282,7 +289,11 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
     }
 
     save(question, value)
-  }, [values, save])
+
+    if (question.fieldKey === 'company_url') {
+      triggerWebsiteFetch(value)
+    }
+  }, [values, save, triggerWebsiteFetch])
 
   const handleChange = useCallback((fieldKey: string, value: string) => {
     setValues(prev => ({ ...prev, [fieldKey]: value }))
