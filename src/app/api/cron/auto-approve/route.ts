@@ -74,6 +74,17 @@ export async function POST(request: NextRequest) {
       })
 
       if (rpcError) {
+        // The RPC raises this when the suggestion is no longer pending — it was
+        // approved or rejected by the operator between our query and this call.
+        // Not a failure: the suggestion was handled. Skip it cleanly.
+        if (rpcError.message.includes('not in pending status')) {
+          logger.info('Auto-approve cron: suggestion already handled, skipping', {
+            suggestion_id: suggestion.id,
+            organisation_id: suggestion.organisation_id,
+            document_type: suggestion.document_type,
+          })
+          continue
+        }
         throw new Error(rpcError.message)
       }
 
