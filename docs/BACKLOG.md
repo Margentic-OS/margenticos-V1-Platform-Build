@@ -101,10 +101,16 @@
   Aggregation agent feeds those systems — if the consumers are Phase 2, the producer is too.
   Sparse data during client zero makes this meaningless to run. Build when signal volume justifies it.
 
-- [pre-c0] Build a scheduler for auto-approve timers
-  Toggle UI exists, no trigger. Options: Vercel cron, Supabase pg_cron, or
-  Supabase edge function with scheduled trigger. Without this, nothing
-  auto-approves after the window.
+- [DONE 2026-04-23] Build a scheduler for auto-approve timers
+  Vercel Cron, hourly schedule (0 * * * *). POST /api/cron/auto-approve,
+  protected by CRON_SECRET bearer token. Fetches pending suggestions joined
+  to organisations.auto_approve_window_hours (default 72, per-client configurable).
+  Calls approve_document_suggestion RPC per due suggestion. Per-suggestion error
+  isolation — one failure does not abort the batch. Already-handled suggestions
+  (operator approved between query and RPC) skip cleanly without logging a false error.
+  SYSTEM_AUTO_APPROVE_ID sentinel in reviewed_by identifies auto-approvals in DB.
+  Migration: auto_approve_window_hours added to organisations table. CRON_SECRET
+  added to Vercel env vars (Production + Preview).
 
 - [DONE 2026-04-22] Install Resend and wire transactional emails.
   resend SDK installed. Single client instance in src/lib/email/client.ts.
