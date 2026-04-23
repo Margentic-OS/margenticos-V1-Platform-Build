@@ -33,14 +33,29 @@
   During client zero (Doug), suggestion quality can be judged manually.
   Also a prerequisite for unlocking Option D (per-prospect generated sequences) per ADR-014.
 
-- [pre-c0] ICP filter spec validated against MargenticOS's own ICP (dogfood check)
-  Run the extended ICP agent against MargenticOS's intake. Verify the spec it produces
-  matches what Doug would have hand-built. If not, iterate the agent prompt before
-  running against paying clients.
+- [DONE 2026-04-23] ICP filter spec validated against MargenticOS's own ICP (dogfood check)
+  ICP agent run with website content and canonical industry prompt fix.
+  Three issues found and fixed in the same session:
+  (1) Industry names were non-canonical ("HR / talent consulting" etc.) — fixed by adding Rule 7
+      to the ICP prompt with the full CANONICAL_INDUSTRIES list. Agent now outputs canonical names.
+  (2) "agency" in keywords_excluded was too broad — removed. Solo consultants often self-describe
+      as "boutique agency"; excluding it would suppress real Tier 1 targets.
+  (3) DE and NL missing from country defaults — added. English-operating founders in Germany and
+      Netherlands are a real pocket of the target market.
+  New module: src/lib/agents/icp-filter-spec.ts — canonical taxonomy, validator that throws
+  on non-canonical names, deriveFilterSpec() function.
+  One open flag NOT fixed: Tier 2 headcount ceiling drifts run-to-run (8 in prior version, 15 in
+  this run). headcount_max=15 borders Tier 3 territory ("10+ person firm with in-house sales teams").
+  Per-client override in the filter spec approval UI will handle this. Monitor across first 3 clients.
 
-- [pre-c0] TAM report validated against MargenticOS's own TAM
-  Confirm classification lands correctly. If MargenticOS's own ICP lands as red,
-  investigate spec quality before trusting the gate on paying clients.
+- [DEFERRED — pending Apollo Basic activation] TAM report validated against MargenticOS's own TAM
+  Apollo free plan returns 403 on both people/search and mixed_people/search endpoints.
+  TAM gate code is designed and validated (deriveFilterSpec() produces the correct payload shape).
+  Apollo Basic ($49/month) required to run the actual query. Doug has deferred Apollo signup
+  until closer to launch. Re-run the TAM validation immediately after Apollo Basic is activated.
+  The ICP breadth (7 countries, headcount 1–15, 9 consulting industries) makes a red classification
+  very unlikely — but the gate must still run before the sourcing pipeline goes live.
+  Status: pre-c1 (not pre-c0, since sourcing pipeline is post-sending-infrastructure anyway).
 
 - [pre-c0] Sending infrastructure provisioned for MargenticOS
   2+ domains purchased, SPF/DKIM/DMARC configured, 6 mailboxes created,
@@ -208,9 +223,10 @@ Remaining [pre-c0] items in dependency order. Items at the same level can run in
 
 ### Layer 1 — depends on intake being complete (parallel after Layer 0)
 
-**ICP filter spec dogfood check** (~1–2 hrs)
-  Depends on: intake file upload + website ingestion (richer input = meaningful dogfood)
-  Blocks: TAM report dogfood (TAM gate reads the ICP filter spec)
+**ICP filter spec dogfood check** ✓ DONE 2026-04-23
+  Three fixes applied: canonical NAICS industry names in prompt + validator, "agency" removed
+  from keywords_excluded, DE/NL added to country defaults. One flag: headcount ceiling drifts
+  run-to-run — monitor across first 3 clients, handle via per-client override in approval UI.
 
 **Build the signal processing agent** (~4–6 hrs)
   Depends on: nothing structural, but meaningless without campaigns running
@@ -277,10 +293,11 @@ Both chains can run in parallel. Sending infrastructure warming runs concurrentl
   Run /qa on staging URL.
 
 - [pre-c1] Apollo paid plan activated (Basic minimum, Professional preferred)
-  Apollo free plan returns 403 on people/match endpoint.
-  Step 1 of prospect research agent non-functional until paid plan active.
-  Also affects post-intake TAM report (uses People API Search which is free,
-  but enrichment for Tier 1/2 prospects requires credits).
+  Apollo free plan returns 403 on people/match AND people/search endpoints.
+  Both prospect research agent (Step 1) and TAM gate are non-functional until paid plan active.
+  Doug has decided to defer Apollo signup until closer to launch (2026-04-23 decision).
+  Activate at apollo.io — both endpoints unblock immediately on Basic ($49/month).
+  TAM dogfood validation must run immediately after activation.
 
 - [pre-c1] Configure Calendly Routing Forms per client at onboarding
   Three screening questions: business email (blocks personal domains), company

@@ -199,7 +199,26 @@ Return raw JSON only.
    in Tier 3's disqualifiers, and Tier 3 characteristics should not overlap with
    Tier 1's company profile.
 
-7. Every trigger must include an `evidence_to_find` array of 2–3 items.
+7. The `industries` arrays in every tier's `company_profile` MUST use canonical names
+   from this exact list. No variations, abbreviations, or invented names:
+
+   Management Consulting | Operations Consulting | Marketing Consulting |
+   Human Resources Consulting | Information Technology Consulting |
+   Financial Advisory Services | Strategy Consulting | Sales Consulting |
+   Accounting Services | Legal Services | Recruitment and Staffing |
+   Training and Development | Executive Coaching | Business Coaching |
+   Public Relations | Environmental Consulting | Engineering Consulting |
+   Healthcare Consulting | Supply Chain Consulting | Procurement Consulting |
+   Risk Management Consulting | Compliance Consulting | Data Analytics Consulting |
+   Cybersecurity Consulting | Change Management Consulting
+
+   Wrong: "HR / talent consulting", "Marketing strategy consulting", "IT / technology consulting"
+   Right: "Human Resources Consulting", "Marketing Consulting", "Information Technology Consulting"
+
+   If a relevant industry is not on this list, use the closest match. Do NOT invent a new name.
+   This list is the canonical taxonomy for the entire platform.
+
+8. Every trigger must include an `evidence_to_find` array of 2–3 items.
    Each item must be a specific, observable signal a researcher can check in under
    60 seconds. Never use vague emotional states as evidence ("they seem frustrated").
    Never list LinkedIn activity patterns as a primary signal.
