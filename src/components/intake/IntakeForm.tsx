@@ -179,13 +179,6 @@ const SECTIONS: Section[] = [
     title: 'Your voice',
     questions: [
       {
-        fieldKey: 'voice_samples',
-        label: "Paste 3–5 examples of how you write naturally. We need raw, unedited writing — voice note transcripts, rough first-draft emails, Slack or WhatsApp messages, unpolished LinkedIn drafts. Polished published content is less useful than a messy message you sent quickly.",
-        helpText: "Good example: a WhatsApp message you sent to a client, a rough email you wrote before editing it, or a voice note transcript.",
-        isCritical: true,
-        type: 'long',
-      },
-      {
         fieldKey: 'voice_style',
         label: 'How would you describe your communication style in your own words?',
         isCritical: false,
@@ -226,8 +219,8 @@ const SECTIONS: Section[] = [
 ]
 
 const ALL_QUESTIONS = SECTIONS.flatMap(s => s.questions)
-const CRITICAL_COUNT = ALL_QUESTIONS.filter(q => q.isCritical).length // 16
-const THRESHOLD = Math.ceil(CRITICAL_COUNT * 0.8) // 13
+const CRITICAL_COUNT = ALL_QUESTIONS.filter(q => q.isCritical).length // 15 (voice_samples removed — file upload is canonical)
+const THRESHOLD = Math.ceil(CRITICAL_COUNT * 0.8) // 12
 
 // Shared input classes — 16px font size prevents iOS Safari from zooming on focus
 const inputBase =

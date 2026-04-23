@@ -83,14 +83,14 @@ interface UploadedVoiceSample {
   text: string
 }
 
-// Extracted voice inputs — pulled from intake before prompt construction.
+// Extracted voice inputs — pulled from intake_files (uploaded) and intake preferences.
+// voice_samples text field is deprecated; file upload is the canonical input.
 interface VoiceInputs {
-  samples: string
   style: string
   sampleWordCount: number
   samplesEmpty: boolean
   samplesThin: boolean
-  /** True if style and samples appear to contradict (heuristic check before Claude). */
+  /** True if style description appears to contradict the uploaded samples. */
   apparentContradiction: boolean
   uploadedSamples: UploadedVoiceSample[]
 }
@@ -322,43 +322,34 @@ function extractVoiceInputs(
   const val = (key: string) =>
     intake.find(r => r.field_key === key)?.response_value?.trim() ?? ''
 
-  const samples = val('voice_samples')
-  const style   = val('voice_style')
+  // voice_samples text field is deprecated. File upload is the canonical input.
+  const style = val('voice_style')
 
-  // Combined word count across both the pasted text field and any uploaded files.
-  const uploadedWordCount = uploadedSamples.reduce(
+  const sampleWordCount = uploadedSamples.reduce(
     (sum, s) => sum + s.text.split(/\s+/).filter(w => w.length > 0).length,
     0
   )
-  const pastedWordCount = samples.length > 0
-    ? samples.split(/\s+/).filter(w => w.length > 0).length
-    : 0
-  const sampleWordCount = pastedWordCount + uploadedWordCount
 
   const samplesEmpty = sampleWordCount === 0
   const samplesThin  = !samplesEmpty && sampleWordCount < THIN_SAMPLE_WORD_THRESHOLD
 
-  // Heuristic contradiction check: surface the most obvious mismatches so the
-  // agent knows to look carefully, even before Claude's deeper analysis.
+  // Heuristic contradiction check against uploaded files only.
   // These are signals, not definitive — Claude makes the authoritative call.
-  // Check across both pasted samples and uploaded file text.
   let apparentContradiction = false
   if (!samplesEmpty && style.length > 0) {
-    const styleLower   = style.toLowerCase()
-    const allSampleText = [samples, ...uploadedSamples.map(s => s.text)].join('\n\n')
-    const samplesLower = allSampleText.toLowerCase()
+    const styleLower    = style.toLowerCase()
+    const allSampleText = uploadedSamples.map(s => s.text).join('\n\n')
+    const samplesLower  = allSampleText.toLowerCase()
 
     const claimsDirect   = styleLower.includes('direct') || styleLower.includes('concise') || styleLower.includes('brief')
-    // Average word count per sentence as a length proxy — use combined text
     const sentences      = allSampleText.split(/[.!?]+/).filter(s => s.trim().length > 5)
     const avgSentenceLen = sentences.length > 0
       ? allSampleText.split(/\s+/).length / sentences.length
       : 0
     const samplesAreVerbose = avgSentenceLen > 25
 
-    const claimsNoJargon = styleLower.includes('no jargon') || styleLower.includes('plain') || styleLower.includes('simple')
-    // Flag if the samples contain corporate jargon terms
-    const jargonTerms    = ['leverage', 'synergy', 'scalable', 'robust', 'seamless', 'holistic', 'ecosystem']
+    const claimsNoJargon    = styleLower.includes('no jargon') || styleLower.includes('plain') || styleLower.includes('simple')
+    const jargonTerms       = ['leverage', 'synergy', 'scalable', 'robust', 'seamless', 'holistic', 'ecosystem']
     const samplesHaveJargon = jargonTerms.some(t => samplesLower.includes(t))
 
     const claimsWarm   = styleLower.includes('warm') || styleLower.includes('friendly') || styleLower.includes('personable')
@@ -371,7 +362,7 @@ function extractVoiceInputs(
     }
   }
 
-  return { samples, style, sampleWordCount, samplesEmpty, samplesThin, apparentContradiction, uploadedSamples }
+  return { style, sampleWordCount, samplesEmpty, samplesThin, apparentContradiction, uploadedSamples }
 }
 
 // ─── Prompt construction ──────────────────────────────────────────────────────
@@ -385,11 +376,11 @@ function buildUserMessage(params: {
   completeness: number
 }): string {
   const { intake, voiceInputs, existingDocument, patterns, completeness } = params
-  const { samples, style, samplesEmpty, samplesThin, sampleWordCount, apparentContradiction, uploadedSamples } = voiceInputs
+  const { style, samplesEmpty, samplesThin, sampleWordCount, apparentContradiction, uploadedSamples } = voiceInputs
 
-  // Group intake responses by section, excluding voice_samples and voice_style —
-  // those are surfaced separately in a dedicated block so Claude understands
-  // their distinct roles (primary extraction vs secondary cross-reference).
+  // Group intake responses by section, excluding voice_style —
+  // that is surfaced separately as a secondary cross-reference block.
+  // voice_samples is excluded too: it is a deprecated field, file upload is canonical.
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
     if (row.field_key === 'voice_samples' || row.field_key === 'voice_style') return acc
     if (!acc[row.section]) acc[row.section] = []
@@ -411,30 +402,20 @@ function buildUserMessage(params: {
     })
     .join('\n\n---\n\n')
 
-  // Voice samples block — primary extraction source, surfaced prominently.
+  // Writing samples block — canonical source is uploaded files only.
   const sampleStatus = samplesEmpty
-    ? '⚠️ NO SAMPLES PROVIDED — generate from voice_style and intake preferences only. Mark confidence as low.'
+    ? '⚠️ NO SAMPLES UPLOADED — generate from voice_style and intake preferences only. Mark confidence as low.'
     : samplesThin
-      ? `⚠️ THIN SAMPLES (${sampleWordCount} words) — extract what you can. Note the limitation. Mark confidence as low.`
-      : `${sampleWordCount} words across samples — full extraction is possible.`
+      ? `⚠️ THIN SAMPLES (${sampleWordCount} words across ${uploadedSamples.length} file(s)) — extract what you can. Note the limitation. Mark confidence as low.`
+      : `${sampleWordCount} words across ${uploadedSamples.length} file(s) — full extraction is possible.`
 
-  // Pasted samples block
-  const pastedBlock = samplesEmpty && uploadedSamples.length === 0
-    ? `\n\n---\n\n## WRITING SAMPLES (primary extraction source)\n\n${sampleStatus}\n\n[No samples provided]`
-    : samplesEmpty
-      ? ''
-      : `\n\n---\n\n## WRITING SAMPLES — PASTED TEXT (primary extraction source)\n\n${sampleStatus}\n\n${samples}`
-
-  // Uploaded file samples block — each file labelled by filename.
-  const uploadedBlock = uploadedSamples.length > 0
-    ? '\n\n---\n\n## WRITING SAMPLES — UPLOADED FILES (primary extraction source)\n\n' +
-      `${uploadedSamples.length} file(s) uploaded. Each is labelled below.\n\n` +
+  const voiceSamplesBlock = samplesEmpty
+    ? `\n\n---\n\n## WRITING SAMPLES (primary extraction source)\n\n${sampleStatus}\n\n[No files uploaded]`
+    : '\n\n---\n\n## WRITING SAMPLES (primary extraction source)\n\n' +
+      `${sampleStatus}\n\n` +
       uploadedSamples
         .map(s => `### ${s.filename}\n\n${s.text}`)
         .join('\n\n---\n\n')
-    : ''
-
-  const voiceSamplesBlock = pastedBlock + uploadedBlock
 
   // Voice style block — secondary signal, cross-reference only.
   const contradictionHint = apparentContradiction
@@ -599,14 +580,11 @@ async function writeDocumentSuggestion(
 
   // Voice sample quality note — included in suggestion_reason so Doug knows
   // how much raw material the agent had to work with.
-  const uploadedFileNote = voiceInputs.uploadedSamples.length > 0
-    ? ` Uploaded files: ${voiceInputs.uploadedSamples.length} (${voiceInputs.uploadedSamples.map(s => s.filename).join(', ')}).`
-    : ''
-  const sampleNote = voiceInputs.samplesEmpty && voiceInputs.uploadedSamples.length === 0
-    ? ' ⚠️ No writing samples were provided. This guide is based on self-description only — consider providing samples and regenerating.'
+  const sampleNote = voiceInputs.samplesEmpty
+    ? ' ⚠️ No writing samples uploaded. Guide is based on self-description only — upload samples and regenerate for better accuracy.'
     : voiceInputs.samplesThin
-      ? ` ⚠️ Writing samples were thin (${voiceInputs.sampleWordCount} words total). More samples will improve accuracy.` + uploadedFileNote
-      : ` Writing samples: ${voiceInputs.sampleWordCount} words total.` + uploadedFileNote
+      ? ` ⚠️ Thin samples — ${voiceInputs.sampleWordCount} words across ${voiceInputs.uploadedSamples.length} file(s). More samples will improve accuracy.`
+      : ` Writing samples: ${voiceInputs.uploadedSamples.length} file(s), ${voiceInputs.sampleWordCount} words.`
 
   // Contradiction note — surfaces in suggestion_reason when the pre-check flagged one.
   // Claude's analysis is authoritative; this note flags that Doug should read voice_style_note.

@@ -194,11 +194,13 @@ export default function FileUploadSection({ initialFiles }: FileUploadSectionPro
   return (
     <div className={cardBase}>
       <p className="text-xs font-medium text-text-primary mb-1">
-        Upload reference documents
-        <span className="ml-1 text-text-muted font-normal text-[11px]">(optional)</span>
+        Upload your writing samples
+        <span className="ml-1 text-text-muted font-normal text-[11px]">*</span>
       </p>
       <p className="text-[11px] text-text-muted mb-4 leading-relaxed">
-        Upload writing samples, an existing ICP document, or case studies.
+        Upload LinkedIn posts, emails, case studies — anything showing your voice in action.
+        Raw and unedited beats polished every time. You can also upload existing ICP documents
+        or case studies as reference material for the strategy agents.
         Supported formats: PDF, DOCX, TXT, MD. Max 10MB per file.
       </p>
 
