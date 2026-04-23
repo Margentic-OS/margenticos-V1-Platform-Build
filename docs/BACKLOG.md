@@ -354,6 +354,16 @@ Revisit once prospect research agent is built and full outbound cycle is working
 
 ## Post-Tier-1 items
 
+- [post-tier1] Drop voice_samples column from intake_responses
+  Safe to drop when: no row in intake_responses has a non-null voice_samples value
+  that isn't also represented in intake_files for the same organisation.
+  Check: SELECT organisation_id FROM intake_responses WHERE field_key = 'voice_samples'
+  AND response_value IS NOT NULL AND response_value != ''
+  AND organisation_id NOT IN (SELECT DISTINCT organisation_id FROM intake_files
+  WHERE file_purpose = 'voice_sample');
+  If that returns zero rows, the column can be dropped via migration.
+  voice_samples was deprecated 2026-04-23 in favour of file upload as canonical input.
+
 - [post-tier1] Configure custom domain (app.margenticos.com) on Vercel project
   Requires CNAME record in Netlify DNS pointing to cname.vercel-dns.com,
   add domain in Vercel project settings, update NEXT_PUBLIC_APP_URL in
