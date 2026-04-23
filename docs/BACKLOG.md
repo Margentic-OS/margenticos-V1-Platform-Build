@@ -273,6 +273,14 @@ Revisit once prospect research agent is built and full outbound cycle is working
   gh api repos/Margentic-OS/margenticos-V1-Platform-Build/branches/main/protection
   with required_status_checks pointing to the Vercel check name. Flagged 2026-04-22.
 
+- [phase2] Evaluate migration of long-running agents to Anthropic Managed Agents platform
+  Agents: prospect research, messaging (currently run as Vercel serverless functions).
+  Trigger: agents run longer than 2 minutes consistently, OR concurrent agent volume
+  exceeds ~10+ concurrent runs, OR Managed Agents gains a feature requiring significant
+  in-platform work to replicate.
+  Decision point: re-evaluate at 5+ paying clients.
+  Budget: 1-2 weeks to migrate, assuming the feature set has matured by then.
+
 - [phase2] Signal threshold processing logic (3/5/10 tier evaluation)
 - [phase2] A/B variant generation when 5-signal threshold crossed
 - [phase2] Conflict resolution UI for competing document suggestions
