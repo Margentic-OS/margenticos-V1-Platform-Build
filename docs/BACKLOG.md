@@ -83,9 +83,18 @@
   Original BACKLOG entry said "undefined function" — the function was defined but silently
   broken. Apollo 403 masked the failure because Step 1 never reached Step 4.
 
-- [pre-c0] Replace TODO placeholders in AgentActivityView and SignalsLogView
-  Both views contain placeholder data, not real queries. Required for operator
-  visibility before client zero campaigns go live.
+- [DONE 2026-04-23] Replace TODO placeholders in AgentActivityView and SignalsLogView
+  Both views now fetch real data at the page level (server components) and pass
+  as required props. Placeholder data and default-prop pattern removed entirely.
+  AgentActivityView: agent_runs joined to organisations via client_id FK,
+  ordered started_at desc, limit 100. output_summary falls back to error_message
+  for failed runs. Error state renders if query fails.
+  SignalsLogView: signals joined to organisations and prospects, ordered
+  created_at desc, limit 200. detail column dropped — no column exists, raw_data
+  unstructured until signal processing agent is built. signalTypeLabel map
+  expanded to cover all 17 SignalType values. Error state renders if query fails.
+  Also regenerated src/types/database.ts — agent_runs and auto_approve_window_hours
+  were missing from the generated types.
 
 - [pre-c0] Build the warnings engine backend
   WarningsRail.tsx exists with placeholder data. No threshold evaluation logic
