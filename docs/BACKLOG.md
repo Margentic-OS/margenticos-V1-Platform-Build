@@ -111,14 +111,20 @@
   Also regenerated src/types/database.ts — agent_runs and auto_approve_window_hours
   were missing from the generated types.
 
-- [pre-c0] Build the warnings engine backend
+- [phase2] Build the warnings engine backend
   WarningsRail.tsx exists with placeholder data. No threshold evaluation logic
-  exists. Build before client zero — without this, deliverability incidents and
-  meeting quality issues go silent.
+  exists. Deferred from pre-c0: warnings only produce value when signals are
+  flowing at volume. Signals require cold sends landing, which requires 2–3 weeks
+  of domain warming first. For client zero (Doug running outbound), signal volume
+  will be too thin to fire meaningful warnings. Build against real client zero data
+  rather than a speculative spec. Re-evaluate after 30 days of client zero operation.
 
-- [pre-c0] Build the signal processing agent
-  Table and processed field exist. No agent file. No webhook routes. Build
-  before client zero — without this, no signals flow through the system.
+- [phase2] Build the signal processing agent
+  Table and processed field exist. No agent file. No webhook routes. Deferred
+  from pre-c0: processing is meaningless until campaigns are running and signals
+  are flowing. Building now saves nothing — the schema is ready and the agent can
+  be added once real signal shape is known from client zero. Re-evaluate after
+  30 days of client zero operation.
 
 - [phase2] Build the pattern aggregation agent
   ADR-011 already defers signal threshold logic and A/B testing to Phase 2.
@@ -228,24 +234,15 @@ Remaining [pre-c0] items in dependency order. Items at the same level can run in
   from keywords_excluded, DE/NL added to country defaults. One flag: headcount ceiling drifts
   run-to-run — monitor across first 3 clients, handle via per-client override in approval UI.
 
-**Build the signal processing agent** (~4–6 hrs)
-  Depends on: nothing structural, but meaningless without campaigns running
-  Blocks: warnings engine (warnings evaluate signals); auto-approve scheduler (timer fires,
-  Resend sends notification — signals are the feedback that makes this worth running)
-
 ### Layer 2 — depends on Layer 1
 
 **TAM report validated against MargenticOS's own TAM** (~1 hr)
   Depends on: ICP filter spec dogfood (TAM gate consumes the filter spec)
   Blocks: sourcing pipeline confidence — if TAM gate misfires, prospect sourcing is unreliable
 
-**Build the warnings engine backend** (~3–4 hrs)
-  Depends on: signal processing agent (warnings evaluate processed signals)
-  Blocks: client zero campaigns run with silent deliverability risk if this is missing
-
-**Build auto-approve scheduler** (~1 hr — Vercel Cron, bounded task)
-  Depends on: signal processing agent (scheduler fires → Resend notification → signals flow)
-  Blocks: autonomous loop validation — client zero purpose is proving the end-to-end loop
+**Build auto-approve scheduler** ✓ DONE 2026-04-23
+  Vercel Cron hourly, POST /api/cron/auto-approve, CRON_SECRET protected.
+  Fetches pending suggestions per organisations.auto_approve_window_hours (default 72).
 
 ### Critical path (longest chain)
 
@@ -253,20 +250,17 @@ Intake file upload + website ingestion
   → ICP filter spec dogfood
   → TAM report dogfood
 
-Signal processing agent
-  → warnings engine backend
-  → auto-approve scheduler
+Auto-approve scheduler ✓ DONE. Sending infrastructure warming runs concurrently with all of it.
 
-Both chains can run in parallel. Sending infrastructure warming runs concurrently with all of it.
+Signal processing agent and warnings engine backend deferred to Phase 2 — see Phase 2 section.
 
-### Total build-time estimate (excluding warming elapsed time)
+### Total build-time estimate (updated 2026-04-23)
 
-  Layer 0 (parallel): ~7–11 hrs across 4 workstreams
-  Layer 1 (parallel): ~5–8 hrs across 2 workstreams
-  Layer 2 (parallel): ~5–7 hrs across 3 workstreams
+  Layer 0 (parallel): ✓ complete
+  Layer 1 (parallel): ✓ complete
+  Layer 2: TAM report (~1 hr) remaining
   ─────────────────────────────────────────────────
-  Sequential minimum: ~17–26 hrs build time
-  With parallelism:   ~15–22 hrs build time (limited by longest chain)
+  Remaining pre-c0 build time: ~1 hr (TAM report) + sending infrastructure setup (~2 hrs)
   Plus 2–3 weeks elapsed for domain warming — the true wall-clock constraint.
 
 ---
@@ -420,6 +414,12 @@ Revisit once prospect research agent is built and full outbound cycle is working
 ---
 
 ## Phase 2 deferred items (from ADR-011, ADR-013, ADR-014, ADR-015, ADR-017)
+
+- [phase2] Re-evaluate signal processing agent and warnings engine build readiness
+  Deferred from pre-c0 on 2026-04-23. Signal processing and warnings only produce value
+  once sends are landing and reply signals are flowing. Re-evaluate after 30 days of
+  client zero operation, once real signal volume and shape are known. Do not build
+  speculatively against a schema.
 
 - [phase2] Hard-cap company_headcount_max in deriveFilterSpec() derivation logic
   If the approval UI (above) exists, this becomes redundant. If UI is deferred,
