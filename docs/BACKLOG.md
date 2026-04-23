@@ -49,10 +49,27 @@
 - [pre-c0] Lemlist API capabilities verified before LinkedIn DM build starts
   Verify endpoint availability, rate limits, webhook support against live docs.
 
-- [pre-c0] Verify RLS policies on all 11 base tables beyond agent_runs
-  ADR-003 requires three-level enforcement (RLS + app filter + prompt). Currently
-  only agent_runs has RLS confirmed from code. A client data leak is the most serious
-  possible error in this system. Verify and fix before client zero.
+- [DONE 2026-04-22] Verify RLS policies on all 11 base tables beyond agent_runs
+  Audited all 11 base tables against ADR-003's three-level enforcement requirement.
+  Three issues found and fixed:
+
+  (1) organisations table was missing a client SELECT policy — clients couldn't
+  read their own org row. Added `clients_read_own_organisation` policy
+  (SELECT, authenticated, id = get_my_organisation_id()). Both operator ALL
+  and client SELECT policies now present.
+
+  (2) patterns table had no INSERT/UPDATE/DELETE policies — service_role
+  bypasses RLS as intended, but no belt-and-braces block on authenticated
+  callers. Added three restrictive policies: authenticated_cannot_insert_patterns,
+  authenticated_cannot_update_patterns, authenticated_cannot_delete_patterns.
+  All evaluate to false for authenticated callers; pattern aggregation agent
+  (service_role) continues to bypass as designed.
+
+  (3) strategy_documents status='active' filter confirmed intentional — no change.
+
+  Application-layer note added separately: queries against organisations must
+  never SELECT payment_status, contract_status, or engagement_month for client
+  views — these are operator-only columns even though the row is visible.
 
 - [DONE 2026-04-22] fetchICPPainProxy in prospect-research-agent.ts — two bugs fixed.
   Bug 1: function queried strategy_documents with status='approved', which is not a valid
