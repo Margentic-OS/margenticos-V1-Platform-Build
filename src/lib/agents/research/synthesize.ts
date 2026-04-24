@@ -25,10 +25,11 @@ function getServiceClient() {
 // ─── Client document loading ─────────────────────────────────────────────────
 
 interface ClientDocContext {
-  clientName: string
-  icpSummary: string
+  clientName:         string
+  icpSummary:         string
   positioningSummary: string
-  tovRules: string
+  valuePropContext:   string
+  tovRules:           string
 }
 
 async function loadClientContext(clientId: string): Promise<ClientDocContext> {
@@ -69,15 +70,35 @@ async function loadClientContext(clientId: string): Promise<ClientDocContext> {
     ].filter(Boolean).join('\n')
   }
 
-  // Positioning summary: core message + value themes.
+  // Positioning summary: use the plain-text positioning_summary field.
+  // Previous code read moore_statement (wrong field name) and value_themes as string[]
+  // (wrong type — they are objects). Both paths produced empty output.
   let positioningSummary = 'No positioning document available yet.'
+  let valuePropContext   = 'No value prop context available.'
   if (posDoc) {
-    const moore  = posDoc.moore_statement as string | undefined
-    const themes = posDoc.value_themes as string[] | undefined
-    positioningSummary = [
-      moore  ? `Core positioning: ${moore}` : '',
-      themes?.length ? `Value themes: ${themes.slice(0, 3).join('; ')}` : '',
-    ].filter(Boolean).join('\n')
+    const summary    = posDoc.positioning_summary as string | undefined
+    const keyMsgs    = posDoc.key_messages as Record<string, string> | undefined
+    const themes     = posDoc.value_themes as Array<Record<string, unknown>> | undefined
+
+    if (summary) positioningSummary = summary
+
+    const hook      = keyMsgs?.cold_outreach_hook ?? null
+    const topThemes = (themes ?? [])
+      .slice(0, 2)
+      .map(t => t.theme as string | undefined)
+      .filter((t): t is string => typeof t === 'string' && t.length > 0)
+
+    const parts: string[] = []
+    if (hook)            parts.push(`Core pain solved: "${hook}"`)
+    if (topThemes.length) parts.push(`Value delivered:\n${topThemes.map(t => `  - ${t}`).join('\n')}`)
+    if (parts.length)    valuePropContext = parts.join('\n')
+
+    logger.debug('research/synthesize: positioning context loaded', {
+      has_summary:    !!summary,
+      has_hook:       !!hook,
+      theme_count:    topThemes.length,
+      value_prop_ctx: valuePropContext,
+    })
   }
 
   // TOV rules: writing rules + do/dont list.
@@ -91,7 +112,7 @@ async function loadClientContext(clientId: string): Promise<ClientDocContext> {
     if (parts.length) tovRules = parts.join('\n')
   }
 
-  return { clientName, icpSummary, positioningSummary, tovRules }
+  return { clientName, icpSummary, positioningSummary, valuePropContext, tovRules }
 }
 
 // ─── Research section formatter ───────────────────────────────────────────────

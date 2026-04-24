@@ -505,31 +505,33 @@ The podcast appearance is specific, dateable (November 2025), and directly relev
 
 ---
 
-#### Positive Example 2 — Tier 1, authored article
+#### Example 2 — Tier 3 after wrong-audience signal rejected
+
+*Previously classified as Tier 1 in initial scope. Reclassified after value prop alignment filter was added (2026-04-24). See commit `fix: load client positioning context and add value prop alignment filter to synthesis`.*
 
 **Prospect:** Bruce Roberts, OakStreet Growth Partners, commercial growth consulting for T&L firms
 **LinkedIn:** linkedin.com/in/bruce-roberts-profile
 **Website:** oakstreetgrowth.com
-**Signal found:** Published "Why Transportation & Logistics Companies Benefit from Both an Engagement Pipeline and a Deal Pipeline" on the OakStreet blog, March 5, 2026. Argues T&L operators need two structurally separate pipelines in their CRM — one for relationship cultivation, one for deal progression. This is a sophisticated structural insight that most T&L operators have never formalised.
+**Signal found:** Published "Why Transportation & Logistics Companies Benefit from Both an Engagement Pipeline and a Deal Pipeline" on the OakStreet blog, March 5, 2026.
 
 **Synthesis reasoning:**
-The article is specific, dateable (March 2026), and authored. The content is substantively professional — not generic thought leadership but a specific argument about pipeline architecture for T&L operators. Relevance: Bruce helps T&L clients build commercial systems; the article shows he thinks in systems. The connection to {{CLIENT_NAME}}'s positioning is via the value prop (you help founders build pipeline systems) rather than a direct pain signal. Tier 1, high confidence. The article is strong enough to reference directly.
+The article is specific and dateable. But the value prop alignment filter catches it: Bruce's article describes a framework he builds for his T&L clients — not a pain Bruce personally experiences. The engagement/deal pipeline distinction is CRM architecture advice for his clients, not a signal that Bruce's own outbound pipeline is referral-dependent or inconsistent. This fails Test 1 (wrong audience). No other dateable signal found about Bruce's own pipeline situation. Classify Tier 3. The Tier 3 trigger uses T&L-specific language to show the framing is specific to Bruce's context, not a generic ICP fallback.
 
 **Output:**
 ```json
 {
-  "tier": "tier1",
+  "tier": "tier3",
   "qualification_status": "qualified",
   "qualification_reason": null,
-  "confidence": "high",
-  "trigger_text": "Came across your piece on the OakStreet blog about separating the engagement pipeline from the deal pipeline. That structural distinction is something most T&L operators have never been shown.",
+  "confidence": "medium",
+  "trigger_text": "Most boutique T&L growth consultants at OakStreet's stage have the same pattern: strong quarters when the network is active, quiet ones when everyone is heads-down in delivery.",
   "trigger_source": {
-    "type": "article",
-    "url": "https://www.oakstreetgrowth.com/insights",
-    "date": "March 2026",
-    "description": "Blog article arguing T&L companies need two structurally separate pipelines: one for relationship cultivation, one for active deal progression."
+    "type": "icp_pain_proxy",
+    "url": null,
+    "date": null,
+    "description": "OakStreet blog article about T&L CRM architecture rejected as Tier 1: describes pain Bruce helps his clients with, not pain Bruce personally experiences. No signal of Bruce's own pipeline situation found. ICP pain proxy used: referral-dependent outbound for boutique B2B growth consultants."
   },
-  "relevance_reason": "The article signals that Bruce thinks in structured commercial systems — the same framing {{CLIENT_NAME}} uses, which makes the connection to pipeline building credible and non-generic."
+  "relevance_reason": "MargenticOS solves referral-dependent pipeline for B2B consultants. Bruce IS the target buyer (boutique specialist firm, founder-led). Tier 3 trigger uses T&L language to show relevance without pretending to have a specific signal."
 }
 ```
 
