@@ -65,33 +65,18 @@
   Status: deferred until prospect research agent v2 is dogfooded end-to-end.
   Prerequisite: Calendly personal setup complete (see pre-c0-C item below).
 
-- [pre-c0] Store relevance_reason in prospect_research_results table and ResearchResult type (2026-04-24)
-  The synthesis model produces a one-sentence relevance_reason in its JSON output explaining
-  why a signal connects to the ICP pain or value prop. Currently parsed from Claude's response
-  but dropped — not stored in the DB, not returned in ResearchResult.
-  Critical for QA spot-checking at scale: lets the reviewer see model reasoning alongside
-  the trigger text, not just the output. Without it, a bad Tier 1 classification requires
-  reading the full synthesis_reasoning chain-of-thought to understand why.
-  Fix: add relevance_reason text column to prospect_research_results (migration), include in
-  storeResearchResult() insert, add to ResearchResult type, add to test script DB query.
-  Effort: ~20 min. No schema complexity.
+- [DONE 2026-04-24] Store relevance_reason in prospect_research_results table and ResearchResult type
+  Added relevance_reason column (migration), included in storeResearchResult() insert,
+  added to ResearchResult type, surfaced in test script and DB verify query.
+  Also persisted by CSV export (exportBatchResultsToCSV). Commit 6606ab7.
 
-- [pre-c0] Sign up for Apify and generate API key (2026-04-24)
-  Apify is the LinkedIn research source for prospect research agent v2.
-  No LinkedIn account needed — Apify runs dedicated LinkedIn actors via REST API.
-  Target actors: harvestapi/linkedin-profile-scraper ($4/1000 profiles) and
-  harvestapi/linkedin-profile-posts ($2/1000 posts, last 60 days).
-  At ~800–3200 prospects/month, LinkedIn research costs ~$4–13/month total.
-  Steps: sign up at apify.com, generate API token, confirm access to both target actors.
-  Doug must complete this in the browser before LinkedIn source can be tested end-to-end.
+- [DONE 2026-04-24] Sign up for Apify and generate API key
+  APIFY_API_KEY set in .env.local and Vercel (Production + Preview). Actor
+  harvestapi/linkedin-profile-scraper confirmed accessible via probe. Commit f698fb4.
 
-- [pre-c0] Verify Brave Search API integration works end-to-end (2026-04-24)
-  The Brave Search code is fully written (src/lib/agents/tools/webSearch.ts).
-  Anthropic native search runs first; Brave is the fallback.
-  The env var BRAVE_SEARCH_API_KEY exists in .env.local but the value is empty.
-  Action: get a Brave Search API key (search.brave.com/app/keys, free tier available),
-  paste the value into .env.local, and run a quick test call to confirm it fires.
-  Also add to Vercel env vars (Production + Preview) alongside the existing ANTHROPIC_API_KEY.
+- [DONE 2026-04-24] Verify Brave Search API integration works end-to-end
+  BRAVE_SEARCH_API_KEY set in .env.local and Vercel (Production + Preview).
+  Probe returned 2 results for test query — no errors. Commit f698fb4.
 
 - [pre-c0-C] Marketing website readiness decision (2026-04-24)
   Current Netlify landing page exists. Cold prospects land there from email signatures and
@@ -159,6 +144,32 @@
   expanded to cover all 17 SignalType values. Error state renders if query fails.
   Also regenerated src/types/database.ts — agent_runs and auto_approve_window_hours
   were missing from the generated types.
+
+- [phase2, trigger: running batches >1000 prospects regularly OR local execution causes operational pain] Durable background queue for prospect research batches
+  Current architecture: p-limit parallel batch with concurrency=5, runs locally via npx tsx.
+  Target: 1000 prospects in 30-60 min wall-clock. Sufficient for pre-c0 and single-client operation.
+  When this trigger fires: migrate to Vercel Queues or cron-chunked API route with persistent job state.
+  Do not build speculatively — the local parallel runner is adequate until the trigger is hit.
+
+- [phase2, trigger: 5+ paying clients actively reviewing batches weekly] Full QA dashboard UI replacing CSV export
+  Current: exportBatchResultsToCSV() writes to /tmp. Doug opens in spreadsheet for spot-checks.
+  Future: dashboard view with accept/reject per trigger, flag for rewrite, A/B test tracking.
+  Do not build until CSV export becomes operationally painful at scale.
+
+- [phase2, trigger: failure rate >5% in production batches] Automated failed-prospect re-queue
+  Current: failed prospect IDs written to logs/failed-prospects-<timestamp>.json.
+  Doug re-queues manually by passing file to next batch run. Adequate for low failure rates.
+  Future: automated retry queue with configurable delay and max attempts.
+
+- [phase2, trigger: running concurrent batches for different clients simultaneously] DB-level idempotency locks
+  Current: skip_existing = true provides soft resumability (checks current_research_result_id).
+  Safe for sequential client processing. SELECT FOR UPDATE SKIP LOCKED needed only when
+  multiple concurrent batch jobs for different clients could race on the same prospect row.
+
+- [phase2, trigger: batches frequently crashing mid-run] Persisted batch state with automatic resume
+  Current: skip_existing = true allows restart after crash — already-researched prospects are skipped.
+  Soft resumability is sufficient until batches are large enough that mid-run crashes are frequent
+  or costly. Persisted batch state (checkpoint table) adds complexity not yet warranted.
 
 - [phase2] Build the warnings engine backend
   WarningsRail.tsx exists with placeholder data. No threshold evaluation logic
