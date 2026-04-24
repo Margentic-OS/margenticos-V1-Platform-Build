@@ -277,6 +277,13 @@ export async function runProspectResearchAgentV2Batch({
     })
   }
 
+  // Rough cost constants — used for progress log estimate only.
+  const costPerProspect =
+    (process.env.APIFY_API_KEY ? 0.006 : 0) + // Apify LinkedIn
+    0.020                                        // Anthropic Sonnet synthesis
+
+  const batchStart = Date.now()
+
   for (let i = 0; i < idsToProcess.length; i++) {
     const prospect_id = idsToProcess[i]
     try {
@@ -289,6 +296,21 @@ export async function runProspectResearchAgentV2Batch({
       })
       summary.failed++
     }
+
+    const processed  = summary.completed + summary.failed
+    const elapsed    = (Date.now() - batchStart) / 1000        // seconds
+    const avgSec     = elapsed / processed
+    const remaining  = idsToProcess.length - processed
+    const etaMin     = Math.ceil((remaining * avgSec) / 60)
+    const spent      = (processed * costPerProspect).toFixed(2)
+
+    logger.info('prospect-research-v2 batch: progress', {
+      progress: `${processed}/${idsToProcess.length}`,
+      completed: summary.completed,
+      failed: summary.failed,
+      spent_usd: `$${spent}`,
+      eta_min: etaMin,
+    })
 
     // 1.5s between calls to avoid simultaneous API bursts.
     if (i < idsToProcess.length - 1) {
