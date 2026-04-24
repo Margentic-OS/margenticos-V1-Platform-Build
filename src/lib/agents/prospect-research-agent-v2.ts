@@ -252,6 +252,8 @@ const COST_ANTHROPIC_HIGH = 0.025
 const COST_APIFY          = 0.006   // harvestapi/linkedin-profile-scraper, per run
 const BRAVE_FREE_MONTHLY  = 2000    // calls; 2 per prospect
 const BRAVE_PAID_PER_CALL = 0.003   // beyond free tier
+// Haiku 4.5 composition personalisation: ~1500 input × $0.80/MTok + ~600 output × $4/MTok ≈ $0.003
+const HAIKU_PERSONALIZATION_USD = 0.003
 
 function printCostEstimate(totalProspects: number): void {
   const hasApify = !!process.env.APIFY_API_KEY
@@ -263,9 +265,10 @@ function printCostEstimate(totalProspects: number): void {
   const braveCost    = hasBrave ? braveCallsNeeded * BRAVE_PAID_PER_CALL : 0
   const anthropicLow  = totalProspects * COST_ANTHROPIC_LOW
   const anthropicHigh = totalProspects * COST_ANTHROPIC_HIGH
+  const haikuCost     = totalProspects * HAIKU_PERSONALIZATION_USD
 
-  const totalLow  = apifyCost + anthropicLow
-  const totalHigh = apifyCost + braveCost + anthropicHigh
+  const totalLow  = apifyCost + anthropicLow  + haikuCost
+  const totalHigh = apifyCost + braveCost + anthropicHigh + haikuCost
 
   console.log('')
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
@@ -279,6 +282,7 @@ function printCostEstimate(totalProspects: number): void {
     console.log(`  Brave Search     : $0 (key not set — Anthropic native search only)`)
   }
   console.log(`  Anthropic Sonnet : ~$${anthropicLow.toFixed(2)}–$${anthropicHigh.toFixed(2)}`)
+  console.log(`  Anthropic Haiku  : ~$${haikuCost.toFixed(2)} (personalisation)`)
   console.log(`  Apollo           : $0 (included in plan)`)
   console.log('  ─────────────────────────────────────────────────')
   console.log(`  Estimated total  : ~$${totalLow.toFixed(2)}–$${totalHigh.toFixed(2)}`)
@@ -353,8 +357,9 @@ export async function runProspectResearchAgentV2Batch({
 
   // Rough cost constants — used for progress log estimate only.
   const costPerProspect =
-    (process.env.APIFY_API_KEY ? 0.006 : 0) + // Apify LinkedIn
-    0.020                                        // Anthropic Sonnet synthesis
+    (process.env.APIFY_API_KEY ? COST_APIFY : 0) + // Apify LinkedIn
+    0.020 +                                          // Anthropic Sonnet synthesis
+    HAIKU_PERSONALIZATION_USD                        // Anthropic Haiku personalisation
 
   const batchStart = Date.now()
   const limit      = pLimit(concurrency)
