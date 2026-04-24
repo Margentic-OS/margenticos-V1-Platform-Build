@@ -9,6 +9,7 @@
 
 import fs from 'fs'
 import path from 'path'
+import readline from 'readline'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
@@ -241,12 +242,66 @@ export async function runProspectResearchAgentV2({
   }
 }
 
+// ─── Cost estimate ────────────────────────────────────────────────────────────
+
+// Anthropic Sonnet 4.6 pricing at typical per-prospect token counts:
+//   ~2500 input tokens × $3/MTok + ~800 output tokens × $15/MTok ≈ $0.020/prospect
+const COST_ANTHROPIC_LOW  = 0.015
+const COST_ANTHROPIC_HIGH = 0.025
+const COST_APIFY          = 0.006   // harvestapi/linkedin-profile-scraper, per run
+const BRAVE_FREE_MONTHLY  = 2000    // calls; 2 per prospect
+const BRAVE_PAID_PER_CALL = 0.003   // beyond free tier
+
+function printCostEstimate(totalProspects: number): void {
+  const hasApify = !!process.env.APIFY_API_KEY
+  const hasBrave = !!process.env.BRAVE_SEARCH_API_KEY
+
+  const apifyCost    = hasApify ? totalProspects * COST_APIFY : 0
+  const braveCallsNeeded = hasBrave ? totalProspects * 2 : 0
+  // Conservative: assume worst case, all calls are paid (can't query current month usage)
+  const braveCost    = hasBrave ? braveCallsNeeded * BRAVE_PAID_PER_CALL : 0
+  const anthropicLow  = totalProspects * COST_ANTHROPIC_LOW
+  const anthropicHigh = totalProspects * COST_ANTHROPIC_HIGH
+
+  const totalLow  = apifyCost + anthropicLow
+  const totalHigh = apifyCost + braveCost + anthropicHigh
+
+  console.log('')
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+  console.log(`  Pre-batch cost estimate — ${totalProspects} prospects`)
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+  console.log(`  Apify LinkedIn   : ${hasApify  ? `~$${apifyCost.toFixed(2)} (${totalProspects}×$${COST_APIFY})`   : '✗ APIFY_API_KEY not set (skipped)'}`)
+  if (hasBrave) {
+    console.log(`  Brave Search     : ~$0–$${braveCost.toFixed(2)} (${braveCallsNeeded} calls; free up to ${BRAVE_FREE_MONTHLY}/month)`)
+    console.log(`                     Check dashboard: https://api.search.brave.com/app/subscriptions`)
+  } else {
+    console.log(`  Brave Search     : $0 (key not set — Anthropic native search only)`)
+  }
+  console.log(`  Anthropic Sonnet : ~$${anthropicLow.toFixed(2)}–$${anthropicHigh.toFixed(2)}`)
+  console.log(`  Apollo           : $0 (included in plan)`)
+  console.log('  ─────────────────────────────────────────────────')
+  console.log(`  Estimated total  : ~$${totalLow.toFixed(2)}–$${totalHigh.toFixed(2)}`)
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+  console.log('')
+}
+
+function promptConfirm(question: string): Promise<boolean> {
+  return new Promise(resolve => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+    rl.question(question, answer => {
+      rl.close()
+      resolve(answer.trim().toLowerCase() === 'y')
+    })
+  })
+}
+
 // ─── Batch function ───────────────────────────────────────────────────────────
 
 export async function runProspectResearchAgentV2Batch({
   prospect_ids,
   client_id,
   skip_existing = true,
+  confirm_before_run = true,
 }: ResearchBatchInput): Promise<ResearchBatchSummary> {
   const failures: ResearchBatchFailure[] = []
   const summary: ResearchBatchSummary = {
@@ -256,6 +311,17 @@ export async function runProspectResearchAgentV2Batch({
     failed:         0,
     failures,
     failed_log_path: null,
+  }
+
+  // Show cost estimate and require confirmation for batches of 10+ prospects.
+  if (confirm_before_run && prospect_ids.length >= 10) {
+    printCostEstimate(prospect_ids.length)
+    const confirmed = await promptConfirm('  Continue? [y/N]: ')
+    if (!confirmed) {
+      logger.info('prospect-research-v2 batch: aborted by user at cost estimate prompt')
+      return summary
+    }
+    console.log('')
   }
 
   let idsToProcess = prospect_ids

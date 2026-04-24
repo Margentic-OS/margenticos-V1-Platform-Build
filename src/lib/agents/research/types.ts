@@ -105,6 +105,7 @@ export interface ResearchBatchInput {
   prospect_ids: string[]
   client_id: string
   skip_existing?: boolean
+  confirm_before_run?: boolean  // default true; set false for programmatic/test use under 10 prospects
 }
 
 export interface ResearchBatchFailure {
