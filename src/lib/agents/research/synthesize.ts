@@ -312,7 +312,7 @@ export async function synthesizeResearch(
   try {
     const response = await callWithRetry(
       client,
-      { model: SYNTHESIS_MODEL, max_tokens: 1500, system: systemPrompt, messages: [{ role: 'user', content: userMessage }] } satisfies MessageCreateParamsNonStreaming,
+      { model: SYNTHESIS_MODEL, max_tokens: 3000, system: systemPrompt, messages: [{ role: 'user', content: userMessage }] } satisfies MessageCreateParamsNonStreaming,
       prospect.id,
     )
 
