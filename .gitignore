@@ -51,3 +51,6 @@ next-env.d.ts
 # MCP config — contains access tokens, never commit
 .mcp.json
 logs/
+
+# Throwaway test scripts — local only, not for version control
+src/lib/composition/test-messaging-run.ts
