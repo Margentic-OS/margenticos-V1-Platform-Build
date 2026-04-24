@@ -218,6 +218,70 @@ export type Database = {
           },
         ]
       }
+      intake_files: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          extracted_text: string | null
+          extraction_status: string
+          file_purpose: string
+          file_size_bytes: number
+          id: string
+          mime_type: string
+          organisation_id: string
+          original_filename: string
+          storage_path: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          extracted_text?: string | null
+          extraction_status?: string
+          file_purpose: string
+          file_size_bytes: number
+          id?: string
+          mime_type: string
+          organisation_id: string
+          original_filename: string
+          storage_path: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          extracted_text?: string | null
+          extraction_status?: string
+          file_purpose?: string
+          file_size_bytes?: number
+          id?: string
+          mime_type?: string
+          organisation_id?: string
+          original_filename?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intake_files_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intake_files_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intake_files_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       intake_responses: {
         Row: {
           field_key: string
@@ -265,6 +329,60 @@ export type Database = {
           },
           {
             foreignKeyName: "intake_responses_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      intake_website_pages: {
+        Row: {
+          created_at: string
+          display_order: number
+          error_message: string | null
+          extracted_text: string | null
+          fetch_status: string
+          fetched_at: string | null
+          id: string
+          organisation_id: string
+          page_label: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          display_order?: number
+          error_message?: string | null
+          extracted_text?: string | null
+          fetch_status?: string
+          fetched_at?: string | null
+          id?: string
+          organisation_id: string
+          page_label: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          display_order?: number
+          error_message?: string | null
+          extracted_text?: string | null
+          fetch_status?: string
+          fetched_at?: string | null
+          id?: string
+          organisation_id?: string
+          page_label?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intake_website_pages_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intake_website_pages_organisation_id_fkey"
             columns: ["organisation_id"]
             isOneToOne: false
             referencedRelation: "organisations"
@@ -466,10 +584,106 @@ export type Database = {
         }
         Relationships: []
       }
+      prospect_research_results: {
+        Row: {
+          created_at: string
+          id: string
+          organisation_id: string
+          prospect_id: string
+          qualification_reason: string | null
+          qualification_status: string
+          raw_apollo: Json | null
+          raw_linkedin: Json | null
+          raw_web_search: Json | null
+          raw_website: Json | null
+          research_tier: string
+          run_id: string | null
+          sources_attempted: string[]
+          sources_successful: string[]
+          synthesis_confidence: string | null
+          synthesis_reasoning: string | null
+          synthesized_at: string
+          trigger_source: Json | null
+          trigger_text: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          organisation_id: string
+          prospect_id: string
+          qualification_reason?: string | null
+          qualification_status?: string
+          raw_apollo?: Json | null
+          raw_linkedin?: Json | null
+          raw_web_search?: Json | null
+          raw_website?: Json | null
+          research_tier: string
+          run_id?: string | null
+          sources_attempted?: string[]
+          sources_successful?: string[]
+          synthesis_confidence?: string | null
+          synthesis_reasoning?: string | null
+          synthesized_at?: string
+          trigger_source?: Json | null
+          trigger_text?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          organisation_id?: string
+          prospect_id?: string
+          qualification_reason?: string | null
+          qualification_status?: string
+          raw_apollo?: Json | null
+          raw_linkedin?: Json | null
+          raw_web_search?: Json | null
+          raw_website?: Json | null
+          research_tier?: string
+          run_id?: string | null
+          sources_attempted?: string[]
+          sources_successful?: string[]
+          synthesis_confidence?: string | null
+          synthesis_reasoning?: string | null
+          synthesized_at?: string
+          trigger_source?: Json | null
+          trigger_text?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prospect_research_results_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prospect_research_results_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prospect_research_results_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "prospects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prospect_research_results_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       prospects: {
         Row: {
           company_name: string | null
           created_at: string
+          current_research_result_id: string | null
           email: string | null
           first_name: string | null
           id: string
@@ -477,8 +691,10 @@ export type Database = {
           linkedin_url: string | null
           organisation_id: string
           personalisation_trigger: string | null
+          qualification_status: string | null
           research_ran_at: string | null
           research_source: string | null
+          research_tier: string | null
           role: string | null
           suppressed: boolean
           suppressed_at: string | null
@@ -491,6 +707,7 @@ export type Database = {
         Insert: {
           company_name?: string | null
           created_at?: string
+          current_research_result_id?: string | null
           email?: string | null
           first_name?: string | null
           id?: string
@@ -498,8 +715,10 @@ export type Database = {
           linkedin_url?: string | null
           organisation_id: string
           personalisation_trigger?: string | null
+          qualification_status?: string | null
           research_ran_at?: string | null
           research_source?: string | null
+          research_tier?: string | null
           role?: string | null
           suppressed?: boolean
           suppressed_at?: string | null
@@ -512,6 +731,7 @@ export type Database = {
         Update: {
           company_name?: string | null
           created_at?: string
+          current_research_result_id?: string | null
           email?: string | null
           first_name?: string | null
           id?: string
@@ -519,8 +739,10 @@ export type Database = {
           linkedin_url?: string | null
           organisation_id?: string
           personalisation_trigger?: string | null
+          qualification_status?: string | null
           research_ran_at?: string | null
           research_source?: string | null
+          research_tier?: string | null
           role?: string | null
           suppressed?: boolean
           suppressed_at?: string | null
@@ -531,6 +753,13 @@ export type Database = {
           variant_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "prospects_current_research_result_id_fkey"
+            columns: ["current_research_result_id"]
+            isOneToOne: false
+            referencedRelation: "prospect_research_results"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "prospects_organisation_id_fkey"
             columns: ["organisation_id"]
