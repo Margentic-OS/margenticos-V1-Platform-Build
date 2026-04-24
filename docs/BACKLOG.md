@@ -78,6 +78,37 @@
   BRAVE_SEARCH_API_KEY set in .env.local and Vercel (Production + Preview).
   Probe returned 2 results for test query — no errors. Commit f698fb4.
 
+- [DONE 2026-04-24] Prospect research agent v2 Phase 1 build — complete
+  Four-source pipeline: LinkedIn (Apify/harvestapi), Apollo enrichment, company website,
+  web search (Anthropic native → Brave fallback). Synthesis via claude-sonnet-4-6 with
+  extended thinking. DB persistence: prospect_research_results table (research_tier,
+  synthesis_confidence, qualification_status, trigger_text, trigger_source, relevance_reason,
+  synthesis_reasoning, sources_attempted/successful, synthesized_at). Prospect row updated
+  (research_tier, qualification_status, personalisation_trigger, current_research_result_id,
+  research_ran_at). Batch runner with p-limit parallelism (concurrency=5, per-provider
+  sub-limits). Pre-batch cost estimate CLI with Brave quota advisory. 429 retry with
+  exponential backoff (3 attempts). Failed prospect logging to logs/failed-prospects-<timestamp>.json.
+  CSV export for batch QA review (exportBatchResultsToCSV). scrubAITells() applied to all
+  trigger_text output.
+  Pre-flight bug fixes (2026-04-24):
+    Bug 2A: max_tokens increased 1500→3000 (synthesis was hitting ceiling mid-reasoning)
+    Bug 2B: web search limited gate removed (thin-but-real results now reach synthesis)
+    Bug 2C: buildTier3TriggerText() grammar fixed (gerund/modal-negative/noun phrase detection)
+    Bug 8A: CSV FK disambiguation fixed (prospects!prospect_id to resolve ambiguous join)
+    Bug 6: HAIKU_PERSONALIZATION_USD added to cost estimate (was running 12-25% low)
+  Dogfood test (Ginny Hudgens) passed: correct Tier 3 classification with coherent reasoning,
+  web search content reached synthesis, relevance_reason persisted cleanly to DB.
+
+- [DONE 2026-04-24] Composition layer Phase 1 feature additions
+  Bridge sentence: connects research tier output to email sequence opening with
+  style enforcement. Personalized CTA: derived from trigger_text + prospect context.
+  Value prop alignment filter: synthesis prompt cross-references prospect signal against
+  client positioning document before assigning tier and confidence score.
+  Shared customer-facing style rules module: src/lib/style/customer-facing-style-rules.ts —
+  canonical forbidden-phrase list (em dashes, AI tells) + scrubAITells() runtime scrub.
+  All agents producing customer-facing output import from this module; no inline duplication.
+  Commits fe36d05 and earlier composition sessions.
+
 - [pre-c0-C] Marketing website readiness decision (2026-04-24)
   Current Netlify landing page exists. Cold prospects land there from email signatures and
   Calendly confirmations. Before campaigns go live, Doug needs to decide: is the current page
