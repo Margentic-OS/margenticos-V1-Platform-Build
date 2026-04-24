@@ -23,6 +23,7 @@ Every new Claude Code session must read, in order:
   2. /docs/BACKLOG.md (deferred items and follow-ups)
   3. /docs/ADR.md (architecture decisions)
   4. The relevant /prd/sections/NN-*.md file for the current task
+  - For prospect research agent v2 state and architecture, see `docs/prospect-research-agent-v2-state.md`
 
 Do not skip BACKLOG.md. It captures items consciously deferred in earlier sessions
 that you would otherwise forget. Missing an item in BACKLOG.md has cost real hours
