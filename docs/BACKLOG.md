@@ -57,10 +57,11 @@
   very unlikely — but the gate must still run before the sourcing pipeline goes live.
   Status: pre-c1 (not pre-c0, since sourcing pipeline is post-sending-infrastructure anyway).
 
-- [pre-c0] Sending infrastructure provisioned for MargenticOS
-  2+ domains purchased, SPF/DKIM/DMARC configured, 6 mailboxes created,
-  warming running for 2–3 weeks minimum before live sends.
-  Runbook: /docs/runbooks/sending-setup.md
+- [DEFERRED → pre-launch T-10 days] Sending infrastructure provisioned for MargenticOS
+  Deferred 2026-04-24. Cash conservation + pre-warmed accounts eliminate warming delay entirely.
+  Full plan: see "Pre-launch infrastructure (T-10 days)" section below.
+  Trigger: ~7-10 days before actual launch (Apollo activated, dogfood validated,
+  outbound copy drafted, target list ready).
 
 - [pre-c1] Lemlist API capabilities verified before LinkedIn DM build starts
   Verify endpoint availability, rate limits, webhook support against live docs.
@@ -202,6 +203,56 @@
 
 ---
 
+## Pre-launch infrastructure (T-10 days)
+# Trigger: ~7-10 days before actual launch.
+# Prerequisites: Apollo activated, dogfood end-to-end validated, outbound copy
+# drafted and approved, first target list ready to upload.
+# Rationale (2026-04-24): cash conservation during uncertain pre-launch timeline.
+# Pre-warmed domains eliminate the 2–3 week warming delay — order close to launch
+# date, connect, and go live within days rather than weeks.
+
+- [pre-launch] Upgrade Instantly to Growth monthly ($47/month)
+  Do this first. DFY order endpoint and pre-warmed domain pool require paid plan.
+  Login → Settings → Billing → Growth monthly.
+
+- [pre-launch] Check pre-warmed domain pool availability
+  POST https://api.instantly.ai/api/v2/dfy-email-account-orders/domains/similar
+  {"domain": "margenticos.com", "tlds": ["com"]}
+  API key in ~/.claude.json mcpServers.instantly.url (after /mcp/).
+  Claude Code can call this directly via REST — no MCP needed.
+  Confirmed working on 2026-04-24 with free trial. Returns 60+ candidates.
+
+- [pre-launch] Order 4 pre-warmed mailboxes across 2 domains
+  Domains selected on 2026-04-24: trymargenticos.com, getmargenticos.com
+  (Confirm availability at order time — pool changes.)
+  Config: 2 mailboxes per domain, Google Workspace, forwarding → margenticos.com
+  Mailbox naming: doug@[domain], douglas@[domain] for each domain (4 total)
+  Run simulate: true first for price quote and validation.
+  Approx cost: ~$40/month mailboxes + ~$30/year domains = ~$73 first month.
+  Claude Code places the real order (simulate: false) only after Doug reviews quote
+  and confirms.
+
+- [pre-launch] Configure Gmail display names, signatures, profile photos manually
+  ~10-12 min per mailbox × 4 mailboxes = ~40-50 min total.
+  Display name: Doug Pettit | MargenticOS (or client-appropriate variant)
+  Signature: clean, no logo, matching the TOV guide.
+  Profile photo: professional headshot.
+  Must be done manually in Gmail — no API for this.
+
+- [pre-launch] Connect mailboxes to Instantly, verify warmup + deliverability
+  Add accounts in Instantly dashboard. Confirm warmup status active.
+  Run deliverability check before first campaign send.
+
+- [pre-launch] Create campaign shell, upload first target list
+  Campaign shell: name, schedule, daily send limits, unsubscribe footer.
+  Target list: first Apollo export filtered against ICP filter spec.
+  Sequence templates: already drafted as part of dogfood.
+
+- [pre-launch] Launch
+  First send. Monitor open rate + bounce rate for 48 hours.
+
+---
+
 ## Pre-client-zero critical path (dependency map)
 # Last updated: 2026-04-23
 
@@ -209,11 +260,9 @@ Remaining [pre-c0] items in dependency order. Items at the same level can run in
 
 ### Layer 0 — no dependencies, can start immediately (parallel)
 
-**Sending infrastructure** (~4–6 hrs over 2–3 weeks elapsed time)
-  Depends on: nothing
-  Blocks: everything live — no sends happen without domains warmed
-  Note: clock starts now; 2–3 week warming period is elapsed time, not build time.
-  Build time is ~2 hrs (domain purchase, DNS config, Instantly mailbox setup).
+**Sending infrastructure** ✓ DEFERRED 2026-04-24 → see Pre-launch infrastructure (T-10 days)
+  No longer on the pre-c0 critical path. Will be provisioned ~7-10 days before launch
+  using pre-warmed accounts. Removes the 2–3 week elapsed-time constraint from the path.
 
 **Intake file upload** ✓ DONE 2026-04-23
   TOV agent now reads uploaded files + pasted text field. ICP agent reads uploaded icp_doc/case_study files.
@@ -250,18 +299,20 @@ Intake file upload + website ingestion
   → ICP filter spec dogfood
   → TAM report dogfood
 
-Auto-approve scheduler ✓ DONE. Sending infrastructure warming runs concurrently with all of it.
+Auto-approve scheduler ✓ DONE. Sending infrastructure deferred to pre-launch (T-10 days).
 
 Signal processing agent and warnings engine backend deferred to Phase 2 — see Phase 2 section.
 
-### Total build-time estimate (updated 2026-04-23)
+### Total build-time estimate (updated 2026-04-24)
 
   Layer 0 (parallel): ✓ complete
   Layer 1 (parallel): ✓ complete
-  Layer 2: TAM report (~1 hr) remaining
+  Layer 2: TAM report (~1 hr, blocked on Apollo Basic activation)
+  Sending infrastructure: deferred to T-10 days pre-launch — not a build-time constraint
   ─────────────────────────────────────────────────
-  Remaining pre-c0 build time: ~1 hr (TAM report) + sending infrastructure setup (~2 hrs)
-  Plus 2–3 weeks elapsed for domain warming — the true wall-clock constraint.
+  Remaining pre-c0 build time: ~1 hr (TAM dogfood, runs once Apollo is active)
+  The 2–3 week warming wall-clock constraint is eliminated by using pre-warmed accounts.
+  Critical path is now: dogfood end-to-end → activate Apollo → TAM validation → launch.
 
 ---
 
