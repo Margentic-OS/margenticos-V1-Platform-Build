@@ -38,8 +38,8 @@ export async function fetchWebSearchSource(prospect: ProspectContext): Promise<W
       webSearch(companyQuery),
     ])
 
-    const personText = !personResult.limited ? personResult.synthesis.trim() : null
-    const companyText = !companyResult.limited ? companyResult.synthesis.trim() : null
+    const personText = personResult.synthesis.trim() || null
+    const companyText = companyResult.synthesis.trim() || null
 
     const available = !!(personText || companyText)
 
