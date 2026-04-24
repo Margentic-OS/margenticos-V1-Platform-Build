@@ -65,15 +65,22 @@
   Status: deferred until prospect research agent v2 is dogfooded end-to-end.
   Prerequisite: Calendly personal setup complete (see pre-c0-C item below).
 
-- [pre-c0] Create throwaway LinkedIn account for MargenticOS research (2026-04-24)
-  Use personal phone number or Google Voice. Build a minimal profile.
-  Wait 1–2 weeks before first scrape to avoid immediate account flags.
-  This account is used only for the LinkedIn research step in prospect research agent v2.
+- [pre-c0] Sign up for Apify and generate API key (2026-04-24)
+  Apify is the LinkedIn research source for prospect research agent v2.
+  No LinkedIn account needed — Apify runs dedicated LinkedIn actors via REST API.
+  Target actors: harvestapi/linkedin-profile-scraper ($4/1000 profiles) and
+  harvestapi/linkedin-profile-posts ($2/1000 posts, last 60 days).
+  At ~800–3200 prospects/month, LinkedIn research costs ~$4–13/month total.
+  Steps: sign up at apify.com, generate API token, confirm access to both target actors.
+  Doug must complete this in the browser before LinkedIn source can be tested end-to-end.
 
-- [pre-c0] Install stickerdaniel/linkedin-mcp-server for LinkedIn research integration (2026-04-24)
-  Configure with throwaway account credentials once account is created and aged 1–2 weeks.
-  This MCP gives Claude Code direct access to LinkedIn for the research step.
-  Prerequisite: throwaway account created and aged (see item above).
+- [pre-c0] Verify Brave Search API integration works end-to-end (2026-04-24)
+  The Brave Search code is fully written (src/lib/agents/tools/webSearch.ts).
+  Anthropic native search runs first; Brave is the fallback.
+  The env var BRAVE_SEARCH_API_KEY exists in .env.local but the value is empty.
+  Action: get a Brave Search API key (search.brave.com/app/keys, free tier available),
+  paste the value into .env.local, and run a quick test call to confirm it fires.
+  Also add to Vercel env vars (Production + Preview) alongside the existing ANTHROPIC_API_KEY.
 
 - [pre-c0-C] Marketing website readiness decision (2026-04-24)
   Current Netlify landing page exists. Cold prospects land there from email signatures and
@@ -523,16 +530,11 @@ Revisit once prospect research agent is built and full outbound cycle is working
   for "second contact" (acknowledge they heard from us, show something has changed).
   Do not build until client zero produces real sequence completion data.
 
-- [phase2] Client-specific LinkedIn account management (2026-04-24)
-  Each paying client's LinkedIn outreach research needs a dedicated LinkedIn session/account.
-  ~1 hour per new client at account creation time.
-  Build a lightweight account registry and session handoff pattern into the research agent.
-  Trigger: second paying client onboards.
-
-- [phase2] Migrate LinkedIn scraping to paid service if direct scraping reliability drops (2026-04-24)
-  Paid options: Phantombuster, Apify, ScrapingBee.
-  Trigger: direct scraping reliability falls below 80% OR LinkedIn account warnings appear.
-  Architecture: swap the scraping handler in the integrations registry — no agent code changes.
+- [phase2] Per-client Apify actor configuration for LinkedIn research (2026-04-24)
+  The v2 research agent uses shared Apify actors via a single operator API key.
+  At higher client counts, consider per-client actor runs or separate API keys for
+  billing separation and rate limit management.
+  Trigger: 3+ paying clients running concurrent research batches.
 
 - [phase2] Research-specific config overrides when ICP/TOV docs aren't sufficient (2026-04-24)
   Trigger: an actual gap emerges during real client research runs (e.g. industry-specific

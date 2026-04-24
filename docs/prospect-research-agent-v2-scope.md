@@ -106,19 +106,36 @@ The tier number (1 and 3, not 1 and 2) is kept consistent with the ICP document'
 
 ### Data sources — all attempted in parallel, failures tolerated
 
-| Source | Status | Notes |
-|--------|--------|-------|
-| LinkedIn profile (via `stickerdaniel/linkedin-mcp-server`) | **BLOCKED** — MCP not installed, throwaway account not created | Build handler now; integrate when unblocked |
-| Apollo enrichment (`/api/v1/people/match`) | **BLOCKED** — 403 on free plan | Build handler now; integrate when Apollo Basic activated |
-| Company website (user-agent spoofing + Jina.ai Reader fallback) | Available now | Jina.ai Reader (`reader.jina.ai/URL`) returns clean markdown, bypasses most anti-bot |
-| Web search (Brave Search + Anthropic native web search) | Available now | Two passes: person-specific + company-specific |
+| Source | Status | Implementation |
+|--------|--------|----------------|
+| LinkedIn (via Apify REST API) | **Requires Apify account** — Doug must sign up and generate API key before this source can run | `harvestapi/linkedin-profile-scraper` + `harvestapi/linkedin-profile-posts` actors. No LinkedIn account or cookies. Pay-per-use: $4/1000 profiles, $2/1000 posts. ~$4–13/month at Doug's scale. |
+| Apollo enrichment (`/api/v1/people/match`) | **BLOCKED** — 403 on free plan | Build handler now; activates automatically once Apollo Basic ($49/month) is activated |
+| Company website (user-agent spoofing + Jina.ai Reader fallback) | **Phase 1 — to be built** | Plain `fetch()` with rotated UA strings. On block or error: fallback to `reader.jina.ai/[URL]` which returns clean markdown. Neither is written yet in the codebase. |
+| Web search (Anthropic native first, Brave fallback) | **Partially available** — Anthropic native works today; Brave code is written but `BRAVE_SEARCH_API_KEY` is empty | Two passes per prospect: person-specific query + company-specific query. Brave needs an API key added to activate. Free tier at search.brave.com/app/keys. |
+
+**Apify integration approach:**
+The research agent calls the Apify REST API directly — no LinkedIn account, no session cookies, no ban risk. The API runs in Vercel serverless without any special runtime requirements. Decision 4 from the original scope (LinkedIn MCP runtime architecture) is resolved: Apify REST is the implementation.
 
 **Failure mode at each source:**
 1. Try primary method
-2. On failure: try alternative method (e.g., Jina fallback for website)
+2. On failure: try alternative method (e.g., Jina fallback for website, Brave fallback for web search)
 3. On second failure: mark source as unavailable in `sources_attempted` but not `sources_successful`
 4. Never throw to the batch runner — one source failure is not a prospect failure
 5. After all sources: if zero sources returned data, classify Tier 3 with low confidence and flag prominently
+
+### Prerequisites before Phase 1 can run end-to-end
+
+Doug must complete the following in the browser before the full pipeline can be tested:
+
+| Prerequisite | Where | Time | Status |
+|-------------|-------|------|--------|
+| Sign up for Apify, generate API token | apify.com | ~10 min | Not done |
+| Confirm access to `harvestapi/linkedin-profile-scraper` and `harvestapi/linkedin-profile-posts` | Apify console | ~5 min | Not done |
+| Get Brave Search API key | search.brave.com/app/keys | ~5 min | Not done |
+| Paste Brave API key into `.env.local` | Local only | ~2 min | Not done |
+| Add `APIFY_API_KEY` and `BRAVE_SEARCH_API_KEY` to Vercel env vars | Vercel dashboard | ~10 min | Not done |
+
+Phase 1 can be built while these are pending. The website and web search (Anthropic native) sources work today and are enough to verify synthesis quality. Full four-source testing requires all prerequisites above.
 
 ### Relevance filter applied during synthesis
 
@@ -149,7 +166,7 @@ Flagged prospects: notify operator by email, but proceed to the sequence (do not
 ```
 src/lib/agents/prospect-research-agent-v2.ts          Entry point. Orchestrates sources → synthesis → store.
 src/lib/agents/research/types.ts                      All new interfaces and types for v2.
-src/lib/agents/research/sources/linkedin.ts           LinkedIn source handler (blocked until MCP ready).
+src/lib/agents/research/sources/linkedin.ts           LinkedIn source via Apify REST API. Needs APIFY_API_KEY env var.
 src/lib/agents/research/sources/apollo.ts             Apollo source handler (blocked until Basic activated).
 src/lib/agents/research/sources/website.ts            Website source: user-agent spoofing + Jina fallback.
 src/lib/agents/research/sources/web-search.ts         Web search: Brave + Anthropic native.
@@ -182,11 +199,11 @@ Load client docs: ICP, Positioning, TOV (strategy_documents)
          │
          ▼
 Parallel source collection — all four sources attempted simultaneously
-  ┌─────────────────┬───────────────┬────────────────┬──────────────────┐
-  │ LinkedIn source │ Apollo source │ Website source │ Web search source│
-  │ (blocked: MCP)  │ (blocked: 403)│ user-agent +   │ Brave + Anthropic│
-  │                 │               │ Jina fallback  │ native           │
-  └─────────────────┴───────────────┴────────────────┴──────────────────┘
+  ┌──────────────────┬───────────────┬────────────────┬──────────────────┐
+  │ LinkedIn source  │ Apollo source │ Website source │ Web search source│
+  │ (Apify REST API, │ (blocked: 403 │ user-agent +   │ Anthropic native │
+  │ needs API key)   │ on free plan) │ Jina fallback  │ + Brave fallback │
+  └──────────────────┴───────────────┴────────────────┴──────────────────┘
          │ (collect all raw data, mark each source attempted/succeeded)
          ▼
 Single synthesis step (Claude Sonnet 4.6 — see Decision #1)
@@ -622,21 +639,19 @@ Option B: Soft-delete after N months. Adds complexity; provides minimal benefit 
 
 ---
 
-**Decision 4 — LinkedIn source via MCP at agent runtime**
+**Decision 4 — LinkedIn source implementation: RESOLVED**
 
-The `stickerdaniel/linkedin-mcp-server` is a Claude Code MCP — it is configured in `.mcp.json` and available to Claude Code sessions. But the prospect research agent runs as a Vercel serverless function, not as a Claude Code session. The MCP will not be available at function runtime.
+Research found that Apify provides dedicated LinkedIn actors callable via REST API. No LinkedIn account, no cookies, no ban risk, no MCP, no Playwright. The agent calls Apify HTTP endpoints from Vercel serverless functions exactly like any other API call.
 
-This is a significant architectural constraint. Options:
+Actors:
+- `harvestapi/linkedin-profile-scraper` — full profile data, $4/1000 runs
+- `harvestapi/linkedin-profile-posts` — posts from last 60 days, $2/1000 runs
 
-Option A: Use the LinkedIn MCP only for operator-initiated research runs (i.e., Doug triggers research manually from Claude Code). Not suitable for automated batch processing.
+Cost at Doug's scale (~800–3200 prospects/month): ~$4–13/month total. Not material.
 
-Option B: Implement LinkedIn research via a direct API call to the linkedin-mcp-server if it exposes an HTTP endpoint, or via a separate microservice that holds the LinkedIn session.
+**Decision: Integrate Apify in Phase 1.** LinkedIn moves from Phase 2 to Phase 1 (pending Apify account creation — see prerequisites table above).
 
-Option C: Use the LinkedIn MCP's underlying mechanism directly. If stickerdaniel/linkedin-mcp-server uses a headless browser or Playwright session, the same approach can be ported to the serverless function with appropriate timeouts.
-
-Option D: Defer LinkedIn as a source until there is a hosted LinkedIn scraping service (Phantombuster, Apify) that can be called via HTTP — this is already on the Phase 2 backlog.
-
-**Needs Doug's call.** This is the most significant architectural constraint in the entire v2 build. The source handler can be written now with the LinkedIn MCP interaction pattern, but the deployment pathway needs a decision.
+**Prerequisite for Doug:** Sign up at apify.com, generate API token, confirm access to both target actors. ~15 min total. The build can proceed without it; end-to-end testing requires it.
 
 ---
 
@@ -718,45 +733,45 @@ Given that client zero (MargenticOS's own campaign) is the first live use and th
 
 Before any phase can be fully tested end-to-end:
 - **Apollo Basic** must be activated ($49/month) — unblocks Apollo source handler
-- **Throwaway LinkedIn account** must be created and aged 1-2 weeks — unblocks LinkedIn source handler
-- **stickerdaniel/linkedin-mcp-server** must be installed — plus architectural decision on runtime delivery (Decision 4)
+- **Apify account + API key** must be created by Doug — unblocks LinkedIn source handler (~15 min signup)
+- **Brave Search API key** must be added — activates the Brave fallback in web search (~5 min)
 
-Phase 1 can be built and tested without either blocker (website + web search sources work now). Phase 2 is fully blocked until both are resolved.
+Phase 1 can be built and partially tested without any of these. Anthropic native web search and company website fetch work today. Full four-source testing requires the prerequisites in the table above.
 
 ---
 
-### Phase 1 — Foundation rewrite (no new data sources)
-**Builds:** New types, database schema, website + web search sources, synthesis step, main agent, compose-sequence update.
-**Result:** A working v2 agent using only website and web search sources. Produces real tier classifications. Synthesis prompt is live and tunable. Phase 1 is deployable and testable with Doug's own prospect list.
+### Phase 1 — Foundation rewrite (all sources except Apollo)
+**Builds:** New types, database schema, website source (with user-agent spoofing and Jina.ai fallback), web search source (two-pass), LinkedIn source (Apify REST), synthesis step, main agent, compose-sequence update.
+**Result:** A working v2 agent using website, web search, and LinkedIn sources. Apollo activates automatically once Apollo Basic is live. Synthesis prompt is live and tunable.
 
 | Task | Estimate |
 |------|----------|
 | Define new types (research/types.ts) | 30 min |
 | Database migration + RLS (new table + new prospects columns) | 1.5 hrs |
-| Website source handler (user-agent + Jina fallback) | 2 hrs |
-| Web search source handler (Brave + Anthropic native, two-pass) | 1.5 hrs |
+| Website source handler (user-agent spoofing + Jina.ai Reader fallback) | 2 hrs |
+| Web search source handler (Anthropic native two-pass, Brave fallback) | 1.5 hrs |
+| LinkedIn source handler (Apify REST — profile + posts actors) | 2 hrs |
 | Synthesize.ts with initial synthesis prompt | 3 hrs |
 | Qualify.ts (deterministic pre-screen + post-synthesis rules) | 1 hr |
 | Main agent entry point (orchestration, parallel collection, store) | 2 hrs |
 | Update compose-sequence.ts (read research_tier, use trigger_text from new table) | 1.5 hrs |
 | Update test file, run end-to-end, verify storage | 1 hr |
 | Update docs | 1 hr |
-| **Phase 1 total** | **~15 hrs / 2 days** |
+| **Phase 1 total** | **~17 hrs / 2–3 days** |
 
 ---
 
-### Phase 2 — New data sources (blocked on infrastructure)
-**Builds:** LinkedIn source handler, Apollo source handler. Integrates both into the parallel collection step.
-**Unblocked by:** Apollo Basic activation + throwaway LinkedIn account aged + Decision 4 resolved (LinkedIn MCP runtime architecture).
+### Phase 2 — Apollo source (blocked on Apollo Basic activation)
+**Builds:** Apollo source handler. Drops into existing parallel collection with no other changes needed.
+**Unblocked by:** Apollo Basic activated ($49/month).
 
 | Task | Estimate |
 |------|----------|
 | Apollo source handler (extracted from v1, enhanced for new output shape) | 2 hrs |
-| LinkedIn source handler (implementation depends on Decision 4) | 3 hrs |
-| Integrate both into parallel collection, test with real data | 2 hrs |
-| **Phase 2 total** | **~7 hrs / 1 day** |
+| Integrate into parallel collection, test with real data | 1 hr |
+| **Phase 2 total** | **~3 hrs / half day** |
 
-These tasks can be coded during the Phase 1 window (handlers can be built and unit-tested without live credentials). Integration testing happens once the blockers clear.
+This can be coded during the Phase 1 window. Integration testing happens once Apollo Basic is active.
 
 ---
 
@@ -794,22 +809,22 @@ These tasks can be coded during the Phase 1 window (handlers can be built and un
 
 | Phase | Estimate | Blocker |
 |-------|----------|---------|
-| Phase 1 — Foundation | ~15 hrs / 2 days | None — start immediately |
-| Phase 2 — New sources | ~7 hrs / 1 day | Apollo Basic + LinkedIn account + Decision 4 |
+| Phase 1 — Foundation + LinkedIn + web sources | ~17 hrs / 2–3 days | Apify account + Brave key (Doug, ~20 min); build proceeds without them |
+| Phase 2 — Apollo source | ~3 hrs / half day | Apollo Basic activated |
 | Phase 3 — 8-variant messaging | ~7.5 hrs / 1 day | Phase 1 verified |
 | Phase 4 — QA infrastructure | ~6 hrs / 1 day | Phase 1 live with real data |
-| **Total** | **~35.5 hrs / 5–6 days** | |
+| **Total** | **~33.5 hrs / 4–5 days** | |
 
-This is focused coding time. With Claude Code, expect 3–4 actual calendar days for Phase 1 + 3 combined once infrastructure blockers clear.
+This is focused coding time. With Claude Code, expect 3 actual calendar days for Phase 1 + 2 combined once Apollo is activated.
 
 ---
 
 ### Recommended sequence
 
-1. **Now:** Resolve Decisions 1–5 (model, flagged UI, disqualified retention, LinkedIn runtime, prompt editability). Resolve Decision 4 first — it determines what the LinkedIn source handler looks like.
-2. **Phase 1:** Build and dogfood with Doug's own MargenticOS prospect list. Tune synthesis prompt through spot-checks.
-3. **While Phase 1 runs:** Activate Apollo Basic. Create LinkedIn throwaway account and let it age.
-4. **Phase 2:** Integrate Apollo and LinkedIn once both are available. Re-run research on the live prospect list.
+1. **Doug does now (~20 min):** Sign up for Apify, get Brave Search API key. Add both to `.env.local`. Phase 1 build can start before this is done, but end-to-end testing needs it.
+2. **Now:** Resolve remaining open decisions (1, 2, 3, 5, 6, 7, 8, 9, 10). Decision 4 is resolved.
+3. **Phase 1:** Build all sources, synthesis, schema, compose-sequence update. Dogfood with MargenticOS's own prospect list. Tune synthesis prompt through spot-checks.
+4. **While Phase 1 runs:** Activate Apollo Basic. Apollo source drops in with no other changes.
 5. **Phase 3:** Expand messaging agent to 8 variants once tier classification is confirmed accurate.
 6. **Phase 4:** Add QA infrastructure as the weekly review cycle becomes a real habit.
 
