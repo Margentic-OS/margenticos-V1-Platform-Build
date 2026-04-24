@@ -9,6 +9,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { generatePersonalization, countWords } from './personalization'
 
 // Private type alias derived from getServiceClient (defined at bottom of file).
 // Using the actual inferred return type avoids generic parameter conflicts with createClient overloads.
@@ -37,8 +38,10 @@ interface ProspectRow {
   organisation_id: string
   variant_id: string | null
   personalisation_trigger: string | null
+  research_tier: string | null
   role: string | null
   first_name: string | null
+  company_name: string | null
 }
 
 interface StoredEmail {
@@ -97,8 +100,17 @@ export async function composeSequence({
   const trigger = await resolveTrigger(supabase, prospect, client_id)
 
   // Step 4 — Apply the trigger to email 1 of the assigned variant.
-  const variantEmails = getVariantEmails(messagingDoc, variantId)
-  const composedEmails = applyTriggerToEmail1(variantEmails, trigger)
+  const variantEmails  = getVariantEmails(messagingDoc, variantId)
+  const afterTrigger   = applyTriggerToEmail1(variantEmails, trigger)
+
+  // Step 4b — Haiku bridge + personalized CTA for Email 1.
+  const clientValueHook = await fetchClientValueHook(supabase, client_id)
+  const composedEmails  = await applyPersonalization(
+    afterTrigger,
+    prospect,
+    trigger,
+    clientValueHook,
+  )
 
   // Step 5 — Return the composed sequence.
   return {
@@ -144,7 +156,7 @@ async function fetchProspect(
 ): Promise<ProspectRow> {
   const { data, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, variant_id, personalisation_trigger, role, first_name')
+    .select('id, organisation_id, variant_id, personalisation_trigger, research_tier, role, first_name, company_name')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id) // explicit isolation filter
     .single()
@@ -364,6 +376,111 @@ function applyTriggerToEmail1(emails: StoredEmail[], trigger: string): ComposedE
 
     return { ...email, body: newLines.join('\n') }
   })
+}
+
+// ─── Step 4b — Bridge + personalized CTA ─────────────────────────────────────
+
+// Fetch the cold outreach hook from the active positioning doc.
+// Used as context for the Haiku personalization call.
+async function fetchClientValueHook(
+  supabase: ServiceClient,
+  client_id: string,
+): Promise<string> {
+  const { data } = await supabase
+    .from('strategy_documents')
+    .select('content')
+    .eq('organisation_id', client_id)
+    .eq('document_type', 'positioning')
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!data) return 'consistent outbound pipeline without founder involvement'
+
+  const content = data.content as Record<string, unknown>
+  const hook = (content?.key_messages as Record<string, string> | undefined)?.cold_outreach_hook
+  return typeof hook === 'string' && hook.trim() ? hook.trim() : 'consistent outbound pipeline without founder involvement'
+}
+
+// Email 1 word limit and the pre-check threshold (90% of max = must have 10% headroom).
+const EMAIL1_MAX_WORDS  = 90
+const BRIDGE_HEADROOM   = Math.floor(EMAIL1_MAX_WORDS * 0.9)  // 81 words
+
+async function applyPersonalization(
+  emails: ComposedEmail[],
+  prospect: ProspectRow,
+  trigger: string,
+  clientValueHook: string,
+): Promise<ComposedEmail[]> {
+  return Promise.all(
+    emails.map(async email => {
+      if (email.sequence_position !== 1) return email
+
+      const tier = prospect.research_tier ?? 'tier3'
+
+      // Pre-check: skip bridge generation entirely if too little headroom.
+      const currentWords   = countWords(email.body)
+      const canFitBridge   = tier === 'tier1' && currentWords <= BRIDGE_HEADROOM
+
+      const { bridge, cta } = await generatePersonalization({
+        tier,
+        triggerText:     trigger,
+        prospectRole:    prospect.role,
+        prospectCompany: prospect.company_name,
+        clientValueHook,
+      })
+
+      let body = email.body
+
+      // Insert bridge (Tier 1 only, word count gated).
+      if (canFitBridge && bridge) {
+        const bridgeWords = countWords(bridge)
+        if (currentWords + bridgeWords <= EMAIL1_MAX_WORDS) {
+          body = insertBridgeAfterTrigger(body, bridge)
+        } else {
+          logger.debug('compose-sequence: bridge skipped — would exceed word limit', {
+            prospect_id: prospect.id,
+            current_words: currentWords,
+            bridge_words: bridgeWords,
+          })
+        }
+      }
+
+      // Replace existing CTA paragraph with personalized CTA (all tiers).
+      body = replaceCtaParagraph(body, cta)
+
+      return { ...email, body, word_count: countWords(body) }
+    })
+  )
+}
+
+// Insert bridge as a new paragraph immediately after the trigger line.
+// Trigger is the first non-empty paragraph after {{first_name}}.
+function insertBridgeAfterTrigger(body: string, bridge: string): string {
+  const paragraphs = body.split('\n\n')
+  const firstNameIdx = paragraphs.findIndex(p => p.trim() === '{{first_name}}')
+  const triggerIdx   = paragraphs.findIndex((p, i) => i > firstNameIdx && p.trim().length > 0)
+  if (triggerIdx === -1) return body
+
+  const result = [...paragraphs]
+  result.splice(triggerIdx + 1, 0, bridge)
+  return result.join('\n\n')
+}
+
+// Replace the CTA paragraph (second-to-last non-empty paragraph, before sign-off).
+function replaceCtaParagraph(body: string, cta: string): string {
+  const paragraphs = body.split('\n\n')
+  const nonEmpty   = paragraphs.map((p, i) => ({ p, i })).filter(({ p }) => p.trim().length > 0)
+
+  // Last non-empty paragraph is the sign-off (sender's first name).
+  // Second-to-last is the CTA to replace.
+  if (nonEmpty.length < 2) return body
+
+  const ctaEntry   = nonEmpty[nonEmpty.length - 2]
+  const result     = [...paragraphs]
+  result[ctaEntry.i] = cta
+  return result.join('\n\n')
 }
 
 // ─── Supabase client ──────────────────────────────────────────────────────────
