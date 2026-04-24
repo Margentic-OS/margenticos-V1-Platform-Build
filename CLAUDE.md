@@ -167,6 +167,15 @@ recovery is painful and sometimes impossible.
 
 ---
 
+## Git workflow
+
+- After every commit, push to origin unless the user explicitly says otherwise
+- Ensures Vercel deploys, GitHub backups, and collaborator visibility stay in sync
+- Verify push success before reporting commit complete to the user
+- If branch protection is bypassed (as admin), note it explicitly in the report
+
+---
+
 ## MCP setup — prompt Doug, never assume accounts exist
 
 This project uses MCPs (Model Context Protocol) to give Claude Code direct
