@@ -57,6 +57,36 @@
   very unlikely — but the gate must still run before the sourcing pipeline goes live.
   Status: pre-c1 (not pre-c0, since sourcing pipeline is post-sending-infrastructure anyway).
 
+- [pre-c0] Reply handling agent — Phase 1 scope per ADR-007 (2026-04-24)
+  Automated positive reply: respond same business hour, Calendly link, "grab a slot," signed as
+  "[Client Company Name] Team." Automated suppression on opt-out/hostile. Automated OOO pause/resume
+  via Instantly API. Information requests: escalation only (no automated response). Flagged
+  immediately to client as high priority, 15h/48h/72h reminder chain.
+  Status: deferred until prospect research agent v2 is dogfooded end-to-end.
+  Prerequisite: Calendly personal setup complete (see pre-c0-C item below).
+
+- [pre-c0] Create throwaway LinkedIn account for MargenticOS research (2026-04-24)
+  Use personal phone number or Google Voice. Build a minimal profile.
+  Wait 1–2 weeks before first scrape to avoid immediate account flags.
+  This account is used only for the LinkedIn research step in prospect research agent v2.
+
+- [pre-c0] Install stickerdaniel/linkedin-mcp-server for LinkedIn research integration (2026-04-24)
+  Configure with throwaway account credentials once account is created and aged 1–2 weeks.
+  This MCP gives Claude Code direct access to LinkedIn for the research step.
+  Prerequisite: throwaway account created and aged (see item above).
+
+- [pre-c0-C] Marketing website readiness decision (2026-04-24)
+  Current Netlify landing page exists. Cold prospects land there from email signatures and
+  Calendly confirmations. Before campaigns go live, Doug needs to decide: is the current page
+  credible for the founder-led consulting firm ICP, or does it need an upgrade?
+  This is a judgment call, not a build item. ~30 min to review and decide.
+  Timing: at least 1 week before first cold email send.
+
+- [pre-c0-C] Calendly personal setup for MargenticOS (2026-04-24)
+  ~15 min operator config. Needed for the positive reply template in the reply handling agent.
+  Separate from per-client Calendly routing form setup (that's pre-c1, see below).
+  Just a personal booking link that Doug controls for MargenticOS outreach.
+
 - [DEFERRED → pre-launch T-10 days] Sending infrastructure provisioned for MargenticOS
   Deferred 2026-04-24. Cash conservation + pre-warmed accounts eliminate warming delay entirely.
   Full plan: see "Pre-launch infrastructure (T-10 days)" section below.
@@ -211,6 +241,13 @@
 # Pre-warmed domains eliminate the 2–3 week warming delay — order close to launch
 # date, connect, and go live within days rather than weeks.
 
+- [pre-launch] Confirm Apollo Basic credit allocation covers 200 prospect enrichments/week per client (2026-04-24)
+  Apollo Basic ($49/month) includes 12,000 export credits/year (~230/week).
+  At 200 enrichments/week per client, Basic covers roughly 1 active client.
+  If launching with 2+ simultaneous clients, upgrade path: Apollo Professional ($99/month,
+  ~24,000 credits/year, ~460/week). Verify against current Apollo pricing at activation time —
+  credit packages change. Confirm before placing the first Apollo order.
+
 - [pre-launch] Upgrade Instantly to Growth monthly ($47/month)
   Do this first. DFY order endpoint and pre-warmed domain pool require paid plan.
   Login → Settings → Billing → Growth monthly.
@@ -318,6 +355,15 @@ Signal processing agent and warnings engine backend deferred to Phase 2 — see 
 
 ## Pre-first-paying-client gates
 
+- [pre-c1-B] Payment gateway integration — Stripe assumed default (2026-04-24)
+  Estimated scope: 2–3 days. Not a client zero blocker (Doug is client zero, no payment required).
+  Build before first paying client onboards. Stripe is the assumed default; confirm before building.
+
+- [pre-c1-B] Password auth alternative to magic link (2026-04-24)
+  Supabase Auth supports password auth natively — minimal build effort.
+  Build only if a founding client explicitly requests it during onboarding.
+  Do not build speculatively.
+
 - [pre-c1] Buyer self-descriptor field added to intake questionnaire
   Currently messaging agent defaults to "founders" as the peer-pattern descriptor.
   Before first non-consulting client onboards, add intake field capturing how the
@@ -421,6 +467,11 @@ Revisit once prospect research agent is built and full outbound cycle is working
 
 ## Post-Tier-1 items
 
+- [post-tier1-B] Uptime monitoring (2026-04-24)
+  Sentry catches application errors but not infrastructure downtime (Vercel, Supabase, DNS).
+  Lightweight monitor needed before 3+ paying clients. Options: UptimeRobot (free tier sufficient)
+  or Vercel's built-in monitoring. ~30 min to set up. Not urgent pre-c0 but add before Tier 1.
+
 - [post-tier1] Drop voice_samples column from intake_responses
   Safe to drop when: no row in intake_responses has a non-null voice_samples value
   that isn't also represented in intake_files for the same organisation.
@@ -465,6 +516,34 @@ Revisit once prospect research agent is built and full outbound cycle is working
 ---
 
 ## Phase 2 deferred items (from ADR-011, ADR-013, ADR-014, ADR-015, ADR-017)
+
+- [phase2] Re-engagement protocol for prospects who completed sequence without response (2026-04-24)
+  Trigger: 60–90 days post-sequence completion with zero reply.
+  Scope: re-research for fresh signal, possible re-tier-classification, different copy framing
+  for "second contact" (acknowledge they heard from us, show something has changed).
+  Do not build until client zero produces real sequence completion data.
+
+- [phase2] Client-specific LinkedIn account management (2026-04-24)
+  Each paying client's LinkedIn outreach research needs a dedicated LinkedIn session/account.
+  ~1 hour per new client at account creation time.
+  Build a lightweight account registry and session handoff pattern into the research agent.
+  Trigger: second paying client onboards.
+
+- [phase2] Migrate LinkedIn scraping to paid service if direct scraping reliability drops (2026-04-24)
+  Paid options: Phantombuster, Apify, ScrapingBee.
+  Trigger: direct scraping reliability falls below 80% OR LinkedIn account warnings appear.
+  Architecture: swap the scraping handler in the integrations registry — no agent code changes.
+
+- [phase2] Research-specific config overrides when ICP/TOV docs aren't sufficient (2026-04-24)
+  Trigger: an actual gap emerges during real client research runs (e.g. industry-specific
+  search terms, persona-specific signal weights, non-standard geography configs).
+  Do not build speculatively. Note the gap if it surfaces and scope it then.
+
+- [phase2] Explicit qualification checkpoint between sourcing and research (2026-04-24)
+  Trigger: unqualified prospects slip through sourcing into the research queue, OR client reports
+  mismatched targeting that wasn't caught by the TAM gate / ICP filter spec.
+  Design: deterministic rule-based pre-screen step before a prospect enters the research queue.
+  Not needed until the pattern is observed in real data.
 
 - [phase2] Re-evaluate signal processing agent and warnings engine build readiness
   Deferred from pre-c0 on 2026-04-23. Signal processing and warnings only produce value
