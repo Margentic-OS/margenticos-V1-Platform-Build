@@ -62,7 +62,7 @@ export async function exportBatchResultsToCSV({
       relevance_reason,
       synthesis_reasoning,
       synthesized_at,
-      prospects (
+      prospects!prospect_id (
         first_name,
         last_name,
         company_name
