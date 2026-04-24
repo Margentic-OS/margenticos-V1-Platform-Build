@@ -89,6 +89,7 @@ export interface ResearchResult {
   qualification_reason: string | null
   trigger_text: string
   trigger_source: TriggerSource | null
+  relevance_reason: string
   synthesis_confidence: SynthesisConfidence
   synthesis_reasoning: string
   sources_attempted: string[]

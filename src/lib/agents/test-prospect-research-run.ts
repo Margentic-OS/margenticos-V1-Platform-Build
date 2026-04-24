@@ -56,6 +56,9 @@ async function main() {
       console.log(`  Desc: ${result.trigger_source.description}`)
     }
     console.log('')
+    console.log('Relevance reason:')
+    console.log(`  ${result.relevance_reason}`)
+    console.log('')
     console.log('Reasoning (first 500 chars):')
     console.log(result.synthesis_reasoning.slice(0, 500))
 
@@ -64,7 +67,7 @@ async function main() {
 
     const { data: researchRow } = await supabase
       .from('prospect_research_results')
-      .select('id, research_tier, qualification_status, synthesis_confidence, sources_successful, trigger_text, synthesized_at')
+      .select('id, research_tier, qualification_status, synthesis_confidence, sources_successful, trigger_text, relevance_reason, synthesized_at')
       .eq('id', result.research_result_id)
       .single()
 

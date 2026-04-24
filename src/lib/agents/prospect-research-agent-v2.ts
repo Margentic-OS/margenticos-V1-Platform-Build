@@ -82,6 +82,7 @@ async function storeResearchResult(
       raw_web_search:       rawData.web_search.available ? rawData.web_search : { error: rawData.web_search.error },
       sources_attempted,
       sources_successful,
+      relevance_reason: synthesis.relevance_reason,
     })
     .select('id')
     .single()
@@ -223,6 +224,7 @@ export async function runProspectResearchAgentV2({
       qualification_reason: synthesis.qualification_reason,
       trigger_text:        synthesis.trigger_text,
       trigger_source:      synthesis.trigger_source,
+      relevance_reason:    synthesis.relevance_reason,
       synthesis_confidence: synthesis.confidence,
       synthesis_reasoning: synthesis.reasoning,
       sources_attempted,
