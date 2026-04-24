@@ -10,6 +10,7 @@
 import fs from 'fs'
 import path from 'path'
 import readline from 'readline'
+import pLimit from 'p-limit'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
@@ -302,6 +303,7 @@ export async function runProspectResearchAgentV2Batch({
   client_id,
   skip_existing = true,
   confirm_before_run = true,
+  concurrency = 5,
 }: ResearchBatchInput): Promise<ResearchBatchSummary> {
   const failures: ResearchBatchFailure[] = []
   const summary: ResearchBatchSummary = {
@@ -355,39 +357,39 @@ export async function runProspectResearchAgentV2Batch({
     0.020                                        // Anthropic Sonnet synthesis
 
   const batchStart = Date.now()
+  const limit      = pLimit(concurrency)
+  let processed    = 0
 
-  for (let i = 0; i < idsToProcess.length; i++) {
-    const prospect_id = idsToProcess[i]
-    try {
-      await runProspectResearchAgentV2({ prospect_id, client_id })
-      summary.completed++
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err)
-      logger.error('prospect-research-v2 batch: prospect failed', { prospect_id, error: errorMsg })
-      summary.failed++
-      failures.push({ prospect_id, error: errorMsg })
-    }
+  const tasks = idsToProcess.map(prospect_id =>
+    limit(async () => {
+      try {
+        await runProspectResearchAgentV2({ prospect_id, client_id })
+        summary.completed++
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        logger.error('prospect-research-v2 batch: prospect failed', { prospect_id, error: errorMsg })
+        summary.failed++
+        failures.push({ prospect_id, error: errorMsg })
+      }
 
-    const processed  = summary.completed + summary.failed
-    const elapsed    = (Date.now() - batchStart) / 1000        // seconds
-    const avgSec     = elapsed / processed
-    const remaining  = idsToProcess.length - processed
-    const etaMin     = Math.ceil((remaining * avgSec) / 60)
-    const spent      = (processed * costPerProspect).toFixed(2)
+      processed++
+      const elapsed = (Date.now() - batchStart) / 1000
+      const avgSec  = elapsed / processed
+      const remaining = idsToProcess.length - processed
+      const etaMin  = remaining > 0 ? Math.ceil((remaining * avgSec) / 60) : 0
+      const spent   = (processed * costPerProspect).toFixed(2)
 
-    logger.info('prospect-research-v2 batch: progress', {
-      progress: `${processed}/${idsToProcess.length}`,
-      completed: summary.completed,
-      failed: summary.failed,
-      spent_usd: `$${spent}`,
-      eta_min: etaMin,
+      logger.info('prospect-research-v2 batch: progress', {
+        progress: `${processed}/${idsToProcess.length}`,
+        completed: summary.completed,
+        failed: summary.failed,
+        spent_usd: `$${spent}`,
+        eta_min: etaMin,
+      })
     })
+  )
 
-    // 1.5s between calls to avoid simultaneous API bursts.
-    if (i < idsToProcess.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1500))
-    }
-  }
+  await Promise.all(tasks)
 
   if (failures.length > 0) {
     const timestamp  = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)

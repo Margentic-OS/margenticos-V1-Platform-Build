@@ -106,6 +106,7 @@ export interface ResearchBatchInput {
   client_id: string
   skip_existing?: boolean
   confirm_before_run?: boolean  // default true; set false for programmatic/test use under 10 prospects
+  concurrency?: number          // max simultaneous prospect calls; default 5 (Apollo/Brave rate limit ceiling)
 }
 
 export interface ResearchBatchFailure {
