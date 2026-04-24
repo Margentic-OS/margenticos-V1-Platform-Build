@@ -65,6 +65,17 @@
   Status: deferred until prospect research agent v2 is dogfooded end-to-end.
   Prerequisite: Calendly personal setup complete (see pre-c0-C item below).
 
+- [pre-c0] Store relevance_reason in prospect_research_results table and ResearchResult type (2026-04-24)
+  The synthesis model produces a one-sentence relevance_reason in its JSON output explaining
+  why a signal connects to the ICP pain or value prop. Currently parsed from Claude's response
+  but dropped — not stored in the DB, not returned in ResearchResult.
+  Critical for QA spot-checking at scale: lets the reviewer see model reasoning alongside
+  the trigger text, not just the output. Without it, a bad Tier 1 classification requires
+  reading the full synthesis_reasoning chain-of-thought to understand why.
+  Fix: add relevance_reason text column to prospect_research_results (migration), include in
+  storeResearchResult() insert, add to ResearchResult type, add to test script DB query.
+  Effort: ~20 min. No schema complexity.
+
 - [pre-c0] Sign up for Apify and generate API key (2026-04-24)
   Apify is the LinkedIn research source for prospect research agent v2.
   No LinkedIn account needed — Apify runs dedicated LinkedIn actors via REST API.
