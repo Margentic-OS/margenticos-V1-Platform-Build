@@ -225,11 +225,21 @@ function parseSynthesisResponse(
 }
 
 function buildTier3TriggerText(prospect: ProspectContext, icpSummary: string): string {
-  // Extract first push force from ICP summary for the fallback sentence.
   const pushMatch = icpSummary.match(/- (.+)/)
-  const pain = pushMatch ? pushMatch[1].trim().toLowerCase() : 'the same pipeline challenges'
   const role = prospect.role ?? 'practitioners'
-  return `Most ${role}s at this stage are dealing with ${pain}.`
+
+  if (!pushMatch) return `Most ${role}s at this stage face the same pipeline challenges.`
+
+  const rawPain = pushMatch[1].trim()
+  // ICP push forces may be gerund phrases ("Struggling to...") or modal-negative phrases
+  // ("Can't convert...") or noun phrases ("Inconsistent revenue"). Each needs a different
+  // sentence frame to produce grammatical output.
+  const isModalNegative = /^(can'?t|cannot|don'?t|doesn'?t)/i.test(rawPain)
+  const isGerund = /^(struggling|failing|having|lacking|trying|working|relying|running|finding|spending)/i.test(rawPain)
+
+  if (isModalNegative) return `Most ${role}s at this stage find they ${rawPain.toLowerCase()}.`
+  if (isGerund)        return `Most ${role}s at this stage are ${rawPain.toLowerCase()}.`
+  return `Most ${role}s at this stage are dealing with ${rawPain.toLowerCase()}.`
 }
 
 function buildTier3Fallback(
