@@ -93,6 +93,15 @@ async function storeResearchResult(
   return data.id as string
 }
 
+function mapToV1ResearchSource(type: string | undefined): string {
+  if (!type) return 'pain_proxy'
+  if (type === 'icp_pain_proxy') return 'pain_proxy'
+  if (type === 'linkedin_post') return 'web_search'
+  if (type === 'company_content') return 'website_fetch'
+  if (['podcast', 'article', 'case_study'].includes(type)) return 'web_search'
+  return 'pain_proxy'
+}
+
 async function updateProspect(
   prospect: ProspectContext,
   synthesis: Awaited<ReturnType<typeof synthesizeResearch>>,
@@ -105,8 +114,9 @@ async function updateProspect(
     qualification_status:       synthesis.qualification_status,
     current_research_result_id: resultId,
     // Keep v1 fields in sync so compose-sequence.ts still works during transition.
+    // Map v2 trigger types to the v1 check constraint values (apollo|web_search|website_fetch|pain_proxy).
     personalisation_trigger:    synthesis.trigger_text,
-    research_source:            synthesis.trigger_source?.type ?? 'pain_proxy',
+    research_source:            mapToV1ResearchSource(synthesis.trigger_source?.type),
     trigger_confidence:         synthesis.confidence,
     trigger_data:               synthesis,
     research_ran_at:            new Date().toISOString(),
