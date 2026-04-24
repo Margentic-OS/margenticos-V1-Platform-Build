@@ -7,6 +7,8 @@
 // Tiers: Tier 1 = specific observation found. Tier 3 = ICP pain framing.
 // v1 agent (prospect-research-agent.ts) remains in place until v2 is dogfooded end-to-end.
 
+import fs from 'fs'
+import path from 'path'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
@@ -22,6 +24,7 @@ import type {
   ResearchResult,
   ResearchBatchInput,
   ResearchBatchSummary,
+  ResearchBatchFailure,
 } from './research/types'
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
@@ -245,11 +248,14 @@ export async function runProspectResearchAgentV2Batch({
   client_id,
   skip_existing = true,
 }: ResearchBatchInput): Promise<ResearchBatchSummary> {
+  const failures: ResearchBatchFailure[] = []
   const summary: ResearchBatchSummary = {
-    total:     prospect_ids.length,
-    completed: 0,
-    skipped:   0,
-    failed:    0,
+    total:          prospect_ids.length,
+    completed:      0,
+    skipped:        0,
+    failed:         0,
+    failures,
+    failed_log_path: null,
   }
 
   let idsToProcess = prospect_ids
@@ -290,11 +296,10 @@ export async function runProspectResearchAgentV2Batch({
       await runProspectResearchAgentV2({ prospect_id, client_id })
       summary.completed++
     } catch (err) {
-      logger.error('prospect-research-v2 batch: prospect failed', {
-        prospect_id,
-        error: String(err),
-      })
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      logger.error('prospect-research-v2 batch: prospect failed', { prospect_id, error: errorMsg })
       summary.failed++
+      failures.push({ prospect_id, error: errorMsg })
     }
 
     const processed  = summary.completed + summary.failed
@@ -315,6 +320,20 @@ export async function runProspectResearchAgentV2Batch({
     // 1.5s between calls to avoid simultaneous API bursts.
     if (i < idsToProcess.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 1500))
+    }
+  }
+
+  if (failures.length > 0) {
+    const timestamp  = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const logDir     = path.join(process.cwd(), 'logs')
+    const logPath    = path.join(logDir, `failed-prospects-${timestamp}.json`)
+    try {
+      fs.mkdirSync(logDir, { recursive: true })
+      fs.writeFileSync(logPath, JSON.stringify({ client_id, failed_at: new Date().toISOString(), failures }, null, 2))
+      summary.failed_log_path = logPath
+      logger.info('prospect-research-v2 batch: failed prospects logged', { path: logPath, count: failures.length })
+    } catch (writeErr) {
+      logger.error('prospect-research-v2 batch: could not write failure log', { error: String(writeErr) })
     }
   }
 

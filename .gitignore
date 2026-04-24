@@ -50,3 +50,4 @@ next-env.d.ts
 
 # MCP config — contains access tokens, never commit
 .mcp.json
+logs/

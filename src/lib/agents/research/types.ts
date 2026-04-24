@@ -107,9 +107,16 @@ export interface ResearchBatchInput {
   skip_existing?: boolean
 }
 
+export interface ResearchBatchFailure {
+  prospect_id: string
+  error: string
+}
+
 export interface ResearchBatchSummary {
   total: number
   completed: number
   skipped: number
   failed: number
+  failures: ResearchBatchFailure[]
+  failed_log_path: string | null
 }
