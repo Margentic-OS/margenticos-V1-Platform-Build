@@ -4,7 +4,8 @@
 // On any parse failure: returns Tier 3 with low confidence rather than throwing.
 // Model: claude-sonnet-4-6 (per Decision 1, confirmed 2026-04-24; update ADR-013).
 
-import Anthropic from '@anthropic-ai/sdk'
+import Anthropic, { RateLimitError } from '@anthropic-ai/sdk'
+import type { MessageCreateParamsNonStreaming, Message } from '@anthropic-ai/sdk/resources/messages'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { buildSynthesisPrompt } from './prompts/synthesis-prompt'
@@ -254,6 +255,41 @@ function buildTier3Fallback(
   }
 }
 
+// ─── Retry helper ─────────────────────────────────────────────────────────────
+
+const RETRY_DELAYS_MS = [2_000, 4_000, 8_000]
+
+async function callWithRetry(
+  client: Anthropic,
+  params: MessageCreateParamsNonStreaming,
+  prospectId: string,
+): Promise<Message> {
+  let lastErr: unknown
+
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await client.messages.create(params) as Message
+    } catch (err) {
+      if (!(err instanceof RateLimitError)) throw err   // non-rate-limit errors bubble up immediately
+
+      lastErr = err
+      if (attempt < RETRY_DELAYS_MS.length) {
+        const delayMs = RETRY_DELAYS_MS[attempt]
+        logger.warn('research/synthesize: 429 rate limit, retrying', {
+          prospect_id: prospectId,
+          attempt: attempt + 1,
+          retry_after_ms: delayMs,
+        })
+        await new Promise(resolve => setTimeout(resolve, delayMs))
+      }
+    }
+  }
+
+  // Exhausted all retries — throw so the batch marks this prospect as failed.
+  logger.error('research/synthesize: 429 retries exhausted', { prospect_id: prospectId })
+  throw lastErr
+}
+
 // ─── Public function ──────────────────────────────────────────────────────────
 
 export async function synthesizeResearch(
@@ -274,14 +310,13 @@ export async function synthesizeResearch(
   const client = new Anthropic({ apiKey })
 
   try {
-    const response = await client.messages.create({
-      model: SYNTHESIS_MODEL,
-      max_tokens: 1500,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
-    })
+    const response = await callWithRetry(
+      client,
+      { model: SYNTHESIS_MODEL, max_tokens: 1500, system: systemPrompt, messages: [{ role: 'user', content: userMessage }] } satisfies MessageCreateParamsNonStreaming,
+      prospect.id,
+    )
 
-    const textBlock = response.content.find(b => b.type === 'text')
+    const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
     if (!textBlock || textBlock.type !== 'text') {
       logger.warn('research/synthesize: no text block in response')
       return buildTier3Fallback(prospect, clientCtx.icpSummary, '', 'No text block in response')
