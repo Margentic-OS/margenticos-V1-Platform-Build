@@ -4,6 +4,8 @@
 // relevance rules, or examples. No other files need changing.
 // Weekly review: spot-check 5-10 results per batch, identify patterns, edit here, redeploy.
 
+import { CUSTOMER_FACING_STYLE_RULES } from '@/lib/style/customer-facing-style-rules'
+
 export interface PromptContext {
   clientName: string
   icpSummary: string         // tier 1 buyer title + company type + top 3 push forces
@@ -93,13 +95,13 @@ EXAMPLES — follow these patterns
 ─────────────────────────────────────────────────────────────────────
 
 GOOD — Tier 1, podcast appearance:
-Trigger: "Heard your episode on The Digital Agency Growth Podcast last month — the point
+Trigger: "Heard your episode on The Digital Agency Growth Podcast last month. The point
 about agencies running on random acts of growth rather than a repeatable engine is exactly
 the pattern we see."
 Why good: specific episode, named show, approximate date, maps directly to ICP pain.
 
 GOOD — Tier 3, honest ICP framing:
-Trigger: "Most fractional COO practices at this stage are dealing with the same pattern —
+Trigger: "Most fractional COO practices at this stage are dealing with the same pattern:
 referrals keep the pipeline full enough to stay busy, but not predictable enough to plan
 around."
 Why good: no pretence of personalisation, grounds claim in pattern recognition from work.
@@ -113,6 +115,8 @@ BAD — assumption in Tier 3:
 Trigger: "Given your work in consulting, I'm sure you're dealing with feast-or-famine."
 Why bad: "I'm sure" = assumption language. Even Tier 3 must be grounded in observed
 patterns, not guesses about this specific person.
+
+${CUSTOMER_FACING_STYLE_RULES}
 
 ─────────────────────────────────────────────────────────────────────
 OUTPUT FORMAT

@@ -8,6 +8,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { buildSynthesisPrompt } from './prompts/synthesis-prompt'
+import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import type { ProspectContext, RawSourceData, SynthesisOutput, TriggerSource, TriggerSourceType } from './types'
 
 const SYNTHESIS_MODEL = 'claude-sonnet-4-6'
@@ -266,12 +267,16 @@ export async function synthesizeResearch(
     }
 
     const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary)
+    const scrubbedResult = {
+      ...result,
+      trigger_text: scrubAITells(result.trigger_text, `research/prospect/${prospect.id}`),
+    }
     logger.debug('research/synthesize: complete', {
-      tier: result.tier,
-      qualification: result.qualification_status,
-      confidence: result.confidence,
+      tier: scrubbedResult.tier,
+      qualification: scrubbedResult.qualification_status,
+      confidence: scrubbedResult.confidence,
     })
-    return result
+    return scrubbedResult
 
   } catch (err) {
     logger.error('research/synthesize: Claude call failed', { error: String(err) })

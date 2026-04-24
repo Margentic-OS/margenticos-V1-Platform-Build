@@ -24,6 +24,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
+import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 
 const MESSAGING_MODEL = 'claude-sonnet-4-6' // TEST ONLY — revert to claude-opus-4-6 for production (ADR-013)
 
@@ -933,7 +934,17 @@ async function processOneVariant(
     return { failure }
   }
 
-  const { emails: fixedEmails, totalReplacements, perEmail } = applyEmDashFixes(emails)
+  const perEmail: Record<number, number> = {}
+  let totalReplacements = 0
+  const fixedEmails = emails.map(email => {
+    const count = (email.body.match(/[—–]|--/g) ?? []).length
+    const scrubbed = scrubAITells(email.body, `messaging/variant-${variantKey}/email-${email.sequence_position}`)
+    if (count > 0) {
+      perEmail[email.sequence_position] = count
+      totalReplacements += count
+    }
+    return { ...email, body: scrubbed }
+  })
   if (totalReplacements > 0) {
     const detail = Object.entries(perEmail)
       .map(([pos, n]) => `email ${pos} (${n})`)
@@ -1006,39 +1017,6 @@ function applySignOffFix(
     return { ...email, body: email.body.trimEnd() + `\n\n${senderFirstName}` }
   })
   return { emails: result, fixed }
-}
-
-// Category A: replace em dashes with period or comma based on what follows.
-function applyEmDashFixes(emails: EmailRecord[]): {
-  emails: EmailRecord[]
-  totalReplacements: number
-  perEmail: Record<number, number>
-} {
-  const perEmail: Record<number, number> = {}
-  let totalReplacements = 0
-
-  const fixed = emails.map(email => {
-    let count = 0
-    const fixedBody = email.body.replace(
-      /\s*—\s*/g,
-      (match: string, offset: number, str: string) => {
-        count++
-        const firstCharAfter = str.slice(offset + match.length).trimStart()[0] ?? ''
-        const isLower =
-          firstCharAfter.length > 0 &&
-          firstCharAfter === firstCharAfter.toLowerCase() &&
-          firstCharAfter !== firstCharAfter.toUpperCase()
-        return isLower ? ', ' : '. '
-      }
-    )
-    if (count > 0) {
-      perEmail[email.sequence_position] = count
-      totalReplacements += count
-    }
-    return { ...email, body: fixedBody.trim() }
-  })
-
-  return { emails: fixed, totalReplacements, perEmail }
 }
 
 // Category B: collect all violations across all four emails. Returns empty array if clean.

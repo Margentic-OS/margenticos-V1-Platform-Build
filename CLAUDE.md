@@ -412,6 +412,47 @@ Never update one without confirming the other still agrees.
 
 ---
 
+## Style rules for all generated content
+
+These rules apply to every agent that produces customer-facing text:
+trigger sentences, email copy, document summaries, and any output that
+reaches a client or prospect.
+
+The canonical source is: src/lib/style/customer-facing-style-rules.ts
+Every agent touching customer-facing output must import from this module.
+Do not duplicate these rules inline in individual agent prompts — import the constant.
+
+**Em dashes (—), en dashes (–), and double hyphens (--) are absolutely forbidden.**
+They are the most recognizable AI writing tells. MargenticOS's ICP (founder-led
+consulting firms burned by AI email) detects them immediately.
+
+Replace with:
+  - A period and a new sentence (most common fix)
+  - A comma (when the clause is tightly connected)
+  - A colon (when what follows IS the thing described)
+  - Sentence restructuring
+
+Other forbidden AI tells in all generated content:
+  - "Delve into"
+  - "Navigate the complexities of" / "Navigate the landscape"
+  - "Leverage" as a verb (use "use", "apply", or "build with")
+  - "Seamless" / "Seamlessly"
+  - "Robust"
+  - "At the end of the day"
+  - "That said" / "Having said that"
+  - Sentences starting with "Look,"
+  - "Furthermore" / "Moreover" / "Additionally"
+  - "It's worth noting that"
+  - Three-part parallel lists in a single sentence ("not just X, but Y and Z")
+  - "As someone who..." when the framing is speculative or inflated
+    (legitimate experience-based openers such as "From working with..." are fine)
+
+The messaging agent has a runtime scrub via scrubAITells() as a safety net.
+All agents that produce customer-facing text must call scrubAITells() before
+storing or sending output. There is no runtime net without it.
+
+---
+
 ## Feedback loop — suggestion queue, never direct document updates
 
 Agents write suggestions to the document_suggestions table.

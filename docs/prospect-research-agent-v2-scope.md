@@ -492,7 +492,7 @@ The podcast appearance is specific, dateable (November 2025), and directly relev
   "qualification_status": "qualified",
   "qualification_reason": null,
   "confidence": "high",
-  "trigger_text": "Heard your episode on The Digital Agency Growth Podcast last month — the point about agencies running on random acts of growth rather than a repeatable engine is exactly the pattern we work with.",
+  "trigger_text": "Heard your episode on The Digital Agency Growth Podcast last month. The point about agencies running on random acts of growth rather than a repeatable engine is exactly the pattern we work with.",
   "trigger_source": {
     "type": "podcast",
     "url": "https://thedigitalagencygrowthpodcast.buzzsprout.com/1859828/episodes/18220094",
@@ -522,7 +522,7 @@ The article is specific, dateable (March 2026), and authored. The content is sub
   "qualification_status": "qualified",
   "qualification_reason": null,
   "confidence": "high",
-  "trigger_text": "Came across your piece on the OakStreet blog about separating the engagement pipeline from the deal pipeline — that structural distinction is something most T&L operators have never been shown.",
+  "trigger_text": "Came across your piece on the OakStreet blog about separating the engagement pipeline from the deal pipeline. That structural distinction is something most T&L operators have never been shown.",
   "trigger_source": {
     "type": "article",
     "url": "https://www.oakstreetgrowth.com/insights",
@@ -552,7 +552,7 @@ October 2025 post is about general growth philosophy — not specific enough to 
   "qualification_status": "qualified",
   "qualification_reason": null,
   "confidence": "medium",
-  "trigger_text": "Most fractional COO practices I work with at this stage are dealing with the same pattern — referrals keep the pipeline full enough to stay busy, but not predictable enough to plan around.",
+  "trigger_text": "Most fractional COO practices I work with at this stage are dealing with the same pattern: referrals keep the pipeline full enough to stay busy, but not predictable enough to plan around.",
   "trigger_source": {
     "type": "icp_pain_proxy",
     "url": null,
@@ -591,7 +591,7 @@ October 2025 post is about general growth philosophy — not specific enough to 
 ```
 
 **Why this is wrong:**
-"I'm sure you're dealing with" is assumption language. Even for Tier 3, the framing must be grounded in observed patterns from client work, not in what the agent imagines the prospect is experiencing. The word "sure" signals a guess. The correct Tier 3 framing grounds the claim in the client's experience with similar firms: "From working with consulting practices at your stage, feast-or-famine pipeline is the most common pattern I see — referrals when word-of-mouth is strong, silence when it isn't."
+"I'm sure you're dealing with" is assumption language. Even for Tier 3, the framing must be grounded in observed patterns from client work, not in what the agent imagines the prospect is experiencing. The word "sure" signals a guess. The correct Tier 3 framing grounds the claim in the client's experience with similar firms: "From working with consulting practices at your stage, feast-or-famine is the most common pattern: strong months when referrals are flowing, quiet ones when they aren't."
 
 ---
 
