@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { buildSynthesisPrompt } from './prompts/synthesis-prompt'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
-import type { ProspectContext, RawSourceData, SynthesisOutput, IcpFit, SignalRelevance } from './types'
+import type { ProspectContext, RawSourceData, SynthesisOutput } from './types'
 
 const SYNTHESIS_MODEL = 'claude-sonnet-4-6'
 

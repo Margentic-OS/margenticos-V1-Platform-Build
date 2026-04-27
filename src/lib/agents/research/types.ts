@@ -1,7 +1,6 @@
 // Types for prospect research agent v2.
 // All source handlers and the synthesizer use these interfaces.
 
-export type ResearchTier = 'tier1' | 'tier3'  // kept until step 3 orchestrator update
 export type IcpFit = 'strong' | 'moderate' | 'weak'
 export type SignalRelevance = 'use_as_hook' | 'ignore'
 export type QualificationStatus = 'qualified' | 'flagged_for_review' | 'disqualified'

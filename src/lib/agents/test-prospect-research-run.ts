@@ -49,14 +49,6 @@ async function main() {
     console.log('Trigger text:')
     console.log(`  ${result.trigger_text}`)
     console.log('')
-    if (result.trigger_source) {
-      console.log('Trigger source:')
-      console.log(`  Type: ${result.trigger_source.type}`)
-      console.log(`  Date: ${result.trigger_source.date ?? 'unknown'}`)
-      console.log(`  URL:  ${result.trigger_source.url ?? 'none'}`)
-      console.log(`  Desc: ${result.trigger_source.description}`)
-    }
-    console.log('')
     console.log('Relevance reason:')
     console.log(`  ${result.relevance_reason}`)
     console.log('')
@@ -77,7 +69,7 @@ async function main() {
 
     const { data: prospectRow } = await supabase
       .from('prospects')
-      .select('icp_fit, has_dateable_signal, signal_observation, classified_at, qualification_status, current_research_result_id, personalisation_trigger, research_ran_at')
+      .select('icp_fit, has_dateable_signal, signal_observation, signal_relevance, classified_at, qualification_status, current_research_result_id, personalisation_trigger, research_ran_at')
       .eq('id', PROSPECT_ID)
       .eq('organisation_id', ORG_ID)
       .single()
