@@ -28,11 +28,14 @@ function escapeCsvField(value: string | null | undefined): string {
 const COLUMNS = [
   'prospect_name',
   'company',
-  'tier',
-  'confidence',
+  'icp_fit',
+  'has_dateable_signal',
+  'signal_observation',
+  'signal_relevance',
   'qualification_status',
+  'qualification_reason',
+  'confidence',
   'trigger_text',
-  'trigger_source_type',
   'trigger_source_url',
   'relevance_reason',
   'reasoning_chain',
@@ -54,9 +57,13 @@ export async function exportBatchResultsToCSV({
     .from('prospect_research_results')
     .select(`
       run_id,
-      research_tier,
+      icp_fit,
+      has_dateable_signal,
+      signal_observation,
+      signal_relevance,
       synthesis_confidence,
       qualification_status,
+      qualification_reason,
       trigger_text,
       trigger_source,
       relevance_reason,
@@ -82,28 +89,34 @@ export async function exportBatchResultsToCSV({
   for (const row of rows ?? []) {
     const prospectRaw = row.prospects
     const prospect = (Array.isArray(prospectRaw) ? prospectRaw[0] : prospectRaw) as { first_name: string | null; last_name: string | null; company_name: string | null } | null
-    const triggerSource = row.trigger_source as { type?: string; url?: string } | null
+    const triggerSource = row.trigger_source as { url?: string } | null
 
-    const prospectName = [prospect?.first_name, prospect?.last_name].filter(Boolean).join(' ') || ''
-    const company      = prospect?.company_name ?? ''
-    const tier         = row.research_tier ?? ''
-    const confidence   = row.synthesis_confidence ?? ''
-    const status       = row.qualification_status ?? ''
-    const triggerText  = row.trigger_text ?? ''
-    const sourceType   = triggerSource?.type ?? ''
-    const sourceUrl    = triggerSource?.url ?? ''
-    const relevance    = row.relevance_reason ?? ''
-    const reasoning    = (row.synthesis_reasoning ?? '').replace(/\n/g, ' ')
-    const researchedAt = row.synthesized_at ?? ''
+    const prospectName   = [prospect?.first_name, prospect?.last_name].filter(Boolean).join(' ') || ''
+    const company        = prospect?.company_name ?? ''
+    const icpFit         = row.icp_fit ?? ''
+    const dateableSignal = row.has_dateable_signal != null ? String(row.has_dateable_signal) : ''
+    const signalObs      = row.signal_observation ?? ''
+    const signalRel      = row.signal_relevance ?? ''
+    const status         = row.qualification_status ?? ''
+    const qualReason     = row.qualification_reason ?? ''
+    const confidence     = row.synthesis_confidence ?? ''
+    const triggerText    = row.trigger_text ?? ''
+    const sourceUrl      = triggerSource?.url ?? ''
+    const relevance      = row.relevance_reason ?? ''
+    const reasoning      = (row.synthesis_reasoning ?? '').replace(/\n/g, ' ')
+    const researchedAt   = row.synthesized_at ?? ''
 
     csvRows.push([
       prospectName,
       company,
-      tier,
-      confidence,
+      icpFit,
+      dateableSignal,
+      signalObs,
+      signalRel,
       status,
+      qualReason,
+      confidence,
       triggerText,
-      sourceType,
       sourceUrl,
       relevance,
       reasoning,
