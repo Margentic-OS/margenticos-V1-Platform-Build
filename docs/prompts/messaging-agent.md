@@ -250,6 +250,17 @@ Semicolons are banned. Use two sentences.
 
 Parallel sentence construction across consecutive sentences is banned.
 
+Paragraph independence rule. Every paragraph must read coherently on its own, even if
+the first body paragraph (the opener) is replaced at runtime with different text.
+The opener will be swapped when a prospect has a specific dateable signal — a
+"trigger sentence" replaces the default opener before the email is sent. To make this swap
+safe: never write a paragraph whose meaning depends on reading the previous paragraph.
+Forbidden patterns: sentences beginning with "That's what...", "That's exactly...",
+"This is..." (when "this" refers back), "Such...", "Like you said...", "As I mentioned...",
+"What I described...", "The reason is...", "The answer is...", "The result was...", or any
+sentence where a pronoun (that, this, such) has its antecedent in the paragraph above.
+Each paragraph must name its own subject directly.
+
 #### Contraction rules
 
 Use contractions in roughly 70% of eligible positions. Never contract every eligible position
@@ -797,4 +808,10 @@ Run these checks across all four variants before returning.
 4. Confirm every email 2 in every variant uses a pattern-recognition CTA, not a resource offer.
 5. Confirm that variant A, B, C, and D each use a genuinely different opening line in email 1 — not the same line with minor word changes.
 6. Confirm the JSON structure is exactly { "variants": { "A": { "emails": [...] }, "B": {...}, "C": {...}, "D": {...} } }.
+7. Confirm no paragraph in any email opens with a pronoun-dependent reference to the
+   previous paragraph. Banned openers after the first paragraph: "That's what...",
+   "That's exactly...", "This is..." (when "this" refers back), "Such...", "Like you
+   said...", "As I mentioned...", "What I described...", "The reason is...",
+   "The answer is...", "The result was...". If found, rewrite the paragraph to name
+   its subject directly.
 Only return the output after these checks pass.
