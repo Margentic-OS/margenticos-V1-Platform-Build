@@ -46,7 +46,7 @@ function formatProfileData(profile: Record<string, unknown>): string {
 
   if (profile.fullName)    lines.push(`Name: ${profile.fullName}`)
   if (profile.headline)    lines.push(`Headline: ${profile.headline}`)
-  if (profile.about)       lines.push(`About: ${String(profile.about).slice(0, 500)}`)
+  if (profile.about)       lines.push(`About: ${[...String(profile.about)].slice(0, 500).join('')}`)
   if (profile.location)    lines.push(`Location: ${profile.location}`)
   if (profile.connections) lines.push(`Connections: ${profile.connections}`)
 
@@ -80,7 +80,7 @@ function formatPostsData(posts: Array<Record<string, unknown>>): string {
     const reactions = post.reactions ?? post.totalReactionCount ?? ''
     const dateStr = date ? ` (${date})` : ''
     const reactStr = reactions ? ` — ${reactions} reactions` : ''
-    lines.push(`  Post${dateStr}${reactStr}: ${String(text).slice(0, 300)}`)
+    lines.push(`  Post${dateStr}${reactStr}: ${[...String(text)].slice(0, 300).join('')}`)
   }
 
   return lines.join('\n')

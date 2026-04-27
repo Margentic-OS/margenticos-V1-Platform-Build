@@ -25,14 +25,20 @@ function deriveWebsiteUrl(companyName: string): string {
   return `https://www.${slug}.com`
 }
 
+function safeSlice(str: string, maxChars: number): string {
+  return [...str].slice(0, maxChars).join('')
+}
+
 function extractText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 4000)
+  return safeSlice(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+    4000,
+  )
 }
 
 async function fetchDirect(url: string): Promise<string | null> {
@@ -62,7 +68,7 @@ async function fetchViaJina(url: string): Promise<string | null> {
   const text = await response.text()
   const trimmed = text.trim()
   if (!trimmed || trimmed.length < 50) return null
-  return trimmed.slice(0, 5000)
+  return safeSlice(trimmed, 5000)
 }
 
 export async function fetchWebsiteSource(prospect: ProspectContext): Promise<WebsiteSourceResult> {
