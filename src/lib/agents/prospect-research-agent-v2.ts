@@ -4,7 +4,7 @@
 // Architecture: all four sources run in parallel → single synthesis step → store.
 // Sources: LinkedIn (Apify), Apollo, company website, web search.
 // Output: prospect_research_results row + updated prospects columns.
-// Tiers: Tier 1 = specific observation found. Tier 3 = ICP pain framing.
+// Classification: icp_fit (strong/moderate/weak) + has_dateable_signal (bool) + signal_relevance (use_as_hook/ignore).
 // v1 agent (prospect-research-agent.ts) remains in place until v2 is dogfooded end-to-end.
 
 import fs from 'fs'
@@ -74,7 +74,10 @@ async function storeResearchResult(
       prospect_id:          prospect.id,
       organisation_id:      prospect.organisation_id,
       run_id:               runId,
-      research_tier:        synthesis.tier,
+      icp_fit:              synthesis.icp_fit,
+      has_dateable_signal:  synthesis.has_dateable_signal,
+      signal_observation:   synthesis.signal_observation,
+      signal_relevance:     synthesis.signal_relevance,
       qualification_status: synthesis.qualification_status,
       qualification_reason: synthesis.qualification_reason,
       trigger_text:         synthesis.trigger_text,
@@ -116,7 +119,11 @@ async function updateProspect(
   const supabase = getServiceClient()
 
   const update: Record<string, unknown> = {
-    research_tier:              synthesis.tier,
+    icp_fit:                    synthesis.icp_fit,
+    has_dateable_signal:        synthesis.has_dateable_signal,
+    signal_observation:         synthesis.signal_observation,
+    signal_relevance:           synthesis.signal_relevance,
+    classified_at:              new Date().toISOString(),
     qualification_status:       synthesis.qualification_status,
     current_research_result_id: resultId,
     // Keep v1 fields in sync so compose-sequence.ts still works during transition.
@@ -215,8 +222,8 @@ export async function runProspectResearchAgentV2({
 
     const summaryLine =
       `${fullName} at ${ctx.company_name ?? 'unknown'}. ` +
-      `Tier: ${synthesis.tier}. Qualification: ${synthesis.qualification_status}. ` +
-      `Confidence: ${synthesis.confidence}. ` +
+      `ICP fit: ${synthesis.icp_fit}. Signal: ${synthesis.has_dateable_signal ? synthesis.signal_relevance : 'none'}. ` +
+      `Qualification: ${synthesis.qualification_status}. Confidence: ${synthesis.confidence}. ` +
       `Sources succeeded: ${sources_successful.join(', ') || 'none'}.`
 
     await agentRun.complete(summaryLine)
@@ -224,8 +231,11 @@ export async function runProspectResearchAgentV2({
     return {
       prospect_id,
       client_id,
-      research_result_id:  resultId,
-      tier:                synthesis.tier,
+      research_result_id:   resultId,
+      icp_fit:              synthesis.icp_fit,
+      has_dateable_signal:  synthesis.has_dateable_signal,
+      signal_observation:   synthesis.signal_observation,
+      signal_relevance:     synthesis.signal_relevance,
       qualification_status: synthesis.qualification_status,
       qualification_reason: synthesis.qualification_reason,
       trigger_text:        synthesis.trigger_text,

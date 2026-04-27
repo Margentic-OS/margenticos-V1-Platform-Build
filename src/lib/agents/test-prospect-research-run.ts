@@ -39,7 +39,8 @@ async function main() {
     })
 
     console.log('=== RESEARCH RESULT ===')
-    console.log(`Tier              : ${result.tier}`)
+    console.log(`ICP fit           : ${result.icp_fit}`)
+    console.log(`Dateable signal   : ${result.has_dateable_signal} (${result.signal_relevance})`)
     console.log(`Qualification     : ${result.qualification_status}`)
     console.log(`Confidence        : ${result.synthesis_confidence}`)
     console.log(`Sources attempted : ${result.sources_attempted.join(', ') || 'none'}`)
@@ -67,7 +68,7 @@ async function main() {
 
     const { data: researchRow } = await supabase
       .from('prospect_research_results')
-      .select('id, research_tier, qualification_status, synthesis_confidence, sources_successful, trigger_text, relevance_reason, synthesized_at')
+      .select('id, icp_fit, has_dateable_signal, signal_relevance, qualification_status, synthesis_confidence, sources_successful, trigger_text, relevance_reason, synthesized_at')
       .eq('id', result.research_result_id)
       .single()
 
@@ -76,7 +77,7 @@ async function main() {
 
     const { data: prospectRow } = await supabase
       .from('prospects')
-      .select('research_tier, qualification_status, current_research_result_id, personalisation_trigger, research_ran_at')
+      .select('icp_fit, has_dateable_signal, signal_observation, classified_at, qualification_status, current_research_result_id, personalisation_trigger, research_ran_at')
       .eq('id', PROSPECT_ID)
       .eq('organisation_id', ORG_ID)
       .single()

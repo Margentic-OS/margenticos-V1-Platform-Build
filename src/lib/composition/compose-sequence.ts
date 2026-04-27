@@ -38,7 +38,8 @@ interface ProspectRow {
   organisation_id: string
   variant_id: string | null
   personalisation_trigger: string | null
-  research_tier: string | null
+  has_dateable_signal: boolean | null
+  signal_relevance: string | null
   role: string | null
   first_name: string | null
   company_name: string | null
@@ -156,7 +157,7 @@ async function fetchProspect(
 ): Promise<ProspectRow> {
   const { data, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, variant_id, personalisation_trigger, research_tier, role, first_name, company_name')
+    .select('id, organisation_id, variant_id, personalisation_trigger, has_dateable_signal, signal_relevance, role, first_name, company_name')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id) // explicit isolation filter
     .single()
@@ -417,7 +418,8 @@ async function applyPersonalization(
     emails.map(async email => {
       if (email.sequence_position !== 1) return email
 
-      const tier = prospect.research_tier ?? 'tier3'
+      const useBridgePath = prospect.has_dateable_signal === true && prospect.signal_relevance === 'use_as_hook'
+      const tier = useBridgePath ? 'tier1' : 'tier3'
 
       // Pre-check: skip bridge generation entirely if too little headroom.
       const currentWords   = countWords(email.body)
