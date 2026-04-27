@@ -1,7 +1,9 @@
 // Types for prospect research agent v2.
 // All source handlers and the synthesizer use these interfaces.
 
-export type ResearchTier = 'tier1' | 'tier3'
+export type ResearchTier = 'tier1' | 'tier3'  // kept until step 3 orchestrator update
+export type IcpFit = 'strong' | 'moderate' | 'weak'
+export type SignalRelevance = 'use_as_hook' | 'ignore'
 export type QualificationStatus = 'qualified' | 'flagged_for_review' | 'disqualified'
 export type SynthesisConfidence = 'high' | 'medium' | 'low'
 export type TriggerSourceType =
@@ -20,14 +22,17 @@ export interface TriggerSource {
 }
 
 export interface SynthesisOutput {
-  tier: ResearchTier
-  qualification_status: QualificationStatus
-  qualification_reason: string | null
-  confidence: SynthesisConfidence
-  trigger_text: string
-  trigger_source: TriggerSource | null
-  relevance_reason: string
-  reasoning: string
+  icp_fit:             IcpFit
+  has_dateable_signal: boolean
+  signal_observation:  string | null
+  signal_relevance:    SignalRelevance
+  qualification_status:  QualificationStatus
+  qualification_reason:  string | null
+  confidence:            SynthesisConfidence
+  trigger_text:          string
+  trigger_source:        TriggerSource | null  // null going forward; kept for DB compat
+  relevance_reason:      string
+  reasoning:             string
 }
 
 // Stripped-down prospect shape passed to all source handlers and the synthesizer.
@@ -85,7 +90,10 @@ export interface ResearchResult {
   prospect_id: string
   client_id: string
   research_result_id: string
-  tier: ResearchTier
+  icp_fit: IcpFit
+  has_dateable_signal: boolean
+  signal_observation: string | null
+  signal_relevance: SignalRelevance
   qualification_status: QualificationStatus
   qualification_reason: string | null
   trigger_text: string

@@ -1,8 +1,8 @@
 // Synthesis step for prospect research agent v2.
 // Loads client ICP/Positioning/TOV documents, builds context, calls Sonnet 4.6.
 // Parses <reasoning> chain-of-thought then the JSON output.
-// On any parse failure: returns Tier 3 with low confidence rather than throwing.
-// Model: claude-sonnet-4-6 (per Decision 1, confirmed 2026-04-24; update ADR-013).
+// On any parse failure: returns moderate icp_fit with low confidence rather than throwing.
+// Model: claude-sonnet-4-6 (per ADR-013).
 
 import Anthropic, { RateLimitError } from '@anthropic-ai/sdk'
 import type { MessageCreateParamsNonStreaming, Message } from '@anthropic-ai/sdk/resources/messages'
@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { buildSynthesisPrompt } from './prompts/synthesis-prompt'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
-import type { ProspectContext, RawSourceData, SynthesisOutput, TriggerSource, TriggerSourceType } from './types'
+import type { ProspectContext, RawSourceData, SynthesisOutput, IcpFit, SignalRelevance } from './types'
 
 const SYNTHESIS_MODEL = 'claude-sonnet-4-6'
 
@@ -71,9 +71,7 @@ async function loadClientContext(clientId: string): Promise<ClientDocContext> {
     ].filter(Boolean).join('\n')
   }
 
-  // Positioning summary: use the plain-text positioning_summary field.
-  // Previous code read moore_statement (wrong field name) and value_themes as string[]
-  // (wrong type — they are objects). Both paths produced empty output.
+  // Positioning summary: plain-text positioning_summary field.
   let positioningSummary = 'No positioning document available yet.'
   let valuePropContext   = 'No value prop context available.'
   if (posDoc) {
@@ -102,10 +100,13 @@ async function loadClientContext(clientId: string): Promise<ClientDocContext> {
     })
   }
 
-  // TOV rules: writing rules + do/dont list.
+  // TOV rules: writing_rules is object[] with shape {rule, why, example_correct, example_violation}.
   let tovRules = 'No TOV guide available yet.'
   if (tovDoc) {
-    const rules  = tovDoc.writing_rules as string[] | undefined
+    const writingRulesRaw = tovDoc.writing_rules as Array<Record<string, unknown> | string> | undefined
+    const rules = writingRulesRaw
+      ?.map(r => (typeof r === 'object' && r !== null ? String(r.rule ?? '') : String(r)))
+      .filter(s => s.length > 0)
     const donts  = (tovDoc.do_dont_list as Record<string, unknown> | undefined)?.dont as string[] | undefined
     const parts: string[] = []
     if (rules?.length)  parts.push(`Writing rules:\n${rules.slice(0, 4).map(r => `  - ${r}`).join('\n')}`)
@@ -148,6 +149,98 @@ function formatResearchSections(rawData: RawSourceData): string {
   return sections.join('\n\n')
 }
 
+// ─── Deterministic recency check ──────────────────────────────────────────────
+// Confirmed Apify LinkedIn post shape (from stored blobs, 2026-04-27):
+//   post.postedAt = { date: "ISO-string", timestamp: ms, postedAgoText: "...", postedAgoShort: "..." }
+//   post.content  = plain text string (NOT post.text or post.commentary)
+
+const DAY_MS = 24 * 60 * 60 * 1000
+const SIGNAL_THRESHOLDS_DAYS = { linkedin: 60, podcast_article: 180 } as const
+
+function parseDateSafe(raw: unknown): Date | null {
+  if (!raw || typeof raw !== 'string') return null
+  const d = new Date(raw)
+  return isNaN(d.getTime()) ? null : d
+}
+
+const SIGNAL_KEYWORDS = [
+  'podcast', 'episode', 'interviewed', 'published', 'authored', 'wrote',
+  'article', 'case study', 'guide', 'featured',
+]
+const MONTH_NAMES = [
+  'january','february','march','april','may','june',
+  'july','august','september','october','november','december',
+]
+
+function extractDatedSignalFromText(text: string, now: Date): string | null {
+  const lower = text.toLowerCase()
+  if (!SIGNAL_KEYWORDS.some(k => lower.includes(k))) return null
+
+  const isoRe = /\b(202[5-9]-\d{2}-\d{2})\b/g
+  let m: RegExpExecArray | null
+  while ((m = isoRe.exec(text)) !== null) {
+    const d = new Date(m[1])
+    if (isNaN(d.getTime())) continue
+    const days = (now.getTime() - d.getTime()) / DAY_MS
+    if (days >= 0 && days <= SIGNAL_THRESHOLDS_DAYS.podcast_article) {
+      const snippet = text.slice(Math.max(0, m.index - 30), m.index + 90)
+        .replace(/\s+/g, ' ').trim().slice(0, 90)
+      return `Content ${m[1]}: ${snippet}`
+    }
+  }
+
+  const monthRe = new RegExp(`\\b(${MONTH_NAMES.join('|')})\\s+(202[5-9])\\b`, 'gi')
+  while ((m = monthRe.exec(text)) !== null) {
+    const monthIdx = MONTH_NAMES.indexOf(m[1].toLowerCase())
+    const year = parseInt(m[2])
+    const d = new Date(year, monthIdx, 15)
+    const days = (now.getTime() - d.getTime()) / DAY_MS
+    if (days >= 0 && days <= SIGNAL_THRESHOLDS_DAYS.podcast_article) {
+      const snippet = text.slice(Math.max(0, m.index - 30), m.index + 90)
+        .replace(/\s+/g, ' ').trim().slice(0, 90)
+      return `Content ${m[1]} ${m[2]}: ${snippet}`
+    }
+  }
+
+  return null
+}
+
+function detectRecencySignal(
+  rawData: RawSourceData,
+  now: Date,
+): { has_dateable_signal: boolean; signal_observation: string | null } {
+  const posts = rawData.linkedin.available ? (rawData.linkedin.recent_posts ?? []) : []
+
+  if (posts.length > 0) {
+    const first = posts[0]
+    const postedAtObj = first.postedAt as { date?: string; timestamp?: number } | undefined
+    const postDate = parseDateSafe(postedAtObj?.date)
+      ?? (typeof postedAtObj?.timestamp === 'number' ? new Date(postedAtObj.timestamp) : null)
+    const daysSince = postDate ? (now.getTime() - postDate.getTime()) / DAY_MS : 0
+
+    if (!postDate || daysSince <= SIGNAL_THRESHOLDS_DAYS.linkedin) {
+      const dateStr = postDate ? postDate.toISOString().slice(0, 10) : 'recent'
+      const text = String(first.content ?? '').replace(/\s+/g, ' ').slice(0, 80)
+      return {
+        has_dateable_signal: true,
+        signal_observation: `LinkedIn post ${dateStr}: ${text}`.trim(),
+      }
+    }
+  }
+
+  if (rawData.web_search.available && rawData.web_search.combined) {
+    const hit = extractDatedSignalFromText(rawData.web_search.combined, now)
+    if (hit) return { has_dateable_signal: true, signal_observation: hit }
+  }
+
+  if (rawData.website.available && rawData.website.content) {
+    const hit = extractDatedSignalFromText(rawData.website.content, now)
+    if (hit) return { has_dateable_signal: true, signal_observation: hit }
+  }
+
+  return { has_dateable_signal: false, signal_observation: null }
+}
+
 // ─── JSON + reasoning parser ──────────────────────────────────────────────────
 
 function parseReasoningBlock(text: string): string {
@@ -167,16 +260,11 @@ function extractJson(text: string): string {
   return stripped.slice(start, end + 1)
 }
 
-function isValidTriggerSourceType(t: unknown): t is TriggerSourceType {
-  return typeof t === 'string' && [
-    'linkedin_post', 'podcast', 'article', 'case_study', 'company_content', 'icp_pain_proxy',
-  ].includes(t)
-}
-
 function parseSynthesisResponse(
   raw: string,
   prospect: ProspectContext,
   icpSummary: string,
+  detectedSignal: { has_dateable_signal: boolean; signal_observation: string | null },
 ): SynthesisOutput {
   const reasoning = parseReasoningBlock(raw)
   const jsonStr   = extractJson(raw)
@@ -185,11 +273,14 @@ function parseSynthesisResponse(
   try {
     parsed = JSON.parse(jsonStr) as Record<string, unknown>
   } catch {
-    logger.warn('research/synthesize: JSON parse failed, falling back to Tier 3', { raw: raw.slice(0, 200) })
-    return buildTier3Fallback(prospect, icpSummary, reasoning, 'Claude returned non-JSON')
+    logger.warn('research/synthesize: JSON parse failed, falling back', { raw: raw.slice(0, 200) })
+    return buildFallbackSynthesis(prospect, icpSummary, reasoning, 'Claude returned non-JSON', detectedSignal)
   }
 
-  const tier = parsed.tier === 'tier1' ? 'tier1' : 'tier3'
+  const icp_fit = (['strong', 'moderate', 'weak'] as const)
+    .find(f => f === parsed.icp_fit) ?? 'moderate'
+  const signal_relevance = (['use_as_hook', 'ignore'] as const)
+    .find(r => r === parsed.signal_relevance) ?? 'ignore'
   const qualification_status = (['qualified', 'flagged_for_review', 'disqualified'] as const)
     .find(s => s === parsed.qualification_status) ?? 'qualified'
   const confidence = (['high', 'medium', 'low'] as const)
@@ -197,34 +288,26 @@ function parseSynthesisResponse(
 
   const trigger_text = typeof parsed.trigger_text === 'string' && parsed.trigger_text.trim()
     ? parsed.trigger_text.trim()
-    : buildTier3TriggerText(prospect, icpSummary)
-
-  let trigger_source: TriggerSource | null = null
-  const src = parsed.trigger_source as Record<string, unknown> | undefined
-  if (src && isValidTriggerSourceType(src.type)) {
-    trigger_source = {
-      type: src.type,
-      url:  typeof src.url  === 'string' ? src.url  : null,
-      date: typeof src.date === 'string' ? src.date : null,
-      description: typeof src.description === 'string' ? src.description : '',
-    }
-  }
+    : buildIcpPainTrigger(prospect, icpSummary)
 
   return {
-    tier,
+    icp_fit,
+    has_dateable_signal: detectedSignal.has_dateable_signal,
+    signal_observation:  detectedSignal.signal_observation,
+    signal_relevance,
     qualification_status,
     qualification_reason: typeof parsed.qualification_reason === 'string'
       ? parsed.qualification_reason
       : null,
     confidence,
     trigger_text,
-    trigger_source,
+    trigger_source: null,
     relevance_reason: typeof parsed.relevance_reason === 'string' ? parsed.relevance_reason : '',
     reasoning,
   }
 }
 
-function buildTier3TriggerText(prospect: ProspectContext, icpSummary: string): string {
+function buildIcpPainTrigger(prospect: ProspectContext, icpSummary: string): string {
   const pushMatch = icpSummary.match(/- (.+)/)
   const role = prospect.role ?? 'practitioners'
 
@@ -242,25 +325,24 @@ function buildTier3TriggerText(prospect: ProspectContext, icpSummary: string): s
   return `Most ${role}s at this stage are dealing with ${rawPain.toLowerCase()}.`
 }
 
-function buildTier3Fallback(
+function buildFallbackSynthesis(
   prospect: ProspectContext,
   icpSummary: string,
   reasoning: string,
   errorNote: string,
+  detectedSignal: { has_dateable_signal: boolean; signal_observation: string | null },
 ): SynthesisOutput {
   return {
-    tier: 'tier3',
+    icp_fit: 'moderate',
+    has_dateable_signal: detectedSignal.has_dateable_signal,
+    signal_observation:  detectedSignal.signal_observation,
+    signal_relevance: 'ignore',
     qualification_status: 'qualified',
     qualification_reason: null,
     confidence: 'low',
-    trigger_text: buildTier3TriggerText(prospect, icpSummary),
-    trigger_source: {
-      type: 'icp_pain_proxy',
-      url: null,
-      date: null,
-      description: `Tier 3 fallback — ${errorNote}`,
-    },
-    relevance_reason: 'Synthesis fallback: ICP pain proxy used.',
+    trigger_text: buildIcpPainTrigger(prospect, icpSummary),
+    trigger_source: null,
+    relevance_reason: `Synthesis fallback: ICP pain proxy used. ${errorNote}`,
     reasoning,
   }
 }
@@ -310,8 +392,9 @@ export async function synthesizeResearch(
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('research/synthesize: ANTHROPIC_API_KEY not set')
 
+  const detectedSignal = detectRecencySignal(rawData, new Date())
   const clientCtx = await loadClientContext(clientId)
-  const systemPrompt = buildSynthesisPrompt(clientCtx)
+  const systemPrompt = buildSynthesisPrompt({ ...clientCtx, signalObservation: detectedSignal.signal_observation })
   const researchSections = formatResearchSections(rawData)
 
   const fullName = [prospect.first_name, prospect.last_name].filter(Boolean).join(' ') || 'Unknown'
@@ -329,23 +412,25 @@ export async function synthesizeResearch(
     const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
     if (!textBlock || textBlock.type !== 'text') {
       logger.warn('research/synthesize: no text block in response')
-      return buildTier3Fallback(prospect, clientCtx.icpSummary, '', 'No text block in response')
+      return buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', 'No text block in response', detectedSignal)
     }
 
-    const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary)
+    const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal)
     const scrubbedResult = {
       ...result,
       trigger_text: scrubAITells(result.trigger_text, `research/prospect/${prospect.id}`),
     }
     logger.debug('research/synthesize: complete', {
-      tier: scrubbedResult.tier,
-      qualification: scrubbedResult.qualification_status,
-      confidence: scrubbedResult.confidence,
+      icp_fit:             scrubbedResult.icp_fit,
+      has_dateable_signal: scrubbedResult.has_dateable_signal,
+      signal_relevance:    scrubbedResult.signal_relevance,
+      qualification:       scrubbedResult.qualification_status,
+      confidence:          scrubbedResult.confidence,
     })
     return scrubbedResult
 
   } catch (err) {
     logger.error('research/synthesize: Claude call failed', { error: String(err) })
-    return buildTier3Fallback(prospect, clientCtx.icpSummary, '', `Claude error: ${String(err)}`)
+    return buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', `Claude error: ${String(err)}`, detectedSignal)
   }
 }
