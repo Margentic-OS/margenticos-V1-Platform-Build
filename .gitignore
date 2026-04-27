@@ -54,3 +54,9 @@ logs/
 
 # Throwaway test scripts — local only, not for version control
 src/lib/composition/test-messaging-run.ts
+
+# Council session artifacts — generated locally, not for version control
+council/
+
+# Dogfood seed data — already in DB, no need to track
+dogfood-prospects-batch-1.csv
