@@ -109,6 +109,18 @@
   All agents producing customer-facing output import from this module; no inline duplication.
   Commits fe36d05 and earlier composition sessions.
 
+- [pre-c0] Tier 1 composition path untested on real data (2026-04-27)
+  All 10 successful dogfood batch 1 prospects came back Tier 3. The bridge sentence generation and
+  personalised CTA path in the composition layer (which fires only on Tier 1 results) has never
+  executed against a real prospect. If there is a bug in that path — formatting, style enforcement,
+  CTA derivation — it won't surface until a Tier 1 result reaches composition, which could be
+  mid-campaign for a paying client.
+  Trigger for resolution: next dogfood batch should deliberately include 3–5 prospects with recent
+  public content (LinkedIn posts <60 days old, podcast appearances, published articles) to generate
+  at least one Tier 1 result. Run the full composition step on it and verify output quality before
+  client zero outbound goes live.
+  Effort: 1–2 hours to curate and run a targeted mini-batch + composition review.
+
 - [monitor] Promote estimate-batch-cost.ts to a proper committed CLI (2026-04-27)
   Currently written as a throwaway script and deleted after each use. Should be committed as a
   permanent CLI so the cost gate can be run independently of the batch runner (e.g. before deciding
