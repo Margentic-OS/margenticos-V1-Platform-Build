@@ -109,6 +109,25 @@
   All agents producing customer-facing output import from this module; no inline duplication.
   Commits fe36d05 and earlier composition sessions.
 
+- [research] trigger_data column overloaded — synthesis output overwrites seed metadata (2026-04-27)
+  File: src/lib/agents/prospect-research-agent-v2.ts:127 (`trigger_data: synthesis` in updateProspect()).
+  What's broken: updateProspect() writes the full SynthesisOutput object into trigger_data, completely
+  replacing whatever was there. Seed metadata stored in trigger_data (seed_why_fit, seed_source_query,
+  seed_niche_category) is silently erased the first time research runs on a prospect.
+  Why it matters: original manual qualification reasoning is unrecoverable from the DB once research
+  has run. Audit trail loss only — research quality, composition output, and outbound are unaffected.
+  Fix options:
+    (a) Add separate seed_metadata JSONB column to prospects — never overwritten, holds pre-research
+        operator notes permanently.
+    (b) Move synthesis output to its own synthesis_data column on prospects, leave trigger_data for
+        seed and operator-set values only.
+    (c) Promote seed fields (seed_why_fit, seed_source_query, seed_niche_category) to typed columns
+        and drop JSONB entirely for this use case.
+  Estimated effort: 1–2 hours once schema decision is made. Schema decision is the blocking step.
+  Trigger for resolution: next operator-seeded batch is planned, OR audit trail is needed for a real
+  decision (e.g. reviewing why a flagged prospect was originally included), OR next schema change
+  touches the prospects table — whichever comes first.
+
 - [pre-c0-C] Marketing website readiness decision (2026-04-24)
   Current Netlify landing page exists. Cold prospects land there from email signatures and
   Calendly confirmations. Before campaigns go live, Doug needs to decide: is the current page

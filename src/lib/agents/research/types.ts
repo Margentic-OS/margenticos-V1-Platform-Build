@@ -40,6 +40,7 @@ export interface ProspectContext {
   role: string | null
   email: string | null
   linkedin_url: string | null
+  website_url: string | null
 }
 
 export interface LinkedInSourceResult {

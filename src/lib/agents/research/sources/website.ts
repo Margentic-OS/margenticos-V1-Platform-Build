@@ -66,11 +66,11 @@ async function fetchViaJina(url: string): Promise<string | null> {
 }
 
 export async function fetchWebsiteSource(prospect: ProspectContext): Promise<WebsiteSourceResult> {
-  if (!prospect.company_name) {
-    return { available: false, url: null, content: null, fetch_method: null, error: 'No company name' }
+  if (!prospect.website_url && !prospect.company_name) {
+    return { available: false, url: null, content: null, fetch_method: null, error: 'No website URL or company name' }
   }
 
-  const url = deriveWebsiteUrl(prospect.company_name)
+  const url = prospect.website_url ?? deriveWebsiteUrl(prospect.company_name!)
 
   // Try direct fetch first.
   try {

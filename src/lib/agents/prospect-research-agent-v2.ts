@@ -162,7 +162,7 @@ export async function runProspectResearchAgentV2({
     const supabase = getServiceClient()
     const { data: prospect, error: fetchError } = await supabase
       .from('prospects')
-      .select('id, first_name, last_name, company_name, role, email, linkedin_url, organisation_id')
+      .select('id, first_name, last_name, company_name, role, email, linkedin_url, website_url, organisation_id')
       .eq('id', prospect_id)
       .eq('organisation_id', client_id)
       .single()
@@ -180,6 +180,7 @@ export async function runProspectResearchAgentV2({
       role:            prospect.role,
       email:           prospect.email,
       linkedin_url:    prospect.linkedin_url,
+      website_url:     prospect.website_url,
     }
 
     const fullName = [ctx.first_name, ctx.last_name].filter(Boolean).join(' ') || 'Unknown'
