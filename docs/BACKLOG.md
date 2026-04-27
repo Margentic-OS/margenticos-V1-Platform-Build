@@ -109,17 +109,13 @@
   All agents producing customer-facing output import from this module; no inline duplication.
   Commits fe36d05 and earlier composition sessions.
 
-- [pre-c0] Tier 1 composition path untested on real data (2026-04-27)
-  All 10 successful dogfood batch 1 prospects came back Tier 3. The bridge sentence generation and
-  personalised CTA path in the composition layer (which fires only on Tier 1 results) has never
-  executed against a real prospect. If there is a bug in that path — formatting, style enforcement,
-  CTA derivation — it won't surface until a Tier 1 result reaches composition, which could be
-  mid-campaign for a paying client.
-  Trigger for resolution: next dogfood batch should deliberately include 3–5 prospects with recent
-  public content (LinkedIn posts <60 days old, podcast appearances, published articles) to generate
-  at least one Tier 1 result. Run the full composition step on it and verify output quality before
-  client zero outbound goes live.
-  Effort: 1–2 hours to curate and run a targeted mini-batch + composition review.
+- [DONE 2026-04-27] Tier 1 composition path validated on real data (Anya Dayson)
+  Dogfood batch 2 re-run produced Anya Dayson (Ascend Strategic Marketing) as icp_fit=strong /
+  signal_relevance=use_as_hook — the first real Tier 1 result. Full composition dry-run confirmed:
+  trigger fires correctly, Haiku bridge generates cleanly ("That relationship-driven approach works
+  until you need predictable revenue between partnership cycles."), patched B1 template reads
+  coherently after trigger swap, Haiku CTA personalised to "Ascend", sign-off correct, 85 words
+  within limit. Bridge path is validated end-to-end against real prospect data.
 
 - [monitor] Promote estimate-batch-cost.ts to a proper committed CLI (2026-04-27)
   Currently written as a throwaway script and deleted after each use. Should be committed as a
@@ -526,6 +522,22 @@ Signal processing agent and warnings engine backend deferred to Phase 2 — see 
 ## Messaging audit items (from April 2026 audit)
 
 Revisit once prospect research agent is built and full outbound cycle is working end-to-end:
+
+- [monitor] Outcome-led (B) and peer-pattern (C) angles structurally prone to describe→label violations (2026-04-27)
+  Two rounds of prompt rules (paragraph independence + descriptive-over-prescriptive) reduced but did
+  not eliminate violations in v4 and v5. Root cause: these angle types naturally produce a paragraph
+  that describes a desirable state followed by a paragraph that labels or names it — the model finds
+  this pattern easy and satisfying, and the rule is fighting the natural completion shape.
+  v5 B and C were hand-patched (3 patches applied via patch-v5-bc.ts). v5 is now clean.
+  Rule-strengthening options for future regeneration sessions:
+  (a) Add angle-specific negative examples to the variant angle instructions for B and C (not just
+      the shared system prompt) — show the exact failing pattern for outcome-led and peer-pattern.
+  (b) Add a post-processing validation check for "That's what", "That's exactly", "That's the" at
+      paragraph-start — any match should fail validation the same way em dashes do, forcing a retry.
+  (c) Option (b) is simpler and doesn't require regeneration — add to validateEmails() in the
+      messaging generation agent alongside the existing em dash and sign-off checks.
+  Recommended: implement option (b) in the next session that touches the messaging agent.
+  Location: src/agents/messaging-generation-agent.ts, validateEmails() function.
 
 - [monitor] Email 3 had 0:1 you/we pronoun ratio
   Consider prompt rule + post-processor check.
