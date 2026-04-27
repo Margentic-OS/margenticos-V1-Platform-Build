@@ -587,7 +587,9 @@ export type Database = {
       prospect_research_results: {
         Row: {
           created_at: string
+          has_dateable_signal: boolean
           id: string
+          icp_fit: string
           organisation_id: string
           prospect_id: string
           qualification_reason: string | null
@@ -596,8 +598,8 @@ export type Database = {
           raw_linkedin: Json | null
           raw_web_search: Json | null
           raw_website: Json | null
-          research_tier: string
           run_id: string | null
+          signal_observation: string | null
           sources_attempted: string[]
           sources_successful: string[]
           synthesis_confidence: string | null
@@ -608,7 +610,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          has_dateable_signal?: boolean
           id?: string
+          icp_fit?: string
           organisation_id: string
           prospect_id: string
           qualification_reason?: string | null
@@ -617,8 +621,8 @@ export type Database = {
           raw_linkedin?: Json | null
           raw_web_search?: Json | null
           raw_website?: Json | null
-          research_tier: string
           run_id?: string | null
+          signal_observation?: string | null
           sources_attempted?: string[]
           sources_successful?: string[]
           synthesis_confidence?: string | null
@@ -629,7 +633,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          has_dateable_signal?: boolean
           id?: string
+          icp_fit?: string
           organisation_id?: string
           prospect_id?: string
           qualification_reason?: string | null
@@ -638,8 +644,8 @@ export type Database = {
           raw_linkedin?: Json | null
           raw_web_search?: Json | null
           raw_website?: Json | null
-          research_tier?: string
           run_id?: string | null
+          signal_observation?: string | null
           sources_attempted?: string[]
           sources_successful?: string[]
           synthesis_confidence?: string | null
@@ -681,12 +687,15 @@ export type Database = {
       }
       prospects: {
         Row: {
+          classified_at: string | null
           company_name: string | null
           created_at: string
           current_research_result_id: string | null
           email: string | null
           first_name: string | null
+          has_dateable_signal: boolean
           id: string
+          icp_fit: string
           last_name: string | null
           linkedin_url: string | null
           organisation_id: string
@@ -694,8 +703,8 @@ export type Database = {
           qualification_status: string | null
           research_ran_at: string | null
           research_source: string | null
-          research_tier: string | null
           role: string | null
+          signal_observation: string | null
           suppressed: boolean
           suppressed_at: string | null
           suppression_reason: string | null
@@ -705,12 +714,15 @@ export type Database = {
           variant_id: string | null
         }
         Insert: {
+          classified_at?: string | null
           company_name?: string | null
           created_at?: string
           current_research_result_id?: string | null
           email?: string | null
           first_name?: string | null
+          has_dateable_signal?: boolean
           id?: string
+          icp_fit?: string
           last_name?: string | null
           linkedin_url?: string | null
           organisation_id: string
@@ -718,8 +730,8 @@ export type Database = {
           qualification_status?: string | null
           research_ran_at?: string | null
           research_source?: string | null
-          research_tier?: string | null
           role?: string | null
+          signal_observation?: string | null
           suppressed?: boolean
           suppressed_at?: string | null
           suppression_reason?: string | null
@@ -729,12 +741,15 @@ export type Database = {
           variant_id?: string | null
         }
         Update: {
+          classified_at?: string | null
           company_name?: string | null
           created_at?: string
           current_research_result_id?: string | null
           email?: string | null
           first_name?: string | null
+          has_dateable_signal?: boolean
           id?: string
+          icp_fit?: string
           last_name?: string | null
           linkedin_url?: string | null
           organisation_id?: string
@@ -742,8 +757,8 @@ export type Database = {
           qualification_status?: string | null
           research_ran_at?: string | null
           research_source?: string | null
-          research_tier?: string | null
           role?: string | null
+          signal_observation?: string | null
           suppressed?: boolean
           suppressed_at?: string | null
           suppression_reason?: string | null
