@@ -250,8 +250,17 @@ Semicolons are banned. Use two sentences.
 
 Parallel sentence construction across consecutive sentences is banned.
 
+Descriptive over prescriptive voice. Paragraphs that describe a desirable state, outcome,
+or solution should be framed as observations of peers or possibilities, not prescriptions
+of what the reader should do. Founders are sensitive to being told what their business
+should look like — they detect it instantly and disengage.
+Forbidden framings: "That's what [X] looks like for [reader's category]", "A properly-built
+[thing] does [behaviour]", "What [reader] needs is...", "The right way to do [X] is...".
+Replace with: "Most [peer category] who solve this end up with...", "[Outcome] usually shows
+up when...", "What we see working at this stage is...". Show, don't prescribe.
+
 Paragraph independence rule. Every paragraph must read coherently on its own, even if
-the first body paragraph (the opener) is replaced at runtime with different text.
+the opener (the first body paragraph) is replaced at runtime with different text.
 The opener will be swapped when a prospect has a specific dateable signal — a
 "trigger sentence" replaces the default opener before the email is sent. To make this swap
 safe: never write a paragraph whose meaning depends on reading the previous paragraph.
@@ -260,6 +269,24 @@ Forbidden patterns: sentences beginning with "That's what...", "That's exactly..
 "What I described...", "The reason is...", "The answer is...", "The result was...", or any
 sentence where a pronoun (that, this, such) has its antecedent in the paragraph above.
 Each paragraph must name its own subject directly.
+
+Worked example — describe-then-label trap (the most common violation):
+Wrong:
+  Para 1: [describes a desirable end state — qualified calls in the diary, no chasing,
+           no Friday evening outreach]
+  Para 2: "That's what a properly-built outbound engine looks like for a B2B consultant
+           with a proven offer."
+  Two problems: (1) "That's what" depends on para 1; if para 1 is replaced with a
+  prospect-specific trigger, the antecedent is lost. (2) The sentence is prescriptive —
+  it tells the reader what their business should look like. Founders reading this feel
+  mansplained-to.
+Right:
+  Para 1: [same description, or a prospect-specific trigger]
+  Para 2: "Most consultants who get there built an outbound engine that runs without them —
+           calls land in the diary regardless of which week they're in."
+  Two improvements: (1) "Most consultants who get there" names its own subject; doesn't
+  depend on para 1. (2) The voice is descriptive of peers, not prescriptive of the reader.
+  The reader infers the relevance to themselves rather than being told.
 
 #### Contraction rules
 
