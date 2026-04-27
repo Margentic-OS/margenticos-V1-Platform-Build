@@ -109,6 +109,13 @@
   All agents producing customer-facing output import from this module; no inline duplication.
   Commits fe36d05 and earlier composition sessions.
 
+- [monitor] Promote estimate-batch-cost.ts to a proper committed CLI (2026-04-27)
+  Currently written as a throwaway script and deleted after each use. Should be committed as a
+  permanent CLI so the cost gate can be run independently of the batch runner (e.g. before deciding
+  whether to run at all, without needing a confirm_before_run=true workaround).
+  Trigger: next time an operator-seeded batch is planned.
+  Estimated effort: 30 minutes — move constants to a shared module, add CLI arg for prospect count.
+
 - [research] trigger_data column overloaded — synthesis output overwrites seed metadata (2026-04-27)
   File: src/lib/agents/prospect-research-agent-v2.ts:127 (`trigger_data: synthesis` in updateProspect()).
   What's broken: updateProspect() writes the full SynthesisOutput object into trigger_data, completely
