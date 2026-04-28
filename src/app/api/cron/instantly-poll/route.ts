@@ -24,6 +24,8 @@ import { logger } from '@/lib/logger'
 import {
   pollInstantlyReplies,
   pollInstantlyLeadStatus,
+  INSTANTLY_LEAD_STATUS_BOUNCED,
+  INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
 } from '@/lib/polling/instantly'
 
 export async function POST(request: NextRequest) {
@@ -84,7 +86,7 @@ export async function POST(request: NextRequest) {
     results.bounces = await pollInstantlyLeadStatus(
       supabase,
       apiKey,
-      '-2',           // INSTANTLY_LEAD_STATUS_BOUNCED — verify against live Instantly API
+      INSTANTLY_LEAD_STATUS_BOUNCED,
       'email_bounced'
     )
   } catch (err) {
@@ -98,7 +100,7 @@ export async function POST(request: NextRequest) {
     results.unsubscribes = await pollInstantlyLeadStatus(
       supabase,
       apiKey,
-      '-1',           // INSTANTLY_LEAD_STATUS_UNSUBSCRIBED — verify against live Instantly API
+      INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
       'lead_unsubscribed'
     )
   } catch (err) {

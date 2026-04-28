@@ -27,6 +27,18 @@
 
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
 
+- [c0-blocker] Verify Instantly lead status values for bounced and unsubscribed (2026-04-28)
+  Constants INSTANTLY_LEAD_STATUS_BOUNCED = '-2' and INSTANTLY_LEAD_STATUS_UNSUBSCRIBED = '-1'
+  in src/lib/polling/instantly.ts are assumed from training data, NOT confirmed against the live API.
+  If wrong, bounce and unsubscribe polling will return zero signals with no error — silent data gap.
+  How to verify: once a campaign is live with at least one bounced or unsubscribed lead:
+    1. Call the Instantly MCP list_leads with no status filter and the campaign UUID
+    2. Find a known-bounced lead in the result
+    3. Check the exact value of its `status` field
+    4. If it differs from '-2' (bounced) or '-1' (unsubscribed), update the constants and redeploy
+  Trigger: immediately after first Instantly campaign produces a bounced or unsubscribed lead.
+  Location: src/lib/polling/instantly.ts lines 35-36 + same constants exported to route.ts
+
 - [pre-c0] Instantly polling layer — manual deployment steps required before first poll (2026-04-28)
   Three steps must be completed before the polling layer activates:
   1. Set Postgres config parameters in Supabase SQL editor (see migration file header):

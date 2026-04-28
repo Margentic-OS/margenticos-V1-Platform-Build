@@ -30,10 +30,12 @@ import { logger } from '@/lib/logger'
 const INSTANTLY_API_BASE = 'https://api.instantly.ai/api/v2'
 const SOURCE = 'instantly'
 
-// Verify these against the Instantly V2 API docs or by inspecting a known bounced
-// lead via GET /api/v2/lead/list — check the `status` field value on that lead.
-const INSTANTLY_LEAD_STATUS_BOUNCED = '-2'
-const INSTANTLY_LEAD_STATUS_UNSUBSCRIBED = '-1'
+// UNVERIFIED — these values are assumed from training data, not confirmed against
+// a live Instantly API response. Verify before trusting bounce/unsubscribe signals:
+// call list_leads with no status filter against a known-bounced lead and inspect
+// the actual `status` field value. See BACKLOG [c0-blocker] Verify Instantly lead status values.
+export const INSTANTLY_LEAD_STATUS_BOUNCED = '-2'
+export const INSTANTLY_LEAD_STATUS_UNSUBSCRIBED = '-1'
 
 type SupabaseServiceClient = SupabaseClient<Database>
 
@@ -333,11 +335,20 @@ export async function pollInstantlyReplies(
   return result
 }
 
-// ── Lead status polling (full scan, idempotency-deduplicated) ─────────────────
+// ── Lead status polling (campaign-filtered, full scan, idempotency-deduplicated) ──
 //
-// Fetches ALL leads with the given status on every poll. No cursor, no date filter.
-// This is intentional — see file-level comment for the reasoning.
-// Idempotency constraint (ON CONFLICT DO NOTHING) prevents duplicate signals.
+// Loops through each campaign registered in our campaigns table, fetching leads
+// with the given status per campaign. Only campaigns with external_id set are included.
+//
+// Why per-campaign rather than workspace-wide:
+//   Avoids scope bleed from unregistered campaigns in the same Instantly account.
+//   campaign_id and organisation_id are known from the campaigns row — no external
+//   lookup needed in the inner loop.
+//
+// Why full scan (no cursor between polls):
+//   Instantly V2 has no updated_after filter on leads. Bounces are status changes
+//   on existing leads — cursor-by-creation-date would miss late changes.
+//   Idempotency (ON CONFLICT DO NOTHING) prevents duplicate signals.
 
 export async function pollInstantlyLeadStatus(
   supabase: SupabaseServiceClient,
@@ -347,89 +358,107 @@ export async function pollInstantlyLeadStatus(
 ): Promise<PollResult> {
   const resource = signalType === 'email_bounced' ? 'leads_bounced' : 'leads_unsubscribed'
   const result: PollResult = { written: 0, skipped: 0, errors: 0 }
-  const campaignCache = new Map<string, ResolvedCampaign | null>()
 
-  let pageCursor: string | null = null
-  let pageCount = 0
-  const MAX_PAGES = 100 // higher ceiling — bounced list grows over campaign lifetime
+  // Fetch campaigns registered in our system that have an Instantly campaign UUID.
+  const { data: campaigns, error: campaignsError } = await supabase
+    .from('campaigns')
+    .select('id, organisation_id, external_id')
+    .not('external_id', 'is', null)
+
+  if (campaignsError) {
+    logger.error('Instantly poll: failed to fetch campaigns for lead status scan', {
+      signal_type: signalType,
+      error: campaignsError.message,
+    })
+    await setCursorError(supabase, resource, campaignsError.message)
+    result.errors++
+    return result
+  }
+
+  if (!campaigns || campaigns.length === 0) {
+    logger.info('Instantly poll: no campaigns registered — lead status scan skipped', {
+      signal_type: signalType,
+      fix: 'Insert a row into campaigns with external_id = the Instantly campaign UUID',
+    })
+    await setCursorSuccess(supabase, resource, null)
+    return result
+  }
+
+  let totalPages = 0
 
   try {
-    while (pageCount < MAX_PAGES) {
-      pageCount++
+    for (const campaign of campaigns) {
+      const instantlyCampaignId = campaign.external_id! // non-null: filtered above
 
-      const params: Record<string, string> = {
-        status: instantlyStatus,
-        limit: '100',
-      }
-      if (pageCursor) params.starting_after = pageCursor
+      let pageCursor: string | null = null
+      let pageCount = 0
+      const MAX_PAGES_PER_CAMPAIGN = 50
 
-      const { data: leads, nextCursor, error } = await instantlyGet(
-        '/lead/list',
-        apiKey,
-        params
-      )
+      while (pageCount < MAX_PAGES_PER_CAMPAIGN) {
+        pageCount++
+        totalPages++
 
-      if (error) {
-        await setCursorError(supabase, resource, error)
-        logger.error('Instantly poll: lead status fetch failed', {
-          signal_type: signalType,
+        const params: Record<string, string> = {
           status: instantlyStatus,
-          error,
-          page: pageCount,
-        })
-        result.errors++
-        return result
-      }
+          campaign: instantlyCampaignId,
+          limit: '100',
+        }
+        if (pageCursor) params.starting_after = pageCursor
 
-      if (!leads || leads.length === 0) break
+        const { data: leads, nextCursor, error } = await instantlyGet('/lead/list', apiKey, params)
 
-      for (const lead of leads) {
-        const l = lead as Record<string, unknown>
-        const leadId = l.id as string | undefined
-        const instantlyCampaignId = (l.campaign_id ?? l.campaign) as string | undefined
-
-        if (!leadId) {
-          logger.warn('Instantly poll: lead missing id field', { signal_type: signalType })
+        if (error) {
+          // Log and move on to the next campaign — one campaign failure doesn't abort the run.
+          logger.error('Instantly poll: lead status fetch failed', {
+            signal_type: signalType,
+            campaign_external_id: instantlyCampaignId,
+            error,
+            page: pageCount,
+          })
           result.errors++
-          continue
+          break
         }
 
-        let campaignRow: ResolvedCampaign | null = null
-        if (instantlyCampaignId) {
-          campaignRow = await resolveCampaign(supabase, instantlyCampaignId, campaignCache)
+        if (!leads || leads.length === 0) break
+
+        for (const lead of leads) {
+          const l = lead as Record<string, unknown>
+          const leadId = l.id as string | undefined
+
+          if (!leadId) {
+            logger.warn('Instantly poll: lead missing id field', { signal_type: signalType })
+            result.errors++
+            continue
+          }
+
+          // campaign_id and organisation_id come from the campaigns row — no extra lookup.
+          const outcome = await writeSignal(supabase, {
+            organisation_id: campaign.organisation_id,
+            campaign_id: campaign.id,
+            prospect_id: null,
+            signal_type: signalType,
+            source: SOURCE,
+            external_event_id: leadId,
+            raw_data: l as Json,
+          })
+
+          if (outcome === 'written') result.written++
+          else if (outcome === 'skipped') result.skipped++
+          else result.errors++
         }
 
-        if (!campaignRow) {
-          result.errors++
-          continue
-        }
-
-        const outcome = await writeSignal(supabase, {
-          organisation_id: campaignRow.organisation_id,
-          campaign_id: campaignRow.id,
-          prospect_id: null,
-          signal_type: signalType,
-          source: SOURCE,
-          external_event_id: leadId,
-          raw_data: l as Json,
-        })
-
-        if (outcome === 'written') result.written++
-        else if (outcome === 'skipped') result.skipped++
-        else result.errors++
+        if (!nextCursor) break
+        pageCursor = nextCursor
       }
-
-      if (!nextCursor) break
-      pageCursor = nextCursor
     }
 
-    // Record that this scan completed. No cursor to store (full scan resets each time).
     await setCursorSuccess(supabase, resource, null)
     logger.info('Instantly poll: lead status scan complete', {
       signal_type: signalType,
       status: instantlyStatus,
+      campaigns_scanned: campaigns.length,
+      total_pages: totalPages,
       ...result,
-      pages: pageCount,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

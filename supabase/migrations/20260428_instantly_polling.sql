@@ -28,6 +28,18 @@
 --   organisation_id = NULL means global/shared credential (one Instantly account for all orgs).
 --   See ADR-001: tool-agnostic registry pattern.
 --   BACKLOG: encrypt value via Supabase Vault before first paying client onboards.
+--
+-- ATOMICITY:
+--   This migration is wrapped in BEGIN / COMMIT. If any statement fails, the entire
+--   migration rolls back — no partial state. All DDL in this migration (CREATE TABLE,
+--   ALTER TABLE, CREATE INDEX, CREATE EXTENSION) is transactional in Postgres 17.
+--   cron.schedule() writes to cron.job (a regular table) and is also transactional.
+--
+--   If you need to run individual statements outside a transaction (e.g. to debug a
+--   specific failure), remove the BEGIN/COMMIT wrapper and run each block separately.
+--   Then manually ROLLBACK any partial changes before retrying.
+
+BEGIN;
 
 -- ── 1. Extensions ─────────────────────────────────────────────────────────────
 
@@ -182,3 +194,5 @@ SELECT cron.schedule(
     );
   $$
 );
+
+COMMIT;
