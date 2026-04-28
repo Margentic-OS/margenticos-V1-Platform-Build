@@ -80,7 +80,8 @@ export interface MessagingAgentResult {
 }
 
 // One email object as returned by Claude in the four-element array.
-interface EmailRecord {
+// Exported for direct unit testing.
+export interface EmailRecord {
   sequence_position: number
   subject_line: string | null
   subject_char_count: number
@@ -895,7 +896,8 @@ function parseSingleVariantFromClaude(raw: string): EmailRecord[] {
 
 // ─── Post-processing ──────────────────────────────────────────────────────────
 
-interface ValidationViolation {
+// Exported for direct unit testing.
+export interface ValidationViolation {
   email: number
   issue: string
 }
@@ -1019,8 +1021,34 @@ function applySignOffFix(
   return { emails: result, fixed }
 }
 
+// Paragraph-position structural patterns: pronoun-dependent openers (reference back to the
+// preceding paragraph, which gets replaced by a trigger sentence at composition time) and
+// prescriptive-voice openers (tell the reader what their world should look like).
+// Checked case-sensitively at paragraph-start for paragraphs 2+ only. Paragraph 1 is exempt.
+// Prescriptive patterns listed first so more specific matches take precedence in Array.find().
+const BANNED_PARAGRAPH_OPENERS: ReadonlyArray<{ pattern: RegExp; label: string }> = [
+  // Prescriptive voice
+  { pattern: /^That's what \w+ looks like/,  label: "That's what [word] looks like" },
+  { pattern: /^A properly[- ]built/,          label: 'A properly-built / A properly built' },
+  { pattern: /^What \w+ needs? is\b/,         label: 'What [word] need/needs is' },
+  { pattern: /^The right way to/,             label: 'The right way to' },
+  // Pronoun-dependent
+  { pattern: /^That's what[\s\W]/,            label: "That's what" },
+  { pattern: /^That's exactly[\s\W]/,         label: "That's exactly" },
+  { pattern: /^That's the[\s\W]/,             label: "That's the" },
+  { pattern: /^This is what[\s\W]/,           label: 'This is what' },
+  { pattern: /^Such\s/,                       label: 'Such [word]' },
+  { pattern: /^Like you said/,                label: 'Like you said' },
+  { pattern: /^As I mentioned/,               label: 'As I mentioned' },
+  { pattern: /^What I described/,             label: 'What I described' },
+  { pattern: /^The reason is\b/,              label: 'The reason is' },
+  { pattern: /^The answer is\b/,              label: 'The answer is' },
+  { pattern: /^The result was\b/,             label: 'The result was' },
+]
+
 // Category B: collect all violations across all four emails. Returns empty array if clean.
-function validateEmails(
+// Exported for direct unit testing.
+export function validateEmails(
   emails: EmailRecord[],
   senderFirstName: string
 ): ValidationViolation[] {
@@ -1046,6 +1074,24 @@ function validateEmails(
         email: pos,
         issue: `opener starts with "${openerLine.split(' ')[0]}" — I/We openers are banned`,
       })
+    }
+
+    // Paragraph independence: paragraphs 2+ must not open with pronoun-dependent or
+    // prescriptive-voice patterns. Split by blank lines, filter the {{first_name}} greeting
+    // chunk, skip index 0 (the opener — exempt, gets replaced at composition time).
+    const rawChunks = body.split(/\n{2,}/).map(p => p.trim()).filter(p => p.length > 0)
+    const contentParas = rawChunks.filter(p => !/^\{\{first_name\}\},?\s*$/.test(p))
+    for (let pIdx = 1; pIdx < contentParas.length; pIdx++) {
+      const para = contentParas[pIdx]
+      const paraNorm = para.replace(/[''ʼ‘’ʼ]/g, "'")
+      const hit = BANNED_PARAGRAPH_OPENERS.find(({ pattern }) => pattern.test(paraNorm))
+      if (hit) {
+        const preview = para.split(/\s+/).slice(0, 6).join(' ')
+        violations.push({
+          email: pos,
+          issue: `paragraph ${pIdx + 1} opens with "${hit.label}" pattern — pronoun-dependent or prescriptive voice at non-opener paragraph start is banned. Opening: "${preview}..."`,
+        })
+      }
     }
 
     const wc = email.word_count
