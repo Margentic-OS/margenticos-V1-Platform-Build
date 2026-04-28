@@ -27,6 +27,36 @@
 
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
 
+- [pre-c0] Instantly polling layer — manual deployment steps required before first poll (2026-04-28)
+  Three steps must be completed before the polling layer activates:
+  1. Set Postgres config parameters in Supabase SQL editor (see migration file header):
+       ALTER DATABASE postgres SET "app.polling_endpoint_url" = 'https://margenticos-platform.vercel.app/api/cron/instantly-poll';
+       ALTER DATABASE postgres SET "app.cron_secret" = '<CRON_SECRET value from Vercel>';
+       SELECT pg_reload_conf();
+  2. Apply the migration: supabase/migrations/20260428_instantly_polling.sql (via Supabase MCP or dashboard)
+  3. Insert Instantly API key into integration_credentials:
+       INSERT INTO integration_credentials (organisation_id, source, credential_type, value)
+       VALUES (NULL, 'instantly', 'api_key', '<Instantly API key>');
+  4. Verify Instantly lead status values for bounced (-2) and unsubscribed (-1) against the live API.
+     Check by calling list_leads with a known-bounced lead and inspecting the status field.
+     Constants in src/lib/polling/instantly.ts (INSTANTLY_LEAD_STATUS_*) and route.ts must match.
+  Status: code committed (f75e9dd), deployment steps not yet completed.
+
+- [pre-c0] Campaign provisioning flow — campaigns table must be populated before polling produces signals (2026-04-28)
+  The polling layer maps Instantly campaign UUIDs → organisation_id via campaigns.external_id.
+  If no campaigns rows exist with external_id set, ALL polling events will be logged as warnings
+  and skipped (cannot write signal without organisation_id).
+  Before the first Instantly campaign is created/launched: insert a row in campaigns with
+  external_id = the Instantly campaign UUID, campaign_type = 'cold_email', organisation_id = correct org.
+  This is a manual step at launch time; a UI or agent for campaign provisioning is future scope.
+  Trigger: immediately before first campaign is launched in Instantly.
+
+- [pre-c1] Encrypt integration_credentials.value via Supabase Vault (2026-04-28)
+  Currently stored as plaintext (acceptable for client zero / pre-revenue stage).
+  Supabase Vault provides encrypted secret storage backed by pgsodium.
+  Migration: change value column to use vault.create_secret() and vault.decrypted_secrets view.
+  Trigger: before first paying client onboards (same trigger as repo going private).
+
 - [pre-c1] Haiku critic pass agent for document suggestion quality review
   Not yet built. Required before first paying client's suggestions reach the approval queue.
   Structured evaluation: TOV compliance, messaging rules, quality floor.
