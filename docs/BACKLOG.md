@@ -523,21 +523,36 @@ Signal processing agent and warnings engine backend deferred to Phase 2 — see 
 
 Revisit once prospect research agent is built and full outbound cycle is working end-to-end:
 
-- [monitor] Outcome-led (B) and peer-pattern (C) angles structurally prone to describe→label violations (2026-04-27)
-  Two rounds of prompt rules (paragraph independence + descriptive-over-prescriptive) reduced but did
-  not eliminate violations in v4 and v5. Root cause: these angle types naturally produce a paragraph
-  that describes a desirable state followed by a paragraph that labels or names it — the model finds
-  this pattern easy and satisfying, and the rule is fighting the natural completion shape.
-  v5 B and C were hand-patched (3 patches applied via patch-v5-bc.ts). v5 is now clean.
-  Rule-strengthening options for future regeneration sessions:
-  (a) Add angle-specific negative examples to the variant angle instructions for B and C (not just
-      the shared system prompt) — show the exact failing pattern for outcome-led and peer-pattern.
-  (b) Add a post-processing validation check for "That's what", "That's exactly", "That's the" at
-      paragraph-start — any match should fail validation the same way em dashes do, forcing a retry.
-  (c) Option (b) is simpler and doesn't require regeneration — add to validateEmails() in the
-      messaging generation agent alongside the existing em dash and sign-off checks.
-  Recommended: implement option (b) in the next session that touches the messaging agent.
-  Location: src/agents/messaging-generation-agent.ts, validateEmails() function.
+- [DONE 2026-04-28] Paragraph independence validator added to validateEmails() (2026-04-27)
+  15 patterns across two categories (pronoun-dependent + prescriptive voice) checked at non-opener
+  paragraph start (paragraphs 2+). Paragraph 1 (opener) exempt — gets replaced at composition time.
+  Commit: db1bffe. Synthetic test 7/7 passed. v6 regeneration: Variant B fired 1 retry on first pass,
+  passed clean on attempt 1. 16/16 emails audited — no violations, no stilted prose.
+  Anya Dayson composition dry-run: trigger→P2 transition clean without bridge (Haiku credit exhausted
+  during test — bridge path tested logically but not live in this session; see item below).
+  v5 archived as "5_pre_validator_extension" and "5" (archived). v6 now active.
+
+- [monitor] Anya bridge path not live-tested — Haiku credit exhausted during 2026-04-28 session
+  The composition dry-run confirmed the trigger→P2 transition is coherent without a bridge. The Haiku
+  bridge generation call itself (personalization.ts) was not exercised — Anthropic returned 400 credit
+  balance too low. Top up credits at console.anthropic.com, then re-run test-anya-compose.ts to confirm
+  the full bridge path (trigger + bridge sentence + P2 + CTA) produces a coherent email end-to-end.
+
+- [monitor] approve_document_suggestion RPC breaks on non-numeric version strings (2026-04-28)
+  RPC uses FLOOR(v_max_version::numeric) to compute next version. Breaks if any row in
+  strategy_documents for that org+document_type has a non-numeric version string (e.g.
+  "5_pre_validator_extension"). Worked around this session by running the approval steps manually.
+  Fix options: (a) pad version with regex to extract leading numeric portion before FLOOR cast;
+  (b) use MAX(created_at) ordering rather than version string for increment logic.
+  Trigger: next time a non-numeric version label is needed OR the RPC is touched for another reason.
+  Location: approve_document_suggestion function in Supabase (Postgres function, not application code).
+
+- [monitor] v6 copy quality — two minor observations from 2026-04-28 audit
+  A3 Email 3: "ICP docs, messaging, targeting, is yours to keep regardless." — subject-verb agreement
+  error (plural subject with singular verb). Acceptable for now; fix on next messaging refresh.
+  D3 Email 3 P2: "Full visibility into every email sent under your name tends to be what actually
+  builds the trust." — slightly service-led; weakest transition in the v6 document. Monitor for
+  reply rate signal; if D3 underperforms, rewrite P2 to match the insight-led pattern of B3/C3.
 
 - [monitor] Email 3 had 0:1 you/we pronoun ratio
   Consider prompt rule + post-processor check.
