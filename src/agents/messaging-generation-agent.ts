@@ -1048,23 +1048,6 @@ function validateEmails(
       })
     }
 
-    // Describe→label paragraph opener: outcome-led (B) and peer-pattern (C) angles
-    // naturally produce a paragraph that labels what the previous paragraph described.
-    // This breaks coherence when a trigger sentence replaces the paragraph being referenced.
-    const bannedParaOpeners = ["that's what", "that's exactly", "that's the"]
-    const bodyParagraphs = body.split(/\n{2,}/).map(p => p.trim()).filter(p => p.length > 0)
-    for (const para of bodyParagraphs) {
-      const paraNorm = para.replace(/[‘’ʼ]/g, "'").toLowerCase()
-      const matchedOpener = bannedParaOpeners.find(opener => paraNorm.startsWith(opener))
-      if (matchedOpener) {
-        const preview = para.split(/\s+/).slice(0, 5).join(' ')
-        violations.push({
-          email: pos,
-          issue: `paragraph opens with describe→label pattern "${preview}..." — "That's what/exactly/the" at paragraph-start is banned`,
-        })
-      }
-    }
-
     const wc = email.word_count
     if (pos === 1 && wc > 100) violations.push({ email: pos, issue: `word count ${wc} exceeds 100-word limit` })
     if (pos === 2 && wc > 75)  violations.push({ email: pos, issue: `word count ${wc} exceeds 75-word limit` })
