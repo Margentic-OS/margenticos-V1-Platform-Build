@@ -390,6 +390,44 @@ export type Database = {
           },
         ]
       }
+      integration_credentials: {
+        Row: {
+          created_at: string
+          credential_type: string
+          id: string
+          organisation_id: string | null
+          source: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          created_at?: string
+          credential_type: string
+          id?: string
+          organisation_id?: string | null
+          source: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          created_at?: string
+          credential_type?: string
+          id?: string
+          organisation_id?: string | null
+          source?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_credentials_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       integrations_registry: {
         Row: {
           api_handler_ref: string
@@ -553,6 +591,56 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      polling_cursors: {
+        Row: {
+          created_at: string
+          error_count: number
+          id: string
+          last_cursor: string | null
+          last_error: string | null
+          last_polled_at: string | null
+          last_run_at: string | null
+          organisation_id: string | null
+          resource: string
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          error_count?: number
+          id?: string
+          last_cursor?: string | null
+          last_error?: string | null
+          last_polled_at?: string | null
+          last_run_at?: string | null
+          organisation_id?: string | null
+          resource: string
+          source: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          error_count?: number
+          id?: string
+          last_cursor?: string | null
+          last_error?: string | null
+          last_polled_at?: string | null
+          last_run_at?: string | null
+          organisation_id?: string | null
+          resource?: string
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "polling_cursors_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       patterns: {
         Row: {
@@ -795,6 +883,7 @@ export type Database = {
         Row: {
           campaign_id: string | null
           created_at: string
+          external_event_id: string | null
           id: string
           organisation_id: string
           processed: boolean
@@ -802,11 +891,13 @@ export type Database = {
           prospect_id: string | null
           raw_data: Json
           signal_type: string
+          source: string | null
           variant_id: string | null
         }
         Insert: {
           campaign_id?: string | null
           created_at?: string
+          external_event_id?: string | null
           id?: string
           organisation_id: string
           processed?: boolean
@@ -814,11 +905,13 @@ export type Database = {
           prospect_id?: string | null
           raw_data?: Json
           signal_type: string
+          source?: string | null
           variant_id?: string | null
         }
         Update: {
           campaign_id?: string | null
           created_at?: string
+          external_event_id?: string | null
           id?: string
           organisation_id?: string
           processed?: boolean
@@ -826,6 +919,7 @@ export type Database = {
           prospect_id?: string | null
           raw_data?: Json
           signal_type?: string
+          source?: string | null
           variant_id?: string | null
         }
         Relationships: [
