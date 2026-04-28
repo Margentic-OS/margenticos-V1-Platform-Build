@@ -532,20 +532,20 @@ Revisit once prospect research agent is built and full outbound cycle is working
   during test — bridge path tested logically but not live in this session; see item below).
   v5 archived as "5_pre_validator_extension" and "5" (archived). v6 now active.
 
-- [monitor] Anya bridge path not live-tested — Haiku credit exhausted during 2026-04-28 session
-  The composition dry-run confirmed the trigger→P2 transition is coherent without a bridge. The Haiku
-  bridge generation call itself (personalization.ts) was not exercised — Anthropic returned 400 credit
-  balance too low. Top up credits at console.anthropic.com, then re-run test-anya-compose.ts to confirm
-  the full bridge path (trigger + bridge sentence + P2 + CTA) produces a coherent email end-to-end.
+- [DONE 2026-04-28] Anya bridge path live-tested after credits topped up
+  Credits were topped up mid-session. Re-ran test-anya-compose.ts: both Haiku calls succeeded.
+  CTA personalised to "Ascend" ("When referrals slow, does pipeline visibility become a challenge
+  at Ascend?"). Bridge was generated but correctly suppressed by word-count gate — Anya's trigger
+  is 38 words, leaving only 15-word headroom; 75 + ~16 = 91 > 90 cap. Gate working as intended.
+  Bridge path is fully validated: generation call works, gate logic works, email reads coherently.
 
-- [monitor] approve_document_suggestion RPC breaks on non-numeric version strings (2026-04-28)
-  RPC uses FLOOR(v_max_version::numeric) to compute next version. Breaks if any row in
-  strategy_documents for that org+document_type has a non-numeric version string (e.g.
-  "5_pre_validator_extension"). Worked around this session by running the approval steps manually.
-  Fix options: (a) pad version with regex to extract leading numeric portion before FLOOR cast;
-  (b) use MAX(created_at) ordering rather than version string for increment logic.
-  Trigger: next time a non-numeric version label is needed OR the RPC is touched for another reason.
-  Location: approve_document_suggestion function in Supabase (Postgres function, not application code).
+- [DONE 2026-04-28] approve_document_suggestion RPC fixed — non-numeric version string cast error
+  Bug: FLOOR(v_max_version::numeric) broke when any row in strategy_documents had a non-numeric
+  version string (e.g. "5_pre_validator_extension") because Postgres cast throws on non-numeric input.
+  Fix: replaced FLOOR(v_max_version::numeric) with MAX(CASE WHEN version ~ '^[0-9]+(\.[0-9]*)?' THEN
+  FLOOR(version::numeric)::integer ELSE NULL END) + 1 aggregate — skips non-numeric rows entirely.
+  Applied via apply_migration (fix_approve_document_suggestion_version_cast). RPC now safe for any
+  version string. Manual workaround (three SQL statements) was one-time only; not needed going forward.
 
 - [monitor] v6 copy quality — two minor observations from 2026-04-28 audit
   A3 Email 3: "ICP docs, messaging, targeting, is yours to keep regardless." — subject-verb agreement
