@@ -42,6 +42,7 @@ interface ProspectRow {
   signal_relevance: string | null
   role: string | null
   first_name: string | null
+  last_name: string | null
   company_name: string | null
 }
 
@@ -157,7 +158,7 @@ async function fetchProspect(
 ): Promise<ProspectRow> {
   const { data, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, variant_id, personalisation_trigger, has_dateable_signal, signal_relevance, role, first_name, company_name')
+    .select('id, organisation_id, variant_id, personalisation_trigger, has_dateable_signal, signal_relevance, role, first_name, last_name, company_name')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id) // explicit isolation filter
     .single()
@@ -427,9 +428,11 @@ async function applyPersonalization(
 
       const { bridge, cta } = await generatePersonalization({
         tier,
-        triggerText:     trigger,
-        prospectRole:    prospect.role,
-        prospectCompany: prospect.company_name,
+        triggerText:       trigger,
+        prospectRole:      prospect.role,
+        prospectCompany:   prospect.company_name,
+        prospectFirstName: prospect.first_name,
+        prospectLastName:  prospect.last_name,
         clientValueHook,
       })
 
