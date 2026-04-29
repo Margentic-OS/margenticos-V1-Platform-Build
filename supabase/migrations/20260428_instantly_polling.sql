@@ -8,16 +8,39 @@
 --   4. Creates polling_cursors table (per source+resource cursor state)
 --   5. Schedules the 15-minute pg_cron polling job via pg_net HTTP POST
 --
--- BEFORE RUNNING THIS MIGRATION:
---   Set two Postgres config parameters in the Supabase SQL editor:
+-- SUPABASE HOBBY LIMITATION (discovered 2026-04-29):
+--   ALTER DATABASE postgres SET "app.*" requires superuser / supabase_admin role.
+--   The Supabase SQL editor runs as the postgres role — permission denied.
+--   current_setting('app.polling_endpoint_url', true) therefore returns NULL and
+--   net.http_post fails with a NOT NULL constraint on the url column.
 --
---     ALTER DATABASE postgres SET "app.polling_endpoint_url"
---       = 'https://margenticos-platform.vercel.app/api/cron/instantly-poll';
---     ALTER DATABASE postgres SET "app.cron_secret" = '<your CRON_SECRET value>';
---     SELECT pg_reload_conf();
+--   WORKING PATTERN ON HOBBY TIER:
+--   After applying this migration, immediately reschedule the cron job with the URL
+--   and CRON_SECRET hardcoded directly in the cron.schedule() command:
 --
---   The CRON_SECRET value is in Vercel → Project → Settings → Environment Variables.
---   These parameters are intentionally NOT in this file — the migration is committed to Git.
+--     SELECT cron.unschedule('instantly-poll');
+--     SELECT cron.schedule(
+--       'instantly-poll', '*/15 * * * *',
+--       $cmd$
+--       SELECT net.http_post(
+--         url     := 'https://margenticos-platform.vercel.app/api/cron/instantly-poll',
+--         headers := '{"Content-Type":"application/json","Authorization":"Bearer <CRON_SECRET>"}'::jsonb,
+--         body    := '{}'::jsonb,
+--         timeout_milliseconds := 55000
+--       );
+--       $cmd$
+--     );
+--
+--   SECURITY NOTE:
+--   CRON_SECRET lives in cron.job.command in plaintext. Acceptable for this token —
+--   it is a low-impact trigger secret (gates only the cron endpoints, not client data).
+--   NOT acceptable as a pattern for higher-value credentials (API keys, client secrets).
+--   For those: use Supabase Vault, an encrypted column, or an edge function with a
+--   stored secret. Never embed them in a cron command or a committed migration file.
+--
+--   The CRON_SECRET value is in Vercel → Project → Settings → Environment Variables
+--   and in .env.local. The migration file intentionally uses current_setting() to
+--   avoid committing the secret to git — reschedule manually after applying.
 --
 -- AFTER RUNNING THIS MIGRATION:
 --   Insert the Instantly API key in the Supabase SQL editor:

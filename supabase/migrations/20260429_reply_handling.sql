@@ -6,16 +6,32 @@
 --   2. Creates reply_handling_actions table — audit log for every classified reply
 --   3. Schedules a pg_cron job to call process-replies every 5 minutes
 --
--- BEFORE RUNNING THIS MIGRATION:
---   Set the process-replies endpoint URL in the Supabase SQL editor:
+-- SUPABASE HOBBY LIMITATION (discovered 2026-04-29):
+--   ALTER DATABASE postgres SET "app.*" requires superuser / supabase_admin role.
+--   The Supabase SQL editor runs as the postgres role — permission denied.
+--   This migration creates the process-replies cron job using current_setting() which
+--   returns NULL on Hobby tier — the job will fail immediately after creation.
 --
---     ALTER DATABASE postgres SET "app.process_replies_endpoint_url"
---       = 'https://margenticos-platform.vercel.app/api/cron/process-replies';
---     SELECT pg_reload_conf();
+--   WORKING PATTERN ON HOBBY TIER:
+--   After applying this migration, immediately reschedule the cron job:
 --
---   The CRON_SECRET is already set from the polling migration — no change needed.
---   app.process_replies_endpoint_url is intentionally NOT in this file
---   because this migration is committed to Git.
+--     SELECT cron.unschedule('process-replies');
+--     SELECT cron.schedule(
+--       'process-replies', '*/5 * * * *',
+--       $cmd$
+--       SELECT net.http_post(
+--         url     := 'https://margenticos-platform.vercel.app/api/cron/process-replies',
+--         headers := '{"Content-Type":"application/json","Authorization":"Bearer <CRON_SECRET>"}'::jsonb,
+--         body    := '{}'::jsonb,
+--         timeout_milliseconds := 55000
+--       );
+--       $cmd$
+--     );
+--
+--   SECURITY NOTE:
+--   CRON_SECRET lives in cron.job.command in plaintext. Acceptable for this token
+--   (low-impact trigger, gates only cron endpoints). NOT acceptable for higher-value
+--   credentials. Use Supabase Vault or an encrypted column for those.
 --
 -- AFTER RUNNING THIS MIGRATION:
 --   Update the organisations row for MargenticOS with the Calendly URL:

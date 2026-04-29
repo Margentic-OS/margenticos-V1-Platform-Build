@@ -423,6 +423,13 @@ export type Database = {
             foreignKeyName: "integration_credentials_organisation_id_fkey"
             columns: ["organisation_id"]
             isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "integration_credentials_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
             referencedRelation: "organisations"
             referencedColumns: ["id"]
           },
@@ -541,6 +548,7 @@ export type Database = {
       organisations: {
         Row: {
           auto_approve_window_hours: number
+          calendly_url: string | null
           contract_start_date: string | null
           contract_status: string | null
           created_at: string
@@ -558,6 +566,7 @@ export type Database = {
         }
         Insert: {
           auto_approve_window_hours?: number
+          calendly_url?: string | null
           contract_start_date?: string | null
           contract_status?: string | null
           created_at?: string
@@ -575,6 +584,7 @@ export type Database = {
         }
         Update: {
           auto_approve_window_hours?: number
+          calendly_url?: string | null
           contract_start_date?: string | null
           contract_status?: string | null
           created_at?: string
@@ -588,6 +598,36 @@ export type Database = {
           pipeline_unlock_manual_override?: boolean
           pipeline_unlocked?: boolean
           slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      patterns: {
+        Row: {
+          confidence_score: number | null
+          created_at: string
+          id: string
+          pattern_data: Json
+          pattern_type: string
+          sample_size: number
+          updated_at: string
+        }
+        Insert: {
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          pattern_data?: Json
+          pattern_type: string
+          sample_size?: number
+          updated_at?: string
+        }
+        Update: {
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          pattern_data?: Json
+          pattern_type?: string
+          sample_size?: number
           updated_at?: string
         }
         Relationships: []
@@ -637,47 +677,24 @@ export type Database = {
             foreignKeyName: "polling_cursors_organisation_id_fkey"
             columns: ["organisation_id"]
             isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "polling_cursors_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
             referencedRelation: "organisations"
             referencedColumns: ["id"]
           },
         ]
       }
-      patterns: {
-        Row: {
-          confidence_score: number | null
-          created_at: string
-          id: string
-          pattern_data: Json
-          pattern_type: string
-          sample_size: number
-          updated_at: string
-        }
-        Insert: {
-          confidence_score?: number | null
-          created_at?: string
-          id?: string
-          pattern_data?: Json
-          pattern_type: string
-          sample_size?: number
-          updated_at?: string
-        }
-        Update: {
-          confidence_score?: number | null
-          created_at?: string
-          id?: string
-          pattern_data?: Json
-          pattern_type?: string
-          sample_size?: number
-          updated_at?: string
-        }
-        Relationships: []
-      }
       prospect_research_results: {
         Row: {
           created_at: string
           has_dateable_signal: boolean
-          id: string
           icp_fit: string
+          id: string
           organisation_id: string
           prospect_id: string
           qualification_reason: string | null
@@ -686,8 +703,10 @@ export type Database = {
           raw_linkedin: Json | null
           raw_web_search: Json | null
           raw_website: Json | null
+          relevance_reason: string | null
           run_id: string | null
           signal_observation: string | null
+          signal_relevance: string
           sources_attempted: string[]
           sources_successful: string[]
           synthesis_confidence: string | null
@@ -699,8 +718,8 @@ export type Database = {
         Insert: {
           created_at?: string
           has_dateable_signal?: boolean
-          id?: string
           icp_fit?: string
+          id?: string
           organisation_id: string
           prospect_id: string
           qualification_reason?: string | null
@@ -709,8 +728,10 @@ export type Database = {
           raw_linkedin?: Json | null
           raw_web_search?: Json | null
           raw_website?: Json | null
+          relevance_reason?: string | null
           run_id?: string | null
           signal_observation?: string | null
+          signal_relevance?: string
           sources_attempted?: string[]
           sources_successful?: string[]
           synthesis_confidence?: string | null
@@ -722,8 +743,8 @@ export type Database = {
         Update: {
           created_at?: string
           has_dateable_signal?: boolean
-          id?: string
           icp_fit?: string
+          id?: string
           organisation_id?: string
           prospect_id?: string
           qualification_reason?: string | null
@@ -732,8 +753,10 @@ export type Database = {
           raw_linkedin?: Json | null
           raw_web_search?: Json | null
           raw_website?: Json | null
+          relevance_reason?: string | null
           run_id?: string | null
           signal_observation?: string | null
+          signal_relevance?: string
           sources_attempted?: string[]
           sources_successful?: string[]
           synthesis_confidence?: string | null
@@ -782,8 +805,8 @@ export type Database = {
           email: string | null
           first_name: string | null
           has_dateable_signal: boolean
-          id: string
           icp_fit: string
+          id: string
           last_name: string | null
           linkedin_url: string | null
           organisation_id: string
@@ -793,6 +816,7 @@ export type Database = {
           research_source: string | null
           role: string | null
           signal_observation: string | null
+          signal_relevance: string
           suppressed: boolean
           suppressed_at: string | null
           suppression_reason: string | null
@@ -800,6 +824,7 @@ export type Database = {
           trigger_data: Json | null
           updated_at: string
           variant_id: string | null
+          website_url: string | null
         }
         Insert: {
           classified_at?: string | null
@@ -809,8 +834,8 @@ export type Database = {
           email?: string | null
           first_name?: string | null
           has_dateable_signal?: boolean
-          id?: string
           icp_fit?: string
+          id?: string
           last_name?: string | null
           linkedin_url?: string | null
           organisation_id: string
@@ -820,6 +845,7 @@ export type Database = {
           research_source?: string | null
           role?: string | null
           signal_observation?: string | null
+          signal_relevance?: string
           suppressed?: boolean
           suppressed_at?: string | null
           suppression_reason?: string | null
@@ -827,6 +853,7 @@ export type Database = {
           trigger_data?: Json | null
           updated_at?: string
           variant_id?: string | null
+          website_url?: string | null
         }
         Update: {
           classified_at?: string | null
@@ -836,8 +863,8 @@ export type Database = {
           email?: string | null
           first_name?: string | null
           has_dateable_signal?: boolean
-          id?: string
           icp_fit?: string
+          id?: string
           last_name?: string | null
           linkedin_url?: string | null
           organisation_id?: string
@@ -847,6 +874,7 @@ export type Database = {
           research_source?: string | null
           role?: string | null
           signal_observation?: string | null
+          signal_relevance?: string
           suppressed?: boolean
           suppressed_at?: string | null
           suppression_reason?: string | null
@@ -854,6 +882,7 @@ export type Database = {
           trigger_data?: Json | null
           updated_at?: string
           variant_id?: string | null
+          website_url?: string | null
         }
         Relationships: [
           {
@@ -875,6 +904,108 @@ export type Database = {
             columns: ["organisation_id"]
             isOneToOne: false
             referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reply_handling_actions: {
+        Row: {
+          action_error: string | null
+          action_payload: Json | null
+          action_succeeded: boolean | null
+          action_taken: string
+          attempt_number: number
+          campaign_id: string | null
+          classification_confidence: number | null
+          classification_reasoning: string | null
+          classified_intent: string | null
+          created_at: string
+          faq_entry_id: string | null
+          id: string
+          instantly_response: Json | null
+          organisation_id: string
+          prospect_id: string | null
+          scheduled_resume_at: string | null
+          signal_id: string
+          tier_assigned: number | null
+          updated_at: string
+        }
+        Insert: {
+          action_error?: string | null
+          action_payload?: Json | null
+          action_succeeded?: boolean | null
+          action_taken: string
+          attempt_number?: number
+          campaign_id?: string | null
+          classification_confidence?: number | null
+          classification_reasoning?: string | null
+          classified_intent?: string | null
+          created_at?: string
+          faq_entry_id?: string | null
+          id?: string
+          instantly_response?: Json | null
+          organisation_id: string
+          prospect_id?: string | null
+          scheduled_resume_at?: string | null
+          signal_id: string
+          tier_assigned?: number | null
+          updated_at?: string
+        }
+        Update: {
+          action_error?: string | null
+          action_payload?: Json | null
+          action_succeeded?: boolean | null
+          action_taken?: string
+          attempt_number?: number
+          campaign_id?: string | null
+          classification_confidence?: number | null
+          classification_reasoning?: string | null
+          classified_intent?: string | null
+          created_at?: string
+          faq_entry_id?: string | null
+          id?: string
+          instantly_response?: Json | null
+          organisation_id?: string
+          prospect_id?: string | null
+          scheduled_resume_at?: string | null
+          signal_id?: string
+          tier_assigned?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reply_handling_actions_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reply_handling_actions_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reply_handling_actions_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reply_handling_actions_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "prospects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reply_handling_actions_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
             referencedColumns: ["id"]
           },
         ]
