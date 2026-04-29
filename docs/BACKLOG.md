@@ -119,34 +119,14 @@
   Trigger: immediately after first Instantly campaign produces a bounced or unsubscribed lead.
   Location: src/lib/integrations/polling/instantly.ts lines 35-36 + same constants exported to route.ts
 
-- [pre-c0] pg_cron config vars to set in Supabase SQL editor before activation (2026-04-28, updated 2026-04-29)
-  Run ALL of these in the Supabase SQL editor before applying the polling or reply-handling migrations.
-  app.cron_secret is set once and shared by both cron jobs — no need to set it twice.
-
-  For polling layer (supabase/migrations/20260428_instantly_polling.sql):
-       ALTER DATABASE postgres SET "app.polling_endpoint_url" = 'https://margenticos-platform.vercel.app/api/cron/instantly-poll';
-       ALTER DATABASE postgres SET "app.cron_secret" = '<CRON_SECRET value from Vercel>';
-       SELECT pg_reload_conf();
-
-  For reply handling layer (supabase/migrations/20260429_reply_handling.sql):
-       ALTER DATABASE postgres SET "app.process_replies_endpoint_url" = 'https://margenticos-platform.vercel.app/api/cron/process-replies';
-       SELECT pg_reload_conf();
-       (app.cron_secret already set above — no change needed)
-
-  After both config vars are set, apply migrations in order:
-    1. supabase/migrations/20260428_instantly_polling.sql
-    2. supabase/migrations/20260429_reply_handling.sql
-
-  Then complete these steps:
-    3. Insert Instantly API key into integration_credentials:
-         INSERT INTO integration_credentials (organisation_id, source, credential_type, value)
-         VALUES (NULL, 'instantly', 'api_key', '<Instantly API key>');
-    4. Update MargenticOS org with Calendly URL:
-         UPDATE organisations SET calendly_url = '<your-calendly-link>' WHERE slug = 'margenticos';
-    5. Verify Instantly lead status values for bounced (-2) and unsubscribed (-1) against the live API.
-       Check by calling list_leads with a known-bounced lead and inspecting the status field.
-       Constants in src/lib/polling/instantly.ts (INSTANTLY_LEAD_STATUS_*) and route.ts must match.
-  Status: both migration files committed, deployment steps not yet completed.
+- [DONE 2026-04-29] pg_cron activation for both polling jobs (2026-04-28, completed 2026-04-29)
+  Both migrations applied. Calendly URL set. Both cron jobs rescheduled with hardcoded values
+  (ALTER DATABASE SET app.* requires supabase_admin on Hobby — current_setting() returns NULL, fails pg_net).
+  Workaround: unschedule both jobs post-migration, reschedule with URL and CRON_SECRET hardcoded directly
+  in the cron.schedule() command string. Both jobs firing at 21:30 UTC — cron.job_run_details: succeeded.
+  Smoke test passed: /api/cron/instantly-poll → {"ok":true,...} | /api/cron/process-replies → {"ok":true,...}
+  Migration comments updated to document the Hobby limitation and working reschedule pattern.
+  See Lessons Learned: "Supabase Hobby tier: pg_cron config vars via ALTER DATABASE SET blocked".
 
 - [pre-c0] Campaign provisioning flow — campaigns table must be populated before polling produces signals (2026-04-28)
   The polling layer maps Instantly campaign UUIDs → organisation_id via campaigns.external_id.
@@ -416,16 +396,17 @@
   Aggregation agent feeds those systems — if the consumers are Phase 2, the producer is too.
   Sparse data during client zero makes this meaningless to run. Build when signal volume justifies it.
 
-- [DONE 2026-04-23] Build a scheduler for auto-approve timers
-  Vercel Cron, hourly schedule (0 * * * *). POST /api/cron/auto-approve,
-  protected by CRON_SECRET bearer token. Fetches pending suggestions joined
-  to organisations.auto_approve_window_hours (default 72, per-client configurable).
-  Calls approve_document_suggestion RPC per due suggestion. Per-suggestion error
-  isolation — one failure does not abort the batch. Already-handled suggestions
-  (operator approved between query and RPC) skip cleanly without logging a false error.
-  SYSTEM_AUTO_APPROVE_ID sentinel in reviewed_by identifies auto-approvals in DB.
-  Migration: auto_approve_window_hours added to organisations table. CRON_SECRET
-  added to Vercel env vars (Production + Preview).
+- [DONE 2026-04-23, updated 2026-04-29] Build a scheduler for auto-approve timers
+  Route built: /api/cron/auto-approve (CRON_SECRET protected). Fetches pending suggestions
+  per organisations.auto_approve_window_hours (default 72). approve_document_suggestion RPC.
+  Per-suggestion error isolation. SYSTEM_AUTO_APPROVE_ID sentinel in reviewed_by.
+  Migration: auto_approve_window_hours added to organisations table.
+
+  UPDATE 2026-04-29: The Vercel Cron entry (0 * * * * = hourly) was REMOVED from vercel.json.
+  Vercel Hobby blocks sub-daily crons — this entry silently rejected every push to main for 6 days.
+  The route still exists and works. When auto-approve is enabled (Phase 4 per CLAUDE.md), schedule
+  it via pg_cron (same pattern as instantly-poll and process-replies) rather than a Vercel cron entry.
+  See Lessons Learned: "Vercel Hobby rejects sub-daily cron schedules at build time".
 
 - [DONE 2026-04-22] Install Resend and wire transactional emails.
   resend SDK installed. Single client instance in src/lib/email/client.ts.
@@ -974,6 +955,35 @@ Complete all items before the first paying client goes live:
   Sentry.captureRequestError (available in @sentry/nextjs v10+). This applies
   to every Next.js 15+ project; stock Sentry tutorials predating Next.js 15
   do not cover it. Took one diagnostic session to isolate.
+
+- [lesson] Vercel Hobby rejects sub-daily cron schedules at build time (2026-04-29)
+  vercel.json crons with schedules that fire more than once per day (e.g. "0 * * * *" = hourly)
+  cause Vercel to reject the build entirely on Hobby plan. The rejection happens silently —
+  GitHub pushes succeed, the webhook fires, but Vercel refuses to build. No email, no dashboard
+  alert, no build log. The previous production deploy continues serving indefinitely.
+  This caused 6 days of commits to go undeployed.
+  Fix: remove sub-daily cron entries from vercel.json entirely. Use pg_cron for all sub-daily
+  scheduling (Supabase pg_cron + pg_net → Vercel endpoint is the established pattern here).
+  Daily crons (once per day or less) work on Hobby.
+
+- [lesson] Supabase Hobby tier: pg_cron config vars via ALTER DATABASE SET blocked (2026-04-29)
+  `ALTER DATABASE postgres SET "app.*"` requires supabase_admin role.
+  The Supabase SQL editor runs as the postgres role — permission denied.
+  `current_setting('app.*', true)` therefore returns NULL, and pg_net fails with a
+  NOT NULL constraint on the url column of http_request_queue.
+  All cron.job_run_details entries showed status "succeeded" (pg_net queued the request)
+  but the actual HTTP call never fired — silent failure for 10+ runs.
+  Fix: hardcode URL and CRON_SECRET directly in the cron.schedule() command string.
+  Pattern documented in both migration files. CRON_SECRET in plaintext in cron.job.command
+  is acceptable for low-impact trigger tokens; not acceptable for higher-value credentials.
+
+- [lesson] pdf-parse v2 is a class-based API; Turbopack cannot resolve its internal path (2026-04-29)
+  pdf-parse changed its API between v1 (function: `pdfParse(buffer)`) and v2 (class: `new PDFParse({ data })`).
+  The internal-path workaround (`pdf-parse/lib/pdf-parse.js`) that bypassed the v1 startup
+  test-file issue does not resolve under Turbopack and causes a build failure.
+  Fix: add `serverExternalPackages: ['pdf-parse']` to next.config.ts (tells Turbopack to leave
+  the package to Node.js at runtime), and use the current class API: `new PDFParse({ data: buffer })`.then `.getText()` which returns `{ text: string }`.
+  Location: next.config.ts, src/lib/intake/extract-text.ts.
 
 ---
 
