@@ -195,6 +195,18 @@ async function writeSignal(
 
 // ── Instantly API client ──────────────────────────────────────────────────────
 
+// Shared response normaliser: { items, pagination } → { data, nextCursor, error }
+function parseInstantlyResponse(json: unknown): { data: unknown[]; nextCursor: string | null } {
+  const items: unknown[] = Array.isArray(json)
+    ? json
+    : ((json as Record<string, unknown>)?.items as unknown[]) ?? []
+  const nextCursor: string | null =
+    ((json as Record<string, unknown>)?.pagination as Record<string, unknown>)
+      ?.next_starting_after as string | null ?? null
+  return { data: items, nextCursor }
+}
+
+// GET request — used for /emails (cursor-based, query params)
 async function instantlyGet(
   path: string,
   apiKey: string,
@@ -233,12 +245,46 @@ async function instantlyGet(
     return { data: null, nextCursor: null, error: 'Instantly API returned non-JSON response' }
   }
 
-  // Instantly V2 wraps list responses in { items: [...], pagination: { next_starting_after } }
-  // or sometimes just an array. Handle both shapes.
-  const items: unknown[] = Array.isArray(json) ? json : (json.items ?? [])
-  const nextCursor: string | null = json?.pagination?.next_starting_after ?? null
+  const { data, nextCursor } = parseInstantlyResponse(json)
+  return { data, nextCursor, error: null }
+}
 
-  return { data: items, nextCursor, error: null }
+// POST request — used for /leads/list (Instantly V2 list endpoints use POST with JSON body)
+async function instantlyPost(
+  path: string,
+  apiKey: string,
+  body: Record<string, unknown>
+): Promise<{ data: unknown[] | null; nextCursor: string | null; error: string | null }> {
+  let response: Response
+  try {
+    response = await fetch(`${INSTANTLY_API_BASE}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+  } catch (err) {
+    return { data: null, nextCursor: null, error: `Network error: ${String(err)}` }
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    return {
+      data: null,
+      nextCursor: null,
+      error: `Instantly API ${response.status}: ${text.slice(0, 200)}`,
+    }
+  }
+
+  const json = await response.json().catch(() => null)
+  if (!json) {
+    return { data: null, nextCursor: null, error: 'Instantly API returned non-JSON response' }
+  }
+
+  const { data, nextCursor } = parseInstantlyResponse(json)
+  return { data, nextCursor, error: null }
 }
 
 // ── Reply polling (cursor-based) ──────────────────────────────────────────────
@@ -398,14 +444,14 @@ export async function pollInstantlyLeadStatus(
         pageCount++
         totalPages++
 
-        const params: Record<string, string> = {
+        const body: Record<string, unknown> = {
           status: instantlyStatus,
           campaign: instantlyCampaignId,
-          limit: '100',
+          limit: 100,
         }
-        if (pageCursor) params.starting_after = pageCursor
+        if (pageCursor) body.starting_after = pageCursor
 
-        const { data: leads, nextCursor, error } = await instantlyGet('/lead/list', apiKey, params)
+        const { data: leads, nextCursor, error } = await instantlyPost('/leads/list', apiKey, body)
 
         if (error) {
           // Log and move on to the next campaign — one campaign failure doesn't abort the run.
