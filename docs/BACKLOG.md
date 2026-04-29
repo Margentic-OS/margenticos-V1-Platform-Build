@@ -47,6 +47,43 @@
   and error contexts), distinct failures create distinct Sentry issues — so each fires immediately.
   Script kept at scripts/create-sentry-alert-rules.ts as reference for future alert rule creation.
 
+- [DONE 2026-04-29] Phase 1 reply-handling code review — smash list (four commits)
+  Full code review of classifyReply, processOneSignal, reply-actions.ts, polling/instantly.ts.
+  Twelve classifier test cases all passed before fixes were applied. Four groups of fixes:
+
+  Group A — 68375d5 — fix(reply-handling): close opt-out compliance gaps and improve OOO audit trail
+    • getExistingActionSummary returns null on DB error; caller now aborts rather than re-processing
+      a potentially handled signal (duplicate Calendly send risk closed)
+    • Failed Instantly-side suppress on idempotency retry now logs warn "manual review needed"
+      instead of silently falling through to "signal already handled"
+    • Opt-out with no prospect match now logs error (not warn) with instantly_suppressed field
+    • OOO action_payload gains date_parse_attempted and date_found for audit visibility
+
+  Group B — 5debb97 — fix(reply-classifier): timeout, JSON extraction robustness, empty reasoning
+    • AbortSignal.timeout(15000) on Haiku call — 15s ceiling prevents a hung classification
+      from consuming the entire cron batch window
+    • raw.match(/\{[\s\S]*\}/) replaces fence-strip regex — handles explanation text Haiku
+      prepends before the JSON block
+    • Empty reasoning string defaults to "(no reasoning provided)" with warn log, not null return
+
+  Group C — 91b7b4a — fix(integrations/instantly): preserve error bodies, distinguish 429s, consolidate API base
+    • .catch(() => null) replaced with .catch(async () => { _raw_text }) on both response parsers
+      — non-JSON error bodies (HTML 429, 502) now preserved for debugging
+    • ActionResult gains rateLimited?: boolean — 429 is distinguishable without retry logic yet
+    • INSTANTLY_API_BASE consolidated to src/lib/integrations/handlers/instantly/constants.ts;
+      both reply-actions.ts and polling/instantly.ts import from shared file
+
+  Group D — 332b718 — feat(monitoring): add Sentry alert for sustained polling failures
+    • Alert polling-failures-sustained (rule ID: 553534) — fires when polling-failure issue
+      seen >2 times in 1 hour (3+ failures = 45 min of sustained breakage at 15-min interval)
+    • Filters on 'Instantly poll: reply fetch failed' OR 'Instantly poll: reply polling threw'
+    • Re-alerts at most once per hour. Script at scripts/create-sentry-polling-alert.ts
+
+  Deferred from this review (not fixed tonight):
+    Cat 2 #1 (Haiku concurrency) — see phase2 section below
+    Cat 2 #5 (Calendly template config) — see pre-c1 section below
+    Cat 3 (ADR-001 channel/source agnosticism) — pending decision, see pending-decision entry below
+
 - [c0-blocker] Operator query for failed reply sends (2026-04-29)
   Run in Supabase SQL editor to identify signals needing manual follow-up:
 
@@ -324,6 +361,15 @@
   Also regenerated src/types/database.ts — agent_runs and auto_approve_window_hours
   were missing from the generated types.
 
+- [phase2, trigger: >20 unprocessed reply signals at start of any cron run] Haiku concurrency in reply processor (2026-04-29)
+  Current: processReplies() processes 20 signals sequentially. At ~400ms avg per Haiku call,
+  batch takes ~8s — fine at current volume. When backlog exceeds batch capacity (signals accumulate
+  faster than one 5-min cron cycle clears them), add p-limit concurrency of 3–5.
+  Same pattern as prospect research batch runner (concurrency=5, per-provider sub-limits).
+  File: src/lib/reply-handling/process-reply.ts — BATCH_SIZE constant and for loop at line ~590.
+  Do not build speculatively. Observable signal: reply_received signals with processed=false
+  older than 10 minutes at the start of a cron run.
+
 - [phase2, trigger: running batches >1000 prospects regularly OR local execution causes operational pain] Durable background queue for prospect research batches
   Current architecture: p-limit parallel batch with concurrency=5, runs locally via npx tsx.
   Target: 1000 prospects in 30-60 min wall-clock. Sufficient for pre-c0 and single-client operation.
@@ -563,6 +609,15 @@ Signal processing agent and warnings engine backend deferred to Phase 2 — see 
 
 ## Pre-first-paying-client gates
 
+- [pre-c1, trigger: first paying client requests reply copy customisation] Calendly reply template config (2026-04-29)
+  Current: buildCalendlyReplyBody() in process-reply.ts:80-96 is a code-level constant.
+  Any copy change (tone, sign-off, P.S. line) requires a code deploy.
+  Acceptable for client zero — one template, operator-controlled.
+  Fix when triggered: move template to organisations table or a per-client config row.
+  Use {firstName}, {orgName}, {calendlyUrl} as named placeholders resolved at send time.
+  Operator editable in the settings view without a deploy.
+  File: src/lib/reply-handling/process-reply.ts:80-96
+
 - [pre-c1-B] Payment gateway integration — Stripe assumed default (2026-04-24)
   Estimated scope: 2–3 days. Not a client zero blocker (Doug is client zero, no payment required).
   Build before first paying client onboards. Stripe is the assumed default; confirm before building.
@@ -751,6 +806,40 @@ Revisit once prospect research agent is built and full outbound cycle is working
   website-test, sales-intel, margenticos-landing, biaog.
   Review which are still live. Archive dead ones. Transfer live ones to the org.
   Non-urgent but keeps GitHub structure aligned with the business entity on Team plan.
+
+---
+
+## ADR-001 channel/source agnosticism — pending decision (2026-04-29)
+
+Four findings from the Phase 1 code review. The reply-handling layer works correctly
+for Instantly today. These gaps only matter when a second reply source (Lemlist, GHL)
+is integrated. Refactor cost: ~2-4 hours. Decision: fix now or defer to Phase 2.
+
+- [pending-decision] Finding C3-1 — resolveInstantlyLeadId inside the processor
+  process-reply.ts:103-125 calls https://api.instantly.ai/... directly.
+  ADR-001 violation: Instantly API calls belong only in handler files.
+  Fix: move to reply-actions.ts as resolveLeadId(raw, apiKey, fromEmail). Processor
+  calls handler function, not the Instantly URL.
+
+- [pending-decision] Finding C3-2 — suppressLead / sendThreadReply imported by name into processor
+  process-reply.ts:34-35 imports from handlers/instantly/reply-actions directly.
+  Adding a second source requires dispatch branching in processOneSignal.
+  Fix: capability-based dispatch — getReplyHandler(source).suppress(...) — so the
+  processor has zero awareness of which source it is handling.
+
+- [pending-decision] Finding C3-3 — instantlyApiKey threaded as a named primitive through the call stack
+  route.ts:56, process-reply.ts:235 and :562. Multi-source system resolves credentials
+  via the capability registry inside the handler, not as a vendor-named string parameter.
+  Fix: getCredential(capability) inside the handler; processReplies(supabase) takes no key.
+
+- [pending-decision] Finding C3-4 — raw_data field extraction uses Instantly V2 schema
+  process-reply.ts:293-295, :338-344. from_address_email, body.text, eaccount are
+  Instantly-specific field names. A Lemlist signal's raw_data would have different fields;
+  extraction silently returns undefined and the processor proceeds with empty body and null fromEmail.
+  Fix: source-aware field extractors keyed by signal.source — one per integration source.
+
+  Defer trigger for all four: immediately before any non-Instantly reply source is integrated.
+  If deferred, add a code comment at each violation site pointing to this BACKLOG entry.
 
 ---
 
