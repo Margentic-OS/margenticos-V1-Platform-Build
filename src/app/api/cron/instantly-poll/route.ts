@@ -19,6 +19,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import * as Sentry from '@sentry/nextjs'
 import { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 import {
@@ -28,6 +29,14 @@ import {
   INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
 } from '@/lib/integrations/polling/instantly'
 
+const MONITOR_SLUG = 'instantly-poll'
+const MONITOR_CONFIG = {
+  schedule: { type: 'crontab' as const, value: '*/15 * * * *' },
+  checkinMargin: 15,
+  maxRuntime: 1,
+  timezone: 'UTC',
+}
+
 export async function POST(request: NextRequest) {
   // ── Auth ───────────────────────────────────────────────────────────────────
   const authHeader = request.headers.get('authorization')
@@ -36,6 +45,11 @@ export async function POST(request: NextRequest) {
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
   }
+
+  const checkInId = Sentry.captureCheckIn(
+    { monitorSlug: MONITOR_SLUG, status: 'in_progress' },
+    MONITOR_CONFIG
+  )
 
   const supabase = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -58,6 +72,7 @@ export async function POST(request: NextRequest) {
       error: credError?.message,
       fix: "INSERT INTO integration_credentials (organisation_id, source, credential_type, value) VALUES (NULL, 'instantly', 'api_key', '<key>')",
     })
+    Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'error', checkInId })
     return NextResponse.json(
       { error: 'Instantly API key not configured.' },
       { status: 503 }
@@ -119,6 +134,7 @@ export async function POST(request: NextRequest) {
     ...results,
   })
 
+  Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'ok', checkInId })
   return NextResponse.json({
     ok: true,
     results,

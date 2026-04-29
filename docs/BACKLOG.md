@@ -982,7 +982,7 @@ Complete all items before the first paying client goes live:
   The internal-path workaround (`pdf-parse/lib/pdf-parse.js`) that bypassed the v1 startup
   test-file issue does not resolve under Turbopack and causes a build failure.
   Fix: add `serverExternalPackages: ['pdf-parse']` to next.config.ts (tells Turbopack to leave
-  the package to Node.js at runtime), and use the current class API: `new PDFParse({ data: buffer })`.then `.getText()` which returns `{ text: string }`.
+  the package to Node.js at runtime), and use the current class API: `new PDFParse({ data: buffer }).getText()` which returns `{ text: string }`.
   Location: next.config.ts, src/lib/intake/extract-text.ts.
 
 ---
@@ -992,3 +992,7 @@ Complete all items before the first paying client goes live:
 - [reminder] Application queries against organisations for client-facing views must never
   SELECT payment_status, contract_status, or engagement_month. RLS filters rows, not columns.
   App layer is responsible.
+
+- [reminder] CRON_SECRET stored plaintext in cron.job.command — acceptable for this low-impact trigger token; not a pattern for high-value credentials. Use Supabase Vault for those.
+
+- [reminder] Vercel Hobby silently rejects sub-daily cron schedules at build time — all scheduling for sub-daily jobs uses pg_cron. vercel.json crons entry must be empty or daily-only.
