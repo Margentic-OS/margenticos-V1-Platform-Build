@@ -158,13 +158,23 @@
   very unlikely — but the gate must still run before the sourcing pipeline goes live.
   Status: pre-c1 (not pre-c0, since sourcing pipeline is post-sending-infrastructure anyway).
 
-- [pre-c0] Reply handling agent — Phase 1 scope per ADR-007 (2026-04-24)
-  Automated positive reply: respond same business hour, Calendly link, "grab a slot," signed as
-  "[Client Company Name] Team." Automated suppression on opt-out/hostile. Automated OOO pause/resume
-  via Instantly API. Information requests: escalation only (no automated response). Flagged
-  immediately to client as high priority, 15h/48h/72h reminder chain.
-  Status: deferred until prospect research agent v2 is dogfooded end-to-end.
-  Prerequisite: Calendly personal setup complete (see pre-c0-C item below).
+- [DONE 2026-04-29] Reply handling agent — Phase 1 scope per ADR-007
+  All five files committed and pushed in session 2026-04-29:
+    b15ccaa  feat(reply-handling): Instantly handler at integrations/handlers/instantly/
+               suppressLead() + sendThreadReply() — REST interface only, no templating
+    e6c0db1  feat(reply-handling): reply classifier with full 8-intent taxonomy
+               Haiku (claude-haiku-4-5-20251001), null=classifier_failed, unclear=low-confidence
+    ee66087  feat(reply-handling): reply processor with idempotency and dispatch
+               20-signal batch, write-before-act, 3-retry classifier limit, DB suppression authoritative
+    9261de1  feat(reply-handling): /api/cron/process-replies endpoint
+               CRON_SECRET auth, service role, delegates to processReplies()
+    0e1a88b  feat(reply-handling): migration skeleton (calendly_url, reply_handling_actions, pg_cron job)
+               Migration committed — NOT yet applied. Activation steps in [pre-c0] pg_cron entry above.
+  Scope delivered: suppress (opt_out), ooo_log, send_reply ≥0.90 confidence, log_only for all others.
+  Sequence-stop on any reply handled automatically by Instantly (stop_on_reply: true).
+  OOO pause/resume handled natively by Instantly — agent logs for visibility only.
+  Information request escalation (15h/48h/72h chain) deferred to Phase 2.
+  Remaining before activation: pg_cron config vars, migration apply, Calendly URL, Sentry alerts.
 
 - [DONE 2026-04-24] Store relevance_reason in prospect_research_results table and ResearchResult type
   Added relevance_reason column (migration), included in storeResearchResult() insert,
