@@ -563,9 +563,8 @@ Remaining [pre-c0] items in dependency order. Items at the same level can run in
   company_url triggers fetch on blur. Homepage + up to 3 inner pages stored in intake_website_pages.
   ICP, TOV, Positioning agents all consume via fetchWebsiteContext().
 
-**Replace TODO placeholders — AgentActivityView + SignalsLogView** (~2–3 hrs)
-  Depends on: nothing (UI wiring to existing Supabase tables)
-  Blocks: operator visibility during client zero
+**Replace TODO placeholders — AgentActivityView + SignalsLogView** ✓ DONE 2026-04-23
+  Real data wired via server components. See [DONE] entry above.
 
 ### Layer 1 — depends on intake being complete (parallel after Layer 0)
 
