@@ -82,7 +82,7 @@
     3. Check the exact value of its `status` field
     4. If it differs from '-2' (bounced) or '-1' (unsubscribed), update the constants and redeploy
   Trigger: immediately after first Instantly campaign produces a bounced or unsubscribed lead.
-  Location: src/lib/polling/instantly.ts lines 35-36 + same constants exported to route.ts
+  Location: src/lib/integrations/polling/instantly.ts lines 35-36 + same constants exported to route.ts
 
 - [pre-c0] pg_cron config vars to set in Supabase SQL editor before activation (2026-04-28, updated 2026-04-29)
   Run ALL of these in the Supabase SQL editor before applying the polling or reply-handling migrations.
