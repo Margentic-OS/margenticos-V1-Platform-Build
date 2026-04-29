@@ -118,6 +118,10 @@ export async function classifyReply(
       max_tokens: 200,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],
+    }, {
+      // Bound single-call latency — prevents one hung Haiku call from consuming the
+      // entire cron batch window. 15s is generous for a 200-token classification.
+      signal: AbortSignal.timeout(15000),
     })
 
     const textBlock = response.content.find((b): b is TextBlock => b.type === 'text')
@@ -132,8 +136,14 @@ export async function classifyReply(
     return null
   }
 
-  // Strip markdown code fences if Haiku wraps the JSON despite instructions.
-  const jsonString = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+  // Extract the first {...} JSON object from the response, regardless of any surrounding
+  // explanation text or code fences Haiku may prepend despite instructions.
+  const jsonMatch = raw.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) {
+    logger.error('reply-classifier: no JSON object found in Haiku response', { raw })
+    return null
+  }
+  const jsonString = jsonMatch[0]
 
   let parsed: Record<string, unknown>
   try {
@@ -157,14 +167,18 @@ export async function classifyReply(
     return null
   }
 
-  if (!reasoning || typeof reasoning !== 'string') {
+  if (typeof reasoning !== 'string') {
     logger.error('reply-classifier: missing reasoning in Haiku output', { raw })
     return null
+  }
+  const resolvedReasoning = reasoning.trim() || '(no reasoning provided)'
+  if (!reasoning.trim()) {
+    logger.warn('reply-classifier: empty reasoning in Haiku output — using default', { raw })
   }
 
   return {
     intent: intent as ReplyIntent,
     confidence: Math.round(confidence * 1000) / 1000,
-    reasoning,
+    reasoning: resolvedReasoning,
   }
 }
