@@ -27,27 +27,25 @@
 
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
 
-- [c0-blocker, before launch] Configure Sentry alert rules for failed reply-send paths (2026-04-29)
-  Two alert conditions must be active before live campaigns begin. Set up in Sentry UI:
-  Project → Alerts → Create Alert → Issue Alert.
+- [DONE 2026-04-29] Configure Sentry alert rules for failed reply-send paths
+  Both rules created via direct Sentry REST API (scripts/create-sentry-alert-rules.ts).
+  Org: margentic-os | Project: margenticos | Region: US (sentry.io).
+  SENTRY_ALERTS_TOKEN added to .env.local (scopes: alerts:write, project:read, org:read).
+  Token can be revoked in Sentry → Settings → Auth Tokens once no longer needed.
 
-  Alert 1 — "Reply send failed: manual review needed"
-    Condition:  An event with message containing "send_reply API failed on previous run" is seen
-    OR          An event with message containing "sendThreadReply failed" is seen
-    Threshold:  1 event in 1 minute (fire immediately — every occurrence needs review)
-    Action:     Notify by email to d.h.p1999@gmail.com
-    Name:       reply-send-failed
+  Alert 1 — reply-send-failed  →  rule ID: 553483
+    Triggers: new issue OR regression where message contains
+      "send_reply API failed on previous run" OR "sendThreadReply failed"
+    Action: email to d.h.p1999@gmail.com | frequency: 5 min (Sentry minimum)
 
-  Alert 2 — "Reply classifier permanently failed"
-    Condition:  An event with message containing "classifier retry limit reached" is seen
-    Threshold:  1 event in 1 minute
-    Action:     Notify by email to d.h.p1999@gmail.com
-    Name:       reply-classifier-permanently-failed
+  Alert 2 — reply-classifier-permanently-failed  →  rule ID: 553484
+    Triggers: new issue OR regression where message contains "classifier retry limit reached"
+    Action: email to d.h.p1999@gmail.com | frequency: 5 min
 
-  Why: send_reply failures leave a warm prospect without a Calendly link. No automated retry
-  exists (risk of duplicate send). The failure window is within the 5-minute cron cycle, so
-  a same-hour response is achievable with a manual Sentry alert.
-  Source signals in code: process-reply.ts logger.error/warn calls at send_reply dispatch paths.
+  Note on frequency: Sentry enforces a 5-minute minimum re-notification interval per issue.
+  Because each prospect failure likely produces a unique error fingerprint (different signal IDs
+  and error contexts), distinct failures create distinct Sentry issues — so each fires immediately.
+  Script kept at scripts/create-sentry-alert-rules.ts as reference for future alert rule creation.
 
 - [c0-blocker] Operator query for failed reply sends (2026-04-29)
   Run in Supabase SQL editor to identify signals needing manual follow-up:
