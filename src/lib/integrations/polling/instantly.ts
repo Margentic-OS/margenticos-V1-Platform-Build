@@ -26,8 +26,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database, Json } from '@/types/database'
 import { logger } from '@/lib/logger'
-
-const INSTANTLY_API_BASE = 'https://api.instantly.ai/api/v2'
+import { INSTANTLY_API_BASE } from '@/lib/integrations/handlers/instantly/constants'
 const SOURCE = 'instantly'
 
 // UNVERIFIED — these values are assumed from training data, not confirmed against
