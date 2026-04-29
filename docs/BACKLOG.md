@@ -39,20 +39,34 @@
   Trigger: immediately after first Instantly campaign produces a bounced or unsubscribed lead.
   Location: src/lib/polling/instantly.ts lines 35-36 + same constants exported to route.ts
 
-- [pre-c0] Instantly polling layer — manual deployment steps required before first poll (2026-04-28)
-  Three steps must be completed before the polling layer activates:
-  1. Set Postgres config parameters in Supabase SQL editor (see migration file header):
+- [pre-c0] pg_cron config vars to set in Supabase SQL editor before activation (2026-04-28, updated 2026-04-29)
+  Run ALL of these in the Supabase SQL editor before applying the polling or reply-handling migrations.
+  app.cron_secret is set once and shared by both cron jobs — no need to set it twice.
+
+  For polling layer (supabase/migrations/20260428_instantly_polling.sql):
        ALTER DATABASE postgres SET "app.polling_endpoint_url" = 'https://margenticos-platform.vercel.app/api/cron/instantly-poll';
        ALTER DATABASE postgres SET "app.cron_secret" = '<CRON_SECRET value from Vercel>';
        SELECT pg_reload_conf();
-  2. Apply the migration: supabase/migrations/20260428_instantly_polling.sql (via Supabase MCP or dashboard)
-  3. Insert Instantly API key into integration_credentials:
-       INSERT INTO integration_credentials (organisation_id, source, credential_type, value)
-       VALUES (NULL, 'instantly', 'api_key', '<Instantly API key>');
-  4. Verify Instantly lead status values for bounced (-2) and unsubscribed (-1) against the live API.
-     Check by calling list_leads with a known-bounced lead and inspecting the status field.
-     Constants in src/lib/polling/instantly.ts (INSTANTLY_LEAD_STATUS_*) and route.ts must match.
-  Status: code committed (f75e9dd), deployment steps not yet completed.
+
+  For reply handling layer (supabase/migrations/20260429_reply_handling.sql):
+       ALTER DATABASE postgres SET "app.process_replies_endpoint_url" = 'https://margenticos-platform.vercel.app/api/cron/process-replies';
+       SELECT pg_reload_conf();
+       (app.cron_secret already set above — no change needed)
+
+  After both config vars are set, apply migrations in order:
+    1. supabase/migrations/20260428_instantly_polling.sql
+    2. supabase/migrations/20260429_reply_handling.sql
+
+  Then complete these steps:
+    3. Insert Instantly API key into integration_credentials:
+         INSERT INTO integration_credentials (organisation_id, source, credential_type, value)
+         VALUES (NULL, 'instantly', 'api_key', '<Instantly API key>');
+    4. Update MargenticOS org with Calendly URL:
+         UPDATE organisations SET calendly_url = '<your-calendly-link>' WHERE slug = 'margenticos';
+    5. Verify Instantly lead status values for bounced (-2) and unsubscribed (-1) against the live API.
+       Check by calling list_leads with a known-bounced lead and inspecting the status field.
+       Constants in src/lib/polling/instantly.ts (INSTANTLY_LEAD_STATUS_*) and route.ts must match.
+  Status: both migration files committed, deployment steps not yet completed.
 
 - [pre-c0] Campaign provisioning flow — campaigns table must be populated before polling produces signals (2026-04-28)
   The polling layer maps Instantly campaign UUIDs → organisation_id via campaigns.external_id.
