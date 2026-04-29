@@ -27,6 +27,51 @@
 
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
 
+- [c0-blocker, before launch] Configure Sentry alert rules for failed reply-send paths (2026-04-29)
+  Two alert conditions must be active before live campaigns begin. Set up in Sentry UI:
+  Project → Alerts → Create Alert → Issue Alert.
+
+  Alert 1 — "Reply send failed: manual review needed"
+    Condition:  An event with message containing "send_reply API failed on previous run" is seen
+    OR          An event with message containing "sendThreadReply failed" is seen
+    Threshold:  1 event in 1 minute (fire immediately — every occurrence needs review)
+    Action:     Notify by email to d.h.p1999@gmail.com
+    Name:       reply-send-failed
+
+  Alert 2 — "Reply classifier permanently failed"
+    Condition:  An event with message containing "classifier retry limit reached" is seen
+    Threshold:  1 event in 1 minute
+    Action:     Notify by email to d.h.p1999@gmail.com
+    Name:       reply-classifier-permanently-failed
+
+  Why: send_reply failures leave a warm prospect without a Calendly link. No automated retry
+  exists (risk of duplicate send). The failure window is within the 5-minute cron cycle, so
+  a same-hour response is achievable with a manual Sentry alert.
+  Source signals in code: process-reply.ts logger.error/warn calls at send_reply dispatch paths.
+
+- [c0-blocker] Operator query for failed reply sends (2026-04-29)
+  Run in Supabase SQL editor to identify signals needing manual follow-up:
+
+    SELECT
+      rha.id,
+      rha.signal_id,
+      rha.action_taken,
+      rha.action_succeeded,
+      rha.action_error,
+      rha.created_at,
+      p.email  AS prospect_email,
+      p.first_name,
+      o.name   AS org_name
+    FROM reply_handling_actions rha
+    LEFT JOIN prospects p ON p.id = rha.prospect_id
+    LEFT JOIN organisations o ON o.id = rha.organisation_id
+    WHERE rha.action_taken = 'send_reply'
+      AND (rha.action_succeeded = false OR rha.action_succeeded IS NULL)
+    ORDER BY rha.created_at DESC;
+
+  action_succeeded = false  → sendThreadReply API call failed; prospect needs manual Calendly link.
+  action_succeeded = null   → run was interrupted mid-call; email status unknown; verify in Instantly.
+
 - [c0-blocker] Verify Instantly lead status values for bounced and unsubscribed (2026-04-28)
   Constants INSTANTLY_LEAD_STATUS_BOUNCED = '-2' and INSTANTLY_LEAD_STATUS_UNSUBSCRIBED = '-1'
   in src/lib/polling/instantly.ts are assumed from training data, NOT confirmed against the live API.
