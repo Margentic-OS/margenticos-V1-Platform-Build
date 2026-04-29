@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
   // ── Process ────────────────────────────────────────────────────────────────
   let result
   try {
+    // ADR-001 deferred (C3-3): credential.value passed as vendor-named key — BACKLOG "ADR-001 channel/source agnosticism — pending decision"
     result = await processReplies(supabase, credential.value)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

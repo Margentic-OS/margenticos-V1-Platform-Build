@@ -28,6 +28,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import { Database, Json } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { classifyReply } from '@/lib/agents/reply-classifier'
+// ADR-001 deferred (C3-2): handler imported by vendor name; needs capability-based dispatch — BACKLOG "ADR-001 channel/source agnosticism — pending decision"
 import {
   suppressLead,
   sendThreadReply,
@@ -99,6 +100,7 @@ function buildCalendlyReplyBody(
 // Looks up the Instantly lead UUID by email — needed for suppressLead().
 // The reply email object may carry this as `lead_id` or `from_address_id`.
 // If neither is present, falls back to a POST /leads/list lookup by email.
+// ADR-001 deferred (C3-1): Instantly API called directly inside processor; belongs in handler — BACKLOG "ADR-001 channel/source agnosticism — pending decision"
 
 async function resolveInstantlyLeadId(
   raw: Record<string, unknown>,
@@ -236,6 +238,7 @@ async function markSignalProcessed(
 
 // ── Single signal processor ───────────────────────────────────────────────────
 
+// ADR-001 deferred (C3-3): instantlyApiKey should be resolved inside handler via getCredential(capability), not passed as a named primitive — BACKLOG "ADR-001 channel/source agnosticism — pending decision"
 async function processOneSignal(
   supabase: SupabaseServiceClient,
   instantlyApiKey: string,
@@ -305,6 +308,7 @@ async function processOneSignal(
 
   // ── Resolve prospect ──────────────────────────────────────────────────────
 
+  // ADR-001 deferred (C3-4): field names are Instantly V2–specific; needs source-aware extractors keyed by signal.source — BACKLOG "ADR-001 channel/source agnosticism — pending decision"
   const fromEmail = (
     raw.from_address_email ?? (raw.from as Record<string, unknown>)?.address
   ) as string | undefined
@@ -350,6 +354,7 @@ async function processOneSignal(
 
   // ── Classify — always pass subject for OOO detection ─────────────────────
 
+  // ADR-001 deferred (C3-4 cont.): body.text and eaccount are Instantly V2 field names — BACKLOG "ADR-001 channel/source agnosticism — pending decision"
   const bodyRaw = raw.body
   const emailBody: string =
     (typeof bodyRaw === 'object' && bodyRaw !== null
@@ -583,6 +588,7 @@ async function processOneSignal(
 
 // ── Batch runner ──────────────────────────────────────────────────────────────
 
+// ADR-001 deferred (C3-3 cont.): processReplies(supabase, instantlyApiKey) — key should flow via handler, not caller — BACKLOG "ADR-001 channel/source agnosticism — pending decision"
 export async function processReplies(
   supabase: SupabaseServiceClient,
   instantlyApiKey: string,
