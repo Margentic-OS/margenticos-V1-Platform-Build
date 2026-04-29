@@ -134,12 +134,17 @@ interface ExistingActionSummary {
 async function getExistingActionSummary(
   supabase: SupabaseServiceClient,
   signalId: string,
-): Promise<ExistingActionSummary> {
+): Promise<ExistingActionSummary | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: rows } = await (supabase as any)
+  const { data: rows, error } = await (supabase as any)
     .from('reply_handling_actions')
     .select('action_taken, action_succeeded')
     .eq('signal_id', signalId)
+
+  if (error) {
+    logger.error('process-reply: failed to fetch existing action rows', { signal_id: signalId, error: error.message })
+    return null
+  }
 
   let classifierFailedCount = 0
   let terminalAction: ExistingActionSummary['terminalAction'] = null
@@ -248,12 +253,22 @@ async function processOneSignal(
 
   const existing = await getExistingActionSummary(supabase, signalId)
 
+  if (existing === null) {
+    // DB error reading prior action rows — safer to abort than risk reprocessing a handled signal.
+    return 'error'
+  }
+
   if (existing.terminalAction) {
     const { action_taken, action_succeeded } = existing.terminalAction
     if (action_taken === 'send_reply' && action_succeeded === null) {
       logger.warn('process-reply: send_reply interrupted mid-call — marking processed, manual review needed', { signal_id: signalId })
     } else if (action_taken === 'send_reply' && action_succeeded === false) {
       logger.warn('process-reply: send_reply API failed on previous run — marking processed, manual review needed', { signal_id: signalId })
+    } else if (action_taken === 'suppress' && action_succeeded === false) {
+      // DB suppression was applied on the previous run, but Instantly-side suppression failed.
+      // The prospect cannot receive future MargenticOS sends (DB is authoritative), but their
+      // lt_interest_status in Instantly was not updated. Verify manually in Instantly.
+      logger.warn('process-reply: Instantly-side suppression failed on previous run — DB suppression applied, Instantly lead status not updated, manual review needed', { signal_id: signalId })
     } else {
       logger.info('process-reply: signal already handled', { signal_id: signalId, action_taken, action_succeeded })
     }
@@ -432,6 +447,16 @@ async function processOneSignal(
     }
 
     // DB suppression is idempotent — always set even if Instantly call failed.
+    if (!prospectId) {
+      // Explicit opt-out with no prospect record — DB suppression cannot be applied.
+      // Instantly-side suppression is the only protection. If that also failed, this
+      // prospect has no suppression at all. Surfaces as error for immediate operator review.
+      logger.error('process-reply: opt_out signal — prospect not found in DB, DB suppression skipped', {
+        signal_id: signalId,
+        from_email: fromEmail,
+        instantly_suppressed: !!leadInstantlyId,
+      })
+    }
     if (prospectId) {
       await supabase
         .from('prospects')
@@ -471,12 +496,14 @@ async function processOneSignal(
       action_succeeded: true,
       action_payload: {
         instantly_handled: true,
+        date_parse_attempted: true,
+        date_found: returnDate !== null,
         parsed_return_date: returnDate,
       } as Json,
       scheduled_resume_at: returnDate,
     })
     await markSignalProcessed(supabase, signalId)
-    logger.info('process-reply: OOO logged', { signal_id: signalId, return_date: returnDate })
+    logger.info('process-reply: OOO logged', { signal_id: signalId, return_date: returnDate, date_found: returnDate !== null })
     return 'processed'
   }
 
