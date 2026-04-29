@@ -2,7 +2,9 @@ import type { NextConfig } from 'next'
 import { withSentryConfig } from '@sentry/nextjs'
 
 const nextConfig: NextConfig = {
-  // No external image domains configured yet — add when needed
+  // pdf-parse reads a test file at require() time that trips up Next.js bundling.
+  // Marking it external tells Turbopack to leave it to Node.js at runtime.
+  serverExternalPackages: ['pdf-parse'],
 }
 
 export default withSentryConfig(nextConfig, {

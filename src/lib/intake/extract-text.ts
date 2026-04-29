@@ -1,9 +1,6 @@
 // Text extraction from uploaded files.
 // Called at upload time — result stored in intake_files.extracted_text.
 // Agents read that column; they never download binaries at run time.
-//
-// pdf-parse is imported via its internal path to avoid a known Next.js issue
-// where the top-level import tries to load a test file at startup.
 
 const ALLOWED_MIME_TYPES = [
   'application/pdf',
@@ -36,13 +33,9 @@ export async function extractText(
 }
 
 async function extractPdf(buffer: Buffer): Promise<string> {
-  // Import via internal path to avoid the startup test-file issue in Next.js.
-  const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default as (
-    data: Buffer,
-    options?: Record<string, unknown>
-  ) => Promise<{ text: string }>
-
-  const result = await pdfParse(buffer)
+  const { PDFParse } = await import('pdf-parse')
+  const parser = new PDFParse({ data: buffer })
+  const result = await parser.getText()
   return result.text.trim()
 }
 
