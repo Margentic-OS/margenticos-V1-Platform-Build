@@ -765,15 +765,9 @@ Revisit once prospect research agent is built and full outbound cycle is working
   Lightweight monitor needed before 3+ paying clients. Options: UptimeRobot (free tier sufficient)
   or Vercel's built-in monitoring. ~30 min to set up. Not urgent pre-c0 but add before Tier 1.
 
-- [post-tier1] Drop voice_samples column from intake_responses
-  Safe to drop when: no row in intake_responses has a non-null voice_samples value
-  that isn't also represented in intake_files for the same organisation.
-  Check: SELECT organisation_id FROM intake_responses WHERE field_key = 'voice_samples'
-  AND response_value IS NOT NULL AND response_value != ''
-  AND organisation_id NOT IN (SELECT DISTINCT organisation_id FROM intake_files
-  WHERE file_purpose = 'voice_sample');
-  If that returns zero rows, the column can be dropped via migration.
-  voice_samples was deprecated 2026-04-23 in favour of file upload as canonical input.
+- [DONE 2026-04-29] Drop voice_samples column from intake_responses
+  Eligibility check returned zero rows (MargenticOS org backed by 3 intake_files, extraction complete).
+  Row deleted via Supabase MCP: DELETE FROM intake_responses WHERE field_key = 'voice_samples'.
 
 - [post-tier1] Per-client ICPFilterSpec approval UI (per ADR-015)
   Operator can review generated filter spec before it's used for sourcing.
