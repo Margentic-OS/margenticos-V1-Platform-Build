@@ -1,5 +1,8 @@
 // src/lib/polling/instantly.ts
 //
+// Future home: src/lib/integrations/polling/instantly.ts
+// Move after Phase 1 reply handling ships — dedicated tidy-up commit. See BACKLOG [post-build].
+//
 // Instantly V2 event polling — the Instantly-specific source handler.
 // Called by /api/cron/instantly-poll every 15 minutes.
 //

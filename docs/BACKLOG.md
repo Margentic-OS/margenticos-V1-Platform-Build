@@ -199,6 +199,15 @@
   decision (e.g. reviewing why a flagged prospect was originally included), OR next schema change
   touches the prospects table — whichever comes first.
 
+- [post-build] Move polling code from src/lib/polling/ to src/lib/integrations/polling/ (2026-04-29)
+  src/lib/polling/instantly.ts should live at src/lib/integrations/polling/instantly.ts to align
+  with the handler convention established in this session (src/lib/integrations/handlers/instantly/).
+  All Instantly-specific code should live under src/lib/integrations/ — polling reads, handler writes.
+  The move is a single file rename + one import path update in src/app/api/cron/instantly-poll/route.ts.
+  Deliberately deferred: touching the already-deployed polling path mid-session for cosmetic reasons
+  adds risk with no current benefit. The future-home comment is in the file as a breadcrumb.
+  Trigger: after Phase 1 reply handling ships and is verified working. Dedicated tidy-up commit.
+
 - [pre-c0-C] Marketing website readiness decision (2026-04-24)
   Current Netlify landing page exists. Cold prospects land there from email signatures and
   Calendly confirmations. Before campaigns go live, Doug needs to decide: is the current page
