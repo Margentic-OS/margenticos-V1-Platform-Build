@@ -26,7 +26,7 @@ import {
   pollInstantlyLeadStatus,
   INSTANTLY_LEAD_STATUS_BOUNCED,
   INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
-} from '@/lib/polling/instantly'
+} from '@/lib/integrations/polling/instantly'
 
 export async function POST(request: NextRequest) {
   // ── Auth ───────────────────────────────────────────────────────────────────
