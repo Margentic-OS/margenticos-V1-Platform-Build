@@ -977,6 +977,21 @@ Complete all items before the first paying client goes live:
   Pattern documented in both migration files. CRON_SECRET in plaintext in cron.job.command
   is acceptable for low-impact trigger tokens; not acceptable for higher-value credentials.
 
+- [lesson] Sentry serverless flush requirement — always await flush before returning (2026-04-30)
+  Sentry.captureCheckIn (and any other SDK event call: captureException, captureMessage) enqueues
+  an async HTTP request rather than sending immediately. In a Vercel serverless function, the
+  container is frozen the instant the handler returns. Any buffered events queued after the last
+  await are dropped — the outgoing HTTP request never fires.
+  Symptom: the in_progress check-in reaches Sentry (it had time to flush while the function was
+  doing async work), but the ok/error check-in is dropped (called immediately before return),
+  causing Sentry to fire a timeout alert on every single run.
+  Fix: after every Sentry.captureCheckIn / captureException / captureMessage call that immediately
+  precedes a return, add: `try { await Sentry.flush(2000) } catch {}`
+  The try/catch is mandatory — a Sentry network timeout must never block the endpoint from
+  responding to pg_cron. Sentry is a side-effect, never a blocker.
+  Applied: instantly-poll/route.ts (2 flushes) and process-replies/route.ts (3 flushes).
+  Commit: f657baa. Applies to any new serverless route that uses Sentry SDK calls.
+
 - [lesson] pdf-parse v2 is a class-based API; Turbopack cannot resolve its internal path (2026-04-29)
   pdf-parse changed its API between v1 (function: `pdfParse(buffer)`) and v2 (class: `new PDFParse({ data })`).
   The internal-path workaround (`pdf-parse/lib/pdf-parse.js`) that bypassed the v1 startup
