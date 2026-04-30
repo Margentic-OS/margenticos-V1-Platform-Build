@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
       fix: "INSERT INTO integration_credentials (organisation_id, source, credential_type, value) VALUES (NULL, 'instantly', 'api_key', '<key>')",
     })
     Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'error', checkInId })
+    try { await Sentry.flush(2000) } catch {}
     return NextResponse.json(
       { error: 'Instantly API key not configured.' },
       { status: 503 }
@@ -74,11 +75,13 @@ export async function POST(request: NextRequest) {
     const msg = err instanceof Error ? err.message : String(err)
     logger.error('process-replies: processReplies threw unexpectedly', { error: msg })
     Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'error', checkInId })
+    try { await Sentry.flush(2000) } catch {}
     return NextResponse.json({ error: 'Internal error.', detail: msg }, { status: 500 })
   }
 
   logger.info('process-replies: run complete', { ...result })
 
   Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'ok', checkInId })
+  try { await Sentry.flush(2000) } catch {}
   return NextResponse.json({ ok: true, result })
 }

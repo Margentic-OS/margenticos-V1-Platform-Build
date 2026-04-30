@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
       fix: "INSERT INTO integration_credentials (organisation_id, source, credential_type, value) VALUES (NULL, 'instantly', 'api_key', '<key>')",
     })
     Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'error', checkInId })
+    try { await Sentry.flush(2000) } catch {}
     return NextResponse.json(
       { error: 'Instantly API key not configured.' },
       { status: 503 }
@@ -135,6 +136,7 @@ export async function POST(request: NextRequest) {
   })
 
   Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'ok', checkInId })
+  try { await Sentry.flush(2000) } catch {}
   return NextResponse.json({
     ok: true,
     results,
