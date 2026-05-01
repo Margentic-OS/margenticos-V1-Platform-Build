@@ -1179,3 +1179,102 @@ Follow-ups (tracked in /docs/BACKLOG.md):
 - Identify any agents currently using LLMs that could be downgraded to rules
 - Identify any rules that are producing edge-case failures that justify LLM layers
 
+---
+
+## ADR-019 — Phase 2 reply handling tier model
+Date: May 2026 | Status: Accepted (supersedes part of ADR-007's Phase 3 deferral)
+
+Context:
+ADR-007 deferred sophisticated reply automation to Phase 3, delivering Phase 1 as:
+  - Auto-action on opt_out (suppress), out_of_office (log), positive_direct_booking ≥0.90 (send Calendly reply)
+  - log_only for all other intents
+
+With Phase 1 shipped and client zero running, the most immediate operational pain is the
+log_only pile — replies that need human handling but currently get no starting point. A
+founding client receiving 20–30 replies per week would spend significant time composing
+replies from scratch, many of which repeat the same questions. A draft starting point and
+a compounding FAQ loop address this at exactly the right time.
+
+Decision:
+A fitness-driven tier model for non-auto-actioned replies:
+
+  Tier 2 — AI drafts for operator approval:
+    positive_passive
+    objection_mild
+    information_request_* WHEN a similar approved FAQ exists for the org
+    positive_direct_booking with confidence in [0.70, 0.90)
+
+  Tier 3 — starting-point only (always requires operator rewrite):
+    information_request_commercial (always — pricing/contract sensitivity regardless of confidence)
+    information_request_generic with no FAQ match
+    unclear
+    any other non-auto-actioned intent not fitting Tier 2
+
+Routing is fitness-driven, not confidence-driven. The key distinction: high-confidence
+commercial questions still route to Tier 3 because the sensitivity of the content
+(pricing, contracts, integrations) requires human judgment regardless of classification
+certainty. Tier assignment is based on the nature of what needs to be communicated, not
+how confident the classifier is.
+
+Compounding loop: when an operator sends a Tier 3 reply (i.e. modifies the draft and
+sends it), the system extracts the question + the operator's sent answer as an FAQ
+candidate. After operator curation into the canonical FAQ list, future similar questions
+match the FAQ → route to Tier 2 instead of Tier 3. The loop compounds: more sent
+replies → richer FAQ base → more questions shift to Tier 2 → less operator work per
+reply over time.
+
+Reasoning:
+Positive replies were the most time-sensitive (Phase 1, ADR-007). The next pain after
+Phase 1 ships is the log_only pile — the replies that exist but receive no automated
+handling. Drafting saves minutes per reply multiplied across every non-trivial reply.
+
+The tier split protects against AI sending pricing or commercial commitments without
+human eyes, regardless of classifier confidence. This follows the same suggestion-queue
+principle as ADR-002: human in the loop as the quality gate during the period when agent
+judgment is unproven on high-stakes content.
+
+FAQ extraction from sent Tier 3 replies (not Tier 2) is the compounding mechanism.
+Using the operator's actual sent answer is higher-quality seed material than an
+AI-generated suggested answer — it IS what the operator said to a real prospect,
+which makes it immediately reliable as a future draft source.
+
+The 15h/48h/72h escalation chain referenced in the BACKLOG (from ADR-007 Phase 1
+consequence note) is superseded by this tier model. Escalation is immediate to the
+operator triage queue — there is no time-tiered escalation. An unreviewed Tier 3 draft
+remains visible in the queue until actioned; Sentry alert rules (already configured
+for send_failed paths) cover anomalies.
+
+Rejected alternatives:
+  - Confidence-based routing alone: rejected because high-confidence commercial questions
+    still need human judgment regardless of classification certainty. Fitness-based routing
+    prevents the failure mode of an AI-generated pricing reply.
+  - Auto-send on high-confidence Tier 2: rejected at this stage. ADR-002 precedent is
+    the right default for client zero. Path to auto-approve is additive — one threshold
+    field, one condition — same architecture. No rebuild required when the time comes.
+  - FAQ extraction on every information-request reply (not just sent Tier 3): rejected
+    because the system would need to generate a suggested answer from scratch, which is
+    lower quality than the operator's actual sent text. Using the operator's sent body
+    guarantees the extracted answer is real, not speculative.
+  - Vector similarity for FAQ matching: rejected at this stage in favour of keyword
+    normalisation. At founding-client volume (<50 FAQs per client), keyword matching is
+    sufficient and far cheaper. Cheap to swap when matcher quality becomes a bottleneck
+    — the matching logic is deterministic code in one function (ADR-018).
+  - 15h/48h/72h escalation chain: superseded by this tier model. Tier 3 escalation is
+    immediate to the operator queue, not time-tiered.
+
+Consequences:
+  Three new tables: faqs, faq_extractions, reply_drafts (migration: 20260501_reply_handling_phase2.sql).
+  reply_handling_actions.faq_entry_id FK constraint added in the same migration, now pointing
+    to faqs(id) (column was created in 20260429_reply_handling.sql with a deferred FK).
+  Reply processor will be extended in Phase 2 Group 2 to fan out to the reply-draft-agent
+    and faq-extraction-agent for non-auto-action intents. process-reply.ts is not modified
+    in this group.
+  New agent: reply-draft-agent.ts with Tier 2 and Tier 3 prompt branches (Phase 2 Group 2).
+  New agent: faq-extraction-agent.ts triggered after Tier 3 draft is sent (Phase 2 Group 2).
+  Deterministic FAQ matcher (keyword + normalisation), no LLM per ADR-018.
+  Operator dashboard gains reply triage view and FAQ curation view (Phase 2 Group 3).
+  The Phase 3 BACKLOG entry "AI reply handling for information requests (with human override)"
+    closes — that work is this ADR, now Phase 2.
+  The Phase 2 BACKLOG entry "Information request escalation (15h/48h/72h chain)" is
+    superseded — replaced by the immediate-queue tier model.
+
