@@ -734,12 +734,20 @@ Revisit once prospect research agent is built and full outbound cycle is working
   4-email sequence. Parked during build to avoid guessing impact on reply rates.
   Test with real data post-client-zero once A/B infrastructure is live.
 
+- [monitor] Supabase MCP parked 2026-05-01 — @0.5.10 pin is saved correctly in ~/.claude/mcp.json but tools are not loading in the current Claude Code session. Windsurf restart is not enough — the Claude Code session itself must be restarted for MCP processes to reinitialise. Revisit in next session by checking whether mcp__supabase__list_tables appears in the deferred tools list.
+
 ---
 
 ## Post-build tasks
 
 - [post-build] Context7 MCP integration
   Add after full build is complete. Not urgent.
+
+- [post-build] Rename faq_entry_id column to faq_id for consistency with faqs table
+  Phase 1 migration (20260429_reply_handling.sql) created reply_handling_actions.faq_entry_id
+  with a comment referencing a non-existent faq_entries table. Phase 2 migration closed the FK
+  loop — column now correctly references faqs.id. Cosmetic mismatch only; rename in a future
+  schema-tidy pass. Flagged 2026-05-01.
 
 - [post-build] Review Phase 1 implementation against ADR-018 (LLM vs deterministic)
   After client zero goes live, identify:
