@@ -188,7 +188,7 @@
   Scope delivered: suppress (opt_out), ooo_log, send_reply ≥0.90 confidence, log_only for all others.
   Sequence-stop on any reply handled automatically by Instantly (stop_on_reply: true).
   OOO pause/resume handled natively by Instantly — agent logs for visibility only.
-  Information request escalation (15h/48h/72h chain) deferred to Phase 2.
+  [SUPERSEDED 2026-05-01 by ADR-019] Information request escalation (15h/48h/72h chain) deferred to Phase 2. Replaced by immediate-queue tier model (Tier 2/3 drafts); no time-tiered escalation chain needed.
   Remaining before activation: pg_cron config vars, migration apply, Calendly URL, Sentry alerts.
 
 - [DONE 2026-04-24] Store relevance_reason in prospect_research_results table and ResearchResult type
@@ -901,7 +901,7 @@ is integrated. Refactor cost: ~2-4 hours. Decision: fix now or defer to Phase 2.
 
 ## Phase 3 deferred items
 
-- [phase3] AI reply handling for information requests (with human override)
+- [SUPERSEDED 2026-05-01 by ADR-019] AI reply handling for information requests (with human override). Delivered as Phase 2 tier model: Tier 2 AI drafts for operator approval, Tier 3 starting-point with operator rewrite required. See ADR-019.
 - [phase3] Nurture sequence automation for warm leads
 - [phase3] Multi-campaign coordination per client
 - [phase3] Sourcing infrastructure: evaluate Cognism / ZoomInfo / custom data
