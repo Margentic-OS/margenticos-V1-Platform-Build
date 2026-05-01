@@ -27,25 +27,39 @@
 
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
 
-- [DONE 2026-04-29] Configure Sentry alert rules for failed reply-send paths
-  Both rules created via direct Sentry REST API (scripts/create-sentry-alert-rules.ts).
-  Org: margentic-os | Project: margenticos | Region: US (sentry.io).
-  SENTRY_ALERTS_TOKEN added to .env.local (scopes: alerts:write, project:read, org:read).
-  Token can be revoked in Sentry → Settings → Auth Tokens once no longer needed.
+- [DONE 2026-05-01] Configure Sentry alert rules for failed reply-send paths (revised)
+  Rules originally created 2026-04-29 with compound filters — discovered broken 2026-05-01.
+  Root cause: Sentry issue alert `filters` use AND logic. Multiple message-contains filters
+  require ALL strings to appear in one event simultaneously — impossible when each targets a
+  different code path. Rules existed and appeared configured but could never fire.
+  Fix: deleted 553483 and 553534, replaced with four single-filter rules (one per message string).
+  Script at scripts/fix-sentry-alert-rules.ts. Org: margentic-os | Project: margenticos.
+  SENTRY_ALERTS_TOKEN in .env.local (scopes: alerts:write, project:read, org:read).
 
-  Alert 1 — reply-send-failed  →  rule ID: 553483
-    Triggers: new issue OR regression where message contains
-      "send_reply API failed on previous run" OR "sendThreadReply failed"
-    Action: email to d.h.p1999@gmail.com | frequency: 5 min (Sentry minimum)
+  Rule 558250 — reply-send-failed-runtime
+    Filter: message contains "sendThreadReply failed"
+    Conditions: new issue OR regression | frequency: 5 min
 
-  Alert 2 — reply-classifier-permanently-failed  →  rule ID: 553484
-    Triggers: new issue OR regression where message contains "classifier retry limit reached"
-    Action: email to d.h.p1999@gmail.com | frequency: 5 min
+  Rule 558251 — reply-send-failed-on-retry
+    Filter: message contains "send_reply API failed on previous run"
+    Conditions: new issue OR regression | frequency: 5 min
 
-  Note on frequency: Sentry enforces a 5-minute minimum re-notification interval per issue.
-  Because each prospect failure likely produces a unique error fingerprint (different signal IDs
-  and error contexts), distinct failures create distinct Sentry issues — so each fires immediately.
-  Script kept at scripts/create-sentry-alert-rules.ts as reference for future alert rule creation.
+  Rule 558252 — polling-fetch-failed
+    Filter: message contains "Instantly poll: reply fetch failed"
+    Conditions: seen >2 times in 1h | frequency: 60 min
+
+  Rule 558253 — polling-uncaught-throw
+    Filter: message contains "Instantly poll: reply polling threw"
+    Conditions: seen >2 times in 1h | frequency: 60 min
+
+  Rule 553484 — reply-classifier-permanently-failed (unchanged, single filter, was correct)
+    Filter: message contains "classifier retry limit reached"
+    Conditions: new issue OR regression | frequency: 5 min
+
+  LESSON: when creating Sentry alert rules via the REST API with multiple filters,
+  do NOT rely on filterMatch: 'any' — the API may ignore it. Use one filter per rule,
+  or create separate rules per message string. The "any of these" option in the Sentry
+  UI is not reliably exposed through the API.
 
 - [DONE 2026-04-29] Phase 1 reply-handling code review — smash list (four commits)
   Full code review of classifyReply, processOneSignal, reply-actions.ts, polling/instantly.ts.
@@ -991,6 +1005,24 @@ Complete all items before the first paying client goes live:
   responding to pg_cron. Sentry is a side-effect, never a blocker.
   Applied: instantly-poll/route.ts (2 flushes) and process-replies/route.ts (3 flushes).
   Commit: f657baa. Applies to any new serverless route that uses Sentry SDK calls.
+
+- [lesson] Sentry issue alert rules with multiple filters use AND logic — use one filter per rule (2026-05-01)
+  When creating Sentry issue alert rules via the REST API, multiple `filters` entries are AND'd:
+  ALL filter conditions must match a single event simultaneously. Two message-contains filters
+  targeting different error strings can never both match one event — the rule can never fire.
+  The `filterMatch: 'any'` field appears to be ignored or unsupported in the API despite what
+  scripts may set. The Sentry UI does support "any of" filter logic, but this is not reliably
+  exposed through the API.
+  Fix: one filter per rule. If two message strings share the same conditions and actions, create
+  two rules. The redundancy is worth having rules that actually fire.
+  Script reference: scripts/fix-sentry-alert-rules.ts (shows correct single-filter pattern).
+
+- [lesson] send.ts captureException has no flush — add before next production email route (2026-05-01)
+  src/lib/email/send.ts:43 calls Sentry.captureException() in the sendTransactionalEmail failure
+  path, with no Sentry.flush() before it returns. The same serverless drop problem applies.
+  Currently safe: the only caller is the dev-gated /api/resend-test route.
+  Fix required: add `try { await Sentry.flush(2000) } catch {}` in sendTransactionalEmail()
+  before any production API route calls it for the first time.
 
 - [lesson] pdf-parse v2 is a class-based API; Turbopack cannot resolve its internal path (2026-04-29)
   pdf-parse changed its API between v1 (function: `pdfParse(buffer)`) and v2 (class: `new PDFParse({ data })`).
