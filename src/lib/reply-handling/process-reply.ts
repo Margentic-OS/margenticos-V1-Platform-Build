@@ -316,7 +316,7 @@ async function processOneSignal(
   let prospectId: string | null = null
   let prospectFirstName: string | null = null
 
-  if (fromEmail) {
+  if (fromEmail?.trim()) {
     const { data: prospect } = await supabase
       .from('prospects')
       .select('id, first_name, suppressed')
@@ -361,7 +361,31 @@ async function processOneSignal(
       ? (bodyRaw as Record<string, unknown>).text as string | undefined
       : typeof bodyRaw === 'string' ? bodyRaw : undefined) ?? ''
 
-  const subject = raw.subject as string | undefined
+  if (!emailBody.trim()) {
+    logger.warn('process-reply: empty reply body — skipping classifier', { signal_id: signalId })
+    await insertActionRow(supabase, {
+      organisation_id: signal.organisation_id,
+      signal_id: signalId,
+      prospect_id: prospectId,
+      campaign_id: signal.campaign_id,
+      classified_intent: 'unclear',
+      classification_confidence: null,
+      classification_reasoning: 'empty body, classifier skipped',
+      tier_assigned: 2,
+      action_taken: 'log_only',
+      action_payload: { reason: 'empty body, classifier skipped' } as Json,
+      action_succeeded: null,
+      attempt_number: attemptNumber,
+    })
+    await markSignalProcessed(supabase, signalId)
+    return 'processed'
+  }
+
+  // Normalise subject: pass undefined rather than empty string or non-string so the
+  // classifier's subject? ternary omits it from the prompt cleanly.
+  const subject = typeof raw.subject === 'string' && raw.subject.trim()
+    ? raw.subject
+    : undefined
 
   const classification = await classifyReply(emailBody, subject)
 
