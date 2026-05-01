@@ -218,6 +218,144 @@ export type Database = {
           },
         ]
       }
+      faq_extractions: {
+        Row: {
+          created_at: string
+          extracted_question: string
+          id: string
+          organisation_id: string
+          reply_draft_id: string
+          reviewed_at: string | null
+          reviewed_by_user_id: string | null
+          signal_id: string
+          similar_faq_id: string | null
+          status: string
+          suggested_answer: string
+        }
+        Insert: {
+          created_at?: string
+          extracted_question: string
+          id?: string
+          organisation_id: string
+          reply_draft_id: string
+          reviewed_at?: string | null
+          reviewed_by_user_id?: string | null
+          signal_id: string
+          similar_faq_id?: string | null
+          status?: string
+          suggested_answer: string
+        }
+        Update: {
+          created_at?: string
+          extracted_question?: string
+          id?: string
+          organisation_id?: string
+          reply_draft_id?: string
+          reviewed_at?: string | null
+          reviewed_by_user_id?: string | null
+          signal_id?: string
+          similar_faq_id?: string | null
+          status?: string
+          suggested_answer?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "faq_extractions_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faq_extractions_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faq_extractions_reply_draft_id_fkey"
+            columns: ["reply_draft_id"]
+            isOneToOne: false
+            referencedRelation: "reply_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faq_extractions_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faq_extractions_similar_faq_id_fkey"
+            columns: ["similar_faq_id"]
+            isOneToOne: false
+            referencedRelation: "faqs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      faqs: {
+        Row: {
+          answer: string
+          created_at: string
+          created_by_user_id: string | null
+          id: string
+          last_used_at: string | null
+          organisation_id: string
+          question_canonical: string
+          question_variants: Json
+          source_signal_ids: Json
+          status: string
+          times_used: number
+          updated_at: string
+        }
+        Insert: {
+          answer: string
+          created_at?: string
+          created_by_user_id?: string | null
+          id?: string
+          last_used_at?: string | null
+          organisation_id: string
+          question_canonical: string
+          question_variants?: Json
+          source_signal_ids?: Json
+          status?: string
+          times_used?: number
+          updated_at?: string
+        }
+        Update: {
+          answer?: string
+          created_at?: string
+          created_by_user_id?: string | null
+          id?: string
+          last_used_at?: string | null
+          organisation_id?: string
+          question_canonical?: string
+          question_variants?: Json
+          source_signal_ids?: Json
+          status?: string
+          times_used?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "faqs_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faqs_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       intake_files: {
         Row: {
           created_at: string
@@ -908,6 +1046,101 @@ export type Database = {
           },
         ]
       }
+      reply_drafts: {
+        Row: {
+          ai_draft_body: string
+          created_at: string
+          draft_metadata: Json
+          edited_at: string | null
+          edited_by_user_id: string | null
+          final_sent_body: string | null
+          id: string
+          instantly_message_id: string | null
+          intent: string
+          organisation_id: string
+          prospect_id: string | null
+          reviewed_at: string | null
+          reviewed_by_user_id: string | null
+          send_error: string | null
+          sent_at: string | null
+          signal_id: string
+          status: string
+          tier: number
+          updated_at: string
+        }
+        Insert: {
+          ai_draft_body: string
+          created_at?: string
+          draft_metadata?: Json
+          edited_at?: string | null
+          edited_by_user_id?: string | null
+          final_sent_body?: string | null
+          id?: string
+          instantly_message_id?: string | null
+          intent: string
+          organisation_id: string
+          prospect_id?: string | null
+          reviewed_at?: string | null
+          reviewed_by_user_id?: string | null
+          send_error?: string | null
+          sent_at?: string | null
+          signal_id: string
+          status?: string
+          tier: number
+          updated_at?: string
+        }
+        Update: {
+          ai_draft_body?: string
+          created_at?: string
+          draft_metadata?: Json
+          edited_at?: string | null
+          edited_by_user_id?: string | null
+          final_sent_body?: string | null
+          id?: string
+          instantly_message_id?: string | null
+          intent?: string
+          organisation_id?: string
+          prospect_id?: string | null
+          reviewed_at?: string | null
+          reviewed_by_user_id?: string | null
+          send_error?: string | null
+          sent_at?: string | null
+          signal_id?: string
+          status?: string
+          tier?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reply_drafts_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reply_drafts_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reply_drafts_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "prospects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reply_drafts_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: true
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reply_handling_actions: {
         Row: {
           action_error: string | null
@@ -973,6 +1206,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_reply_handling_actions_faq_id"
+            columns: ["faq_entry_id"]
+            isOneToOne: false
+            referencedRelation: "faqs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "reply_handling_actions_campaign_id_fkey"
             columns: ["campaign_id"]
