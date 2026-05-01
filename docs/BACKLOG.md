@@ -736,6 +736,11 @@ Revisit once prospect research agent is built and full outbound cycle is working
 
 - [monitor] Supabase MCP parked 2026-05-01 — @0.5.10 pin is saved correctly in ~/.claude/mcp.json but tools are not loading in the current Claude Code session. Windsurf restart is not enough — the Claude Code session itself must be restarted for MCP processes to reinitialise. Revisit in next session by checking whether mcp__supabase__list_tables appears in the deferred tools list.
 
+- [monitor] Supabase gen types injects a <claude-code-hint> XML artifact (source: Claude Code plugin/hook).
+  Wrapper script scripts/regen-types.sh strips it automatically. Always use `npm run gen-types`
+  instead of calling supabase gen types directly. If wrapper ever fails, investigate plugin/hook
+  config in ~/.claude/ — the injection source is upstream of Supabase CLI.
+
 ---
 
 ## Post-build tasks
