@@ -7,6 +7,9 @@ const STOPWORDS = new Set([
   'could', 'should', 'may', 'might', 'must', 'can',
   'of', 'in', 'on', 'at', 'to', 'for', 'with', 'from', 'by',
   'this', 'that', 'these', 'those', 'it', 'its',
+  // Question words appear in virtually every FAQ question and add noise to
+  // Jaccard scoring without helping discriminate between FAQs.
+  'what', 'how', 'where', 'when', 'why', 'which', 'who',
 ])
 
 export function normaliseQuestion(text: string): string[] {
