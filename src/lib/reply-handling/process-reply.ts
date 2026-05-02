@@ -33,6 +33,7 @@ import {
   suppressLead,
   sendThreadReply,
 } from '@/lib/integrations/handlers/instantly/reply-actions'
+import { orchestrateDraft } from './draft-orchestrator'
 
 type SupabaseServiceClient = SupabaseClient<Database>
 
@@ -205,6 +206,8 @@ async function updateActionRow(
   actionRowId: string,
   update: {
     action_succeeded: boolean
+    action_taken?: string
+    tier_assigned?: number
     action_payload?: Json | null
     scheduled_resume_at?: string | null
     action_error?: string | null
@@ -247,6 +250,7 @@ async function processOneSignal(
     organisation_id: string
     campaign_id: string | null
     raw_data: Json
+    original_outbound_body: string | null
   },
 ): Promise<'processed' | 'skipped' | 'error'> {
   const raw = signal.raw_data as Record<string, unknown>
@@ -596,18 +600,47 @@ async function processOneSignal(
     // be caught by the idempotency check on next run and marked processed for manual review.
   }
 
-  // log_only — all other intents in Phase 1
-  const logPayload: Record<string, unknown> = { intent, confidence }
-  if (intent === 'positive_direct_booking') {
-    logPayload.reason = `confidence ${confidence} below threshold ${POSITIVE_BOOKING_CONFIDENCE_THRESHOLD}`
-  }
+  // Phase 2: orchestrate draft for all non-Tier-1 intents.
+  try {
+    const orchResult = await orchestrateDraft({
+      signal: {
+        id: signal.id,
+        organisation_id: signal.organisation_id,
+        campaign_id: signal.campaign_id,
+        raw_data: signal.raw_data,
+        original_outbound_body: signal.original_outbound_body,
+      },
+      classification: { intent, confidence, reasoning },
+      prospectId,
+      supabase,
+    })
 
-  await updateActionRow(supabase, actionRowId, {
-    action_succeeded: true,
-    action_payload: logPayload as Json,
-  })
-  await markSignalProcessed(supabase, signalId)
-  return 'processed'
+    if (orchResult.kind === 'log_only') {
+      // Preserve Phase 1 log_only behaviour exactly.
+      const logPayload: Record<string, unknown> = { intent, confidence }
+      if (intent === 'positive_direct_booking') {
+        logPayload.reason = `confidence ${confidence} below threshold ${POSITIVE_BOOKING_CONFIDENCE_THRESHOLD}`
+      }
+      await updateActionRow(supabase, actionRowId, {
+        action_succeeded: true,
+        action_payload: logPayload as Json,
+      })
+    } else {
+      await updateActionRow(supabase, actionRowId, {
+        action_succeeded: true,
+        action_taken: orchResult.kind,
+        tier_assigned: orchResult.kind === 'drafted' ? orchResult.tier : tierAssigned,
+        action_payload: orchResult as Json,
+      })
+    }
+
+    await markSignalProcessed(supabase, signalId)
+    return 'processed'
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    logger.error('process-reply: orchestrateDraft threw', { signal_id: signalId, error: msg })
+    return 'error'
+  }
 }
 
 // ── Batch runner ──────────────────────────────────────────────────────────────
@@ -621,7 +654,7 @@ export async function processReplies(
 
   const { data: signals, error: fetchError } = await supabase
     .from('signals')
-    .select('id, organisation_id, campaign_id, raw_data')
+    .select('id, organisation_id, campaign_id, raw_data, original_outbound_body')
     .eq('signal_type', 'reply_received')
     .eq('processed', false)
     .order('created_at', { ascending: true })
