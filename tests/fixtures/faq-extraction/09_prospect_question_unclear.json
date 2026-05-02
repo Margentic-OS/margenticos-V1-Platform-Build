@@ -1,0 +1,11 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "replyDraftId": "00000000-0000-0000-0000-000000000309",
+  "prospectQuestionContext": "tell me more",
+  "originalOutboundBody": "Hi Chris,\n\nFeast-or-famine revenue is exhausting when you know the offer delivers.\n\nWe handle the pipeline — qualified meetings in your diary without you chasing leads.\n\nWorth a quick call?\n\nDoug",
+  "operatorAnswer": "Happy to. At a high level, the way it works is we build your ICP and messaging from scratch, source the right prospects using your criteria, and send personalised emails that sound like you wrote them. You get a live dashboard where you can see every email sent and every reply that comes in. You only need to show up to the meetings we book. The whole setup takes about two to three weeks, then it runs on its own.",
+  "aiDraftBody": "Here's a quick overview of how the process works at a high level.",
+  "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
+  "expected_behaviour": "Agent should return { extractions: [] }. The prospect reply 'tell me more' is not a clear specific question — it is a vague engagement signal. Extracting from this would require inventing a question. The operator's answer is substantive but not linked to a specific extractable question. Some models may produce an extraction; review whether the question is truly generalisable."
+}

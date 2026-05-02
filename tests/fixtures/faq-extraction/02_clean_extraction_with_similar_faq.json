@@ -1,0 +1,11 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "replyDraftId": "00000000-0000-0000-0000-000000000302",
+  "prospectQuestionContext": "Quick one — do you work with solo consultants or is this more for firms with a team?",
+  "originalOutboundBody": "Hi Priya,\n\nFeast-or-famine revenue is exhausting when you know your offer actually delivers.\n\nWe handle the outbound so you don't have to — qualified meetings on your calendar without you chasing leads.\n\nWorth a quick call?\n\nDoug",
+  "operatorAnswer": "We work with both solo consultants and small consulting teams, typically up to about ten people. The sweet spot is someone who has validated their offer with at least three paying clients and is personally feeling the pipeline pain right now. Company size matters less than whether the economics work — if your average deal value is above two thousand, the maths usually stacks up.",
+  "aiDraftBody": "Great question. We work with consultants across a range of sizes, from solo practitioners to small teams. The most important factor is that you have a validated offer and feel the pipeline challenge.",
+  "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
+  "expected_behaviour": "Should produce 1 extraction. The harness seeds an approved FAQ with question_canonical = 'Do you work with solo consultants?' before running this fixture. similar_faq_id should be populated (the seeded FAQ should score >= 0.45 against 'do you work with solo consultants'). Harness cleans up the seeded FAQ after the run."
+}

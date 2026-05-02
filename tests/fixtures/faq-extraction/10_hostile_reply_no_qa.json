@@ -1,0 +1,11 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "replyDraftId": "00000000-0000-0000-0000-000000000310",
+  "prospectQuestionContext": "I told you lot last month to remove me. This is the third email. Do NOT contact me again.",
+  "originalOutboundBody": "Hi David,\n\nReferrals shouldn't be the whole pipeline.\n\nWe fix that — qualified meetings in the diary.\n\nDoug",
+  "operatorAnswer": "David, I sincerely apologise. You are immediately removed from all our campaigns and will not receive any further contact. I am genuinely sorry this happened and will investigate how our suppression process failed here.",
+  "aiDraftBody": "I'm very sorry about this. You have been removed immediately and will not hear from us again.",
+  "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
+  "expected_behaviour": "Agent should return { extractions: [] }. This is a hostile Tier 3 reply. The operator's sent answer is a de-escalation apology, not an informational response to a question. There is no Q&A pair to extract. Note: in practice this would not reach the extraction agent because the opt-out path would have already suppressed the lead — this fixture tests the model's judgment when edge cases slip through."
+}

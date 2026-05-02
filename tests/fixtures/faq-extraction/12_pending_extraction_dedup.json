@@ -1,0 +1,11 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "replyDraftId": "00000000-0000-0000-0000-000000000312",
+  "prospectQuestionContext": "Do you work with solo consultants or mainly bigger consulting firms?",
+  "originalOutboundBody": "Hi Nadia,\n\nConsultants with a solid offer but no consistent pipeline — that is exactly who we work with.\n\nWorth a quick call to see if it fits?\n\nDoug",
+  "operatorAnswer": "We work with both solo consultants and small teams, typically one to ten people. The key qualification is that your offer is validated — you have at least two or three paying clients and you are personally feeling the pipeline problem. Size matters less than whether the unit economics support the retainer. At two thousand a deal or above, it almost always stacks up.",
+  "aiDraftBody": "We work with a range of firm sizes, from solo practitioners to small consulting teams. The most important factor is a validated offer with existing clients.",
+  "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
+  "expected_behaviour": "The harness seeds a pending faq_extractions row with extracted_question = 'Do you work with solo consultants?' before running this fixture. similar_pending_extraction_id should be populated (the pending extraction should score >= 0.45 against 'do you work with solo consultants or mainly bigger consulting firms'). similar_faq_id should be null. SEEDING NOTE: faq_extractions requires FK to signals and reply_drafts — see harness for seeding strategy. If seeding fails, similar_pending_extraction_id will be null and that is noted in the output."
+}

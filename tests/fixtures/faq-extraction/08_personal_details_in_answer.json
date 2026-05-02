@@ -1,0 +1,11 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "replyDraftId": "00000000-0000-0000-0000-000000000308",
+  "prospectQuestionContext": "Who actually handles the campaign on your side? Is it just you or do you have a team?",
+  "originalOutboundBody": "Hi Marcus,\n\nPipeline that resets every quarter when a referral cycle dries up is a solved problem.\n\nWe handle everything end-to-end — qualified meetings land in your diary.\n\nWorth a quick call?\n\nDoug",
+  "operatorAnswer": "Hey Marcus, great question. Day-to-day it's Sarah on our team handling the campaign management and optimisation, with me reviewing the strategy. We do a check-in every Monday to review performance and I'm always available if something needs a quick decision. You'll have direct access to both of us throughout.",
+  "aiDraftBody": "The team handles day-to-day campaign management. You'll have direct access to the people running your campaign.",
+  "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
+  "expected_behaviour": "Should produce 1 extraction. The prompt should strip the name 'Sarah', strip 'Marcus' from the greeting, and generalise 'every Monday' to something generic or remove it. potential_names_flagged should contain ['Sarah'] (and possibly 'Marcus' from the greeting depending on model output — though 'Marcus' appears at sentence start after a greeting so may not be flagged). The captured_answer should not mention Sarah or Marcus by name."
+}

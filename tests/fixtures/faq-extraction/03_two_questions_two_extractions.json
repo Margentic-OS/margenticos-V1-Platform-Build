@@ -1,0 +1,11 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "replyDraftId": "00000000-0000-0000-0000-000000000303",
+  "prospectQuestionContext": "Hi Doug, this is interesting. Two questions before we chat: first, how does the email quality actually work — is it AI-written or do I write them? Second, what happens if I want to pause the campaign for a month?",
+  "originalOutboundBody": "Hi Tom,\n\nPipeline shouldn't reset every time a referral dries up.\n\nWe handle everything — sourcing, messaging, sending — qualified meetings land in your diary without you lifting a finger.\n\nWorth a quick call to see if it fits?\n\nDoug",
+  "operatorAnswer": "Both are great questions. On the emails: the messaging is built from scratch around your ICP and positioning. The actual copy is AI-assisted but reviewed and refined by us before it ever goes near a prospect. You see and approve the full email sequence before the first send — nothing goes out without your sign-off. On pausing: yes, that's fully supported. You can pause at any time with no notice period. Campaigns pick back up when you're ready. Most clients pause for conferences, holidays, or seasonal slowdowns and we just hold the sequence and resume.",
+  "aiDraftBody": "The emails are AI-assisted but you review and approve everything. Pausing campaigns is straightforward and fully supported.",
+  "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
+  "expected_behaviour": "Should produce 2 extractions — one for the email quality question and one for the pause/campaign question. Each captured_answer should cover only the relevant portion of the operator's reply. similar_faq_id should be null for both (no matching FAQs exist)."
+}

@@ -1,0 +1,11 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "replyDraftId": "00000000-0000-0000-0000-000000000304",
+  "prospectQuestionContext": "Can you tell me more about how the pricing works?",
+  "originalOutboundBody": "Hi Claire,\n\nMost consultants I work with had the same problem — great offer, pipeline completely dependent on referrals.\n\nWe fix that. Worth a quick call?\n\nDoug",
+  "operatorAnswer": "Let me come back to you on Monday with the exact figures.",
+  "aiDraftBody": "Happy to walk you through pricing on a call. It depends on your specific volume needs.",
+  "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
+  "expected_behaviour": "Gate should skip. The operator answer is both under 20 words AND starts with a filler prefix ('let me come back'). Rule 1 (word count) fires first. Expected: skip: true, reason contains 'answer_too_short'. Returns []."
+}

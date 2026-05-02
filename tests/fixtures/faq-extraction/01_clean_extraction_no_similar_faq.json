@@ -1,0 +1,11 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "replyDraftId": "00000000-0000-0000-0000-000000000301",
+  "prospectQuestionContext": "Hey Doug, thanks for the message. Quick question — how long does the whole onboarding process take? I've got a board review in 6 weeks and want to know if we can have something running by then.",
+  "originalOutboundBody": "Hi James,\n\nMost consultants I talk to have the same problem — referrals keep the lights on but pipeline resets every time a big project wraps.\n\nWe fix that. Qualified meetings land in your diary, week after week, without you chasing leads.\n\nWorth a quick call to see if it lines up?\n\nDoug",
+  "operatorAnswer": "Great timing on the question. Our onboarding runs roughly two to three weeks from contract signing. Week one is your ICP document and messaging strategy — you review and approve both before we move to sourcing. Week two is prospect sourcing and campaign setup. Week three is a final check of the first email batch before anything sends. After that, qualified meetings start landing in your calendar automatically.",
+  "aiDraftBody": "Thanks for asking! We typically run a structured onboarding process that takes around two to three weeks to complete. The first week focuses on strategy documents, followed by prospect sourcing and campaign configuration in week two. We do a final review in week three before the first emails go out.",
+  "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
+  "expected_behaviour": "Should produce 1 extraction. extracted_question should be a clean canonical phrasing of the onboarding timeline question. captured_answer should be the operator's answer with personal context stripped (the 6-week board review is prospect-specific and should not appear). similar_faq_id should be null (no matching FAQ in the DB for this question)."
+}

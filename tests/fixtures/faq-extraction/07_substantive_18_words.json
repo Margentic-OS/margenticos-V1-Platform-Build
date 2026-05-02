@@ -1,0 +1,11 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "replyDraftId": "00000000-0000-0000-0000-000000000307",
+  "prospectQuestionContext": "Quick question — do you require a minimum contract length?",
+  "originalOutboundBody": "Hi Lena,\n\nMost consultants I talk to have the same problem — referrals keep the lights on but pipeline resets every quarter.\n\nWe fix that. Worth a quick call?\n\nDoug",
+  "operatorAnswer": "No minimum contract length. We run month to month with thirty days notice to cancel.",
+  "aiDraftBody": "We operate on a rolling monthly basis with no long-term commitment required.",
+  "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
+  "expected_behaviour": "Gate should skip with answer_too_short reason. The operator answer is 18 words — below the 20-word floor. This is a documented limitation: the floor gates out genuinely short but substantive answers. Returns []. Note: the 20-word floor was set conservatively; this case demonstrates the tradeoff. Documented in BACKLOG for threshold tuning after 30+ real extractions."
+}
