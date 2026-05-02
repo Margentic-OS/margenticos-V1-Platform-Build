@@ -57,12 +57,15 @@ interface SeededRows {
 // faqs only requires organisation_id — no other FK dependencies.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function seedFaqForFixture02(supabase: any, organisationId: string): Promise<string | null> {
+  // question_variants must be empty so the FAQ token set stays small.
+  // Adding variants expands the union (e.g. from 4 to 6 tokens) and drops
+  // the Jaccard score below the 0.45 flag threshold despite a genuine match.
   const { data, error } = await supabase
     .from('faqs')
     .insert({
       organisation_id: organisationId,
       question_canonical: 'Do you work with solo consultants?',
-      question_variants: ['Do you work with solo operators?', 'Is this for individual consultants?'],
+      question_variants: [],
       answer: 'Yes, we work with both solo consultants and small consulting teams.',
       status: 'approved',
     })
@@ -77,64 +80,104 @@ async function seedFaqForFixture02(supabase: any, organisationId: string): Promi
   return data.id
 }
 
-// Fixture 12: seeds a pending faq_extractions row.
-// faq_extractions requires FKs to signals and reply_drafts — this may fail in dev
-// if no real signal/draft rows exist. Harness handles gracefully.
+// Deterministic UUIDs for fixture 12 self-seeding.
+// Using these IDs lets the harness clean up exactly what it inserted on every run,
+// even if a previous run crashed before cleanup.
+const SEED12_SIGNAL_ID = '00000000-0000-0000-0000-001200000001'
+const SEED12_REPLY_DRAFT_ID = '00000000-0000-0000-0000-001200000002'
+const SEED12_EXTRACTION_ID = '00000000-0000-0000-0000-001200000003'
+
+// Fixture 12: self-seeds signal → reply_draft → faq_extractions using deterministic UUIDs.
+// Pre-cleans stale rows from any previous crashed run before inserting fresh ones.
+// Cleanup in cleanupSeeds runs in reverse FK order: extraction → reply_draft → signal.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function seedPendingExtractionForFixture12(supabase: any, organisationId: string): Promise<SeededRows | null> {
-  // Find any existing signal for this org to satisfy the FK constraint
-  const { data: signals, error: sigErr } = await supabase
+  // Pre-clean stale rows from any previous crashed run (reverse FK order)
+  await supabase.from('faq_extractions').delete().eq('id', SEED12_EXTRACTION_ID)
+  await supabase.from('reply_drafts').delete().eq('id', SEED12_REPLY_DRAFT_ID)
+  await supabase.from('signals').delete().eq('id', SEED12_SIGNAL_ID)
+
+  // 1. Insert signal
+  const { error: sigErr } = await supabase
     .from('signals')
-    .select('id')
-    .eq('organisation_id', organisationId)
-    .limit(1)
+    .insert({
+      id: SEED12_SIGNAL_ID,
+      organisation_id: organisationId,
+      signal_type: 'email_reply',
+      raw_data: {},
+    })
 
-  if (sigErr || !signals || signals.length === 0) {
-    console.warn('  [SEED WARNING] No signals found for fixture 12 seeding — similar_pending_extraction_id will be null')
+  if (sigErr) {
+    console.warn(`  [SEED WARNING] Could not seed signal for fixture 12: ${sigErr.message}`)
     return null
   }
 
-  // Find any existing reply_draft for this org
-  const { data: drafts, error: draftErr } = await supabase
+  // 2. Insert reply_draft referencing the seeded signal
+  const { error: draftErr } = await supabase
     .from('reply_drafts')
-    .select('id')
-    .eq('organisation_id', organisationId)
-    .limit(1)
+    .insert({
+      id: SEED12_REPLY_DRAFT_ID,
+      organisation_id: organisationId,
+      signal_id: SEED12_SIGNAL_ID,
+      tier: 3,
+      intent: 'information_request',
+      ai_draft_body: 'We work with both solo consultants and small teams.',
+      final_sent_body: 'We work with both solo consultants and small teams.',
+      status: 'sent',
+    })
 
-  if (draftErr || !drafts || drafts.length === 0) {
-    console.warn('  [SEED WARNING] No reply_drafts found for fixture 12 seeding — similar_pending_extraction_id will be null')
+  if (draftErr) {
+    console.warn(`  [SEED WARNING] Could not seed reply_draft for fixture 12: ${draftErr.message}`)
+    await supabase.from('signals').delete().eq('id', SEED12_SIGNAL_ID)
     return null
   }
 
-  const { data, error } = await supabase
+  // 3. Insert pending faq_extractions row representing a prior extraction on the same topic
+  const { error: extractErr } = await supabase
     .from('faq_extractions')
     .insert({
+      id: SEED12_EXTRACTION_ID,
       organisation_id: organisationId,
-      signal_id: signals[0].id,
-      reply_draft_id: drafts[0].id,
+      signal_id: SEED12_SIGNAL_ID,
+      reply_draft_id: SEED12_REPLY_DRAFT_ID,
       extracted_question: 'Do you work with solo consultants?',
       suggested_answer: 'Yes, we work with solo consultants and small teams.',
       status: 'pending',
     })
-    .select('id')
-    .single()
 
-  if (error) {
-    console.warn(`  [SEED WARNING] Could not seed pending extraction for fixture 12: ${error.message}`)
+  if (extractErr) {
+    console.warn(`  [SEED WARNING] Could not seed faq_extractions for fixture 12: ${extractErr.message}`)
+    await supabase.from('reply_drafts').delete().eq('id', SEED12_REPLY_DRAFT_ID)
+    await supabase.from('signals').delete().eq('id', SEED12_SIGNAL_ID)
     return null
   }
 
-  console.log(`  [SEED] Inserted pending faq_extraction ${data.id} for fixture 12`)
-  return { extractionId: data.id }
+  console.log(`  [SEED] Inserted signal ${SEED12_SIGNAL_ID} for fixture 12`)
+  console.log(`  [SEED] Inserted reply_draft ${SEED12_REPLY_DRAFT_ID} for fixture 12`)
+  console.log(`  [SEED] Inserted pending faq_extraction ${SEED12_EXTRACTION_ID} for fixture 12`)
+  return {
+    extractionId: SEED12_EXTRACTION_ID,
+    replyDraftId: SEED12_REPLY_DRAFT_ID,
+    signalId: SEED12_SIGNAL_ID,
+  }
 }
 
 // ─── Cleanup helpers ──────────────────────────────────────────────────────────
 
+// Cleanup must run in reverse FK order: faq_extractions → reply_drafts → signals → faqs.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function cleanupSeeds(supabase: any, seeded: SeededRows): Promise<void> {
   if (seeded.extractionId) {
     await supabase.from('faq_extractions').delete().eq('id', seeded.extractionId)
     console.log(`  [CLEANUP] Deleted faq_extraction ${seeded.extractionId}`)
+  }
+  if (seeded.replyDraftId) {
+    await supabase.from('reply_drafts').delete().eq('id', seeded.replyDraftId)
+    console.log(`  [CLEANUP] Deleted reply_draft ${seeded.replyDraftId}`)
+  }
+  if (seeded.signalId) {
+    await supabase.from('signals').delete().eq('id', seeded.signalId)
+    console.log(`  [CLEANUP] Deleted signal ${seeded.signalId}`)
   }
   if (seeded.faqId) {
     await supabase.from('faqs').delete().eq('id', seeded.faqId)
