@@ -526,6 +526,15 @@ CLAUDE.md model selection table reflects current state (Sonnet for messaging).
 When Anthropic releases a new model family, update agent files directly and record
 the change here — do not rely on CLAUDE.md as a change trigger.
 
+Update — May 2026 (FAQ extraction agent added):
+FAQ extraction (faq-extraction-agent): claude-haiku-4-5-20251001
+  Same tier as reply classifier. Structured extraction from text, not prose generation.
+  Cost-sensitive — runs synchronously after every Tier 3 send once Group 4 wires it in.
+  LLM justified over deterministic rules: extracting Q&A pairs from unstructured prose
+  requires judgment about what constitutes a question and whether the operator answered it.
+  The deterministic filler-detection gate (src/lib/faq/filler-detection.ts) skips obvious
+  non-extractable cases before any Haiku call is made.
+
 ---
 
 ## ADR-014 — Sequence composition approach: multi-variant template rotation with generated mode planned

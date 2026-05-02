@@ -281,6 +281,78 @@ What to check if it breaks:
 
 ---
 
+## FAQ Extraction Agent
+
+Entry point:  src/lib/agents/faq-extraction-agent.ts
+Prompt file:  docs/prompts/faq-extraction-agent.md
+Model:        claude-haiku-4-5-20251001
+Max tokens:   1024
+
+Purpose: Extract FAQ candidates from sent Tier 3 replies. Captures the prospect's
+question and the operator's actual sent answer as a candidate FAQ entry. Operator
+curates in Group 7's curation UI before any candidate becomes a canonical FAQ.
+
+Dependencies:
+  - src/lib/faq/filler-detection.ts (deterministic skip gate — runs before Haiku)
+  - src/lib/faq/name-detection.ts (deterministic name flagging in post-processing)
+  - src/lib/faq/matcher.ts (similarity check with includePendingExtractions=true)
+  - Caller (Group 4) provides the reply_drafts row data and the positioning document.
+
+Inputs (FaqExtractionInput):
+  organisationId            — required for isolation
+  organisationName          — used in prompt context
+  replyDraftId              — for idempotency check and agent_runs logging
+  prospectQuestionContext   — the prospect's full reply text
+  originalOutboundBody      — the email the prospect was replying to
+  operatorAnswer            — the final_sent_body from reply_drafts
+  aiDraftBody               — the ai_draft_body from reply_drafts (for unedited-draft gate)
+  orgPositioningDocument    — for niche-language scrubbing in the prompt
+  supabase                  — authenticated Supabase client
+
+Outputs: FaqExtractionResult[]. Empty array is valid (skip case or no extraction warranted).
+  Each result: { extracted_question, captured_answer, similar_faq_id,
+                 similar_pending_extraction_id, similarity_score,
+                 potential_names_flagged, prompt_version }
+
+DB column note: captured_answer in FaqExtractionResult maps to suggested_answer in
+faq_extractions. The caller (Group 4) maps captured_answer → suggested_answer on insert.
+
+The agent does NOT write to faq_extractions. Caller writes.
+
+Idempotency: checks agent_runs before any work. If a previous successful run exists
+for the same replyDraftId (found via LIKE on output_summary), returns [] immediately.
+
+Similarity flagging: after Haiku extracts a Q&A pair, findFaqMatches() runs with
+includePendingExtractions=true. If the top match scores >= 0.45:
+  - approved FAQ match → similar_faq_id populated
+  - pending extraction match → similar_pending_extraction_id populated
+  Scores below 0.45 → all three null. Operator reviews these signals in the curation UI.
+
+Multi-tenant defensive check: for every similarity match, the agent verifies the
+matched row's organisation_id equals the input organisationId before returning it.
+Mismatch triggers a critical error log and returns []. Defence in depth per ADR-003.
+
+Skip cases (returns [] without calling Haiku):
+  - Filler-detection gate: answer < 20 words, filler prefix, question-dominated,
+    calendly-only, operator-did-not-edit-AI-draft (Jaccard similarity > 0.95).
+  - Idempotency hit: previous successful run found for this replyDraftId.
+  - Haiku decided no extraction: vague prospect question, hostile reply,
+    operator pivoted away from the question, invented context referenced.
+
+Failure modes (returns []):
+  - Pre-flight check failure → agent_runs status='failed'.
+  - Gate skip → status='skipped' with reason in output_summary.
+  - Idempotency hit → status='skipped_idempotent'.
+  - ANTHROPIC_API_KEY not set → status='failed'.
+  - LLM API error or timeout (15s) → status='failed'.
+  - Malformed JSON or schema violation → status='failed'.
+  - Multi-tenant safety check failure → status='failed' (critical error logged).
+
+Testing: run `npm run test-extractor` for end-to-end fixture review.
+Run `npm run test-filler-detection` for unit-style checks on the gate.
+
+---
+
 ## Agents not yet built (phase two and beyond)
 
 Prospect Research Agent   — entry point: prospect-research-agent.ts

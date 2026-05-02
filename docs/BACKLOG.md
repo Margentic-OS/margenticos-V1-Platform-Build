@@ -950,6 +950,24 @@ is integrated. Refactor cost: ~2-4 hours. Decision: fix now or defer to Phase 2.
   Decision point: re-evaluate at 5+ paying clients.
   Budget: 1-2 weeks to migrate, assuming the feature set has matured by then.
 
+- [phase2, trigger: 30+ extractions produced and operators flagging "should have been extracted" cases in curation] Tune filler-detection thresholds in src/lib/faq/filler-detection.ts.
+  Currently: 20-word floor, filler-prefix list, Jaccard 0.95 unedited-draft threshold.
+  Known documented limitation: answers of exactly 18-19 substantive words are skipped by Rule 1
+  (see fixture 07). Tune based on what operators actually flag as missed — not speculatively.
+  Location: src/lib/faq/filler-detection.ts constants at top of file.
+
+- [phase2, trigger: 5+ clients OR extraction adds noticeable Tier 3 send latency] Move extraction from synchronous post-send to queued background job.
+  Currently runs synchronously after Tier 3 send (Group 4 wiring). Acceptable at founding-client
+  volume. At 5+ clients with concurrent Tier 3 sends, this could add measurable latency to the
+  send path. Move to Vercel Queues or pg_cron background job when the trigger fires.
+
+- [phase2, trigger: operators routinely heavily editing Tier 2 drafts before sending] Build edit-aware FAQ refinement extraction.
+  Currently: Tier 2 sent replies are not extracted. They already used an FAQ and sending them
+  does not expand the knowledge base. If operators consistently heavily edit Tier 2 drafts before
+  sending, the heavy edits suggest the FAQ could be refined — the extraction agent could compare
+  the Tier 2 draft to the final sent body and extract the delta as a FAQ update candidate.
+  Do not build until the pattern is observed in real production data.
+
 - [phase2] Signal threshold processing logic (3/5/10 tier evaluation)
 - [phase2] A/B variant generation when 5-signal threshold crossed
 - [phase2] Conflict resolution UI for competing document suggestions
