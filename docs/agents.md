@@ -207,6 +207,59 @@ What to check if it fails:
 
 ---
 
+## Reply Draft Orchestrator (Group 4, May 2026)
+Entry point: src/lib/reply-handling/draft-orchestrator.ts
+Not an agent — deterministic code per ADR-018.
+
+Purpose:
+  Called by process-reply.ts for every reply that is not Tier 1 auto-actioned.
+  Runs the routing decision, loads org context, checks failure state, calls the
+  reply-draft-agent, and writes the result to reply_drafts. Writing to DB is
+  the orchestrator's responsibility — the reply-draft-agent does not write.
+
+Inputs (OrchestratorInput):
+  signal           — full signal row (includes original_outbound_body captured at polling time)
+  classification   — { intent, confidence, reasoning } from reply-classifier
+  prospectId       — for reply_drafts and agent_runs logging (may be null)
+  supabase         — authenticated Supabase client
+
+Outputs (OrchestratorResult — discriminated union):
+  { kind: 'drafted'; reply_draft_id; tier: 2 | 3 }             — draft written, pending operator review
+  { kind: 'manual_required'; reply_draft_id; reason }           — placeholder row, no draft
+  { kind: 'draft_failed'; reply_draft_id; failure_count }       — circuit breaker placeholder
+  { kind: 'log_only' }                                           — intent has no draft value (unknown intent)
+
+Steps (in order):
+  1. FAQ matching via findFaqMatches() — errors propagate (no catch per ADR-018)
+  2. routeIntent() — pure deterministic routing function
+  3. Tier 1 guard — throws if Tier 1 intent reaches orchestrator (caller error)
+  4. log_only guard — returns immediately without DB writes
+  5. Idempotency check — returns existing reply_drafts row if one exists for this signal
+  6. Circuit breaker — if ≥3 agent_runs failures in last 24h, writes draft_failed placeholder
+  7. Org context — loadOrgContext(); if null, writes manual_required placeholder
+  8. Outbound body check — if signal.original_outbound_body is null/empty, writes manual_required
+  9. Drafter call — draftReply() from reply-draft-agent
+  10. Null drafter result — returns log_only (signal marked processed, no draft written)
+  11. Success — writes reply_drafts row with status='pending'
+
+Manual required reasons:
+  org_context_missing               — active TOV or Positioning doc absent or too thin (< 50 non-whitespace chars)
+  original_outbound_not_captured    — signal.original_outbound_body was null/empty at polling time
+
+What to check if it breaks:
+  - draft_failed appearing frequently → check agent_runs for reply-draft-agent failures in 24h
+  - manual_required (org_context_missing) → check strategy_documents for active TOV + Positioning rows
+  - manual_required (original_outbound_not_captured) → outbound body fetch failed at polling time;
+    check signals.original_outbound_body for recent reply signals; check Instantly API logs
+  - Throws on Tier 1 intent → check process-reply.ts routing block; must not call orchestrator on opt_out/ooo/positive ≥0.90
+
+Supporting modules:
+  src/lib/reply-handling/load-org-context.ts  — loads TOV, Positioning, org name, sender first name
+  src/lib/reply-handling/route-intent.ts      — pure routing function with KNOWN_INTENTS guard
+  See ADR-019 Appendix for full intent-to-tier mapping table.
+
+---
+
 ## Reply Draft Agent
 Entry point: src/lib/agents/reply-draft-agent.ts
 Model: claude-sonnet-4-6

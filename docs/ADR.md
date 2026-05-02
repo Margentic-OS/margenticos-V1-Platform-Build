@@ -1290,3 +1290,27 @@ Consequences:
   The Phase 2 BACKLOG entry "Information request escalation (15h/48h/72h chain)" is
     superseded — replaced by the immediate-queue tier model.
 
+ADR-019 Appendix — Intent-to-tier routing table (as implemented, Group 4, May 2026)
+Implemented in: src/lib/reply-handling/route-intent.ts
+
+  intent                          confidence        FAQ top score    → tier
+  ────────────────────────────────────────────────────────────────────────────
+  opt_out                         any               any              → tier_1_handled
+  out_of_office                   any               any              → tier_1_handled
+  positive_direct_booking         ≥ 0.90            any              → tier_1_handled
+  positive_direct_booking         [0.70, 0.90)      any              → tier_2
+  positive_passive                any               any              → tier_2
+  objection_mild                  any               any              → tier_2
+  information_request_generic     any               ≥ 0.65           → tier_2
+  information_request_commercial  any               any              → tier_3
+  information_request_generic     any               < 0.65 or null   → tier_3
+  positive_direct_booking         < 0.70            any              → tier_3
+  unclear                         any               any              → tier_3
+  (any unknown intent)            any               any              → log_only
+
+  Tier 1 intents that reach orchestrateDraft() throw — they should have been handled upstream.
+  Routing constants (must stay in sync with process-reply.ts and reply-draft-agent.ts):
+    POSITIVE_BOOKING_TIER1_THRESHOLD = 0.90
+    POSITIVE_BOOKING_TIER2_MIN       = 0.70
+    FAQ_TIER2_THRESHOLD              = 0.65
+

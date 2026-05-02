@@ -810,6 +810,61 @@ Revisit once prospect research agent is built and full outbound cycle is working
 
 ---
 
+## Group 4 (Reply Routing + Orchestrator) deferred items (2026-05-02)
+
+- [monitor] signals_signal_type_check constraint does not include 'reply_received' (2026-05-02)
+  The signals table check constraint only allows the original Phase 1 signal types.
+  The polling code in instantly.ts inserts signals with signal_type = 'reply_received', which
+  violates the constraint. This means all reply signal inserts currently fail silently.
+  Fix: run a migration adding 'reply_received' (and 'email_bounced', 'lead_unsubscribed' if not
+  already there) to the signals_signal_type_check constraint.
+  Impact: blocking — no reply signals will be written until fixed.
+  Priority: next session before Group 4 can be tested end-to-end.
+
+- [monitor] DRAFT_FAILURE_CIRCUIT_BREAKER threshold may need tuning (2026-05-02)
+  Currently set to 3 failures in 24h. At client-zero volume (20–30 replies/week) this
+  may be too aggressive — 3 Anthropic API timeouts in a burst could suppress all drafting.
+  Tune after first 30 days of live data. Consider raising to 5 and adding a Sentry alert
+  when the circuit breaker fires so it's visible without log-diving.
+
+- [phase2] process-reply.ts cron concurrency — no protection against overlapping runs (2026-05-02)
+  Current guard: 55s function timeout < 5min cron interval (by design).
+  If cron interval is shortened or the function runs long, two instances can overlap.
+  The orchestrator's idempotency check (reply_drafts by signal_id) protects against
+  duplicate drafts, but the action row insertion is not idempotent across two concurrent
+  processes. Post-Group-4: assess whether the 55s/5min margin holds as batch sizes grow.
+
+- [phase2] Drafter null return loses the signal permanently (2026-05-02)
+  When draftReply() returns null, the orchestrator returns log_only and the caller marks
+  the signal as processed. No retry occurs. For transient Anthropic failures (timeout, 529),
+  this means the reply goes unanswered without even a manual_required placeholder.
+  Fix options: (a) write a manual_required placeholder when drafter returns null, or
+  (b) leave signal unprocessed (don't call markSignalProcessed) so it retries next cron.
+  Either requires changing both orchestrateDraft() and the caller's mark-processed logic.
+  Deferred to post-Group-4 when we have live failure data to decide the right policy.
+
+- [phase2] sender_first_name sourced from organisations.founder_first_name (2026-05-02)
+  The campaigns table has no sender_first_name field. The orchestrator and drafter use
+  organisations.founder_first_name as a proxy. This is correct for single-operator orgs
+  but breaks when MargenticOS sends on behalf of a team member who is not the founder.
+  Fix: add sender_first_name to campaigns table so it can be set per-campaign.
+  No urgency at client-zero stage (single operator per org). Flag before multi-operator.
+
+- [phase2] NULL outbound body backfill for existing signals (2026-05-02)
+  Signals ingested before Group 4 was deployed have NULL original_outbound_body.
+  These will route to manual_required. No backfill is planned — the field is best-effort
+  and the operator handles these as manual. Note for future: if volume of
+  manual_required with reason='original_outbound_not_captured' is persistently high,
+  consider a batch backfill script against Instantly API (feasible, not urgent).
+
+- [phase2] Group 5 sign-off — reply-draft-agent prompt + operator triage UI (2026-05-02)
+  Group 4 ships the orchestrator and routing. Group 5 is the operator triage view where
+  drafted replies are reviewed, edited, and sent. Without Group 5, Tier 2/3 drafts write
+  to reply_drafts but the operator has no UI to action them.
+  This is the next group to build. The reply_drafts table is the queue; Group 5 reads it.
+
+---
+
 ## ADR-001 channel/source agnosticism — pending decision (2026-04-29)
 
 Four findings from the Phase 1 code review. The reply-handling layer works correctly
