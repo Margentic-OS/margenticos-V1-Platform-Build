@@ -764,6 +764,19 @@ Revisit once prospect research agent is built and full outbound cycle is working
   while all other document types are objects (per ADR-012). Defer database migration
   until post-client-zero.
 
+- [post-build] Schema migration discipline — pair every CHECK constraint with a code-side grep (2026-05-02)
+  For every text/enum column with a CHECK constraint, grep the codebase for string
+  literals that should be in the constraint before finalising the migration. The
+  signals.signal_type mismatch was caught by Group 4 testing — the original constraint
+  had 13 unused aspirational names while the Group 3 polling code wrote 3 different
+  names, none of which were in the constraint. The mismatch was latent because the
+  campaigns table was also empty, so no inserts were ever attempted.
+  Rule: when writing a migration that adds or modifies a CHECK constraint, run:
+    grep -r "'<signal_type_value>'" src/
+  for each allowed value, confirming at least one writer exists. For any allowed value
+  with no writer, add a comment explaining why it's forward-compatibility reservation
+  rather than an active value. Flagged 2026-05-02.
+
 ---
 
 ## Post-Tier-1 items
