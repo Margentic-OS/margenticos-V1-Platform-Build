@@ -35,10 +35,11 @@ console.log('='.repeat(60))
 console.log('\n[Rule 1] Word count < 20')
 
 const shortAnswer = 'Our onboarding takes about two to three weeks in total.'
+// Actual word count is 10 — Rule 1 fires with the exact count in the reason string.
 check(
-  'Short answer (9 words) → skip, reason contains answer_too_short',
+  'Short answer (10 words) → skip, reason contains answer_too_short',
   shouldSkipExtraction({ prospectQuestion: 'how long?', operatorAnswer: shortAnswer, aiDraftBody: 'different text entirely' }),
-  { skip: true, reason: 'answer_too_short_9_words' },
+  { skip: true, reason: 'answer_too_short_10_words' },
 )
 
 const borderlineAnswer = 'Our onboarding process typically runs two to three weeks from contract signing to first emails going out in Instantly.'
@@ -68,8 +69,9 @@ check(
   '"Got it" prefix → skip',
   shouldSkipExtraction({
     prospectQuestion: 'when do we start?',
-    operatorAnswer: "Got it, thanks. We'll connect again soon and I'll explain everything then.",
-    aiDraftBody: 'something else here that is very different from the above',
+    // Answer is >20 words so Rule 1 does not fire, letting Rule 2 be exercised in isolation.
+    operatorAnswer: "Got it, no problem at all. We can pick this up properly next week and I'll walk you through the full setup process step by step.",
+    aiDraftBody: 'something else here that is very different from the above and has no overlap',
   }),
   { skip: true, reason: 'filler_prefix_detected_got_it' },
 )
@@ -82,6 +84,16 @@ check(
     aiDraftBody: 'some completely different text that does not match at all',
   }),
   { skip: true, reason: 'filler_prefix_detected_good_question' },
+)
+
+check(
+  '"Both are great questions" — plural should NOT fire filler-prefix (word-boundary guard)',
+  shouldSkipExtraction({
+    prospectQuestion: 'can you cover pricing and onboarding?',
+    operatorAnswer: 'Both are great questions. On the emails side we use Instantly and the setup takes about two to three weeks covering ICP, messaging, sourcing, and campaign setup before anything goes live.',
+    aiDraftBody: 'something completely unrelated and different from the operator answer here',
+  }).reason,
+  undefined,  // no rule fires — plural does not match the singular "great question" prefix
 )
 
 // ── Rule 3: question-dominated ────────────────────────────────────────────
@@ -106,7 +118,8 @@ check(
   'Booking placeholder with minimal context → skip',
   shouldSkipExtraction({
     prospectQuestion: 'can we jump on a call?',
-    operatorAnswer: 'Happy to walk you through it. {calendly_link}',
+    // Answer is >20 words total (passes Rule 1) but non-link content is <30 words (Rule 4 fires).
+    operatorAnswer: 'Sounds great. Looking forward to walking you through everything and showing you exactly how things would work for your specific situation. Pick a time that suits: {calendly_link}',
     aiDraftBody: 'a very different draft body with lots of different words not matching the above',
   }),
   { skip: true, reason: 'booking_link_only_minimal_context' },
@@ -128,11 +141,12 @@ check(
 
 console.log('\n[Rule 5] Operator did not edit AI draft')
 
+// No filler prefix in opening 40 chars — text must not start with "Thanks for", "Got it", etc.
 const sharedText = `
-  Thanks for asking about our onboarding timeline. We typically run a two to three week
-  setup process that covers your ICP document, messaging strategy, prospect sourcing,
-  and campaign configuration. You review and approve everything before we send a single
-  email. Once the first batch is live, qualified meetings start appearing in your calendar.
+  Our onboarding runs across two to three weeks from contract signing. Week one covers the
+  ICP document and messaging strategy, which you review and approve before we move to
+  sourcing. Week two is prospect sourcing and campaign setup. Week three is a final review
+  before the first emails go out. Qualified meetings start arriving in your calendar after that.
 `.trim()
 
 check(
@@ -146,14 +160,13 @@ check(
 )
 
 check(
-  'Slightly modified draft (>5% change) → no skip on rule 5',
+  'Substantially rewritten draft (low token overlap) → no skip on rule 5',
   shouldSkipExtraction({
     prospectQuestion: 'how does onboarding work?',
     operatorAnswer: `
-      Thanks for your question about our onboarding process. We run a structured two to three
-      week setup: ICP document, messaging strategy, prospect sourcing, campaign configuration.
-      You approve everything before the first email goes out. After that, qualified meetings
-      land in your calendar automatically.
+      We run a two to three week setup. First we build the ICP and messaging docs together —
+      you sign off both before anything goes live. Then we source prospects and configure
+      campaigns. After the first batch sends, meetings appear in your calendar automatically.
     `.trim(),
     aiDraftBody: sharedText,
   }).reason,

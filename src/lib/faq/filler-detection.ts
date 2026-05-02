@@ -49,9 +49,16 @@ export function shouldSkipExtraction({
   }
 
   // ── Rule 2: filler-prefix in first 40 characters ─────────────────────────
+  // Word-boundary regex prevents false positives like "great questions" matching "great question".
   const opening = operatorAnswer.trim().toLowerCase().slice(0, 40)
   for (const prefix of FILLER_PREFIXES) {
-    if (opening.includes(prefix)) {
+    const escaped = prefix.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // Trailing-space entries (e.g. "ok ") act as their own boundary anchor — match literally.
+    // Multi-word and non-space-terminated entries use \b on both ends.
+    const pattern = prefix.endsWith(' ')
+      ? new RegExp(escaped.trimEnd() + '(?:\\s|$)', 'i')
+      : new RegExp(`\\b${escaped}\\b`, 'i')
+    if (pattern.test(opening)) {
       const normalised = prefix.trim().replace(/\s+/g, '_')
       return { skip: true, reason: `filler_prefix_detected_${normalised}` }
     }
