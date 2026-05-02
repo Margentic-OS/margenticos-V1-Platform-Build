@@ -252,7 +252,16 @@ export async function draftReply(input: ReplyDrafterInput): Promise<ReplyDrafter
   // ── 6. Post-processing ───────────────────────────────────────────────────
   const scrubbed = scrubAITells(draftBody, `reply-draft/${signalId}`)
 
-  // Minimum length check: 10 words (booking confirmations and minimal-reply Tier 3 cases are legitimately short)
+  // Minimum word count: 10. Set deliberately low. Some legitimate drafts
+  // are correctly short — booking confirmations ("here's the link, talk
+  // soon"), one-word-reply Tier 3 starting points ("worth a conversation?"),
+  // etc. The original 20-word floor produced false positives on these.
+  //
+  // 10 is the boundary between "valid short reply" and "almost certainly
+  // a malformed API response or stub." If we see real degenerate stubs in
+  // production (e.g. model returns "Got it." as a Tier 2 send-ready),
+  // the right fix is a prompt rule forcing such cases to Tier 3 with an
+  // ambiguity note — not raising this floor.
   const wordCount = scrubbed.trim().split(/\s+/).filter(w => w.length > 0).length
   if (wordCount < 10) {
     const msg = `reply-draft-agent: draft_body too short — ${wordCount} words (minimum 10)`

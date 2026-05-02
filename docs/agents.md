@@ -274,6 +274,10 @@ What to check if it breaks:
     Not treated as a hard failure. Commercial drafts should always
     have this populated; check warnings in agent_runs if commercial
     audit trail looks thin.
+  - Minimum word count is 10 (deliberately low). Drafts shorter than 10
+    words return null. Some legitimate replies are correctly short
+    (booking confirmations, minimal Tier 3 starting points) — the floor
+    is set to allow these while still catching malformed/stub outputs.
 
 ---
 
