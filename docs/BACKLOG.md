@@ -875,6 +875,28 @@ is integrated. Refactor cost: ~2-4 hours. Decision: fix now or defer to Phase 2.
   is the rule for automated replies; the agent uses senderFirstName as the sign-off in drafts.
   Reminder set here so Group 5 spec explicitly validates sign-off before send.
 
+- [phase2] Deferred-followup handling system (2026-05-02)
+  Trigger: 5+ deferred-followup replies received OR first paying client onboards.
+  Some prospects reply with timing pushbacks naming a specific future window ("reach out
+  in 3 months", "circle back after Q3", "ping me when we hire our marketing lead").
+  Currently these route to Tier 3 operator queue with no scheduled follow-up — relies on
+  operator memory or external CRM tracking. Manageable for client zero; will not scale
+  past 5 active deferred prospects without a system.
+  What's needed:
+    - New classifier intent: defer_followup (or similar)
+    - Schema: scheduled_followups table (prospect_id, deferred_until_date,
+      original_signal_id, status, original_thread_context)
+    - Date extraction: parse natural-language timeframes from replies
+      ("3 months" → date), with operator override
+    - Scheduled job: daily check for due follow-ups, surfaces to operator queue with
+      a pre-drafted re-engagement message that references the original thread
+    - Re-engagement message generator: similar to reply-draft-agent but with
+      thread-resumption framing
+  Reasoning for deferring: building this without real defer-reply data risks designing
+  wrong abstractions. Different prospects use different formats. Phase 2 routes these
+  to operator queue manually for now. Decide build scope when first client has 5+
+  deferred prospects.
+
 - [phase2] Re-engagement protocol for prospects who completed sequence without response (2026-04-24)
   Trigger: 60–90 days post-sequence completion with zero reply.
   Scope: re-research for fresh signal, possible re-tier-classification, different copy framing

@@ -18,8 +18,8 @@
       "score": 0.67
     }
   ],
-  "includeCalendlyHint": false,
+  "includeCalendlyHint": true,
   "signalId": "00000000-0000-0000-0000-000000000103",
   "prospectId": "00000000-0000-0000-0000-000000000203",
-  "expected_behaviour": "Should produce a Tier 2 draft that respects the timing deferral without pressure. Should acknowledge Q3 naturally and suggest keeping the conversation alive or booking a short call for when they're ready. Uses FAQ context about starting later. Warm, no pressure. Under 120 words."
+  "expected_behaviour": "Acknowledge timing objection without pushing back with operational reasons (NOT 'setup takes 2-3 weeks'). Offer a no-pressure conversation now framed around the prospect's planning value (budget, scope, internal alignment) using CONDITIONAL phrasing ('if you want to plan ahead', 'if budgeting matters'). Include {calendly_link} with the soft offer. Explicitly defer back to their stated timeframe as the default path ('no pressure though, happy to circle back in Q3'). Structure: acknowledge → soft conditional offer → link → explicit out at their timeframe. No call duration specified."
 }

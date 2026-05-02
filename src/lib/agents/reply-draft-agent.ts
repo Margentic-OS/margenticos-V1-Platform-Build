@@ -17,7 +17,7 @@ import { join } from 'path'
 import { logger } from '@/lib/logger'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 
-const PROMPT_VERSION = '1.0.1'
+const PROMPT_VERSION = '1.0.2'
 const MODEL = 'claude-sonnet-4-6'
 const TIMEOUT_MS = 30000
 const MAX_TOKENS = 2048

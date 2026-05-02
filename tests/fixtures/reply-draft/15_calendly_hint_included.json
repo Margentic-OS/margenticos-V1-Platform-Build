@@ -21,5 +21,5 @@
   "includeCalendlyHint": true,
   "signalId": "00000000-0000-0000-0000-000000000115",
   "prospectId": "00000000-0000-0000-0000-000000000215",
-  "expected_behaviour": "Tier 2 draft. High-confidence positive passive with good FAQ match and includeCalendlyHint=true. Draft should: (1) acknowledge the referral pain point they mentioned, (2) naturally lead toward a 20-minute call, (3) include {calendly_link} placeholder or 'grab a slot' phrasing, (4) NOT write the actual URL. Under 120 words. Voice should match the TOV: warm, specific, no oversell."
+  "expected_behaviour": "Tier 2 draft. High-confidence positive passive with good FAQ match and includeCalendlyHint=true. Draft should: (1) acknowledge the referral pain point they mentioned, (2) naturally lead toward a call with {calendly_link} placeholder or 'grab a slot' phrasing, (3) NOT write the actual URL, (4) NOT specify a duration ('a call' or 'a slot', never '20-minute call' or '15 minutes'). Under 120 words. Voice: warm, specific, no oversell."
 }
