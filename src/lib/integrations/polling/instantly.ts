@@ -152,6 +152,82 @@ async function setCursorError(
     )
 }
 
+// ── Outbound body capture (best-effort, non-blocking) ─────────────────────────
+
+// Candidate field names in the Instantly reply email object that may reference
+// the UUID of the original outbound email. Checked in order — first non-empty string wins.
+const OUTBOUND_UUID_CANDIDATE_FIELDS = [
+  'reply_to_uuid',
+  'in_reply_to_uuid',
+  'original_email_uuid',
+]
+
+interface OutboundEmailCapture {
+  body: string | null
+  messageId: string | null
+}
+
+// Fetches the original outbound email body from Instantly using a thread reference UUID
+// found in the reply object. Returns nulls on any failure — never throws.
+// 5-second timeout prevents stalling the poll loop on slow API responses.
+async function fetchOutboundEmailBody(
+  emailObj: Record<string, unknown>,
+  apiKey: string,
+): Promise<OutboundEmailCapture> {
+  let outboundUuid: string | null = null
+  for (const field of OUTBOUND_UUID_CANDIDATE_FIELDS) {
+    const val = emailObj[field]
+    if (typeof val === 'string' && val.trim().length > 0) {
+      outboundUuid = val.trim()
+      break
+    }
+  }
+
+  if (!outboundUuid) return { body: null, messageId: null }
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 5000)
+
+  try {
+    const response = await fetch(`${INSTANTLY_API_BASE}/emails/${outboundUuid}`, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      logger.warn('Instantly poll: outbound email fetch failed', {
+        uuid: outboundUuid,
+        status: response.status,
+      })
+      return { body: null, messageId: outboundUuid }
+    }
+
+    const json = (await response.json().catch(() => null)) as Record<string, unknown> | null
+    if (!json) return { body: null, messageId: outboundUuid }
+
+    // Prefer plain-text body; fall back to html body field.
+    const bodyText =
+      (typeof json.body_text === 'string' && json.body_text.trim().length > 0
+        ? json.body_text
+        : null) ??
+      (typeof json.body === 'string' && json.body.trim().length > 0 ? json.body : null)
+
+    return { body: bodyText, messageId: outboundUuid }
+  } catch (err) {
+    const isAbort = err instanceof Error && err.name === 'AbortError'
+    logger.warn('Instantly poll: outbound email fetch error', {
+      uuid: outboundUuid,
+      error: isAbort ? 'timeout' : String(err),
+    })
+    return { body: null, messageId: outboundUuid }
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 // ── Signal writer ─────────────────────────────────────────────────────────────
 
 // Returns 'written' | 'skipped' | 'error'.
@@ -166,6 +242,8 @@ async function writeSignal(
     source: string
     external_event_id: string
     raw_data: Json
+    original_outbound_body?: string | null
+    original_outbound_message_id?: string | null
   }
 ): Promise<'written' | 'skipped' | 'error'> {
   const { error } = await supabase.from('signals').insert({
@@ -177,6 +255,8 @@ async function writeSignal(
     external_event_id: params.external_event_id,
     raw_data: params.raw_data,
     processed: false,
+    original_outbound_body: params.original_outbound_body ?? null,
+    original_outbound_message_id: params.original_outbound_message_id ?? null,
   })
 
   if (!error) return 'written'
@@ -344,6 +424,8 @@ export async function pollInstantlyReplies(
           continue
         }
 
+        const outbound = await fetchOutboundEmailBody(e, apiKey)
+
         const outcome = await writeSignal(supabase, {
           organisation_id: campaignRow.organisation_id,
           campaign_id: campaignRow.id,
@@ -352,6 +434,8 @@ export async function pollInstantlyReplies(
           source: SOURCE,
           external_event_id: emailId,
           raw_data: e as Json,
+          original_outbound_body: outbound.body,
+          original_outbound_message_id: outbound.messageId,
         })
 
         if (outcome === 'written') result.written++
