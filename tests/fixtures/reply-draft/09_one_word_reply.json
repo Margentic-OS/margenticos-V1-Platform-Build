@@ -1,0 +1,18 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Interesting.",
+  "originalOutboundBody": "Hi Marco,\n\nMost consultants I talk to have the offer dialled in but no engine filling the calendar consistently.\n\nWe fix that — qualified meetings in the diary, week after week.\n\nWorth a quick call to see if it fits?\n\nDoug",
+  "classification": {
+    "intent": "positive_passive",
+    "confidence": 0.55,
+    "reasoning": "Single-word reply 'Interesting.' expresses some engagement but provides no concrete signal about intent, readiness, or questions."
+  },
+  "tierHint": 3,
+  "faqMatches": [],
+  "includeCalendlyHint": false,
+  "signalId": "00000000-0000-0000-0000-000000000109",
+  "prospectId": "00000000-0000-0000-0000-000000000209",
+  "expected_behaviour": "Tier 3. Coherence guard should trigger — 'Interesting.' is 5 words or fewer with no clear meaning. ambiguity_note should state that a single-word reply gives no signal about what's interesting, what they want to know more about, or whether they want to take action. Draft should be minimal — acknowledge the reply, leave door open, no assumption about next step. alternative_directions should include: (a) ask what caught their attention, (b) offer information without pressure."
+}

@@ -1,0 +1,25 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "What do you charge? And how does the contract work — monthly rolling or do you require a minimum commitment?",
+  "originalOutboundBody": "Hi David,\n\nPipeline dependent on referrals is fine until it isn't. Most consultants I talk to have hit a quarter where the calendar went quiet and panic set in.\n\nWe put qualified meetings in the diary, week after week, without you writing a single cold email.\n\nWorth a quick call to see if it fits?\n\nDoug",
+  "classification": {
+    "intent": "information_request_commercial",
+    "confidence": 0.95,
+    "reasoning": "Prospect is asking directly about pricing and contract terms — specifically commercial questions that require human judgment on pricing sensitivity and appropriate framing for this prospect."
+  },
+  "tierHint": 3,
+  "faqMatches": [
+    {
+      "faq_id": "00000000-0000-0000-0000-000000000004",
+      "question_canonical": "What do you charge?",
+      "answer": "Pricing starts at €1,000/month for the founding client rate. We discuss commitment structure on a call — it depends on your situation and what makes sense.",
+      "score": 0.81
+    }
+  ],
+  "includeCalendlyHint": true,
+  "signalId": "00000000-0000-0000-0000-000000000106",
+  "prospectId": "00000000-0000-0000-0000-000000000206",
+  "expected_behaviour": "ALWAYS Tier 3 for commercial questions regardless of FAQ match quality. FAQ score of 0.81 is above threshold but this is information_request_commercial — sensitivity requires human eyes. Draft should acknowledge the pricing question and steer toward a call. ambiguity_note should explain commercial sensitivity. Should NOT quote specific prices in the draft. Should include soft booking CTA since includeCalendlyHint is true."
+}

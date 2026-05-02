@@ -1,0 +1,18 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Oh absolutely, another AI pipeline tool that's going to totally revolutionise my business. Can't wait.",
+  "originalOutboundBody": "Hi Rob,\n\nReferral-dependent revenue resets to zero when projects end. Most consultants hit a quarter where the calendar empties.\n\nWe fix that — qualified meetings in the diary, consistently.\n\nWorth a quick call?\n\nDoug",
+  "classification": {
+    "intent": "positive_passive",
+    "confidence": 0.52,
+    "reasoning": "Surface reading is positive ('absolutely', 'can't wait') but the phrasing is classic sarcasm — the mention of 'another AI tool' combined with the exaggerated enthusiasm signals hostility or fatigue, not genuine interest."
+  },
+  "tierHint": 2,
+  "faqMatches": [],
+  "includeCalendlyHint": false,
+  "signalId": "00000000-0000-0000-0000-000000000112",
+  "prospectId": "00000000-0000-0000-0000-000000000212",
+  "expected_behaviour": "Should DOWNGRADE to Tier 3 — coherence guard rule 4. Words look positive but tone is hostile/sarcastic. The words 'another AI pipeline tool' and the exaggerated enthusiasm are clear sarcasm signals. ambiguity_note should identify the sarcasm clearly. The draft starting point should be disarming and acknowledge the scepticism honestly — not pretend the reply was positive. The operator should handle this carefully."
+}

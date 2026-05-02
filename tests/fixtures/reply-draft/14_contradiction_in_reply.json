@@ -1,0 +1,18 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Yes I'm very interested, this looks like exactly what I need. Actually, please stop emailing me — I don't want to hear any more about this.",
+  "originalOutboundBody": "Hi Karen,\n\nPipeline dependent on referrals is exhausting when you know the offer works.\n\nWe put qualified meetings in the diary consistently, without you lifting a finger.\n\nWorth a quick call?\n\nDoug",
+  "classification": {
+    "intent": "unclear",
+    "confidence": 0.48,
+    "reasoning": "Reply contains a direct contradiction: 'yes I'm very interested' followed by 'please stop emailing me.' These are mutually exclusive signals."
+  },
+  "tierHint": 3,
+  "faqMatches": [],
+  "includeCalendlyHint": false,
+  "signalId": "00000000-0000-0000-0000-000000000114",
+  "prospectId": "00000000-0000-0000-0000-000000000214",
+  "expected_behaviour": "Tier 3. Coherence guard rule 3 — reply contradicts itself. ambiguity_note must clearly identify the contradiction: interest expressed AND opt-out expressed. The operator needs to decide: honour the opt-out (suppression), or treat as interested. IMPORTANT: the agent should NOT assume resolution in either direction. Draft body should be a minimal acknowledgement. The operator must make the call — this is exactly the kind of signal that needs human judgment."
+}

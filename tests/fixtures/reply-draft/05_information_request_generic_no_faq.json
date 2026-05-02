@@ -1,0 +1,18 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "What industries do you focus on? We're in the healthcare consulting space.",
+  "originalOutboundBody": "Hi Anita,\n\nCalendar still riding on referrals and the occasional inbound? Most consultants hit a ceiling where the offer is solid but the pipeline isn't.\n\nWe solve exactly that — qualified meetings, consistently, without you managing the outreach.\n\nWorth a quick call?\n\nDoug",
+  "classification": {
+    "intent": "information_request_generic",
+    "confidence": 0.87,
+    "reasoning": "Prospect is asking about industry focus — a standard qualifying question. Mention of healthcare consulting is context-setting, not a hard requirement signal."
+  },
+  "tierHint": 3,
+  "faqMatches": [],
+  "includeCalendlyHint": false,
+  "signalId": "00000000-0000-0000-0000-000000000105",
+  "prospectId": "00000000-0000-0000-0000-000000000205",
+  "expected_behaviour": "Tier 3 hint with no FAQ. Draft should be a starting point addressing the industry question. Agent knows from positioning doc that MargenticOS is industry-agnostic. Draft should convey that the system works across B2B consulting regardless of industry. ambiguity_note should flag if the operator wants to speak to healthcare-specific examples. Under 80 words."
+}

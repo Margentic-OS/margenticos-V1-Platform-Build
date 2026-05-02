@@ -1,0 +1,18 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Hola, esto parece interesante. ¿Puedes explicarme cómo funciona exactamente y si trabajáis con empresas en España?",
+  "originalOutboundBody": "Hi Elena,\n\nMost consultants I talk to have the offer dialled in but no engine filling the calendar between referrals.\n\nWe fix that — qualified meetings, consistently.\n\nWorth a quick call?\n\nDoug",
+  "classification": {
+    "intent": "positive_passive",
+    "confidence": 0.79,
+    "reasoning": "The reply expresses clear interest and asks a qualifying question. Reply is in Spanish."
+  },
+  "tierHint": 2,
+  "faqMatches": [],
+  "includeCalendlyHint": false,
+  "signalId": "00000000-0000-0000-0000-000000000113",
+  "prospectId": "00000000-0000-0000-0000-000000000213",
+  "expected_behaviour": "Should DOWNGRADE to Tier 3 — multi-language rule. Reply is in Spanish. ambiguity_note should state 'Reply is in Spanish; needs operator review.' Agent should NOT attempt to translate or draft a Spanish reply. draft_body can be a minimal English placeholder starting point if needed. downgraded_from_tier should be 2."
+}

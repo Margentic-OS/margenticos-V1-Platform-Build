@@ -1,0 +1,25 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Hey, this is interesting. Tell me more about how it actually works.",
+  "originalOutboundBody": "Hi Sarah,\n\nMost consultants I talk to have the offer dialled in but pipeline completely dependent on referrals. Revenue resets to zero when a big project wraps.\n\nWe fix that — qualified meetings in the diary, week after week, without you chasing leads.\n\nWorth a quick call to see if it lines up?\n\nDoug",
+  "classification": {
+    "intent": "positive_passive",
+    "confidence": 0.88,
+    "reasoning": "Prospect expresses clear interest ('this is interesting') and asks for more information. No booking request — warm but not yet ready to commit."
+  },
+  "tierHint": 2,
+  "faqMatches": [
+    {
+      "faq_id": "00000000-0000-0000-0000-000000000001",
+      "question_canonical": "How does it actually work?",
+      "answer": "We handle everything: building your ICP, crafting your outbound messaging, sourcing and enriching the prospect list, and sending personalised emails that sound like you wrote them. You review the strategy documents, approve the messaging, then we run it. You only need to show up to the meetings we book.",
+      "score": 0.71
+    }
+  ],
+  "includeCalendlyHint": false,
+  "signalId": "00000000-0000-0000-0000-000000000101",
+  "prospectId": "00000000-0000-0000-0000-000000000201",
+  "expected_behaviour": "Should produce a Tier 2 draft that explains the process briefly using the FAQ answer as the basis. Conversational, not salesy. Should end with a soft suggestion toward a next step. No booking CTA since includeCalendlyHint is false. Under 120 words."
+}

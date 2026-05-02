@@ -1,0 +1,25 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Not the right time for us right now — maybe come back in Q3.",
+  "originalOutboundBody": "Hi James,\n\nMost consultants I talk to have the offer dialled in but no engine filling the calendar. Revenue depends on whoever just referred someone.\n\nWe built MargenticOS specifically for this: qualified meetings in the diary, week after week, so you stop riding the referral cycle.\n\nWorth a quick call to see if it fits?\n\nDoug",
+  "classification": {
+    "intent": "objection_mild",
+    "confidence": 0.82,
+    "reasoning": "Prospect is deferring but not refusing. 'Come back in Q3' signals genuine future openness rather than a polite dismissal."
+  },
+  "tierHint": 2,
+  "faqMatches": [
+    {
+      "faq_id": "00000000-0000-0000-0000-000000000002",
+      "question_canonical": "Can we start later in the year?",
+      "answer": "Absolutely. Most clients who start later tell us they wished they'd started sooner — the setup (ICP, messaging) takes 2-3 weeks before the first email goes out. If Q3 is the realistic start, it's worth a 20-minute call now to understand what we'd need from you and whether the timing makes sense.",
+      "score": 0.67
+    }
+  ],
+  "includeCalendlyHint": false,
+  "signalId": "00000000-0000-0000-0000-000000000103",
+  "prospectId": "00000000-0000-0000-0000-000000000203",
+  "expected_behaviour": "Should produce a Tier 2 draft that respects the timing deferral without pressure. Should acknowledge Q3 naturally and suggest keeping the conversation alive or booking a short call for when they're ready. Uses FAQ context about starting later. Warm, no pressure. Under 120 words."
+}

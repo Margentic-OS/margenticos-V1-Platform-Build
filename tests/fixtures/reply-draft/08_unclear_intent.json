@@ -1,0 +1,18 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "We've actually been thinking about this quite a bit recently. It's complicated.",
+  "originalOutboundBody": "Hi Neil,\n\nPipeline that resets to zero between client engagements is a pattern most consultants recognise. It's exhausting when you know the offer works but the calendar is empty.\n\nWe fix that — qualified meetings on a consistent cadence, without you managing outreach.\n\nWorth a quick call?\n\nDoug",
+  "classification": {
+    "intent": "unclear",
+    "confidence": 0.61,
+    "reasoning": "Prospect acknowledges thinking about the problem but provides no actionable signal. 'It's complicated' is ambiguous — could mean complex internal situation, multiple stakeholders, previous failed attempts, or simply hesitation."
+  },
+  "tierHint": 3,
+  "faqMatches": [],
+  "includeCalendlyHint": false,
+  "signalId": "00000000-0000-0000-0000-000000000108",
+  "prospectId": "00000000-0000-0000-0000-000000000208",
+  "expected_behaviour": "Tier 3. Draft should acknowledge the complexity without pressing for details. Short, open, no pressure. ambiguity_note should flag that 'it's complicated' could mean many things — internal decision process, budget discussion, existing agency. alternative_directions should include: (a) open invitation to share what makes it complicated, (b) low-pressure 'no action needed, just flagging we're here when ready.'"
+}

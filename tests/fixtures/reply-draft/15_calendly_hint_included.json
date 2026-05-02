@@ -1,0 +1,25 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Hi Doug, yeah this resonates. We've been relying on referrals for too long. I'd be open to learning more.",
+  "originalOutboundBody": "Hi Tom,\n\nReferral-dependent pipeline is fine until a big project wraps and the calendar empties. Most consultants I talk to know this pattern well.\n\nWe change that — qualified meetings on a predictable cadence, without you managing the outreach.\n\nWorth a quick call to see if it fits?\n\nDoug",
+  "classification": {
+    "intent": "positive_passive",
+    "confidence": 0.91,
+    "reasoning": "Prospect explicitly acknowledges the pain point ('relying on referrals for too long') and expresses clear openness to learn more. Strong engagement signal."
+  },
+  "tierHint": 2,
+  "faqMatches": [
+    {
+      "faq_id": "00000000-0000-0000-0000-000000000006",
+      "question_canonical": "Can I learn more before committing?",
+      "answer": "Absolutely. A 20-minute call is the best way to understand if it's a fit — no commitment, no pitch, just a conversation about where your pipeline is and whether what we do matches the gap.",
+      "score": 0.68
+    }
+  ],
+  "includeCalendlyHint": true,
+  "signalId": "00000000-0000-0000-0000-000000000115",
+  "prospectId": "00000000-0000-0000-0000-000000000215",
+  "expected_behaviour": "Tier 2 draft. High-confidence positive passive with good FAQ match and includeCalendlyHint=true. Draft should: (1) acknowledge the referral pain point they mentioned, (2) naturally lead toward a 20-minute call, (3) include {calendly_link} placeholder or 'grab a slot' phrasing, (4) NOT write the actual URL. Under 120 words. Voice should match the TOV: warm, specific, no oversell."
+}

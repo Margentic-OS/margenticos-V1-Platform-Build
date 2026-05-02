@@ -1,0 +1,18 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Thanks for sending that case study over. The results look impressive — how did you achieve those numbers?",
+  "originalOutboundBody": "Hi Ben,\n\nMost consultants I talk to have the offer dialled in but no engine filling the calendar between referrals.\n\nWe fix that — qualified meetings in the diary, week after week.\n\nWorth a quick call to see if it fits?\n\nDoug",
+  "classification": {
+    "intent": "positive_passive",
+    "confidence": 0.83,
+    "reasoning": "Prospect seems engaged and asks a follow-up question, suggesting they've reviewed material and are interested in the results."
+  },
+  "tierHint": 2,
+  "faqMatches": [],
+  "includeCalendlyHint": false,
+  "signalId": "00000000-0000-0000-0000-000000000111",
+  "prospectId": "00000000-0000-0000-0000-000000000211",
+  "expected_behaviour": "Should DOWNGRADE to Tier 3 — coherence guard. The prospect references 'the case study you sent' but the original outbound contains no case study. This is an invented reference the agent cannot play along with. ambiguity_note should clearly flag that the prospect is referencing a document not present in the original outbound. Agent must NOT pretend to know which case study they mean or describe results."
+}

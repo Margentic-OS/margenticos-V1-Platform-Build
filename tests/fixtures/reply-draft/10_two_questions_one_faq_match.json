@@ -1,0 +1,25 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Sounds interesting — two questions: how long does it take to get started, and do you work with clients outside the UK?",
+  "originalOutboundBody": "Hi Sophie,\n\nReferral-dependent revenue works until it doesn't. Most consultants I talk to have hit a quarter where the calendar went quiet.\n\nWe change that — qualified meetings in the diary, consistently.\n\nWorth a quick call?\n\nDoug",
+  "classification": {
+    "intent": "information_request_generic",
+    "confidence": 0.90,
+    "reasoning": "Prospect asks two clear qualifying questions about onboarding timeline and geographic coverage. Both are standard FAQ-type questions."
+  },
+  "tierHint": 2,
+  "faqMatches": [
+    {
+      "faq_id": "00000000-0000-0000-0000-000000000005",
+      "question_canonical": "How long does it take to get started?",
+      "answer": "Onboarding takes 2-3 weeks — we build your ICP, develop the messaging, and set up the campaign before the first email goes out. Most clients are fully live within 3 weeks of signing.",
+      "score": 0.72
+    }
+  ],
+  "includeCalendlyHint": false,
+  "signalId": "00000000-0000-0000-0000-000000000110",
+  "prospectId": "00000000-0000-0000-0000-000000000210",
+  "expected_behaviour": "Two questions — one has an FAQ match (timeline), one does not (geography). Agent should either: (a) answer the timeline question from the FAQ and handle geography from positioning doc context (MargenticOS is English-language outbound, not geography-limited), staying Tier 2; OR (b) downgrade to Tier 3 if it cannot confidently address both. If it stays Tier 2, the draft must address both questions. If it downgrades, ambiguity_note should flag which question wasn't answerable."
+}

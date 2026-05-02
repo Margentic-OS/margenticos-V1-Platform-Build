@@ -1,0 +1,25 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Do you work with companies our size? We're a team of 4.",
+  "originalOutboundBody": "Hi Priya,\n\nPipeline dependent on referrals works until a big project wraps and the calendar empties. Most consultants I talk to know this pattern well.\n\nWe put qualified meetings in the diary without you touching a single cold email.\n\nWorth a 15-minute call to see if it's a fit?\n\nDoug",
+  "classification": {
+    "intent": "information_request_generic",
+    "confidence": 0.91,
+    "reasoning": "Prospect is asking a qualifying question about firm size fit — a standard FAQ-type question rather than a commercial or technical deep-dive."
+  },
+  "tierHint": 2,
+  "faqMatches": [
+    {
+      "faq_id": "00000000-0000-0000-0000-000000000003",
+      "question_canonical": "What size company do you work with?",
+      "answer": "We work with solo consultants and teams up to about 10 people. The sweet spot is 1-5 person founder-led consulting firms — that's where we've seen the biggest impact. A team of 4 is right in that range.",
+      "score": 0.74
+    }
+  ],
+  "includeCalendlyHint": true,
+  "signalId": "00000000-0000-0000-0000-000000000104",
+  "prospectId": "00000000-0000-0000-0000-000000000204",
+  "expected_behaviour": "Should produce a Tier 2 draft confirming yes, a team of 4 is in the sweet spot. Uses FAQ answer as the basis. Since includeCalendlyHint is true, should weave in a soft booking suggestion with {calendly_link} placeholder or 'happy to grab 15 minutes' phrasing. Confident, warm, no oversell."
+}

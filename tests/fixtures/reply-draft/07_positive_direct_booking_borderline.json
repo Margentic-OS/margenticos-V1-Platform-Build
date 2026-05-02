@@ -1,0 +1,18 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Yeah this is relevant. Happy to do a call. When works for you?",
+  "originalOutboundBody": "Hi Claire,\n\nReferral-dependent pipeline resets to zero every time a big project ends. Most consultants I talk to are tired of that cycle.\n\nWe put qualified meetings in the diary, consistently, without you managing the outreach.\n\nWorth a quick call to see if it fits?\n\nDoug",
+  "classification": {
+    "intent": "positive_direct_booking",
+    "confidence": 0.78,
+    "reasoning": "Prospect expresses clear interest and booking intent ('happy to do a call'). Confidence 0.78 is below the 0.90 auto-send threshold, placing this in the [0.70, 0.90) Tier 2 range per ADR-019."
+  },
+  "tierHint": 2,
+  "faqMatches": [],
+  "includeCalendlyHint": true,
+  "signalId": "00000000-0000-0000-0000-000000000107",
+  "prospectId": "00000000-0000-0000-0000-000000000207",
+  "expected_behaviour": "Tier 2 draft. Prospect has explicitly asked to book a call. includeCalendlyHint is true. Draft should be very short — prospect has already said yes. Should include {calendly_link} placeholder or 'happy to grab 15 minutes' phrasing. Warm, not over-explained. Should NOT re-pitch the service — the prospect has already said they're interested. Under 60 words ideally."
+}

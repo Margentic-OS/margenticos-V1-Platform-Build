@@ -1,0 +1,18 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "senderFirstName": "Doug",
+  "prospectReplyBody": "Hey, this is interesting. Tell me more about how it actually works.",
+  "originalOutboundBody": "Hi Marcus,\n\nMost consultants I talk to have the offer dialled in but pipeline completely dependent on referrals. Revenue resets to zero when a big project wraps.\n\nWe fix that — qualified meetings in the diary, week after week, without you chasing leads.\n\nWorth a quick call to see if it lines up?\n\nDoug",
+  "classification": {
+    "intent": "positive_passive",
+    "confidence": 0.88,
+    "reasoning": "Prospect expresses clear interest and asks for more information. Warm but not yet ready to commit."
+  },
+  "tierHint": 2,
+  "faqMatches": [],
+  "includeCalendlyHint": false,
+  "signalId": "00000000-0000-0000-0000-000000000102",
+  "prospectId": "00000000-0000-0000-0000-000000000202",
+  "expected_behaviour": "Should DOWNGRADE to Tier 3 despite Tier 2 hint. No FAQ available to answer the 'how does it work' question. Should set downgraded_from_tier: 2. The ambiguity_note should explain that no FAQ exists to answer the process question. alternative_directions should suggest: (a) call to explain in detail, (b) brief written summary of the process."
+}
