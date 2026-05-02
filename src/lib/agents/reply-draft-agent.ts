@@ -17,7 +17,7 @@ import { join } from 'path'
 import { logger } from '@/lib/logger'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 
-const PROMPT_VERSION = '1.0.0'
+const PROMPT_VERSION = '1.0.1'
 const MODEL = 'claude-sonnet-4-6'
 const TIMEOUT_MS = 30000
 const MAX_TOKENS = 2048
@@ -68,6 +68,7 @@ export type ReplyDrafterOutput =
       draft_body: string
       ambiguity_note: string
       alternative_directions: string[]
+      faq_ids_used: string[]
       prompt_version: string
       downgraded_from_tier: 2 | null
     }
@@ -291,11 +292,26 @@ export async function draftReply(input: ReplyDrafterInput): Promise<ReplyDrafter
 
     const downgradedFrom = parsed.downgraded_from_tier === 2 ? 2 : null
 
+    // faq_ids_used is required on Tier 3 (may be empty array for non-commercial cases).
+    if (!Array.isArray(parsed.faq_ids_used)) {
+      const msg = 'reply-draft-agent: Tier 3 response missing faq_ids_used array'
+      logger.error(msg, { signal_id: signalId })
+      await writeAgentRun(supabase, {
+        organisationId, signalId, prospectId,
+        status: 'failed', errorMessage: msg,
+        durationMs: Date.now() - startedAt,
+      })
+      return null
+    }
+
+    const faqIdsUsed = (parsed.faq_ids_used as unknown[]).filter((v): v is string => typeof v === 'string')
+
     output = {
       tier: 3,
       draft_body: scrubbed,
       ambiguity_note: ambiguityNote,
       alternative_directions: scrubbedAltDirs,
+      faq_ids_used: faqIdsUsed,
       prompt_version: PROMPT_VERSION,
       downgraded_from_tier: downgradedFrom,
     }

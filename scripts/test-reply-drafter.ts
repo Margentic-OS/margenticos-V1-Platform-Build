@@ -135,6 +135,7 @@ async function main() {
         for (const d of result.alternative_directions) {
           console.log(`    - ${d}`)
         }
+        console.log(`  faq_ids_used: ${result.faq_ids_used.join(', ') || '(none)'}`)
         console.log(`  downgraded_from_tier: ${result.downgraded_from_tier}`)
         console.log(`  prompt_version: ${result.prompt_version}`)
       }

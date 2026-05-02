@@ -21,5 +21,5 @@
   "includeCalendlyHint": true,
   "signalId": "00000000-0000-0000-0000-000000000106",
   "prospectId": "00000000-0000-0000-0000-000000000206",
-  "expected_behaviour": "ALWAYS Tier 3 for commercial questions regardless of FAQ match quality. FAQ score of 0.81 is above threshold but this is information_request_commercial — sensitivity requires human eyes. Draft should acknowledge the pricing question and steer toward a call. ambiguity_note should explain commercial sensitivity. Should NOT quote specific prices in the draft. Should include soft booking CTA since includeCalendlyHint is true."
+  "expected_behaviour": "Tier 3 starting-point draft. Acknowledges the pricing question, suggests a call to discuss specifics, does NOT quote €1,000/month or any specific figure from the FAQ. faq_ids_used contains the matched FAQ id (00000000-0000-0000-0000-000000000004) even though its figures are redacted from the body. ambiguity_note explains that pricing specifics require operator-led conversation. includeCalendlyHint is true so the draft should include a soft booking CTA with {calendly_link} placeholder."
 }
