@@ -23,7 +23,7 @@ import { shouldSkipExtraction } from '@/lib/faq/filler-detection'
 import { detectPotentialNames } from '@/lib/faq/name-detection'
 import { findFaqMatches } from '@/lib/faq/matcher'
 
-const PROMPT_VERSION = '1.0.0'
+const PROMPT_VERSION = '1.0.1'
 const MODEL = 'claude-haiku-4-5-20251001'
 const TIMEOUT_MS = 15000
 const MAX_TOKENS = 1024
