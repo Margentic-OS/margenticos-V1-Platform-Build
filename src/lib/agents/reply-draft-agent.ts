@@ -292,9 +292,13 @@ export async function draftReply(input: ReplyDrafterInput): Promise<ReplyDrafter
 
     const downgradedFrom = parsed.downgraded_from_tier === 2 ? 2 : null
 
-    // faq_ids_used is expected on Tier 3 but model occasionally omits the empty array.
-    // Treat missing as [] with a warning rather than failing — the audit field matters
-    // for commercial cases; an absent empty array on a non-commercial draft is not fatal.
+    // Tier 3 faq_ids_used: model output may omit this field on drafts
+    // that didn't consult any FAQ. We default to [] and log a warning
+    // rather than returning null, because losing a valid draft body
+    // to a metadata oversight is worse than the audit-trail gap.
+    // Commercial-figure drafts (per prompt rule) should still populate
+    // this — operators rely on it for context — but missing-field is
+    // degraded-not-fatal.
     if (!Array.isArray(parsed.faq_ids_used)) {
       logger.warn('reply-draft-agent: Tier 3 response missing faq_ids_used — defaulting to []', {
         signal_id: signalId,

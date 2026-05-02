@@ -270,6 +270,10 @@ What to check if it breaks:
   - Draft body contains em dashes or AI tells → scrubAITells() should have caught them;
     check that the import from customer-facing-style-rules.ts is still correct
   - API timeout → check TIMEOUT_MS constant (30000ms); Sonnet is usually fast for short drafts
+  - Tier 3 missing faq_ids_used field: defaults to [], logs warning.
+    Not treated as a hard failure. Commercial drafts should always
+    have this populated; check warnings in agent_runs if commercial
+    audit trail looks thin.
 
 ---
 
