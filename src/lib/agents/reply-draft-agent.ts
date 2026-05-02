@@ -17,7 +17,7 @@ import { join } from 'path'
 import { logger } from '@/lib/logger'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 
-const PROMPT_VERSION = '1.0.2'
+const PROMPT_VERSION = '1.0.3'
 const MODEL = 'claude-sonnet-4-6'
 const TIMEOUT_MS = 30000
 const MAX_TOKENS = 2048
@@ -252,10 +252,10 @@ export async function draftReply(input: ReplyDrafterInput): Promise<ReplyDrafter
   // ── 6. Post-processing ───────────────────────────────────────────────────
   const scrubbed = scrubAITells(draftBody, `reply-draft/${signalId}`)
 
-  // Minimum length check: 20 words
+  // Minimum length check: 10 words (booking confirmations and minimal-reply Tier 3 cases are legitimately short)
   const wordCount = scrubbed.trim().split(/\s+/).filter(w => w.length > 0).length
-  if (wordCount < 20) {
-    const msg = `reply-draft-agent: draft_body too short — ${wordCount} words (minimum 20)`
+  if (wordCount < 10) {
+    const msg = `reply-draft-agent: draft_body too short — ${wordCount} words (minimum 10)`
     logger.error(msg, { signal_id: signalId })
     await writeAgentRun(supabase, {
       organisationId, signalId, prospectId,
@@ -292,19 +292,19 @@ export async function draftReply(input: ReplyDrafterInput): Promise<ReplyDrafter
 
     const downgradedFrom = parsed.downgraded_from_tier === 2 ? 2 : null
 
-    // faq_ids_used is required on Tier 3 (may be empty array for non-commercial cases).
+    // faq_ids_used is expected on Tier 3 but model occasionally omits the empty array.
+    // Treat missing as [] with a warning rather than failing — the audit field matters
+    // for commercial cases; an absent empty array on a non-commercial draft is not fatal.
     if (!Array.isArray(parsed.faq_ids_used)) {
-      const msg = 'reply-draft-agent: Tier 3 response missing faq_ids_used array'
-      logger.error(msg, { signal_id: signalId })
-      await writeAgentRun(supabase, {
-        organisationId, signalId, prospectId,
-        status: 'failed', errorMessage: msg,
-        durationMs: Date.now() - startedAt,
+      logger.warn('reply-draft-agent: Tier 3 response missing faq_ids_used — defaulting to []', {
+        signal_id: signalId,
+        intent: classification.intent,
       })
-      return null
     }
 
-    const faqIdsUsed = (parsed.faq_ids_used as unknown[]).filter((v): v is string => typeof v === 'string')
+    const faqIdsUsed = Array.isArray(parsed.faq_ids_used)
+      ? (parsed.faq_ids_used as unknown[]).filter((v): v is string => typeof v === 'string')
+      : []
 
     output = {
       tier: 3,

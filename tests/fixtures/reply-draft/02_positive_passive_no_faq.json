@@ -14,5 +14,5 @@
   "includeCalendlyHint": false,
   "signalId": "00000000-0000-0000-0000-000000000102",
   "prospectId": "00000000-0000-0000-0000-000000000202",
-  "expected_behaviour": "Should DOWNGRADE to Tier 3 despite Tier 2 hint. No FAQ available to answer the 'how does it work' question. Should set downgraded_from_tier: 2. The ambiguity_note should explain that no FAQ exists to answer the process question. alternative_directions should suggest: (a) call to explain in detail, (b) brief written summary of the process."
+  "expected_behaviour": "Substantive 'how does it work' question with no FAQ match. Drafter MUST downgrade to Tier 3 even though tier_hint is 2. ambiguity_note should explain that the question requires FAQ coverage and operator should answer authoritatively. Drafter must NOT extrapolate an answer from the Positioning document."
 }

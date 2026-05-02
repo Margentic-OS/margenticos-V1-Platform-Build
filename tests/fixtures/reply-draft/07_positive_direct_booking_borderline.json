@@ -14,5 +14,5 @@
   "includeCalendlyHint": true,
   "signalId": "00000000-0000-0000-0000-000000000107",
   "prospectId": "00000000-0000-0000-0000-000000000207",
-  "expected_behaviour": "Tier 2 draft. Prospect has explicitly asked to book a call. includeCalendlyHint is true. Draft should be very short — prospect has already said yes. Should include {calendly_link} placeholder or 'happy to grab 15 minutes' phrasing. Warm, not over-explained. Should NOT re-pitch the service — the prospect has already said they're interested. Under 60 words ideally."
+  "expected_behaviour": "Tier 2 send-ready acceptance reply. Calendly link included. Phrasing should be ambiguous on call duration ('grab a slot', 'find a time', etc.) per v1.0.2 rule. Warm, not over-explained. Should NOT re-pitch the service. Under 60 words ideally."
 }
