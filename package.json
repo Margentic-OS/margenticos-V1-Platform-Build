@@ -11,7 +11,9 @@
     "test-drafter": "dotenv -e .env.local -- npx tsx scripts/test-reply-drafter.ts",
     "test-faq-matcher": "dotenv -e .env.local -- npx tsx scripts/test-faq-matcher.ts",
     "test-extractor": "dotenv -e .env.local -- npx tsx scripts/test-faq-extractor.ts",
-    "test-filler-detection": "npx tsx scripts/test-filler-detection.ts"
+    "test-filler-detection": "npx tsx scripts/test-filler-detection.ts",
+    "test-routing": "npx tsx scripts/test-route-intent.ts",
+    "test-orchestrator": "dotenv -e .env.local -- npx tsx scripts/test-draft-orchestrator.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",
