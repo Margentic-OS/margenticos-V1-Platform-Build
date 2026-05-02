@@ -1,0 +1,11 @@
+{
+  "organisationId": "74243c62-f42d-4f3f-b93e-bd5e51f0b6c0",
+  "organisationName": "MargenticOS",
+  "replyDraftId": "00000000-0000-0000-0000-000000000313",
+  "prospectQuestionContext": "Sounds good. When are you free for a call?",
+  "originalOutboundBody": "Hi Alex,\n\nPipeline shouldn't reset every quarter when a project wraps.\n\nWe fix that. Worth a quick call?\n\nDoug",
+  "operatorAnswer": "Sounds great. Looking forward to walking you through everything and showing you exactly how things would work for your specific situation. Pick a time that suits: {calendly_link}",
+  "aiDraftBody": "Happy to jump on a call. Here is a link to book a time that works for you. Looking forward to connecting.",
+  "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
+  "expected_behaviour": "Gate should skip with 'booking_link_only_minimal_context' reason. The operator answer is 27 words total (passes Rule 1 word-count floor of 20), but after stripping {calendly_link} the remaining text is only 26 words — under the 30-word threshold. Rule 4 fires. Returns []."
+}
