@@ -38,8 +38,8 @@ export interface OrchestratorInput {
 
 export type OrchestratorResult =
   | { kind: 'drafted'; reply_draft_id: string; tier: 2 | 3 }
-  | { kind: 'manual_required'; reply_draft_id: string; reason: string }
-  | { kind: 'draft_failed'; reply_draft_id: string; failure_count: number }
+  | { kind: 'manual_required'; reply_draft_id: string; reason: string; tier: 2 | 3 }
+  | { kind: 'draft_failed'; reply_draft_id: string; failure_count: number; tier: 2 | 3 }
   | { kind: 'log_only' }
 
 // Trigger draft_failed placeholder when this many agent_runs failures in 24 hours.
@@ -141,6 +141,7 @@ export async function orchestrateDraft(input: OrchestratorInput): Promise<Orches
     .from('reply_drafts')
     .select('id, tier, status')
     .eq('signal_id', signal.id)
+    .eq('organisation_id', signal.organisation_id)
     .maybeSingle()
 
   if (idempotencyError) {
@@ -153,10 +154,16 @@ export async function orchestrateDraft(input: OrchestratorInput): Promise<Orches
         kind: 'manual_required',
         reply_draft_id: existingDraft.id,
         reason: 'idempotent_replay',
+        tier: existingDraft.tier as 2 | 3,
       }
     }
     if (existingDraft.status === 'draft_failed') {
-      return { kind: 'draft_failed', reply_draft_id: existingDraft.id, failure_count: 0 }
+      return {
+        kind: 'draft_failed',
+        reply_draft_id: existingDraft.id,
+        failure_count: 0,
+        tier: existingDraft.tier as 2 | 3,
+      }
     }
     return {
       kind: 'drafted',
@@ -190,7 +197,7 @@ export async function orchestrateDraft(input: OrchestratorInput): Promise<Orches
       draft_metadata: { failure_count: recentFailureCount } as Json,
     })
     if (!draftId) throw new Error('draft_failed row insert failed')
-    return { kind: 'draft_failed', reply_draft_id: draftId, failure_count: recentFailureCount }
+    return { kind: 'draft_failed', reply_draft_id: draftId, failure_count: recentFailureCount, tier }
   }
 
   // ── 6. Load org context ───────────────────────────────────────────────────
@@ -212,7 +219,7 @@ export async function orchestrateDraft(input: OrchestratorInput): Promise<Orches
       draft_metadata: { reason: 'org_context_missing' } as Json,
     })
     if (!draftId) throw new Error('manual_required (org_context) row insert failed')
-    return { kind: 'manual_required', reply_draft_id: draftId, reason: 'org_context_missing' }
+    return { kind: 'manual_required', reply_draft_id: draftId, reason: 'org_context_missing', tier }
   }
 
   // ── 7. Outbound body check ────────────────────────────────────────────────
@@ -238,6 +245,7 @@ export async function orchestrateDraft(input: OrchestratorInput): Promise<Orches
       kind: 'manual_required',
       reply_draft_id: draftId,
       reason: 'original_outbound_not_captured',
+      tier,
     }
   }
 

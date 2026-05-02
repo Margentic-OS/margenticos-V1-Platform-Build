@@ -203,7 +203,7 @@ async function insertActionRow(
 
 async function updateActionRow(
   supabase: SupabaseServiceClient,
-  actionRowId: string,
+  actionRowId: string | null,
   update: {
     action_succeeded: boolean
     action_taken?: string
@@ -214,6 +214,10 @@ async function updateActionRow(
     instantly_response?: Json | null
   },
 ): Promise<void> {
+  if (!actionRowId) {
+    logger.error('process-reply: updateActionRow called with null id — this is a bug', { update })
+    return
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (supabase as any)
     .from('reply_handling_actions')
@@ -430,25 +434,31 @@ async function processOneSignal(
 
   const tierAssigned = ['suppress', 'ooo_log', 'send_reply'].includes(actionTaken) ? 1 : 2
 
-  // ── Write action row before acting (idempotency guard on send_reply) ──────
+  // ── Write action row before acting (Tier 1 only — idempotency guard on send_reply/suppress) ──
+  // For the orchestrator path (actionTaken === 'log_only'), the row is written AFTER
+  // orchestrateDraft returns. A throw therefore leaves no row and the signal retries
+  // on the next cron run without a false-positive idempotency hit.
 
-  const actionRowId = await insertActionRow(supabase, {
-    organisation_id: signal.organisation_id,
-    signal_id: signalId,
-    prospect_id: prospectId,
-    campaign_id: signal.campaign_id,
-    classified_intent: intent,
-    classification_confidence: confidence,
-    classification_reasoning: reasoning,
-    tier_assigned: tierAssigned,
-    action_taken: actionTaken,
-    action_succeeded: null,
-    attempt_number: attemptNumber,
-  })
+  let actionRowId: string | null = null
+  if (actionTaken !== 'log_only') {
+    actionRowId = await insertActionRow(supabase, {
+      organisation_id: signal.organisation_id,
+      signal_id: signalId,
+      prospect_id: prospectId,
+      campaign_id: signal.campaign_id,
+      classified_intent: intent,
+      classification_confidence: confidence,
+      classification_reasoning: reasoning,
+      tier_assigned: tierAssigned,
+      action_taken: actionTaken,
+      action_succeeded: null,
+      attempt_number: attemptNumber,
+    })
 
-  if (!actionRowId) {
-    // Cannot proceed without write-before-act guard in place.
-    return 'error'
+    if (!actionRowId) {
+      // Cannot proceed without write-before-act guard in place.
+      return 'error'
+    }
   }
 
   // ── Dispatch ──────────────────────────────────────────────────────────────
@@ -601,6 +611,9 @@ async function processOneSignal(
   }
 
   // Phase 2: orchestrate draft for all non-Tier-1 intents.
+  // Action row is written here, after orchestrateDraft returns, with the correct
+  // action_taken and tier values. A throw in orchestrateDraft leaves no row so
+  // the next cron run retries cleanly (no false-positive idempotency hit).
   try {
     const orchResult = await orchestrateDraft({
       signal: {
@@ -615,30 +628,44 @@ async function processOneSignal(
       supabase,
     })
 
+    let orchActionTaken: string
+    let orchTierAssigned: number
+    let orchActionPayload: Json
     if (orchResult.kind === 'log_only') {
-      // Preserve Phase 1 log_only behaviour exactly.
       const logPayload: Record<string, unknown> = { intent, confidence }
       if (intent === 'positive_direct_booking') {
         logPayload.reason = `confidence ${confidence} below threshold ${POSITIVE_BOOKING_CONFIDENCE_THRESHOLD}`
       }
-      await updateActionRow(supabase, actionRowId, {
-        action_succeeded: true,
-        action_payload: logPayload as Json,
-      })
+      orchActionTaken = 'log_only'
+      orchTierAssigned = tierAssigned
+      orchActionPayload = logPayload as Json
     } else {
-      await updateActionRow(supabase, actionRowId, {
-        action_succeeded: true,
-        action_taken: orchResult.kind,
-        tier_assigned: orchResult.kind === 'drafted' ? orchResult.tier : tierAssigned,
-        action_payload: orchResult as Json,
-      })
+      orchActionTaken = orchResult.kind
+      orchTierAssigned = orchResult.tier
+      orchActionPayload = orchResult as Json
     }
+
+    await insertActionRow(supabase, {
+      organisation_id: signal.organisation_id,
+      signal_id: signalId,
+      prospect_id: prospectId,
+      campaign_id: signal.campaign_id,
+      classified_intent: intent,
+      classification_confidence: confidence,
+      classification_reasoning: reasoning,
+      tier_assigned: orchTierAssigned,
+      action_taken: orchActionTaken,
+      action_succeeded: true,
+      action_payload: orchActionPayload,
+      attempt_number: attemptNumber,
+    })
 
     await markSignalProcessed(supabase, signalId)
     return 'processed'
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    logger.error('process-reply: orchestrateDraft threw', { signal_id: signalId, error: msg })
+    // No action row was written — signal stays unprocessed and retries on the next cron run.
+    logger.error('process-reply: orchestrateDraft threw — signal will retry', { signal_id: signalId, error: msg })
     return 'error'
   }
 }

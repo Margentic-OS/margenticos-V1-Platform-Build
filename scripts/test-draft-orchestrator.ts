@@ -78,9 +78,8 @@ async function setup(): Promise<{ orgId: string; signalIds: string[] }> {
   const signalInserts = Array.from({ length: 7 }, () => ({
     id: randomUUID(),
     organisation_id: orgId,
-    // Use email_reply — permitted by signals_signal_type_check.
-    // reply_received (used by polling code) is not in the constraint — tracked in BACKLOG.
-    signal_type: 'email_reply' as string,
+    // reply_received is the canonical type for polling code (migration 20260502 updated constraint).
+    signal_type: 'reply_received' as string,
     source: 'test',
     processed: false,
     raw_data: { body: { text: 'Hi, can you tell me more about your pricing?' } },
@@ -200,6 +199,13 @@ async function runTests() {
         `Got reason: ${r4.reason}`,
       )
     }
+    if (r4.kind === 'manual_required' || r4.kind === 'draft_failed') {
+      assert(
+        'tier is 3 (information_request_generic without FAQ match → tier_3)',
+        r4.tier === 3,
+        `Got: ${r4.tier}`,
+      )
+    }
 
     // ── Test 5: Idempotency — existing reply_drafts row ───────────────────────
     console.log('\n5. Existing reply_drafts row → returns existing row (no new row written)')
@@ -268,6 +274,7 @@ async function runTests() {
       assert('kind is draft_failed', r6.kind === 'draft_failed')
       if (r6.kind === 'draft_failed') {
         assert('failure_count is ≥ 3', r6.failure_count >= 3)
+        assert('tier is 2 (positive_passive → tier_2)', r6.tier === 2, `Got: ${r6.tier}`)
       }
     } else {
       assert('circuit breaker test setup succeeded', false, 'Could not insert 3 agent_runs failure rows')
@@ -299,6 +306,49 @@ async function runTests() {
       'kind is not log_only (intent was routed to a draft tier)',
       r7.kind !== 'log_only',
       `Got: ${r7.kind}`,
+    )
+
+    // ── Test 8: Finding 2 — orchestrator throw leaves no DB rows ─────────────
+    // Verifies the invariant: orchestrateDraft never writes action rows (those are
+    // written by process-reply AFTER orchestrateDraft returns). A Tier 1 throw
+    // therefore leaves the signal unprocessed with no rows, so it retries cleanly.
+    console.log('\n8. Orchestrator throw (Tier 1 guard) leaves no reply_drafts or action rows')
+    const throwSignal = makeSignal()
+
+    let orchThrew = false
+    try {
+      await orchestrateDraft({
+        signal: throwSignal,
+        classification: { intent: 'opt_out', confidence: 0.99, reasoning: 'explicit opt-out' },
+        prospectId: null,
+        supabase,
+      })
+    } catch {
+      orchThrew = true
+    }
+    assert('orchestrateDraft throws for Tier 1 intent (opt_out)', orchThrew)
+
+    const { data: draftRowsAfterThrow } = await supabase
+      .from('reply_drafts')
+      .select('id')
+      .eq('signal_id', throwSignal.id)
+
+    assert(
+      'no reply_drafts row written on throw',
+      (draftRowsAfterThrow ?? []).length === 0,
+      `Got ${draftRowsAfterThrow?.length ?? 'null'} rows`,
+    )
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: actionRowsAfterThrow } = await (supabase as any)
+      .from('reply_handling_actions')
+      .select('id')
+      .eq('signal_id', throwSignal.id)
+
+    assert(
+      'no reply_handling_actions row written on throw',
+      (actionRowsAfterThrow ?? []).length === 0,
+      `Got ${actionRowsAfterThrow?.length ?? 'null'} rows`,
     )
 
   } finally {

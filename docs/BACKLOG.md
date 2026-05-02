@@ -876,6 +876,17 @@ Revisit once prospect research agent is built and full outbound cycle is working
   to reply_drafts but the operator has no UI to action them.
   This is the next group to build. The reply_drafts table is the queue; Group 5 reads it.
 
+- [post-build] Schema-action coupling discipline — write-after-act pattern (2026-05-02)
+  When an action row records an outcome that depends on a downstream call (orchestrator,
+  drafter, external API), the action row must EITHER be written after the downstream call
+  succeeds, OR use a distinct in-flight value that the idempotency check does not treat
+  as terminal. Caught in Group 4 review pass (2026-05-02): the original code wrote a
+  log_only action row before calling orchestrateDraft. A throw left a terminal-looking row
+  that caused the next cron run to log "signal already handled" and mark the signal
+  processed — permanently losing it. Fixed in same session (Option A: row written after
+  orchestrateDraft returns; throw leaves no row; signal retries cleanly).
+  Pattern to apply for any future code that splits "decide" from "act."
+
 ---
 
 ## ADR-001 channel/source agnosticism — pending decision (2026-04-29)
