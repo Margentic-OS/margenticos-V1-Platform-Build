@@ -1048,7 +1048,7 @@ export type Database = {
       }
       reply_drafts: {
         Row: {
-          ai_draft_body: string
+          ai_draft_body: string | null
           created_at: string
           draft_metadata: Json
           edited_at: string | null
@@ -1069,7 +1069,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          ai_draft_body: string
+          ai_draft_body?: string | null
           created_at?: string
           draft_metadata?: Json
           edited_at?: string | null
@@ -1090,7 +1090,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          ai_draft_body?: string
+          ai_draft_body?: string | null
           created_at?: string
           draft_metadata?: Json
           edited_at?: string | null
@@ -1257,6 +1257,8 @@ export type Database = {
           external_event_id: string | null
           id: string
           organisation_id: string
+          original_outbound_body: string | null
+          original_outbound_message_id: string | null
           processed: boolean
           processed_at: string | null
           prospect_id: string | null
@@ -1271,6 +1273,8 @@ export type Database = {
           external_event_id?: string | null
           id?: string
           organisation_id: string
+          original_outbound_body?: string | null
+          original_outbound_message_id?: string | null
           processed?: boolean
           processed_at?: string | null
           prospect_id?: string | null
@@ -1285,6 +1289,8 @@ export type Database = {
           external_event_id?: string | null
           id?: string
           organisation_id?: string
+          original_outbound_body?: string | null
+          original_outbound_message_id?: string | null
           processed?: boolean
           processed_at?: string | null
           prospect_id?: string | null
