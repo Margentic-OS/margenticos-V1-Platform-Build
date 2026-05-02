@@ -132,7 +132,12 @@ async function seedPendingExtractionForFixture12(supabase: any, organisationId: 
     return null
   }
 
-  // 3. Insert pending faq_extractions row representing a prior extraction on the same topic
+  // 3. Insert pending faq_extractions row representing a prior extraction on the same topic.
+  // The extracted_question must have high token overlap with whatever Haiku extracts from
+  // fixture 12's prospect question ("Do you work with solo consultants or mainly bigger
+  // consulting firms?"). "Do you work with solo consultants or mainly consulting firms?"
+  // shares {you, work, solo, consultants, or, mainly, consulting, firms} = 8/9 tokens
+  // → Jaccard ≈ 0.89, well above the 0.45 flag threshold.
   const { error: extractErr } = await supabase
     .from('faq_extractions')
     .insert({
@@ -140,8 +145,8 @@ async function seedPendingExtractionForFixture12(supabase: any, organisationId: 
       organisation_id: organisationId,
       signal_id: SEED12_SIGNAL_ID,
       reply_draft_id: SEED12_REPLY_DRAFT_ID,
-      extracted_question: 'Do you work with solo consultants?',
-      suggested_answer: 'Yes, we work with solo consultants and small teams.',
+      extracted_question: 'Do you work with solo consultants or mainly consulting firms?',
+      suggested_answer: 'Yes, we work with solo consultants and small consulting teams.',
       status: 'pending',
     })
 
