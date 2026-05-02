@@ -481,6 +481,7 @@ decisions so the agents remain the authoritative source of truth.
 Decision:
 Document generation agents (ICP, positioning, tone of voice): claude-opus-4-6
 Messaging generation agent: claude-sonnet-4-6 (see update note below)
+Reply drafting (reply-draft-agent): claude-sonnet-4-6
 Web search utility (lightweight synthesis in prospect research agent): claude-haiku-4-5-20251001
 Building, debugging, refactoring (Claude Code tasks): claude-sonnet-4-6
 Signal processing and batch tasks: claude-haiku-4-5-20251001
@@ -518,6 +519,8 @@ Rejected alternatives:
 Consequences:
 ICP, positioning, and tone of voice agent files specify claude-opus-4-6 explicitly.
 Messaging agent file specifies claude-sonnet-4-6 until Opus connection issue resolved.
+Reply-draft-agent specifies claude-sonnet-4-6. Rationale: reply drafts are short-form
+conversational text, not deep synthesis. Sonnet is appropriate here. Opus is not needed.
 The web search utility specifies claude-haiku-4-5-20251001 explicitly.
 CLAUDE.md model selection table reflects current state (Sonnet for messaging).
 When Anthropic releases a new model family, update agent files directly and record

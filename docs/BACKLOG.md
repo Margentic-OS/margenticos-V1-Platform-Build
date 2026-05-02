@@ -846,6 +846,35 @@ is integrated. Refactor cost: ~2-4 hours. Decision: fix now or defer to Phase 2.
 
 ## Phase 2 deferred items (from ADR-011, ADR-013, ADR-014, ADR-015, ADR-017)
 
+- [monitor] FAQ_USE_THRESHOLD tuning — watch first 50 drafts before adjusting (2026-05-01)
+  Current threshold: 0.65 (Jaccard score). Below this score an FAQ is ignored even if passed in.
+  This value was set conservatively. If operators consistently see good FAQs being ignored, lower
+  to 0.55. If hallucinated FAQ content appears in drafts, raise to 0.70.
+  Trigger: after 50 real drafts have been reviewed via test-drafter output or production agent_runs.
+  Location: src/lib/agents/reply-draft-agent.ts — FAQ_USE_THRESHOLD constant.
+
+- [phase2] Multilanguage reply handling — currently downgrades to Tier 3 (2026-05-01)
+  The reply-draft-agent detects non-English replies and downgrades to Tier 3 with an ambiguity_note
+  stating the language. This is correct behaviour for now. In Phase 2 (if international clients are
+  onboarded), consider: (a) operator-declared language preference per campaign, (b) language-matched
+  draft generation, (c) explicit suppression of non-target-language replies.
+  Do not build until a real client with non-English replies exists.
+
+- [pre-c0] Group 4 caller must pre-check tierHint before invoking reply-draft-agent (2026-05-01)
+  reply-draft-agent returns null if tierHint=3 and the model returns tier=2 (tier mismatch guard).
+  The Group 4 reply handler (not yet built) must handle this null gracefully — log it as
+  skipped_idempotent or flagged_tier_mismatch in agent_runs, not as an error.
+  Reminder: the drafter does NOT write to reply_drafts or agent_runs — the caller does.
+  Also: if >5% of Tier 2 inputs produce Tier 3 outputs in the first week of live traffic,
+  review coherence check rules in docs/prompts/reply-draft-agent.md.
+
+- [monitor] Group 5 sign-off reminder — reply_drafts.final_sent_body must be signed by operator first name (2026-05-01)
+  The reply-draft-agent generates drafts but does NOT enforce the sign-off rule.
+  The Group 5 send step must verify that the final_sent_body ends with the operator's first name
+  on its own line before sending. This is a CLAUDE.md requirement: "Sign as [Client Company Name] Team"
+  is the rule for automated replies; the agent uses senderFirstName as the sign-off in drafts.
+  Reminder set here so Group 5 spec explicitly validates sign-off before send.
+
 - [phase2] Re-engagement protocol for prospects who completed sequence without response (2026-04-24)
   Trigger: 60–90 days post-sequence completion with zero reply.
   Scope: re-research for fresh signal, possible re-tier-classification, different copy framing

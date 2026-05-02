@@ -207,6 +207,72 @@ What to check if it fails:
 
 ---
 
+## Reply Draft Agent
+Entry point: src/lib/agents/reply-draft-agent.ts
+Model: claude-sonnet-4-6
+Prompt: docs/prompts/reply-draft-agent.md (version tracked via PROMPT_VERSION constant)
+
+Purpose:
+  Given a classified prospect reply, generates a draft response for the operator to review.
+  Operates in two tiers:
+    Tier 2 — send-ready draft the operator may approve without changes
+    Tier 3 — starting point requiring operator rewrite before sending
+
+  The agent does NOT write to reply_drafts or agent_runs — that is the caller's responsibility
+  (Group 4 reply handler). The agent returns a typed result or null.
+
+Inputs (ReplyDrafterInput):
+  organisationId        — required for agent isolation
+  organisationName      — used in voice framing
+  senderFirstName       — operator's first name (signs the email)
+  prospectReplyBody     — the reply to respond to
+  originalOutboundBody  — the email the prospect is replying to
+  classification        — { intent, confidence, reasoning } from classifier
+  tierHint              — tier routing decision from Group 4 caller (2 or 3)
+  orgContext            — { tovDocument, positioningDocument } pre-loaded by caller
+  faqMatches            — top-N FAQ candidates already scored by findFaqMatches()
+  includeCalendlyHint   — whether to weave a soft CTA toward booking
+  signalId              — used for idempotency check and agent_runs logging
+  prospectId            — for agent_runs logging (may be null)
+  supabase              — authenticated Supabase client
+
+Outputs (ReplyDrafterOutput — discriminated union on tier):
+  Tier 2: { tier:2, draft_body, faq_ids_used, confidence_at_draft, prompt_version }
+  Tier 3: { tier:3, draft_body, ambiguity_note, alternative_directions, downgraded_from_tier, prompt_version }
+  null   — API error, parse failure, or tier mismatch (see tier mismatch rule below)
+
+Tier downgrade rules (agent may downgrade Tier 2 → Tier 3, never upgrade):
+  - Reply contradicts itself (opt-in AND opt-out in same message)
+  - Reply is one word or minimal (insufficient signal to draft well)
+  - Reply is in a non-English language
+  - Reply appears sarcastic (words positive, tone hostile)
+  - Commercial question (pricing, contracts) — Tier 3 regardless of FAQ match
+  - Prospect references context the agent cannot verify (e.g. "case study you sent")
+
+Tier mismatch rule:
+  If tierHint=3 and the model returns tier=2, draftReply() returns null and logs the
+  mismatch. Tier 3 routing is a deliberate fitness decision made upstream — the agent
+  cannot override it.
+
+FAQ usage:
+  FAQs scoring ≥0.65 (FAQ_USE_THRESHOLD) are treated as authoritative source material.
+  Their IDs are listed in faq_ids_used. FAQs below the threshold are ignored even if
+  passed in. The threshold constant lives in reply-draft-agent.ts.
+
+Idempotency:
+  On entry, checks reply_drafts for an existing row with the same signal_id.
+  If found, returns null immediately (does not regenerate). The caller logs this as
+  skipped_idempotent in agent_runs.
+
+What to check if it breaks:
+  - Returns null → check agent_runs for status and error_message for that signal_id
+  - Tier always 3 on Tier 2 inputs → inspect coherence check or FAQ threshold
+  - Draft body contains em dashes or AI tells → scrubAITells() should have caught them;
+    check that the import from customer-facing-style-rules.ts is still correct
+  - API timeout → check TIMEOUT_MS constant (30000ms); Sonnet is usually fast for short drafts
+
+---
+
 ## Agents not yet built (phase two and beyond)
 
 Prospect Research Agent   — entry point: prospect-research-agent.ts
