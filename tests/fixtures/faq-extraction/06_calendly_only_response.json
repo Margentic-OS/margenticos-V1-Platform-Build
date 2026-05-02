@@ -7,5 +7,5 @@
   "operatorAnswer": "Happy to walk you through it. {calendly_link}",
   "aiDraftBody": "Brilliant, here's a link to book a time that works for you.",
   "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
-  "expected_behaviour": "Gate should skip with 'booking_link_only_minimal_context' reason. The operator answer contains the {calendly_link} placeholder and after stripping it, the remaining text ('Happy to walk you through it.') is only 6 words — well under the 30-word threshold. Returns []."
+  "expected_behaviour": "Gate should skip with 'answer_too_short_7_words' reason (Rule 1). The operator answer is 7 words total — below the 20-word floor. Rule 4 is never reached. Fixture 13 tests Rule 4 in isolation with a 27-word answer where non-link content falls below the 30-word threshold. Returns []."
 }
