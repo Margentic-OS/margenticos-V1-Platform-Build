@@ -1314,3 +1314,74 @@ Implemented in: src/lib/reply-handling/route-intent.ts
     POSITIVE_BOOKING_TIER2_MIN       = 0.70
     FAQ_TIER2_THRESHOLD              = 0.65
 
+---
+
+## ADR-020 — Reply sign-off: founder first name only (not company team)
+
+Date: 2026-05-03
+Status: Accepted
+Implemented in: Group 5 (Phase 2 send-on-approval wiring)
+
+### Decision
+
+All sent replies — Phase 1 auto-Calendly responses and Phase 2 operator-approved Tier 2/3
+drafts — sign off with the founder's first name only:
+
+  \n\n${founderFirstName}
+
+The previous pattern ("[Client Company Name] Team") is retired.
+
+### Context
+
+The company team sign-off was introduced in Phase 1 as a legally-clean, common-practice
+attribution that avoids disclosing AI involvement. It was the right call at Phase 1
+time-of-writing.
+
+Phase 2 operator review changes the calculus: a human operator reviews and approves every
+Tier 2/3 draft before it sends. That review constitutes a genuine human-in-the-loop step,
+so signing as the founder — the person who did review and approve — is accurate, not
+deceptive.
+
+For Phase 1 auto-Calendly (positive_direct_booking ≥ 0.90, high-confidence direct
+booking signal), the auto-send is tightly constrained and the body is purpose-built to
+be brief, factual, and include only the Calendly link. Signing as the founder is
+consistent with the founder personally responding to a booking request.
+
+The company team attribution remains in use for holding messages (information request
+escalation) and opt-out confirmations, which are genuinely system-generated and not
+operator-reviewed. These are separate code paths and are not affected by this ADR.
+
+### Enforcement
+
+founder_first_name is a hard requirement at send time:
+- Phase 1 (process-reply.ts): missing → log error, return 'error', signal gets no reply.
+- Phase 2 (send-approved-draft.ts): missing → return send_failed
+  reason='founder_first_name_required_but_missing'. Caller (approve endpoint) surfaces
+  error to operator UI.
+
+Populting organisations.founder_first_name is a mandatory pre-launch step for every
+new client. It must be set before any campaigns go live.
+
+### Mechanics
+
+insert-signoff.ts (deterministic, no LLM):
+  - Receives the assembled body text and founderFirstName.
+  - If the last 100 chars already contain a recognised closer (Cheers, Best, Thanks,
+    Regards, Kind regards, All the best) → no sign-off appended.
+  - If the last non-empty line already equals founderFirstName → no sign-off appended.
+  - Otherwise appends \n\n${founderFirstName}.
+  - Throws if founderFirstName is empty or whitespace — fail loud, never send unsigned.
+
+substitute-calendly.ts (deterministic, no LLM):
+  - Replaces {calendly_link} placeholder with org.calendly_url.
+  - No placeholder present → not a failure (passes through unchanged).
+  - Placeholder present but calendly_url null → missing=true → caller returns send_failed.
+  - Applied before sign-off insertion (Calendly substitution first, sign-off second).
+
+### Consequences
+
+- All clients require organisations.founder_first_name populated before first send.
+- Operator onboarding checklist must include this field as a mandatory step.
+- QA smoke test: verify sign-off appears correctly in a test send before going live
+  with any new client.
+

@@ -870,11 +870,39 @@ Revisit once prospect research agent is built and full outbound cycle is working
   manual_required with reason='original_outbound_not_captured' is persistently high,
   consider a batch backfill script against Instantly API (feasible, not urgent).
 
-- [phase2] Group 5 sign-off — reply-draft-agent prompt + operator triage UI (2026-05-02)
-  Group 4 ships the orchestrator and routing. Group 5 is the operator triage view where
-  drafted replies are reviewed, edited, and sent. Without Group 5, Tier 2/3 drafts write
-  to reply_drafts but the operator has no UI to action them.
-  This is the next group to build. The reply_drafts table is the queue; Group 5 reads it.
+- [DONE 2026-05-03] Group 5 — send-on-approval wiring (ADR-020 sign-off, approve/reject endpoints,
+  send-approved-draft orchestrator, Sentry alerts). Commits: feat(reply-handling):
+  deterministic sign-off and Calendly substitution; feat(reply-handling): send-approved-draft
+  orchestrator; feat(api): approve and reject endpoints for reply-drafts;
+  fix(reply-handling): update Phase 1 auto-Calendly sign-off per ADR-020;
+  feat(monitoring): Sentry alerts for send failures; docs: ADR-020 + design.md + agents.md
+  + BACKLOG updates.
+
+- [phase2] Retry endpoint for send-failed drafts (2026-05-03)
+  POST /api/reply-drafts/[id]/retry — re-attempt the send without requiring operator to
+  re-approve. Only valid when draft.status='send_failed'. Useful when failure was
+  transient (Instantly timeout, network blip). Should call sendApprovedDraft directly
+  after flipping status back to 'approved' with an UPDATE WHERE status='send_failed'.
+  Gate: operator role + org scoping required (same pattern as approve endpoint).
+
+- [phase2] Regenerate endpoint for operator-rejected/failed drafts (2026-05-03)
+  POST /api/reply-drafts/[id]/regenerate — discard the current draft body and trigger
+  a new AI draft for the same signal. Useful when operator rejects draft quality rather
+  than the send itself. Should create a new reply_drafts row (not overwrite the existing
+  one, so the rejection history is preserved). Requires reply-draft-agent to be callable
+  from an API route with a known signal_id and tier.
+
+- [phase2] Scenario 2 thread detection — multi-turn positive_direct_booking (2026-05-03)
+  Currently positive_direct_booking (≥ 0.90 confidence) triggers Phase 1 auto-Calendly
+  regardless of thread depth. A multi-turn thread where the prospect is booking after
+  exchanging several messages may warrant a warmer, more contextual response than the
+  standard "grab a slot" template. Consider: if thread has > 2 prior turns, route to
+  Tier 2 (operator draft) even at high booking confidence. Requires thread-depth signal
+  in the raw_data or a secondary classification step.
+
+- [monitoring] Sentry send alert rule IDs — run scripts/create-sentry-send-alert-rules.ts
+  after Group 5 deploy and record IDs here. Three rules: send-failed-individual,
+  send-failed-sustained, db-update-failed-after-send-CRITICAL. (2026-05-03)
 
 - [post-build] Schema-action coupling discipline — write-after-act pattern (2026-05-02)
   When an action row records an outcome that depends on a downstream call (orchestrator,

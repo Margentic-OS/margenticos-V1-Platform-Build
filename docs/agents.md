@@ -406,6 +406,64 @@ Run `npm run test-filler-detection` for unit-style checks on the gate.
 
 ---
 
+## Send Orchestrator
+
+Not strictly an agent (no LLM call) — a deterministic orchestrator that executes the
+send of an operator-approved reply draft.
+
+Entry point: src/lib/reply-handling/send-approved-draft.ts
+Called by: POST /api/reply-drafts/[id]/approve immediately after draft status is set to 'approved'.
+
+**Purpose:** Translate an approved reply_draft row into a sent Instantly thread reply,
+with idempotency, validation, sign-off, and post-send extraction.
+
+**Inputs:**
+- replyDraftId — UUID of the reply_drafts row
+- supabase — service-role client (passed from the API route)
+
+**10-step flow:**
+1. Load draft + idempotency check (already sent/failed → skip)
+2. Validate status === 'approved' and final_sent_body non-empty
+3. Load org context (name, founder_first_name, calendly_url)
+4. Calendly substitution — replace {calendly_link} or fail if placeholder present but URL null
+5. Sign-off insertion — append founder first name per ADR-020 (idempotent: no double sign-off)
+6. Load thread context from signal (raw_data.id, raw_data.eaccount, raw_data.subject)
+7. Load Instantly API key from env
+8. Send via Instantly sendThreadReply with 20s AbortController ceiling
+9. Atomic DB update (UPDATE WHERE status='approved' — concurrent call guard)
+10. Tier 3 only: post-send FAQ extraction via extractFaq (best-effort, never blocks send result)
+
+**Result types:**
+- `{ kind: 'sent', instantly_message_id: string | null }`
+- `{ kind: 'send_failed', error: string, reason: SendFailedReason }`
+- `{ kind: 'idempotent_skip', reason: string }`
+
+**SendFailedReason values:**
+- `founder_first_name_required_but_missing` — organisations.founder_first_name not set
+- `calendly_link_required_but_missing` — {calendly_link} in body but org has no calendly_url
+- `final_sent_body_empty` — final_sent_body is blank after trim
+- `thread_context_missing` — signal row missing or raw_data lacks id/eaccount
+- `instantly_api_error` — Instantly API returned non-2xx or threw
+- `instantly_timeout` — 20s AbortController fired
+- `unexpected_state` — draft not found, or unexpected status at entry
+- `db_update_failed_after_send` — CRITICAL: email sent but DB row not updated
+
+**Failure invariant:** The function never returns while the draft is in status='approved'.
+Every exit path either transitions to 'sent' or 'send_failed'.
+
+**db_update_failed_after_send:** The most critical failure mode. The email IS in the
+prospect's inbox but the row is inconsistent. A CRITICAL log entry triggers the
+db-update-failed-after-send-CRITICAL Sentry alert rule for manual reconciliation.
+
+**Isolation:** Multi-tenant safe — all queries are scoped to the draft's organisation_id.
+Cross-org access is blocked at the API layer (the approve endpoint), not here.
+
+**Testing:** `npm run test-send-approved-draft` — 17 integration tests using mock Supabase stubs.
+Covers: not-found, idempotent (sent/failed), wrong status, empty body, missing founder name,
+missing calendly, missing thread context, network failure, no-double sign-off variants.
+
+---
+
 ## Agents not yet built (phase two and beyond)
 
 Prospect Research Agent   — entry point: prospect-research-agent.ts

@@ -229,9 +229,26 @@ Loading states (skeleton copy):
 
 ### Sign-offs for outbound emails
 
-Positive reply AI response signed as: "[Client Company Name] Team"
-Never: founder name, never "AI", never "MargenticOS", never "automated".
-The company team attribution is legally clean, not deceptive, and common practice.
+**ADR-020 (May 2026):** All sent replies sign off with the founder's first name only.
+
+  \n\n${founderFirstName}
+
+Never: company team name, never "AI", never "MargenticOS", never "automated".
+
+Phase 2 operator-approved drafts: the operator reviews and approves before sending, so
+signing as the founder is accurate — a human did review it.
+
+Phase 1 auto-Calendly responses (high-confidence direct booking signal): tightly
+constrained body, purpose-built for brevity and factual content. Founder sign-off is
+consistent with the founder personally responding to a booking request.
+
+Company team attribution is retained only for system-generated messages that are
+not operator-reviewed: holding messages (information request escalation) and opt-out
+confirmations. These are separate code paths not affected by ADR-020.
+
+`organisations.founder_first_name` is a hard requirement at send time. Missing it
+blocks the send with a logged error. Must be populated during client onboarding before
+any campaigns go live.
 
 Opt-out footer (mandatory in all outbound):
 "Not the right fit? Just reply 'stop' and I'll leave you alone."
