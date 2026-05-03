@@ -27,6 +27,23 @@
 
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
 
+- [DONE 2026-05-03] Sentry alert rules for send-approved-draft failures
+  Three rules created via scripts/create-sentry-send-alert-rules.ts.
+  Org: margentic-os | Project: margenticos | Token: SENTRY_ALERTS_TOKEN in .env.local
+
+  Rule 562747 — send-failed-individual
+    Filter: message contains "sendApprovedDraft"
+    Conditions: new issue OR regression | frequency: 5 min
+
+  Rule 562748 — send-failed-sustained
+    Filter: message contains "send-approved-draft"
+    Conditions: seen >2 times in 1h | frequency: 60 min
+
+  Rule 562749 — db-update-failed-after-send-CRITICAL
+    Filter: message contains "db_update_failed_after_send"
+    Conditions: new issue OR regression | frequency: 5 min
+    Note: CRITICAL — email is in prospect's inbox but DB row not updated; requires manual reconciliation.
+
 - [DONE 2026-05-01] Configure Sentry alert rules for failed reply-send paths (revised)
   Rules originally created 2026-04-29 with compound filters — discovered broken 2026-05-01.
   Root cause: Sentry issue alert `filters` use AND logic. Multiple message-contains filters
@@ -899,10 +916,6 @@ Revisit once prospect research agent is built and full outbound cycle is working
   standard "grab a slot" template. Consider: if thread has > 2 prior turns, route to
   Tier 2 (operator draft) even at high booking confidence. Requires thread-depth signal
   in the raw_data or a secondary classification step.
-
-- [monitoring] Sentry send alert rule IDs — run scripts/create-sentry-send-alert-rules.ts
-  after Group 5 deploy and record IDs here. Three rules: send-failed-individual,
-  send-failed-sustained, db-update-failed-after-send-CRITICAL. (2026-05-03)
 
 - [post-build] Schema-action coupling discipline — write-after-act pattern (2026-05-02)
   When an action row records an outcome that depends on a downstream call (orchestrator,
