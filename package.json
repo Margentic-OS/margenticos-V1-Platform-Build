@@ -13,7 +13,10 @@
     "test-extractor": "dotenv -e .env.local -- npx tsx scripts/test-faq-extractor.ts",
     "test-filler-detection": "npx tsx scripts/test-filler-detection.ts",
     "test-routing": "npx tsx scripts/test-route-intent.ts",
-    "test-orchestrator": "dotenv -e .env.local -- npx tsx scripts/test-draft-orchestrator.ts"
+    "test-orchestrator": "dotenv -e .env.local -- npx tsx scripts/test-draft-orchestrator.ts",
+    "test-insert-signoff": "npx tsx scripts/test-insert-signoff.ts",
+    "test-substitute-calendly": "npx tsx scripts/test-substitute-calendly.ts",
+    "test-send-approved-draft": "dotenv -e .env.local -- npx tsx scripts/test-send-approved-draft.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",
