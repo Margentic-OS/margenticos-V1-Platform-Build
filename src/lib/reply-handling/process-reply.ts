@@ -77,13 +77,16 @@ function parseOooReturnDate(body: string): string | null {
 
 // ── Calendly reply body ───────────────────────────────────────────────────────
 // Hardcoded template — no LLM needed, no scrubAITells needed (not generated copy).
-// Sign-off: "[Org Name] Team" per CLAUDE.md reply handling spec.
+// Sign-off: founder first name only per ADR-020.
+// If founderFirstName is empty, returns null — caller must treat as send_failed.
 
 function buildCalendlyReplyBody(
   prospectFirstName: string | null,
-  orgName: string,
+  founderFirstName: string,
   calendlyUrl: string,
-): string {
+): string | null {
+  if (!founderFirstName.trim()) return null
+
   const firstName = prospectFirstName?.trim() || 'there'
   const separator = calendlyUrl.includes('?') ? '&' : '?'
   const taggedUrl = `${calendlyUrl}${separator}utm_source=reply&utm_medium=email`
@@ -93,7 +96,7 @@ function buildCalendlyReplyBody(
     '',
     `Great to hear from you. Grab a slot that works: ${taggedUrl}`,
     '',
-    `${orgName} Team`,
+    founderFirstName.trim(),
   ].join('\n')
 }
 
@@ -353,12 +356,12 @@ async function processOneSignal(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: org } = await (supabase as any)
     .from('organisations')
-    .select('name, calendly_url')
+    .select('name, calendly_url, founder_first_name')
     .eq('id', signal.organisation_id)
-    .maybeSingle() as { data: { name: string; calendly_url: string | null } | null }
+    .maybeSingle() as { data: { name: string; calendly_url: string | null; founder_first_name: string | null } | null }
 
-  const orgName = org?.name ?? 'The Team'
   const calendlyUrl = org?.calendly_url ?? null
+  const founderFirstName = org?.founder_first_name?.trim() ?? ''
 
   // ── Classify — always pass subject for OOO detection ─────────────────────
 
@@ -576,7 +579,31 @@ async function processOneSignal(
       return 'error'
     }
 
-    const bodyText = buildCalendlyReplyBody(prospectFirstName, orgName, calendlyUrl)
+    // ADR-020: sign-off is founder first name. Fail loud if not set.
+    if (!founderFirstName) {
+      logger.error('process-reply: founder_first_name not set — cannot build Calendly reply', {
+        signal_id: signalId,
+        organisation_id: signal.organisation_id,
+        fix: "UPDATE organisations SET founder_first_name = '<name>' WHERE id = '<org_id>'",
+      })
+      await updateActionRow(supabase, actionRowId, {
+        action_succeeded: false,
+        action_error: 'founder_first_name_required_but_missing',
+      })
+      return 'error'
+    }
+
+    const bodyText = buildCalendlyReplyBody(prospectFirstName, founderFirstName, calendlyUrl)
+    if (!bodyText) {
+      // buildCalendlyReplyBody returns null only if founderFirstName is empty — guarded above.
+      logger.error('process-reply: buildCalendlyReplyBody returned null unexpectedly', { signal_id: signalId })
+      await updateActionRow(supabase, actionRowId, {
+        action_succeeded: false,
+        action_error: 'founder_first_name_required_but_missing',
+      })
+      return 'error'
+    }
+
     const replySubject = (raw.subject as string | undefined) ?? ''
 
     const replyResult = await sendThreadReply(
