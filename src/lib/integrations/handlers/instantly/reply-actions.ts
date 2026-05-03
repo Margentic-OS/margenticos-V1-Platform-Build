@@ -71,7 +71,8 @@ export async function sendThreadReply(
     subject: string
     bodyText: string
   },
-  apiKey: string
+  apiKey: string,
+  options?: { signal?: AbortSignal }
 ): Promise<ActionResult> {
   const { replyToUuid, eaccount, subject, bodyText } = params
 
@@ -89,9 +90,13 @@ export async function sendThreadReply(
         subject,
         body: { text: bodyText },
       }),
+      signal: options?.signal,
     })
   } catch (err) {
-    const msg = `Network error: ${String(err)}`
+    const isAbort = err instanceof Error && err.name === 'AbortError'
+    const msg = isAbort
+      ? `AbortError: sendThreadReply timed out`
+      : `Network error: ${String(err)}`
     logger.error('Instantly reply-actions: sendThreadReply network error', { reply_to_uuid: replyToUuid, error: msg })
     return { ok: false, error: msg }
   }

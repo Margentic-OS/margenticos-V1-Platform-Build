@@ -55,6 +55,7 @@ async function markSendFailed(
     .from('reply_drafts')
     .update({ status: 'send_failed', send_error: error, updated_at: new Date().toISOString() })
     .eq('id', draftId)
+    .in('status', ['approved', 'send_failed'])  // never overwrite a 'sent' row
   if (dbErr) {
     logger.error('send-approved-draft: failed to mark send_failed', { draft_id: draftId, db_error: dbErr.message })
   }
@@ -76,6 +77,7 @@ export async function sendApprovedDraft(
 
   if (draftErr) {
     logger.error('send-approved-draft: failed to load draft', { draft_id: replyDraftId, error: draftErr.message })
+    await markSendFailed(supabase, replyDraftId, draftErr.message)
     return { kind: 'send_failed', error: draftErr.message, reason: 'unexpected_state' }
   }
 
@@ -192,31 +194,17 @@ export async function sendApprovedDraft(
 
   // ── 8. Send via Instantly (20s ceiling) ──────────────────────────────────
 
-  let replyResult: Awaited<ReturnType<typeof sendThreadReply>>
-
-  try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 20000)
-
-    replyResult = await sendThreadReply(
-      { replyToUuid, eaccount, subject, bodyText: assembledBody },
-      instantlyApiKey,
-    )
-
-    clearTimeout(timeoutId)
-  } catch (err) {
-    const isTimeout =
-      err instanceof Error && (err.name === 'AbortError' || err.message.includes('abort'))
-    const reason: SendFailedReason = isTimeout ? 'instantly_timeout' : 'instantly_api_error'
-    const msg = err instanceof Error ? err.message : String(err)
-    await markSendFailed(supabase, replyDraftId, `${reason}: ${msg}`)
-    return { kind: 'send_failed', error: msg, reason }
-  }
+  const replyResult = await sendThreadReply(
+    { replyToUuid, eaccount, subject, bodyText: assembledBody },
+    instantlyApiKey,
+    { signal: AbortSignal.timeout(20000) },
+  )
 
   if (!replyResult.ok) {
     const msg = replyResult.error ?? 'Instantly API returned not-ok'
+    const isTimeout = typeof msg === 'string' && (msg.includes('AbortError') || msg.includes('abort'))
     await markSendFailed(supabase, replyDraftId, msg)
-    return { kind: 'send_failed', error: msg, reason: 'instantly_api_error' }
+    return { kind: 'send_failed', error: msg, reason: isTimeout ? 'instantly_timeout' : 'instantly_api_error' }
   }
 
   const instantlyMessageId = replyResult.message_id ?? null
