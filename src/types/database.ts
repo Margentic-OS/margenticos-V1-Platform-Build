@@ -224,11 +224,15 @@ export type Database = {
           extracted_question: string
           id: string
           organisation_id: string
+          potential_names_flagged: Json
+          prompt_version: string | null
           reply_draft_id: string
           reviewed_at: string | null
           reviewed_by_user_id: string | null
           signal_id: string
           similar_faq_id: string | null
+          similar_pending_extraction_id: string | null
+          similarity_score: number | null
           status: string
           suggested_answer: string
         }
@@ -237,11 +241,15 @@ export type Database = {
           extracted_question: string
           id?: string
           organisation_id: string
+          potential_names_flagged?: Json
+          prompt_version?: string | null
           reply_draft_id: string
           reviewed_at?: string | null
           reviewed_by_user_id?: string | null
           signal_id: string
           similar_faq_id?: string | null
+          similar_pending_extraction_id?: string | null
+          similarity_score?: number | null
           status?: string
           suggested_answer: string
         }
@@ -250,11 +258,15 @@ export type Database = {
           extracted_question?: string
           id?: string
           organisation_id?: string
+          potential_names_flagged?: Json
+          prompt_version?: string | null
           reply_draft_id?: string
           reviewed_at?: string | null
           reviewed_by_user_id?: string | null
           signal_id?: string
           similar_faq_id?: string | null
+          similar_pending_extraction_id?: string | null
+          similarity_score?: number | null
           status?: string
           suggested_answer?: string
         }
@@ -292,6 +304,13 @@ export type Database = {
             columns: ["similar_faq_id"]
             isOneToOne: false
             referencedRelation: "faqs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faq_extractions_similar_pending_extraction_id_fkey"
+            columns: ["similar_pending_extraction_id"]
+            isOneToOne: false
+            referencedRelation: "faq_extractions"
             referencedColumns: ["id"]
           },
         ]
