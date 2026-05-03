@@ -102,6 +102,7 @@ export async function extractFaq(input: FaqExtractionInput): Promise<FaqExtracti
   const { data: existingRun } = await (supabase as any)
     .from('agent_runs')
     .select('id')
+    .eq('client_id', organisationId)
     .eq('agent_name', 'faq-extraction-agent')
     .eq('status', 'completed')
     .like('output_summary', `%${replyDraftId}%`)

@@ -119,6 +119,7 @@ export async function draftReply(input: ReplyDrafterInput): Promise<ReplyDrafter
   const { data: existingDraft } = await (supabase as any)
     .from('reply_drafts')
     .select('id')
+    .eq('organisation_id', organisationId)
     .eq('signal_id', signalId)
     .maybeSingle()
 
