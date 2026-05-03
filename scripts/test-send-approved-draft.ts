@@ -16,6 +16,7 @@
  *  10. Operator-edited body with existing closer → no double sign-off
  *  11. Operator-edited body ending with founder first name → no double sign-off
  *  12. Unexpected status (not 'approved') → 'send_failed' unexpected_state
+ *  13. sendThreadReply with AbortSignal.abort() → ok=false, error includes 'AbortError'
  *
  * Note: cross-org access is enforced at the API layer (endpoints), not in
  * sendApprovedDraft itself. That test lives at the endpoint level (Group 6 UI build).
@@ -113,15 +114,7 @@ function buildMockSupabase(opts: {
       }),
       update: (values: Record<string, unknown>) => {
         calls.push(`update:${table}:${JSON.stringify(values).slice(0, 60)}`)
-        return {
-          eq: () => ({
-            eq: () => ({
-              eq: () => updateBuilder,
-              maybeSingle: async () => ({ data: { status: 'sent' }, error: null }),
-            }),
-            maybeSingle: async () => ({ data: { status: 'sent' }, error: null }),
-          }),
-        }
+        return updateBuilder
       },
       eq: () => builder,
       maybeSingle: async () => ({
@@ -133,6 +126,7 @@ function buildMockSupabase(opts: {
 
     const updateBuilder: Record<string, unknown> = {
       eq: function () { return updateBuilder },
+      in: function () { return updateBuilder },
       then: async (resolve: (v: unknown) => void) => {
         if (opts.dbUpdateError) {
           resolve({ error: opts.dbUpdateError, count: 0 })
@@ -333,6 +327,21 @@ await runTest(
   assert(
     'Operator body ending with first name → no double sign-off',
     result === body,
+    `actual: ${JSON.stringify(result)}`,
+  )
+}
+
+// ── Test 12: AbortSignal.abort() → sendThreadReply returns AbortError ────────
+{
+  const { sendThreadReply } = await import('../src/lib/integrations/handlers/instantly/reply-actions')
+  const result = await sendThreadReply(
+    { replyToUuid: 'test-uuid', eaccount: 'test@test.com', subject: 'Re: test', bodyText: 'Test body' },
+    'test-api-key',
+    { signal: AbortSignal.abort() },
+  )
+  assert(
+    'AbortSignal.abort() → sendThreadReply returns ok=false with AbortError in error',
+    !result.ok && typeof result.error === 'string' && result.error.includes('AbortError'),
     `actual: ${JSON.stringify(result)}`,
   )
 }
