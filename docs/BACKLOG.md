@@ -908,6 +908,10 @@ Revisit once prospect research agent is built and full outbound cycle is working
   than the send itself. Should create a new reply_drafts row (not overwrite the existing
   one, so the rejection history is preserved). Requires reply-draft-agent to be callable
   from an API route with a known signal_id and tier.
+  NOTE: draft-orchestrator.ts:168 idempotency check returns kind='drafted' for
+  rejected/send_failed drafts (treating the existing draft as still valid). This is
+  intentional while no regenerate path exists — revisit and adjust when this endpoint
+  is built, so the orchestrator does not skip regeneration requests.
 
 - [phase2] Scenario 2 thread detection — multi-turn positive_direct_booking (2026-05-03)
   Currently positive_direct_booking (≥ 0.90 confidence) triggers Phase 1 auto-Calendly

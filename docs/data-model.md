@@ -337,6 +337,41 @@ RLS:
 
 ---
 
+## Table: reply_handling_actions
+
+One row per processed signal, recording what action the reply-handling pipeline took.
+Written by process-reply.ts after each signal is classified and routed.
+
+Fields:
+  id
+  signal_id        — FK to signals
+  organisation_id  — FK to organisations (explicit tenant scope)
+  action_taken     — enum, one of the values below
+  tier             — 1, 2, or 3 (Phase 2 only; null for Phase 1 actions)
+  metadata         — JSON; context-specific detail (e.g. OOO return date, classifier error)
+  created_at
+
+action_taken values:
+  Phase 1 (process-reply.ts direct actions):
+    suppress             — prospect suppressed in Instantly (opt-out, negative reply)
+    ooo_log              — out-of-office detected; sequence paused, resume date noted
+    send_reply           — Tier 1 auto-reply sent (positive_direct_booking, high confidence)
+    log_only             — signal logged but no action taken (e.g. positive reply below routing threshold)
+    classifier_failed    — LLM classifier threw or returned invalid output; signal quarantined
+    permanently_failed   — signal exceeded max retries or entered unrecoverable state
+
+  Phase 2 (orchestrator-triggered):
+    drafted              — Tier 2 or Tier 3 AI draft created; waiting for operator approval
+    manual_required      — Tier 3 signal routed to operator without a draft (escalation)
+    draft_failed         — draft-orchestrator circuit-breaker fired (3+ agent_runs failures
+                           in 24h); placeholder row created so signal is not silently lost
+
+RLS:
+  Operator: full access
+  Client:   no access
+
+---
+
 ## What to check if something breaks
 
 1. "I can see data I shouldn't"
