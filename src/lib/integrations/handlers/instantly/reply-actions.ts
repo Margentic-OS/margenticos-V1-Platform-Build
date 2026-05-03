@@ -23,6 +23,7 @@ export interface ActionResult {
   error?: string
   raw?: unknown
   rateLimited?: boolean
+  message_id?: string  // outbound Instantly message UUID, populated on sendThreadReply success
 }
 
 export async function suppressLead(
@@ -106,5 +107,12 @@ export async function sendThreadReply(
     return { ok: false, error: msg, raw, rateLimited: response.status === 429 }
   }
 
-  return { ok: true, raw }
+  let message_id: string | undefined
+  if (typeof raw === 'object' && raw !== null && 'id' in raw && typeof (raw as Record<string, unknown>).id === 'string') {
+    message_id = (raw as Record<string, unknown>).id as string
+  } else {
+    logger.warn('Instantly reply-actions: sendThreadReply success but no id in response', { reply_to_uuid: replyToUuid })
+  }
+
+  return { ok: true, raw, message_id }
 }
