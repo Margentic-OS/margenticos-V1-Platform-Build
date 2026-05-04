@@ -144,6 +144,11 @@ export function DraftCard({
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 mb-5">
         <div>
+          {draft.organisation_name && (
+            <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-text-secondary mb-1">
+              {draft.organisation_name}
+            </p>
+          )}
           <p className="text-[13px] font-medium text-text-primary leading-snug">{prospectName}</p>
           {prospectHandle && (
             <p className="text-[11px] text-text-secondary mt-0.5">{prospectHandle}</p>
@@ -190,14 +195,14 @@ export function DraftCard({
         <ReadOnlyBody
           label="Their reply"
           body={draft.signal_reply_body}
-          missing="Reply body wasn't captured. Check the thread in Instantly directly."
+          missing="Reply body wasn't captured. Check the email thread directly."
         />
 
         {/* Original outbound email */}
         <ReadOnlyBody
           label="What we sent them"
           body={draft.original_outbound_body}
-          missing="Original outbound body wasn't captured. Check Instantly thread directly."
+          missing="Original outbound body wasn't captured. Check the email thread directly."
         />
 
         {/* Send failure detail — shown on send_failed rows only */}
@@ -210,7 +215,7 @@ export function DraftCard({
               {draft.send_error}
             </p>
             <p className="text-[11px] text-text-secondary mt-2">
-              Reject this draft to remove it from the queue, then reply directly in Instantly.
+              Reject this draft to remove it from the queue, then reply to the prospect directly.
             </p>
           </div>
         )}
@@ -247,8 +252,24 @@ export function DraftCard({
             )}
 
             {isOperatorAuthored && (
-              <div className="bg-[#F8F4EE] border border-border-card rounded-t-[6px] px-3.5 py-2 text-[11px] text-text-secondary">
-                No draft was generated. Write your reply below.
+              <div className="bg-[#F8F4EE] border border-border-card rounded-t-[6px] px-3.5 py-2">
+                <p className="text-[11px] text-text-secondary">No draft was generated. Write your reply below.</p>
+                {(() => {
+                  const reason = typeof draft.draft_metadata.reason === 'string' ? draft.draft_metadata.reason : null
+                  if (draft.status === 'draft_failed') {
+                    return <p className="text-[11px] text-text-muted mt-1">The AI drafter failed after retries. Write your reply manually.</p>
+                  }
+                  if (reason === 'org_context_missing') {
+                    return <p className="text-[11px] text-text-muted mt-1">Strategy documents are missing or too thin — check positioning and voice guides.</p>
+                  }
+                  if (reason === 'original_outbound_not_captured') {
+                    return <p className="text-[11px] text-text-muted mt-1">The original outbound email body wasn&apos;t captured — context is limited.</p>
+                  }
+                  if (reason) {
+                    return <p className="text-[11px] text-text-muted mt-1 font-mono">{reason}</p>
+                  }
+                  return null
+                })()}
               </div>
             )}
 
@@ -259,6 +280,7 @@ export function DraftCard({
               disabled={anyInFlight}
               rows={6}
               placeholder={isOperatorAuthored ? 'Write your reply here…' : ''}
+              aria-label={`Reply body for draft from ${prospectName}`}
               className={[
                 'w-full text-[12px] text-text-primary leading-relaxed',
                 'px-3.5 py-3 resize-none overflow-hidden',
@@ -268,6 +290,9 @@ export function DraftCard({
                 (isTier3 || isOperatorAuthored) ? 'rounded-b-[6px]' : 'rounded-[6px]',
               ].join(' ')}
             />
+            <p className="text-[10px] text-text-secondary mt-1.5">
+              Your name will be added as a sign-off on send.
+            </p>
           </div>
         )}
       </div>
@@ -291,6 +316,7 @@ export function DraftCard({
           <button
             onClick={handleReject}
             disabled={anyInFlight}
+            aria-label={`Reject draft from ${prospectName}`}
             className="px-3.5 py-1.5 rounded-[6px] bg-white border border-border-card text-[12px] font-medium text-text-secondary hover:text-text-primary hover:border-[#D8D2C8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isRejecting ? 'Rejecting…' : 'Reject'}
@@ -301,6 +327,7 @@ export function DraftCard({
             <button
               onClick={handleApprove}
               disabled={anyInFlight || !textareaValue.trim()}
+              aria-label={`Approve draft from ${prospectName}`}
               className={[
                 'px-3.5 py-1.5 rounded-[6px] text-[12px] font-medium transition-colors',
                 'disabled:opacity-50 disabled:cursor-not-allowed',

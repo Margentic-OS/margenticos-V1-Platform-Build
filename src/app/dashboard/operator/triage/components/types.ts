@@ -42,4 +42,5 @@ export type TriageDraftItem = {
   original_outbound_body: string | null
   prospect: ProspectInfo | null
   faqs: FaqItem[]
+  organisation_name: string | null
 }

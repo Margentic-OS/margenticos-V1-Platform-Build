@@ -5,6 +5,7 @@
 // Per-row textarea state is tracked client-side so polling never wipes an edit.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { DraftCard, type CardInFlightState } from './DraftCard'
 import { DraftCardSkeleton } from './DraftCardSkeleton'
 import { EmptyState } from './EmptyState'
@@ -33,19 +34,20 @@ function initialCardState(draft: TriageDraftItem): CardState {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export function TriageQueue() {
+  const router = useRouter()
   const [drafts, setDrafts] = useState<TriageDraftItem[]>([])
   const [cardStates, setCardStates] = useState<Record<string, CardState>>({})
   const [initialLoading, setInitialLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
 
-  // Track which draft IDs we have already shown so we can init card state for new arrivals.
-  const knownIds = useRef(new Set<string>())
   // Mirror of cardStates for use inside fetchDrafts without adding it as a dependency.
   const cardStatesRef = useRef<Record<string, CardState>>({})
 
   const fetchDrafts = useCallback(async () => {
     try {
       const res = await fetch('/api/reply-drafts', { credentials: 'same-origin' })
+      if (res.status === 401) { router.push('/login'); return }
+      if (res.status === 403) { setFetchError('Your account no longer has operator permissions.'); return }
       if (!res.ok) {
         setFetchError(`Could not load queue (${res.status}).`)
         return
@@ -72,7 +74,6 @@ export function TriageQueue() {
           } else {
             // New row — initialise from server data.
             next[draft.id] = initialCardState(draft)
-            knownIds.current.add(draft.id)
           }
         }
         return next
@@ -143,6 +144,17 @@ export function TriageQueue() {
         body: JSON.stringify({ final_body: finalBody, edited }),
       })
 
+      if (res.status === 401) { router.push('/login'); return }
+      if (res.status === 403) {
+        updateCardState(draftId, { inFlight: 'idle', actionError: 'Your account no longer has operator permissions.' })
+        return
+      }
+      if (res.status === 409) {
+        updateCardState(draftId, { inFlight: 'idle', actionError: 'This draft was already acted on in another session — refreshing.' })
+        await fetchDrafts()
+        return
+      }
+
       const json = await res.json() as Record<string, unknown>
 
       if (!res.ok) {
@@ -186,6 +198,16 @@ export function TriageQueue() {
         body: JSON.stringify({}),
       })
 
+      if (res.status === 401) { router.push('/login'); return }
+      if (res.status === 403) {
+        updateCardState(draftId, { inFlight: 'idle', actionError: 'Your account no longer has operator permissions.' })
+        return
+      }
+      if (res.status === 409) {
+        updateCardState(draftId, { inFlight: 'idle', actionError: 'This draft was already acted on in another session — refreshing.' })
+        await fetchDrafts()
+        return
+      }
       if (!res.ok) {
         const json = await res.json().catch(() => ({})) as Record<string, unknown>
         const msg = typeof json.error === 'string' ? json.error : `Rejection failed (${res.status}).`

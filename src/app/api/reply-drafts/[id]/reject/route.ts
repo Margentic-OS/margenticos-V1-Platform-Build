@@ -10,7 +10,7 @@
 // Three auth checks on every request:
 //   1. User is authenticated
 //   2. User role is 'operator'
-//   3. Draft exists, belongs to the operator's organisation, and is in a rejectable status
+//   3. Draft exists and is in a rejectable status
 //
 // Request body (optional):
 //   { reason?: string }  — optional rejection reason stored in draft_metadata
@@ -18,7 +18,7 @@
 // Response:
 //   200 — rejected
 //   409 — draft is not in a rejectable status
-//   404 — draft not found (or belongs to another org)
+//   404 — draft not found
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
@@ -58,10 +58,11 @@ export async function POST(
     return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
   }
 
-  // ── 2. Operator role + get user's organisation_id ───────────────────────────
+  // ── 2. Operator role ────────────────────────────────────────────────────────
+  // ADR-021: operator endpoints are cross-org — select role only, no organisation_id.
   const { data: userRow, error: userError } = await supabase
     .from('users')
-    .select('role, organisation_id')
+    .select('role')
     .eq('id', user.id)
     .single()
 
@@ -74,14 +75,12 @@ export async function POST(
     return NextResponse.json({ error: 'Only operators can reject reply drafts.' }, { status: 403 })
   }
 
-  const operatorOrgId = userRow.organisation_id
-
-  // ── 3. Load draft with org scoping ──────────────────────────────────────────
+  // ── 3. Load draft ────────────────────────────────────────────────────────────
+  // ADR-021: operator endpoints are cross-org — no organisation_id filter.
   const { data: draft, error: draftError } = await supabase
     .from('reply_drafts')
     .select('id, organisation_id, status, draft_metadata')
     .eq('id', id)
-    .eq('organisation_id', operatorOrgId ?? '')
     .maybeSingle()
 
   if (draftError || !draft) {
@@ -113,7 +112,6 @@ export async function POST(
     })
     .eq('id', id)
     .in('status', ['pending', 'send_failed'])  // idempotency: both rejectable statuses
-    .eq('organisation_id', operatorOrgId ?? '')
 
   if (updateError) {
     logger.error('reply-drafts reject: update failed', { draft_id: id, error: updateError.message })

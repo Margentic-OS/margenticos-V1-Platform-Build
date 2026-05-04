@@ -10,7 +10,7 @@
 // Three auth checks on every request:
 //   1. User is authenticated
 //   2. User role is 'operator'
-//   3. Draft exists, belongs to the operator's organisation, and is in an approvable status
+//   3. Draft exists and is in an approvable status
 //
 // Request body:
 //   { final_body: string, edited: boolean }
@@ -22,7 +22,7 @@
 //   200 { status: 'send_failed', error: string, reason: string }  — send failed; structured for UI
 //   200 { status: 'idempotent_skip', reason: string }
 //   409 — draft is not in an approvable status
-//   404 — draft not found (or belongs to another org)
+//   404 — draft not found
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
@@ -78,10 +78,11 @@ export async function POST(
     return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
   }
 
-  // ── 2. Operator role + get user's organisation_id ───────────────────────────
+  // ── 2. Operator role ────────────────────────────────────────────────────────
+  // ADR-021: operator endpoints are cross-org — select role only, no organisation_id.
   const { data: userRow, error: userError } = await supabase
     .from('users')
-    .select('role, organisation_id')
+    .select('role')
     .eq('id', user.id)
     .single()
 
@@ -94,14 +95,11 @@ export async function POST(
     return NextResponse.json({ error: 'Only operators can approve reply drafts.' }, { status: 403 })
   }
 
-  const operatorOrgId = userRow.organisation_id
-
-  // ── 3. Load draft with org scoping (prevents cross-org access) ──────────────
+  // ── 3. Load draft ────────────────────────────────────────────────────────────
   const { data: draft, error: draftError } = await supabase
     .from('reply_drafts')
     .select('id, organisation_id, status')
     .eq('id', id)
-    .eq('organisation_id', operatorOrgId ?? '')   // 404 if draft belongs to another org
     .maybeSingle()
 
   if (draftError || !draft) {
@@ -142,7 +140,6 @@ export async function POST(
     )
     .eq('id', id)
     .in('status', [...APPROVABLE_STATUSES])  // idempotency: only one concurrent approve can win
-    .eq('organisation_id', operatorOrgId ?? '')
 
   if (updateError) {
     logger.error('reply-drafts approve: status update failed', { draft_id: id, error: updateError.message })

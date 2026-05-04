@@ -1385,3 +1385,56 @@ substitute-calendly.ts (deterministic, no LLM):
 - QA smoke test: verify sign-off appears correctly in a test send before going live
   with any new client.
 
+---
+
+## ADR-021 — Operator endpoints are cross-org; client endpoints scope by organisation_id
+
+Date: 2026-05-04
+Status: Accepted
+Implemented in: Group 6 (Operator Triage UI)
+
+### Decision
+
+Operator-facing API endpoints do NOT filter by the operator's own organisation_id.
+They read and act across all organisations.
+
+Client-facing API endpoints continue to filter by the authenticated user's
+organisation_id on every query.
+
+### Context
+
+When the reply-drafts list, detail, approve, and reject endpoints were first
+written, they selected `organisation_id` from the users table and used it to
+scope every query. This was a bug: the operator's row in the users table stores
+the org they belong to as a user, not the set of client orgs they manage.
+Filtering by `operatorOrgId` would return only drafts from the operator's own
+organisation — it would never surface drafts belonging to client organisations.
+
+The Phase 1 `suggestions/[id]/approve` and `suggestions/[id]/reject` endpoints
+established the correct pattern: they select only `role` from the users table
+and fetch resources by ID alone, with no organisation_id filter. The operator's
+authority is granted by role, not by org membership.
+
+### Enforcement
+
+Operator endpoint auth pattern:
+  1. User is authenticated
+  2. User role is 'operator'
+  (No organisation_id filter — the operator acts on behalf of all organisations.)
+
+Client endpoint auth pattern:
+  1. User is authenticated
+  2. User role is appropriate for the route
+  3. Resource belongs to user's organisation_id (explicit filter at query layer)
+
+### Consequences
+
+- All current and future operator endpoints must follow this pattern.
+- The users table select in operator endpoints must be `select('role')` only.
+  Reading `organisation_id` and using it to scope queries is the anti-pattern
+  this ADR prohibits.
+- Supabase service-role client bypasses RLS; the role check at the application
+  layer is the only gate for operator endpoints.
+- Cross-org visibility is intentional. An operator must see all client drafts,
+  not just drafts from their own user record's organisation.
+

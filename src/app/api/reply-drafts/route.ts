@@ -76,7 +76,7 @@ export async function GET() {
   // ── 2. Operator role + org ────────────────────────────────────────────────────
   const { data: userRow, error: userError } = await supabase
     .from('users')
-    .select('role, organisation_id')
+    .select('role')
     .eq('id', user.id)
     .single()
 
@@ -89,10 +89,8 @@ export async function GET() {
     return NextResponse.json({ error: 'Only operators can access the reply queue.' }, { status: 403 })
   }
 
-  const operatorOrgId = userRow.organisation_id ?? ''
-
   // ── 3. Fetch triage-queue drafts with signal + prospect joins ─────────────────
-  // ADR-003: explicit organisation_id filter at application layer, in addition to service role.
+  // ADR-021: operator endpoints are cross-org — no organisation_id filter here.
   const { data: rows, error: queryError } = await supabase
     .from('reply_drafts')
     .select(`
@@ -107,6 +105,7 @@ export async function GET() {
       send_error,
       created_at,
       updated_at,
+      organisations ( name ),
       signals (
         raw_data,
         original_outbound_body,
@@ -121,10 +120,9 @@ export async function GET() {
       )
     `)
     .in('status', [...TRIAGE_STATUSES])
-    .eq('organisation_id', operatorOrgId)
 
   if (queryError) {
-    logger.error('reply-drafts list: query failed', { error: queryError.message, org_id: operatorOrgId })
+    logger.error('reply-drafts list: query failed', { error: queryError.message })
     return NextResponse.json({ error: 'Failed to load reply queue.' }, { status: 500 })
   }
 
@@ -142,8 +140,11 @@ export async function GET() {
     } | null
   }
 
+  type OrgRow = { name: string }
+
   const transformed = (rows ?? []).map(row => {
     const signal = row.signals as unknown as SignalRow | null
+    const org = (row as unknown as { organisations: OrgRow | null }).organisations
     const signalProspect = signal?.prospects ?? null
     const metadata = (row.draft_metadata ?? {}) as Record<string, unknown>
 
@@ -161,6 +162,7 @@ export async function GET() {
       updated_at: row.updated_at,
       signal_reply_body: signal ? extractReplyBody(signal.raw_data) : null,
       original_outbound_body: signal?.original_outbound_body ?? null,
+      organisation_name: org?.name ?? null,
       prospect: signalProspect
         ? {
             id: signalProspect.id,
@@ -201,7 +203,6 @@ export async function GET() {
       .from('faqs')
       .select('id, question_canonical, answer, times_used')
       .in('id', [...allFaqIds])
-      .eq('organisation_id', operatorOrgId)   // ADR-003
 
     if (faqError) {
       // Non-fatal: FAQ data is informational. Log and continue.
