@@ -1,11 +1,16 @@
 // POST /api/reply-drafts/[id]/approve
 //
-// Operator approves a pending reply draft and triggers immediate send.
+// Operator approves a reply draft and triggers immediate send.
+//
+// Accepted statuses: 'pending' | 'manual_required' | 'draft_failed'
+//   pending         — normal AI-drafted row
+//   manual_required — no draft was generated (missing org context); operator writes body
+//   draft_failed    — drafter failed after retries; operator writes body
 //
 // Three auth checks on every request:
 //   1. User is authenticated
 //   2. User role is 'operator'
-//   3. Draft exists, belongs to the operator's organisation, and is 'pending'
+//   3. Draft exists, belongs to the operator's organisation, and is in an approvable status
 //
 // Request body:
 //   { final_body: string, edited: boolean }
@@ -16,7 +21,7 @@
 //   200 { status: 'sent', instantly_message_id: string | null }
 //   200 { status: 'send_failed', error: string, reason: string }  — send failed; structured for UI
 //   200 { status: 'idempotent_skip', reason: string }
-//   409 — draft is not in 'pending' status
+//   409 — draft is not in an approvable status
 //   404 — draft not found (or belongs to another org)
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -24,6 +29,12 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
 import { sendApprovedDraft } from '@/lib/reply-handling/send-approved-draft'
+
+// Statuses the operator can approve. manual_required / draft_failed rows have ai_draft_body = NULL;
+// the approve handler coalesces finalBody into ai_draft_body to satisfy the DB constraint that
+// requires ai_draft_body IS NOT NULL for all non-placeholder statuses (reply_drafts_body_required).
+const APPROVABLE_STATUSES = ['pending', 'manual_required', 'draft_failed'] as const
+type ApprovableStatus = (typeof APPROVABLE_STATUSES)[number]
 
 export async function POST(
   request: NextRequest,
@@ -97,29 +108,40 @@ export async function POST(
     return NextResponse.json({ error: 'Draft not found.' }, { status: 404 })
   }
 
-  if (draft.status !== 'pending') {
+  if (!APPROVABLE_STATUSES.includes(draft.status as ApprovableStatus)) {
     return NextResponse.json(
-      { error: `Draft is already '${draft.status}' — cannot approve.` },
+      { error: `Draft is in '${draft.status}' status — cannot approve.` },
       { status: 409 }
     )
   }
 
+  // For operator-authored rows (manual_required / draft_failed), ai_draft_body was NULL.
+  // The UPDATE below sets it to finalBody so the DB constraint is satisfied. On normal
+  // pending rows it is left untouched — the AI draft is the immutable record.
+  const isOperatorAuthored = draft.status === 'manual_required' || draft.status === 'draft_failed'
+
   // ── 4. Idempotent status transition to 'approved' ───────────────────────────
   const now = new Date().toISOString()
 
+  const baseUpdate = {
+    status: 'approved' as const,
+    final_sent_body: finalBody,
+    reviewed_by_user_id: user.id,
+    reviewed_at: now,
+    edited_at: edited ? now : null,
+    edited_by_user_id: edited ? user.id : null,
+    updated_at: now,
+  }
+
   const { error: updateError, count } = await supabase
     .from('reply_drafts')
-    .update({
-      status: 'approved',
-      final_sent_body: finalBody,
-      reviewed_by_user_id: user.id,
-      reviewed_at: now,
-      edited_at: edited ? now : null,
-      edited_by_user_id: edited ? user.id : null,
-      updated_at: now,
-    })
+    .update(
+      isOperatorAuthored
+        ? { ...baseUpdate, ai_draft_body: finalBody }
+        : baseUpdate
+    )
     .eq('id', id)
-    .eq('status', 'pending')         // idempotency: only one concurrent approve can win
+    .in('status', [...APPROVABLE_STATUSES])  // idempotency: only one concurrent approve can win
     .eq('organisation_id', operatorOrgId ?? '')
 
   if (updateError) {

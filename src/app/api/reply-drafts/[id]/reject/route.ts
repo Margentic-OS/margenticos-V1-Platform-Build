@@ -1,18 +1,23 @@
 // POST /api/reply-drafts/[id]/reject
 //
-// Operator rejects a pending reply draft. No send. No extraction.
+// Operator rejects a reply draft. No send. No extraction.
+//
+// Accepted statuses: 'pending' | 'send_failed'
+//   pending    — normal path (operator decides not to send the draft)
+//   send_failed — post-approval send failure; operator dismisses the row from the queue
+//                 and handles the reply manually outside the platform
 //
 // Three auth checks on every request:
 //   1. User is authenticated
 //   2. User role is 'operator'
-//   3. Draft exists, belongs to the operator's organisation, and is 'pending'
+//   3. Draft exists, belongs to the operator's organisation, and is in a rejectable status
 //
 // Request body (optional):
 //   { reason?: string }  — optional rejection reason stored in draft_metadata
 //
 // Response:
 //   200 — rejected
-//   409 — draft is not in 'pending' status
+//   409 — draft is not in a rejectable status
 //   404 — draft not found (or belongs to another org)
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -83,7 +88,7 @@ export async function POST(
     return NextResponse.json({ error: 'Draft not found.' }, { status: 404 })
   }
 
-  if (draft.status !== 'pending') {
+  if (draft.status !== 'pending' && draft.status !== 'send_failed') {
     return NextResponse.json(
       { error: `Draft is already '${draft.status}' — cannot reject.` },
       { status: 409 }
@@ -107,7 +112,7 @@ export async function POST(
       updated_at: now,
     })
     .eq('id', id)
-    .eq('status', 'pending')
+    .in('status', ['pending', 'send_failed'])  // idempotency: both rejectable statuses
     .eq('organisation_id', operatorOrgId ?? '')
 
   if (updateError) {
