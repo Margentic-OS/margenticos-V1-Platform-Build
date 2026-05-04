@@ -17,7 +17,7 @@
 //   E. Pending draft → approve → row disappears from next poll response
 //   F. Pending draft → reject → row disappears from next poll response
 
-import { extractReplyBody } from '../src/app/api/reply-drafts/route'
+import { extractReplyBody } from '../src/lib/reply-handling/extract-reply-body'
 
 let passed = 0
 let failed = 0

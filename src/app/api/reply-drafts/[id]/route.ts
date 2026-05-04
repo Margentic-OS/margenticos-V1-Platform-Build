@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
-import { extractReplyBody } from '@/app/api/reply-drafts/route'
+import { extractReplyBody } from '@/lib/reply-handling/extract-reply-body'
 
 export const dynamic = 'force-dynamic'
 

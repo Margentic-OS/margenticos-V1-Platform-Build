@@ -25,6 +25,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
+import { extractReplyBody } from '@/lib/reply-handling/extract-reply-body'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,19 +39,6 @@ const STATUS_PRIORITY: Record<string, number> = {
 
 const TRIAGE_STATUSES = ['pending', 'manual_required', 'draft_failed', 'send_failed'] as const
 
-// Safely extract the plain-text body of the prospect's reply from signal.raw_data.
-// Instantly's reply payload has: raw_data.body.text (nested) or raw_data.body (flat string).
-function extractReplyBody(rawData: unknown): string | null {
-  const raw = rawData as Record<string, unknown> | null
-  if (!raw) return null
-  const body = raw.body
-  if (typeof body === 'object' && body !== null) {
-    const text = (body as Record<string, unknown>).text
-    return typeof text === 'string' ? text.trim() || null : null
-  }
-  if (typeof body === 'string') return body.trim() || null
-  return null
-}
 
 export async function GET() {
   const cookieStore = await cookies()
@@ -223,4 +211,3 @@ export async function GET() {
   return NextResponse.json({ drafts: transformed }, { status: 200 })
 }
 
-export { extractReplyBody }
