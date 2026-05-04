@@ -27,6 +27,16 @@
 
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
 
+- [DONE 2026-05-04] Magic link auth redirect hardcoded to localhost in Supabase Site URL (2026-05-04)
+  Supabase Auth Site URL was set to http://localhost:3000, meaning magic links sent from
+  production redirected users to localhost — which doesn't exist for non-developer operators.
+  Fixed by updating in Supabase dashboard: Authentication → URL Configuration.
+  Site URL → https://app.margenticos.com
+  Redirect URLs allow list → https://app.margenticos.com/** and http://localhost:3000/**
+  Pre-c1: before first paying client onboards, verify all auth flows (magic link, any
+  future password reset) redirect to the production domain in all environments. The Supabase
+  MCP does not expose auth URL config — this change must always be done via the dashboard.
+
 - [DONE 2026-05-03] Sentry alert rules for send-approved-draft failures
   Three rules created via scripts/create-sentry-send-alert-rules.ts.
   Org: margentic-os | Project: margenticos | Token: SENTRY_ALERTS_TOKEN in .env.local
