@@ -682,6 +682,77 @@ Signal processing agent and warnings engine backend deferred to Phase 2 — see 
   Biggest single lever for perceived meeting quality. Industry-standard among
   premium agencies (Beanstalk-tier 60-70% positive-reply-to-qualified conversion).
 
+- [pre-c1] Re-run step E end-to-end once Instantly is connected (2026-05-05)
+  Group 6 manual verification step E (approve a pending draft → confirm it delivers a real reply
+  to the prospect's inbox) was confirmed as the correct flow, but the send step fails on seed data
+  because seed signals lack the id and eaccount fields required for Instantly thread replies.
+  Step E cannot be fully verified until Instantly is live and a real reply signal is polled.
+  Trigger: first real reply signal exists in reply_drafts from a live Instantly campaign.
+  Action: run the full approve flow against a real draft and confirm the reply appears in the
+  prospect's inbox via the Instantly sent-mail log.
+
+- [pre-c1] Instantly poller: eaccount not validated before writing signal (2026-05-05)
+  src/lib/integrations/polling/instantly.ts validates that e.id is present before writing
+  a signal, but does NOT validate e.eaccount. A signal written with a missing eaccount will
+  exist in the DB but will fail at send time with "signal raw_data missing id or eaccount
+  (thread context)". The signal is stuck: it cannot be retried and the reply goes unhandled.
+  Fix: add eaccount validation alongside the existing id check (lines ~405-410 in polling/instantly.ts).
+  If eaccount is missing, log a warning and skip writing the signal — same pattern as missing id.
+  Risk: this will surface on the first real Instantly reply; fix before going live.
+
+- [pre-c1] Operator UI hardcoded mock data — wire to real data before first paying client (2026-05-05)
+  Three operator UI components contain hardcoded placeholder data:
+    - WarningsRail.tsx: PLACEHOLDER_WARNINGS uses client names "Apex Consulting" / "Meridian Group"
+      and recommendation text that names "Instantly" and "Apollo" directly in operator-visible strings.
+    - SettingsView.tsx: PLACEHOLDER_SETTINGS uses orgName "Apex Consulting", a hardcoded Calendly URL,
+      and a mock integrations array with tool names and fake connection dates.
+  The warnings engine backend is phase2 (deferred until signal volume justifies it). But before
+  a paying client is onboarded: either remove the placeholder data (show empty/coming-soon state)
+  or wire to a real data source. Displaying a different client's placeholder data to a paying
+  client is an onboarding embarrassment. The tool names in WarningsRail action text also violate
+  the operator-facing tool-agnostic principle when the platform serves multiple integration options.
+
+- [pre-c1] Login page rate-limit error message is misleading (2026-05-05)
+  When Supabase OTP rate limits trigger (too many magic link requests from one address), the login
+  page shows the same generic "Something went wrong. Please try again." as a real auth failure.
+  An operator who doesn't recognise the rate-limit situation will keep requesting magic links,
+  deepening the rate-limit hole and potentially locking themselves out for several minutes.
+  Fix: parse the Supabase error response in src/app/login/actions.ts. Supabase rate-limit errors
+  return a recognisable code or message string. Show a distinct message:
+  "Too many requests — please wait a few minutes before trying again."
+  This is low-effort, high-impact for any operator doing rapid testing.
+
+- [pre-c1] Verify auth redirect URLs in production for all auth flows (2026-05-05)
+  The Supabase Site URL was previously set to localhost and was corrected on 2026-05-04
+  (see DONE entry). Before the first paying client onboards: explicitly re-verify that ALL
+  auth flows — magic link login AND any future password reset — redirect to
+  https://app.margenticos.com in the production environment.
+  The Supabase MCP does not expose auth URL config. Verification must be done manually:
+  Supabase dashboard → Authentication → URL Configuration. Confirm Site URL and
+  Redirect URLs allow-list are both correct. Add to onboarding checklist.
+
+- [pre-c1] Regenerate GitHub PAT before expiry (2026-05-05)
+  A 7-day expiry notice has already been received for the GitHub personal access token in use.
+  Regenerate at github.com → Settings → Developer Settings → Personal Access Tokens.
+  After regeneration: check all locations where the token is referenced and update them —
+  ~/.claude/mcp.json (GitHub MCP config), any Vercel environment variables that use a GitHub
+  token, and any scripts in /scripts/ that reference GitHub credentials.
+  Do not let the token expire: an expired token breaks CI/CD, MCP access, and any automated
+  GitHub operations mid-session without a clear error message.
+
+- [pre-c1] ADR-001 violations — operator-visible UI strings hardcoding tool names (2026-05-05)
+  Three known instances in operator-facing dashboard components:
+    - src/components/dashboard/operator/SettingsView.tsx:188 — "configured directly in Instantly."
+    - src/components/dashboard/operator/WarningsRail.tsx:24 — "domain reputation in Instantly."
+    - src/components/dashboard/operator/WarningsRail.tsx:32 — "email list hygiene in Apollo"
+  The comprehensive readiness audit may surface additional instances. Bundle all ADR-001 string
+  fixes into a single dashboard cleanup pass when the audit findings are triaged.
+
+  Also note: SettingsView.tsx integrations registry display (lines 31–35) is hardcoded mock data —
+  should be replaced with a live query against the integrations_registry table when next touched.
+  Not an ADR-001 violation (the display is meant to show tool names), but it is stale mock data
+  that should be wired to real data.
+
 ---
 
 ## Monitor-and-expand (built minimal, needs to grow)
@@ -1117,6 +1188,16 @@ is integrated. Refactor cost: ~2-4 hours. Decision: fix now or defer to Phase 2.
   Currently on Sonnet 4.6 as local-dev workaround per ADR-013. Revert if Opus
   timeout issue is resolved on production infrastructure.
 
+- [phase2, trigger: multiple operators active simultaneously OR sub-30s reply latency becomes a competitive differentiator] Consider swapping reply-drafts polling to Supabase Realtime (2026-05-05)
+  Current: TriageQueue.tsx polls GET /api/reply-drafts every 30 seconds. Works correctly for
+  single-operator usage at client-zero volume.
+  Supabase Realtime (postgres_changes subscription on reply_drafts INSERT/UPDATE) would give
+  instant push updates and eliminate polling latency entirely.
+  Trigger (a): multiple operators working the triage queue simultaneously — polling causes each
+  operator to see stale data between 30s intervals, creating approval races on the same draft.
+  Trigger (b): sub-30s reply response time becomes a measurable client-facing differentiator.
+  Do not build speculatively. The 30s polling interval is adequate for client zero.
+
 - [phase2] Human pre-call qualification protocol (Layer 3)
   Option A: Doug manually qualifies first 5-10 meetings per client to build
   intuition, then automate via reply handling agent.
@@ -1261,6 +1342,26 @@ Complete all items before the first paying client goes live:
 - [reminder] Application queries against organisations for client-facing views must never
   SELECT payment_status, contract_status, or engagement_month. RLS filters rows, not columns.
   App layer is responsible.
+
+- [reminder] Prospect-facing copy must never quote precise system timings. (2026-05-05)
+  "We'll respond within 30 minutes" / "same business hour" / "within X minutes" must never
+  appear in prospect-facing emails, auto-replies, OOO holding messages, or agent-generated
+  copy that reaches a prospect. These create contractual-feeling expectations that break
+  silently if the system is offline, delayed, or the operator is away.
+  Operator-facing UI (e.g. triage queue documentation, CLAUDE.md guidelines) can and should
+  reference timings — that is for internal process clarity, not prospect expectations.
+  Applies to: reply-handling templates, positive reply auto-response, holding messages,
+  any future marketing copy generated by agents.
+
+- [reminder] Every new migration must enable RLS AND add at least one policy in the same migration file. (2026-05-05)
+  Enabling RLS with zero policies locks out ALL authenticated users silently — no error is
+  returned, just empty rows. This was observed in Group 6 testing: reply_drafts and faqs had
+  RLS enabled with no policies, causing the triage queue to show "Queue is clear" despite
+  5 seed rows existing in the database.
+  Rule: never ship a migration that runs ALTER TABLE ... ENABLE ROW LEVEL SECURITY without
+  a corresponding CREATE POLICY in the same file. If the policy is "operators only", use the
+  is_operator() pattern. If the policy is "service role only", add an explicit restrictive
+  policy for authenticated callers. Review migration files before applying.
 
 - [reminder] CRON_SECRET stored plaintext in cron.job.command — acceptable for this low-impact trigger token; not a pattern for high-value credentials. Use Supabase Vault for those.
 
