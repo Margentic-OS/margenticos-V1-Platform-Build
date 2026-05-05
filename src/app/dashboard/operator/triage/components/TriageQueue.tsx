@@ -186,7 +186,7 @@ export function TriageQueue() {
 
       // 200 with status='send_failed' means the send itself failed after approval.
       if (json.status === 'send_failed') {
-        const reason = typeof json.error === 'string' ? json.error : 'Instantly returned an error.'
+        const reason = typeof json.error === 'string' ? json.error : 'Email provider returned an error.'
         updateCardState(draftId, {
           inFlight: 'idle',
           actionError: `Send failed: ${reason}`,

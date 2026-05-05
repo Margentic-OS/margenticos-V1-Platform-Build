@@ -94,7 +94,7 @@ export function AgentActivityView({ runs, error }: AgentActivityViewProps) {
 
           {/* Rows */}
           {runs.map((run, i) => {
-            const s = STATUS_STYLES[run.status]
+            const s = STATUS_STYLES[run.status as AgentRun['status']] ?? { label: run.status, style: 'bg-gray-100 text-gray-600 border border-gray-300' }
             return (
               <div
                 key={run.id}
