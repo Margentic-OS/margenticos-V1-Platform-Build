@@ -43,6 +43,11 @@ export function TriageQueue() {
   // Mirror of cardStates for use inside fetchDrafts without adding it as a dependency.
   const cardStatesRef = useRef<Record<string, CardState>>({})
 
+  // Refs that guarantee exactly one interval and one visibilitychange listener
+  // regardless of how many times the polling effect fires.
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const visibilityTickRef = useRef<(() => void) | null>(null)
+
   const fetchDrafts = useCallback(async () => {
     try {
       const res = await fetch('/api/reply-drafts', { credentials: 'same-origin' })
@@ -101,20 +106,36 @@ export function TriageQueue() {
 
   // Mount + polling effect.
   useEffect(() => {
+    // Clear any stale interval/listener before creating new ones — guards against
+    // Next.js App Router soft-navigation re-mounts that skip the cleanup phase.
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current)
+    }
+    if (visibilityTickRef.current !== null) {
+      document.removeEventListener('visibilitychange', visibilityTickRef.current)
+    }
+
     fetchDrafts()
 
     const tick = () => {
       if (document.visibilityState === 'visible') fetchDrafts()
     }
 
-    const interval = setInterval(tick, POLL_INTERVAL_MS)
+    intervalRef.current = setInterval(tick, POLL_INTERVAL_MS)
+    visibilityTickRef.current = tick
 
     // Resume immediately on tab becoming visible.
     document.addEventListener('visibilitychange', tick)
 
     return () => {
-      clearInterval(interval)
-      document.removeEventListener('visibilitychange', tick)
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+      if (visibilityTickRef.current !== null) {
+        document.removeEventListener('visibilitychange', visibilityTickRef.current)
+        visibilityTickRef.current = null
+      }
     }
   }, [fetchDrafts])
 
