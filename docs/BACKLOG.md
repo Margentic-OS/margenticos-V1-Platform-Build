@@ -25,6 +25,56 @@
 
 ---
 
+## Benchmarks page (resolved and deferred items — 2026-05-05)
+
+- [DONE 2026-05-05] Benchmarks page v1 shipped
+  Four metrics: reply rate, meeting booking rate, bounce rate, positive reply rate.
+  Migration: sent_count/replied_count/bounced_count/campaign_stats_updated_at on campaigns.
+  Handler: fetchCampaignStats() calls /api/v2/campaigns/analytics (all campaigns, one call).
+  Cron: campaign stats refresh loop added to instantly-poll after reply polling.
+  Tier-1 constants: src/lib/benchmarks/tier1-benchmarks.ts — Instantly 2025 + Belkins 2025.
+  Metric utility: src/lib/metrics/campaign-metrics.ts — orgId-scoped, no API calls.
+  Page: src/app/dashboard/benchmarks/page.tsx — sidebar link now resolves.
+  StatsRow reply rate: now reads real data from campaign-metrics utility.
+  Commit: 0735a03.
+
+- [pre-c0] Apply migration 20260505_campaigns_sent_count.sql to Supabase (2026-05-05)
+  The migration adds sent_count, replied_count, bounced_count, campaign_stats_updated_at
+  to the campaigns table. Must be applied before the Benchmarks page or StatsRow reply
+  rate will error at runtime on the new columns.
+  How to apply: Supabase dashboard → SQL Editor → paste migration contents → Run.
+  Or via Supabase MCP: mcp__supabase__apply_migration.
+  After applying, run npm run gen-types to regenerate src/types/database.ts from the
+  live schema (the current database.ts was hand-patched to unblock TypeScript compilation).
+
+- [monitor] Benchmark constants refresh cadence (2026-05-05)
+  BENCHMARKS_LAST_UPDATED = 'May 2026' in src/lib/benchmarks/tier1-benchmarks.ts.
+  Trigger for refresh: Instantly or Belkins publishes a new annual cold email report
+  (typically Q1 each year). Check in January/February each year.
+  When refreshing: update the data constants, the sourceCitation strings, and the
+  BENCHMARKS_LAST_UPDATED export. No DB migration needed — Tier-1 is TypeScript constants.
+
+- [phase2] Spam complaint rate — excluded from v1 Benchmarks page (2026-05-05)
+  Not polled. The Instantly /api/v2/campaigns/analytics endpoint does not return
+  spam complaints. Excluded from v1 as planned.
+  Add when: a separate spam complaint source is identified, OR Instantly adds the
+  field to their analytics endpoint.
+  When adding: extend campaign-metrics.ts and BenchmarksView.tsx; no migration needed
+  if sourced from the existing signals table (signal_type = 'spam_complaint').
+
+- [phase2] Open rate — explicitly excluded from v1 (2026-05-05)
+  Decision: unreliable since Apple Mail Privacy Protection (2021). Leading vendors
+  have stopped reporting it as a primary metric. Excluded from client-facing page.
+  If added in future: operator-warnings-rail only, never client-facing.
+
+- [phase2] Tier-2/3 benchmark data from patterns table (2026-05-05)
+  The Benchmarks page data fetch falls back through tier 2 → tier 1 when patterns
+  are empty. Currently only tier 1 (TypeScript constants) is implemented.
+  Tier 2/3 uses the existing patterns table with pattern_type = 'network_reply_rate'
+  etc. No new table needed. Build when pattern aggregation agent ships.
+
+---
+
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
 
 - [DONE 2026-05-04] Magic link auth redirect hardcoded to localhost in Supabase Site URL (2026-05-04)
