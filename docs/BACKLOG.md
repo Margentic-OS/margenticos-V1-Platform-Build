@@ -75,6 +75,34 @@
 
 ---
 
+## Dashboard / Operator UX gaps
+
+- [pre-c1] "View as client" scoping gap — operator cannot preview a specific client's experience (2026-05-05)
+  **What the current behaviour is:** The "View" button in AllClientsView navigates to
+  `/dashboard/operator?client=<id>` which stays on the operator page. The `?client=` param
+  is only consumed by operator route components. Clicking "Results" or "Strategy" nav links
+  from any operator page navigates to the bare client route (e.g. `/dashboard/pipeline`)
+  with no client scoping — the route then loads data for the operator's own organisation.
+  **What the gap means:** There is no mechanism for the operator to view `/dashboard/pipeline`
+  (or any other client-facing route) scoped to a specific client's data. This makes it
+  impossible to QA or troubleshoot what a specific client sees in their dashboard.
+  **Root cause:** Client-facing routes (layout, dashboard, pipeline, benchmarks, strategy)
+  read `organisation_id` from the authenticated user's `users` row. They do not accept a
+  `?client=` param or any other override mechanism.
+  **Fix approach (to be ADR-tracked):** Two options —
+  A) Add `?client=<orgId>` param support to client-facing layouts: operator reads param
+     and uses that org_id instead of their own. Requires operator role check at every
+     affected layout/page to prevent non-operators from using the param.
+  B) Separate /dashboard/operator/preview/[orgId]/* routes that shadow the client routes
+     but accept an explicit orgId path param. Cleaner isolation, more work.
+  Option A is simpler for v1. Implement before first paying client onboards.
+  **Next action:** Write ADR-022 "Operator view-as-client mechanism" and implement Option A.
+  All five client page layouts (layout.tsx, page.tsx, pipeline, benchmarks, strategy/[type])
+  are already reading `organisation_id` from `users` — the change is to override that with
+  the `?client=` param when role=operator and the param is present.
+
+---
+
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
 
 - [DONE 2026-05-04] Magic link auth redirect hardcoded to localhost in Supabase Site URL (2026-05-04)

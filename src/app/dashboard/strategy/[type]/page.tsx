@@ -54,9 +54,16 @@ export default async function StrategyDocumentPage({
 
   if (!user) redirect('/login')
 
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('organisation_id')
+    .eq('id', user.id)
+    .single()
+
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, pipeline_unlocked, engagement_month')
+    .eq('id', userRow?.organisation_id ?? '')
     .single()
 
   if (!org) redirect('/dashboard')

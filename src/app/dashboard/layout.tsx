@@ -69,7 +69,7 @@ export default async function DashboardLayout({
   // This runs only on genuine client routes (/dashboard, /dashboard/pipeline, etc.).
   const { data: userRow } = await supabase
     .from('users')
-    .select('role')
+    .select('role, organisation_id')
     .eq('id', user.id)
     .single()
 
@@ -78,6 +78,7 @@ export default async function DashboardLayout({
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, pipeline_unlocked')
+    .eq('id', userRow?.organisation_id ?? '')
     .single()
 
   const dashboardState = org

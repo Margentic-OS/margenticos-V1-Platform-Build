@@ -90,10 +90,17 @@ export default async function DashboardPage() {
     redirect('/login')
   }
 
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('organisation_id')
+    .eq('id', user.id)
+    .single()
+
   // Fetch org
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, engagement_month, contract_start_date, pipeline_unlocked')
+    .eq('id', userRow?.organisation_id ?? '')
     .single()
 
   if (!org) {
