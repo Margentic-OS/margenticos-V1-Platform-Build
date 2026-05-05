@@ -67,36 +67,48 @@ export type Database = {
       }
       campaigns: {
         Row: {
+          bounced_count: number
+          campaign_stats_updated_at: string | null
           campaign_type: string
           created_at: string
           external_id: string | null
           id: string
           organisation_id: string
           paused_at: string | null
+          replied_count: number
+          sent_count: number
           sequence_name: string | null
           started_at: string | null
           status: string
           updated_at: string
         }
         Insert: {
+          bounced_count?: number
+          campaign_stats_updated_at?: string | null
           campaign_type: string
           created_at?: string
           external_id?: string | null
           id?: string
           organisation_id: string
           paused_at?: string | null
+          replied_count?: number
+          sent_count?: number
           sequence_name?: string | null
           started_at?: string | null
           status?: string
           updated_at?: string
         }
         Update: {
+          bounced_count?: number
+          campaign_stats_updated_at?: string | null
           campaign_type?: string
           created_at?: string
           external_id?: string | null
           id?: string
           organisation_id?: string
           paused_at?: string | null
+          replied_count?: number
+          sent_count?: number
           sequence_name?: string | null
           started_at?: string | null
           status?: string

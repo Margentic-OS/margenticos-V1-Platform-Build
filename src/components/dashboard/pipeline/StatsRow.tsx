@@ -2,6 +2,7 @@ interface StatsRowProps {
   qualifiedMeetings: number
   totalMeetings: number
   pipelineValue: number
+  replyRate: number | null
 }
 
 const EMPTY_COPY = 'Tracking begins once campaigns go live'
@@ -34,7 +35,7 @@ function StatCard({
   )
 }
 
-export function StatsRow({ qualifiedMeetings, totalMeetings, pipelineValue }: StatsRowProps) {
+export function StatsRow({ qualifiedMeetings, totalMeetings, pipelineValue, replyRate }: StatsRowProps) {
   const hasData = totalMeetings > 0
 
   const qualifiedRate = `${Math.round((qualifiedMeetings / totalMeetings) * 100)}%`
@@ -48,7 +49,12 @@ export function StatsRow({ qualifiedMeetings, totalMeetings, pipelineValue }: St
 
   return (
     <div className="grid grid-cols-3 gap-4">
-      <StatCard label="Reply rate" value="—" subtext="" isEmpty={true} />
+      <StatCard
+        label="Reply rate"
+        value={replyRate !== null ? `${replyRate.toFixed(1)}%` : '—'}
+        subtext=""
+        isEmpty={replyRate === null}
+      />
       <StatCard
         label="Qualified rate"
         value={qualifiedRate}

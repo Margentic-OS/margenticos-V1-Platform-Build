@@ -9,6 +9,7 @@ import { StatsRow } from '@/components/dashboard/pipeline/StatsRow'
 import type { MeetingRow } from '@/components/dashboard/pipeline/MeetingsListCard'
 import type { StrategyDoc } from '@/components/dashboard/pipeline/StrategyPanelCard'
 import type { DocumentType } from '@/types'
+import { computeCampaignMetrics } from '@/lib/metrics/campaign-metrics'
 
 function getOrgInitials(name: string): string {
   return name
@@ -69,7 +70,7 @@ export default async function PipelinePage() {
 
   const { start: monthStart, end: monthEnd } = currentMonthBounds()
 
-  const [meetingsResult, monthCountResult, docsResult, suggestionsResult] = await Promise.all([
+  const [meetingsResult, monthCountResult, docsResult, suggestionsResult, campaignMetrics] = await Promise.all([
     supabase
       .from('meetings')
       .select(`
@@ -97,6 +98,7 @@ export default async function PipelinePage() {
       .select('*', { count: 'exact', head: true })
       .eq('organisation_id', org.id)
       .eq('status', 'pending'),
+    computeCampaignMetrics(org.id, supabase),
   ])
 
   const rawMeetings = meetingsResult.data ?? []
@@ -135,6 +137,10 @@ export default async function PipelinePage() {
 
   const launchDate = estimateLaunchDate(org.contract_start_date)
 
+  const replyRate = campaignMetrics.hasData
+    ? campaignMetrics.replyCount / campaignMetrics.sentCount * 100
+    : null
+
   return (
     <>
       <DashboardTopbar
@@ -157,6 +163,7 @@ export default async function PipelinePage() {
             qualifiedMeetings={qualifiedMeetings}
             totalMeetings={totalMeetings}
             pipelineValue={pipelineValue}
+            replyRate={replyRate}
           />
         </div>
       </div>

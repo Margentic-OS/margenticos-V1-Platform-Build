@@ -28,6 +28,7 @@ import {
   INSTANTLY_LEAD_STATUS_BOUNCED,
   INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
 } from '@/lib/integrations/polling/instantly'
+import { fetchCampaignStats } from '@/lib/integrations/handlers/instantly/campaign-analytics'
 
 const MONITOR_SLUG = 'instantly-poll'
 const MONITOR_CONFIG = {
@@ -125,6 +126,53 @@ export async function POST(request: NextRequest) {
     results.unsubscribes.errors++
   }
 
+  // ── Campaign stats refresh ─────────────────────────────────────────────────
+  // Runs after reply polling. Failures here are isolated and never affect reply polling.
+  // Fetches all campaign analytics in one API call, then updates each active campaign row.
+  // Future: if active campaign count exceeds ~50, consider batching with concurrency limit.
+  const campaignStatsResult = { updated: 0, skipped: 0, errors: 0 }
+  try {
+    const statsMap = await fetchCampaignStats(apiKey)
+
+    const { data: activeCampaigns } = await supabase
+      .from('campaigns')
+      .select('id, external_id')
+      .eq('status', 'active')
+      .not('external_id', 'is', null)
+
+    for (const campaign of activeCampaigns ?? []) {
+      if (!campaign.external_id) continue
+      const stats = statsMap.get(campaign.external_id)
+      if (!stats) {
+        campaignStatsResult.skipped++
+        continue
+      }
+      const { error: updateError } = await supabase
+        .from('campaigns')
+        .update({
+          sent_count:    stats.sentCount,
+          replied_count: stats.repliedCount,
+          bounced_count: stats.bouncedCount,
+          campaign_stats_updated_at: new Date().toISOString(),
+        })
+        .eq('id', campaign.id)
+
+      if (updateError) {
+        logger.error('Campaign stats refresh: DB update failed', {
+          campaign_id: campaign.id,
+          error: updateError.message,
+        })
+        campaignStatsResult.errors++
+      } else {
+        campaignStatsResult.updated++
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    logger.error('Campaign stats refresh: threw unexpectedly', { error: msg })
+    campaignStatsResult.errors++
+  }
+
   // ── Summary log ────────────────────────────────────────────────────────────
   const totalErrors = results.replies.errors + results.bounces.errors + results.unsubscribes.errors
   const totalWritten = results.replies.written + results.bounces.written + results.unsubscribes.written
@@ -133,6 +181,7 @@ export async function POST(request: NextRequest) {
     total_written: totalWritten,
     total_errors: totalErrors,
     ...results,
+    campaign_stats: campaignStatsResult,
   })
 
   Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'ok', checkInId })
@@ -140,5 +189,6 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     results,
+    campaign_stats: campaignStatsResult,
   })
 }
