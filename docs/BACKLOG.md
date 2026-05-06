@@ -77,6 +77,22 @@
 
 ## Dashboard / Operator UX gaps
 
+- [DONE 2026-05-06] Pre-c1 cleanup batch — 14 fixes in commit 1b6ae3d
+  Fix 1+2: Sidebar.tsx — removed Campaigns (pre-launch) and Approvals (not built) from client NAV_RESULTS.
+    OperatorSidebar.tsx — removed Campaigns only; Approvals retained for operator.
+  Fix 3: pipeline/page.tsx — removed PipelineApprovalBanner + orphaned suggestionsResult query.
+  Fix 4: IntakeForm.tsx — Done button now navigates to /dashboard.
+  Fix 5: IntakeForm.tsx — removed Wispr Flow product name from dictation nudge.
+  Fix 6: login/?next= — threaded through magic link callback. Open redirect guard (must start with /).
+  Fix 7: StatsRow reply rate — confirmed already wired. No change needed.
+  Fix 8: Operator sidebar ?client= — DEFERRED to Batch 2. Confirmed as view-as-client scoping gap.
+  Fix 9: activity/page.tsx — ADR-021 comment added above agent_runs cross-org query.
+  Fix 10: substitute-calendly.ts → substitute-booking-link.ts (tool-agnostic rename). One import updated.
+  Fix 11: /ADR.md deleted from repo root. /docs/ADR.md is canonical.
+  Fix 12: ADR-021 comment added to all four agent trigger routes (icp, tov, positioning, messaging).
+  Fix 13: OperatorTopbar — "DP" replaced with initials derived from userEmail prop. All 5 pages updated.
+  Fix 14: src/app/dashboard/error.tsx — Next.js error boundary added for dashboard layout.
+
 - [pre-c1] "View as client" scoping gap — operator cannot preview a specific client's experience (2026-05-05)
   **What the current behaviour is:** The "View" button in AllClientsView navigates to
   `/dashboard/operator?client=<id>` which stays on the operator page. The `?client=` param
