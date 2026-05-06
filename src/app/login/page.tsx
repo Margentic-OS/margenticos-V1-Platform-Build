@@ -11,6 +11,7 @@ interface LoginPageProps {
 const ERROR_MESSAGES: Record<string, string> = {
   email_required: 'Please enter your email address.',
   send_failed: 'Something went wrong. Please try again.',
+  rate_limited: 'Too many login attempts. Please try again in an hour.',
   auth_failed: 'The link has expired or is invalid. Please request a new one.',
   missing_code: 'Invalid link. Please request a new one.',
 }
@@ -19,7 +20,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams
   const sent = params.sent === 'true'
   const errorMessage = params.error ? ERROR_MESSAGES[params.error] ?? 'Something went wrong.' : null
-  const next = params.next && params.next.startsWith('/') ? params.next : null
+  const next =
+    params.next &&
+    params.next.startsWith('/dashboard/') &&
+    !params.next.startsWith('/dashboard/operator')
+      ? params.next
+      : null
 
   return (
     <div className="min-h-screen bg-surface-shell flex items-center justify-center px-4">

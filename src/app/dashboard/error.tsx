@@ -5,7 +5,7 @@
 // Design tokens from docs/design.md.
 
 import { useEffect } from 'react'
-import { logger } from '@/lib/logger'
+import * as Sentry from '@sentry/nextjs'
 
 interface ErrorProps {
   error: Error & { digest?: string }
@@ -14,7 +14,7 @@ interface ErrorProps {
 
 export default function DashboardError({ error, reset }: ErrorProps) {
   useEffect(() => {
-    logger.error('Dashboard render error', { message: error.message, digest: error.digest })
+    Sentry.captureException(error)
   }, [error])
 
   return (

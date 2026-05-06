@@ -19,7 +19,11 @@ export async function sendMagicLink(formData: FormData) {
   const supabase = await createClient()
 
   const rawNext = (formData.get('next') as string | null) ?? ''
-  const safeNext = rawNext.startsWith('/') ? rawNext : '/dashboard'
+  // Only allow paths within the client dashboard. Operator routes are excluded —
+  // the operator layout handles role-based access after auth completes.
+  const isValidNext =
+    rawNext.startsWith('/dashboard/') && !rawNext.startsWith('/dashboard/operator')
+  const safeNext = isValidNext ? rawNext : '/dashboard'
 
   const { error } = await supabase.auth.signInWithOtp({
     email,
@@ -29,8 +33,9 @@ export async function sendMagicLink(formData: FormData) {
   })
 
   if (error) {
-    logger.error('Magic link send failed', { email, error: error.message })
-    redirect('/login?error=send_failed')
+    const isRateLimit = error.status === 429
+    logger.error('Magic link send failed', { email, error: error.message, isRateLimit })
+    redirect(isRateLimit ? '/login?error=rate_limited' : '/login?error=send_failed')
   }
 
   redirect('/login?sent=true')
