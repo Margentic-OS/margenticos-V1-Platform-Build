@@ -77,6 +77,24 @@
 
 ## Dashboard / Operator UX gaps
 
+- [DONE 2026-05-06] Pre-c1 cleanup batch 3 — 3 fixes in commit b356208
+  Item 1: organisations.monthly_meetings_target — migration added, MomentumBlock now prop-driven,
+    pipeline page fetches and passes column. DEFAULT 8 preserves current behaviour for existing rows.
+  Item 2: organisations.setup_status — migration added (jsonb, DEFAULT pending/pending),
+    DocumentsActiveState now data-driven from DB. Status values: pending/in_progress/complete.
+  Item 3 (partial): SettingsView "configured directly in Instantly" → "configured in your email sending tool".
+    WarningsRail lines 24/32 violations confirmed dead (strings not in current file — pre-build check).
+  NOTE: migration 20260506_organisations_target_and_setup_status.sql must be applied to Supabase.
+    How: Supabase dashboard → SQL Editor → paste migration → Run.
+    Or via Supabase MCP: mcp__supabase__apply_migration.
+
+- [pre-c1] ADR-001 string fixes deferred — WarningsRail/SettingsView.tsx (2026-05-06)
+  WarningsRail.tsx lines 24/32: the "domain reputation in Instantly" and "email list hygiene in Apollo"
+  strings are not in the current WarningsRail.tsx file at all. Pre-build check confirmed via grep.
+  The audit item referred to a previous version of the file. No fix needed in WarningsRail.
+  When WarningsRail is rebuilt with real warnings data (warnings engine, Phase 2/3), ensure any
+  warning detail strings use tool-agnostic language ("your email tool", "your prospect tool").
+
 - [DONE 2026-05-06] Pre-c1 cleanup batch — 14 fixes in commit 1b6ae3d
   Fix 1+2: Sidebar.tsx — removed Campaigns (pre-launch) and Approvals (not built) from client NAV_RESULTS.
     OperatorSidebar.tsx — removed Campaigns only; Approvals retained for operator.
