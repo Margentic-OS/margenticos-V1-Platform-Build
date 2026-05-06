@@ -9,6 +9,8 @@
 // Dependency: the positioning agent requires an active ICP document.
 // If none exists, the agent throws a clear error explaining what to do first.
 //
+// ADR-021: operator routes are cross-org — any org_id is valid for authenticated operators
+//
 // The agent writes to document_suggestions only.
 // Doug reviews and approves before anything reaches strategy_documents.
 

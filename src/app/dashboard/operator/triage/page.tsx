@@ -28,6 +28,7 @@ export default async function TriagePage() {
         eyebrow="Operator view"
         title="Reply queue"
         subtitle="Replies awaiting your action"
+        userEmail={user.email}
       />
       <WarningsRail />
       <Suspense

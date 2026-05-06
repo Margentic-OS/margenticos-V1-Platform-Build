@@ -20,6 +20,7 @@ export default async function AgentActivityPage() {
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
+  // ADR-021: operator endpoints are cross-org — no organisation_id filter here
   const { data: rows, error } = await supabase
     .from('agent_runs')
     .select('id, agent_name, status, started_at, duration_ms, output_summary, error_message, organisations(name)')
@@ -49,6 +50,7 @@ export default async function AgentActivityPage() {
         eyebrow="Operator view"
         title="Agent activity"
         subtitle="All clients"
+        userEmail={user.email}
       />
       <WarningsRail />
       <AgentActivityView runs={runs} error={!!error} />

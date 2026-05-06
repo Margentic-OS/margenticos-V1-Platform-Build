@@ -19,7 +19,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database, Json } from '@/types/database'
 import { logger } from '@/lib/logger'
-import { substituteCalendly } from './substitute-calendly'
+import { substituteBookingLink } from './substitute-booking-link'
 import { insertSignoff } from './insert-signoff'
 import { sendThreadReply } from '@/lib/integrations/handlers/instantly/reply-actions'
 import { extractFaq } from '@/lib/agents/faq-extraction-agent'
@@ -136,7 +136,7 @@ export async function sendApprovedDraft(
 
   // ── 4. Calendly substitution FIRST ───────────────────────────────────────
 
-  const { body: bodyAfterCalendly, missing: calendlyMissing } = substituteCalendly(
+  const { body: bodyAfterCalendly, missing: calendlyMissing } = substituteBookingLink(
     rawBody,
     org.calendly_url,
   )

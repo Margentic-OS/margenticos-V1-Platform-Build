@@ -11,6 +11,8 @@
 //
 // The agent writes to document_suggestions only.
 // Doug reviews and approves before anything reaches strategy_documents.
+//
+// ADR-021: operator routes are cross-org — any org_id is valid for authenticated operators
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'

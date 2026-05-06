@@ -57,6 +57,7 @@ export default async function OperatorPage() {
         eyebrow="Operator view"
         title="All clients"
         subtitle={`${clients.length} ${clients.length === 1 ? 'client' : 'clients'}`}
+        userEmail={user.email}
       />
       <WarningsRail />
       <AllClientsView clients={clients} />

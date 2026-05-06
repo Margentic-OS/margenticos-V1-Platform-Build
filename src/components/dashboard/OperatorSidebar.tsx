@@ -14,9 +14,9 @@ interface OperatorSidebarProps {
   clients: ClientOrg[]
 }
 
+// TODO: Restore Campaigns at T-10 days pre-launch when campaigns are provisioned
 const NAV_RESULTS = [
   { label: 'Pipeline', href: '/dashboard/pipeline' },
-  { label: 'Campaigns', href: '/dashboard/campaigns' },
   { label: 'Benchmarks', href: '/dashboard/benchmarks' },
   { label: 'Approvals', href: '/dashboard/approvals' },
 ]

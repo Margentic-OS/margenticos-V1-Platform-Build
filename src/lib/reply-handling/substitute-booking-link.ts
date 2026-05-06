@@ -1,11 +1,11 @@
-// src/lib/reply-handling/substitute-calendly.ts
+// src/lib/reply-handling/substitute-booking-link.ts
 //
-// Deterministic Calendly link substitution.
+// Deterministic booking link substitution.
 // Replaces all occurrences of {calendly_link} in the body with the provided URL.
 // Returns a result struct so the caller can distinguish "no placeholder" (not a failure)
 // from "placeholder present but link missing" (send_failed).
 
-export interface SubstituteCalendlyResult {
+export interface SubstituteBookingLinkResult {
   body: string
   missing: boolean     // true when placeholder present but link is null/empty
   substituted: boolean // true when at least one replacement was made
@@ -13,20 +13,20 @@ export interface SubstituteCalendlyResult {
 
 const PLACEHOLDER = '{calendly_link}'
 
-export function substituteCalendly(
+export function substituteBookingLink(
   body: string,
-  calendlyLink: string | null,
-): SubstituteCalendlyResult {
+  bookingLink: string | null,
+): SubstituteBookingLinkResult {
   if (!body.includes(PLACEHOLDER)) {
     // No placeholder — not a failure regardless of whether a link was supplied.
     return { body, missing: false, substituted: false }
   }
 
-  if (!calendlyLink || !calendlyLink.trim()) {
+  if (!bookingLink || !bookingLink.trim()) {
     // Placeholder present but no link — caller must treat as send_failed.
     return { body, missing: true, substituted: false }
   }
 
-  const substituted = body.split(PLACEHOLDER).join(calendlyLink)
+  const substituted = body.split(PLACEHOLDER).join(bookingLink)
   return { body: substituted, missing: false, substituted: true }
 }

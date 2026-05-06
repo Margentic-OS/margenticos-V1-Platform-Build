@@ -4,9 +4,17 @@ interface OperatorTopbarProps {
   eyebrow: string
   title: string
   subtitle?: string
+  userEmail?: string | null
 }
 
-export function OperatorTopbar({ eyebrow, title, subtitle }: OperatorTopbarProps) {
+function getInitials(email: string | null | undefined): string {
+  if (!email) return '?'
+  const local = email.split('@')[0]
+  const parts = local.split(/[._-]/).filter(Boolean)
+  return parts.slice(0, 2).map(p => p[0].toUpperCase()).join('')
+}
+
+export function OperatorTopbar({ eyebrow, title, subtitle, userEmail }: OperatorTopbarProps) {
   return (
     <header className="h-14 bg-surface-content border-b border-border-card flex items-center justify-between px-7 shrink-0 print:hidden">
       <div>
@@ -40,7 +48,7 @@ export function OperatorTopbar({ eyebrow, title, subtitle }: OperatorTopbarProps
 
         {/* Operator avatar */}
         <div className="w-8 h-8 rounded-full bg-[#FEF7E6] border border-[#F0D080] flex items-center justify-center shrink-0">
-          <span className="text-[10px] font-medium text-[#7A4800] tracking-[0.04em]">DP</span>
+          <span className="text-[10px] font-medium text-[#7A4800] tracking-[0.04em]">{getInitials(userEmail)}</span>
         </div>
       </div>
     </header>

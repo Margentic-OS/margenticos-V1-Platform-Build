@@ -63,6 +63,7 @@ export default async function SignalsLogPage() {
         eyebrow="Operator view"
         title="Signals log"
         subtitle="All clients"
+        userEmail={user.email}
       />
       <WarningsRail />
       <SignalsLogView signals={signals} error={!!error} />

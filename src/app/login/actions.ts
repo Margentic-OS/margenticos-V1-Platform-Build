@@ -18,10 +18,13 @@ export async function sendMagicLink(formData: FormData) {
 
   const supabase = await createClient()
 
+  const rawNext = (formData.get('next') as string | null) ?? ''
+  const safeNext = rawNext.startsWith('/') ? rawNext : '/dashboard'
+
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${getAppUrl()}/auth/callback`,
+      emailRedirectTo: `${getAppUrl()}/auth/callback?next=${encodeURIComponent(safeNext)}`,
     },
   })
 

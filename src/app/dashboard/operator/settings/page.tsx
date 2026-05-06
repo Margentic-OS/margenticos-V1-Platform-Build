@@ -28,6 +28,7 @@ export default async function OperatorSettingsPage() {
         eyebrow="Operator view"
         title="Settings"
         subtitle="Per-client configuration"
+        userEmail={user.email}
       />
       <WarningsRail />
       <SettingsView />

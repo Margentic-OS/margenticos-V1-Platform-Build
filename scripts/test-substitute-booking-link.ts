@@ -1,9 +1,9 @@
 /**
- * Unit tests for substituteCalendly.
- * Run: npx tsx scripts/test-substitute-calendly.ts
+ * Unit tests for substituteBookingLink.
+ * Run: npx tsx scripts/test-substitute-booking-link.ts
  */
 
-import { substituteCalendly } from '../src/lib/reply-handling/substitute-calendly'
+import { substituteBookingLink } from '../src/lib/reply-handling/substitute-booking-link'
 
 let passed = 0
 let failed = 0
@@ -25,11 +25,11 @@ function expect(
   }
 }
 
-console.log('\nsubstitute-calendly tests\n')
+console.log('\nsubstitute-booking-link tests\n')
 
 // ── Body with placeholder + valid link → substituted ────────────────────────
 {
-  const result = substituteCalendly('Grab a slot: {calendly_link}', 'https://cal.com/doug/30min')
+  const result = substituteBookingLink('Grab a slot: {calendly_link}', 'https://cal.com/doug/30min')
   expect('placeholder + valid link → substituted', result, {
     body: 'Grab a slot: https://cal.com/doug/30min',
     missing: false,
@@ -39,7 +39,7 @@ console.log('\nsubstitute-calendly tests\n')
 
 // ── Body with placeholder + null link → missing: true ───────────────────────
 {
-  const result = substituteCalendly('Grab a slot: {calendly_link}', null)
+  const result = substituteBookingLink('Grab a slot: {calendly_link}', null)
   expect('placeholder + null link → missing: true', result, {
     body: 'Grab a slot: {calendly_link}',
     missing: true,
@@ -49,7 +49,7 @@ console.log('\nsubstitute-calendly tests\n')
 
 // ── Body with placeholder + empty string link → missing: true ───────────────
 {
-  const result = substituteCalendly('Book here: {calendly_link}', '')
+  const result = substituteBookingLink('Book here: {calendly_link}', '')
   expect('placeholder + empty string → missing: true', result, {
     body: 'Book here: {calendly_link}',
     missing: true,
@@ -59,7 +59,7 @@ console.log('\nsubstitute-calendly tests\n')
 
 // ── Body with placeholder + whitespace-only link → missing: true ─────────────
 {
-  const result = substituteCalendly('Book here: {calendly_link}', '   ')
+  const result = substituteBookingLink('Book here: {calendly_link}', '   ')
   expect('placeholder + whitespace-only → missing: true', result, {
     body: 'Book here: {calendly_link}',
     missing: true,
@@ -69,7 +69,7 @@ console.log('\nsubstitute-calendly tests\n')
 
 // ── Body with multiple placeholders → all substituted ────────────────────────
 {
-  const result = substituteCalendly(
+  const result = substituteBookingLink(
     'Click {calendly_link} or {calendly_link} to book.',
     'https://cal.com/doug/30min',
   )
@@ -82,7 +82,7 @@ console.log('\nsubstitute-calendly tests\n')
 
 // ── Body without placeholder + valid link → unchanged, substituted: false ────
 {
-  const result = substituteCalendly('No link in this body.', 'https://cal.com/doug/30min')
+  const result = substituteBookingLink('No link in this body.', 'https://cal.com/doug/30min')
   expect('no placeholder + valid link → unchanged, not a failure', result, {
     body: 'No link in this body.',
     missing: false,
@@ -92,7 +92,7 @@ console.log('\nsubstitute-calendly tests\n')
 
 // ── Body without placeholder + null link → unchanged, missing: false ─────────
 {
-  const result = substituteCalendly('No link in this body.', null)
+  const result = substituteBookingLink('No link in this body.', null)
   expect('no placeholder + null link → unchanged, NOT a failure', result, {
     body: 'No link in this body.',
     missing: false,

@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
-import { PipelineApprovalBanner } from '@/components/dashboard/pipeline/PipelineApprovalBanner'
 import { MomentumBlock } from '@/components/dashboard/pipeline/MomentumBlock'
 import { MeetingsListCard } from '@/components/dashboard/pipeline/MeetingsListCard'
 import { StrategyPanelCard } from '@/components/dashboard/pipeline/StrategyPanelCard'
@@ -77,7 +76,7 @@ export default async function PipelinePage() {
 
   const { start: monthStart, end: monthEnd } = currentMonthBounds()
 
-  const [meetingsResult, monthCountResult, docsResult, suggestionsResult, campaignMetrics] = await Promise.all([
+  const [meetingsResult, monthCountResult, docsResult, campaignMetrics] = await Promise.all([
     supabase
       .from('meetings')
       .select(`
@@ -100,18 +99,12 @@ export default async function PipelinePage() {
       .select('document_type, version, last_updated_at, generated_at')
       .eq('organisation_id', org.id)
       .in('status', ACTIVE_DOC_STATUSES),
-    supabase
-      .from('document_suggestions')
-      .select('*', { count: 'exact', head: true })
-      .eq('organisation_id', org.id)
-      .eq('status', 'pending'),
     computeCampaignMetrics(org.id, supabase),
   ])
 
   const rawMeetings = meetingsResult.data ?? []
   const meetingsThisMonth = monthCountResult.count ?? 0
   const rawDocs = docsResult.data ?? []
-  const pendingSuggestions = suggestionsResult.count ?? 0
 
   const meetings: MeetingRow[] = rawMeetings.map(m => {
     const p = extractProspect(m.prospects)
@@ -160,7 +153,6 @@ export default async function PipelinePage() {
       />
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 space-y-4 max-w-[1040px]">
-          <PipelineApprovalBanner pendingCount={pendingSuggestions} />
           <MomentumBlock meetingsThisMonth={meetingsThisMonth} launchDate={launchDate} />
           <div className="grid grid-cols-[1fr_300px] gap-4">
             <MeetingsListCard meetings={meetings} launchDate={launchDate} />

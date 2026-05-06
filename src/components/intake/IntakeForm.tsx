@@ -7,6 +7,7 @@
 // See prd/sections/05-intake.md for the full question set and rules.
 
 import { useState, useCallback, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { saveIntakeResponse } from '@/app/intake/actions'
 import type { IntakeFileRecord } from '@/app/intake/actions'
 import FileUploadSection from './FileUploadSection'
@@ -235,6 +236,7 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
   const [shortAnswerKeys, setShortAnswerKeys] = useState<Set<string>>(new Set())
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id)
   const [, startTransition] = useTransition()
+  const router = useRouter()
 
   const criticalAnswered = ALL_QUESTIONS.filter(
     q => q.isCritical && (values[q.fieldKey] ?? '').trim().length > 0
@@ -351,8 +353,7 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
           <p className="text-xs text-text-secondary leading-relaxed mb-3">
             If you can, speak your answers rather than type them — people say 3x more when
             talking than typing, and that extra detail is what makes the difference.
-            We recommend <span className="text-text-primary">Wispr Flow</span> for Mac users:{' '}
-            <span className="text-text-primary">wisprflow.ai</span>
+            We recommend using a dictation tool to make this easier.
           </p>
           <p className="text-xs text-text-secondary">
             Don&apos;t edit yourself. Raw and honest beats neat and vague every time.
@@ -521,6 +522,7 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
                 </button>
               ) : (
                 <button
+                  onClick={() => router.push('/dashboard')}
                   className="px-5 py-2.5 text-xs font-medium text-[#F5F0E8] bg-brand-green rounded-[20px] hover:opacity-90 transition-opacity min-h-[44px] touch-manipulation"
                 >
                   Done

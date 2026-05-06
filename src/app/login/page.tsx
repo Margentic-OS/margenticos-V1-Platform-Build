@@ -5,7 +5,7 @@
 import { sendMagicLink } from './actions'
 
 interface LoginPageProps {
-  searchParams: Promise<{ sent?: string; error?: string }>
+  searchParams: Promise<{ sent?: string; error?: string; next?: string }>
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -19,6 +19,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams
   const sent = params.sent === 'true'
   const errorMessage = params.error ? ERROR_MESSAGES[params.error] ?? 'Something went wrong.' : null
+  const next = params.next && params.next.startsWith('/') ? params.next : null
 
   return (
     <div className="min-h-screen bg-surface-shell flex items-center justify-center px-4">
@@ -62,6 +63,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               )}
 
               <form action={sendMagicLink} className="space-y-3">
+                {next && <input type="hidden" name="next" value={next} />}
                 <input
                   type="email"
                   name="email"
