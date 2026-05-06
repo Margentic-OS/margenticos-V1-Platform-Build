@@ -725,11 +725,13 @@ export type Database = {
           founder_first_name: string | null
           id: string
           meetings_count: number
+          monthly_meetings_target: number
           name: string
           payment_status: string | null
           pipeline_unlock_at: string | null
           pipeline_unlock_manual_override: boolean
           pipeline_unlocked: boolean
+          setup_status: Json
           slug: string
           updated_at: string
         }
@@ -743,11 +745,13 @@ export type Database = {
           founder_first_name?: string | null
           id?: string
           meetings_count?: number
+          monthly_meetings_target?: number
           name: string
           payment_status?: string | null
           pipeline_unlock_at?: string | null
           pipeline_unlock_manual_override?: boolean
           pipeline_unlocked?: boolean
+          setup_status?: Json
           slug: string
           updated_at?: string
         }
@@ -761,11 +765,13 @@ export type Database = {
           founder_first_name?: string | null
           id?: string
           meetings_count?: number
+          monthly_meetings_target?: number
           name?: string
           payment_status?: string | null
           pipeline_unlock_at?: string | null
           pipeline_unlock_manual_override?: boolean
           pipeline_unlocked?: boolean
+          setup_status?: Json
           slug?: string
           updated_at?: string
         }

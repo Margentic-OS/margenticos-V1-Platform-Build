@@ -185,7 +185,7 @@ export function SettingsView() {
         {/* Campaign limits */}
         <Section title="Campaign limits">
           <p className="text-[12px] text-text-secondary leading-relaxed">
-            Sending limits, warmup schedules, and sequence caps are configured directly in Instantly. Contact Doug to adjust any limits for this client.
+            Sending limits, warmup schedules, and sequence caps are configured in your email sending tool. Contact Doug to adjust any limits for this client.
           </p>
         </Section>
 

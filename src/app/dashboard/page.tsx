@@ -99,7 +99,7 @@ export default async function DashboardPage() {
   // Fetch org
   const { data: org } = await supabase
     .from('organisations')
-    .select('id, name, engagement_month, contract_start_date, pipeline_unlocked')
+    .select('id, name, engagement_month, contract_start_date, pipeline_unlocked, setup_status')
     .eq('id', userRow?.organisation_id ?? '')
     .single()
 
@@ -241,6 +241,7 @@ export default async function DashboardPage() {
           documents={activeDocuments}
           engagementMonth={org.engagement_month}
           contractStartDate={org.contract_start_date}
+          setupStatus={org.setup_status as { campaigns: 'pending' | 'in_progress' | 'complete'; linkedin: 'pending' | 'in_progress' | 'complete' }}
         />
       )}
     </>

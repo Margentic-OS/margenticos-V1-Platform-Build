@@ -66,7 +66,7 @@ export default async function PipelinePage() {
 
   const { data: org } = await supabase
     .from('organisations')
-    .select('id, name, engagement_month, contract_start_date, pipeline_unlocked')
+    .select('id, name, engagement_month, contract_start_date, pipeline_unlocked, monthly_meetings_target')
     .eq('id', userRow?.organisation_id ?? '')
     .single()
 
@@ -153,7 +153,7 @@ export default async function PipelinePage() {
       />
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 space-y-4 max-w-[1040px]">
-          <MomentumBlock meetingsThisMonth={meetingsThisMonth} launchDate={launchDate} />
+          <MomentumBlock meetingsThisMonth={meetingsThisMonth} monthlyMeetingsTarget={org.monthly_meetings_target} launchDate={launchDate} />
           <div className="grid grid-cols-[1fr_300px] gap-4">
             <MeetingsListCard meetings={meetings} launchDate={launchDate} />
             <StrategyPanelCard documents={strategyDocs} />

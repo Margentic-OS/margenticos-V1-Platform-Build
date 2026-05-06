@@ -8,11 +8,19 @@ export interface ActiveDocument {
   generatedAt: string
 }
 
+type SetupStepStatus = 'pending' | 'in_progress' | 'complete'
+
+interface SetupStatus {
+  campaigns: SetupStepStatus
+  linkedin: SetupStepStatus
+}
+
 interface DocumentsActiveStateProps {
   orgName: string
   documents: ActiveDocument[]
   engagementMonth: number
   contractStartDate: string | null
+  setupStatus: SetupStatus
 }
 
 
@@ -57,36 +65,42 @@ function warmupProgressPercent(contractStartDate: string | null): number {
   return Math.min(100, Math.max(0, Math.round((elapsed / warmupMs) * 100)))
 }
 
-const SETUP_CARDS = [
-  {
-    key: 'documents',
-    label: 'Strategy documents',
-    statusLabel: 'Ready',
-    done: true,
-    detail: 'ICP, positioning, voice guide, and messaging',
-  },
-  {
-    key: 'campaigns',
-    label: 'Campaign setup',
-    statusLabel: 'In progress',
-    done: false,
-    detail: 'Email sequences and LinkedIn content being configured',
-  },
-  {
-    key: 'linkedin',
-    label: 'LinkedIn content',
-    statusLabel: 'Pending',
-    done: false,
-    detail: 'First posts being drafted for your approval',
-  },
-]
+function statusLabel(status: SetupStepStatus): string {
+  if (status === 'complete') return 'Complete'
+  if (status === 'in_progress') return 'In progress'
+  return 'Pending'
+}
 
 export function DocumentsActiveState({
   orgName: _orgName,
   documents,
   engagementMonth,
   contractStartDate,
+  setupStatus,
 }: DocumentsActiveStateProps) {
+  const setupCards = [
+    {
+      key: 'documents',
+      label: 'Strategy documents',
+      statusLabel: 'Ready',
+      done: true,
+      detail: 'ICP, positioning, voice guide, and messaging',
+    },
+    {
+      key: 'campaigns',
+      label: 'Campaign setup',
+      statusLabel: statusLabel(setupStatus.campaigns),
+      done: setupStatus.campaigns === 'complete',
+      detail: 'Email sequences and LinkedIn content being configured',
+    },
+    {
+      key: 'linkedin',
+      label: 'LinkedIn content',
+      statusLabel: statusLabel(setupStatus.linkedin),
+      done: setupStatus.linkedin === 'complete',
+      detail: 'First posts being drafted for your approval',
+    },
+  ]
   const docMap = new Map(documents.map(d => [d.type, d]))
   const launchDate = estimateLaunchDate(contractStartDate)
   const warmupPct = warmupProgressPercent(contractStartDate)
@@ -135,7 +149,7 @@ export function DocumentsActiveState({
 
             {/* Setup step cards */}
             <div className="space-y-3">
-              {SETUP_CARDS.map((card) => (
+              {setupCards.map((card) => (
                 <div
                   key={card.key}
                   className="bg-surface-card border border-border-card rounded-[10px] p-5 flex items-start gap-4"

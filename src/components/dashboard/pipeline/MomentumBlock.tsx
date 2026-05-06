@@ -1,8 +1,6 @@
-// TODO: move to organisations.monthly_meetings_target when per-client configurability is needed
-const DEFAULT_MONTHLY_MEETINGS_TARGET = 8
-
 interface MomentumBlockProps {
   meetingsThisMonth: number
+  monthlyMeetingsTarget: number
   launchDate: string | null
 }
 
@@ -23,8 +21,8 @@ function getPaceLabelColor(label: string): string {
   return 'text-text-secondary'
 }
 
-export function MomentumBlock({ meetingsThisMonth, launchDate }: MomentumBlockProps) {
-  const target = DEFAULT_MONTHLY_MEETINGS_TARGET
+export function MomentumBlock({ meetingsThisMonth, monthlyMeetingsTarget, launchDate }: MomentumBlockProps) {
+  const target = monthlyMeetingsTarget
   const pct = Math.min(100, Math.round((meetingsThisMonth / target) * 100))
   const hasData = meetingsThisMonth > 0
   const monthName = new Date().toLocaleDateString('en-GB', { month: 'long' })
