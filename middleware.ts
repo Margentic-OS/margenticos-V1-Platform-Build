@@ -43,6 +43,12 @@ export async function middleware(request: NextRequest) {
   // without triggering layout re-renders on every request.
   response.headers.set('x-pathname', request.nextUrl.pathname)
 
+  // Inject the ?client= param so the dashboard layout (a Server Component that
+  // cannot read searchParams directly) can resolve the view-as-client context.
+  // Only the operator role check in resolveViewingOrg determines whether this
+  // value is actually used — injecting it here does not grant any access.
+  response.headers.set('x-view-as-client', request.nextUrl.searchParams.get('client') ?? '')
+
   return response
 }
 

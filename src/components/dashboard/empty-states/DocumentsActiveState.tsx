@@ -21,6 +21,7 @@ interface DocumentsActiveStateProps {
   engagementMonth: number
   contractStartDate: string | null
   setupStatus: SetupStatus
+  clientParam?: string
 }
 
 
@@ -77,6 +78,7 @@ export function DocumentsActiveState({
   engagementMonth,
   contractStartDate,
   setupStatus,
+  clientParam,
 }: DocumentsActiveStateProps) {
   const setupCards = [
     {
@@ -104,6 +106,11 @@ export function DocumentsActiveState({
   const docMap = new Map(documents.map(d => [d.type, d]))
   const launchDate = estimateLaunchDate(contractStartDate)
   const warmupPct = warmupProgressPercent(contractStartDate)
+
+  function docHref(type: DocumentType): string {
+    const base = NAV_DOC_HREFS[type]
+    return clientParam ? `${base}?client=${clientParam}` : base
+  }
 
   return (
     <div className="flex-1 overflow-y-auto bg-surface-content">
@@ -215,7 +222,7 @@ export function DocumentsActiveState({
                   return (
                     <li key={type}>
                       <a
-                        href={NAV_DOC_HREFS[type]}
+                        href={docHref(type)}
                         className="group block"
                       >
                         <div className="flex items-start justify-between gap-2">

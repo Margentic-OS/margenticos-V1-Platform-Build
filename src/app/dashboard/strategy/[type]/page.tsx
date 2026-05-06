@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
+import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { DocumentHeader } from '@/components/dashboard/strategy/DocumentHeader'
 import { MessagingDocumentView } from '@/components/dashboard/strategy/MessagingDocumentView'
@@ -36,8 +37,10 @@ function formatRelativeDate(iso: string): string {
 
 export default async function StrategyDocumentPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ type: string }>
+  searchParams: Promise<{ client?: string }>
 }) {
   const { type } = await params
 
@@ -54,16 +57,15 @@ export default async function StrategyDocumentPage({
 
   if (!user) redirect('/login')
 
-  const { data: userRow } = await supabase
-    .from('users')
-    .select('organisation_id')
-    .eq('id', user.id)
-    .single()
+  // Await searchParams before access — required in Next.js 15 (searchParams is a Promise).
+  const { client: clientParam } = await searchParams
+
+  const { viewingOrgId } = await resolveViewingOrg(user.id, clientParam)
 
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, pipeline_unlocked, engagement_month')
-    .eq('id', userRow?.organisation_id ?? '')
+    .eq('id', viewingOrgId)
     .single()
 
   if (!org) redirect('/dashboard')
