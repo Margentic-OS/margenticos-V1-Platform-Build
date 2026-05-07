@@ -63,6 +63,7 @@ export async function middleware(request: NextRequest) {
   const isOperatorRoute = pathname.startsWith('/dashboard/operator')
 
   if (clientParam && !isOperatorRoute) {
+    request.cookies.set('view-as-client', clientParam)
     response.cookies.set('view-as-client', clientParam, {
       httpOnly: true,
       secure: true,
@@ -70,6 +71,7 @@ export async function middleware(request: NextRequest) {
       path: '/',
     })
   } else if (isOperatorRoute || (pathname.startsWith('/dashboard') && !clientParam)) {
+    request.cookies.delete('view-as-client')
     response.cookies.delete('view-as-client')
   }
 
