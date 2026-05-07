@@ -46,6 +46,11 @@ export default async function DashboardLayout({
   children: React.ReactNode
 }) {
   const headersList = await headers()
+  // DIAGNOSTIC — remove after view-as-client header investigation
+  console.log(
+    '[Layout] x-view-as-client received:', headersList.get('x-view-as-client'),
+    '| x-pathname received:', headersList.get('x-pathname'),
+  )
   const pathname = headersList.get('x-pathname') ?? ''
   const isOperatorRoute = pathname.startsWith('/dashboard/operator')
 

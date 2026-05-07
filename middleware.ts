@@ -53,6 +53,14 @@ export async function middleware(request: NextRequest) {
   // the user — do not move this call or add logic before it.
   await supabase.auth.getUser()
 
+  // DIAGNOSTIC — remove after view-as-client header investigation
+  console.log(
+    '[MW] x-view-as-client injecting:',
+    requestHeaders.get('x-view-as-client'),
+    '| pathname:', request.nextUrl.pathname,
+    '| searchParams:', request.nextUrl.searchParams.toString(),
+  )
+
   return response
 }
 
