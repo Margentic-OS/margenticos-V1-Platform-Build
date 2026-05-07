@@ -9,7 +9,6 @@ export interface StrategyDoc {
 
 interface StrategyPanelCardProps {
   documents: StrategyDoc[]
-  clientParam?: string
 }
 
 const NAV_DOC_HREFS: Record<DocumentType, string> = {
@@ -28,13 +27,8 @@ function formatRelativeDate(iso: string): string {
   return `${Math.floor(days / 7)} weeks ago`
 }
 
-export function StrategyPanelCard({ documents, clientParam }: StrategyPanelCardProps) {
+export function StrategyPanelCard({ documents }: StrategyPanelCardProps) {
   const docMap = new Map(documents.map(d => [d.type, d]))
-
-  function docHref(type: DocumentType): string {
-    const base = NAV_DOC_HREFS[type]
-    return clientParam ? `${base}?client=${clientParam}` : base
-  }
 
   return (
     <div className="bg-surface-card border border-border-card rounded-[10px] p-5">
@@ -55,7 +49,7 @@ export function StrategyPanelCard({ documents, clientParam }: StrategyPanelCardP
 
           return (
             <li key={type}>
-              <a href={docHref(type)} className="group block">
+              <a href={NAV_DOC_HREFS[type]} className="group block">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-[12px] font-medium text-text-primary group-hover:text-brand-green transition-colors">
                     {meta.label}

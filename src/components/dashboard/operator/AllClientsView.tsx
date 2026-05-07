@@ -127,7 +127,7 @@ function ClientRow({ client }: { client: ClientSummary }) {
 
       {/* View action */}
       <a
-        href={`/dashboard?client=${client.id}`}
+        href={`/dashboard/operator?client=${client.id}`}
         className="shrink-0 px-3 py-1.5 bg-[#F0ECE4] border border-border-card rounded-[6px] text-[11px] font-medium text-text-secondary hover:text-text-primary hover:border-[#D8D2C8] transition-colors"
       >
         View

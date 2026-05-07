@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { MomentumBlock } from '@/components/dashboard/pipeline/MomentumBlock'
 import { MeetingsListCard } from '@/components/dashboard/pipeline/MeetingsListCard'
@@ -54,30 +53,25 @@ function extractProspect(raw: unknown): ProspectSnapshot | null {
 const ACTIVE_DOC_STATUSES = ['approved', 'active']
 const VALID_DOC_TYPES: DocumentType[] = ['icp', 'positioning', 'tov', 'messaging']
 
-export default async function PipelinePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ client?: string }>
-}) {
+export default async function PipelinePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Await searchParams before access — required in Next.js 15 (searchParams is a Promise).
-  const { client: clientParam } = await searchParams
-
-  const { viewingOrgId } = await resolveViewingOrg(user.id, clientParam)
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('organisation_id')
+    .eq('id', user.id)
+    .single()
 
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, engagement_month, contract_start_date, pipeline_unlocked, monthly_meetings_target')
-    .eq('id', viewingOrgId)
+    .eq('id', userRow?.organisation_id ?? '')
     .single()
 
   if (!org || !org.pipeline_unlocked) {
-    // Preserve the ?client= param so the operator stays in view-as context
-    // when the viewed client's pipeline is locked.
-    redirect(clientParam ? `/dashboard?client=${clientParam}` : '/dashboard')
+    redirect('/dashboard')
   }
 
   const { start: monthStart, end: monthEnd } = currentMonthBounds()
@@ -162,7 +156,7 @@ export default async function PipelinePage({
           <MomentumBlock meetingsThisMonth={meetingsThisMonth} monthlyMeetingsTarget={org.monthly_meetings_target} launchDate={launchDate} />
           <div className="grid grid-cols-[1fr_300px] gap-4">
             <MeetingsListCard meetings={meetings} launchDate={launchDate} />
-            <StrategyPanelCard documents={strategyDocs} clientParam={clientParam} />
+            <StrategyPanelCard documents={strategyDocs} />
           </div>
           <StatsRow
             qualifiedMeetings={qualifiedMeetings}

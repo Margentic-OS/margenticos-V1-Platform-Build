@@ -111,45 +111,29 @@
   Fix 13: OperatorTopbar — "DP" replaced with initials derived from userEmail prop. All 5 pages updated.
   Fix 14: src/app/dashboard/error.tsx — Next.js error boundary added for dashboard layout.
 
-- [DONE 2026-05-06] "View as client" scoping — implemented ADR-022 (commit 69d05e8)
-  Option A implemented. resolveViewingOrg() in src/lib/dashboard/resolve-viewing-org.ts
-  is the single application-layer security gate. Role check runs before clientParam is
-  used. React cache() for request-scoped deduplication — no module-level state.
-  Layout reads x-view-as-client header (middleware-injected). All 4 client pages accept
-  async searchParams and call resolveViewingOrg(). Sidebar preserves ?client= param
-  through navigation. AllClientsView "View" button now links to /dashboard?client=<id>.
-  StrategyPanelCard and DocumentsActiveState accept clientParam prop for internal links.
-  Pipeline locked redirect preserves ?client= param. Banner shows "Viewing as [Name]".
-  Audit logging of view-as actions deferred to post-c1 (see ADR-022).
-
-- [DONE 2026-05-07] View-as-client bug fix — middleware header injection (commit abbb61b)
-  Root cause: middleware was calling response.headers.set('x-pathname', ...) and
-  response.headers.set('x-view-as-client', ...). In Next.js App Router, response headers
-  from middleware go to the browser only — they are not accessible to server components
-  via headers(). Fix: build requestHeaders = new Headers(request.headers) before creating
-  the Supabase client, inject both values, and pass { request: { headers: requestHeaders } }
-  to both NextResponse.next() calls (initial + inside setAll on cookie refresh).
-  RLS audit during diagnosis: all 8 tables touched by view-as-client already had
-  operators_full_access_* policies. No migration needed for the operator path.
-
-- [DONE 2026-05-07] Three client-facing RLS gaps fixed (migration 20260507_pre_c1_client_rls_gaps.sql, commit d9268d3)
-  Surfaced during view-as-client RLS audit. Three tables had operator-only SELECT policies.
-
-  1. document_suggestions — no client SELECT policy.
-     Clients could not see pending suggestion indicators on their own strategy documents.
-     Fix: CREATE POLICY clients_read_own_document_suggestions SELECT USING (organisation_id = get_my_organisation_id())
-
-  2. prospects — no client SELECT policy.
-     Clients could not resolve prospect names in the pipeline page meetings join.
-     Fix: CREATE POLICY clients_read_own_prospects SELECT USING (organisation_id = get_my_organisation_id())
-
-  3. strategy_documents — existing clients_read_own_active_strategy_docs covered status = 'active' only.
-     Freshly approved documents were invisible to clients until status was promoted to active.
-     Fix: ALTER POLICY extended USING clause to status IN ('active', 'approved').
-
-  Dual-policy pattern (operator ALL + client SELECT) confirmed intact on all three tables.
-  Functional smoke testing of these policies requires a non-operator user account.
-  Deferred until first client onboarding — no real client users exist yet to test against.
+- [pre-c1] "View as client" scoping gap — operator cannot preview a specific client's experience (2026-05-05)
+  **What the current behaviour is:** The "View" button in AllClientsView navigates to
+  `/dashboard/operator?client=<id>` which stays on the operator page. The `?client=` param
+  is only consumed by operator route components. Clicking "Results" or "Strategy" nav links
+  from any operator page navigates to the bare client route (e.g. `/dashboard/pipeline`)
+  with no client scoping — the route then loads data for the operator's own organisation.
+  **What the gap means:** There is no mechanism for the operator to view `/dashboard/pipeline`
+  (or any other client-facing route) scoped to a specific client's data. This makes it
+  impossible to QA or troubleshoot what a specific client sees in their dashboard.
+  **Root cause:** Client-facing routes (layout, dashboard, pipeline, benchmarks, strategy)
+  read `organisation_id` from the authenticated user's `users` row. They do not accept a
+  `?client=` param or any other override mechanism.
+  **Fix approach (to be ADR-tracked):** Two options —
+  A) Add `?client=<orgId>` param support to client-facing layouts: operator reads param
+     and uses that org_id instead of their own. Requires operator role check at every
+     affected layout/page to prevent non-operators from using the param.
+  B) Separate /dashboard/operator/preview/[orgId]/* routes that shadow the client routes
+     but accept an explicit orgId path param. Cleaner isolation, more work.
+  Option A is simpler for v1. Implement before first paying client onboards.
+  **Next action:** Write ADR-022 "Operator view-as-client mechanism" and implement Option A.
+  All five client page layouts (layout.tsx, page.tsx, pipeline, benchmarks, strategy/[type])
+  are already reading `organisation_id` from `users` — the change is to override that with
+  the `?client=` param when role=operator and the param is present.
 
 ---
 

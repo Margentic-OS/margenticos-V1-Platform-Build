@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { BenchmarksView } from '@/components/dashboard/benchmarks/BenchmarksView'
 import { computeCampaignMetrics } from '@/lib/metrics/campaign-metrics'
-import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 
 function getOrgInitials(name: string): string {
   return name
@@ -14,24 +13,21 @@ function getOrgInitials(name: string): string {
     .join('')
 }
 
-export default async function BenchmarksPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ client?: string }>
-}) {
+export default async function BenchmarksPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Await searchParams before access — required in Next.js 15 (searchParams is a Promise).
-  const { client: clientParam } = await searchParams
-
-  const { viewingOrgId } = await resolveViewingOrg(user.id, clientParam)
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('organisation_id')
+    .eq('id', user.id)
+    .single()
 
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, engagement_month')
-    .eq('id', viewingOrgId)
+    .eq('id', userRow?.organisation_id ?? '')
     .single()
 
   if (!org) redirect('/dashboard')

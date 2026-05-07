@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useSearchParams } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 
 export type DashboardState = 'intake_incomplete' | 'strategy_in_review' | 'documents_active'
 
@@ -53,16 +53,6 @@ function getStepStatus(
 
 export function Sidebar({ orgName, pipelineUnlocked, dashboardState }: SidebarProps) {
   const pathname = usePathname()
-  const searchParams = useSearchParams()
-
-  // When the operator is in view-as-client mode, ?client=<id> must be preserved
-  // through all navigation so pages continue to scope data to the viewed client.
-  const clientParam = searchParams.get('client')
-
-  function withClient(href: string): string {
-    if (!clientParam) return href
-    return `${href}?client=${clientParam}`
-  }
 
   function isActive(href: string) {
     return pathname === href || pathname.startsWith(href + '/')
@@ -103,7 +93,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState }: SidebarPr
             return (
               <li key={item.href}>
                 <Link
-                  href={locked ? '#' : withClient(item.href)}
+                  href={locked ? '#' : item.href}
                   aria-disabled={locked}
                   className={[
                     'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
@@ -136,7 +126,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState }: SidebarPr
             return (
               <li key={item.href}>
                 <Link
-                  href={withClient(item.href)}
+                  href={item.href}
                   className={[
                     'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
                     active

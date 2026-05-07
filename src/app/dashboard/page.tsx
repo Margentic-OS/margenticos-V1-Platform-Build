@@ -8,7 +8,6 @@ import type { IntakeSection } from '@/components/dashboard/empty-states/IntakeIn
 import type { DocumentReviewStatus } from '@/components/dashboard/empty-states/StrategyInReviewState'
 import type { ActiveDocument } from '@/components/dashboard/empty-states/DocumentsActiveState'
 import type { DocumentType } from '@/types'
-import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 
 // Maps DB section keys to human-readable labels.
 // Derived from the intake form section field values.
@@ -81,11 +80,7 @@ function buildTopbarProps(
   }
 }
 
-export default async function DashboardPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ client?: string }>
-}) {
+export default async function DashboardPage() {
   const supabase = await createClient()
   const {
     data: { user },
@@ -95,18 +90,17 @@ export default async function DashboardPage({
     redirect('/login')
   }
 
-  // Await searchParams before access — required in Next.js 15 (searchParams is a Promise).
-  const { client: clientParam } = await searchParams
-
-  // resolveViewingOrg is request-scoped via React cache(). The layout calls the
-  // same function with the same args — one DB round-trip serves both.
-  const { viewingOrgId } = await resolveViewingOrg(user.id, clientParam)
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('organisation_id')
+    .eq('id', user.id)
+    .single()
 
   // Fetch org
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, engagement_month, contract_start_date, pipeline_unlocked, setup_status')
-    .eq('id', viewingOrgId)
+    .eq('id', userRow?.organisation_id ?? '')
     .single()
 
   if (!org) {
@@ -248,7 +242,6 @@ export default async function DashboardPage({
           engagementMonth={org.engagement_month}
           contractStartDate={org.contract_start_date}
           setupStatus={org.setup_status as { campaigns: 'pending' | 'in_progress' | 'complete'; linkedin: 'pending' | 'in_progress' | 'complete' }}
-          clientParam={clientParam}
         />
       )}
     </>
