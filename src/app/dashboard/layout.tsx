@@ -73,6 +73,9 @@ export default async function DashboardLayout({
   // round-trip — they must call the same function with the same args.
   const { viewingOrgId, isOperator } = await resolveViewingOrg(user.id, clientParam)
 
+  // DIAGNOSTIC — remove after view-as-client fix confirmed
+  console.log('[DIAG] viewingOrgId:', viewingOrgId, '| isOperator:', isOperator, '| clientParam:', clientParam)
+
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, pipeline_unlocked')
