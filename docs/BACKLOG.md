@@ -122,6 +122,35 @@
   Pipeline locked redirect preserves ?client= param. Banner shows "Viewing as [Name]".
   Audit logging of view-as actions deferred to post-c1 (see ADR-022).
 
+- [DONE 2026-05-07] View-as-client bug fix — middleware header injection (commit abbb61b)
+  Root cause: middleware was calling response.headers.set('x-pathname', ...) and
+  response.headers.set('x-view-as-client', ...). In Next.js App Router, response headers
+  from middleware go to the browser only — they are not accessible to server components
+  via headers(). Fix: build requestHeaders = new Headers(request.headers) before creating
+  the Supabase client, inject both values, and pass { request: { headers: requestHeaders } }
+  to both NextResponse.next() calls (initial + inside setAll on cookie refresh).
+  RLS audit during diagnosis: all 8 tables touched by view-as-client already had
+  operators_full_access_* policies. No migration needed for the operator path.
+
+- [DONE 2026-05-07] Three client-facing RLS gaps fixed (migration 20260507_pre_c1_client_rls_gaps.sql, commit d9268d3)
+  Surfaced during view-as-client RLS audit. Three tables had operator-only SELECT policies.
+
+  1. document_suggestions — no client SELECT policy.
+     Clients could not see pending suggestion indicators on their own strategy documents.
+     Fix: CREATE POLICY clients_read_own_document_suggestions SELECT USING (organisation_id = get_my_organisation_id())
+
+  2. prospects — no client SELECT policy.
+     Clients could not resolve prospect names in the pipeline page meetings join.
+     Fix: CREATE POLICY clients_read_own_prospects SELECT USING (organisation_id = get_my_organisation_id())
+
+  3. strategy_documents — existing clients_read_own_active_strategy_docs covered status = 'active' only.
+     Freshly approved documents were invisible to clients until status was promoted to active.
+     Fix: ALTER POLICY extended USING clause to status IN ('active', 'approved').
+
+  Dual-policy pattern (operator ALL + client SELECT) confirmed intact on all three tables.
+  Functional smoke testing of these policies requires a non-operator user account.
+  Deferred until first client onboarding — no real client users exist yet to test against.
+
 ---
 
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
