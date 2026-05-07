@@ -284,12 +284,15 @@ export async function orchestrateDraft(input: OrchestratorInput): Promise<Orches
     supabase,
   })
 
-  // ── 11. Drafter returned null — treat as log_only (signal will be marked processed) ─
+  // ── 11. Drafter returned null — leave signal unprocessed for retry ───────────
   if (!draftResult) {
-    logger.warn('draft-orchestrator: drafter returned null — no draft row written', {
+    // Throw rather than return log_only — caller's catch leaves signal unprocessed; retries until circuit breaker above writes draft_failed for triage.
+    logger.warn('draft-orchestrator: drafter returned null — signal left unprocessed for retry', {
       signal_id: signal.id,
+      prospect_id: prospectId,
+      organisation_id: signal.organisation_id,
     })
-    return { kind: 'log_only' }
+    throw new Error('draftReply returned null — transient failure, signal retryable')
   }
 
   // ── 12. Write reply_drafts pending row ────────────────────────────────────

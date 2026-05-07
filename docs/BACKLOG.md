@@ -817,14 +817,12 @@ Signal processing agent and warnings engine backend deferred to Phase 2 — see 
   Action: run the full approve flow against a real draft and confirm the reply appears in the
   prospect's inbox via the Instantly sent-mail log.
 
-- [pre-c1] Instantly poller: eaccount not validated before writing signal (2026-05-05)
-  src/lib/integrations/polling/instantly.ts validates that e.id is present before writing
-  a signal, but does NOT validate e.eaccount. A signal written with a missing eaccount will
-  exist in the DB but will fail at send time with "signal raw_data missing id or eaccount
-  (thread context)". The signal is stuck: it cannot be retried and the reply goes unhandled.
-  Fix: add eaccount validation alongside the existing id check (lines ~405-410 in polling/instantly.ts).
-  If eaccount is missing, log a warning and skip writing the signal — same pattern as missing id.
-  Risk: this will surface on the first real Instantly reply; fix before going live.
+- [DONE 2026-05-07] Instantly poller: eaccount not validated before writing signal
+  RESOLVED. eaccount check added immediately after id check in pollInstantlyReplies
+  (src/lib/integrations/polling/instantly.ts lines ~416-428). If eaccount is missing,
+  logs a Sentry warning with email_id, from_email, campaign_id and skips the event.
+  Matches existing id-check pattern exactly (logger.warn + result.errors++ + continue).
+  Commit: see fix(polling) commit from session 2026-05-07.
 
 - [pre-c1] Operator UI hardcoded mock data — wire to real data before first paying client (2026-05-05)
   Three operator UI components contain hardcoded placeholder data:
@@ -1071,14 +1069,14 @@ Revisit once prospect research agent is built and full outbound cycle is working
   duplicate drafts, but the action row insertion is not idempotent across two concurrent
   processes. Post-Group-4: assess whether the 55s/5min margin holds as batch sizes grow.
 
-- [phase2] Drafter null return loses the signal permanently (2026-05-02)
-  When draftReply() returns null, the orchestrator returns log_only and the caller marks
-  the signal as processed. No retry occurs. For transient Anthropic failures (timeout, 529),
-  this means the reply goes unanswered without even a manual_required placeholder.
-  Fix options: (a) write a manual_required placeholder when drafter returns null, or
-  (b) leave signal unprocessed (don't call markSignalProcessed) so it retries next cron.
-  Either requires changing both orchestrateDraft() and the caller's mark-processed logic.
-  Deferred to post-Group-4 when we have live failure data to decide the right policy.
+- [DONE 2026-05-07] Drafter null return loses the signal permanently
+  RESOLVED. orchestrateDraft() now throws instead of returning log_only when draftReply()
+  returns null (src/lib/reply-handling/draft-orchestrator.ts lines ~287-300). The caller's
+  existing try/catch in processOneSignal() handles the throw: logs the error, returns 'error',
+  leaves the signal unprocessed. Next cron run retries. After DRAFT_FAILURE_CIRCUIT_BREAKER
+  (3) failures in 24h, the circuit breaker writes a draft_failed placeholder for operator
+  triage. No schema change needed — agent_runs failure count IS the retry counter.
+  Commit: see fix(reply-handling) commit from session 2026-05-07.
 
 - [phase2] sender_first_name sourced from organisations.founder_first_name (2026-05-02)
   The campaigns table has no sender_first_name field. The orchestrator and drafter use

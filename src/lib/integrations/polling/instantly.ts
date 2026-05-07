@@ -413,6 +413,18 @@ export async function pollInstantlyReplies(
           continue
         }
 
+        const eaccount = e.eaccount as string | undefined
+        if (!eaccount) {
+          // Without eaccount the signal is permanently stuck at dispatch ("raw_data missing id or eaccount").
+          logger.warn('Instantly poll: reply email missing eaccount — skipping to prevent stuck signal', {
+            email_id: emailId,
+            from_email: (e.from_address_email ?? null) as string | null,
+            instantly_campaign_id: (instantlyCampaignId ?? null) as string | null,
+          })
+          result.errors++
+          continue
+        }
+
         let campaignRow: ResolvedCampaign | null = null
         if (instantlyCampaignId) {
           campaignRow = await resolveCampaign(supabase, instantlyCampaignId, campaignCache)
