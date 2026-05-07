@@ -16,7 +16,7 @@ export async function middleware(request: NextRequest) {
   // These are forwarded to server components via headers() — response headers are not.
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('x-pathname', request.nextUrl.pathname)
-  requestHeaders.set('x-view-as-client', new URL(request.url).searchParams.get('client') ?? '')
+  requestHeaders.set('x-view-as-client', new URL(request.url).searchParams.get('client') ?? 'none')
 
   let response = NextResponse.next({
     request: { headers: requestHeaders },
