@@ -2,14 +2,25 @@
 // Without this, supabase.auth.getUser() in Server Components receives stale/null
 // sessions even immediately after a successful login.
 //
-// Also injects x-pathname into request headers so the dashboard layout can detect
-// operator routes without importing next/headers in a way that breaks streaming.
+// Also injects x-pathname and x-view-as-client into the forwarded REQUEST headers
+// so that server components can read them via headers(). Response headers set via
+// response.headers.set() go to the browser only — they are not visible to server
+// components via headers(). The requestHeaders object is passed to both
+// NextResponse.next() calls (initial and inside setAll) to survive cookie refresh.
 
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request })
+  // Build modified request headers before creating the Supabase client.
+  // These are forwarded to server components via headers() — response headers are not.
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set('x-pathname', request.nextUrl.pathname)
+  requestHeaders.set('x-view-as-client', request.nextUrl.searchParams.get('client') ?? '')
+
+  let response = NextResponse.next({
+    request: { headers: requestHeaders },
+  })
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,11 +33,14 @@ export async function middleware(request: NextRequest) {
         setAll(cookiesToSet) {
           // Forward cookies onto both the forwarded request and the response so
           // that updated tokens are visible to Server Components and sent to the
-          // browser in the same round-trip.
+          // browser in the same round-trip. Pass requestHeaders to preserve the
+          // custom headers through the cookie-refresh path.
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           )
-          response = NextResponse.next({ request })
+          response = NextResponse.next({
+            request: { headers: requestHeaders },
+          })
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options)
           )
@@ -38,16 +52,6 @@ export async function middleware(request: NextRequest) {
   // Refresh the session. Must be called before any conditional logic that reads
   // the user — do not move this call or add logic before it.
   await supabase.auth.getUser()
-
-  // Inject the pathname so dashboard/layout.tsx can detect operator routes
-  // without triggering layout re-renders on every request.
-  response.headers.set('x-pathname', request.nextUrl.pathname)
-
-  // Inject the ?client= param so the dashboard layout (a Server Component that
-  // cannot read searchParams directly) can resolve the view-as-client context.
-  // Only the operator role check in resolveViewingOrg determines whether this
-  // value is actually used — injecting it here does not grant any access.
-  response.headers.set('x-view-as-client', request.nextUrl.searchParams.get('client') ?? '')
 
   return response
 }
