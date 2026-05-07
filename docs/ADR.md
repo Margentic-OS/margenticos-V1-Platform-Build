@@ -1470,13 +1470,27 @@ Three approaches were evaluated:
 
 ### Decision
 
-Option A — URL-driven scoping with middleware header injection.
+Hybrid — URL param at entry point, cookie for layout state propagation.
 
-View-as context lives entirely in the URL. No session state is created or modified.
-The operator navigates to `/dashboard?client=<orgId>`. Middleware injects the param
-value as the `x-view-as-client` header. The dashboard layout reads the header and
-resolves the correct org for the Sidebar. Each client-facing page reads
-`searchParams.client` and calls `resolveViewingOrg()` to scope its data queries.
+The operator navigates to `/dashboard?client=<orgId>`. Middleware reads the `?client=`
+param from the URL and writes it to a `view-as-client` session cookie. The dashboard
+layout reads the cookie via `cookies()` and resolves the correct org for the Sidebar.
+Each client-facing page reads `searchParams.client` directly and calls
+`resolveViewingOrg()` to scope its data queries. The cookie is cleared by middleware
+on any navigation to `/dashboard/operator/*` or any `/dashboard/*` route without `?client=`.
+
+### Implementation history
+
+Initially implemented as Option A — pure URL-driven with middleware header injection.
+Middleware set `x-view-as-client` as a request header via `NextResponse.next({ request:
+{ headers: requestHeaders } })`, which is the documented Next.js pattern. After deploy,
+`x-view-as-client` arrived as null in the layout while `x-pathname` (set identically,
+on the same object, on the immediately preceding line) arrived correctly. A control test
+with a third header (`x-test-unique-header`) confirmed: all injected headers except
+`x-pathname` fail to propagate to layout server components in this environment (Next.js
++ Vercel + Supabase SSR middleware). Root cause not identified; multiple sessions of
+investigation did not reproduce a fix. Switched to cookie-based propagation for layout
+state. Page-level scoping via `searchParams` was never affected and continues unchanged.
 
 Security enforcement — two layers, both always active:
 
@@ -1515,11 +1529,13 @@ pattern already in use.
 
 ### Consequences
 
-- `middleware.ts` injects `x-view-as-client` header from the `?client=` search param.
+- `middleware.ts` sets/clears `view-as-client` session cookie from the `?client=` URL
+  param. Cookie is set on non-operator routes with `?client=`; cleared on operator
+  routes or any dashboard route without `?client=` to prevent multi-tab confusion.
 - `src/lib/dashboard/resolve-viewing-org.ts`: new security-critical helper, called by
   the layout and all four client-facing pages. Centralises the role check.
   Must never be bypassed. Must never be given module-level caching.
-- `src/app/dashboard/layout.tsx`: reads `x-view-as-client`, overrides org for the
+- `src/app/dashboard/layout.tsx`: reads `view-as-client` cookie, overrides org for the
   Sidebar when operator + header present. Suspense wrapper added for `Sidebar`
   (required because Sidebar now calls `useSearchParams()`). Amber banner updated to
   display "Viewing as [Client Name]" in view-as mode.

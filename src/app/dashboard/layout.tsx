@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
-import { headers } from 'next/headers'
+import { headers, cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Sidebar } from '@/components/dashboard/Sidebar'
@@ -46,12 +46,7 @@ export default async function DashboardLayout({
   children: React.ReactNode
 }) {
   const headersList = await headers()
-  // DIAGNOSTIC — remove after view-as-client header investigation
-  console.log(
-    '[Layout] x-view-as-client received:', headersList.get('x-view-as-client'),
-    '| x-pathname received:', headersList.get('x-pathname'),
-    '| x-test-unique-header received:', headersList.get('x-test-unique-header'),
-  )
+  const cookieStore = await cookies()
   const pathname = headersList.get('x-pathname') ?? ''
   const isOperatorRoute = pathname.startsWith('/dashboard/operator')
 
@@ -69,10 +64,9 @@ export default async function DashboardLayout({
     redirect('/login')
   }
 
-  // Read the view-as-client param injected by middleware from the URL's ?client=.
-  // This value is safe to read here — the role check inside resolveViewingOrg
-  // determines whether it is ever acted upon.
-  const clientParam = headersList.get('x-view-as-client') || undefined
+  // Read view-as-client from cookie set by middleware. The role check inside
+  // resolveViewingOrg determines whether it is ever acted upon.
+  const clientParam = cookieStore.get('view-as-client')?.value || undefined
 
   // Single call that both resolves the correct org_id AND surfaces the role.
   // cache() ensures the layout and all pages sharing this request share one DB
