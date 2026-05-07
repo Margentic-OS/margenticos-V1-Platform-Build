@@ -1438,3 +1438,49 @@ Client endpoint auth pattern:
 - Cross-org visibility is intentional. An operator must see all client drafts,
   not just drafts from their own user record's organisation.
 
+---
+
+## ADR-022 — Operator view-as-client mechanism
+Date: May 2026 | Status: Deferred — implementation attempted, layout-level propagation unresolvable in current environment
+
+### Context
+
+The operator needs to navigate client-facing dashboard routes (/dashboard,
+/dashboard/pipeline, etc.) scoped to a specific client's data — for QA, sales demos,
+and client support. Page-level scoping via searchParams.client works correctly.
+Layout-level scoping (sidebar VIEWING name, amber banner with client name) could not
+be made to work.
+
+### Decision
+
+Deferred to post-client-zero. See BACKLOG.md for full investigation history.
+
+### Implementation history
+
+Multiple approaches attempted and verified via production diagnostic logs:
+
+  1. Custom request header injection (x-view-as-client in requestHeaders) — arrived as
+     null in layout's headers() call. x-pathname set via identical mechanism worked.
+     Root cause of the asymmetry not identified.
+
+  2. Cookie via response.cookies.set() — not visible to cookies() in layout. Response
+     cookies go to browser; cookies() reads incoming request cookies.
+
+  3. Cookie via request.cookies.set() + response.cookies.set() — same outcome. Intended
+     to sync the in-memory cookie store, but cookies() in layout still returned undefined.
+
+  4. Direct Cookie header mutation in requestHeaders before NextResponse.next() — same
+     outcome. Diagnostic log confirmed clientParam: undefined in layout.
+
+All four approaches were deployed to production and verified via Vercel serverless logs.
+The diagnostic logs showed the layout consistently receiving null/undefined while
+page-level resolution via searchParams worked correctly on every attempt.
+
+### Consequences
+
+- resolve-viewing-org.ts deleted in revert; will need recreating when deferred work resumes.
+- Workaround: log in as test client user in incognito for QA. Use screenshots for demos.
+- Page-level scoping is unaffected — pages correctly scope data via searchParams.client.
+- ADR-003 RLS isolation is unaffected — all three client RLS gap fixes remain in place
+  (d9268d3: strategy_documents, document_suggestions, prospects).
+

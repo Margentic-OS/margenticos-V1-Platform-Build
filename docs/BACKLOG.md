@@ -111,29 +111,43 @@
   Fix 13: OperatorTopbar — "DP" replaced with initials derived from userEmail prop. All 5 pages updated.
   Fix 14: src/app/dashboard/error.tsx — Next.js error boundary added for dashboard layout.
 
-- [pre-c1] "View as client" scoping gap — operator cannot preview a specific client's experience (2026-05-05)
-  **What the current behaviour is:** The "View" button in AllClientsView navigates to
-  `/dashboard/operator?client=<id>` which stays on the operator page. The `?client=` param
-  is only consumed by operator route components. Clicking "Results" or "Strategy" nav links
-  from any operator page navigates to the bare client route (e.g. `/dashboard/pipeline`)
-  with no client scoping — the route then loads data for the operator's own organisation.
-  **What the gap means:** There is no mechanism for the operator to view `/dashboard/pipeline`
-  (or any other client-facing route) scoped to a specific client's data. This makes it
-  impossible to QA or troubleshoot what a specific client sees in their dashboard.
-  **Root cause:** Client-facing routes (layout, dashboard, pipeline, benchmarks, strategy)
-  read `organisation_id` from the authenticated user's `users` row. They do not accept a
-  `?client=` param or any other override mechanism.
-  **Fix approach (to be ADR-tracked):** Two options —
-  A) Add `?client=<orgId>` param support to client-facing layouts: operator reads param
-     and uses that org_id instead of their own. Requires operator role check at every
-     affected layout/page to prevent non-operators from using the param.
-  B) Separate /dashboard/operator/preview/[orgId]/* routes that shadow the client routes
-     but accept an explicit orgId path param. Cleaner isolation, more work.
-  Option A is simpler for v1. Implement before first paying client onboards.
-  **Next action:** Write ADR-022 "Operator view-as-client mechanism" and implement Option A.
-  All five client page layouts (layout.tsx, page.tsx, pipeline, benchmarks, strategy/[type])
-  are already reading `organisation_id` from `users` — the change is to override that with
-  the `?client=` param when role=operator and the param is present.
+## View-as-Client (POST-CLIENT-ZERO)
+
+Page-level scoping works correctly via searchParams.client. Layout-level scoping
+(banner, sidebar VIEWING text) does not work in current Next.js 15/16 + Vercel +
+Supabase SSR environment despite multiple architectural approaches:
+
+- Custom request header injection (x-view-as-client) — header doesn't propagate to
+  layout's headers() call despite x-pathname propagating via the same mechanism.
+  Root cause not identified after multiple debug cycles.
+- Cookie-based propagation — same outcome, layout's cookies().get() returned undefined
+  despite cookie being set on response.
+- Cookie sync (request.cookies.set + response.cookies.set per Supabase SSR pattern) —
+  same outcome.
+- Cookie header injection into requestHeaders before NextResponse.next() — same outcome.
+
+Each approach was diagnostically logged in production and verified via Vercel logs.
+The diagnostic logs consistently showed the layout receiving null/undefined for the
+view-as-client value while page-level resolution via searchParams worked correctly.
+
+Hypothesis at time of deferral: something about how this specific combination of
+Next.js App Router + Vercel Edge Runtime + Supabase SSR auth wrapper interacts that
+we couldn't isolate through standard debugging.
+
+Defer until: first real client onboarding when a non-operator user account exists.
+With a real client user we can:
+- Test the security gate (resolveViewingOrgId role check) with a non-operator user
+- Verify the actual user-facing impact of layout-level scoping not working
+- Potentially isolate the bug by comparing behavior between operator and client requests
+
+Workaround until then: log in as the test client user directly in incognito session
+for QA. For sales call demos, use seeded demo client account in incognito or screenshots.
+
+Files involved (for future investigation):
+- src/app/dashboard/layout.tsx
+- src/lib/dashboard/resolve-viewing-org.ts (deleted in revert — will need recreating)
+- src/middleware.ts
+- src/components/dashboard/Sidebar.tsx
 
 ---
 
