@@ -50,6 +50,7 @@ export default async function DashboardLayout({
   console.log(
     '[Layout] x-view-as-client received:', headersList.get('x-view-as-client'),
     '| x-pathname received:', headersList.get('x-pathname'),
+    '| x-test-unique-header received:', headersList.get('x-test-unique-header'),
   )
   const pathname = headersList.get('x-pathname') ?? ''
   const isOperatorRoute = pathname.startsWith('/dashboard/operator')

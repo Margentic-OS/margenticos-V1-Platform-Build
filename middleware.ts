@@ -17,6 +17,7 @@ export async function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('x-pathname', request.nextUrl.pathname)
   requestHeaders.set('x-view-as-client', new URL(request.url).searchParams.get('client') ?? 'none')
+  requestHeaders.set('x-test-unique-header', 'works')
 
   let response = NextResponse.next({
     request: { headers: requestHeaders },
