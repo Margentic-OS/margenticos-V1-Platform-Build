@@ -716,12 +716,14 @@ export type Database = {
       }
       organisations: {
         Row: {
+          agents_dispatched_at: string | null
           auto_approve_window_hours: number
           calendly_url: string | null
           contract_end_date: string | null
           contract_start_date: string | null
           contract_status: string | null
           created_at: string
+          docs_complete_notification_sent_at: string | null
           engagement_month: number
           founder_first_name: string | null
           id: string
@@ -737,12 +739,14 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          agents_dispatched_at?: string | null
           auto_approve_window_hours?: number
           calendly_url?: string | null
           contract_end_date?: string | null
           contract_start_date?: string | null
           contract_status?: string | null
           created_at?: string
+          docs_complete_notification_sent_at?: string | null
           engagement_month?: number
           founder_first_name?: string | null
           id?: string
@@ -758,12 +762,14 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          agents_dispatched_at?: string | null
           auto_approve_window_hours?: number
           calendly_url?: string | null
           contract_end_date?: string | null
           contract_start_date?: string | null
           contract_status?: string | null
           created_at?: string
+          docs_complete_notification_sent_at?: string | null
           engagement_month?: number
           founder_first_name?: string | null
           id?: string
