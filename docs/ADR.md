@@ -1484,3 +1484,84 @@ page-level resolution via searchParams worked correctly on every attempt.
 - ADR-003 RLS isolation is unaffected — all three client RLS gap fixes remain in place
   (d9268d3: strategy_documents, document_suggestions, prospects).
 
+
+## ADR-023: Onboarding automation — operator-led with intake-completion handoff
+
+**Status:** Accepted (May 2026)
+**Supersedes:** Manual SQL onboarding process (no prior ADR — documented in BACKLOG.md only)
+**Related:** ADR-001 (industry-agnostic), ADR-003 (multi-tenant isolation), ADR-005 (LinkedIn-scraping prohibition; defines research fallback chain), ADR-019 (FAQ compounding), ADR-020 (founder_first_name), ADR-021 (operator/client endpoint scope), ADR-022 (View-as-Client deferred)
+
+### Context
+
+Today, onboarding a new client requires ~6–9 hours of operator work spread across 10 days, executed almost entirely as manual SQL against Supabase. The May 2026 discovery pass (`/docs/discovery/2026-05-12-onboarding-automation.md`) confirmed that no completion-triggered automation exists: intake completion logs a warning and stops; org creation, user invite, agent triggering, and campaign registration are all manual SQL or local CLI scripts.
+
+This is acceptable for client zero (the operator IS the client) but breaks immediately at client one. The build is sequenced pre-Costa Rica so the operator runs themselves through the automated flow as client zero — the inception play.
+
+### Decision
+
+Build operator-led onboarding automation in two prompts, sequenced pre-flight and post-flight. The build is operator-led, not self-serve: the operator initiates every step from an operator UI. Clients never see onboarding controls — they receive a magic link and complete intake.
+
+**In scope:**
+
+1. Operator UI: Create-organisation form (writes `organisations` row, including `founder_first_name`, `monthly_meetings_target`, currency, contract dates; triggers user invite via `supabase.auth.admin.inviteUserByEmail()` with `organisation_id` and intended `role` in user metadata)
+2. Auto-trigger four strategy agents (ICP, TOV, Positioning, Messaging) on intake 80% threshold via a single completion handoff route
+3. Operator notifications via Resend (four templates: intake-complete, all-docs-generated, multi-user-signup-attempt, client welcome with magic link)
+4. Operator UI: Register Instantly campaign (operator pastes Instantly campaign UUID; system validates via `GET /api/v2/campaigns/{id}` against Instantly's live API; on success, inserts `campaigns` row linked to org)
+5. Operator UI: Setup status panel (writes to existing `organisations.setup_status` jsonb column)
+6. Instantly lead upload capability (registry slot `outreach.upload_leads`, handler for composed-sequence → Instantly leads)
+7. Apollo graceful degradation in the research agent (current 403/401 behaviour formalised as a documented failure path; falls through the ADR-005 chain: Apollo → targeted web search → direct website fetch → role-based pain proxy; implementation discovery required to confirm current routing)
+8. Instantly DFY mailbox ordering (registry slot `outreach.order_mailboxes`, two-click operator flow: `simulate: true` quote → operator confirms → `simulate: false` real order; supports `.com` and `.org` TLDs only per Instantly API constraints)
+
+**Out of scope, parked in BACKLOG:**
+
+- Multi-user client UI (per existing BACKLOG entry — defers until non-operator account exists)
+- Operator audit logging (acceptable for c0 with one operator)
+- FAQ seed agent (per existing BACKLOG entry — pre-c1, post-c0)
+- Instantly webhook integration (requires Hypergrowth $97/mo+; polling architecture per existing ADRs is sufficient)
+
+### Key design decisions
+
+**Multi-user signup behaviour.** A new DB trigger on `auth.users` (`AFTER INSERT`) checks whether the incoming user's intended `organisation_id` (from `raw_user_meta_data`) already has a `users` row with `role='client'`. If yes: the trigger inserts a row into a new `users_pending_review` table (email, attempted_org_id, attempted_at) and raises a Postgres exception to abort the auth user creation. The operator receives a Resend notification. This is the documented Supabase pattern for blocking signups via trigger failure. Explicit in the migration — not left to runtime behaviour.
+
+**Campaign registration UX.** Operator-first with validation: operator creates campaign in Instantly's dashboard (judgment-required step — schedule, mailboxes, send limits), then pastes the UUID into the MargenticOS operator UI. The system validates by calling Instantly's `GET /api/v2/campaigns/{id}` at paste time, displays the campaign name for operator confirmation, then writes the row on save. A 404 from Instantly blocks the save with a clear error. This kills the silent-failure mode where a typo in `external_id` causes signal polling to drop events.
+
+**DFY mailbox ordering — simulate-then-confirm.** Mailbox orders are real money (~$73 first month per 4-mailbox order). The operator UI is a two-step flow: button 1 fires `POST /api/v2/dfy-email-account-orders` with `simulate: true` and displays the quote + the `order_is_valid` boolean from the response; button 2 fires the real order with `simulate: false`. No single-click order placement. Pre-warmed-up domain availability is checked first via `/dfy-email-account-orders/domains/pre-warmed-up-list`; if pre-warmed domains are unavailable, fresh DFY order is offered as fallback. TLD support is `.com` and `.org` only — any operator-entered domain outside these is blocked at the UI with a clear error.
+
+**Apollo graceful degradation.** The research agent must function with Apollo inactive (401 no-key, 403 free-tier-blocked, or 5xx network errors all treated as documented failure modes, not unhandled errors). Fall-through proceeds per ADR-005: targeted web search (secondary), then direct company website fetch (tertiary), then role-based pain proxy if no trigger found. The exact current routing — whether Apollo failure already falls through correctly or propagates up — requires implementation discovery before the graceful-fail code is written (sub-pass in Prompt 3).
+
+**Intake completion handoff.** The 80% threshold detection moves from a warning log in `icp-generation-agent.ts` to a single `/api/intake/complete` route that fires all four agents in parallel (they have no inter-dependencies). The operator receives one Resend email when all four complete (or when any fail). Individual agent failures do not block the others.
+
+**Resend transactional fix prerequisite.** The first production caller of `sendTransactionalEmail()` triggers a pre-existing bug: `src/lib/email/send.ts:43` calls `Sentry.captureException()` with no `Sentry.flush()` before serverless return (BACKLOG lessons learned, May 2026). Prompt 2 must add `try { await Sentry.flush(2000) } catch {}` before any production path calls this function for the first time. This is non-optional and must land in the same commit as the first production caller.
+
+**Industry-agnostic per ADR-001.** No consulting-specific or niche-specific language in any form copy, error message, prompt addition, or operator UI string. The create-org form captures `founder_first_name`, but no field named or framed around consulting.
+
+### Build sequencing
+
+Two Claude Code prompts, sequenced pre-flight and post-flight:
+
+- **Prompt 2 (pre-flight):** Operator UI for create-org, intake-completion handoff route + auto-trigger four agents, four Resend templates, `users_pending_review` migration + trigger, Sentry flush fix. ~2–2.5 days.
+- **Prompt 3 (post-flight, Costa Rica):** Register Instantly campaign UI, setup_status panel, Instantly lead upload capability, Instantly DFY mailbox ordering, Apollo graceful degradation. ~3–3.5 days.
+
+Three operational checklists (manual onboarding fallback, daily/weekly monitoring, mid-engagement strategy refresh) are written between Prompt 2 and Prompt 3 — written in chat, not Claude Code — and must exist before any subscription is activated.
+
+Total realistic estimate: 5–6 days build + 0.5 day buffer = 6 days. Subscriptions (Instantly Growth ~$30-47/mo, Apollo Basic $49/mo annual, DFY mailbox orders ~$73 first month) are deliberately deferred to Costa Rica activation; nothing in the build requires an active paid plan, but all integrations should be smoke-tested against real APIs once subscriptions are live.
+
+### Consequences
+
+**Positive:**
+- Per-client operator time drops from 6–9 hours to ~3 hours of judgment work
+- Silent failure #1 (missing `campaigns` row) eliminated at source
+- `founder_first_name` enforcement moves upstream from send-time to org-creation-time
+- Operator-as-client-zero validates the automation against real-world conditions before any paying client touches it
+- Manual onboarding fallback checklist (written between prompts) provides a degradation path if automation breaks during c0
+- Sentry flush bug fixed before any production email is sent (avoids a c0-discovered fire)
+
+**Negative:**
+- Two new Instantly capabilities (DFY mailbox, lead upload) are net-new integration surface — risk of API quirks discovered only during c0 dogfood
+- Operator UI for create-org introduces a form that becomes part of every future client onboard — design carefully, ADR-001 compliance enforced
+- DFY mailbox API spend is real money; simulate-then-confirm is a process safeguard, not a technical one
+- DFY .com/.org TLD constraint will need an alternative path if a future client requires a different TLD — accepted limitation for c0 and c1
+- Apollo graceful degradation expands the surface area of "what happens when X is off" — requires testing both with and without Apollo active during c0
+
+**Risk: scope creep during build.** View-as-Client precedent (ADR-022) — a build of similar size expanded across 4 approaches and was ultimately reverted. Mitigation: each prompt has a defined cut line, edge cases default to `post-c0-polish` tag in BACKLOG rather than inline fixes, and the build pauses at Prompt 2 completion for checklist writing before Prompt 3 begins.
+
