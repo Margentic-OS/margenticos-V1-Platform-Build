@@ -633,6 +633,35 @@ Files involved (for future investigation):
   from src/lib/agents/website-context.ts — injected into prompt after uploaded files.
   Failed fetches (timeout, 403, dead link) are non-fatal — agents proceed without website data.
 
+- [pre-c1] Dangling auth.users cleanup for blocked second invites (2026-05-12)
+  When handle_new_user() catches a unique_violation and writes to users_pending_review, the
+  auth.users row created by the invite is left with no public.users row and no org access.
+  The user has a valid Supabase auth identity but cannot log in to anything useful.
+  Current guidance: manual delete via Supabase Dashboard → Authentication.
+  Required before c1: a daily pg_cron job that sweeps auth.users for rows with no matching
+  public.users row older than 24h and deletes them. This prevents auth bloat and removes
+  the manual cleanup burden. The 24h window avoids racing a legitimate slow invite accept.
+
+- [pre-c1] Recovery mechanism for orphaned agents_dispatched_at (2026-05-12)
+  If /api/intake/complete fires but all 4 agent dispatches fail silently (network error,
+  cold start timeout, NEXT_INTERNAL_SECRET missing in env), agents_dispatched_at is stamped
+  but no agents run. The org is permanently locked out of the auto-dispatch path because the
+  IS NULL guard prevents re-triggering.
+  Required before c1: an operator UI button or protected route that resets agents_dispatched_at
+  to NULL for a given org, so the auto-dispatch can re-fire. The reset must also clear
+  docs_complete_notification_sent_at to allow the completion email to re-send if needed.
+
+- [pre-c1] Operator-as-client onboarding email separation (2026-05-12)
+  Doug's operator email (d.h.p1999@gmail.com) is blocked by the GoTrue pre-invite existence
+  check in actions.ts — if the same email is registered as an operator, the check finds it
+  in auth.users and rejects the invite. Client-zero self-onboarding requires a separate
+  email address.
+  Workaround: use a Gmail +alias (e.g. d.h.p1999+client@gmail.com) for the first client
+  invite. Gmail delivers +alias mail to the same inbox.
+  Permanent fix: multi-user role model where one auth.users row can hold both operator and
+  client roles, OR a separate operator-invite bypass in the pre-invite check. Defer to
+  post-client-zero role model redesign.
+
 ---
 
 ## Pre-launch infrastructure (T-10 days)
@@ -1131,6 +1160,38 @@ Revisit once prospect research agent is built and full outbound cycle is working
   for each allowed value, confirming at least one writer exists. For any allowed value
   with no writer, add a comment explaining why it's forward-compatibility reservation
   rather than an active value. Flagged 2026-05-02.
+
+- [post-c0-polish] Drop orphaned handle_new_auth_user function (2026-05-12)
+  A function named handle_new_auth_user() exists in the DB alongside handle_new_user().
+  handle_new_auth_user was the earlier name; handle_new_user is the current live trigger
+  function (on_auth_user_created). handle_new_auth_user is not attached to any trigger and
+  is dead code. Drop in a future schema-tidy migration:
+    DROP FUNCTION IF EXISTS public.handle_new_auth_user();
+  Verify no trigger references it before dropping: SELECT * FROM pg_trigger WHERE tgfoid = 'public.handle_new_auth_user'::regproc;
+
+- [post-c0-polish] Configure Vercel Preview environment variables (2026-05-12)
+  The audit found that RESEND_FROM_EMAIL and NEXT_PUBLIC_APP_URL are set for Production only,
+  not for Preview. Preview deployments (auto-created on every non-main branch push) will throw
+  on any email send and will link back to the production app URL in emails generated during
+  testing. Add both vars to the Vercel Preview environment scope. Use Preview-appropriate
+  values (e.g. NEXT_PUBLIC_APP_URL pointing to a stable preview URL or localhost, and a
+  Resend test-mode key if available).
+
+- [post-c0-polish] Remove 80% threshold warning log from icp-generation-agent.ts (2026-05-12)
+  icp-generation-agent.ts lines ~85-97 contain a warning log that fires when the critical
+  field completeness score is below 80%. This was a development-time debugging aid and is
+  now noise in production logs. The warning does not block execution; it just clutters Sentry.
+  Remove the check and the logger.warn call in a clean-up pass after client-zero goes live.
+
+- [post-c0-polish] Empty x-internal-secret header logged when NEXT_INTERNAL_SECRET unset (2026-05-12)
+  In agent routes, when NEXT_INTERNAL_SECRET is not set in env, the code does:
+    const secret = process.env.NEXT_INTERNAL_SECRET ?? ''
+  An empty string header is sent and matched against an empty string secret, which would
+  accidentally grant internal-call bypass to any caller that sends an empty header.
+  Fix: if NEXT_INTERNAL_SECRET is falsy, log a warning and require operator session auth
+  regardless — do not treat an empty secret as a match. This is a defence-in-depth fix;
+  the three missing Vercel env vars (including NEXT_INTERNAL_SECRET) must be set before
+  production use regardless.
 
 ---
 
