@@ -6,7 +6,7 @@
 // Fully responsive — tested for iPhone Safari (inputs use 16px to prevent iOS zoom).
 // See prd/sections/05-intake.md for the full question set and rules.
 
-import { useState, useCallback, useTransition } from 'react'
+import { useState, useCallback, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { saveIntakeResponse } from '@/app/intake/actions'
 import type { IntakeFileRecord } from '@/app/intake/actions'
@@ -238,6 +238,28 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
   const [, startTransition] = useTransition()
   const router = useRouter()
 
+  // Track whether /api/intake/complete has been fired this session.
+  // Initialised from server-side data: if the client already crossed the
+  // threshold in a previous session we skip the dispatch immediately.
+  const initialCriticalAnswered = ALL_QUESTIONS.filter(
+    q => q.isCritical && (initialValues[q.fieldKey]?.value ?? '').trim().length > 0
+  ).length
+  const hasDispatchedRef = useRef(initialCriticalAnswered >= THRESHOLD)
+
+  // Fire once when criticalAnswered first reaches THRESHOLD.
+  // The server route has its own idempotency guard (agents_dispatched_at),
+  // so a duplicate call is safe and returns 200 already_dispatched.
+  function checkAndDispatch(currentValues: Record<string, string>) {
+    if (hasDispatchedRef.current) return
+    const count = ALL_QUESTIONS.filter(
+      q => q.isCritical && (currentValues[q.fieldKey] ?? '').trim().length > 0
+    ).length
+    if (count >= THRESHOLD) {
+      hasDispatchedRef.current = true
+      fetch('/api/intake/complete', { method: 'POST' }).catch(() => {})
+    }
+  }
+
   const criticalAnswered = ALL_QUESTIONS.filter(
     q => q.isCritical && (values[q.fieldKey] ?? '').trim().length > 0
   ).length
@@ -295,6 +317,9 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
     if (question.fieldKey === 'company_url') {
       triggerWebsiteFetch(value)
     }
+
+    // values already reflects this field's new value (set synchronously via handleChange)
+    checkAndDispatch(values)
   }, [values, save, triggerWebsiteFetch])
 
   const handleChange = useCallback((fieldKey: string, value: string) => {
@@ -308,14 +333,16 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
 
   // Currency and select fields save immediately on change (no blur needed)
   const handleSelectChange = useCallback((question: Question, value: string) => {
-    setValues(prev => ({ ...prev, [question.fieldKey]: value }))
+    const newValues = { ...values, [question.fieldKey]: value }
+    setValues(newValues)
     setSavedKeys(prev => {
       const next = new Set(prev)
       next.delete(question.fieldKey)
       return next
     })
     save(question, value)
-  }, [save])
+    checkAndDispatch(newValues)
+  }, [save, values])
 
   const sectionComplete = (section: Section) =>
     section.questions
