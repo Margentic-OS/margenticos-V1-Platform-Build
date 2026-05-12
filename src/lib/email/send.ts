@@ -45,6 +45,8 @@ export async function sendTransactionalEmail(params: SendEmailParams): Promise<S
     Sentry.captureException(new Error(`Resend send failed: ${message}`), {
       extra: { to: params.to, subject: params.subject },
     })
+    // Flush before returning — serverless containers freeze on return, dropping buffered events.
+    try { await Sentry.flush(2000) } catch {}
     return { success: false, error: message }
   }
 
