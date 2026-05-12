@@ -1,13 +1,16 @@
 // POST /api/agents/tov
 // Triggers the Tone of Voice generation agent for a given organisation.
 //
-// Three checks before any data is touched:
-//   1. User is authenticated
-//   2. User role is 'operator' — clients cannot trigger document generation
-//   3. organisation_id in the request is a real organisation
+// Auth: operator session OR valid x-internal-secret header.
+// The internal secret allows /api/intake/complete to dispatch this route
+// on behalf of a client user without an operator session.
 //
 // No dependency on ICP or Positioning documents — TOV generation is independent.
 // It works from writing samples (voice_samples) and intake preferences only.
+//
+// Last-agent-finished: after the agent completes (or fails), checks whether
+// all four agent_runs for this org are done. If so, sends the operator email
+// and stamps docs_complete_notification_sent_at atomically.
 //
 // The agent writes to document_suggestions only.
 // Doug reviews and approves before anything reaches strategy_documents.
@@ -15,10 +18,60 @@
 // ADR-021: operator routes are cross-org — any org_id is valid for authenticated operators
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { runTovGenerationAgent } from '@/agents/tov-generation-agent'
 import { logger } from '@/lib/logger'
+import { sendTransactionalEmail } from '@/lib/email/send'
+import { allDocsGeneratedTemplate, allDocsGeneratedSubject } from '@/lib/email/templates/all-docs-generated'
+
+function getAdminClient() {
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+}
+
+const AGENT_NAMES = ['icp-generation', 'positioning-generation', 'tov-generation', 'messaging-generation'] as const
+
+async function notifyIfAllDocsComplete(organisation_id: string): Promise<void> {
+  const adminClient = getAdminClient()
+
+  const { count } = await adminClient
+    .from('agent_runs')
+    .select('id', { count: 'exact', head: true })
+    .eq('client_id', organisation_id)
+    .in('agent_name', AGENT_NAMES)
+    .in('status', ['completed', 'failed'])
+
+  if ((count ?? 0) < 4) return
+
+  const { data: claimed } = await adminClient
+    .from('organisations')
+    .update({ docs_complete_notification_sent_at: new Date().toISOString() })
+    .eq('id', organisation_id)
+    .is('docs_complete_notification_sent_at', null)
+    .select('id, name')
+    .single()
+
+  if (!claimed) return
+
+  const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
+  if (!operatorEmail) {
+    logger.warn('agent route: RESEND_OPERATOR_EMAIL not set — all-docs notification skipped', { organisation_id })
+    return
+  }
+
+  await sendTransactionalEmail({
+    to: operatorEmail,
+    subject: allDocsGeneratedSubject(claimed.name),
+    html: allDocsGeneratedTemplate({ orgName: claimed.name, orgId: organisation_id }),
+  })
+
+  logger.info('agent route: all-docs-generated email sent', { organisation_id })
+}
 
 export async function POST(request: NextRequest) {
   // ── 1. Parse request body ──────────────────────────────────────────────────
@@ -41,7 +94,12 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── 2. Create Supabase client (uses the operator's authenticated session) ──
+  // ── 2. Auth: operator session OR internal secret ───────────────────────────
+  const internalSecret = process.env.NEXT_INTERNAL_SECRET
+  const providedSecret = request.headers.get('x-internal-secret')
+  const isInternalCall = internalSecret && providedSecret === internalSecret
+
+  // ── 3. Create Supabase client ──────────────────────────────────────────────
   const cookieStore = await cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -58,44 +116,46 @@ export async function POST(request: NextRequest) {
     }
   )
 
-  // ── 3. Verify authenticated user ───────────────────────────────────────────
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  let operatorId = 'internal'
 
-  if (authError || !user) {
-    return NextResponse.json(
-      { error: 'Not authenticated.' },
-      { status: 401 }
-    )
+  if (!isInternalCall) {
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Not authenticated.' },
+        { status: 401 }
+      )
+    }
+
+    const { data: userRow, error: userError } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (userError || !userRow) {
+      return NextResponse.json(
+        { error: 'Could not verify user role.' },
+        { status: 403 }
+      )
+    }
+
+    if (userRow.role !== 'operator') {
+      logger.warn(
+        'TOV route: non-operator attempted to trigger agent',
+        { user_id: user.id, role: userRow.role, organisation_id }
+      )
+      return NextResponse.json(
+        { error: 'Only operators can trigger document generation.' },
+        { status: 403 }
+      )
+    }
+
+    operatorId = user.id
   }
 
-  // ── 4. Verify operator role — checked on every request, not just at login ──
-  const { data: userRow, error: userError } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .single()
-
-  if (userError || !userRow) {
-    return NextResponse.json(
-      { error: 'Could not verify user role.' },
-      { status: 403 }
-    )
-  }
-
-  if (userRow.role !== 'operator') {
-    logger.warn(
-      'TOV route: non-operator attempted to trigger agent',
-      { user_id: user.id, role: userRow.role, organisation_id }
-    )
-    return NextResponse.json(
-      { error: 'Only operators can trigger document generation.' },
-      { status: 403 }
-    )
-  }
-
-  // ── 5. Verify the organisation exists ──────────────────────────────────────
-  // Operator-only: direct SELECT from organisations is restricted to operators.
-  // Client-role queries must use client_organisation_view instead.
+  // ── 4. Verify the organisation exists ──────────────────────────────────────
   const { data: org, error: orgError } = await supabase
     .from('organisations')
     .select('id, name')
@@ -109,10 +169,10 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── 6. Run the agent ───────────────────────────────────────────────────────
+  // ── 5. Run the agent ───────────────────────────────────────────────────────
   logger.info(
     'TOV route: starting agent run',
-    { operator_id: user.id, organisation_id, org_name: org.name, is_refresh }
+    { operator_id: operatorId, organisation_id, org_name: org.name, is_refresh }
   )
 
   try {
@@ -121,6 +181,8 @@ export async function POST(request: NextRequest) {
       supabase,
       is_refresh,
     })
+
+    await notifyIfAllDocsComplete(organisation_id)
 
     return NextResponse.json(result, { status: 200 })
 
@@ -131,6 +193,8 @@ export async function POST(request: NextRequest) {
       'TOV route: agent run failed',
       { organisation_id, error: message }
     )
+
+    await notifyIfAllDocsComplete(organisation_id)
 
     return NextResponse.json(
       { error: 'TOV agent failed. Check server logs for details.' },

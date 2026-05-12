@@ -17,6 +17,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { runResearchQueries, formatResearchForPrompt, type ResearchBundle } from '@/lib/agents/tools/webSearch'
 import { fetchWebsiteContext, formatWebsiteContextForPrompt, type WebsitePageContext } from '@/lib/agents/website-context'
 
@@ -83,6 +84,9 @@ export async function runPositioningGenerationAgent(
 
   logger.info('Positioning agent: starting', { organisation_id, is_refresh })
 
+  const agentRun = await startAgentRun({ client_id: organisation_id, agent_name: 'positioning-generation' })
+
+  try {
   // Step 1: Fetch intake responses for this client only.
   // Explicit organisation_id filter + RLS enforces isolation.
   const intake = await fetchIntakeResponses(supabase, organisation_id)
@@ -191,11 +195,19 @@ export async function runPositioningGenerationAgent(
     suggestion_id: suggestionId,
   })
 
+  await agentRun.complete(`suggestion_id: ${suggestionId}`)
+
   return {
     suggestion_id: suggestionId,
     organisation_id,
     document_type: 'positioning',
     status: 'pending',
+  }
+
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await agentRun.fail(message)
+    throw err
   }
 }
 

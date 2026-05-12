@@ -27,6 +27,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { fetchWebsiteContext, formatWebsiteContextForPrompt, type WebsitePageContext } from '@/lib/agents/website-context'
 
 // The model specified in the PRD for document generation agents.
@@ -105,6 +106,9 @@ export async function runTovGenerationAgent(
 
   logger.info('TOV agent: starting', { organisation_id, is_refresh })
 
+  const agentRun = await startAgentRun({ client_id: organisation_id, agent_name: 'tov-generation' })
+
+  try {
   // Step 1: Fetch intake responses for this client only.
   // Explicit organisation_id filter + RLS enforces isolation.
   const intake = await fetchIntakeResponses(supabase, organisation_id)
@@ -226,11 +230,19 @@ export async function runTovGenerationAgent(
     suggestion_id: suggestionId,
   })
 
+  await agentRun.complete(`suggestion_id: ${suggestionId}`)
+
   return {
     suggestion_id: suggestionId,
     organisation_id,
     document_type: 'tov',
     status: 'pending',
+  }
+
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await agentRun.fail(message)
+    throw err
   }
 }
 
