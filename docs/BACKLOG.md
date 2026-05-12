@@ -1185,6 +1185,11 @@ Revisit once prospect research agent is built and full outbound cycle is working
   manual_required with reason='original_outbound_not_captured' is persistently high,
   consider a batch backfill script against Instantly API (feasible, not urgent).
 
+- [DONE 2026-05-12] Group 7 — FAQ curation UI (extraction queue + knowledge base).
+  Commits: 3d2412f (initial ship: RLS migration, 6 API routes, ExtractionCard, FaqRow,
+  FaqCurationView, page.tsx, OperatorSidebar nav entry); 917b95f (fix: POST select
+  expanded to return full FaqListItem — blank card bug on Add FAQ resolved).
+
 - [DONE 2026-05-03] Group 5 — send-on-approval wiring (ADR-020 sign-off, approve/reject endpoints,
   send-approved-draft orchestrator, Sentry alerts). Commits: feat(reply-handling):
   deterministic sign-off and Calendly substitution; feat(reply-handling): send-approved-draft
@@ -1425,13 +1430,12 @@ is integrated. Refactor cost: ~2-4 hours. Decision: fix now or defer to Phase 2.
   Decide: replacement policy, credit policy, or noise-as-overhead.
   Industry norm: replacement or credit for unqualified meetings.
 
-- [phase2] Tune name-detection false positives.
-  Decision made at Group 7 build (2026-05-12): handle at UI layer — ExtractionCard shows
-  an amber warning with the flagged tokens and a note to review before approving. The
-  detection layer (faq/name-detection.ts) continues to flag conservatively; the operator
-  dismisses false positives visually and can edit the FAQ answer after adding to KB.
-  Remaining work: tune detection heuristics to reduce noise (single-letter "I", "AI-*"
-  compound terms) once real extraction data exists to calibrate against.
+- [phase2, Decision 2 resolved 2026-05-12] Tune name-detection false positives.
+  Decision: UI-layer warnings only — detection layer (faq/name-detection.ts) untouched.
+  ExtractionCard shows an amber warning with flagged tokens; operator dismisses false
+  positives visually and can edit after approving. Remaining phase2 work: tune detection
+  heuristics to reduce noise (single-letter "I", "AI-*" compound terms) once real
+  extraction data from client zero exists to calibrate against.
 
 ---
 
