@@ -1512,6 +1512,10 @@ export type Database = {
       }
     }
     Functions: {
+      append_faq_variant: {
+        Args: { p_faq_id: string; p_new_variant: string }
+        Returns: undefined
+      }
       approve_document_suggestion: {
         Args: { p_reviewer_id: string; p_suggestion_id: string }
         Returns: Json

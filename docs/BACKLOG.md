@@ -1332,11 +1332,13 @@ is integrated. Refactor cost: ~2-4 hours. Decision: fix now or defer to Phase 2.
   Decide: replacement policy, credit policy, or noise-as-overhead.
   Industry norm: replacement or credit for unqualified meetings.
 
-- [phase2, trigger: Group 7 curation UI build] Tune name-detection false positives.
-  Current detection flags single-letter capitals ("I"), compound technical terms
-  ("AI-assisted", "AI-written"), and likely other non-name capitalised tokens.
-  At Group 7 build time, decide: filter at detection layer (faq/name-detection.ts)
-  or at UI display layer. Premature to choose now without knowing the curation UI surface.
+- [phase2] Tune name-detection false positives.
+  Decision made at Group 7 build (2026-05-12): handle at UI layer — ExtractionCard shows
+  an amber warning with the flagged tokens and a note to review before approving. The
+  detection layer (faq/name-detection.ts) continues to flag conservatively; the operator
+  dismisses false positives visually and can edit the FAQ answer after adding to KB.
+  Remaining work: tune detection heuristics to reduce noise (single-letter "I", "AI-*"
+  compound terms) once real extraction data exists to calibrate against.
 
 ---
 
