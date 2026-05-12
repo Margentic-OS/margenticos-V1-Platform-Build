@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
       status: 'approved',
       created_by_user_id: user!.id,
     })
-    .select('id, question_canonical, answer, created_at')
+    .select('id, question_canonical, question_variants, answer, status, times_used, last_used_at, created_at, updated_at')
     .single()
 
   if (error) {
