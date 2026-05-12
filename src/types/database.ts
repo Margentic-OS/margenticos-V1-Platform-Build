@@ -1481,6 +1481,45 @@ export type Database = {
           },
         ]
       }
+      users_pending_review: {
+        Row: {
+          attempted_at: string
+          attempted_org_id: string
+          email: string
+          id: string
+          reviewed: boolean
+        }
+        Insert: {
+          attempted_at?: string
+          attempted_org_id: string
+          email: string
+          id?: string
+          reviewed?: boolean
+        }
+        Update: {
+          attempted_at?: string
+          attempted_org_id?: string
+          email?: string
+          id?: string
+          reviewed?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "users_pending_review_attempted_org_id_fkey"
+            columns: ["attempted_org_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "users_pending_review_attempted_org_id_fkey"
+            columns: ["attempted_org_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       client_organisation_view: {
