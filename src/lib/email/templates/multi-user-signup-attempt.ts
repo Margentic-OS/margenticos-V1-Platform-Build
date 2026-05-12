@@ -7,12 +7,14 @@ interface MultiUserSignupAttemptParams {
   attemptedEmail: string
   orgId: string
   orgName: string
+  attemptedAt: string
 }
 
 export function multiUserSignupAttemptTemplate({
   attemptedEmail,
   orgId,
   orgName,
+  attemptedAt,
 }: MultiUserSignupAttemptParams): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.margenticos.com'
   const orgUrl = `${appUrl}/dashboard/operator?client=${orgId}`
@@ -51,15 +53,25 @@ export function multiUserSignupAttemptTemplate({
                   </td>
                 </tr>
                 <tr>
-                  <td style="padding:12px 16px;">
+                  <td style="padding:12px 16px;border-bottom:1px solid #e5e7eb;">
                     <p style="margin:0;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">Organisation</p>
                     <p style="margin:4px 0 0;font-size:14px;color:#1a1a1a;">${orgName}</p>
                   </td>
                 </tr>
+                <tr>
+                  <td style="padding:12px 16px;">
+                    <p style="margin:0;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">Attempted at</p>
+                    <p style="margin:4px 0 0;font-size:14px;color:#1a1a1a;">${attemptedAt}</p>
+                  </td>
+                </tr>
               </table>
-              <p style="margin:0 0 24px;font-size:14px;color:#444;line-height:1.6;">
+              <p style="margin:0 0 8px;font-size:14px;color:#444;line-height:1.6;">
                 If this is a legitimate request (e.g. a team member joining), review it in the operator dashboard.
-                If you do not recognise this email address, no action is needed.
+              </p>
+              <p style="margin:0 0 24px;font-size:14px;color:#444;line-height:1.6;">
+                If you do not recognise this email address: an auth record was created for it but has no
+                associated organisation access. You may manually delete it from Supabase Dashboard
+                → Authentication if desired. (Automated cleanup of orphaned auth records is on the backlog.)
               </p>
               <table cellpadding="0" cellspacing="0">
                 <tr>

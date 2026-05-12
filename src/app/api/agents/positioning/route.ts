@@ -48,6 +48,10 @@ async function notifyIfAllDocsComplete(organisation_id: string): Promise<void> {
 
   if ((count ?? 0) < 4) return
 
+  // Race-safety: the COUNT check is an early-exit optimisation. The true
+  // atomic claim is the UPDATE's WHERE docs_complete_notification_sent_at IS NULL
+  // guard. Two agents finishing simultaneously can both pass the COUNT, but only
+  // one will win the UPDATE — the other receives zero rows and exits early.
   const { data: claimed } = await adminClient
     .from('organisations')
     .update({ docs_complete_notification_sent_at: new Date().toISOString() })

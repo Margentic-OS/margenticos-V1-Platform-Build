@@ -36,6 +36,7 @@ interface WebhookPayload {
     id?: string
     email?: string
     attempted_org_id?: string
+    attempted_at?: string
   }
 }
 
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 })
   }
 
-  const { email, attempted_org_id } = payload.record ?? {}
+  const { email, attempted_org_id, attempted_at } = payload.record ?? {}
 
   if (!email || !attempted_org_id) {
     logger.warn('users-pending-review-notify: payload missing email or attempted_org_id', { payload })
@@ -84,6 +85,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'skipped' })
   }
 
+  const attemptedAtFormatted = attempted_at
+    ? new Date(attempted_at).toLocaleString('en-GB', {
+        day: 'numeric', month: 'long', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short',
+      })
+    : 'Unknown'
+
   await sendTransactionalEmail({
     to: operatorEmail,
     subject: multiUserSignupAttemptSubject(org.name),
@@ -91,6 +99,7 @@ export async function POST(request: NextRequest) {
       attemptedEmail: email,
       orgId: org.id,
       orgName: org.name,
+      attemptedAt: attemptedAtFormatted,
     }),
   })
 

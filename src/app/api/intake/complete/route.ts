@@ -111,16 +111,16 @@ export async function POST(_request: NextRequest) {
       logger.warn('intake-complete: RESEND_OPERATOR_EMAIL not set — notification skipped', { orgId })
     }
 
-    // Dispatch each agent route with a 2-second timeout.
-    // Each fetch creates a new serverless invocation that runs independently.
-    // AbortController timeout just confirms dispatch was received — we don't
-    // wait for the agent to complete.
+    // Dispatch each agent route with an 8-second timeout to accommodate Vercel
+    // cold starts (observed up to ~7s on Hobby tier). Each fetch creates a new
+    // serverless invocation that runs independently. The AbortController timeout
+    // just confirms dispatch was received — we don't wait for the agent to complete.
     const appUrl  = getAppUrl()
     const secret  = process.env.NEXT_INTERNAL_SECRET ?? ''
 
     const dispatchAgent = async (path: string) => {
       const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 2000)
+      const timeout = setTimeout(() => controller.abort(), 8000)
       try {
         await fetch(`${appUrl}${path}`, {
           method: 'POST',
