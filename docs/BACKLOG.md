@@ -970,6 +970,46 @@ Signal processing agent and warnings engine backend deferred to Phase 2 — see 
     - Group 7 (FAQ curation UI) — shipped commit 3d2412f, the review surface this feeds into
     - Messaging agent rigidity (4-email sequence hardcoded) — separate pre-c1 concern
 
+- [pre-c1] Multi-user access per organisation (2026-05-13)
+  Current model: one client user per organisation, enforced by the partial unique
+  index `users_one_client_per_org` and the handle_new_user trigger built in
+  Prompt 2 of the onboarding automation work. Real clients will want to invite
+  team members (co-founder, VA, ops lead) to their dashboard. Building this
+  before c0 was considered and explicitly deferred — multi-user design decisions
+  (roles? admin vs member? invite UX?) should be informed by real client signal,
+  not speculated about now.
+
+  When this is built, remove from Prompt 2:
+    - The partial unique index `users_one_client_per_org`
+    - The exception-raising branch of handle_new_user() (or whatever variant
+      shipped per Gap 2 resolution)
+    - users_pending_review table and its associated webhook + notify route +
+      email template
+    - The pre-invite "does this email already exist in auth.users" check in
+      the create-org server action
+
+  Add: operator UI for "invite additional user to existing org", role column
+  on public.users with appropriate enum, RLS policy review to confirm
+  multi-user-per-org assumptions don't break anywhere.
+
+  Trigger: first paying client requests a second user, OR before client one
+  onboards if commercial signal suggests it's universally expected. Resolve
+  password vs magic-link auth question at the same time.
+
+- [pre-c1] Dangling auth.users cleanup for blocked invites (2026-05-13)
+  The Prompt 2 multi-user-signup trigger allows auth.users creation to succeed
+  but writes no public.users row when a duplicate invite is detected. This leaves
+  a dangling auth.users entry with a valid magic link but no app access.
+  Acceptable for c0 (single operator, manually clean via Supabase dashboard).
+  Before client one onboards, add a daily pg_cron sweep:
+    DELETE FROM auth.users
+    WHERE id NOT IN (SELECT id FROM public.users)
+      AND created_at < now() - INTERVAL '24 hours';
+  Use pg_cron + pg_net pattern (established pattern in this repo — see lessons
+  learned re: Supabase Hobby pg_cron config). The 24-hour buffer prevents
+  sweeping legitimate users who are mid-invite-acceptance flow.
+  Trigger: before client one onboards.
+
 ---
 
 ## Monitor-and-expand (built minimal, needs to grow)
