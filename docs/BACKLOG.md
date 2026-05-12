@@ -877,6 +877,99 @@ Signal processing agent and warnings engine backend deferred to Phase 2 — see 
   Not an ADR-001 violation (the display is meant to show tool names), but it is stale mock data
   that should be wired to real data.
 
+- [pre-c1] FAQ seed agent — generate baseline FAQ library per client at onboarding (2026-05-12)
+  Status: Deferred. Pre-client-one blocker. Not needed for client zero.
+
+  The problem this solves:
+  The FAQ system (ADR-019) grows organically from operator-handled Tier 3 replies. A Tier 3 reply
+  is handled, the extraction agent captures the Q&A, the operator approves it in the curation UI
+  (/dashboard/operator/faqs), the FAQ goes live. Over time, more replies route as Tier 2 drafts
+  instead of forcing Tier 3 manual handling.
+
+  This works for client zero because the operator (Doug) knows his own answers. It breaks for
+  every paying client because of the cold-start problem: day one of campaign sending, the FAQ
+  library is empty, every reply hits Tier 3 manual mode, and the operator personally writes every
+  reply from scratch until extractions accumulate. At scale (10+ clients) this is 30+ Tier 3
+  replies per week just to bootstrap each new client's FAQ library.
+
+  The seed agent solves the cold-start by pre-loading 15–20 FAQ candidates per client at
+  onboarding time, generated from data the system already has, and gated by the existing
+  curation UI review flow.
+
+  What to build:
+  A new agent that runs after intake completion (or as part of the document generation phase,
+  alongside ICP/Positioning/TOV/Messaging). Inputs:
+    - Intake responses (text fields, files, website fetch)
+    - Approved ICP document
+    - Approved Positioning document
+    - Approved TOV document
+    - Approved Messaging document
+
+  The agent generates 15–20 FAQ candidates representing the most likely questions B2B prospects
+  will ask in cold email replies, with answers written in the client's voice (per TOV) and tuned
+  to pivot toward booking a meeting rather than giving direct answers where appropriate (pricing
+  deflects to a call, timelines give a rough range and pivot, etc).
+
+  Candidates write to faq_extractions with status = 'pending' and a new source_type = 'seed_agent'
+  field (vs the existing implicit source from real Tier 3 replies). They appear in the existing
+  FAQ curation queue at /dashboard/operator/faqs for operator review. Operators can approve_new,
+  approve_merge, or reject through the existing queue — no new UI needed.
+
+  Approved seeds land in faqs the same way extraction-based FAQs do. The matcher and drafter
+  consume them identically — no downstream code changes needed.
+
+  Why Path B (AI generation), not Path A (client fills a form):
+  Path A (15 onboarding questions for the client to answer) was rejected:
+    - Adds 15–20 minutes to onboarding, increasing intake friction
+    - Weak client answers contaminate the FAQ library with low-quality content
+    - Some clients will skip questions or give one-line answers that don't capture real intent
+  Path B uses what the system already knows about the client, adds zero client burden, and routes
+  everything through the operator review gate that already exists (ADR-019 pattern).
+
+  Critical design notes for when this is built:
+    - Agent must respect ADR-001 (industry-agnostic) — no hardcoded niche-specific question
+      lists in the prompt. Questions must be derived from client inputs, not from a fixed template.
+    - Answer style defaults to pivot-to-meeting for sensitive topics (pricing, exact timelines,
+      refund policies, specific results/case studies). Direct answers for factual operational
+      questions (do you work with X type of business, do you do email or LinkedIn, etc).
+    - Generate questions a cold email prospect would actually ask, not generic FAQ-page questions.
+      Website FAQs answer "what we do"; cold email replies ask "what makes you different from X" /
+      "what's your pricing" / "what kind of results do you typically see." Different question set.
+    - Add source_type column to faq_extractions to distinguish seed candidates from real extractions.
+      Schema: source_type text DEFAULT 'extraction' CHECK (source_type IN ('extraction', 'seed_agent')).
+      The curation UI can optionally badge seed cards differently, but this is not required for v1.
+    - Tune candidate count down if quality suffers at 20 — 10 high-quality seeds beat 20 mediocre ones.
+
+  Build effort estimate: half a day to a full day.
+    - src/lib/agents/faq-seed-agent.ts (new agent file, existing agent pattern)
+    - /api/agents/faq-seed route (operator-triggered initially; auto-trigger post-messaging-approval later)
+    - Schema migration: add source_type column to faq_extractions
+    - Optional: badge on extraction cards to distinguish seed candidates in the pending queue
+    - Prompt engineering and quality testing — longest part; informed by client zero Tier 3 data
+
+  Decision blockers to resolve at build time:
+    - Auto-trigger (after messaging approval) or operator-triggered manually? Lean auto, but
+      evaluate after client zero whether operator wants a chance to delay.
+    - Should approved seed FAQs visually distinguish from extraction-based FAQs in the KB list?
+      Probably not — once approved, they're identical in function. Distinction only matters in review.
+    - How does the seed agent handle thin intake (minimal text, no files, weak website)? Either
+      generates lower-quality candidates the operator must filter harder, or refuses to run and
+      surfaces a "intake too thin for seed FAQs" warning. Decide based on client zero intake patterns.
+
+  When to build this:
+  After client zero has run end-to-end and produced real Tier 3 replies. Specifically:
+    - Client zero must have handled at least 20–30 real Tier 3 replies first
+    - Real reply patterns should inform the seed agent prompt (what questions actually came up,
+      what good pivot-to-meeting answers look like, what tone hit)
+    - Build during Costa Rica focused work phase, before client one onboards
+  Building before client zero means baking assumptions without evidence. Building after means the
+  prompt is grounded in real outbound reply data, producing a meaningfully better seed library.
+
+  Related:
+    - ADR-019 — FAQ compounding loop (the system this extends)
+    - Group 7 (FAQ curation UI) — shipped commit 3d2412f, the review surface this feeds into
+    - Messaging agent rigidity (4-email sequence hardcoded) — separate pre-c1 concern
+
 ---
 
 ## Monitor-and-expand (built minimal, needs to grow)
