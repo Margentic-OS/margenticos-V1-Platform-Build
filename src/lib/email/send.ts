@@ -17,6 +17,10 @@ function getFromAddress(): string {
   )
 }
 
+function getReplyTo(): string | undefined {
+  return process.env.REPLY_TO_EMAIL || process.env.RESEND_FROM_EMAIL || undefined
+}
+
 interface SendEmailParams {
   to: string
   subject: string
@@ -30,6 +34,7 @@ type SendResult =
 
 export async function sendTransactionalEmail(params: SendEmailParams): Promise<SendResult> {
   const from = getFromAddress()
+  const replyTo = getReplyTo()
 
   const { data, error } = await resendClient.emails.send({
     from,
@@ -37,6 +42,7 @@ export async function sendTransactionalEmail(params: SendEmailParams): Promise<S
     subject: params.subject,
     html: params.html,
     ...(params.text ? { text: params.text } : {}),
+    ...(replyTo ? { reply_to: replyTo } : {}),
   })
 
   if (error || !data) {
