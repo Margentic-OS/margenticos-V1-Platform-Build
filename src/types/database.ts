@@ -718,6 +718,7 @@ export type Database = {
         Row: {
           auto_approve_window_hours: number
           calendly_url: string | null
+          contract_end_date: string | null
           contract_start_date: string | null
           contract_status: string | null
           created_at: string
@@ -738,6 +739,7 @@ export type Database = {
         Insert: {
           auto_approve_window_hours?: number
           calendly_url?: string | null
+          contract_end_date?: string | null
           contract_start_date?: string | null
           contract_status?: string | null
           created_at?: string
@@ -758,6 +760,7 @@ export type Database = {
         Update: {
           auto_approve_window_hours?: number
           calendly_url?: string | null
+          contract_end_date?: string | null
           contract_start_date?: string | null
           contract_status?: string | null
           created_at?: string
@@ -1654,3 +1657,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
