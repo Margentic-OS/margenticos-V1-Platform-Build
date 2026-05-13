@@ -938,6 +938,73 @@ and risk in materially different ways, and need to be formalised architecturally
 
 Decision:
 
+The prospect research agent runs all sources on every prospect regardless of
+sourcing origin or prospect quality. Within the composition layer
+(`compose-sequence.ts`), the sequence is personalised based on two fields set
+by the research agent on the `prospects` table:
+
+  `has_dateable_signal` (boolean) — whether a time-anchored signal was found
+  `signal_relevance`   (text)     — quality grade of the best signal found
+                                    (`use_as_hook`, `mention_only`, `too_weak`,
+                                    `no_signal`)
+
+When `has_dateable_signal = true` AND `signal_relevance = 'use_as_hook'`, the
+Haiku bridge call generates a personalised bridge sentence for Email 1. In all
+other cases the composition falls back to the role-based pain proxy from the
+Messaging Playbook.
+
+This is a single composition path with an optional bridge sentence. There are no
+separate composition templates per prospect tier, no separate sending domain
+pools, and no per-tier sending routing.
+
+Consequences:
+
+`has_dateable_signal` and `signal_relevance` fields on the `prospects` table
+govern composition branching. These are set by the v2 prospect research agent.
+
+The composition layer uses these fields to make one decision: generate a bridge
+sentence (personalised hook) or use the role-based pain proxy from the Messaging
+Playbook. All other composition steps are identical regardless of this branch.
+
+No `sourced_tier` field exists on `prospects`. The Sourcing Orchestrator (which
+would be the natural write source for `sourced_tier`) has not been designed or
+built.
+
+No per-tier sending domain pools exist. Domain routing is handled at the Instantly
+campaign level by the operator — MargenticOS does not programmatically route by
+prospect tier.
+
+No per-tier performance tracking is implemented in the signals pipeline or
+warnings engine.
+
+### Note (May 2026) — Original specification not implemented
+
+The April 2026 specification for this ADR defined a three-tier enrichment and
+sending routing model: full research for Tier 1, Apollo-only for Tier 2, and
+verification-only for Tier 3. It also specified a `sourced_tier` column on
+`prospects`, separate sending domain pools, and per-tier performance tracking in
+the signals pipeline and warnings engine.
+
+None of these behaviours were implemented. The actual build converged on the
+simpler signal-quality-based branching described above. Two factors make the
+original specification premature:
+
+1. The Sourcing Orchestrator (which assigns `sourced_tier` at list-build time)
+   has never been formally scoped or built. Without a write source for
+   `sourced_tier`, the downstream routing cannot exist.
+
+2. Whether tiered routing has commercial value is an empirical question. c0
+   evidence (single composition path across all prospects) is needed before
+   adding the complexity of separate templates, research budgets, and domain
+   pools per tier.
+
+Reconciling the implementation with the full original spec is tracked in
+BACKLOG.md under "[pre-c1] Reconcile ADR-017 with implementation reality".
+
+### Original April 2026 specification (preserved for historical context)
+
+**Original Decision (April 2026):**
+
 Tiered enrichment — three levels, matching the three tiers:
 
   Tier 1 — Full research
@@ -998,7 +1065,7 @@ Per-tier performance tracking:
   rate falls below 40% while Tier 1 is above 70%, a warning surfaces recommending
   Tier 3 pause or criteria review.
 
-Reasoning:
+**Original Reasoning (April 2026):**
 
 On enrichment: Tier 1 prospects are where personalisation genuinely moves reply
 rate from ~3% to ~6–8%. The research spend justifies itself. Tier 3 prospects,
@@ -1017,7 +1084,7 @@ On per-tier quality tracking: without it, a silent Tier 3 quality collapse would
 drag down overall metrics without making the cause visible. With it, the operator
 sees exactly which tier is struggling and can act.
 
-Rejected alternatives:
+**Original Rejected alternatives (April 2026):**
 
 - Single enrichment level across all tiers: rejected because it wastes money on
   Tier 3 prospects where research lift is small, and makes Tier 3 campaigns
@@ -1030,7 +1097,7 @@ Rejected alternatives:
 - Tracking all metrics only as an overall average: rejected because it hides
   tier-level quality issues and prevents targeted warnings.
 
-Consequences:
+**Original Consequences (April 2026):**
 
 A sourced_tier field (text: tier_1 / tier_2 / tier_3) is added to the prospects table.
 Set by the Sourcing Orchestrator at the point of writing qualified prospects.
@@ -1055,7 +1122,7 @@ already returned verified email + firmographic data. The composition handler
 should check what's already present before calling Apollo again. Apollo is only
 called for Tier 2 if data is missing.
 
-Follow-ups (tracked in /docs/BACKLOG.md):
+**Original Follow-ups (April 2026):**
 - Monitor per-tier economics once client zero has ~200 prospects in each tier
 - Revisit Tier 2 enrichment scope if data from sourcing tool proves sufficient
   without an additional Apollo call
