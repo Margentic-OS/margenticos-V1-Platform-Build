@@ -160,11 +160,23 @@ for each prospect. LinkedIn profiles are the obvious source. The question is whe
 to scrape them.
 
 Decision:
-No LinkedIn scraping. The research agent uses:
-1. Apollo enrichment API (primary)
-2. Targeted web search for Google-indexed public content (secondary)
-3. Direct company website fetch (tertiary)
-If no trigger found after three steps, fall back to role-based pain proxy.
+No LinkedIn scraping. The research agent queries all four sources in parallel via a
+single concurrent pass:
+1. Apollo enrichment API — full profile and firmographic data
+2. Targeted web search — Google-indexed public content, posts, news mentions
+3. Direct company website fetch — services page, about page, recent news
+4. Role-based pain proxy — ICP document pain language, used when other sources
+   return no usable trigger
+
+All four sources are queried simultaneously. Each source degrades independently:
+if Apollo returns 403, the agent continues with web search and website results.
+If Apollo and web search both return nothing usable, the pain proxy guarantees a
+trigger is always available for composition.
+
+The synthesis step (Haiku LLM call) receives the combined output from whichever
+sources succeeded and selects the best personalisation trigger. If no dateable
+signal was found across any source, the composition layer uses the role-based
+pain proxy from the Messaging Playbook.
 
 Reasoning:
 LinkedIn actively detects and blocks automated scraping. Their ToS explicitly prohibits it.
@@ -182,7 +194,36 @@ Rejected alternatives:
 Consequences:
 The prospect research agent must never make direct LinkedIn API or scraping calls.
 Google-indexed LinkedIn post content is acceptable as a byproduct of web search.
-Token budget: 3 API calls maximum per prospect (Apollo + web search + website fetch).
+All four sources run in parallel — the latency budget is the slowest source, not
+their sum.
+The pain proxy is the guaranteed floor: no prospect can reach composition without
+a trigger available.
+Each source failure is logged independently. Apollo returning 403 is a documented
+failure mode, not an unhandled error. The remaining sources still run and the
+synthesis step proceeds with whatever data is available.
+
+### Note (May 2026) — Architectural divergence from original sequential design
+
+The original ADR (April 2026) described a sequential fallthrough chain: Apollo →
+web search → website fetch → pain proxy, where the agent stops at the first source
+that yields a usable trigger.
+
+The v2 research agent (`prospect-research-agent-v2.ts`) runs all four sources in
+parallel via `Promise.all()`. This divergence was not a planned ADR update — it
+emerged during implementation and is architecturally superior:
+
+- **Latency:** parallel execution time equals the slowest source, not the sum of
+  all sources. For a 15s Apollo timeout alongside an 8s web search, sequential
+  would take 23s; parallel takes ~15s.
+- **Data richness:** when multiple sources succeed, the synthesis step has more
+  signal to work with and can produce a higher-quality personalisation trigger.
+- **Resilience:** if one source is temporarily down or rate-limited, the others
+  still run. No single source failure can block trigger synthesis.
+
+The original sequential chain is preserved in the Decision section above for
+historical context. The "primary / secondary / tertiary" labels remain as priority
+guidance for the synthesis step (Apollo data is weighted more heavily when
+available), but execution is always parallel.
 
 ---
 
