@@ -1496,6 +1496,29 @@ is integrated. Refactor cost: ~2-4 hours. Decision: fix now or defer to Phase 2.
   the Tier 2 draft to the final sent body and extract the delta as a FAQ update candidate.
   Do not build until the pattern is observed in real production data.
 
+- [pre-c1] Reconcile ADR-017 with implementation reality (2026-05-13)
+  ADR-017 specifies sourced_tier on prospects governing research path,
+  composition template, and sending domain. The column was never added.
+  The actual implementation branches on has_dateable_signal + signal_relevance
+  (compose-sequence.ts:422–424) and only chooses whether to add a bridge
+  sentence — none of the other ADR-017 behaviours exist.
+
+  Two paths to reconcile:
+  (a) Update ADR-017 to reflect actual implementation as the canonical spec
+      (the simpler truth). Done as part of the 13 May 2026 doc update —
+      ADR-017 now reflects reality but preserves the original spec.
+  (b) Build the Sourcing Orchestrator + implement the original ADR-017
+      behaviours properly. This is multi-day work and blocked on the
+      Sourcing Orchestrator design, which has never been formally scoped.
+
+  Decision required before client one IF the tier-based routing has
+  commercial value — i.e., if c0 evidence suggests that differentiating
+  prospect quality at sourcing time would meaningfully improve results.
+
+  Trigger: Sourcing Orchestrator scoping session, OR c0 evidence that
+  current single-path composition is leaving meaningful pipeline on the
+  table.
+
 - [phase2] Signal threshold processing logic (3/5/10 tier evaluation)
 - [phase2] A/B variant generation when 5-signal threshold crossed
 - [phase2] Conflict resolution UI for competing document suggestions
@@ -1690,3 +1713,9 @@ Complete all items before the first paying client goes live:
 - [reminder] CRON_SECRET stored plaintext in cron.job.command — acceptable for this low-impact trigger token; not a pattern for high-value credentials. Use Supabase Vault for those.
 
 - [reminder] Vercel Hobby silently rejects sub-daily cron schedules at build time — all scheduling for sub-daily jobs uses pg_cron. vercel.json crons entry must be empty or daily-only.
+
+- [post-c0-polish] Mutable search paths on append_faq_variant and set_updated_at (2026-05-13)
+  Per RLS verification report 13 May 2026 P1. Cosmetic, no security implication at current
+  exposure level. Add SET search_path TO 'public' to both function definitions to match the
+  pattern already used in approve_document_suggestion. See P1-3 in
+  /docs/discovery/2026-05-13-rls-verification.md.

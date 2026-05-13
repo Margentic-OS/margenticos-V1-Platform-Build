@@ -1673,3 +1673,72 @@ Total realistic estimate: 5–6 days build + 0.5 day buffer = 6 days. Subscripti
 
 **Risk: scope creep during build.** View-as-Client precedent (ADR-022) — a build of similar size expanded across 4 approaches and was ultimately reverted. Mitigation: each prompt has a defined cut line, edge cases default to `post-c0-polish` tag in BACKLOG rather than inline fixes, and the build pauses at Prompt 2 completion for checklist writing before Prompt 3 begins.
 
+
+## ADR-024 — Prompt 3 build split: 3A (pre-subscriptions) and 3B (post-subscriptions)
+
+**Status:** Accepted (May 2026)
+**Related:** ADR-023 (onboarding automation), ADR-001 (tool-agnostic registry), ADR-017 (tiered enrichment — see implementation reality note)
+
+### Context
+
+ADR-023 scoped Prompt 3 as a single build covering: campaign registration UI, setup_status panel, Instantly lead upload, Instantly DFY mailbox ordering, and Apollo graceful degradation. Pre-scoping discovery (`/docs/discovery/2026-05-13-prompt-3-scoping.md`), an ADR spot-check (`/docs/discovery/2026-05-13-adr-spot-check.md`), and a live RLS verification pass (`/docs/discovery/2026-05-13-rls-verification.md`) established that these five items split along a natural dependency boundary:
+
+**Group A — No paid subscription required:**
+- Operator UI: Register Instantly campaign (validation via live API — requires API key only)
+- Operator UI: Setup status panel
+- Registry slots for lead upload and mailbox ordering capabilities
+- Schema additions to `prospects` table (`instantly_lead_id`, `upload_status`, campaign mapping)
+- Security fixes identified during the pre-build audit (P0 and P1 items from RLS verification)
+
+**Group B — Requires active paid plan:**
+- Instantly lead upload handler (POST `/api/v2/leads/add` — requires Instantly Growth ~$47/mo)
+- Instantly DFY mailbox ordering handler (POST `/api/v2/dfy-email-account-orders` — Growth plan + real money)
+- Apollo graceful degradation formalisation (requires Apollo API key for end-to-end testing)
+
+### Decision
+
+Split Prompt 3 into two sequenced prompts:
+
+**Prompt 3A (pre-subscriptions):**
+1. Campaign registration UI — operator pastes Instantly campaign UUID, system validates via `GET /api/v2/campaigns/{id}`, writes `campaigns` row on confirmation
+2. Setup status panel — operator UI reads/writes `organisations.setup_status` jsonb column
+3. Registry slots — `can_upload_leads` and `can_order_mailboxes` capability rows using the existing `can_<verb>_<noun>` convention
+4. `validateInstantlyCampaign()` handler in `src/lib/integrations/handlers/instantly/`
+5. `prospects` schema additions: `instantly_lead_id text NULLABLE`, `upload_status text NULLABLE`, campaign FK resolution for the lead upload data model
+6. Shared `getInstantlyApiKey()` helper extracted from inline cron code and reused across all new Instantly handlers
+7. Fix `signals_signal_type_check` constraint to include `reply_received` and any new signal types — a pre-existing blocker in the signal pipeline
+8. P0 security fixes: REVOKE EXECUTE on `approve_document_suggestion` and `append_faq_variant` — SQL ready in `/docs/discovery/2026-05-13-rls-verification.md`
+9. Security hygiene fixes (P1 items from RLS verification): explicit policies on `integration_credentials`, REVOKE EXECUTE on three exposed trigger functions (`handle_new_auth_user`, `handle_new_user`, `rls_auto_enable`)
+
+**Prompt 3B (post-subscriptions, Costa Rica activation window):**
+1. Lead upload capability — `uploadLeads()` handler, operator UI trigger, upload tracking via `upload_status`
+2. DFY mailbox ordering — `orderMailboxes()` handler with simulate:true → confirm → simulate:false two-step flow
+3. Apollo graceful degradation formalisation — explicit 401/403/5xx distinction in `apollo.ts`, documented failure modes per ADR-005 update
+4. Smoke tests against live APIs (both Group A and Group B flows with active subscriptions)
+
+### Prerequisites before Prompt 3A starts
+
+1. Open Questions 3 and 4 from the scoping report resolved (campaign mapping model and `instantly_lead_id` placement) — answered by including the schema additions in Prompt 3A scope rather than leaving them unresolved.
+2. BACKLOG entry [pre-c1] Reconcile ADR-017 with implementation reality — blocked on Sourcing Orchestrator existing, see BACKLOG.md for details.
+3. Two P0 security fixes (REVOKE EXECUTE on `approve_document_suggestion` and `append_faq_variant`) bundled into Prompt 3A's first migration. SQL ready in `/docs/discovery/2026-05-13-rls-verification.md`.
+
+### Reasoning
+
+**Subscription timing.** The DFY mailbox endpoint and lead upload API both require Instantly Growth plan. Per ADR-023, subscriptions are deferred to Costa Rica activation. Building and reviewing Group A before subscription activation means schema and handlers are reviewed before real-money API surface is touched.
+
+**Real-money risk.** DFY ordering involves real spend (~$73 first month per 4-mailbox order). Separating it into Prompt 3B means the simulate:true → confirm flow is reviewed in full before the Growth plan is activated. Accidental orders are not possible before Prompt 3B begins.
+
+**Data model completeness.** The `prospects` table was missing `instantly_lead_id`, `upload_status`, and the campaign mapping model was undefined before the scoping pass. Prompt 3A resolves this: when Prompt 3B starts, the data model it writes into already exists with correct schema and RLS policies in place.
+
+**Security sequencing.** The RLS verification pass found two P0 vulnerabilities (`approve_document_suggestion` and `append_faq_variant` callable by unauthenticated users). These must be fixed before any new client-touching surface is added. Bundling them into Prompt 3A's first migration is the correct sequencing — they fix existing gaps, not new ones.
+
+### Consequences
+
+Prompt 3A delivers: working campaign registration flow, setup visibility for the operator, correct schema for lead management, and security hygiene. No new paid API surface is introduced.
+
+Prompt 3B delivers: the outreach pipeline activation — leads uploaded, mailboxes ordered, research agent formally resilient to Apollo being off.
+
+The split adds a natural breakpoint for operational review between the two prompts — the same pattern as the Prompt 2 → checklist writing → Prompt 3 split in ADR-023.
+
+Prompt 3B scope is deliberately narrow. The codebase state is well-mapped from two discovery passes completed before Prompt 3A; no additional re-discovery is needed before Prompt 3B begins.
+
