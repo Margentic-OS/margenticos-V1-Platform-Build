@@ -1702,18 +1702,23 @@ Split Prompt 3 into two sequenced prompts:
 **Prompt 3A (pre-subscriptions):**
 1. Campaign registration UI — operator pastes Instantly campaign UUID, system validates via `GET /api/v2/campaigns/{id}`, writes `campaigns` row on confirmation
 2. Setup status panel — operator UI reads/writes `organisations.setup_status` jsonb column
-3. Registry slots — `can_upload_leads` and `can_order_mailboxes` capability rows using the existing `can_<verb>_<noun>` convention
+3. Registry slots — `can_upload_leads` and `can_order_mailboxes` capability rows using the existing `can_<verb>_<noun>` Boolean flag convention. ADR-023's dotted-namespace specification was an error: per discovery, the registry is config-only (no runtime dispatcher), so introducing a parallel naming convention would only add confusion. The registry can evolve into a runtime layer later if a real dispatcher is built.
 4. `validateInstantlyCampaign()` handler in `src/lib/integrations/handlers/instantly/`
-5. `prospects` schema additions: `instantly_lead_id text NULLABLE`, `upload_status text NULLABLE`, campaign FK resolution for the lead upload data model
+5. `prospects` schema additions, using `outbound_` prefix instead of `instantly_` to keep the schema migration-friendly if a different cold-email platform replaces Instantly (ADR-001 tool-agnostic compliance): `outbound_lead_id` (text, nullable) — platform-specific lead ID after upload; `outbound_upload_status` (text with CHECK constraint, default `'pending'`) — values: `pending`, `uploading`, `uploaded`, `failed`; `outbound_upload_attempted_at` (timestamptz, nullable); `outbound_upload_error` (text, nullable); `campaign_id` (uuid, nullable, FK to `campaigns`) — set at sourcing time per OQ3 resolution
 6. Shared `getInstantlyApiKey()` helper extracted from inline cron code and reused across all new Instantly handlers
 7. Fix `signals_signal_type_check` constraint to include `reply_received` and any new signal types — a pre-existing blocker in the signal pipeline
 8. P0 security fixes: REVOKE EXECUTE on `approve_document_suggestion` and `append_faq_variant` — SQL ready in `/docs/discovery/2026-05-13-rls-verification.md`
 9. Security hygiene fixes (P1 items from RLS verification): explicit policies on `integration_credentials`, REVOKE EXECUTE on three exposed trigger functions (`handle_new_auth_user`, `handle_new_user`, `rls_auto_enable`)
 
+### Key design decision: operator detail page at `/dashboard/operator/clients/[id]`
+
+The setup_status panel and campaign registration form have no natural home in the current operator UI without creating a per-client detail page. Prompt 3A creates `/dashboard/operator/clients/[id]` as the per-client home. This adds ~1 day to Prompt 3A scope vs implementing both as inline modals on the main operator page. The trade-off is paid back many times by Prompt 3B+ work: lead upload UI, mailbox ordering UI, future operator actions all need a per-client home. Inline panels create UI debt that forces a refactor at Prompt 3B.
+
 **Prompt 3B (post-subscriptions, Costa Rica activation window):**
 1. Lead upload capability — `uploadLeads()` handler, operator UI trigger, upload tracking via `upload_status`
 2. DFY mailbox ordering — `orderMailboxes()` handler with simulate:true → confirm → simulate:false two-step flow
-3. Apollo graceful degradation formalisation — explicit 401/403/5xx distinction in `apollo.ts`, documented failure modes per ADR-005 update
+   - DFY TLD allow-list implemented as a documented constant `INSTANTLY_DFY_ALLOWED_TLDS = ['.com', '.org']` at the top of the relevant file, with code comment linking to Instantly's docs. Single source of truth, easy to extend if Instantly adds TLDs. Dynamic derivation rejected: adds an API call per form load for a list that changes ~never.
+3. Apollo graceful degradation formalisation — Doug going to Apollo Basic for c0 in Costa Rica narrows the original scope. The "free tier returns 403 for everything" state will not be the production reality. Prompt 3B's Apollo work is defensive coding for rate limits (429 with Retry-After handling), transient outages (5xx with backoff), and credential issues (401 alerting). Does NOT rebuild the parallel fallthrough chain — it works per ADR-005 update.
 4. Smoke tests against live APIs (both Group A and Group B flows with active subscriptions)
 
 ### Prerequisites before Prompt 3A starts
@@ -1721,6 +1726,8 @@ Split Prompt 3 into two sequenced prompts:
 1. Open Questions 3 and 4 from the scoping report resolved (campaign mapping model and `instantly_lead_id` placement) — answered by including the schema additions in Prompt 3A scope rather than leaving them unresolved.
 2. BACKLOG entry [pre-c1] Reconcile ADR-017 with implementation reality — blocked on Sourcing Orchestrator existing, see BACKLOG.md for details.
 3. Two P0 security fixes (REVOKE EXECUTE on `approve_document_suggestion` and `append_faq_variant`) bundled into Prompt 3A's first migration. SQL ready in `/docs/discovery/2026-05-13-rls-verification.md`.
+4. Set six env vars in Vercel Preview environment (currently Production-only): `RESEND_FROM_EMAIL`, `NEXT_PUBLIC_APP_URL`, `REPLY_TO_EMAIL`, `RESEND_OPERATOR_EMAIL`, `NEXT_INTERNAL_SECRET`, `SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET`. Without these, every Prompt 3A deploy-to-Preview branch will either silently fail email sends or link back to production URLs. ~10 minutes via Vercel CLI.
+5. Confirm the Supabase Database Webhook for `users_pending_review` is active (configured manually in Prompt 2). 30 seconds in Supabase Dashboard → Integrations → Webhooks. Verify the webhook is enabled and pointing to the correct route.
 
 ### Reasoning
 
@@ -1728,7 +1735,7 @@ Split Prompt 3 into two sequenced prompts:
 
 **Real-money risk.** DFY ordering involves real spend (~$73 first month per 4-mailbox order). Separating it into Prompt 3B means the simulate:true → confirm flow is reviewed in full before the Growth plan is activated. Accidental orders are not possible before Prompt 3B begins.
 
-**Data model completeness.** The `prospects` table was missing `instantly_lead_id`, `upload_status`, and the campaign mapping model was undefined before the scoping pass. Prompt 3A resolves this: when Prompt 3B starts, the data model it writes into already exists with correct schema and RLS policies in place.
+**Data model completeness.** The `prospects` table was missing `outbound_lead_id`, `outbound_upload_status`, and the campaign mapping model was undefined before the scoping pass. Prompt 3A resolves this: when Prompt 3B starts, the data model it writes into already exists with correct schema and RLS policies in place.
 
 **Security sequencing.** The RLS verification pass found two P0 vulnerabilities (`approve_document_suggestion` and `append_faq_variant` callable by unauthenticated users). These must be fixed before any new client-touching surface is added. Bundling them into Prompt 3A's first migration is the correct sequencing — they fix existing gaps, not new ones.
 
