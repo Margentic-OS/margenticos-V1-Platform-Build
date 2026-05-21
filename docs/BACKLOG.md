@@ -1241,14 +1241,11 @@ Revisit once prospect research agent is built and full outbound cycle is working
 
 ## Group 4 (Reply Routing + Orchestrator) deferred items (2026-05-02)
 
-- [monitor] signals_signal_type_check constraint does not include 'reply_received' (2026-05-02)
-  The signals table check constraint only allows the original Phase 1 signal types.
-  The polling code in instantly.ts inserts signals with signal_type = 'reply_received', which
-  violates the constraint. This means all reply signal inserts currently fail silently.
-  Fix: run a migration adding 'reply_received' (and 'email_bounced', 'lead_unsubscribed' if not
-  already there) to the signals_signal_type_check constraint.
-  Impact: blocking — no reply signals will be written until fixed.
-  Priority: next session before Group 4 can be tested end-to-end.
+- [DONE 2026-05-02] signals_signal_type_check constraint does not include 'reply_received'
+  RESOLVED. Migration 20260502163646_signals_signal_type_constraint applied 2026-05-02.
+  Constraint now includes reply_received, email_bounced, lead_unsubscribed, and 10 anticipated
+  types. Verified live DB 2026-05-21 as part of Prompt 3A pre-build check. Sentry alerting
+  on signal write failures also added in Prompt 3A Commit 3 (writeSignal in polling/instantly.ts).
 
 - [monitor] DRAFT_FAILURE_CIRCUIT_BREAKER threshold may need tuning (2026-05-02)
   Currently set to 3 failures in 24h. At client-zero volume (20–30 replies/week) this
@@ -1719,3 +1716,20 @@ Complete all items before the first paying client goes live:
   exposure level. Add SET search_path TO 'public' to both function definitions to match the
   pattern already used in approve_document_suggestion. See P1-3 in
   /docs/discovery/2026-05-13-rls-verification.md.
+
+- [post-c0-polish] integrations_registry api_handler_ref paths wrong in all 7 existing rows (2026-05-21)
+  All seed rows in supabase/migrations/20260420_seed_integrations_registry.sql point to
+  src/lib/handlers/<tool> but actual handler files live at src/lib/integrations/handlers/<tool>/.
+  The api_handler_ref column is not resolved at runtime (registry is config-only — no dispatcher),
+  so this causes no functional breakage. Fix before building a runtime dispatcher: update all
+  7 rows to the correct paths. New rows added in Prompt 3A (can_upload_leads, can_order_mailboxes)
+  use the correct src/lib/integrations/handlers/ path.
+
+- [post-c0-polish] Operator nav-context drop on intra-page navigation (2026-05-21)
+  When an operator navigates between sidebar links while viewing a client via
+  /dashboard/operator/clients/[id], any ?client= query param (or equivalent context state)
+  is dropped, causing pages to load the operator's own org data instead of the viewed client's.
+  Severity: cosmetic/functional — not a security issue (RLS confirms operators only ever see
+  permitted data; they never see another client's private data through this bug).
+  Do not fix before Costa Rica activation. Test with real second-client data post-Costa-Rica
+  to confirm the exact navigation paths that trigger it before building the fix.

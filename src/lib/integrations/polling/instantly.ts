@@ -23,6 +23,7 @@
 //   before first production poll. If a poll returns zero bounces/unsubscribes on an
 //   account where you expect some, the status values are the first thing to check.
 
+import * as Sentry from '@sentry/nextjs'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database, Json } from '@/types/database'
 import { logger } from '@/lib/logger'
@@ -264,6 +265,13 @@ async function writeSignal(
   // Unique constraint violation = idempotency fired = already written. Not an error.
   if (error.code === '23505') return 'skipped'
 
+  // Error code in the message text so Sentry deduplicates CHECK violations (23514),
+  // FK violations (23503), and others as distinct issues.
+  // No flush here — inside a polling loop; the cron route's error-path flush drains the buffer.
+  Sentry.captureException(
+    new Error(`Signal write failed [${params.signal_type}] (${error.code}): ${error.message}`),
+    { level: 'warning', extra: { signal_type: params.signal_type, external_event_id: params.external_event_id, code: error.code } }
+  )
   logger.error('Instantly poll: failed to write signal', {
     signal_type: params.signal_type,
     external_event_id: params.external_event_id,
