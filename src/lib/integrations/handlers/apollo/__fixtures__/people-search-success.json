@@ -1,0 +1,37 @@
+{
+  "people": [
+    {
+      "id": "fixture-person-001",
+      "first_name": "Jane",
+      "last_name": "Smith",
+      "title": "Founder & CEO",
+      "organization_name": "Example Consulting Co",
+      "seniority": "c_suite"
+    },
+    {
+      "id": "fixture-person-002",
+      "first_name": "Mark",
+      "last_name": "Jones",
+      "title": "Managing Director",
+      "organization_name": "Another Advisory Ltd",
+      "seniority": "director"
+    }
+  ],
+  "breadcrumbs": [
+    {
+      "label": "Titles",
+      "signal_field_name": "person_titles",
+      "value": "Founder",
+      "display_name": "Founder"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 5,
+    "total_entries": 2,
+    "total_pages": 1
+  },
+  "partial_results_only": false,
+  "disable_eu_prospecting": false,
+  "num_fetch_result": null
+}

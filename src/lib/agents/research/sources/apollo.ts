@@ -4,6 +4,7 @@
 // the orchestrator treats this as a skipped source, not a failure.
 // Returns available: false with error when the API call itself fails.
 
+import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
 import type { ProspectContext, ApolloSourceResult } from '../types'
 
@@ -60,11 +61,49 @@ export async function fetchApolloSource(prospect: ProspectContext): Promise<Apol
       signal: AbortSignal.timeout(15000),
     })
 
-    if (response.status === 429) {
-      return { available: false, formatted: null, raw: null, error: 'Apollo rate limit (429)' }
+    if (response.status === 401) {
+      // API key invalid or not configured — alert operator; this won't self-resolve.
+      logger.warn('research/apollo: API key invalid or not configured (401)')
+      Sentry.captureException(
+        new Error('Apollo 401: API key invalid or not configured — verify APOLLO_API_KEY in integration_credentials'),
+        { level: 'warning' }
+      )
+      return { available: false, formatted: null, raw: null, error: 'Apollo API key invalid (401)' }
     }
+
+    if (response.status === 403) {
+      // Free tier or insufficient scope — expected when plan doesn't include enrichment.
+      // No Sentry alert: this is an anticipated state, not an error.
+      logger.info('research/apollo: access denied (403) — free tier or insufficient scope; continuing without Apollo data')
+      return { available: false, formatted: null, raw: null, error: 'Apollo access denied (403)' }
+    }
+
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('Retry-After')
+      logger.info('research/apollo: rate limited (429)', { retry_after: retryAfter ?? 'unknown' })
+      return {
+        available: false,
+        formatted: null,
+        raw: null,
+        error: retryAfter
+          ? `Apollo rate limited (429) — retry after ${retryAfter}s`
+          : 'Apollo rate limited (429)',
+      }
+    }
+
+    if (response.status >= 500) {
+      // Transient outage — alert operator; may self-resolve.
+      logger.warn('research/apollo: transient outage', { status: response.status })
+      Sentry.captureException(
+        new Error(`Apollo ${response.status}: transient outage`),
+        { level: 'warning' }
+      )
+      return { available: false, formatted: null, raw: null, error: `Apollo transient outage (${response.status})` }
+    }
+
     if (!response.ok) {
-      return { available: false, formatted: null, raw: null, error: `Apollo API error: ${response.status}` }
+      logger.warn('research/apollo: unexpected error', { status: response.status })
+      return { available: false, formatted: null, raw: null, error: `Apollo unexpected error (${response.status})` }
     }
 
     const data = await response.json() as ApolloResponse

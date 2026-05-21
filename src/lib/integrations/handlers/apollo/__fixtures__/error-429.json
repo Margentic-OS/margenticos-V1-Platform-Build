@@ -1,0 +1,4 @@
+{
+  "error": "rate_limit_exceeded",
+  "message": "Too many requests. You have exceeded your rate limit. Please wait and try again."
+}

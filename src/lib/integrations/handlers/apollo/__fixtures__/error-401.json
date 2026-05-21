@@ -1,0 +1,4 @@
+{
+  "error": "unauthorized",
+  "message": "Your API key is invalid. Please check your key and try again."
+}

@@ -1,0 +1,32 @@
+{
+  "person": {
+    "id": "fixture-person-001",
+    "first_name": "Jane",
+    "last_name": "Smith",
+    "title": "Founder & CEO",
+    "seniority": "c_suite",
+    "departments": ["master_c_suite"],
+    "employment_history": [
+      {
+        "title": "Founder & CEO",
+        "organization_name": "Example Consulting Co",
+        "start_date": "2019-03-01",
+        "end_date": null,
+        "current": true
+      },
+      {
+        "title": "Principal Consultant",
+        "organization_name": "Prior Firm Ltd",
+        "start_date": "2015-06-01",
+        "end_date": "2019-02-28",
+        "current": false
+      }
+    ],
+    "organization": {
+      "estimated_num_employees": 12,
+      "industry": "Management Consulting",
+      "short_description": "B2B consulting firm helping founder-led businesses scale operations."
+    }
+  },
+  "status": "success"
+}

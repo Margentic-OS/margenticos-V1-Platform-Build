@@ -16,7 +16,8 @@
     "test-orchestrator": "dotenv -e .env.local -- npx tsx scripts/test-draft-orchestrator.ts",
     "test-insert-signoff": "npx tsx scripts/test-insert-signoff.ts",
     "test-substitute-calendly": "npx tsx scripts/test-substitute-calendly.ts",
-    "test-send-approved-draft": "dotenv -e .env.local -- npx tsx scripts/test-send-approved-draft.ts"
+    "test-send-approved-draft": "dotenv -e .env.local -- npx tsx scripts/test-send-approved-draft.ts",
+    "test-apollo-degradation": "npx tsx scripts/test-apollo-degradation.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",
