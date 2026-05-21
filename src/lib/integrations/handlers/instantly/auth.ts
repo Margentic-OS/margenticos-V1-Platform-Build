@@ -33,3 +33,22 @@ export async function getInstantlyApiKey(_organisationId: string): Promise<strin
 
   return credential.value
 }
+
+// Reads the instantly_api_active feature flag from integrations_registry.
+// Returns false if the row is missing or unreadable — fail-safe toward mock mode.
+export async function getInstantlyApiActive(): Promise<boolean> {
+  const supabase = createSupabaseClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+
+  const { data } = await supabase
+    .from('integrations_registry')
+    .select('is_active')
+    .eq('capability', 'instantly_api_active')
+    .eq('tool_name', 'instantly')
+    .maybeSingle()
+
+  return data?.is_active ?? false
+}

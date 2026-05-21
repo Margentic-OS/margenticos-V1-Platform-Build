@@ -17,7 +17,8 @@
     "test-insert-signoff": "npx tsx scripts/test-insert-signoff.ts",
     "test-substitute-calendly": "npx tsx scripts/test-substitute-calendly.ts",
     "test-send-approved-draft": "dotenv -e .env.local -- npx tsx scripts/test-send-approved-draft.ts",
-    "test-apollo-degradation": "npx tsx scripts/test-apollo-degradation.ts"
+    "test-apollo-degradation": "npx tsx scripts/test-apollo-degradation.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",
@@ -44,6 +45,7 @@
     "eslint-config-next": "^16.2.3",
     "postcss": "^8",
     "tailwindcss": "^3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.7"
   }
 }

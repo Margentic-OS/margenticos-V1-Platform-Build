@@ -14,9 +14,20 @@ export const INSTANTLY_API_BASE = 'https://api.instantly.ai/api/v2'
 // Production default: Instantly's live API.
 //
 // Both defaults include the /api/v2 path so handlers can append endpoint paths directly,
-// e.g. `${INSTANTLY_API_BASE_URL}/leads/add`.
+// e.g. `${getInstantlyApiBaseUrl()}/leads/add`.
 export const INSTANTLY_API_BASE_URL: string =
   process.env.INSTANTLY_API_BASE_URL ??
   (process.env.NODE_ENV === 'production'
     ? 'https://api.instantly.ai/api/v2'
     : 'https://developer.instantly.ai/_mock/api/v2')
+
+// Evaluated at call time — use this in handlers so tests can override via process.env
+// without module-cache issues.
+export function getInstantlyApiBaseUrl(): string {
+  return (
+    process.env.INSTANTLY_API_BASE_URL ??
+    (process.env.NODE_ENV === 'production'
+      ? 'https://api.instantly.ai/api/v2'
+      : 'https://developer.instantly.ai/_mock/api/v2')
+  )
+}

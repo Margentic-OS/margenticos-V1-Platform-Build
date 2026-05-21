@@ -110,7 +110,7 @@ Check I-5: Lead upload flow
       "first_name": "Verification",
       "last_name": "Test"
     }],
-    "campaign": "<campaign-uuid-from-Doug>"
+    "campaign_id": "<campaign-uuid-from-Doug>"
   }
 - Confirm 200 response
 - Confirm leads_uploaded count is 1
