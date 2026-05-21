@@ -2,8 +2,8 @@
 // Both the reply-actions handler and the polling layer import from here
 // so a base URL or version change only requires one edit.
 
-/** @deprecated Use INSTANTLY_API_BASE_URL instead. Retained for backward compatibility with
- *  existing handlers until they are migrated incrementally within Prompt 3B. */
+/** @deprecated Use getInstantlyApiBaseUrl() instead. Existing call sites migrate opportunistically
+ *  when next touched — do not migrate speculatively to avoid risk of regression in working code. */
 export const INSTANTLY_API_BASE = 'https://api.instantly.ai/api/v2'
 
 // Configurable base URL for the Instantly V2 API. Set INSTANTLY_API_BASE_URL in your

@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { handleUploadLeads } from './actions'
-import type { UploadLeadsResult } from './actions'
+import type { UploadLeadsResult, CampaignOutcome } from './actions'
 
 interface Props {
   orgId: string
@@ -17,6 +18,7 @@ type PanelState =
   | { phase: 'error'; message: string }
 
 export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount }: Props) {
+  const router = useRouter()
   const [state, setState] = useState<PanelState>({ phase: 'idle' })
   const [isPending, startTransition] = useTransition()
 
@@ -28,6 +30,8 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount }: Pro
       const result = await handleUploadLeads(orgId)
       if (result.ok) {
         setState({ phase: 'success', result })
+        // Refresh server component so pending count reflects the upload without a full page reload.
+        router.refresh()
       } else {
         setState({ phase: 'error', message: result.error })
       }
@@ -69,25 +73,7 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount }: Pro
 
         {/* Success state */}
         {state.phase === 'success' && (
-          <div className="space-y-3">
-            <div className="bg-[#EBF5E6] border border-[#BDDAB0] rounded-[8px] px-4 py-3 space-y-1.5">
-              <p className="text-[12px] font-medium text-brand-green-success">Upload complete</p>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-0.5">
-                <StatRow label="Attempted" value={state.result.total_attempted} />
-                <StatRow label="Created" value={state.result.created} />
-                <StatRow label="Duplicated" value={state.result.duplicated} />
-                <StatRow label="Blocklisted" value={state.result.in_blocklist} />
-                <StatRow label="Invalid email" value={state.result.invalid} />
-                <StatRow label="Incomplete" value={state.result.incomplete} />
-              </div>
-            </div>
-            <button
-              onClick={handleReset}
-              className="text-[11px] text-text-secondary hover:text-text-primary transition-colors"
-            >
-              Upload again
-            </button>
-          </div>
+          <SuccessDisplay result={state.result} onReset={handleReset} />
         )}
 
         {/* Error state */}
@@ -124,6 +110,84 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount }: Pro
         )}
       </div>
     </div>
+  )
+}
+
+function SuccessDisplay({
+  result,
+  onReset,
+}: {
+  result: Extract<UploadLeadsResult, { ok: true }>
+  onReset: () => void
+}) {
+  const totalAttempted = result.outcomes.reduce((n, o) => n + (o.ok ? o.attempted : 0), 0)
+  const totalCreated   = result.outcomes.reduce((n, o) => n + (o.ok ? o.created : 0), 0)
+  const totalDuplicated = result.outcomes.reduce((n, o) => n + (o.ok ? o.duplicated : 0), 0)
+  const totalBlocklisted = result.outcomes.reduce((n, o) => n + (o.ok ? o.in_blocklist : 0), 0)
+  const totalInvalid   = result.outcomes.reduce((n, o) => n + (o.ok ? o.invalid : 0), 0)
+  const totalIncomplete = result.outcomes.reduce((n, o) => n + (o.ok ? o.incomplete : 0), 0)
+
+  const isPartial = result.hasPartialFailure
+  const headerText = isPartial ? 'Upload complete (with errors)' : 'Upload complete'
+  const headerClass = isPartial ? 'text-[#92400E]' : 'text-brand-green-success'
+  const containerClass = isPartial
+    ? 'bg-[#FEFCE8] border border-[#FDE68A]'
+    : 'bg-[#EBF5E6] border border-[#BDDAB0]'
+
+  return (
+    <div className="space-y-3">
+      <div className={`${containerClass} rounded-[8px] px-4 py-3 space-y-2`}>
+        <p className={`text-[12px] font-medium ${headerClass}`}>{headerText}</p>
+
+        {/* Aggregate summary (only meaningful if at least one success) */}
+        {totalAttempted > 0 && (
+          <div className="grid grid-cols-2 gap-x-6 gap-y-0.5">
+            <StatRow label="Attempted" value={totalAttempted} />
+            <StatRow label="Created" value={totalCreated} />
+            <StatRow label="Duplicated" value={totalDuplicated} />
+            <StatRow label="Blocklisted" value={totalBlocklisted} />
+            <StatRow label="Invalid email" value={totalInvalid} />
+            <StatRow label="Incomplete" value={totalIncomplete} />
+          </div>
+        )}
+
+        {/* Per-campaign breakdown (always shown when multiple campaigns or partial failure) */}
+        {(result.outcomes.length > 1 || isPartial) && (
+          <div className="mt-2 space-y-1 border-t border-black/10 pt-2">
+            {result.outcomes.map(outcome => (
+              <CampaignOutcomeRow key={outcome.external_id} outcome={outcome} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <button
+        onClick={onReset}
+        className="text-[11px] text-text-secondary hover:text-text-primary transition-colors"
+      >
+        Upload again
+      </button>
+    </div>
+  )
+}
+
+function CampaignOutcomeRow({ outcome }: { outcome: CampaignOutcome }) {
+  const shortId = outcome.external_id.slice(0, 8)
+  if (outcome.ok) {
+    return (
+      <p className="text-[11px] text-text-primary">
+        <span className="text-brand-green-success mr-1">✓</span>
+        Campaign {shortId}…: {outcome.created} uploaded
+        {outcome.duplicated > 0 && `, ${outcome.duplicated} duplicate`}
+        {outcome.in_blocklist > 0 && `, ${outcome.in_blocklist} blocklisted`}
+      </p>
+    )
+  }
+  return (
+    <p className="text-[11px] text-[#8B2020]">
+      <span className="mr-1">✗</span>
+      Campaign {shortId}…: {outcome.error}
+    </p>
   )
 }
 

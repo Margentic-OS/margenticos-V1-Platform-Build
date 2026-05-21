@@ -1193,6 +1193,29 @@ Revisit once prospect research agent is built and full outbound cycle is working
   the three missing Vercel env vars (including NEXT_INTERNAL_SECRET) must be set before
   production use regardless.
 
+- [post-c0-polish] Migrate 4 INSTANTLY_API_BASE call sites to getInstantlyApiBaseUrl() (2026-05-21)
+  The @deprecated INSTANTLY_API_BASE constant is still imported directly in 4 files:
+    - src/lib/integrations/handlers/instantly/reply-actions.ts
+    - src/lib/integrations/polling/instantly.ts
+    - src/lib/integrations/handlers/instantly/validateCampaign.ts
+    - src/app/api/cron/campaign-analytics/route.ts (or equivalent analytics handler)
+  These were not migrated in Prompt 3B to avoid speculative risk to working code.
+  Migrate opportunistically when each file is next modified for another reason.
+  getInstantlyApiBaseUrl() evaluates process.env at call time — required for test overrides.
+
+- [post-c0-polish] Hardcoded production Instantly URL in process-reply.ts (2026-05-21)
+  src/lib/reply-handling/process-reply.ts around line 119 contains a hardcoded
+  https://api.instantly.ai URL instead of using getInstantlyApiBaseUrl().
+  This bypasses the configurable base URL pattern and cannot be overridden in tests.
+  Fix when next touching process-reply.ts: replace with getInstantlyApiBaseUrl() call.
+
+- [post-c0-polish] Empty personalisation_trigger strings pass the upload filter (2026-05-21)
+  handleUploadLeads() in actions.ts filters prospects with .not('personalisation_trigger', 'is', null)
+  which correctly excludes NULL values but allows empty strings ('') to pass through.
+  An empty string trigger would upload a prospect with a blank personalisation field to Instantly.
+  Fix: add .neq('personalisation_trigger', '') to the prospect query, or filter client-side
+  before grouping by external_id.
+
 ---
 
 ## Post-Tier-1 items

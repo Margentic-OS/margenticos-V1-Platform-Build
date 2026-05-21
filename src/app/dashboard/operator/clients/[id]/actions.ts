@@ -162,8 +162,12 @@ export async function registerCampaign(
 
 // ── Lead upload actions ───────────────────────────────────────────────────────
 
+export type CampaignOutcome =
+  | { external_id: string; ok: true; created: number; duplicated: number; in_blocklist: number; invalid: number; incomplete: number; attempted: number }
+  | { external_id: string; ok: false; error: string }
+
 export type UploadLeadsResult =
-  | { ok: true; created: number; duplicated: number; in_blocklist: number; invalid: number; incomplete: number; total_attempted: number }
+  | { ok: true; outcomes: CampaignOutcome[]; hasPartialFailure: boolean }
   | { ok: false; error: string }
 
 export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResult> {
@@ -196,7 +200,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   }
 
   if (!rows || rows.length === 0) {
-    return { ok: true, created: 0, duplicated: 0, in_blocklist: 0, invalid: 0, incomplete: 0, total_attempted: 0 }
+    return { ok: true, outcomes: [], hasPartialFailure: false }
   }
 
   // Group by Instantly campaign UUID (external_id). Each campaign is uploaded as a separate batch.
@@ -220,23 +224,36 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     return { ok: false, error: 'No prospects have a valid Instantly campaign UUID assigned.' }
   }
 
-  let created = 0, duplicated = 0, in_blocklist = 0, invalid = 0, incomplete = 0, total_attempted = 0
-
+  // Run all campaign uploads, collecting per-campaign outcomes.
+  // One campaign failing does not abort the others — partial success is reported, not swallowed.
+  const outcomes: CampaignOutcome[] = []
   for (const [campaignExternalId, leads] of byExternalId) {
     try {
       const result = await uploadLeads(orgId, campaignExternalId, leads)
-      created += result.created_count
-      duplicated += result.duplicated
-      in_blocklist += result.in_blocklist
-      invalid += result.invalid_email_count
-      incomplete += result.incomplete_count
-      total_attempted += leads.length
+      outcomes.push({
+        external_id: campaignExternalId,
+        ok: true,
+        created: result.created_count,
+        duplicated: result.duplicated,
+        in_blocklist: result.in_blocklist,
+        invalid: result.invalid_email_count,
+        incomplete: result.incomplete_count,
+        attempted: leads.length,
+      })
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      outcomes.push({
+        external_id: campaignExternalId,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      })
     }
   }
 
-  return { ok: true, created, duplicated, in_blocklist, invalid, incomplete, total_attempted }
+  return {
+    ok: true,
+    outcomes,
+    hasPartialFailure: outcomes.some(o => !o.ok),
+  }
 }
 
 // ── DFY mailbox order actions ─────────────────────────────────────────────────

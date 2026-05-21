@@ -111,11 +111,18 @@ export async function orderMailboxes(
     throw new InstantlyApiError('Instantly DFY response could not be parsed as JSON')
   }
 
-  // Safety net: if a real order was placed when simulate=true was expected, log loudly.
+  // Safety net: simulate=true but order placed (unexpected real charge).
   if (simulate && data.order_placed) {
-    const msg = 'orderMailboxes: order_placed=true on a simulate=true call — unexpected Instantly behaviour'
+    const msg = 'orderMailboxes: simulate was true but order_placed=true — unexpected real charge'
     logger.warn(msg, { domains, organisation_id: organisationId })
     Sentry.captureException(new Error(msg), { level: 'error' })
+  }
+
+  // Safety net: simulate=false but no order placed (unexpected silent failure).
+  if (!simulate && !data.order_placed) {
+    const msg = 'orderMailboxes: simulate was false but order_placed=false — unexpected silent failure'
+    logger.warn(msg, { domains, organisation_id: organisationId })
+    Sentry.captureException(new Error(msg), { level: 'warning' })
   }
 
   logger.info('instantly/orderMailboxes: DFY order call complete', {

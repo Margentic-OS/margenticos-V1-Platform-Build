@@ -33,6 +33,7 @@ function tldOf(domain: string): string {
 export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
   const [domainsRaw, setDomainsRaw] = useState('')
   const [state, setState] = useState<PanelState>({ phase: 'idle' })
+  const [confirmed, setConfirmed] = useState(false)
   const [isPending, startTransition] = useTransition()
 
   const domains = parseDomains(domainsRaw)
@@ -68,6 +69,7 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
       const result = await handleDfyRealOrder(orgId, quoteInfo.domains)
       if (result.ok) {
         setState({ phase: 'ordered' })
+        setConfirmed(false)
       } else {
         setState({ phase: 'error', message: result.error })
       }
@@ -77,6 +79,7 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
   function handleReset() {
     setDomainsRaw('')
     setState({ phase: 'idle' })
+    setConfirmed(false)
   }
 
   return (
@@ -182,6 +185,23 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
               </div>
             )}
 
+            {/* Charge confirmation checkbox — only shown once a quote is ready */}
+            {state.phase === 'quoted' && (
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={confirmed}
+                  onChange={e => setConfirmed(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 accent-brand-green-operator cursor-pointer"
+                />
+                <span className="text-[11px] text-text-secondary">
+                  I understand this will charge my Instantly account
+                  {state.totalPrice !== null ? ` $${state.totalPrice.toFixed(2)}` : ''} for{' '}
+                  {state.domains.length} mailbox{state.domains.length === 1 ? '' : 'es'}
+                </span>
+              </label>
+            )}
+
             {/* Action buttons */}
             <div className="flex items-center gap-2">
               {(state.phase === 'idle' || state.phase === 'quoting') && (
@@ -198,8 +218,8 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
                 <>
                   <button
                     onClick={handlePlaceOrder}
-                    disabled={isWorking || !instantlyApiActive || !state.orderIsValid}
-                    title={!instantlyApiActive ? 'Enable instantly_api_active flag to place real orders' : undefined}
+                    disabled={isWorking || !instantlyApiActive || !state.orderIsValid || !confirmed}
+                    title={!instantlyApiActive ? 'Enable instantly_api_active flag to place real orders' : !confirmed ? 'Check the confirmation box above to proceed' : undefined}
                     className="px-4 py-2 bg-brand-green-operator text-white rounded-[6px] text-[12px] font-medium hover:bg-brand-green-operator/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Confirm and place real order
