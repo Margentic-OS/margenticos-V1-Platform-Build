@@ -125,13 +125,21 @@ function ClientRow({ client }: { client: ClientSummary }) {
         )}
       </div>
 
-      {/* View action */}
-      <a
-        href={`/dashboard/operator?client=${client.id}`}
-        className="shrink-0 px-3 py-1.5 bg-[#F0ECE4] border border-border-card rounded-[6px] text-[11px] font-medium text-text-secondary hover:text-text-primary hover:border-[#D8D2C8] transition-colors"
-      >
-        View
-      </a>
+      {/* Actions */}
+      <div className="shrink-0 flex items-center gap-2">
+        <a
+          href={`/dashboard/operator?client=${client.id}`}
+          className="px-3 py-1.5 bg-[#F0ECE4] border border-border-card rounded-[6px] text-[11px] font-medium text-text-secondary hover:text-text-primary hover:border-[#D8D2C8] transition-colors"
+        >
+          View
+        </a>
+        <a
+          href={`/dashboard/operator/clients/${client.id}`}
+          className="px-3 py-1.5 bg-[#F0ECE4] border border-border-card rounded-[6px] text-[11px] font-medium text-text-secondary hover:text-text-primary hover:border-[#D8D2C8] transition-colors"
+        >
+          Manage
+        </a>
+      </div>
     </div>
   )
 }
