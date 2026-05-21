@@ -1717,6 +1717,16 @@ Complete all items before the first paying client goes live:
   pattern already used in approve_document_suggestion. See P1-3 in
   /docs/discovery/2026-05-13-rls-verification.md.
 
+- [DONE 2026-05-21] send-approved-draft.ts used process.env.INSTANTLY_API_KEY (env var) — was broken
+  RESOLVED in Prompt 3A Commit 4. The function used process.env.INSTANTLY_API_KEY which was never
+  set in Vercel (confirmed via `vercel env ls`). Any call to sendApprovedDraft() in production
+  would have failed with "INSTANTLY_API_KEY not set". Went undetected because no live campaign has
+  produced real reply drafts yet (no real traffic pre-c0). Fixed by replacing env-var lookup with
+  getInstantlyApiKey(organisationId) helper (DB-based, consistent with the two cron routes).
+  Note: this slipped past Prompt 2 audit because send-approved-draft.ts wasn't in the inline
+  credential review scope at that time. Lesson: any function that calls Instantly must use the
+  integration_credentials table, never a standalone env var.
+
 - [post-c0-polish] integrations_registry api_handler_ref paths wrong in all 7 existing rows (2026-05-21)
   All seed rows in supabase/migrations/20260420_seed_integrations_registry.sql point to
   src/lib/handlers/<tool> but actual handler files live at src/lib/integrations/handlers/<tool>/.

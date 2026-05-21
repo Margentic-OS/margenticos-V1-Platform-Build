@@ -29,6 +29,7 @@ import {
   INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
 } from '@/lib/integrations/polling/instantly'
 import { fetchCampaignStats } from '@/lib/integrations/handlers/instantly/campaign-analytics'
+import { getInstantlyApiKey } from '@/lib/integrations/handlers/instantly/auth'
 
 const MONITOR_SLUG = 'instantly-poll'
 const MONITOR_CONFIG = {
@@ -58,21 +59,12 @@ export async function POST(request: NextRequest) {
   )
 
   // ── Fetch Instantly API key ─────────────────────────────────────────────────
-  // Lookup order: per-org row first (Model B future), fall back to NULL global row (Model A current).
-  // Tonight only the NULL global row exists — one Instantly account for all orgs.
-  const { data: credential, error: credError } = await supabase
-    .from('integration_credentials')
-    .select('value')
-    .is('organisation_id', null)
-    .eq('source', 'instantly')
-    .eq('credential_type', 'api_key')
-    .maybeSingle()
-
-  if (credError || !credential) {
-    logger.error('Instantly poll: API key not found in integration_credentials', {
-      error: credError?.message,
-      fix: "INSERT INTO integration_credentials (organisation_id, source, credential_type, value) VALUES (NULL, 'instantly', 'api_key', '<key>')",
-    })
+  let apiKey: string
+  try {
+    apiKey = await getInstantlyApiKey('')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    logger.error('Instantly poll: API key not found in integration_credentials', { error: msg })
     Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'error', checkInId })
     try { await Sentry.flush(2000) } catch {}
     return NextResponse.json(
@@ -80,8 +72,6 @@ export async function POST(request: NextRequest) {
       { status: 503 }
     )
   }
-
-  const apiKey = credential.value
 
   const results = {
     replies:       { written: 0, skipped: 0, errors: 0 },

@@ -22,6 +22,7 @@ import { logger } from '@/lib/logger'
 import { substituteBookingLink } from './substitute-booking-link'
 import { insertSignoff } from './insert-signoff'
 import { sendThreadReply } from '@/lib/integrations/handlers/instantly/reply-actions'
+import { getInstantlyApiKey } from '@/lib/integrations/handlers/instantly/auth'
 import { extractFaq } from '@/lib/agents/faq-extraction-agent'
 import { loadOrgContext } from './load-org-context'
 
@@ -182,12 +183,11 @@ export async function sendApprovedDraft(
   }
 
   // ── 7. Load Instantly API key ─────────────────────────────────────────────
-  // ADR-001 deferred (C3-3): key should come from capability registry inside
-  // the handler. Using env var directly until ADR-001 refactor lands.
-
-  const instantlyApiKey = process.env.INSTANTLY_API_KEY
-  if (!instantlyApiKey) {
-    const msg = 'INSTANTLY_API_KEY not set'
+  let instantlyApiKey: string
+  try {
+    instantlyApiKey = await getInstantlyApiKey(organisationId)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
     await markSendFailed(supabase, replyDraftId, msg)
     return { kind: 'send_failed', error: msg, reason: 'instantly_api_error' }
   }

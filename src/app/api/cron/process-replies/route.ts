@@ -16,6 +16,7 @@ import * as Sentry from '@sentry/nextjs'
 import { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { processReplies } from '@/lib/reply-handling/process-reply'
+import { getInstantlyApiKey } from '@/lib/integrations/handlers/instantly/auth'
 
 const MONITOR_SLUG = 'process-replies'
 const MONITOR_CONFIG = {
@@ -45,19 +46,12 @@ export async function POST(request: NextRequest) {
   )
 
   // ── Fetch Instantly API key ────────────────────────────────────────────────
-  const { data: credential, error: credError } = await supabase
-    .from('integration_credentials')
-    .select('value')
-    .is('organisation_id', null)
-    .eq('source', 'instantly')
-    .eq('credential_type', 'api_key')
-    .maybeSingle()
-
-  if (credError || !credential) {
-    logger.error('process-replies: Instantly API key not found in integration_credentials', {
-      error: credError?.message,
-      fix: "INSERT INTO integration_credentials (organisation_id, source, credential_type, value) VALUES (NULL, 'instantly', 'api_key', '<key>')",
-    })
+  let instantlyApiKey: string
+  try {
+    instantlyApiKey = await getInstantlyApiKey('')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    logger.error('process-replies: Instantly API key not found in integration_credentials', { error: msg })
     Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'error', checkInId })
     try { await Sentry.flush(2000) } catch {}
     return NextResponse.json(
@@ -69,8 +63,7 @@ export async function POST(request: NextRequest) {
   // ── Process ────────────────────────────────────────────────────────────────
   let result
   try {
-    // ADR-001 deferred (C3-3): credential.value passed as vendor-named key — BACKLOG "ADR-001 channel/source agnosticism — pending decision"
-    result = await processReplies(supabase, credential.value)
+    result = await processReplies(supabase, instantlyApiKey)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     logger.error('process-replies: processReplies threw unexpectedly', { error: msg })
