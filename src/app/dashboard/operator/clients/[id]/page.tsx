@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { SetupStatusPanel } from './SetupStatusPanel'
 import { CampaignRegistrationPanel } from './CampaignRegistrationPanel'
+import { LeadUploadPanel } from './LeadUploadPanel'
 import type { SetupStatusShape } from './SetupStatusPanel'
 import type { SetupStatusValue } from './actions'
 
@@ -48,6 +49,27 @@ export default async function ClientDetailPage({
 
   const setupStatus = parseSetupStatus(org.setup_status)
 
+  // Fetch feature flag and pending lead count in parallel — non-blocking on failure.
+  const [flagResult, pendingCountResult] = await Promise.all([
+    supabase
+      .from('integrations_registry')
+      .select('is_active')
+      .eq('capability', 'instantly_api_active')
+      .eq('tool_name', 'instantly')
+      .maybeSingle(),
+    supabase
+      .from('prospects')
+      .select('id', { count: 'exact', head: true })
+      .eq('organisation_id', org.id)
+      .eq('outbound_upload_status', 'pending')
+      .not('campaign_id', 'is', null)
+      .not('personalisation_trigger', 'is', null)
+      .not('email', 'is', null),
+  ])
+
+  const instantlyApiActive = flagResult.data?.is_active ?? false
+  const pendingCount = pendingCountResult.count ?? 0
+
   return (
     <>
       <OperatorTopbar
@@ -68,6 +90,12 @@ export default async function ClientDetailPage({
             <SetupStatusPanel orgId={org.id} initialStatus={setupStatus} />
 
             <CampaignRegistrationPanel orgId={org.id} />
+
+            <LeadUploadPanel
+              orgId={org.id}
+              instantlyApiActive={instantlyApiActive}
+              pendingCount={pendingCount}
+            />
           </div>
         </div>
       </div>

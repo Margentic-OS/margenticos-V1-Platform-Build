@@ -3,6 +3,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { validateCampaign } from '@/lib/integrations/handlers/instantly/validateCampaign'
+import { uploadLeads } from '@/lib/integrations/handlers/instantly/uploadLeads'
+import type { ProspectForUpload } from '@/lib/integrations/handlers/instantly/types'
 
 export type SetupStatusField = 'campaigns' | 'linkedin'
 export type SetupStatusValue = 'pending' | 'in_progress' | 'complete'
@@ -154,4 +156,83 @@ export async function registerCampaign(
   }
 
   return { ok: true, campaignId: inserted.id }
+}
+
+// ── Lead upload actions ───────────────────────────────────────────────────────
+
+export type UploadLeadsResult =
+  | { ok: true; created: number; duplicated: number; in_blocklist: number; invalid: number; incomplete: number; total_attempted: number }
+  | { ok: false; error: string }
+
+export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResult> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  // Fetch pending prospects with their Instantly campaign UUID via join.
+  // Filters: status=pending, campaign assigned, personalisation trigger present, email present.
+  const { data: rows, error: fetchErr } = await supabase
+    .from('prospects')
+    .select('email, personalisation_trigger, first_name, last_name, company_name, role, campaigns!inner(external_id)')
+    .eq('organisation_id', orgId)
+    .eq('outbound_upload_status', 'pending')
+    .not('campaign_id', 'is', null)
+    .not('personalisation_trigger', 'is', null)
+    .not('email', 'is', null)
+
+  if (fetchErr) {
+    return { ok: false, error: fetchErr.message }
+  }
+
+  if (!rows || rows.length === 0) {
+    return { ok: true, created: 0, duplicated: 0, in_blocklist: 0, invalid: 0, incomplete: 0, total_attempted: 0 }
+  }
+
+  // Group by Instantly campaign UUID (external_id). Each campaign is uploaded as a separate batch.
+  const byExternalId = new Map<string, ProspectForUpload[]>()
+  for (const row of rows) {
+    const campaign = row.campaigns as { external_id: string | null } | null
+    const externalId = campaign?.external_id
+    if (!externalId || !row.email) continue
+    if (!byExternalId.has(externalId)) byExternalId.set(externalId, [])
+    byExternalId.get(externalId)!.push({
+      email: row.email,
+      personalization: row.personalisation_trigger ?? undefined,
+      first_name: row.first_name ?? undefined,
+      last_name: row.last_name ?? undefined,
+      company_name: row.company_name ?? undefined,
+      job_title: row.role ?? undefined,
+    })
+  }
+
+  if (byExternalId.size === 0) {
+    return { ok: false, error: 'No prospects have a valid Instantly campaign UUID assigned.' }
+  }
+
+  let created = 0, duplicated = 0, in_blocklist = 0, invalid = 0, incomplete = 0, total_attempted = 0
+
+  for (const [campaignExternalId, leads] of byExternalId) {
+    try {
+      const result = await uploadLeads(orgId, campaignExternalId, leads)
+      created += result.created_count
+      duplicated += result.duplicated
+      in_blocklist += result.in_blocklist
+      invalid += result.invalid_email_count
+      incomplete += result.incomplete_count
+      total_attempted += leads.length
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  return { ok: true, created, duplicated, in_blocklist, invalid, incomplete, total_attempted }
 }
