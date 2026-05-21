@@ -1749,3 +1749,76 @@ The split adds a natural breakpoint for operational review between the two promp
 
 Prompt 3B scope is deliberately narrow. The codebase state is well-mapped from two discovery passes completed before Prompt 3A; no additional re-discovery is needed before Prompt 3B begins.
 
+---
+
+### Watertight build strategy (May 2026 amendment)
+
+This amendment records the four-pillar strategy for building and verifying Prompt 3B without active paid subscriptions. It extends ADR-024's core decision (the 3A/3B split) with the operational approach that makes 3B buildable, reviewable, and testable before Instantly Growth and Apollo Basic are activated in Costa Rica.
+
+#### Pillar 1: Mock-first Instantly integration
+
+Instantly hosts a public mock server at `https://developer.instantly.ai/_mock/api/v2/` that returns documented response shapes for every endpoint without requiring an API key.
+
+All Prompt 3B Instantly handlers point at a configurable `INSTANTLY_API_BASE_URL` environment variable, extending the existing `INSTANTLY_API_BASE` constants pattern in `src/lib/integrations/handlers/instantly/constants.ts`.
+
+- Default in development/test: mock URL (`https://developer.instantly.ai/_mock/api/v2/`)
+- Default in production: production URL (`https://api.instantly.ai/`)
+- A single env var flip switches from mock to production once subscription activates — no code changes required
+
+**Honest limitation:** The mock returns 200 happy-path responses only. Error responses (401, 402, 404, 429) are NOT exercised by the mock. Error handling for Instantly is validated by the verification harness (see `/docs/prompts/subscription-activation-verification.md`) at subscription activation, not during build.
+
+#### Pillar 2: Feature flags with mode awareness
+
+Three flags govern integration behaviour during and after the build phase:
+
+- `instantly_api_active` (boolean, default `false`) — controls whether real Instantly calls are permitted from the UI
+- `apollo_api_active` (boolean, default `false`) — same for Apollo
+- `instantly_api_mode` (text, `'mock' | 'production'`, default `'mock'`) — independent of the active flag; permits testing against the mock even when subscription is active
+
+**UI behaviour:**
+- When `instantly_api_active=false`: operator UIs render and call the mock; a clear mode indicator is displayed: "Testing against mock — Instantly subscription not active"
+- When `instantly_api_active=true`: real calls, real data, real consequences; indicator removed
+- DFY ordering with `instantly_api_active=true`: two-step confirm flow mandatory — `simulate:true` on first call, real order only on explicit operator confirm
+
+**Flag placement:** Flags live in the `integrations_registry` table, extending the existing `can_<verb>_<noun>` capability pattern with a new `config` jsonb column or additional boolean columns — confirm in pre-build check based on current schema state. Default placement avoids introducing a new operator-settings table unless the registry schema cannot accommodate the three flags cleanly.
+
+#### Pillar 3: Contract tests against the mock
+
+For each Instantly endpoint Prompt 3B touches — `POST /api/v2/leads/add`, `POST /api/v2/dfy-email-account-orders`, `GET /api/v2/campaigns/{id}` — a contract test is written that:
+
+1. Defines the expected request shape (URL, headers, body)
+2. Defines the expected response shape (status, body schema)
+3. Runs against the mock server during build
+4. Runs unchanged against production at subscription activation (same tests, different `BASE_URL`)
+
+Contract tests live in `src/lib/integrations/handlers/instantly/__tests__/` (or the equivalent test directory — confirm in pre-build check).
+
+**Apollo (no mock server available):** Use stored response fixtures. Known-good Apollo response shapes are committed as JSON files under `src/lib/integrations/handlers/apollo/__fixtures__/`. Tests run against fixtures during build; run against the real API at subscription activation.
+
+**Honest limitation:** Side-effect bugs (lead actually created, mailbox actually ordered) cannot be detected against the mock. The mock confirms the request/response wire protocol but cannot confirm real-world side effects. The verification harness covers this gap at activation.
+
+#### Pillar 4: TypeScript types for three critical response shapes
+
+The response shapes (not request shapes) for the three endpoints with real-money or real-state side effects are explicitly typed:
+
+- `POST /api/v2/leads/add` response → `InstantlyLeadsAddResponse`
+- `POST /api/v2/dfy-email-account-orders` response → `InstantlyDfyOrderResponse`
+- `GET /api/v2/campaigns/{id}` response → `InstantlyCampaignResponse`
+
+Types are derived from Instantly's OpenAPI spec at `developer.instantly.ai`. They are placed in `src/lib/integrations/handlers/instantly/types.ts`. The file includes a comment at the top referencing the source URL and the date the types were captured, so future drift between the types and the live API is traceable.
+
+Other Instantly endpoints called by the system (campaign analytics, reply send, etc.) retain their existing untyped pattern — the cost of drift on those endpoints is lower.
+
+Apollo response shapes are NOT typed at this stage. The graceful degradation pattern (ADR-005) handles Apollo responses loosely on purpose: a type mismatch on an enrichment response degrades to missing fields, not a runtime crash.
+
+#### Honest limitations of this strategy
+
+| What is covered | What is NOT covered |
+|---|---|
+| Request/response wire protocol (mock + contract tests) | Error responses 401/402/404/429 (mock is happy-path only) |
+| Response shape matching (TypeScript types + contract tests) | Side-effect correctness (lead created, mailbox ordered) |
+| Feature flag toggling | Rate limit behaviour (429 retry/backoff) |
+| Apollo fixture shape matching | Apollo fixture staleness (if Apollo changes their schema) |
+
+The verification harness (`/docs/prompts/subscription-activation-verification.md`) is the planned remediation for every item in the "NOT covered" column. It is designed to be run as a single self-contained session the day subscriptions activate.
+
