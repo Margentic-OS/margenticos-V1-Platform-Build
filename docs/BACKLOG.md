@@ -1716,6 +1716,15 @@ Complete all items before the first paying client goes live:
 
 - [reminder] Vercel Hobby silently rejects sub-daily cron schedules at build time — all scheduling for sub-daily jobs uses pg_cron. vercel.json crons entry must be empty or daily-only.
 
+- [documentation] Two by-design Supabase advisor warnings (2026-05-21)
+  authenticated_security_definer_function_executable will remain flagged for get_my_organisation_id()
+  and is_operator() after the May 2026 REVOKE FROM PUBLIC fix. These cannot be cleared without
+  breaking RLS policies — 24 policies depend on both functions being callable by authenticated users.
+  Switching to SECURITY INVOKER would cause infinite recursion in users-table RLS (is_operator()
+  queries users, which has RLS policies that call is_operator()). The real security risk was anon
+  access, which is closed. Do not "fix" these warnings — they are by design. Future audits should
+  explicitly note this.
+
 - [post-c0-polish] Mutable search paths on append_faq_variant and set_updated_at (2026-05-13)
   Per RLS verification report 13 May 2026 P1. Cosmetic, no security implication at current
   exposure level. Add SET search_path TO 'public' to both function definitions to match the
