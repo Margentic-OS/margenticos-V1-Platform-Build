@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { validateCampaign } from '@/lib/integrations/handlers/instantly/validateCampaign'
 
 export type SetupStatusField = 'campaigns' | 'linkedin'
 export type SetupStatusValue = 'pending' | 'in_progress' | 'complete'
@@ -47,4 +48,100 @@ export async function updateSetupStatus(
   }
 
   return {}
+}
+
+// ── Campaign actions ──────────────────────────────────────────────────────────
+
+export type CampaignCheckResult =
+  | { ok: true; name: string; status: string; schedulingStatus: string | null }
+  | { ok: false; error: string }
+
+export async function checkCampaign(
+  orgId: string,
+  campaignUuid: string,
+): Promise<CampaignCheckResult> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  // Duplicate check before touching the Instantly API
+  const { data: existing } = await supabase
+    .from('campaigns')
+    .select('id')
+    .eq('organisation_id', orgId)
+    .eq('external_id', campaignUuid)
+    .maybeSingle()
+
+  if (existing) {
+    return { ok: false, error: 'This campaign UUID is already registered for this client.' }
+  }
+
+  try {
+    const result = await validateCampaign(orgId, campaignUuid)
+    return { ok: true, ...result }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export type RegisterCampaignResult =
+  | { ok: true; campaignId: string }
+  | { ok: false; error: string }
+
+export async function registerCampaign(
+  orgId: string,
+  campaignUuid: string,
+  campaignName: string,
+): Promise<RegisterCampaignResult> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  // Final duplicate check — guards against races between checkCampaign and this call
+  const { data: existing } = await supabase
+    .from('campaigns')
+    .select('id')
+    .eq('organisation_id', orgId)
+    .eq('external_id', campaignUuid)
+    .maybeSingle()
+
+  if (existing) {
+    return { ok: false, error: 'This campaign UUID is already registered.' }
+  }
+
+  const { data: inserted, error: insertErr } = await supabase
+    .from('campaigns')
+    .insert({
+      organisation_id: orgId,
+      external_id: campaignUuid,
+      name: campaignName,
+      campaign_type: 'cold_email',
+      status: 'draft',
+    })
+    .select('id')
+    .single()
+
+  if (insertErr || !inserted) {
+    return { ok: false, error: insertErr?.message ?? 'Insert failed' }
+  }
+
+  return { ok: true, campaignId: inserted.id }
 }

@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { SetupStatusPanel } from './SetupStatusPanel'
+import { CampaignRegistrationPanel } from './CampaignRegistrationPanel'
 import type { SetupStatusShape } from './SetupStatusPanel'
 import type { SetupStatusValue } from './actions'
 
@@ -66,13 +67,7 @@ export default async function ClientDetailPage({
           <div className="space-y-4">
             <SetupStatusPanel orgId={org.id} initialStatus={setupStatus} />
 
-            {/* Campaign registration panel — wired in Commit 7 */}
-            <div className="bg-surface-card border border-border-card rounded-[10px] px-5 py-4">
-              <h2 className="text-[13px] font-semibold text-text-primary">Campaign registration</h2>
-              <p className="text-[12px] text-text-secondary mt-1">
-                Campaign setup will be configured here.
-              </p>
-            </div>
+            <CampaignRegistrationPanel orgId={org.id} />
           </div>
         </div>
       </div>
