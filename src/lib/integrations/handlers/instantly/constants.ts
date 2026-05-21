@@ -21,6 +21,10 @@ export const INSTANTLY_API_BASE_URL: string =
     ? 'https://api.instantly.ai/api/v2'
     : 'https://developer.instantly.ai/_mock/api/v2')
 
+// TLDs accepted by Instantly's DFY email account ordering API.
+// Source: Instantly docs (verified 2026-05-21). Extend here if Instantly adds TLDs.
+export const INSTANTLY_DFY_ALLOWED_TLDS = ['.com', '.org'] as const
+
 // Evaluated at call time — use this in handlers so tests can override via process.env
 // without module-cache issues.
 export function getInstantlyApiBaseUrl(): string {

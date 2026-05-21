@@ -58,7 +58,28 @@ export interface LeadUploadResult {
 }
 
 // ── POST /api/v2/dfy-email-account-orders ────────────────────────────────────
-// Added in Commit 4. Placeholder comment to mark the file's full scope.
+
+export interface DfyOrderItem {
+  domain: string
+}
+
+export interface DfyOrderResponse {
+  order_placed: boolean
+  order_is_valid: boolean
+  // Price returned by Instantly — field name varies; capture whichever is present
+  total_price?: number
+  price?: number
+  // Instantly may return extra fields (sub-items, warnings, etc.) — not relied upon
+  [key: string]: unknown
+}
+
+// What orderMailboxes() returns to the caller.
+export interface DfyOrderResult {
+  order_placed: boolean
+  order_is_valid: boolean
+  total_price: number | null
+  simulated: boolean
+}
 
 // ── GET /api/v2/campaigns/{id} ────────────────────────────────────────────────
 
