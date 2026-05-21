@@ -15,6 +15,7 @@ type PanelState =
   | { phase: 'quoting' }
   | ({ phase: 'quoted' } & QuoteInfo)
   | ({ phase: 'ordering' } & QuoteInfo)
+  | ({ phase: 'order_not_placed' } & QuoteInfo)
   | { phase: 'ordered' }
   | { phase: 'error'; message: string }
 
@@ -62,14 +63,18 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
   }
 
   function handlePlaceOrder() {
-    if (state.phase !== 'quoted') return
+    if (state.phase !== 'quoted' && state.phase !== 'order_not_placed') return
     const quoteInfo: QuoteInfo = { orderIsValid: state.orderIsValid, totalPrice: state.totalPrice, domains: state.domains }
     setState({ phase: 'ordering', ...quoteInfo })
     startTransition(async () => {
       const result = await handleDfyRealOrder(orgId, quoteInfo.domains)
       if (result.ok) {
-        setState({ phase: 'ordered' })
-        setConfirmed(false)
+        if (result.order_placed) {
+          setState({ phase: 'ordered' })
+          setConfirmed(false)
+        } else {
+          setState({ phase: 'order_not_placed', ...quoteInfo })
+        }
       } else {
         setState({ phase: 'error', message: result.error })
       }
@@ -152,7 +157,7 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
                 }}
                 placeholder="client-outreach.com&#10;client-email.org"
                 rows={3}
-                disabled={state.phase === 'quoted' || state.phase === 'quoting' || state.phase === 'ordering'}
+                disabled={state.phase === 'quoted' || state.phase === 'quoting' || state.phase === 'ordering' || state.phase === 'order_not_placed'}
                 className={`w-full px-3 py-2 rounded-[6px] border text-[12px] text-text-primary placeholder:text-text-muted bg-white focus:outline-none focus:ring-1 focus:ring-brand-green-operator transition-colors resize-none ${
                   tldError ? 'border-[#C0392B]' : 'border-border-card focus:border-brand-green-operator'
                 } disabled:bg-[#F5F3EF] disabled:text-text-muted`}
@@ -162,8 +167,18 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
               )}
             </div>
 
+            {/* Amber warning — Instantly returned success but didn't place the order */}
+            {state.phase === 'order_not_placed' && (
+              <div className="bg-[#FEFCE8] border border-[#FDE68A] rounded-[8px] px-4 py-3">
+                <p className="text-[12px] font-medium text-[#92400E]">Order not confirmed</p>
+                <p className="text-[11px] text-[#92400E] mt-0.5">
+                  Instantly returned success but didn't place the order. This usually means a transient issue on their side. The error has been logged. Verify in your Instantly dashboard before retrying.
+                </p>
+              </div>
+            )}
+
             {/* Quote result */}
-            {(state.phase === 'quoted' || state.phase === 'ordering') && (
+            {(state.phase === 'quoted' || state.phase === 'ordering' || state.phase === 'order_not_placed') && (
               <div className="bg-[#F5F3EF] border border-border-card rounded-[8px] px-4 py-3 space-y-1">
                 <p className="text-[12px] font-medium text-text-primary">Quote</p>
                 <div className="flex items-center gap-4">
@@ -185,8 +200,8 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
               </div>
             )}
 
-            {/* Charge confirmation checkbox — only shown once a quote is ready */}
-            {state.phase === 'quoted' && (
+            {/* Charge confirmation checkbox — shown once a quote is ready, kept visible on retry */}
+            {(state.phase === 'quoted' || state.phase === 'order_not_placed') && (
               <label className="flex items-start gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -214,7 +229,7 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
                 </button>
               )}
 
-              {(state.phase === 'quoted' || state.phase === 'ordering') && (
+              {(state.phase === 'quoted' || state.phase === 'ordering' || state.phase === 'order_not_placed') && (
                 <>
                   <button
                     onClick={handlePlaceOrder}
