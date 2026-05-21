@@ -7,11 +7,21 @@ import { validateCampaign } from '@/lib/integrations/handlers/instantly/validate
 export type SetupStatusField = 'campaigns' | 'linkedin'
 export type SetupStatusValue = 'pending' | 'in_progress' | 'complete'
 
+const VALID_SETUP_FIELDS: SetupStatusField[] = ['campaigns', 'linkedin']
+const VALID_SETUP_VALUES: SetupStatusValue[] = ['pending', 'in_progress', 'complete']
+
 export async function updateSetupStatus(
   orgId: string,
   field: SetupStatusField,
   value: SetupStatusValue,
 ): Promise<{ error?: string }> {
+  if (!(VALID_SETUP_FIELDS as string[]).includes(field)) {
+    return { error: `Invalid setup status field: ${field}` }
+  }
+  if (!(VALID_SETUP_VALUES as string[]).includes(value)) {
+    return { error: `Invalid setup status value: ${value}` }
+  }
+
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()

@@ -35,9 +35,9 @@ export default async function ClientDetailPage({
     .eq('id', user.id)
     .single()
 
-  if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+  if (!userRow || userRow.role !== 'operator') notFound()
 
-  // ── 3. Fetch org — notFound() for both missing org and non-operator (no info leak) ──
+  // ── 3. Fetch org — notFound() for both non-operator and missing org (no info leak) ──
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, setup_status')

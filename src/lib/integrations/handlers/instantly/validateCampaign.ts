@@ -8,6 +8,7 @@
 // "this is the right campaign" without pulling every field from the Instantly response.
 
 import { INSTANTLY_API_BASE } from './constants'
+import { getInstantlyApiKey } from './auth'
 
 export interface CampaignValidationResult {
   name: string
@@ -19,7 +20,6 @@ export async function validateCampaign(
   organisationId: string,
   campaignUuid: string
 ): Promise<CampaignValidationResult> {
-  const { getInstantlyApiKey } = await import('./auth')
   const apiKey = await getInstantlyApiKey(organisationId)
 
   let response: Response
