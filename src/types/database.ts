@@ -73,6 +73,7 @@ export type Database = {
           created_at: string
           external_id: string | null
           id: string
+          name: string | null
           organisation_id: string
           paused_at: string | null
           replied_count: number
@@ -89,6 +90,7 @@ export type Database = {
           created_at?: string
           external_id?: string | null
           id?: string
+          name?: string | null
           organisation_id: string
           paused_at?: string | null
           replied_count?: number
@@ -105,6 +107,7 @@ export type Database = {
           created_at?: string
           external_id?: string | null
           id?: string
+          name?: string | null
           organisation_id?: string
           paused_at?: string | null
           replied_count?: number
@@ -982,6 +985,7 @@ export type Database = {
       }
       prospects: {
         Row: {
+          campaign_id: string | null
           classified_at: string | null
           company_name: string | null
           created_at: string
@@ -994,6 +998,10 @@ export type Database = {
           last_name: string | null
           linkedin_url: string | null
           organisation_id: string
+          outbound_lead_id: string | null
+          outbound_upload_attempted_at: string | null
+          outbound_upload_error: string | null
+          outbound_upload_status: string
           personalisation_trigger: string | null
           qualification_status: string | null
           research_ran_at: string | null
@@ -1011,6 +1019,7 @@ export type Database = {
           website_url: string | null
         }
         Insert: {
+          campaign_id?: string | null
           classified_at?: string | null
           company_name?: string | null
           created_at?: string
@@ -1023,6 +1032,10 @@ export type Database = {
           last_name?: string | null
           linkedin_url?: string | null
           organisation_id: string
+          outbound_lead_id?: string | null
+          outbound_upload_attempted_at?: string | null
+          outbound_upload_error?: string | null
+          outbound_upload_status?: string
           personalisation_trigger?: string | null
           qualification_status?: string | null
           research_ran_at?: string | null
@@ -1040,6 +1053,7 @@ export type Database = {
           website_url?: string | null
         }
         Update: {
+          campaign_id?: string | null
           classified_at?: string | null
           company_name?: string | null
           created_at?: string
@@ -1052,6 +1066,10 @@ export type Database = {
           last_name?: string | null
           linkedin_url?: string | null
           organisation_id?: string
+          outbound_lead_id?: string | null
+          outbound_upload_attempted_at?: string | null
+          outbound_upload_error?: string | null
+          outbound_upload_status?: string
           personalisation_trigger?: string | null
           qualification_status?: string | null
           research_ran_at?: string | null
@@ -1069,6 +1087,13 @@ export type Database = {
           website_url?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "prospects_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "prospects_current_research_result_id_fkey"
             columns: ["current_research_result_id"]
@@ -1702,4 +1727,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-
