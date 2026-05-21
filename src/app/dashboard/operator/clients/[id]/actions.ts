@@ -4,7 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { validateCampaign } from '@/lib/integrations/handlers/instantly/validateCampaign'
 import { uploadLeads } from '@/lib/integrations/handlers/instantly/uploadLeads'
-import type { ProspectForUpload } from '@/lib/integrations/handlers/instantly/types'
+import { orderMailboxes } from '@/lib/integrations/handlers/instantly/orderMailboxes'
+import { INSTANTLY_DFY_ALLOWED_TLDS } from '@/lib/integrations/handlers/instantly/constants'
+import type { ProspectForUpload, DfyOrderResult } from '@/lib/integrations/handlers/instantly/types'
 
 export type SetupStatusField = 'campaigns' | 'linkedin'
 export type SetupStatusValue = 'pending' | 'in_progress' | 'complete'
@@ -235,4 +237,60 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   }
 
   return { ok: true, created, duplicated, in_blocklist, invalid, incomplete, total_attempted }
+}
+
+// ── DFY mailbox order actions ─────────────────────────────────────────────────
+
+export type DfyQuoteResult =
+  | { ok: true; order_is_valid: boolean; total_price: number | null }
+  | { ok: false; error: string }
+
+export type DfyOrderActionResult =
+  | { ok: true; order_placed: boolean }
+  | { ok: false; error: string }
+
+export { INSTANTLY_DFY_ALLOWED_TLDS }
+
+export async function handleDfyQuote(orgId: string, domains: string[]): Promise<DfyQuoteResult> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  try {
+    const result: DfyOrderResult = await orderMailboxes(orgId, domains, true)
+    return { ok: true, order_is_valid: result.order_is_valid, total_price: result.total_price }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function handleDfyRealOrder(orgId: string, domains: string[]): Promise<DfyOrderActionResult> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  try {
+    const result: DfyOrderResult = await orderMailboxes(orgId, domains, false)
+    return { ok: true, order_placed: result.order_placed }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
 }

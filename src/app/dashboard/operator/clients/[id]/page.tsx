@@ -4,6 +4,7 @@ import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { SetupStatusPanel } from './SetupStatusPanel'
 import { CampaignRegistrationPanel } from './CampaignRegistrationPanel'
 import { LeadUploadPanel } from './LeadUploadPanel'
+import { MailboxOrderPanel } from './MailboxOrderPanel'
 import type { SetupStatusShape } from './SetupStatusPanel'
 import type { SetupStatusValue } from './actions'
 
@@ -95,6 +96,11 @@ export default async function ClientDetailPage({
               orgId={org.id}
               instantlyApiActive={instantlyApiActive}
               pendingCount={pendingCount}
+            />
+
+            <MailboxOrderPanel
+              orgId={org.id}
+              instantlyApiActive={instantlyApiActive}
             />
           </div>
         </div>
