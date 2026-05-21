@@ -1516,6 +1516,11 @@ is integrated. Refactor cost: ~2-4 hours. Decision: fix now or defer to Phase 2.
   current single-path composition is leaving meaningful pipeline on the
   table.
 
+- [pre-c1] Add covering index on campaigns(organisation_id) (2026-05-21)
+  Audit (2026-05-21) flagged campaigns_organisation_id_fkey has no covering index.
+  Performance advisor warning. Low impact at single-digit orgs but worth fixing before scale.
+  Single migration: CREATE INDEX IF NOT EXISTS idx_campaigns_organisation_id ON campaigns(organisation_id);
+
 - [phase2] Signal threshold processing logic (3/5/10 tier evaluation)
 - [phase2] A/B variant generation when 5-signal threshold crossed
 - [phase2] Conflict resolution UI for competing document suggestions
