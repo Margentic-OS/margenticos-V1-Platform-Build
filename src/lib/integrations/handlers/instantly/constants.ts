@@ -2,4 +2,21 @@
 // Both the reply-actions handler and the polling layer import from here
 // so a base URL or version change only requires one edit.
 
+/** @deprecated Use INSTANTLY_API_BASE_URL instead. Retained for backward compatibility with
+ *  existing handlers until they are migrated incrementally within Prompt 3B. */
 export const INSTANTLY_API_BASE = 'https://api.instantly.ai/api/v2'
+
+// Configurable base URL for the Instantly V2 API. Set INSTANTLY_API_BASE_URL in your
+// environment to override — e.g. to keep mock mode active while a subscription is live,
+// or to point a test run at a local proxy.
+//
+// Development default: Instantly's public mock server (no subscription or API key required).
+// Production default: Instantly's live API.
+//
+// Both defaults include the /api/v2 path so handlers can append endpoint paths directly,
+// e.g. `${INSTANTLY_API_BASE_URL}/leads/add`.
+export const INSTANTLY_API_BASE_URL: string =
+  process.env.INSTANTLY_API_BASE_URL ??
+  (process.env.NODE_ENV === 'production'
+    ? 'https://api.instantly.ai/api/v2'
+    : 'https://developer.instantly.ai/_mock/api/v2')
