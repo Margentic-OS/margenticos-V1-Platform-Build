@@ -740,15 +740,234 @@ document.querySelectorAll('.chip').forEach(btn => {
   });
 });
 
-// ── Stubs — Chunk D will replace this line ────────────────────────────────────────
-function renderDefaultSidebar() {}
-function renderNodeDetail(id) {}
+// ── HTML helpers ──────────────────────────────────────────────────────────────────
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Sidebar: default view ─────────────────────────────────────────────────────────
+function renderDefaultSidebar() {
+  const ss = D.systemState;
+  const sc = document.getElementById('sidebar-content');
+  const dot = (on) => `<div class="state-dot ${on?'green':'red'}"></div>`;
+
+  let h = `
+  <div class="system-state-panel">
+    <div class="ssp-title">Snapshot generated ${D.generatedAt}</div>
+    <div class="ssp-note">${escapeHtml(ss.note)}</div>
+    <div class="state-rows">
+      <div class="state-row">${dot(ss.capabilitiesConnected)} Capabilities connected: ${ss.capabilitiesConnected?'YES':'NO'}</div>
+      <div class="state-row">${dot(ss.instantlyApiActive)} Instantly API: ${ss.instantlyApiActive?'active':'inactive'} (mode: ${escapeHtml(ss.instantlyApiMode)})</div>
+      <div class="state-row">${dot(ss.apolloApiActive)} Apollo API: ${ss.apolloApiActive?'active':'inactive'}</div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-heading">What this map shows</div>
+    <p class="prose">This is a snapshot of how MargenticOS is wired together as of ${D.generatedAt}. <strong>Click any box</strong> to see what it does in plain English, where it lives in the code, and what could break.</p>
+  </div>
+  <div class="divider"></div>
+
+  <div class="sidebar-section">
+    <div class="section-heading">The spine of the product</div>
+    <p class="prose">${escapeHtml(SPINE_TEXT)}</p>
+  </div>
+  <div class="divider"></div>
+
+  <div class="sidebar-section">
+    <div class="section-heading">The most important architectural principle</div>
+    <p class="prose">${escapeHtml(ADR001_TEXT)}</p>
+  </div>
+  <div class="divider"></div>
+
+  <div class="sidebar-section">
+    <div class="section-heading">Notable findings</div>`;
+
+  D.notableFindings.forEach(f => {
+    h += `<div class="finding-card">
+      <h4>${escapeHtml(f.title)}</h4>
+      <div class="finding-plain">${escapeHtml(f.plain)}</div>
+      <code class="finding-cite">${escapeHtml(f.cite)}</code>
+    </div>`;
+  });
+
+  h += `</div><div class="divider"></div>
+  <div class="sidebar-section">
+    <div class="section-heading">How to read this map</div>
+    <div class="legend-grid">
+      <div class="legend-item"><div class="legend-swatch" style="background:#ff3860;height:2px;margin-top:5px"></div>Critical path (live)</div>
+      <div class="legend-item"><div class="legend-swatch" style="border-top:2px dashed #ff3860;height:0;margin-top:5px"></div>Critical path (mocked)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#f5b942;height:2px;margin-top:5px"></div>External API call</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#ffb86b;height:2px;margin-top:5px"></div>Database read/write</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#4ea1ff;height:2px;margin-top:5px"></div>Surface &rarr; route mount</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#4a4a4a;height:2px;margin-top:5px"></div>Internal flow</div>
+      <div class="legend-item"><div class="legend-node-dot" style="border-color:#e8e8e8;border-width:2.5px"></div>Critical node (thick border)</div>
+      <div class="legend-item"><div class="legend-node-dot" style="border-color:#888;border-style:dashed"></div>Mock / built, waiting</div>
+      <div class="legend-item"><div style="width:12px;height:12px;border-radius:50%;background:#ff3860;flex-shrink:0"></div>Red badge = known bug</div>
+      <div class="legend-item"><div style="width:12px;height:12px;border-radius:50%;background:#3ecf8e;flex-shrink:0"></div>Green badge = fix applied</div>
+    </div>
+  </div>`;
+
+  sc.innerHTML = h;
+}
+
+// ── Sidebar: node detail view ─────────────────────────────────────────────────────
+function renderNodeDetail(id) {
+  const n = nodeMap[id];
+  if (!n) return;
+  const sc = document.getElementById('sidebar-content');
+  const incoming = D.edges.filter(e => e.to === id);
+  const outgoing = D.edges.filter(e => e.from === id);
+
+  function connRow(edgeLabel, otherNode, arrow) {
+    const lbl = otherNode ? otherNode.label : '(unknown)';
+    return `<div class="connection-row">
+      <span class="conn-arrow">${arrow}</span>
+      <span class="conn-node" title="${escapeHtml(lbl)}">${escapeHtml(lbl)}</span>
+      <span class="conn-label">&nbsp;${escapeHtml(edgeLabel||'')}</span>
+    </div>`;
+  }
+
+  let h = `
+  <div class="detail-label">${escapeHtml(n.label)}</div>
+  <div class="detail-sub">${escapeHtml(n.sub||'')}</div>
+
+  <div class="plain-panel">
+    <div class="pp-title">&#9654; Plain English</div>
+    <p>${escapeHtml(n.plain||'')}</p>
+  </div>`;
+
+  if (n.role) h += `<div class="role-text">${escapeHtml(n.role)}</div>`;
+
+  if (n.path) {
+    const escaped = escapeHtml(n.path);
+    const highlighted = escaped.replace(/(:[\d]+)/g,'<span class="line-num">$1</span>');
+    h += `<div class="path-line">${highlighted}</div>`;
+  }
+
+  if (n.whatCanBreak && n.whatCanBreak.length) {
+    h += `<div class="break-panel">
+      <div class="bp-title">&#9888; What can break</div>
+      <ul>${n.whatCanBreak.map(b=>`<li>${escapeHtml(b)}</li>`).join('')}</ul>
+    </div>`;
+  }
+
+  if (n.notes && n.notes.length) {
+    h += `<div class="notes-section">
+      <div class="section-heading">Notes</div>
+      <ul>${n.notes.map(nt=>`<li>${escapeHtml(nt)}</li>`).join('')}</ul>
+    </div>`;
+  }
+
+  if (incoming.length) {
+    h += `<div class="sidebar-section"><div class="section-heading">Connects from (${incoming.length})</div>
+    <div class="connection-list">
+      ${incoming.map(e=>connRow(e.label,nodeMap[e.from],'&larr;')).join('')}
+    </div></div>`;
+  }
+
+  if (outgoing.length) {
+    h += `<div class="sidebar-section"><div class="section-heading">Connects to (${outgoing.length})</div>
+    <div class="connection-list">
+      ${outgoing.map(e=>connRow(e.label,nodeMap[e.to],'&rarr;')).join('')}
+    </div></div>`;
+  }
+
+  const bug = D.KNOWN_BUGS[id];
+  if (bug) {
+    h += `<div class="sidebar-section"><div class="section-heading">Known bug</div>
+    <div class="bug-card ${escapeHtml(bug.severity||'MEDIUM')}">
+      <div class="bug-id">${escapeHtml(bug.id)}</div>
+      <div class="bug-summary">${escapeHtml(bug.summary)}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">${escapeHtml(bug.resolution||'')}</div>
+    </div></div>`;
+  }
+
+  const fix = D.FIXES[id];
+  if (fix) {
+    h += `<div class="sidebar-section"><div class="section-heading">Applied fix</div>
+    <div class="fix-card">
+      <div class="fix-id">${escapeHtml(fix.id)}</div>
+      <div class="fix-summary">${escapeHtml(fix.summary)}</div>
+      <div class="fix-fixed-in">${escapeHtml(fix.fixedIn||'')}</div>
+    </div></div>`;
+  }
+
+  sc.innerHTML = h;
+  sc.scrollTop = 0;
+}
+
+// ── Selection highlight ───────────────────────────────────────────────────────────
+function highlightSelection(nodeId) {
+  const connected = new Set([nodeId]);
+  D.edges.forEach(e => {
+    if (e.from === nodeId) connected.add(e.to);
+    if (e.to === nodeId) connected.add(e.from);
+  });
+  nodeGroup.querySelectorAll('[data-node]').forEach(el => {
+    el.setAttribute('opacity', connected.has(el.getAttribute('data-node')) ? 1 : 0.12);
+  });
+  edgeGroup.querySelectorAll('[data-edge]').forEach(el => {
+    const fid = el.getAttribute('data-from'), tid = el.getAttribute('data-to');
+    el.setAttribute('opacity', (fid === nodeId || tid === nodeId) ? 1 : 0.08);
+  });
+}
+
+function clearSelection() {
+  selectedNodeId = null;
+  applyFilter(currentFilter);
+  renderDefaultSidebar();
+}
+
+// ── Node hover ────────────────────────────────────────────────────────────────────
+nodeGroup.addEventListener('mouseover', e => {
+  const el = e.target.closest('[data-node]');
+  if (!el || selectedNodeId) return;
+  const rect = el.querySelector('rect');
+  if (rect) {
+    const n = nodeMap[el.getAttribute('data-node')];
+    rect.setAttribute('stroke-width', (n && n.critical ? 2.2 : 1) + 1.5);
+  }
+});
+nodeGroup.addEventListener('mouseout', e => {
+  const el = e.target.closest('[data-node]');
+  if (!el) return;
+  const rect = el.querySelector('rect');
+  if (rect) {
+    const n = nodeMap[el.getAttribute('data-node')];
+    rect.setAttribute('stroke-width', n && n.critical ? 2.2 : 1);
+  }
+});
+
+// ── Node click ────────────────────────────────────────────────────────────────────
+nodeGroup.addEventListener('click', e => {
+  const el = e.target.closest('[data-node]');
+  if (!el) return;
+  e.stopPropagation();
+  const id = el.getAttribute('data-node');
+  selectedNodeId = id;
+  highlightSelection(id);
+  renderNodeDetail(id);
+});
+
+// ── Canvas background click (deselect) ───────────────────────────────────────────
+svg.addEventListener('click', e => {
+  if (!e.target.closest('[data-node]')) clearSelection();
+});
+
+// ── Escape key ────────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && selectedNodeId) clearSelection();
+});
+
+// ── Initial render ────────────────────────────────────────────────────────────────
 document.getElementById('gen-date').textContent = 'Generated ' + D.generatedAt;
 fitToView();
 renderEdges();
 applyFilter('overview');
 renderDefaultSidebar();
-/* ARCHITECTURE_MAP_PLACEHOLDER_D */
 </script>
 </body>
 </html>
