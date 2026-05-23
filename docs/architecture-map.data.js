@@ -901,8 +901,533 @@ window.MAP_DATA = {
       tag: ['all'],
     },
 
-  ], // nodes — temporary close; chunk 3 will replace this line with clusters 5-6
-  edges: [],    // temporary stub
+
+    // ─── CLUSTER 5: Database ─────────────────────────────────────────────────────
+
+    {
+      id: 'db-organisations', cluster: 'database',
+      label: 'organisations', sub: 'Core org row · RLS enforced',
+      x: 1590, y: 180, w: 280, h: 80, color: 'data',
+      role: 'Root record for every client organisation; holds founder_first_name, calendly_url, auto_approve_window_hours, setup_status JSONB, and created_at for pipeline unlock timing.',
+      plain: 'The single row that represents a client. Every other table joins back to this. founder_first_name and calendly_url are required before any reply can send. setup_status JSONB tracks whether intake, agents, and docs are complete. created_at drives the 2-month pipeline view unlock.',
+      path: 'supabase/migrations/',
+      notes: [
+        'founder_first_name: required by send-approved-draft before any reply can send',
+        'calendly_url: required if any reply body contains {calendly_link} placeholder',
+        'auto_approve_window_hours: default 72h; configurable per org; used by /api/cron/auto-approve',
+        'setup_status JSONB: updated by route-agents-icp after all four agents complete (atomic UPDATE WHERE docs_complete_notification_sent_at IS NULL)',
+      ],
+      whatCanBreak: [
+        'founder_first_name_required_but_missing on send — organisations row exists but founder_first_name is NULL or empty string; set it in operator settings',
+        'Pipeline view stays locked after 2 months — check organisations.created_at is set at org creation time, not at user creation time; a mismatch means the unlock calculation is wrong',
+        'setup_status.documents stuck at "in_progress" — check agent_runs for all four agents; if all show completed, the atomic UPDATE in route-agents-icp may have failed; check Sentry for that route',
+      ],
+      tag: ['all'], critical: true,
+    },
+
+    {
+      id: 'db-users', cluster: 'database',
+      label: 'users + users_pending_review', sub: 'App users · multi-user gate',
+      x: 1590, y: 280, w: 280, h: 80, color: 'data',
+      role: 'users table extends auth.users with organisation_id and role; users_pending_review holds blocked multi-user signup attempts pending operator review.',
+      plain: 'Every person who logs in has a row here linking them to a client org with a role (operator or client). A Postgres trigger auto-creates this row on signup. If someone tries to join an org that already has a user, they go into users_pending_review instead — a blocked list that emails the operator.',
+      path: 'supabase/migrations/',
+      notes: [
+        'handle_new_auth_user and handle_new_user triggers create users row on auth.users INSERT',
+        'get_my_organisation_id() Postgres function reads from this table',
+        'users_pending_review INSERT triggers route-webhook-users via Supabase DB webhook',
+        'is_operator() Postgres function used in RLS policies across all tables',
+      ],
+      whatCanBreak: [
+        'New user sees blank dashboard — users row not created; handle_new_user trigger failed; check Supabase database logs for trigger errors',
+        'User can access wrong org data — organisation_id set incorrectly at signup; RLS policies enforce org isolation at DB level but rely on this column being correct',
+        'Blocked signup email not sent — users_pending_review DB webhook may be pointing to a preview URL instead of production; check Supabase webhook configuration',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'db-intake', cluster: 'database',
+      label: 'intake_responses · intake_files · intake_website_pages', sub: 'Intake input tables',
+      x: 1590, y: 380, w: 280, h: 80, color: 'data',
+      role: 'Three tables capturing all client intake inputs: structured questionnaire answers (intake_responses), uploaded files with extracted text (intake_files), and scraped website pages (intake_website_pages).',
+      plain: 'Everything the client gives you during intake lives here. intake_responses has the questionnaire answers. intake_files has the uploaded PDFs and docs with their text already extracted. intake_website_pages has the scraped pages from their company URL. All four strategy agents read from these tables.',
+      path: 'supabase/migrations/',
+      notes: [
+        'Text is extracted from uploaded files at upload time by /api/intake/files/upload — not at agent run time',
+        'Website scrape fires on company_url blur in the intake form; Cloudflare-protected sites may return empty silently',
+        '80% completeness threshold checked against intake_responses critical fields before route-intake-complete fires agents',
+      ],
+      whatCanBreak: [
+        'Agents generate generic output — intake_website_pages is empty because the company site was behind Cloudflare during scrape; no error surface; check intake_website_pages for the org',
+        'File upload succeeds in UI but text is missing — text extraction failed silently during upload; check intake_files.extracted_text for NULL values; re-upload the file',
+        'Completeness check passes UI but fails server-side — the 80% threshold check in route-intake-complete re-runs on every submit; if a critical field was cleared between the Done button appearing and the submit, it will reject',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'db-document-suggestions', cluster: 'database',
+      label: 'document_suggestions', sub: 'Agent output queue — CRITICAL',
+      x: 1590, y: 480, w: 280, h: 80, color: 'data',
+      critical: true,
+      role: 'Staging table for all agent-generated strategy document content; agents write here, operators approve or reject, approve_document_suggestion RPC promotes to strategy_documents.',
+      plain: 'The queue between agents and approved documents. Every agent writes its output here as a pending suggestion — never directly to strategy_documents. When Doug approves in the approvals panel, an atomic Postgres transaction archives the old document and activates the new one. Suggestions that are never actioned auto-approve after 72 hours.',
+      path: 'supabase/migrations/',
+      notes: [
+        'ADR-002: agents never write directly to strategy_documents — always through document_suggestions',
+        'Status values: pending, approved, rejected, auto_approved',
+        'auto_approve_window_hours on organisations row controls the 72h default',
+        'approve_document_suggestion Postgres function handles the atomic archive + activate transaction',
+      ],
+      whatCanBreak: [
+        'Approvals queue empty but agents show completed — check document_suggestions directly; if no pending row exists, the agent hit an error after the LLM call but before the DB insert; check agent_runs.error_message',
+        'Suggestion approved but strategy_documents not updated — approve_document_suggestion RPC failed; check Sentry for the approve route; the RPC is atomic and will not leave a partial state',
+        'Auto-approve fires before review — check organisations.auto_approve_window_hours; pg_cron /api/cron/auto-approve job fires hourly',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'db-strategy-documents', cluster: 'database',
+      label: 'strategy_documents', sub: 'Approved docs · status=active only — CRITICAL',
+      x: 1590, y: 580, w: 280, h: 80, color: 'data',
+      critical: true,
+      role: 'Holds approved strategy documents (icp, positioning, tov, messaging) with status=active; one active row per type per organisation; archived rows remain for history.',
+      plain: 'Where approved strategy documents live. Only status=active rows are shown to clients. When a new suggestion is approved, the old active document is archived and the new one becomes active — atomically in a single Postgres transaction. The messaging agent and reply-draft agent read from this table at runtime.',
+      path: 'supabase/migrations/',
+      notes: [
+        'Valid document types: icp, positioning, tov, messaging',
+        'approve_document_suggestion archives previous active row then inserts new active row — one transaction',
+        'Messaging content stored as bare JSON array (ADR-012) — renderers must check Array.isArray(content) before any key lookup',
+        'Reply-draft agent reads TOV document from this table at draft generation time',
+      ],
+      whatCanBreak: [
+        'Client sees empty strategy page — no row with status=active for that type and organisation_id; check whether suggestion was approved and approve_document_suggestion ran successfully',
+        'Querying status=\'approved\' returns zero rows — the live status is "active" not "approved"; this exact bug was fixed previously (BACKLOG DONE 2026-04-22); never query by status=approved on this table',
+        'Messaging document renders blank — renderer checks content.emails instead of content[0]; messaging content is a bare JSON array (ADR-012), not an object',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'db-agent-runs', cluster: 'database',
+      label: 'agent_runs', sub: 'Agent execution log · status + error_message',
+      x: 1590, y: 680, w: 280, h: 80, color: 'data',
+      role: 'Audit log for every agent invocation: agent_name, status (queued, running, completed, failed), started_at, completed_at, error_message, token usage.',
+      plain: 'The execution log for every agent run. When Doug checks the operator activity panel, this is what it reads. If an agent failed, the error is here. If it timed out, the error is here. The first place to look when a strategy document is missing after intake.',
+      path: 'supabase/migrations/',
+      notes: [
+        'Written by each agent route on start and on completion/failure',
+        'Operator activity panel reads from this table',
+        'error_message column holds the actual exception text — more specific than Sentry for agent failures',
+        'token_count and cost_usd columns for billing visibility (phase 2 — columns may not exist yet)',
+      ],
+      whatCanBreak: [
+        'Activity panel shows no runs — agent_runs rows not created; check whether the agent routes are being called; a 404 on the agent route means the route file is missing or misnamed',
+        'Agent shows status=running indefinitely — agent started but never wrote a completion row; the Vercel function timed out; check Vercel function logs for the agent route',
+        'error_message is null on a failed run — the agent caught the error but did not write it to agent_runs.error_message; check the agent route error handler',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'db-prospects', cluster: 'database',
+      label: 'prospects + prospect_research_results', sub: 'Sourced contacts · deduplication by email',
+      x: 1590, y: 780, w: 280, h: 80, color: 'data',
+      role: 'prospects holds deduped, enriched contacts ready for campaign upload; prospect_research_results holds raw sourcing output before deduplication.',
+      plain: 'Two-stage prospect storage. Raw sourcing results from Apollo land in prospect_research_results first. After deduplication by email, clean records move to prospects. The composition layer reads from prospects to build personalised sequences. The lead upload handler reads from prospects to push to Instantly.',
+      path: 'supabase/migrations/',
+      notes: [
+        'Deduplication is by email — unique constraint on prospects.email per organisation_id',
+        'has_dateable_signal and signal_relevance fields on prospects control the compose-sequence bridge branch',
+        'sourced_tier column does not exist — ADR-017 dead architecture (see compose-sequence node)',
+        'organisation_id required on every row — RLS policies block cross-org reads',
+      ],
+      whatCanBreak: [
+        'Duplicate prospect rows — unique constraint violation; second Apollo source returned same email; check prospect_research_results for duplicates before inserting into prospects',
+        'Bridge path never fires in compose-sequence — has_dateable_signal is NULL rather than false on prospects; check the enrichment step that should set this field',
+        'Prospects appear in DB but not in Instantly campaign — uploadLeadsToCampaign has not been called yet, or it failed; check Sentry for the upload route',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'db-signals', cluster: 'database',
+      label: 'signals', sub: 'Inbound reply records · raw_data JSONB',
+      x: 1590, y: 880, w: 280, h: 80, color: 'data',
+      role: 'Each row is an inbound reply event from Instantly; raw_data JSONB holds the full Instantly payload including id (thread UUID), eaccount, subject, body, and bounce/status codes.',
+      plain: 'A signal is an inbound reply. Every time a prospect replies, Instantly fires an event, the polling handler ingests it here. The reply_classifier reads the signal body. The send-approved-draft step reads signal.raw_data.id and signal.raw_data.eaccount to thread the outbound reply correctly.',
+      path: 'supabase/migrations/',
+      notes: [
+        'raw_data.id = Instantly thread UUID (replyToUuid) — required by sendThreadReply()',
+        'raw_data.eaccount = the Instantly email account that received the reply — required by sendThreadReply()',
+        'raw_data.body = the prospect reply text used by reply-classifier and reply-draft-agent',
+        'original_outbound_body column: the email the prospect was replying to — used by reply-draft-agent for context',
+      ],
+      whatCanBreak: [
+        'send-approved-draft fails with thread_context_missing — signal.raw_data is missing id or eaccount; signal was ingested before these fields were present in the Instantly payload; check polling handler',
+        'reply-classifier receives empty body — raw_data.body is a nested object (body.text) not a string; classifier prompt must handle both shapes; check the signal ingestion normalisation step',
+        'Signal ingested for wrong organisation_id — polling handler must scope ingestion to the org whose API key retrieved the reply; cross-org signal ingestion would be a data leak',
+      ],
+      tag: ['all'], critical: true,
+    },
+
+    {
+      id: 'db-reply-drafts', cluster: 'database',
+      label: 'reply_drafts', sub: 'Draft lifecycle · pending_review → approved → sent',
+      x: 1590, y: 980, w: 280, h: 80, color: 'data',
+      role: 'Tracks every generated reply draft through its lifecycle: pending_review (awaiting operator), approved (send triggered), sent (Instantly confirmed), send_failed (failed with error), circuit_open (circuit breaker halted this org).',
+      plain: 'The table that tracks every reply draft from creation to send. Operators see pending_review drafts in the UI. Approving moves it to approved and fires send-approved-draft. After the Instantly call succeeds, it moves to sent. The status column is the source of truth — the send orchestrator uses it as an idempotency gate.',
+      path: 'supabase/migrations/',
+      notes: [
+        'Status values: pending_review, approved, send_failed, sent, circuit_open',
+        'Atomic UPDATE WHERE status=\'approved\' in send-approved-draft guards concurrent approval calls',
+        'final_sent_body: what was actually sent (after operator edits + Calendly sub + sign-off)',
+        'ai_draft_body: what the agent generated before operator editing',
+        'send_error: populated on send_failed with the specific error reason',
+        'instantly_message_id: the Instantly message ID returned on successful send',
+      ],
+      whatCanBreak: [
+        'Draft stuck at status=approved — send-approved-draft threw or was never called; re-triggering approval re-enters the idempotency check safely',
+        'Draft shows send_failed — check send_error column for the specific reason; most common: calendly_link_required_but_missing, founder_first_name_required_but_missing, instantly_api_error',
+        'db_update_failed_after_send state — draft is stuck at send_failed but the email was sent; Sentry has the instantly_message_id; manually set status=sent and populate instantly_message_id',
+      ],
+      tag: ['all'], critical: true,
+    },
+
+    {
+      id: 'db-campaigns', cluster: 'database',
+      label: 'campaigns', sub: 'Campaign records · analytics columns · external_id',
+      x: 1590, y: 1080, w: 280, h: 80, color: 'data',
+      role: 'One row per Instantly campaign; holds the external_id (Instantly campaign UUID), status, and analytics columns updated by the 15-minute polling handler.',
+      plain: 'One row per email campaign. The external_id column links it to the Instantly campaign so the analytics handler can fetch numbers. The four analytics columns (sent_count, replied_count, bounced_count, campaign_stats_updated_at) are updated every 15 minutes by pg_cron.',
+      path: 'supabase/migrations/',
+      notes: [
+        'external_id must match the Instantly campaign UUID exactly — case-sensitive',
+        'sent_count, replied_count, bounced_count, campaign_stats_updated_at: confirmed live in Supabase 2026-05-22 (BL-PC0-1 DONE)',
+        'check_prospect_campaign_org_match Postgres function validates campaign belongs to org before writes',
+        'Pipeline page StatsRow reads from campaigns.sent_count / replied_count for reply rate calculation',
+      ],
+      whatCanBreak: [
+        'Analytics always show 0 — external_id is not set on the campaigns row; the polling handler finds no Instantly campaign to query',
+        'bounced_count not incrementing — BL-PC0-3: BOUNCED constant value unverified; needs a live bounced lead to confirm the Instantly API returns the expected status code',
+        'Pipeline reply rate shows wrong number — StatsRow divides replied_count by sent_count; if sent_count is 0 (campaigns launched but no sends yet), the result is 0% not an error',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'db-faqs', cluster: 'database',
+      label: 'faqs + faq_extractions', sub: 'FAQ library · curation queue',
+      x: 1590, y: 1180, w: 280, h: 80, color: 'data',
+      role: 'faqs holds the approved FAQ library for each org; faq_extractions holds candidates extracted from tier-3 reply exchanges awaiting operator approval.',
+      plain: 'Two-part FAQ system. faq_extractions is the queue of extracted Q&A pairs the agent found in tier-3 reply conversations — they wait here for operator review. When Doug approves one, it becomes a row in faqs (or merges with an existing FAQ via append_faq_variant). The FAQ library feeds the reply-draft agent.',
+      path: 'supabase/migrations/',
+      notes: [
+        'append_faq_variant Postgres function appends a variant answer to an existing FAQ row',
+        'append_faq_variant had public execute access before migration 20260521134057_revoke_public_execute_security_fix.sql — fixed',
+        'faq_extractions.similar_faq_id: if set, approve-merge will call append_faq_variant; if null, approve-new creates a fresh faq row',
+        'faq_extractions.status: pending, approved_new, approved_merged, rejected',
+      ],
+      whatCanBreak: [
+        'approve-merge fails with FK violation — similar_faq_id points to a deleted faq row; use approve-new instead or update the similar_faq_id to a live faq',
+        'FAQ library not being used by reply-draft agent — check that the reply-draft agent prompt actually queries faqs for the org; if the query is missing, the library grows but is never consulted',
+        'faq_extractions queue not draining — operator has not visited the FAQ curation panel; no auto-approve for FAQ extractions (by design — curator must decide)',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'db-integration-infra', cluster: 'database',
+      label: 'integration_credentials · integrations_registry · polling_cursors · reply_handling_actions · patterns · meetings',
+      sub: 'Infrastructure support tables',
+      x: 1590, y: 1280, w: 280, h: 80, color: 'data',
+      role: 'Six support tables: integration_credentials (API keys), integrations_registry (ADR-001 capability registry), polling_cursors (reply polling state), reply_handling_actions (reply audit), patterns (anonymised cross-org insights), meetings (booked meeting tracking).',
+      plain: 'The plumbing tables. integration_credentials stores API keys (plaintext — BL-CREDS). integrations_registry is the ADR-001 capability registry that says which tool handles each capability. polling_cursors tracks where the reply poller left off. reply_handling_actions is the reply processing audit log. patterns holds anonymised insights the aggregation agent generates. meetings tracks booked meetings for pipeline metrics.',
+      path: 'supabase/migrations/',
+      notes: [
+        'integration_credentials: stores API keys as plaintext — BL-CREDS deferred to post-launch',
+        'integrations_registry: is_active flags are all false as of 2026-05-23 (systemState)',
+        'patterns: written ONLY by the dedicated pattern aggregation agent — no other code writes here (CLAUDE.md)',
+        'polling_cursors: must have a row per organisation before reply polling can start',
+      ],
+      whatCanBreak: [
+        'Reply polling never advances — polling_cursors row missing for the org; must be inserted when an org activates campaigns',
+        'patterns table written by application code — architectural violation (CLAUDE.md); only the pattern aggregation agent may write here',
+        'meetings count in pipeline page is 0 — meetings rows not being created; check whether the meetings creation route is connected to the booking webhook (Calendly or equivalent)',
+      ],
+      tag: ['all'],
+    },
+
+    // ─── CLUSTER 6: External services + email templates ──────────────────────────
+
+    {
+      id: 'ext-supabase-auth', cluster: 'external',
+      label: 'Supabase Auth', sub: 'Magic link · OTP · session management',
+      x: 1970, y: 180, w: 280, h: 80, color: 'external',
+      role: 'Provides passwordless email authentication via magic links; manages JWT sessions; fires handle_new_auth_user trigger on signup.',
+      plain: 'Handles all login. Doug and clients enter their email, Supabase sends a magic link, clicking it creates a session. No passwords. On first signup Supabase fires the handle_new_auth_user DB trigger which creates the users row.',
+      path: 'supabase/',
+      notes: [
+        'Site URL must be set to production domain in Supabase dashboard — localhost setting causes magic links to redirect to a non-existent machine',
+        'OTP rate limit returns same "Something went wrong" error as real auth failures — BL-LOGIN (open): should surface "Too many requests" instead',
+        'NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY required in Vercel env for the login page to function',
+      ],
+      whatCanBreak: [
+        'Magic links redirect to localhost — Supabase Site URL is wrong; fix in Supabase dashboard → Authentication → URL Configuration; set to https://app.margenticos.com',
+        'Login page renders but magic link never sends — NEXT_PUBLIC_SUPABASE_ANON_KEY missing from Vercel env',
+        'User stuck in OTP rate limit loop — same error UI as real failure; BL-LOGIN; operator can see the rate limit state in Supabase Auth logs',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'ext-supabase-db', cluster: 'external',
+      label: 'Supabase Postgres', sub: 'RLS · pg_cron · Postgres functions · DB webhooks',
+      x: 1970, y: 280, w: 280, h: 80, color: 'external',
+      role: 'Managed Postgres with RLS enforced on all 22 public tables; 9 Postgres functions; 2 pg_cron jobs (instantly-poll every 15 min, process-replies every 5 min); DB webhooks for users_pending_review.',
+      plain: 'The database. RLS policies on every table mean a client can only ever read their own org data — enforced at the database level, not just in application code. pg_cron runs scheduled jobs inside Postgres. DB webhooks call route-webhook-users when someone is blocked from joining an org.',
+      path: 'supabase/',
+      notes: [
+        '22 public tables confirmed live 2026-05-22 (Supabase MCP query)',
+        '9 Postgres functions: append_faq_variant, approve_document_suggestion, check_prospect_campaign_org_match, get_my_organisation_id, handle_new_auth_user, handle_new_user, is_operator, rls_auto_enable, set_updated_at',
+        'pg_cron jobs: "instantly-poll" (15 min), "process-replies" (5 min)',
+        'SUPABASE_SERVICE_ROLE_KEY used by server-side API routes for admin operations — must never be exposed client-side',
+      ],
+      whatCanBreak: [
+        'RLS policy missing on a new table — any authenticated user can read any row; check rls_auto_enable function is being called in migrations for new tables',
+        'pg_cron job stopped — check pg_cron.job_run_details in Supabase SQL editor for error logs; jobs stop on unhandled exceptions',
+        'SUPABASE_SERVICE_ROLE_KEY missing from Vercel env — all server-side Supabase queries fail with permission errors; check Vercel environment variables',
+      ],
+      tag: ['all'], critical: true,
+    },
+
+    {
+      id: 'ext-anthropic', cluster: 'external',
+      label: 'Anthropic API', sub: 'claude-opus-4-6 · claude-sonnet-4-6 · claude-haiku-4-5-20251001',
+      x: 1970, y: 380, w: 280, h: 80, color: 'external',
+      role: 'LLM API used by all six agent files; three models assigned by ADR-013 based on task complexity and cost profile.',
+      plain: 'Claude. Every agent call goes through the Anthropic API. Opus for strategy documents (most expensive, best reasoning). Sonnet for messaging and reply drafts (balanced). Haiku for classification and extraction (fastest, cheapest). ANTHROPIC_API_KEY must be set in Vercel production env.',
+      path: 'src/agents/',
+      notes: [
+        'ADR-013 model assignments — must pass explicit model version string in every call',
+        'Model IDs: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001 (full date suffix required for Haiku)',
+        'ANTHROPIC_API_KEY checked at agent startup — throws immediately if missing',
+        'Rate limits are per-API-key; all six agents share one key; high intake volume could hit limits',
+      ],
+      whatCanBreak: [
+        'All agents fail simultaneously — ANTHROPIC_API_KEY missing or revoked in Vercel env; check environment variables in Vercel dashboard',
+        '404 from Anthropic on model call — model ID string is wrong; verify exact model IDs; "claude-haiku-4-5" without the "20251001" suffix is the most common mistake',
+        'Rate limit errors in Sentry — multiple simultaneous intake completions hitting the same API key; monitor Anthropic usage dashboard and consider rate-limiting intake submissions',
+      ],
+      tag: ['all'], critical: true,
+    },
+
+    {
+      id: 'ext-instantly', cluster: 'external',
+      label: 'Instantly', sub: 'Email campaigns · DFY mailboxes · reply webhook · v2 API',
+      x: 1970, y: 480, w: 280, h: 80, color: 'external',
+      role: 'Email automation platform: hosts campaigns, sends sequences, receives inbound replies, provides DFY mailbox provisioning, exposes v2 API for all of the above.',
+      plain: 'The email sending tool. Campaigns live here. Prospects are uploaded here. Sequences are sent from here. Replies come back through here. The MargenticOS reply poller pulls from Instantly every 5 minutes. API key stored in integration_credentials. Currently disconnected — sandbox mode.',
+      path: 'src/lib/integrations/handlers/instantly/',
+      notes: [
+        'API key stored in integration_credentials table (plaintext — BL-CREDS)',
+        'instantly_api_active flag in integrations_registry gates real API calls',
+        'Currently disconnected — systemState.instantlyApiActive = false',
+        'BL-PC0-3: BOUNCED constant value unverified without a live bounced lead',
+        'No webhook for mailbox provisioning completion — must check Instantly dashboard manually',
+      ],
+      whatCanBreak: [
+        'All Instantly calls fail with 401 — API key in integration_credentials is wrong or expired; replace the value field with a fresh key from the Instantly dashboard',
+        'Reply polling returns empty — campaign has no inbound replies yet, OR Instantly workspace does not match the API key; verify the API key belongs to the same workspace as the campaigns',
+        'DFY mailbox order placed but not provisioned — Instantly-side delay or error; check Instantly dashboard; there is no programmatic way to check provisioning status',
+      ],
+      tag: ['all'], critical: true,
+    },
+
+    {
+      id: 'ext-resend', cluster: 'external',
+      label: 'Resend', sub: 'Transactional email · operator notifications',
+      x: 1970, y: 580, w: 280, h: 80, color: 'external',
+      role: 'Sends operator notification emails: docs_complete (when all four strategy agents finish), multi-user-signup-attempt (when a blocked user tries to join an org).',
+      plain: 'The tool that sends notification emails to Doug. Two templates: when all four strategy documents are ready for review, and when someone tries to join a client account and gets blocked. RESEND_API_KEY must be in Vercel env.',
+      path: 'src/lib/email/',
+      notes: [
+        'RESEND_API_KEY required in Vercel env for all notification emails',
+        'docs_complete template: fired from route-agents-icp after all four agents complete and the atomic notification guard passes',
+        'multi-user-signup-attempt template: fired from route-webhook-users on INSERT to users_pending_review',
+      ],
+      whatCanBreak: [
+        'Doug does not receive docs_complete notification — RESEND_API_KEY missing from Vercel env, OR the from address is not verified in Resend, OR the atomic notification guard (UPDATE WHERE docs_complete_notification_sent_at IS NULL) failed to set the column',
+        'multi-user-signup-attempt email not sent — Supabase DB webhook pointing to a preview URL instead of production; check Supabase webhook configuration',
+        'Resend rate limit — unlikely at current volume but check Resend dashboard if multiple notifications fire at the same time',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'ext-sentry', cluster: 'external',
+      label: 'Sentry', sub: 'Error monitoring · alert rules · db_update_failed_after_send',
+      x: 1970, y: 680, w: 280, h: 80, color: 'external',
+      role: 'Captures all application exceptions, structured logs at error/warn level, and has a specific alert rule configured for db_update_failed_after_send (email sent but DB row not updated).',
+      plain: 'Error tracking. Every unhandled exception in the application goes to Sentry automatically. The logger module also sends structured error and warning events. There is a specific alert rule for db_update_failed_after_send because that case requires manual reconciliation — the email is in the prospect inbox but the database is wrong.',
+      path: 'src/lib/logger.ts',
+      notes: [
+        'SENTRY_DSN required in Vercel env for error capture',
+        'db_update_failed_after_send alert rule: fires when send-approved-draft logs a CRITICAL error; requires manual DB reconciliation',
+        'logger module wraps all console output — never use console.log/error/warn directly in application code',
+        'Debug-level logs must not appear in production — check LOG_LEVEL env var',
+      ],
+      whatCanBreak: [
+        'Errors not appearing in Sentry — SENTRY_DSN missing from Vercel env; or SENTRY_ENVIRONMENT is not set to "production" in production deploys',
+        'db_update_failed_after_send alert fires — email was sent but reply_drafts row was not updated to status=sent; check Sentry for draft_id and instantly_message_id; manually update the row',
+        'logger writes console.log in production — if LOG_LEVEL is not set correctly, debug logs leak to Vercel function logs and increase log storage costs',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'ext-vercel', cluster: 'external',
+      label: 'Vercel', sub: 'Hosting · three environments · Fluid Compute',
+      x: 1970, y: 780, w: 280, h: 80, color: 'external',
+      role: 'Hosts the Next.js application across three environments (development local, staging preview, production main); manages environment variables per environment.',
+      plain: 'Where the app runs. Three environments: your local machine for development, automatic preview deploys on every non-main git push for staging, and the main branch for production. Never push directly to production without staging verification. Environment variables are set separately per environment in the Vercel dashboard.',
+      path: 'vercel.json',
+      notes: [
+        'Repo is currently PUBLIC on GitHub to enable Vercel Hobby deploys — must flip to private before first paying client (requires Vercel Pro upgrade)',
+        'Three environments: development (local), staging (Vercel preview), production (Vercel main)',
+        'Vercel CLI version 52.0.0 is outdated — current is 54.4.1; upgrade recommended',
+        'Default function execution timeout: 300s on all plans',
+      ],
+      whatCanBreak: [
+        'Production env vars missing — a new env var added in development but not set in Vercel production scope; check Vercel dashboard → Settings → Environment Variables',
+        'Staging preview URL used in Supabase webhooks — after a new deploy, the preview URL changes; any Supabase webhook pointing to a preview URL will stop working; always point webhooks to the production URL',
+        'Repo made private before Vercel plan upgrade — Hobby plan cannot deploy private org repos; upgrade Vercel to Pro before making the repo private',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'ext-apollo', cluster: 'external',
+      label: 'Apollo', sub: 'Prospect sourcing · canonical industry translation',
+      x: 1970, y: 880, w: 280, h: 80, color: 'external',
+      role: 'B2B contact database used by prospect-research-agent-v2 for all four sourcing operations; Apollo-specific industry taxonomy is handled exclusively within the Apollo sourcing handler.',
+      plain: 'The database where prospect contacts come from. The agent passes canonical industry names (e.g. "Management Consulting") to the Apollo handler. The handler translates them to whatever Apollo calls that industry internally. Doug and the agents never see Apollo taxonomy — only canonical names.',
+      path: 'src/lib/integrations/handlers/',
+      notes: [
+        'ADR-015: canonical industry names in all upstream code; Apollo handler owns the translation table',
+        'API key stored in integration_credentials for source=apollo',
+        'Currently not active — Apollo account not set up as of 2026-05-23',
+        'prospect-research-agent-v2 runs four sourcing operations in parallel via Promise.all()',
+      ],
+      whatCanBreak: [
+        'All sourcing returns empty — Apollo API key not set in integration_credentials, or Apollo account is on a plan that does not include the data types being queried',
+        'Wrong industry type returned — canonical-to-Apollo translation map in the handler missing the client industry; add the mapping to the handler translation table',
+        'Apollo returns contacts but they are not in the right ICP — ICP filter spec was not built correctly from the ICP document; check the filter spec parameters being passed to the Apollo handler',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'ext-calendly', cluster: 'external',
+      label: 'Calendly', sub: 'Meeting booking · {calendly_link} substitution',
+      x: 1970, y: 980, w: 280, h: 80, color: 'external',
+      role: 'Client booking tool; the Calendly URL is stored in organisations.calendly_url and substituted into reply bodies at send time via substituteBookingLink().',
+      plain: 'Where prospects book meetings. The client\'s Calendly URL is stored in their org record. When send-approved-draft runs, it substitutes {calendly_link} in the reply body with the real URL. If organisations.calendly_url is null, the send fails with calendly_link_required_but_missing.',
+      path: 'src/lib/reply-handling/substitute-booking-link.ts',
+      notes: [
+        'substituteBookingLink() called as step 4 in send-approved-draft',
+        'Fails fast: if body contains {calendly_link} placeholder and org.calendly_url is null, the send is blocked',
+        'If the reply body has no {calendly_link} placeholder, the null URL is fine — no substitution needed',
+        'Calendly is registered as can_book_meeting in integrations_registry',
+      ],
+      whatCanBreak: [
+        'calendly_link_required_but_missing on send — organisations.calendly_url is null; set it in operator settings before approving replies that include a booking link',
+        'Wrong Calendly URL in sent email — organisations.calendly_url was updated after the draft was generated but before it was sent; the URL is substituted at send time, so the latest value in the DB is always used',
+        'Prospect reports broken Calendly link — the stored URL may be correct but the Calendly schedule may be full or paused; check the Calendly dashboard directly',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'ext-taplio-zapier', cluster: 'external',
+      label: 'Taplio (via Zapier)', sub: 'LinkedIn content · dashboard approval only · ADR-004/010',
+      x: 1970, y: 1080, w: 280, h: 80, color: 'external',
+      role: 'LinkedIn content scheduling tool; connected via Zapier or manual delivery from the MargenticOS dashboard; no programmatic API integration (Taplio has no public scheduling API).',
+      plain: 'LinkedIn post scheduling. Taplio is the tool but there is no direct API. The workflow is: agent generates LinkedIn content, Doug approves in the dashboard, content is delivered to Taplio manually or via Zapier. Never attempt to build a programmatic scheduling integration — there is no public API for it (ADR-004 and ADR-010).',
+      path: 'docs/ADR.md',
+      notes: [
+        'ADR-004: Taplio as publishing layer only — dashboard is the approval layer',
+        'ADR-010: no programmatic scheduling API — Taplio has not published one',
+        'Delivery from dashboard to Taplio is manual or via Zapier; no code integration exists or should be built',
+      ],
+      whatCanBreak: [
+        'Approved LinkedIn content not appearing in Taplio — manual handoff was missed; check the dashboard for approved LinkedIn content waiting for delivery',
+        'Zapier workflow breaks — Zapier connection between MargenticOS and Taplio has expired or the Taplio action changed; re-authenticate the Zapier workflow',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'tpl-magic-link', cluster: 'external',
+      label: 'magic-link email template', sub: 'Supabase Auth template · login flow',
+      x: 1970, y: 1180, w: 280, h: 80, color: 'external',
+      role: 'Supabase-managed email template for magic link authentication; configured in the Supabase Auth dashboard.',
+      plain: 'The login email. Supabase sends this when someone requests a magic link. The template and sending are handled entirely by Supabase — no application code. The redirect URL in the template must point to /auth/callback, which is auth/callback/route.ts.',
+      path: 'supabase/',
+      notes: [
+        'Template configured in Supabase dashboard → Authentication → Email Templates',
+        'Redirect URL must point to https://app.margenticos.com/auth/callback',
+        'auth/callback/route.ts handles the OTP exchange and sets the session cookie',
+      ],
+      whatCanBreak: [
+        'Magic link clicks through but user is not logged in — /auth/callback/route.ts is not receiving the OTP params; check the redirect URL in the Supabase template matches the production URL exactly',
+        'Magic link email styling broken — the Supabase custom template has HTML that breaks in certain email clients; test in Litmus or Mail Tester',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'tpl-docs-complete', cluster: 'external',
+      label: 'docs-complete notification template', sub: 'Resend · operator alert',
+      x: 1970, y: 1280, w: 280, h: 80, color: 'external',
+      role: 'Resend email template notifying the operator that all four strategy documents are ready for review; fired once per org after the last agent completes.',
+      plain: 'The email Doug gets when all four strategy documents are ready to review for a new client. Fired once per org — the atomic UPDATE WHERE docs_complete_notification_sent_at IS NULL guard prevents duplicate sends. If Doug does not receive it, the approvals queue still has the documents.',
+      path: 'src/lib/email/',
+      notes: [
+        'Fired from route-agents-icp after the docs_complete notification guard passes',
+        'Atomic idempotency guard on organisations.docs_complete_notification_sent_at prevents duplicate sends',
+        'If Resend fails, the documents are still in document_suggestions — they are not lost',
+      ],
+      whatCanBreak: [
+        'Email not received — RESEND_API_KEY missing, from address not verified in Resend, or the notification guard already fired (docs_complete_notification_sent_at is already set); check organisations row',
+        'Email fires multiple times for one org — idempotency guard failed; check whether docs_complete_notification_sent_at was set correctly by the UPDATE',
+      ],
+      tag: ['all'],
+    },
+
+    {
+      id: 'tpl-pending-review', cluster: 'external',
+      label: 'multi-user-signup-attempt template', sub: 'Resend · blocked signup alert',
+      x: 1970, y: 1380, w: 280, h: 80, color: 'external',
+      role: 'Resend email template alerting the operator when a second user attempt to join a client org is blocked and placed in users_pending_review.',
+      plain: 'The email Doug gets when someone tries to log in to a client account that already has a user and is blocked. Triggered by a Supabase DB webhook on INSERT to users_pending_review. Doug can then decide whether to approve or reject the access request.',
+      path: 'src/lib/email/',
+      notes: [
+        'Triggered by Supabase DB webhook on users_pending_review INSERT',
+        'Webhook must point to the production URL — not a preview URL',
+        'Route: route-webhook-users (/api/webhooks/users-pending-review-notify)',
+      ],
+      whatCanBreak: [
+        'Email not received after a blocked signup — Supabase DB webhook pointing to a preview URL or the RESEND_API_KEY is missing from Vercel production env',
+        'Payload shape mismatch — if the users_pending_review table schema changes, the webhook payload may not match what route-webhook-users expects; check for 400 errors in the webhook delivery logs in Supabase',
+      ],
+      tag: ['all'],
+    },
+
+  ], // end nodes
+  edges: [],    // temporary stub — chunk 4 will add real edges
   KNOWN_BUGS: {}, // temporary stub
   FIXES: {},      // temporary stub
 };
