@@ -572,15 +572,183 @@ D.nodes.forEach(n => {
   nodeGroup.appendChild(g);
 });
 
-// ── Stubs — Chunks C and D will replace this line ─────────────────────────────────
-function renderEdges() {}
-function applyFilter(f) { currentFilter = f; }
+// ── Edge styles and arrowhead markers ────────────────────────────────────────────
+const EDGE_STYLES = {
+  critical:       { stroke: '#ff3860', width: 2.5, dash: null },
+  'critical-mock':{ stroke: '#ff3860', width: 2.5, dash: '6 3' },
+  api:            { stroke: '#f5b942', width: 1.5, dash: null },
+  db:             { stroke: '#ffb86b', width: 1.5, dash: null },
+  mount:          { stroke: '#4ea1ff', width: 1.5, dash: null },
+  normal:         { stroke: '#4a4a4a', width: 1.0, dash: null },
+};
+
+Object.entries(EDGE_STYLES).forEach(([kind, s]) => {
+  const marker = document.createElementNS(NS, 'marker');
+  marker.id = 'arrow-' + kind;
+  marker.setAttribute('viewBox', '0 0 10 10');
+  marker.setAttribute('refX', '9');
+  marker.setAttribute('refY', '5');
+  marker.setAttribute('markerWidth', '6');
+  marker.setAttribute('markerHeight', '6');
+  marker.setAttribute('orient', 'auto-start-reverse');
+  const p = document.createElementNS(NS, 'path');
+  p.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
+  p.setAttribute('fill', s.stroke);
+  marker.appendChild(p);
+  defs.appendChild(marker);
+});
+
+// ── Edge kind inference ────────────────────────────────────────────────────────────
+function getEdgeKind(edge) {
+  const f = nodeMap[edge.from], t = nodeMap[edge.to];
+  if (!f || !t) return 'normal';
+  if (f.critical && t.critical) {
+    return (f.mock || t.mock) ? 'critical-mock' : 'critical';
+  }
+  if (f.cluster === 'external' || t.cluster === 'external') return 'api';
+  if (f.cluster === 'database' || t.cluster === 'database') return 'db';
+  if (f.cluster === 'surfaces' && t.cluster === 'api-routes') return 'mount';
+  return 'normal';
+}
+
+// ── Bezier path between two nodes ─────────────────────────────────────────────────
+function edgePath(fn, tn) {
+  const sx = fn.x + fn.w, sy = fn.y + fn.h / 2;
+  const tx = tn.x, ty = tn.y + tn.h / 2;
+  if (tx >= sx - 20) {
+    const offset = Math.max((tx - sx + 20) * 0.4, 60);
+    return `M ${sx} ${sy} C ${sx + offset} ${sy} ${tx - offset} ${ty} ${tx} ${ty}`;
+  }
+  // Backward edge — arc below both nodes
+  const arcY = Math.max(fn.y + fn.h, tn.y + tn.h) + 60;
+  return `M ${sx} ${sy} C ${sx + 40} ${arcY} ${tx - 40} ${arcY} ${tx} ${ty}`;
+}
+
+// ── Render edges ──────────────────────────────────────────────────────────────────
+const edgeGroup = svgEl('g', { id: 'edges' });
+// Insert edge group before nodes so nodes appear on top
+rootG.insertBefore(edgeGroup, nodeGroup);
+
+function renderEdges() {
+  while (edgeGroup.firstChild) edgeGroup.removeChild(edgeGroup.firstChild);
+
+  D.edges.forEach((edge, idx) => {
+    const fn = nodeMap[edge.from], tn = nodeMap[edge.to];
+    if (!fn || !tn) return;
+    const kind = getEdgeKind(edge);
+    const style = EDGE_STYLES[kind];
+    const pathD = edgePath(fn, tn);
+
+    const g = svgEl('g', { 'data-edge': idx, 'data-from': edge.from, 'data-to': edge.to });
+
+    const pa = {
+      d: pathD,
+      fill: 'none',
+      stroke: style.stroke,
+      'stroke-width': style.width,
+      'marker-end': `url(#arrow-${kind})`,
+    };
+    if (style.dash) pa['stroke-dasharray'] = style.dash;
+    g.appendChild(svgEl('path', pa));
+
+    // Edge label at bezier midpoint
+    if (edge.label) {
+      const fn_ = fn, tn_ = tn;
+      const sx = fn_.x + fn_.w, sy = fn_.y + fn_.h / 2;
+      const tx = tn_.x, ty = tn_.y + tn_.h / 2;
+      const lx = (sx + tx) / 2;
+      const ly = (sy + ty) / 2 - 6;
+
+      const bg = svgEl('rect', {
+        x: lx - 2, y: ly - 9,
+        width: Math.min(edge.label.length * 5.5 + 8, 160),
+        height: 13,
+        rx: 3, ry: 3,
+        fill: '#161616',
+        opacity: 0.88,
+      });
+      g.appendChild(bg);
+
+      const lt = svgEl('text', {
+        x: lx + 2, y: ly,
+        fill: style.stroke,
+        'font-size': 8.5,
+        'font-weight': 400,
+        'font-family': '-apple-system,"Segoe UI",Arial,sans-serif',
+        'dominant-baseline': 'middle',
+        opacity: 0.9,
+      });
+      const maxLabelLen = 28;
+      lt.textContent = edge.label.length > maxLabelLen
+        ? edge.label.slice(0, maxLabelLen - 1) + '…'
+        : edge.label;
+      g.appendChild(lt);
+    }
+
+    edgeGroup.appendChild(g);
+  });
+}
+
+// ── Filter chip logic ─────────────────────────────────────────────────────────────
+function nodePassesFilter(n, f) {
+  if (f === 'all')          return true;
+  if (f === 'overview')     return Array.isArray(n.tag) && n.tag.includes('overview');
+  if (f === 'pipeline')     return Array.isArray(n.tag) && n.tag.includes('overview');
+  if (f === 'agents')       return n.cluster === 'agents';
+  if (f === 'integrations') return n.cluster === 'capability' || n.cluster === 'external';
+  if (f === 'data')         return n.cluster === 'database';
+  if (f === 'bugs')         return !!(D.KNOWN_BUGS[n.id] || D.FIXES[n.id]);
+  return true;
+}
+
+const DIM = {
+  overview: 0.12, pipeline: 0.35, all: 1,
+  agents: 0.22, integrations: 0.22, data: 0.22, bugs: 0.15,
+};
+
+function applyFilter(f) {
+  currentFilter = f;
+
+  // Update node opacity
+  nodeGroup.querySelectorAll('[data-node]').forEach(el => {
+    const n = nodeMap[el.getAttribute('data-node')];
+    const visible = !selectedNodeId && nodePassesFilter(n, f);
+    el.setAttribute('opacity', visible ? 1 : DIM[f] ?? 0.2);
+  });
+
+  // Update edge opacity
+  edgeGroup.querySelectorAll('[data-edge]').forEach(el => {
+    const fid = el.getAttribute('data-from');
+    const tid = el.getAttribute('data-to');
+    const fv = nodePassesFilter(nodeMap[fid], f);
+    const tv = nodePassesFilter(nodeMap[tid], f);
+    el.setAttribute('opacity', (fv && tv) ? 1 : DIM[f] ?? 0.12);
+  });
+}
+
+// Chip click handlers
+document.querySelectorAll('.chip').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    const f = btn.getAttribute('data-filter');
+    if (selectedNodeId) {
+      selectedNodeId = null;
+      renderDefaultSidebar();
+    }
+    applyFilter(f);
+  });
+});
+
+// ── Stubs — Chunk D will replace this line ────────────────────────────────────────
 function renderDefaultSidebar() {}
 function renderNodeDetail(id) {}
 document.getElementById('gen-date').textContent = 'Generated ' + D.generatedAt;
 fitToView();
+renderEdges();
+applyFilter('overview');
 renderDefaultSidebar();
-/* ARCHITECTURE_MAP_PLACEHOLDER_CD */
+/* ARCHITECTURE_MAP_PLACEHOLDER_D */
 </script>
 </body>
 </html>
