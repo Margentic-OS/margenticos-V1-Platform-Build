@@ -355,7 +355,232 @@ body {
 
 <script src="./architecture-map.data.js"></script>
 <script>
-/* ARCHITECTURE_MAP_PLACEHOLDER */
+// ── Data ─────────────────────────────────────────────────────────────────────────
+const D = window.MAP_DATA;
+const nodeMap = {};
+D.nodes.forEach(n => { nodeMap[n.id] = n; });
+const clusterMap = {};
+D.clusters.forEach(c => { clusterMap[c.id] = c; });
+
+// ── Constants for sidebar prose ───────────────────────────────────────────────────
+const SPINE_TEXT = `The most important flow in the product is: an operator fills out the intake form for a new client, which fires four AI agents in parallel to generate the four strategy documents (ICP, Positioning, Tone of Voice, Messaging). Each agent writes its draft to a suggestions queue. The operator reviews and approves each suggestion, at which point a Postgres function atomically promotes it to an active strategy document. The client then sees their documents in their dashboard.`;
+
+const ADR001_TEXT = `MargenticOS is designed so that the agents don't know which specific tool they're using to send emails or book meetings. They ask a "capability layer" to "send an email" and the capability layer looks up which tool is currently registered for that job. This means the system can swap Instantly for any other email tool without rewriting any agent code. As of this snapshot, the capability layer is built but unwired — see Notable Findings below.`;
+
+// ── Node colour map ───────────────────────────────────────────────────────────────
+const NODE_COLOR = {
+  service:    '#c792ea',
+  route:      '#7bd389',
+  agent:      '#c792ea',
+  capability: '#f5b942',
+  data:       '#ffb86b',
+  external:   '#ff6b9d',
+};
+
+// ── SVG setup ─────────────────────────────────────────────────────────────────────
+const NS = 'http://www.w3.org/2000/svg';
+const canvasWrap = document.getElementById('canvas-wrap');
+const svg = document.createElementNS(NS, 'svg');
+svg.id = 'map-svg';
+canvasWrap.appendChild(svg);
+const defs = document.createElementNS(NS, 'defs');
+svg.appendChild(defs);
+const rootG = document.createElementNS(NS, 'g');
+rootG.id = 'root-g';
+svg.appendChild(rootG);
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS(NS, tag);
+  Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, String(v)));
+  return el;
+}
+
+function hexDarken(hex, darkness) {
+  const bg = 0x16;
+  const c = hex.replace('#','').match(/.{2}/g).map(x => parseInt(x, 16));
+  const mix = v => Math.round(v * (1 - darkness) + bg * darkness);
+  return 'rgb(' + mix(c[0]) + ',' + mix(c[1]) + ',' + mix(c[2]) + ')';
+}
+
+// ── Pan / zoom ────────────────────────────────────────────────────────────────────
+const state = { tx: 0, ty: 0, scale: 1 };
+let panning = false;
+let panStart = { x: 0, y: 0, tx: 0, ty: 0 };
+let selectedNodeId = null;
+let currentFilter = 'overview';
+
+function applyTransform() {
+  rootG.setAttribute('transform',
+    'translate(' + state.tx + ',' + state.ty + ') scale(' + state.scale + ')');
+}
+
+function fitToView() {
+  const cw = canvasWrap.clientWidth;
+  const ch = canvasWrap.clientHeight;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  D.clusters.forEach(c => {
+    minX = Math.min(minX, c.x); minY = Math.min(minY, c.y);
+    maxX = Math.max(maxX, c.x + c.w); maxY = Math.max(maxY, c.y + c.h);
+  });
+  const pad = 40;
+  const bw = maxX - minX + pad * 2;
+  const bh = maxY - minY + pad * 2;
+  const s = Math.min(cw / bw, ch / bh);
+  state.scale = Math.min(s, 1.5);
+  state.tx = (cw - bw * state.scale) / 2 - (minX - pad) * state.scale;
+  state.ty = (ch - bh * state.scale) / 2 - (minY - pad) * state.scale;
+  applyTransform();
+}
+
+canvasWrap.addEventListener('mousedown', e => {
+  if (e.target.closest('[data-node]')) return;
+  panning = true;
+  panStart = { x: e.clientX, y: e.clientY, tx: state.tx, ty: state.ty };
+  canvasWrap.classList.add('panning');
+});
+window.addEventListener('mousemove', e => {
+  if (!panning) return;
+  state.tx = panStart.tx + (e.clientX - panStart.x);
+  state.ty = panStart.ty + (e.clientY - panStart.y);
+  applyTransform();
+});
+window.addEventListener('mouseup', () => {
+  panning = false;
+  canvasWrap.classList.remove('panning');
+});
+canvasWrap.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+  const rect = canvasWrap.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+  const newScale = Math.min(Math.max(state.scale * factor, 0.25), 3.0);
+  const r = newScale / state.scale;
+  state.tx = cx - r * (cx - state.tx);
+  state.ty = cy - r * (cy - state.ty);
+  state.scale = newScale;
+  applyTransform();
+}, { passive: false });
+
+document.getElementById('zoom-in').addEventListener('click', () => {
+  const cw = canvasWrap.clientWidth / 2, ch = canvasWrap.clientHeight / 2;
+  const ns = Math.min(state.scale * 1.25, 3.0), r = ns / state.scale;
+  state.tx = cw - r * (cw - state.tx);
+  state.ty = ch - r * (ch - state.ty);
+  state.scale = ns; applyTransform();
+});
+document.getElementById('zoom-out').addEventListener('click', () => {
+  const cw = canvasWrap.clientWidth / 2, ch = canvasWrap.clientHeight / 2;
+  const ns = Math.max(state.scale * 0.8, 0.25), r = ns / state.scale;
+  state.tx = cw - r * (cw - state.tx);
+  state.ty = ch - r * (ch - state.ty);
+  state.scale = ns; applyTransform();
+});
+document.getElementById('zoom-fit').addEventListener('click', fitToView);
+
+// ── Render clusters ───────────────────────────────────────────────────────────────
+const clusterGroup = svgEl('g', { id: 'clusters' });
+rootG.appendChild(clusterGroup);
+
+D.clusters.forEach(cl => {
+  const g = svgEl('g', { 'data-cluster-bg': cl.id });
+  g.appendChild(svgEl('rect', {
+    x: cl.x, y: cl.y, width: cl.w, height: cl.h,
+    rx: 8, ry: 8,
+    fill: hexDarken(cl.color, 0.85),
+    stroke: cl.color, 'stroke-width': 1,
+  }));
+  const lbl = svgEl('text', {
+    x: cl.x + 14, y: cl.y + 22,
+    fill: cl.color, 'font-size': 11, 'font-weight': 700,
+    'font-family': '-apple-system,"Segoe UI",Arial,sans-serif',
+    'letter-spacing': '0.04em',
+  });
+  lbl.textContent = cl.label.toUpperCase();
+  g.appendChild(lbl);
+  clusterGroup.appendChild(g);
+});
+
+// ── Render nodes ──────────────────────────────────────────────────────────────────
+const nodeGroup = svgEl('g', { id: 'nodes' });
+rootG.appendChild(nodeGroup);
+
+function truncate(text, maxPx, avgW) {
+  if (!text) return '';
+  const max = Math.floor(maxPx / avgW);
+  return text.length > max ? text.slice(0, max - 1) + '…' : text;
+}
+
+D.nodes.forEach(n => {
+  const color = NODE_COLOR[n.color] || '#888';
+  const isMock = !!n.mock;
+  const g = svgEl('g', { 'data-node': n.id, style: 'cursor:pointer' });
+
+  const ra = {
+    x: n.x, y: n.y, width: n.w, height: n.h,
+    rx: 6, ry: 6, fill: '#1c1c1c',
+    stroke: color, 'stroke-width': n.critical ? 2.2 : 1,
+  };
+  if (isMock) ra['stroke-dasharray'] = '4 2';
+  g.appendChild(svgEl('rect', ra));
+
+  if (isMock) {
+    const mb = svgEl('text', {
+      x: n.x + 6, y: n.y + 10,
+      fill: '#f5b942', 'font-size': 7, 'font-weight': 700,
+      'font-family': 'ui-monospace,monospace', 'letter-spacing': '0.06em',
+    });
+    mb.textContent = 'MOCK';
+    g.appendChild(mb);
+  }
+
+  const labelY = n.y + (isMock ? 28 : 24);
+  const lbl = svgEl('text', {
+    x: n.x + n.w / 2, y: labelY,
+    fill: '#e8e8e8', 'font-size': 11, 'font-weight': 600,
+    'font-family': '-apple-system,"Segoe UI",Arial,sans-serif',
+    'text-anchor': 'middle', 'dominant-baseline': 'middle',
+  });
+  lbl.textContent = truncate(n.label, n.w - 16, 6.2);
+  g.appendChild(lbl);
+
+  const sub = svgEl('text', {
+    x: n.x + n.w / 2, y: labelY + 16,
+    fill: '#8a8a8a', 'font-size': 9.5, 'font-weight': 400,
+    'font-family': '-apple-system,"Segoe UI",Arial,sans-serif',
+    'text-anchor': 'middle', 'dominant-baseline': 'middle',
+  });
+  sub.textContent = truncate(n.sub || '', n.w - 16, 5.5);
+  g.appendChild(sub);
+
+  let bx = n.x + n.w - 8;
+  if (D.KNOWN_BUGS[n.id]) {
+    g.appendChild(svgEl('circle', { cx: bx, cy: n.y + 8, r: 7, fill: '#ff3860' }));
+    const bt = svgEl('text', { x: bx, y: n.y + 8, fill: '#fff', 'font-size': 8,
+      'font-weight': 700, 'text-anchor': 'middle', 'dominant-baseline': 'central',
+      'font-family': '-apple-system,Arial,sans-serif' });
+    bt.textContent = '!'; g.appendChild(bt); bx -= 16;
+  }
+  if (D.FIXES[n.id]) {
+    g.appendChild(svgEl('circle', { cx: bx, cy: n.y + 8, r: 7, fill: '#3ecf8e' }));
+    const ft = svgEl('text', { x: bx, y: n.y + 8, fill: '#000', 'font-size': 8,
+      'font-weight': 700, 'text-anchor': 'middle', 'dominant-baseline': 'central',
+      'font-family': '-apple-system,Arial,sans-serif' });
+    ft.textContent = '✓'; g.appendChild(ft);
+  }
+
+  nodeGroup.appendChild(g);
+});
+
+// ── Stubs — Chunks C and D will replace this line ─────────────────────────────────
+function renderEdges() {}
+function applyFilter(f) { currentFilter = f; }
+function renderDefaultSidebar() {}
+function renderNodeDetail(id) {}
+document.getElementById('gen-date').textContent = 'Generated ' + D.generatedAt;
+fitToView();
+renderDefaultSidebar();
+/* ARCHITECTURE_MAP_PLACEHOLDER_CD */
 </script>
 </body>
 </html>
