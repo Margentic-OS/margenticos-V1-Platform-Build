@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MargenticOS Architecture Map</title>
+<style>
+
+/* ─── Palette ────────────────────────────────────────────────────────────────── */
+:root {
+  --bg:         #0F0F0F;
+  --panel:      #161616;
+  --panel-2:    #1c1c1c;
+  --border:     #2a2a2a;
+  --text:       #e8e8e8;
+  --muted:      #8a8a8a;
+  --route:      #7bd389;
+  --service:    #c792ea;
+  --agent:      #c792ea;
+  --capability: #f5b942;
+  --db:         #ffb86b;
+  --external:   #ff6b9d;
+  --surface:    #4ea1ff;
+  --critical:   #ff3860;
+  --accent:     #f5b942;
+  --fix:        #3ecf8e;
+}
+
+/* ─── Reset ──────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  height: 100vh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Top bar ────────────────────────────────────────────────────────────────── */
+#topbar {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+}
+
+#topbar-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+#topbar-chips {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
+  overflow-x: auto;
+  padding: 2px 0;
+}
+
+#topbar-chips::-webkit-scrollbar { display: none; }
+
+#topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ─── Filter chips ───────────────────────────────────────────────────────────── */
+.chip {
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+  font-family: inherit;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.chip:hover:not(.active) { border-color: #555; color: var(--text); }
+
+.chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+  font-weight: 600;
+}
+
+/* ─── Zoom controls ─────────────────────────────────────────────────────────── */
+.zoom-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+.zoom-btn:hover { background: var(--border); }
+
+#gen-date { font-size: 11px; color: var(--muted); }
+
+/* ─── Main layout ───────────────────────────────────────────────────────────── */
+#main {
+  display: flex;
+  position: fixed;
+  top: 60px; left: 0; right: 0; bottom: 0;
+}
+
+/* ─── Canvas ────────────────────────────────────────────────────────────────── */
+#canvas-wrap {
+  flex: 1;
+  overflow: hidden;
+  cursor: grab;
+  position: relative;
+  background: var(--bg);
+  user-select: none;
+  -webkit-user-select: none;
+}
+#canvas-wrap.panning { cursor: grabbing; }
+#map-svg { width: 100%; height: 100%; display: block; }
+
+/* ─── Sidebar ───────────────────────────────────────────────────────────────── */
+#sidebar {
+  width: 400px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+  flex-shrink: 0;
+}
+#sidebar::-webkit-scrollbar { width: 4px; }
+#sidebar::-webkit-scrollbar-track { background: transparent; }
+#sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ─── Common section pieces ─────────────────────────────────────────────────── */
+.section-heading {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.divider { height: 1px; background: var(--border); margin: 16px 0; }
+
+.prose { font-size: 12.5px; line-height: 1.7; color: #bbb; }
+.prose strong { color: var(--text); }
+
+/* ─── System state panel ─────────────────────────────────────────────────────── */
+.system-state-panel {
+  border: 1.5px solid var(--external);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255,107,157,0.05);
+  margin-bottom: 20px;
+}
+.ssp-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--external);
+  margin-bottom: 8px;
+}
+.ssp-note {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.65;
+  margin-bottom: 10px;
+}
+.state-rows { display: flex; flex-direction: column; gap: 5px; }
+.state-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); }
+.state-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.state-dot.red { background: var(--critical); }
+.state-dot.green { background: var(--fix); }
+
+/* ─── Notable findings cards ─────────────────────────────────────────────────── */
+.finding-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: var(--panel-2);
+}
+.finding-card h4 { font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.finding-plain { font-size: 11.5px; color: #aaa; line-height: 1.65; margin-bottom: 6px; }
+.finding-cite {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--muted);
+  display: block;
+  word-break: break-all;
+}
+
+/* ─── Legend ─────────────────────────────────────────────────────────────────── */
+.legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); }
+.legend-swatch {
+  width: 22px;
+  height: 2px;
+  flex-shrink: 0;
+  border-radius: 1px;
+}
+.legend-node-dot {
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  border: 1.5px solid;
+  flex-shrink: 0;
+}
+
+/* ─── Node detail ────────────────────────────────────────────────────────────── */
+.detail-label { font-size: 16px; font-weight: 700; color: var(--text); line-height: 1.3; word-break: break-word; }
+.detail-sub { font-size: 11.5px; color: var(--muted); margin-top: 4px; margin-bottom: 14px; line-height: 1.4; }
+
+.plain-panel {
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 14px;
+  border-left: 3px solid var(--surface);
+  background: rgba(78,161,255,0.05);
+}
+.pp-title {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--surface); margin-bottom: 8px;
+}
+.plain-panel p { font-size: 12.5px; color: var(--text); line-height: 1.7; }
+
+.role-text { font-size: 11.5px; color: #aaa; line-height: 1.65; margin-bottom: 14px; font-style: italic; }
+
+.path-line {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10.5px; color: var(--muted);
+  background: var(--panel-2);
+  padding: 7px 10px; border-radius: 4px;
+  margin-bottom: 14px; word-break: break-all; line-height: 1.5;
+}
+.path-line .line-num { color: var(--accent); }
+
+.break-panel {
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 14px;
+  background: rgba(255,56,96,0.05);
+  border-left: 3px solid var(--critical);
+}
+.bp-title {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--critical); margin-bottom: 8px;
+}
+.break-panel ul { padding-left: 14px; }
+.break-panel ul li { font-size: 11.5px; color: #c08080; line-height: 1.65; margin-bottom: 5px; }
+
+.notes-section { margin-bottom: 14px; }
+.notes-section ul { padding-left: 14px; }
+.notes-section ul li { font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-bottom: 4px; }
+
+/* ─── Connections ────────────────────────────────────────────────────────────── */
+.connection-list { margin-bottom: 14px; }
+.connection-row {
+  display: flex; align-items: flex-start; gap: 6px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.connection-row:last-child { border-bottom: none; }
+.conn-arrow { color: var(--muted); flex-shrink: 0; padding-top: 1px; }
+.conn-node { color: var(--text); font-weight: 500; flex-shrink: 0; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-label { color: var(--muted); font-style: italic; }
+
+/* ─── Bug / fix cards ────────────────────────────────────────────────────────── */
+.bug-card, .fix-card {
+  border-left: 3px solid;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 8px;
+  background: var(--panel-2);
+}
+.bug-card.HIGH  { border-color: var(--critical); }
+.bug-card.MEDIUM { border-color: var(--capability); }
+.bug-card.LOW   { border-color: #c8b400; }
+.fix-card       { border-color: var(--fix); }
+
+.bug-id {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--critical);
+}
+.bug-card.MEDIUM .bug-id { color: var(--capability); }
+.bug-card.LOW .bug-id    { color: #c8b400; }
+
+.fix-id {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--fix);
+}
+
+.bug-summary, .fix-summary { font-size: 11.5px; color: var(--muted); line-height: 1.55; margin-top: 4px; }
+.fix-fixed-in {
+  font-size: 10px; color: var(--fix); margin-top: 4px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div id="topbar-title">MargenticOS Architecture Map</div>
+  <div id="topbar-chips">
+    <button class="chip active" data-filter="overview">Overview</button>
+    <button class="chip" data-filter="pipeline">Full pipeline</button>
+    <button class="chip" data-filter="all">Show all</button>
+    <button class="chip" data-filter="agents">Agents</button>
+    <button class="chip" data-filter="integrations">Integrations</button>
+    <button class="chip" data-filter="data">Data layer</button>
+    <button class="chip" data-filter="bugs">Bugs &amp; fixes</button>
+  </div>
+  <div id="topbar-controls">
+    <button class="zoom-btn" id="zoom-out">&#8722;</button>
+    <button class="zoom-btn" id="zoom-fit">Fit</button>
+    <button class="zoom-btn" id="zoom-in">+</button>
+    <span id="gen-date"></span>
+  </div>
+</div>
+
+<div id="main">
+  <div id="canvas-wrap"><!-- SVG created by JS --></div>
+  <div id="sidebar"><div id="sidebar-content"></div></div>
+</div>
+
+<script src="./architecture-map.data.js"></script>
+<script>
+/* ARCHITECTURE_MAP_PLACEHOLDER */
+</script>
+</body>
+</html>
