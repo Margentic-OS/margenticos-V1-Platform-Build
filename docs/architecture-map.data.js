@@ -1427,7 +1427,229 @@ window.MAP_DATA = {
     },
 
   ], // end nodes
-  edges: [],    // temporary stub — chunk 4 will add real edges
-  KNOWN_BUGS: {}, // temporary stub
-  FIXES: {},      // temporary stub
+
+  edges: [
+
+    // ─── Auth & login flow ────────────────────────────────────────────────────────
+    { from: 'login-page',               to: 'ext-supabase-auth',           label: 'magic link request' },
+    { from: 'ext-supabase-auth',        to: 'tpl-magic-link',              label: 'sends template' },
+    { from: 'ext-supabase-auth',        to: 'db-users',                    label: 'handle_new_user trigger on signup' },
+
+    // ─── Intake flow ─────────────────────────────────────────────────────────────
+    { from: 'intake-page',              to: 'route-intake-upload',         label: 'file upload' },
+    { from: 'intake-page',              to: 'route-intake-website',        label: 'company URL scrape' },
+    { from: 'intake-page',              to: 'route-intake-complete',       label: 'Done button POST' },
+    { from: 'route-intake-upload',      to: 'db-intake',                   label: 'INSERT intake_files + extracted_text' },
+    { from: 'route-intake-website',     to: 'db-intake',                   label: 'INSERT intake_website_pages' },
+    { from: 'route-intake-complete',    to: 'db-intake',                   label: 'completeness re-check' },
+    { from: 'route-intake-complete',    to: 'db-agent-runs',               label: 'CREATE agent run rows' },
+    { from: 'route-intake-complete',    to: 'route-agents-icp',            label: 'after() background POST' },
+    { from: 'route-intake-complete',    to: 'route-agents-positioning',    label: 'after() background POST' },
+    { from: 'route-intake-complete',    to: 'route-agents-tov',            label: 'after() background POST' },
+    { from: 'route-intake-complete',    to: 'route-agents-messaging',      label: 'after() background POST' },
+
+    // ─── Agent routes → agents ────────────────────────────────────────────────────
+    { from: 'route-agents-icp',         to: 'agent-icp',                   label: 'invokes' },
+    { from: 'route-agents-positioning', to: 'agent-positioning',           label: 'invokes' },
+    { from: 'route-agents-tov',         to: 'agent-tov',                   label: 'invokes' },
+    { from: 'route-agents-messaging',   to: 'agent-messaging',             label: 'invokes' },
+    { from: 'route-agents-icp',         to: 'db-organisations',            label: 'UPDATE docs_complete_notification_sent_at' },
+    { from: 'route-agents-icp',         to: 'ext-resend',                  label: 'send docs_complete notification' },
+    { from: 'route-agents-icp',         to: 'tpl-docs-complete',           label: 'uses template' },
+
+    // ─── Agent reads from intake + strategy docs ──────────────────────────────────
+    { from: 'db-intake',                to: 'agent-icp',                   label: 'intake context' },
+    { from: 'db-intake',                to: 'agent-positioning',           label: 'intake context' },
+    { from: 'db-intake',                to: 'agent-tov',                   label: 'intake context' },
+    { from: 'db-intake',                to: 'agent-messaging',             label: 'intake context' },
+    { from: 'db-strategy-documents',    to: 'agent-messaging',             label: 'reads ICP + positioning + TOV docs' },
+    { from: 'db-strategy-documents',    to: 'agent-reply-draft',           label: 'reads TOV doc for voice matching' },
+    { from: 'db-organisations',         to: 'send-orchestrator',           label: 'founder_first_name + calendly_url' },
+
+    // ─── Agents → document_suggestions (ADR-002 write path) ─────────────────────
+    { from: 'agent-icp',                to: 'db-document-suggestions',     label: 'INSERT type=icp' },
+    { from: 'agent-positioning',        to: 'db-document-suggestions',     label: 'INSERT type=positioning' },
+    { from: 'agent-tov',                to: 'db-document-suggestions',     label: 'INSERT type=tov' },
+    { from: 'agent-messaging',          to: 'db-document-suggestions',     label: 'INSERT type=messaging' },
+
+    // ─── Agents → external LLMs ──────────────────────────────────────────────────
+    { from: 'agent-icp',                to: 'ext-anthropic',               label: 'claude-opus-4-6' },
+    { from: 'agent-positioning',        to: 'ext-anthropic',               label: 'claude-opus-4-6' },
+    { from: 'agent-tov',                to: 'ext-anthropic',               label: 'claude-opus-4-6' },
+    { from: 'agent-messaging',          to: 'ext-anthropic',               label: 'claude-sonnet-4-6' },
+    { from: 'reply-classifier',         to: 'ext-anthropic',               label: 'claude-haiku-4-5-20251001' },
+    { from: 'agent-reply-draft',        to: 'ext-anthropic',               label: 'claude-sonnet-4-6' },
+    { from: 'agent-faq-extraction',     to: 'ext-anthropic',               label: 'claude-haiku-4-5-20251001' },
+
+    // ─── Approval flow ────────────────────────────────────────────────────────────
+    { from: 'approvals-page',           to: 'db-document-suggestions',     label: 'reads pending rows' },
+    { from: 'approvals-page',           to: 'route-suggestions-approve',   label: 'approve action' },
+    { from: 'approvals-page',           to: 'route-suggestions-reject',    label: 'reject action' },
+    { from: 'approvals-page',           to: 'route-suggestions-regenerate',label: 'regenerate action' },
+    { from: 'route-suggestions-approve',to: 'db-document-suggestions',     label: 'UPDATE status=approved' },
+    { from: 'route-suggestions-approve',to: 'db-strategy-documents',       label: 'approve_document_suggestion RPC → INSERT active row' },
+    { from: 'route-cron-autoapprove',   to: 'db-document-suggestions',     label: 'auto-approve after 72h' },
+    { from: 'route-cron-autoapprove',   to: 'db-strategy-documents',       label: 'approve_document_suggestion RPC' },
+
+    // ─── Client reads strategy docs ───────────────────────────────────────────────
+    { from: 'strategy-view',            to: 'db-strategy-documents',       label: 'SELECT status=active' },
+    { from: 'dashboard-home',           to: 'db-organisations',            label: 'reads setup_status JSONB' },
+
+    // ─── Pipeline + benchmarks reads ─────────────────────────────────────────────
+    { from: 'pipeline-page',            to: 'db-campaigns',                label: 'reads sent_count + replied_count' },
+    { from: 'benchmarks-page',          to: 'db-campaigns',                label: 'reads analytics columns' },
+
+    // ─── Prospect research ────────────────────────────────────────────────────────
+    { from: 'agent-prospect-v2',        to: 'icp-filter-spec',             label: 'requests filter spec from ICP doc' },
+    { from: 'icp-filter-spec',          to: 'db-strategy-documents',       label: 'reads ICP doc' },
+    { from: 'agent-prospect-v2',        to: 'ext-apollo',                  label: 'sourcing queries (4 in parallel)' },
+    { from: 'agent-prospect-v2',        to: 'db-prospects',                label: 'INSERT deduped prospects' },
+    { from: 'db-prospects',             to: 'handler-upload-leads',        label: 'prospect batch for upload' },
+    { from: 'db-prospects',             to: 'compose-sequence',            label: 'reads has_dateable_signal + signal_relevance' },
+
+    // ─── Composition ─────────────────────────────────────────────────────────────
+    { from: 'agent-messaging',          to: 'compose-sequence',            label: 'templates feed personalisation layer' },
+    { from: 'compose-sequence',         to: 'db-signals',                  label: 'reads dateable signal for bridge path' },
+
+    // ─── Campaign upload and analytics ───────────────────────────────────────────
+    { from: 'handler-upload-leads',     to: 'handler-auth',                label: 'fetch API key' },
+    { from: 'handler-upload-leads',     to: 'handler-validate-campaign',   label: 'org isolation guard' },
+    { from: 'handler-upload-leads',     to: 'ext-instantly',               label: 'POST leads to campaign' },
+    { from: 'handler-campaign-analytics', to: 'handler-auth',              label: 'fetch API key' },
+    { from: 'handler-campaign-analytics', to: 'ext-instantly',             label: 'GET campaign analytics' },
+    { from: 'handler-campaign-analytics', to: 'db-campaigns',              label: 'UPDATE sent_count, replied_count, bounced_count' },
+    { from: 'route-cron-poll',          to: 'handler-campaign-analytics',  label: 'pg_cron trigger every 15 min' },
+    { from: 'db-campaigns',             to: 'handler-validate-campaign',   label: 'campaign→org membership lookup' },
+
+    // ─── Reply processing pipeline (mock) ────────────────────────────────────────
+    { from: 'route-cron-replies',       to: 'process-reply',               label: 'pg_cron trigger every 5 min' },
+    { from: 'process-reply',            to: 'ext-instantly',               label: 'GET inbound replies (polling cursor)' },
+    { from: 'ext-instantly',            to: 'db-signals',                  label: 'polling handler inserts reply signals' },
+    { from: 'process-reply',            to: 'db-signals',                  label: 'reads signal body for classification' },
+    { from: 'process-reply',            to: 'reply-classifier',            label: 'classify each reply' },
+    { from: 'process-reply',            to: 'draft-orchestrator',          label: 'positive reply → draft queue' },
+    { from: 'process-reply',            to: 'db-integration-infra',        label: 'advance polling_cursors' },
+    { from: 'draft-orchestrator',       to: 'agent-reply-draft',           label: 'generate draft body' },
+    { from: 'draft-orchestrator',       to: 'db-reply-drafts',             label: 'INSERT pending_review draft' },
+    { from: 'agent-reply-draft',        to: 'db-signals',                  label: 'reads prospect reply body' },
+    { from: 'agent-reply-draft',        to: 'db-reply-drafts',             label: 'writes ai_draft_body' },
+
+    // ─── Operator triage and reply approval ──────────────────────────────────────
+    { from: 'operator-triage',          to: 'db-reply-drafts',             label: 'reads pending_review drafts' },
+    { from: 'operator-triage',          to: 'route-reply-drafts-approve',  label: 'approve action' },
+    { from: 'operator-triage',          to: 'route-reply-drafts-reject',   label: 'reject action' },
+    { from: 'route-reply-drafts-approve', to: 'db-reply-drafts',           label: 'UPDATE status=approved' },
+    { from: 'route-reply-drafts-approve', to: 'send-orchestrator',         label: 'fire send-approved-draft' },
+    { from: 'send-orchestrator',        to: 'handler-reply-actions',       label: 'sendThreadReply()' },
+    { from: 'send-orchestrator',        to: 'handler-auth',                label: 'getInstantlyApiKey()' },
+    { from: 'send-orchestrator',        to: 'db-signals',                  label: 'reads raw_data.id + eaccount for thread context' },
+    { from: 'send-orchestrator',        to: 'db-reply-drafts',             label: 'UPDATE status=sent (atomic WHERE status=approved)' },
+    { from: 'send-orchestrator',        to: 'agent-faq-extraction',        label: 'tier-3 post-send (best-effort)' },
+    { from: 'handler-reply-actions',    to: 'ext-instantly',               label: 'POST reply to thread' },
+    { from: 'agent-faq-extraction',     to: 'db-faqs',                     label: 'INSERT faq_extractions pending' },
+
+    // ─── FAQ curation flow ────────────────────────────────────────────────────────
+    { from: 'operator-faqs',            to: 'db-faqs',                     label: 'reads faq_extractions pending' },
+    { from: 'operator-faqs',            to: 'route-faq-extractions',       label: 'approve/merge/reject action' },
+    { from: 'route-faq-extractions',    to: 'db-faqs',                     label: 'INSERT faqs or append_faq_variant RPC' },
+
+    // ─── Mailbox ordering ─────────────────────────────────────────────────────────
+    { from: 'handler-order-mailboxes',  to: 'handler-auth',                label: 'fetch API key' },
+    { from: 'handler-order-mailboxes',  to: 'registry-cache',              label: 'check instantly_api_active flag' },
+    { from: 'handler-order-mailboxes',  to: 'ext-instantly',               label: 'POST DFY mailbox order (when active)' },
+
+    // ─── Capability registry ──────────────────────────────────────────────────────
+    { from: 'capability-dispatcher',    to: 'registry-cache',              label: 'lookup active handler for capability' },
+    { from: 'registry-cache',           to: 'db-integration-infra',        label: 'reads integrations_registry' },
+    { from: 'handler-auth',             to: 'db-integration-infra',        label: 'reads integration_credentials + integrations_registry' },
+
+    // ─── Multi-user blocked signup ────────────────────────────────────────────────
+    { from: 'db-users',                 to: 'route-webhook-users',         label: 'Supabase DB webhook on INSERT to users_pending_review' },
+    { from: 'route-webhook-users',      to: 'ext-resend',                  label: 'send blocked-signup notification' },
+    { from: 'route-webhook-users',      to: 'tpl-pending-review',          label: 'uses template' },
+
+    // ─── Operator support views ───────────────────────────────────────────────────
+    { from: 'operator-activity',        to: 'db-agent-runs',               label: 'reads all agent run history' },
+    { from: 'operator-signals',         to: 'db-signals',                  label: 'reads inbound signal log' },
+    { from: 'operator-client-detail',   to: 'db-organisations',            label: 'reads org record' },
+    { from: 'operator-client-detail',   to: 'db-campaigns',                label: 'reads campaign status' },
+    { from: 'operator-home',            to: 'db-organisations',            label: 'reads all client org records' },
+
+    // ─── Ext Sentry (receives from everything) ────────────────────────────────────
+    { from: 'ext-vercel',               to: 'ext-sentry',                  label: 'Sentry DSN configured in Vercel env' },
+    { from: 'ext-supabase-db',          to: 'ext-vercel',                  label: 'pg_cron calls Vercel API routes' },
+
+    // ─── Calendly substitution ────────────────────────────────────────────────────
+    { from: 'send-orchestrator',        to: 'ext-calendly',                label: 'org.calendly_url substituted into reply body' },
+
+    // ─── Taplio content delivery ──────────────────────────────────────────────────
+    { from: 'operator-client-detail',   to: 'ext-taplio-zapier',           label: 'approved LinkedIn content delivered manually or via Zapier' },
+
+  ],
+
+  KNOWN_BUGS: {
+    'agent-prospect-v1': {
+      id: 'BL-MAP-1',
+      severity: 'LOW',
+      summary: 'prospect-research-agent.ts (v1, sequential) has not been deleted since v2 was confirmed active. Any developer browsing the agents folder will not know which file is live.',
+      status: 'open',
+      resolution: 'Delete src/lib/agents/prospect-research-agent.ts once v2 is confirmed stable post client zero.',
+    },
+    'handler-auth': {
+      id: 'BL-CREDS',
+      severity: 'MEDIUM',
+      summary: 'integration_credentials stores API keys (Instantly, Apollo, etc.) as plaintext text column. Keys are visible to anyone with Supabase service role access or direct DB access.',
+      status: 'open',
+      resolution: 'Implement Supabase Vault or pgcrypto column encryption for integration_credentials.value. Deferred post-launch.',
+    },
+    'handler-campaign-analytics': {
+      id: 'BL-PC0-3',
+      severity: 'HIGH',
+      summary: 'BOUNCED constant value in the Instantly polling handler cannot be verified without a live bounced lead. All Instantly API documentation URLs returned 404 (2026-05-23). If the constant is wrong, bounced_count will always be 0 in the campaigns table.',
+      status: 'open',
+      resolution: 'Verify the constant value against a real Instantly API response when the first campaign is live and a bounce occurs. Check src/lib/integrations/polling/instantly.ts for the BOUNCED constant.',
+    },
+    'capability-dispatcher': {
+      id: 'ADR-001-UNWIRED',
+      severity: 'MEDIUM',
+      summary: 'executeCapability() in capability.ts has an empty handlers map at line 31. No live operation routes through this function. All Instantly calls bypass it and go directly from individual handler files. The ADR-001 architecture is correct but unimplemented.',
+      status: 'open',
+      resolution: 'Populate the handlers map in capability.ts and route all capability calls through executeCapability() before adding new integrations. This is the pre-c1 wiring task.',
+    },
+    'compose-sequence': {
+      id: 'ADR-017-DEAD',
+      severity: 'MEDIUM',
+      summary: 'ADR-017 specifies a sourced_tier column on prospects driving three enrichment tiers and separate sending domain pools. The column does not exist on the prospects table. Actual branching at compose-sequence.ts:422 uses has_dateable_signal + signal_relevance — two different fields. ADR-017 was updated 2026-05 to document this but the reconciliation decision has not been made.',
+      status: 'open',
+      resolution: 'Pre-c1 decision required: either build the sourced_tier column as ADR-017 specifies, or update ADR-017 to formally retire the sourced_tier spec and document the actual branching logic as the canonical approach.',
+    },
+  },
+
+  FIXES: {
+    'handler-order-mailboxes': {
+      id: 'BL-OMP-1',
+      summary: 'orderMailboxes handler was not setting order_placed=false in mailbox_orders when Instantly returned a silent non-ok response. The UI showed success but no order was placed.',
+      fixedIn: 'commit 246a313 (2026-05-21)',
+      fixDescription: 'Silent-failure path now explicitly sets order_placed=false and records the Instantly error response. Operator can see the failure state in the mailbox orders panel.',
+    },
+    'db-faqs': {
+      id: 'SECURITY-FAV-PUBLIC',
+      summary: 'append_faq_variant Postgres function had PUBLIC EXECUTE access. Any authenticated user could append arbitrary text to any organisation FAQ.',
+      fixedIn: 'migration 20260521134057_revoke_public_execute_security_fix.sql',
+      fixDescription: 'Revoked PUBLIC EXECUTE on append_faq_variant. Function now requires operator role via RLS. No data was compromised.',
+    },
+    'db-strategy-documents': {
+      id: 'STATUS-ACTIVE-BUG',
+      summary: "Code was querying strategy_documents with status='approved' instead of status='active'. approve_document_suggestion sets the row to status='active', so no active documents were ever found after approval.",
+      fixedIn: 'BACKLOG DONE 2026-04-22',
+      fixDescription: "Changed all queries to status='active'. The live status after approve_document_suggestion runs is 'active' not 'approved'. Any new query on this table must use status='active'.",
+    },
+    'login-page': {
+      id: 'SUPABASE-SITE-URL',
+      summary: 'Supabase Site URL was set to localhost:3000. Magic links redirected users to a machine that did not exist, silently failing the auth flow.',
+      fixedIn: '2026-05-04',
+      fixDescription: 'Updated Supabase Authentication → URL Configuration to https://app.margenticos.com. Magic links now route correctly to the production auth callback.',
+    },
+  },
+
 };
