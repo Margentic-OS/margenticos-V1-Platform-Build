@@ -236,6 +236,7 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
   const [shortAnswerKeys, setShortAnswerKeys] = useState<Set<string>>(new Set())
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id)
   const [, startTransition] = useTransition()
+  const [dispatchStatus, setDispatchStatus] = useState<'idle' | 'pending' | 'succeeded' | 'failed'>('idle')
   const router = useRouter()
 
   // Track whether /api/intake/complete has been fired this session.
@@ -256,7 +257,20 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
     ).length
     if (count >= THRESHOLD) {
       hasDispatchedRef.current = true
-      fetch('/api/intake/complete', { method: 'POST' }).catch(() => {})
+      setDispatchStatus('pending')
+      fetch('/api/intake/complete', { method: 'POST' })
+        .then(res => {
+          if (res.ok) {
+            setDispatchStatus('succeeded')
+          } else {
+            hasDispatchedRef.current = false
+            setDispatchStatus('failed')
+          }
+        })
+        .catch(() => {
+          hasDispatchedRef.current = false
+          setDispatchStatus('failed')
+        })
     }
   }
 
@@ -548,12 +562,32 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
                   Next
                 </button>
               ) : (
-                <button
-                  onClick={() => router.push('/dashboard')}
-                  className="px-5 py-2.5 text-xs font-medium text-[#F5F0E8] bg-brand-green rounded-[20px] hover:opacity-90 transition-opacity min-h-[44px] touch-manipulation"
-                >
-                  Done
-                </button>
+                <div className="flex flex-col items-end gap-2">
+                  {dispatchStatus === 'failed' && (
+                    <p className="text-[11px] text-[#C0392B]">
+                      Submission failed. Check your connection and try again.
+                    </p>
+                  )}
+                  <button
+                    disabled={dispatchStatus === 'pending'}
+                    onClick={() => {
+                      if (dispatchStatus === 'pending') return
+                      if (dispatchStatus === 'failed') {
+                        hasDispatchedRef.current = false
+                        checkAndDispatch(values)
+                        return
+                      }
+                      router.push('/dashboard')
+                    }}
+                    className={`px-5 py-2.5 text-xs font-medium rounded-[20px] min-h-[44px] touch-manipulation ${
+                      dispatchStatus === 'pending'
+                        ? 'text-[rgba(245,240,232,0.50)] bg-brand-green opacity-60 cursor-not-allowed'
+                        : 'text-[#F5F0E8] bg-brand-green hover:opacity-90 transition-opacity'
+                    }`}
+                  >
+                    {dispatchStatus === 'pending' ? 'Submitting…' : dispatchStatus === 'failed' ? 'Retry' : 'Done'}
+                  </button>
+                </div>
               )}
             </div>
           </div>
