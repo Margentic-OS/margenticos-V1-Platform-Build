@@ -116,7 +116,11 @@ export async function POST(_request: NextRequest) {
     // serverless invocation that runs independently. The AbortController timeout
     // just confirms dispatch was received — we don't wait for the agent to complete.
     const appUrl  = getAppUrl()
-    const secret  = process.env.NEXT_INTERNAL_SECRET ?? ''
+    const secret  = process.env.NEXT_INTERNAL_SECRET
+    if (!secret) {
+      logger.error('intake-complete: NEXT_INTERNAL_SECRET not configured — agent dispatch aborted')
+      return NextResponse.json({ error: 'Server misconfiguration.' }, { status: 500 })
+    }
 
     const dispatchAgent = async (path: string) => {
       const controller = new AbortController()
