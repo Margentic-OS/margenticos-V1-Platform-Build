@@ -8,27 +8,13 @@
 
 ## Q1 — Intake completion handoff
 
-**Direct answer:** The 80% critical-field threshold is a warning guard only. It does not fire any downstream action. No API route for intake completion exists. All four strategy agents are manually triggered by the operator.
+**⚠️ UPDATE (2026-06-02): The state described below was accurate at 2026-05-12. The route and auto-dispatch now exist. See correction at the end of this section.**
 
-**Detail:**
+**Original direct answer (2026-05-12, now stale):** The 80% critical-field threshold is a warning guard only. It does not fire any downstream action. No API route for intake completion exists. All four strategy agents are manually triggered by the operator.
 
-The 80% check lives in [src/agents/icp-generation-agent.ts:85–97](../src/agents/icp-generation-agent.ts) and runs inside the ICP agent at invocation time — not at form submission:
+**Detail (still accurate):**
 
-```
-const completeness = criticalFields.length > 0
-  ? Math.round((answeredCritical.length / criticalFields.length) * 100)
-  : 0
-if (completeness < 80) {
-  logger.warn(`ICP agent: intake completeness is ${completeness}% — below 80% threshold...`)
-}
-```
-
-The agent proceeds regardless. If completeness is below 80%, it injects a warning note into the prompt and records `confidence_level: 'low'` on the resulting `document_suggestions` row ([icp-generation-agent.ts:526–548](../src/agents/icp-generation-agent.ts)).
-
-There is no:
-- DB trigger on `intake_responses` that fires on completion
-- API route at `/api/intake/complete` or any equivalent
-- Automatic chaining from intake completion to agent invocation
+A completeness check runs inside the ICP agent at invocation time ([src/agents/icp-generation-agent.ts](../src/agents/icp-generation-agent.ts), function body near the top of the agent). The agent proceeds regardless. If completeness is below 80%, it injects a warning note into the prompt and records `confidence_level: 'low'` on the resulting `document_suggestions` row. This in-agent check still exists as a defence-in-depth guard.
 
 The four strategy agents each have their own POST route:
 - [src/app/api/agents/icp/route.ts](../src/app/api/agents/icp/route.ts)
@@ -36,9 +22,18 @@ The four strategy agents each have their own POST route:
 - [src/app/api/agents/tov/route.ts](../src/app/api/agents/tov/route.ts)
 - [src/app/api/agents/messaging/route.ts](../src/app/api/agents/messaging/route.ts)
 
-Each must be invoked separately by the operator. No sequencing logic exists between them.
+**Correction — current state (2026-06-02):**
 
-**Inconsistency noted:** ADR-009 ([docs/ADR.md:294–313](../ADR.md)) describes MargenticOS as client zero and implies the agent pipeline runs as a real client workflow. There is no automation between intake completion and agent invocation, meaning the operator currently triggers each of four agents manually after reviewing the intake form.
+`/api/intake/complete` now exists ([src/app/api/intake/complete/route.ts](../src/app/api/intake/complete/route.ts)). The intake form fires it when the critical-field completeness first crosses 80% (client-side check in `IntakeForm`). The route:
+
+1. **Atomic dispatch guard** — `UPDATE organisations SET agents_dispatched_at = now() WHERE agents_dispatched_at IS NULL`. If zero rows updated, returns `200 already_dispatched`. Prevents duplicate runs.
+2. **Server-side re-verification** — re-checks the 80% threshold against `intake_responses` directly. If below threshold, resets `agents_dispatched_at` to null and returns 400.
+3. **Parallel agent dispatch** — calls all four agent routes in parallel inside `after()` using `dispatchAgent()`, which fires each as an independent serverless invocation with `x-internal-secret` auth. The 202 response is returned to the client before agents run.
+4. **Operator notification** — sends intake-complete email via `sendTransactionalEmail` to `RESEND_OPERATOR_EMAIL` inside the same `after()` block.
+
+There is still no DB trigger on `intake_responses`. Auto-dispatch is application-layer, not database-layer.
+
+ADR-009 inconsistency (noted 2026-05-12) is resolved: dispatch is now automatic on intake completion.
 
 ---
 
@@ -59,6 +54,7 @@ Full list of API routes in the codebase ([src/app/api/](../src/app/api/)):
 /api/cron/auto-approve    GET  — cron job
 /api/cron/instantly-poll  GET  — cron job
 /api/cron/process-replies GET  — cron job
+/api/intake/complete      POST — auto-dispatch all four agents on 80% threshold (added post-2026-05-12)
 /api/intake/files/[id]    GET/DELETE
 /api/intake/files/upload  POST
 /api/intake/website/fetch POST
@@ -257,9 +253,9 @@ The sending domain (`notifications.margenticos.com`) is confirmed configured. Th
 
 | Question | Current state | Code location | Manual or automated |
 |---|---|---|---|
-| 80% completion fires agents? | Warning only, no trigger | [icp-generation-agent.ts:85–97](../src/agents/icp-generation-agent.ts) | Manual |
-| `/api/intake/complete` exists? | No | — | — |
-| 4 agents auto-chain after intake? | No — separate POST each | [src/app/api/agents/](../src/app/api/agents/) | Manual (operator) |
+| 80% completion fires agents? | **Yes** — dispatches all four agents via `after()`, with server-side re-check *(updated 2026-06-02)* | [src/app/api/intake/complete/route.ts](../src/app/api/intake/complete/route.ts) | **Automatic** |
+| `/api/intake/complete` exists? | **Yes** *(updated 2026-06-02)* | [src/app/api/intake/complete/route.ts](../src/app/api/intake/complete/route.ts) | — |
+| 4 agents auto-chain after intake? | **Yes** — parallel dispatch via `dispatchAgent()` inside `after()` *(updated 2026-06-02)* | [src/app/api/intake/complete/route.ts](../src/app/api/intake/complete/route.ts) `dispatchAgent()` | **Automatic** |
 | Org creation route? | None | — | Manual SQL |
 | User invite? | `inviteUserByEmail()` absent | — | Manual |
 | Auth → users trigger? | No trigger exists | [supabase/migrations/](../supabase/migrations/) | Manual |
