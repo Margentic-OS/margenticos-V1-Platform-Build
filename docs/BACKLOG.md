@@ -111,7 +111,7 @@
   Fix 13: OperatorTopbar — "DP" replaced with initials derived from userEmail prop. All 5 pages updated.
   Fix 14: src/app/dashboard/error.tsx — Next.js error boundary added for dashboard layout.
 
-## View-as-Client (POST-CLIENT-ZERO)
+## View-as-Client — [DONE 2026-06-02]
 
 Page-level scoping works correctly via searchParams.client. Layout-level scoping
 (banner, sidebar VIEWING text) does not work in current Next.js 15/16 + Vercel +
@@ -130,24 +130,12 @@ Each approach was diagnostically logged in production and verified via Vercel lo
 The diagnostic logs consistently showed the layout receiving null/undefined for the
 view-as-client value while page-level resolution via searchParams worked correctly.
 
-Hypothesis at time of deferral: something about how this specific combination of
-Next.js App Router + Vercel Edge Runtime + Supabase SSR auth wrapper interacts that
-we couldn't isolate through standard debugging.
-
-Defer until: first real client onboarding when a non-operator user account exists.
-With a real client user we can:
-- Test the security gate (resolveViewingOrgId role check) with a non-operator user
-- Verify the actual user-facing impact of layout-level scoping not working
-- Potentially isolate the bug by comparing behavior between operator and client requests
-
-Workaround until then: log in as the test client user directly in incognito session
-for QA. For sales call demos, use seeded demo client account in incognito or screenshots.
-
-Files involved (for future investigation):
-- src/app/dashboard/layout.tsx
-- src/lib/dashboard/resolve-viewing-org.ts (deleted in revert — will need recreating)
-- src/middleware.ts
-- src/components/dashboard/Sidebar.tsx
+**Resolved 2026-06-02:** The working approach was not server-side propagation at all.
+`resolveViewingOrg` (operator-gated) scopes page data to the selected client.
+`appendClientParam` carries `?client=` through every nav link so the param survives
+navigation. The VIEWING label (OperatorSidebar) and amber banner (OperatorViewingBanner)
+are both client components reading `useSearchParams()` directly — no layout-level
+propagation needed. ADR-022 closed.
 
 ---
 
@@ -1772,14 +1760,12 @@ Complete all items before the first paying client goes live:
   7 rows to the correct paths. New rows added in Prompt 3A (can_upload_leads, can_order_mailboxes)
   use the correct src/lib/integrations/handlers/ path.
 
-- [post-c0-polish] Operator nav-context drop on intra-page navigation (2026-05-21)
+- [DONE 2026-06-02] Operator nav-context drop on intra-page navigation (2026-05-21)
   When an operator navigates between sidebar links while viewing a client via
   /dashboard/operator/clients/[id], any ?client= query param (or equivalent context state)
   is dropped, causing pages to load the operator's own org data instead of the viewed client's.
-  Severity: cosmetic/functional — not a security issue (RLS confirms operators only ever see
-  permitted data; they never see another client's private data through this bug).
-  Do not fix before Costa Rica activation. Test with real second-client data post-Costa-Rica
-  to confirm the exact navigation paths that trigger it before building the fix.
+  Fixed by appendClientParam: all OperatorSidebar nav links now carry ?client= so the param
+  persists across navigation. Resolved as part of ADR-022 closure (2026-06-02).
 
 ---
 

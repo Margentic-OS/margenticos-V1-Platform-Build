@@ -1549,7 +1549,9 @@ Client endpoint auth pattern:
 ---
 
 ## ADR-022 — Operator view-as-client mechanism
-Date: May 2026 | Status: Deferred — implementation attempted, layout-level propagation unresolvable in current environment
+Date: May 2026 | Status: Resolved — June 2026
+
+**Resolution:** Operator-gated org resolver (`resolveViewingOrg`) scopes page data to the selected client; `appendClientParam` carries `?client=` through every nav link so the param persists across navigation; the amber banner and VIEWING label are extracted into client components that read `useSearchParams()` directly. The four prior server-side propagation attempts (custom header, cookies, cookie sync, header mutation) all failed because server layouts cannot read searchParams — the working path was a client component reading the URL, not server-side propagation at all.
 
 ### Context
 
