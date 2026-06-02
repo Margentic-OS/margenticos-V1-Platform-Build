@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { BenchmarksView } from '@/components/dashboard/benchmarks/BenchmarksView'
 import { computeCampaignMetrics } from '@/lib/metrics/campaign-metrics'
@@ -13,21 +14,22 @@ function getOrgInitials(name: string): string {
     .join('')
 }
 
-export default async function BenchmarksPage() {
+export default async function BenchmarksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ client?: string }>
+}) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: userRow } = await supabase
-    .from('users')
-    .select('organisation_id')
-    .eq('id', user.id)
-    .single()
+  const { client: clientParam } = await searchParams
+  const { organisationId } = await resolveViewingOrg(supabase, user, clientParam)
 
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, engagement_month')
-    .eq('id', userRow?.organisation_id ?? '')
+    .eq('id', organisationId ?? '')
     .single()
 
   if (!org) redirect('/dashboard')

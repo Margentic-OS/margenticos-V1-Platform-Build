@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { MomentumBlock } from '@/components/dashboard/pipeline/MomentumBlock'
 import { MeetingsListCard } from '@/components/dashboard/pipeline/MeetingsListCard'
@@ -53,21 +54,22 @@ function extractProspect(raw: unknown): ProspectSnapshot | null {
 const ACTIVE_DOC_STATUSES = ['approved', 'active']
 const VALID_DOC_TYPES: DocumentType[] = ['icp', 'positioning', 'tov', 'messaging']
 
-export default async function PipelinePage() {
+export default async function PipelinePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ client?: string }>
+}) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: userRow } = await supabase
-    .from('users')
-    .select('organisation_id')
-    .eq('id', user.id)
-    .single()
+  const { client: clientParam } = await searchParams
+  const { organisationId } = await resolveViewingOrg(supabase, user, clientParam)
 
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, engagement_month, contract_start_date, pipeline_unlocked, monthly_meetings_target')
-    .eq('id', userRow?.organisation_id ?? '')
+    .eq('id', organisationId ?? '')
     .single()
 
   if (!org || !org.pipeline_unlocked) {

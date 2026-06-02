@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { IntakeIncompleteState } from '@/components/dashboard/empty-states/IntakeIncompleteState'
 import { StrategyInReviewState } from '@/components/dashboard/empty-states/StrategyInReviewState'
@@ -80,7 +81,11 @@ function buildTopbarProps(
   }
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ client?: string }>
+}) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -90,17 +95,14 @@ export default async function DashboardPage() {
     redirect('/login')
   }
 
-  const { data: userRow } = await supabase
-    .from('users')
-    .select('organisation_id')
-    .eq('id', user.id)
-    .single()
+  const { client: clientParam } = await searchParams
+  const { organisationId } = await resolveViewingOrg(supabase, user, clientParam)
 
   // Fetch org
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name, engagement_month, contract_start_date, pipeline_unlocked, setup_status')
-    .eq('id', userRow?.organisation_id ?? '')
+    .eq('id', organisationId ?? '')
     .single()
 
   if (!org) {
