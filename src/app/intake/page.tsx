@@ -1,6 +1,6 @@
 // Intake questionnaire page.
 // Server component — loads existing responses, then renders the interactive form.
-// Auth enforced by middleware (proxy.ts) — reaching this page means user is authenticated.
+// Auth enforced by this component: getUser() check below redirects unauthenticated users.
 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
