@@ -1,6 +1,8 @@
 // Version badge and living status row — shown at top of every strategy document view.
 // Design spec: "v2.1 — Updated 3 days ago · Trigger added" + pulse dot + status line.
 
+import { formatUpdateTrigger } from '@/lib/format-update-trigger'
+
 function formatRelativeDate(iso: string): string {
   const date = new Date(iso)
   const now = new Date()
@@ -20,6 +22,7 @@ interface DocumentHeaderProps {
 
 export function DocumentHeader({ version, updatedAt, updateTrigger }: DocumentHeaderProps) {
   const updatedText = formatRelativeDate(updatedAt)
+  const triggerLabel = formatUpdateTrigger(updateTrigger)
 
   return (
     <div className="flex items-start justify-between mb-6">
@@ -31,8 +34,8 @@ export function DocumentHeader({ version, updatedAt, updateTrigger }: DocumentHe
           </span>
           <span className="text-[11px] text-text-secondary">
             Updated {updatedText}
-            {updateTrigger && (
-              <span className="text-text-muted"> · {updateTrigger}</span>
+            {triggerLabel && (
+              <span className="text-text-muted"> · {triggerLabel}</span>
             )}
           </span>
         </div>
