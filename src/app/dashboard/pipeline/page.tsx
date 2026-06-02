@@ -72,8 +72,30 @@ export default async function PipelinePage({
     .eq('id', organisationId ?? '')
     .single()
 
-  if (!org || !org.pipeline_unlocked) {
-    redirect('/dashboard')
+  if (!org) redirect('/dashboard')
+
+  if (!org.pipeline_unlocked) {
+    const { count: meetingCount } = await supabase
+      .from('meetings')
+      .select('*', { count: 'exact', head: true })
+      .eq('organisation_id', org.id)
+
+    return (
+      <>
+        <DashboardTopbar
+          eyebrow={`Month ${org.engagement_month}`}
+          title={org.name}
+          subtitle="Pipeline"
+          statusLabel="Warming up"
+          statusVariant="warming"
+          orgInitials={getOrgInitials(org.name)}
+        />
+        <PipelineLockedState
+          meetingCount={meetingCount ?? 0}
+          contractStartDate={org.contract_start_date}
+        />
+      </>
+    )
   }
 
   const { start: monthStart, end: monthEnd } = currentMonthBounds()
@@ -169,5 +191,65 @@ export default async function PipelinePage({
         </div>
       </div>
     </>
+  )
+}
+
+// ADR-008: pipeline unlocks after 5 meetings booked OR 2 months elapsed, whichever first.
+// monthly_meetings_target is the post-unlock monthly goal and is not the unlock threshold.
+const PIPELINE_MEETING_THRESHOLD = 5
+
+function computePipelineUnlockDate(contractStartDate: string | null): string | null {
+  if (!contractStartDate) return null
+  const d = new Date(contractStartDate)
+  d.setMonth(d.getMonth() + 2)
+  if (d <= new Date()) return null
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })
+}
+
+function PipelineLockedState({
+  meetingCount,
+  contractStartDate,
+}: {
+  meetingCount: number
+  contractStartDate: string | null
+}) {
+  const unlockDate = computePipelineUnlockDate(contractStartDate)
+  const progressPct = Math.min((meetingCount / PIPELINE_MEETING_THRESHOLD) * 100, 100)
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-surface-content">
+      <div className="px-7 py-7 max-w-[640px]">
+        <div className="bg-brand-green rounded-[10px] p-6">
+          <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-[rgba(245,240,232,0.40)] mb-3">
+            Pipeline
+          </p>
+          <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">
+            Your pipeline opens as campaigns mature
+          </h2>
+          <p className="text-[12px] text-[rgba(245,240,232,0.60)] leading-relaxed mb-5">
+            It unlocks after your first {PIPELINE_MEETING_THRESHOLD} meetings or two months of
+            sending, whichever comes first.
+            {unlockDate ? ` Two-month mark: ${unlockDate}.` : ''}
+          </p>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] font-normal text-[rgba(245,240,232,0.45)]">
+                Meetings booked
+              </span>
+              <span className="text-[10px] font-medium text-[rgba(245,240,232,0.65)]">
+                {meetingCount} of {PIPELINE_MEETING_THRESHOLD}
+              </span>
+            </div>
+            <div className="h-1.5 bg-[rgba(245,240,232,0.10)] rounded-full">
+              <div
+                className="h-full bg-brand-green-accent rounded-full transition-all duration-500"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
