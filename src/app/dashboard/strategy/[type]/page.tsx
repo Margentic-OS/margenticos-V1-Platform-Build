@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
+import * as Sentry from '@sentry/nextjs'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { DocumentHeader } from '@/components/dashboard/strategy/DocumentHeader'
 import { MessagingDocumentView } from '@/components/dashboard/strategy/MessagingDocumentView'
@@ -68,7 +69,7 @@ export default async function StrategyDocumentPage({
 
   if (!org) redirect('/dashboard')
 
-  const { data: doc } = await supabase
+  const { data: doc, error: docError } = await supabase
     .from('strategy_documents')
     .select('document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger')
     .eq('organisation_id', org.id)
@@ -77,6 +78,10 @@ export default async function StrategyDocumentPage({
     .order('last_updated_at', { ascending: false })
     .limit(1)
     .maybeSingle()
+
+  if (docError) {
+    Sentry.captureException(docError, { extra: { orgId: org.id, docType } })
+  }
 
   const docLabel = getDocumentLabel(docType)
   const orgInitials = getOrgInitials(org.name)
@@ -112,7 +117,9 @@ export default async function StrategyDocumentPage({
             </div>
           )}
 
-          {!doc ? (
+          {docError ? (
+            <DocFetchErrorState docLabel={docLabel} />
+          ) : !doc ? (
             <NotYetGeneratedState docLabel={docLabel} docType={docType} />
           ) : (
             <>
@@ -137,6 +144,22 @@ export default async function StrategyDocumentPage({
         </div>
       </div>
     </>
+  )
+}
+
+function DocFetchErrorState({ docLabel }: { docLabel: string }) {
+  return (
+    <div className="bg-surface-card border border-[#EFBCAA] rounded-[10px] p-8 text-center">
+      <div className="w-10 h-10 rounded-full bg-[#FDEEE8] flex items-center justify-center mx-auto mb-4">
+        <span className="w-3 h-3 rounded-full bg-[#EFBCAA]" />
+      </div>
+      <p className="text-[14px] font-medium text-text-primary mb-2">
+        Couldn&apos;t load your {docLabel}
+      </p>
+      <p className="text-[12px] text-text-secondary max-w-xs mx-auto leading-relaxed">
+        Something went wrong fetching this document. Refresh to try again.
+      </p>
+    </div>
   )
 }
 
