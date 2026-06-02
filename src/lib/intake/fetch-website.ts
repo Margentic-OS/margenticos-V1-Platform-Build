@@ -224,13 +224,22 @@ function discoverInnerPages(baseUrl: string, html: string): ScoredLink[] {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const BLOCKED_HOSTS = new Set([
+  'localhost', '127.0.0.1', '0.0.0.0', '::1',
+  '169.254.169.254',           // AWS/Azure IMDS
+  'metadata.google.internal',  // GCP IMDS
+])
+
+const PRIVATE_IP = /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|0\.)/
+
 function normaliseUrl(raw: string): string | null {
   const trimmed = raw.trim()
   const withScheme = trimmed.startsWith('http') ? trimmed : `https://${trimmed}`
   try {
     const u = new URL(withScheme)
-    // Only allow http/https
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    if (BLOCKED_HOSTS.has(u.hostname)) return null
+    if (PRIVATE_IP.test(u.hostname)) return null
     return u.toString()
   } catch {
     return null
