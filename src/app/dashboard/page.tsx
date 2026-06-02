@@ -244,6 +244,7 @@ export default async function DashboardPage({
           engagementMonth={org.engagement_month}
           contractStartDate={org.contract_start_date}
           setupStatus={org.setup_status as { campaigns: 'pending' | 'in_progress' | 'complete'; linkedin: 'pending' | 'in_progress' | 'complete' }}
+          clientParam={clientParam}
         />
       )}
     </>

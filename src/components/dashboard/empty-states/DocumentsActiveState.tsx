@@ -1,5 +1,6 @@
 import type { DocumentType } from '@/types'
 import { DOCUMENT_META, DOCUMENT_ORDER } from '@/lib/document-labels'
+import { appendClientParam } from '@/lib/dashboard/client-param'
 
 export interface ActiveDocument {
   type: DocumentType
@@ -21,6 +22,7 @@ interface DocumentsActiveStateProps {
   engagementMonth: number
   contractStartDate: string | null
   setupStatus: SetupStatus
+  clientParam?: string
 }
 
 
@@ -77,6 +79,7 @@ export function DocumentsActiveState({
   engagementMonth,
   contractStartDate,
   setupStatus,
+  clientParam,
 }: DocumentsActiveStateProps) {
   const setupCards = [
     {
@@ -215,7 +218,7 @@ export function DocumentsActiveState({
                   return (
                     <li key={type}>
                       <a
-                        href={NAV_DOC_HREFS[type]}
+                        href={appendClientParam(NAV_DOC_HREFS[type], clientParam)}
                         className="group block"
                       >
                         <div className="flex items-start justify-between gap-2">

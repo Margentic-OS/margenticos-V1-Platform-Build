@@ -1,4 +1,5 @@
 import { DOCUMENT_META, DOCUMENT_ORDER } from '@/lib/document-labels'
+import { appendClientParam } from '@/lib/dashboard/client-param'
 import type { DocumentType } from '@/types'
 
 export interface StrategyDoc {
@@ -9,6 +10,7 @@ export interface StrategyDoc {
 
 interface StrategyPanelCardProps {
   documents: StrategyDoc[]
+  clientParam?: string
 }
 
 const NAV_DOC_HREFS: Record<DocumentType, string> = {
@@ -27,7 +29,7 @@ function formatRelativeDate(iso: string): string {
   return `${Math.floor(days / 7)} weeks ago`
 }
 
-export function StrategyPanelCard({ documents }: StrategyPanelCardProps) {
+export function StrategyPanelCard({ documents, clientParam }: StrategyPanelCardProps) {
   const docMap = new Map(documents.map(d => [d.type, d]))
 
   return (
@@ -49,7 +51,7 @@ export function StrategyPanelCard({ documents }: StrategyPanelCardProps) {
 
           return (
             <li key={type}>
-              <a href={NAV_DOC_HREFS[type]} className="group block">
+              <a href={appendClientParam(NAV_DOC_HREFS[type], clientParam)} className="group block">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-[12px] font-medium text-text-primary group-hover:text-brand-green transition-colors">
                     {meta.label}

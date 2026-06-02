@@ -158,7 +158,7 @@ export default async function PipelinePage({
           <MomentumBlock meetingsThisMonth={meetingsThisMonth} monthlyMeetingsTarget={org.monthly_meetings_target} launchDate={launchDate} />
           <div className="grid grid-cols-[1fr_300px] gap-4">
             <MeetingsListCard meetings={meetings} launchDate={launchDate} />
-            <StrategyPanelCard documents={strategyDocs} />
+            <StrategyPanelCard documents={strategyDocs} clientParam={clientParam} />
           </div>
           <StatsRow
             qualifiedMeetings={qualifiedMeetings}

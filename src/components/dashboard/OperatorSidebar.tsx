@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useState } from 'react'
+import { appendClientParam } from '@/lib/dashboard/client-param'
 
 export interface ClientOrg {
   id: string
@@ -49,8 +50,6 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
 
   const selectedId = searchParams.get('client') ?? clients[0]?.id ?? null
   const selectedClient = clients.find(c => c.id === selectedId) ?? clients[0] ?? null
-  const withClient = (href: string) =>
-    selectedId ? `${href}?client=${selectedId}` : href
 
   function isActive(href: string) {
     if (href === '/dashboard/operator') return pathname === '/dashboard/operator'
@@ -148,7 +147,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
           {NAV_RESULTS.map((item) => (
             <li key={item.href}>
               <Link
-                href={item.href === '/dashboard/approvals' ? item.href : withClient(item.href)}
+                href={item.href === '/dashboard/approvals' ? item.href : appendClientParam(item.href, selectedId)}
                 className={[
                   'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
                   isActive(item.href)
@@ -170,7 +169,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
           {NAV_STRATEGY.map((item) => (
             <li key={item.href}>
               <Link
-                href={withClient(item.href)}
+                href={appendClientParam(item.href, selectedId)}
                 className={[
                   'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
                   isActive(item.href)
