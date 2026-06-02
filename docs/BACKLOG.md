@@ -1780,3 +1780,38 @@ Complete all items before the first paying client goes live:
   permitted data; they never see another client's private data through this bug).
   Do not fix before Costa Rica activation. Test with real second-client data post-Costa-Rica
   to confirm the exact navigation paths that trigger it before building the fix.
+
+---
+
+## Security — deferred from /cso audit 2026-06-01
+
+### [post-c0-paid-tier] Migrate CRON_SECRET from Postgres GUC to Supabase Vault
+- Finding #3 from /cso 2026-06-01-cso.json
+- Currently stored in plaintext in cron.job.command for process-replies and instantly-poll
+- Acknowledged acceptable in supabase/migrations/20260429_reply_handling.sql:32 due to Hobby tier limitation
+- Action when Supabase plan upgrades: rotate CRON_SECRET into Vault, update cron jobs to read from Vault, remove plaintext value
+- Trigger: paid Supabase tier active
+
+### [post-c0-polish] Flip CSP from report-only to enforcement
+- Shipped 2026-06-02 in commit 65d077f as Content-Security-Policy-Report-Only
+- Action: change header name from `Content-Security-Policy-Report-Only` to `Content-Security-Policy` in next.config.ts (single-word change)
+- Prerequisites: 2 weeks of clean violation logs from real usage (c0 + early founding clients)
+- Risk if flipped too early: blocks legitimate requests (Sentry, Supabase realtime, fonts) and breaks app subtly
+- Trigger: 2 weeks of real-usage browser console with no CSP-would-have-blocked warnings
+
+### [post-c0-polish] Configure CSP report-uri to Sentry endpoint
+- Currently CSP violations only visible via browser console (manual check)
+- NOT NEEDED at <10 clients — manual checking is sufficient
+- Becomes valuable as automated monitoring infrastructure when client count grows
+- Trigger: approaching 10 paying clients OR before flipping CSP to enforcement, whichever first
+
+### [post-c0-polish] Rotate SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET
+- Secret previously displayed in chat during setup (saved to password manager)
+- No concrete compromise vector — solo dev, no team, never on GitHub
+- Action only if context changes (team added, secret shared externally): generate new secret, `vercel env rm` + add, update Supabase Dashboard webhook header
+- Trigger: only if compromise vector emerges; otherwise leave
+
+### [discipline-not-task] No flat-file prospect data in repo
+- Finding #6 from /cso 2026-06-01-cso.json
+- Resolved 2026-06-02 by moving dogfood-prospects-batch-1.csv to ~/Documents/
+- Reminder: prospect/PII data belongs in the database (RLS-protected), never in a flat file in the repo directory — even if gitignored
