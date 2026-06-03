@@ -1869,3 +1869,62 @@ path must be updated to set is_default=true on the first segment it creates.
 resolveOrgPrimarySegment() is the only permitted way to answer "which segment is primary"
 throughout the codebase — inline fallbacks should not be added.
 
+---
+
+## ADR-026 — Per-lead custom variables for sequence content delivery
+Date: June 2026 | Status: Accepted
+
+Context:
+When wiring composeSequence into the upload path, two patterns were possible for
+delivering per-prospect composed email content to the outbound provider:
+
+Option A — Per-lead custom variables: Upload each lead with composed content as flat
+key-value custom variables (m_subject_N, m_body_N). The campaign holds a generic shell
+sequence where each step body is a template variable ({{m_subject_N}}, {{m_body_N}}).
+The provider substitutes the per-lead values at send time.
+
+Option B — Provider-side variant rotation: Create multiple campaign variants directly on
+the outbound provider, one per Messaging doc variant (A, B, C, D). Assign each lead to
+the appropriate campaign on upload. Content lives in the campaign template, not the lead.
+
+Decision:
+Option A — per-lead custom variables. Every lead receives its complete composed
+sequence as custom variables (m_subject_1 through m_body_N) on the lead payload.
+The campaign shell is a permanent generic template pushed once via syncSequenceShell.
+
+Reasoning:
+Per-lead variables give exact per-prospect control — every lead's subject and body are
+deterministic and inspectable before send. This is essential for the ICP-trigger
+personalisation and the bridge-sentence/CTA layer, which produce unique content per
+prospect, not per variant batch. Provider-side variant rotation can only deliver a fixed
+template per variant segment; it cannot accommodate per-prospect body composition.
+
+Provider-side rotation also requires managing N campaign copies and keeping them in sync
+when the Messaging doc is revised. Per-lead variables require only one campaign per
+segment, and the shell only changes when the doc's step count or step delays change —
+not when copy is revised (copy flows through the variables automatically on next upload).
+
+Custom variables are flat key-value pairs spread onto the lead root at upload time.
+Instantly does not support nested objects or arrays in custom variables. The variable
+naming convention (m_subject_N / m_body_N) uses a generic m_ prefix consistent with
+ADR-001 (tool names belong only inside handlers; the variable names are capability
+identifiers, not tool names).
+
+Rejected alternative:
+Provider-side variant rotation (ADR-014 was written before the per-prospect composition
+layer existed). ADR-014 Option E specified four Messaging variants rotated across
+prospects at upload time — this model is superseded by per-lead variables, which achieve
+the variant intent (different angles for different prospects) plus per-prospect
+personalisation within each variant's template.
+
+Consequences:
+Each lead upload payload is larger (carries the full composed sequence as variables).
+The upload handler must assert variable completeness (assertCompleteVariables) before
+attaching variables to a lead; incomplete sets mark the lead failed rather than uploading
+a partial sequence. The shell sync (syncSequenceShell) must be run before any upload and
+must remain in sync with the Messaging doc's step count; a mismatch blocks upload.
+Copy-only revisions to the Messaging doc do not require a shell re-sync — copy flows
+through variables on next upload automatically. Structure changes (step count or delay
+changes) require a re-sync, and are blocked if uploaded leads already exist for the
+campaign (they have already received the old-structure sequence).
+

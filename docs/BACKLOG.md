@@ -1847,32 +1847,18 @@ Complete all items before the first paying client goes live:
   cron.job_run_details on 2026-06-03).
 - Do NOT add these to vercel.json. They are correctly scheduled and running.
 
-### [approval-gate] composeSequence has no callers — gate it when it is wired up
-- Added 2026-06-03. Updated 2026-06-03 (final sweep).
-- `src/lib/composition/compose-sequence.ts` exports `composeSequence()` which builds
-  the full email sequence from ICP, Messaging, Positioning, and TOV documents. It is
-  not called from anywhere in the codebase today — sequence content is pre-configured
-  manually in Instantly.
-- CONFIRMED BUG: composeSequence fetches strategy_documents by status='active' only —
-  it does NOT check client_approval_status='approved'. If wired up today it would pull
-  content from client-unapproved docs and compose outbound emails from them, bypassing
-  the entire approval gate. Three affected fetches: fetchApprovedMessagingDoc (line ~148),
-  fetchPainProxy ICP fetch (line ~303), fetchClientValueHook positioning fetch (line ~451).
-- Fix required before any caller is added: either add .eq('client_approval_status','approved')
-  to all three fetches, OR call assertStrategyApproved() at the top of composeSequence()
-  and throw/return early if any doc is pending.
-- The gate helper is already written: `src/lib/approval/assertStrategyApproved.ts`.
-- Trigger: when composeSequence is first connected to a real call site. Do not wire it
-  up without fixing this first.
+### ~~[approval-gate] composeSequence has no callers — gate it when it is wired up~~
+- RESOLVED 2026-06-03 (content pipeline build).
+- Bug fixed: all three strategy_documents fetches inside compose-sequence.ts now require
+  both `status='active'` AND `client_approval_status='approved'`. Messaging throws loudly
+  if absent; ICP and Positioning fall back to safe defaults (never unapproved content).
+- composeSequence is now wired via handleUploadLeads in actions.ts.
+- Unit tests confirm the approval gate: compose-sequence.test.ts tests (a), (b), (c).
 
-### [style] actions.ts error message names "Instantly" above the integration handler layer
-- Added 2026-06-03.
-- Line `actions.ts:267`: `'No approved prospects have a valid Instantly campaign UUID assigned.'`
-  names the tool in an operator-facing error message inside the server action layer.
-  CLAUDE.md: tool names belong only inside handler functions in the integrations layer.
-- Fix: rephrase to "No approved prospects have a valid campaign UUID assigned."
-- Impact: cosmetic only; no functional or security issue.
-- Trigger: next edit to that error message or a general style pass.
+### ~~[style] actions.ts error message names "Instantly" above the integration handler layer~~
+- RESOLVED 2026-06-03 (content pipeline build).
+- actions.ts was rewritten as part of the compose-at-upload work; the Instantly reference
+  was removed. No capability-layer references to tool names remain in actions.ts.
 
 ### [build] Pre-existing Sentry warnings in production build
 - Added 2026-06-03.
@@ -1893,3 +1879,37 @@ Complete all items before the first paying client goes live:
 - Cleanup: remove 'approved' from the RLS policy USING clause and from app-code selects
   that check status IN ('active', 'approved') to keep them accurate.
 - Trigger: next migration touching strategy_documents schema.
+
+### [scale] Background job queue for compose-at-upload when batch volumes exceed ~50
+- Added 2026-06-03 (content pipeline build).
+- handleUploadLeads processes composition in chunks of COMPOSE_CHUNK_SIZE=50. At typical
+  client zero volumes this fits within a Next.js server action request. At higher volumes
+  (~500+ prospects per upload) the synchronous request would time out.
+- Fix: move compose-at-upload to a Vercel background job (or Supabase Edge Function queue)
+  so the operator gets an immediate "queued" response and a later notification when done.
+- Trigger: when a single upload batch regularly exceeds 100 prospects, OR when Vercel
+  function timeouts start appearing in Sentry for handleUploadLeads.
+
+### [config] Configurable per-campaign delay schedule in syncSequenceShell
+- Added 2026-06-03 (content pipeline build).
+- syncSequenceShell uses a hardcoded default: step 1 = day 0, step N = (N-1)*3 days.
+  This is a reasonable cold-email default but different clients may want different cadences
+  (e.g. faster follow-up for high-intent segments, longer gaps for enterprise targets).
+- Fix: add an optional `delays` field to ShellSyncInput; fall back to defaultDelays() when
+  absent. Expose a delay-schedule UI in the campaign settings panel.
+- Trigger: when a client explicitly requests a different follow-up cadence.
+
+### [smoke] Costa Rica live-smoke spec — content pipeline verification before client one
+- Added 2026-06-03 (content pipeline build).
+- When running the first real upload after content pipeline is live, verify:
+  (a) Custom variables render correctly: Instantly shows the composed subject and body in
+      the preview, not the raw {{m_subject_1}} / {{m_body_1}} template variables.
+  (b) Zero raw {{...}} leakage: no prospect email contains an unresolved {{m_*}} marker.
+      If any marker appears verbatim, the shell step count does not match the doc step count.
+  (c) Line breaks render correctly: \n\n paragraph breaks produce visible paragraph spacing
+      in the email client; single \n produces a line break. Check in both Gmail and Outlook.
+  (d) Instantly undefined-variable behaviour: upload one lead with only m_subject_1/m_body_1
+      and observe whether Instantly shows a blank or an error for the missing step 2 variable.
+      Document the behaviour — this informs whether assertCompleteVariables is the right guard
+      or whether partial sets should be silently excluded earlier.
+- Trigger: first real upload to a live campaign after client one onboards.

@@ -149,6 +149,36 @@ describe('uploadLeads — request shape', () => {
     expect(sent.first_name).toBeUndefined()
     expect(sent.personalization).toBeUndefined()
   })
+
+  it('spreads m_subject_N and m_body_N custom variables onto lead payload root', async () => {
+    const fetchSpy = makeFetchSpy(200, SUCCESS_RESPONSE)
+    const htmlBody1 = '<p>Alice</p>\n<p>Trigger sentence.</p>\n<p>Value prop.</p>\n<p>Worth a call?</p>\n<p>Doug</p>'
+    const htmlBody2 = '<p>Following up on my last note.</p>\n<p>Doug</p>'
+    const lead = {
+      email: 'alice@example.com',
+      first_name: 'Alice',
+      custom_variables: {
+        m_subject_1: 'Quick question',
+        m_body_1: htmlBody1,
+        m_subject_2: '',
+        m_body_2: htmlBody2,
+      },
+    }
+    await uploadLeads(ORG_ID, CAMPAIGN_ID, [lead])
+    const [, options] = fetchSpy.mock.calls[0]
+    const body = JSON.parse(options?.body as string)
+    const sent = body.leads[0]
+    // Custom variables are spread onto the lead root by uploadLeads
+    expect(sent.m_subject_1).toBe('Quick question')
+    expect(sent.m_body_1).toBe(htmlBody1)
+    expect(sent.m_subject_2).toBe('')
+    expect(sent.m_body_2).toBe(htmlBody2)
+    // Standard fields still present
+    expect(sent.email).toBe('alice@example.com')
+    expect(sent.first_name).toBe('Alice')
+    // custom_variables key itself should not appear on the root
+    expect(sent.custom_variables).toBeUndefined()
+  })
 })
 
 describe('uploadLeads — response parsing', () => {
