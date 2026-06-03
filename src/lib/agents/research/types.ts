@@ -38,6 +38,8 @@ export interface SynthesisOutput {
 export interface ProspectContext {
   id: string
   organisation_id: string
+  /** Segment this prospect belongs to. Used to fetch the correct ICP for scoring. */
+  segment_id: string | null
   first_name: string | null
   last_name: string | null
   company_name: string | null

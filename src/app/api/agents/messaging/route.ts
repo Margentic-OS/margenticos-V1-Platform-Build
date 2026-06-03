@@ -23,6 +23,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { runMessagingGenerationAgent } from '@/agents/messaging-generation-agent'
+import { resolveOrgPrimarySegment } from '@/lib/segments/resolve-primary-segment'
 import { logger } from '@/lib/logger'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import { allDocsGeneratedTemplate, allDocsGeneratedSubject } from '@/lib/email/templates/all-docs-generated'
@@ -191,15 +192,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!resolvedSegmentId) {
-    const { data: firstSegment } = await supabase
-      .from('segments')
-      .select('id')
-      .eq('organisation_id', organisation_id)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .single()
-
-    resolvedSegmentId = firstSegment?.id ?? null
+    resolvedSegmentId = await resolveOrgPrimarySegment(supabase as import('@supabase/supabase-js').SupabaseClient, organisation_id)
   }
 
   // ── 6. Run the agent ───────────────────────────────────────────────────────

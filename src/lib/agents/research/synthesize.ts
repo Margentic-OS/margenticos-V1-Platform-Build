@@ -33,8 +33,20 @@ interface ClientDocContext {
   tovRules:           string
 }
 
-async function loadClientContext(clientId: string): Promise<ClientDocContext> {
+async function loadClientContext(clientId: string, segmentId: string | null): Promise<ClientDocContext> {
   const supabase = getServiceClient()
+
+  // Resolve primary segment if the prospect has no segment_id (defensive fallback).
+  let resolvedSegmentId = segmentId
+  if (!resolvedSegmentId) {
+    const { data: primarySeg } = await supabase
+      .from('segments')
+      .select('id')
+      .eq('organisation_id', clientId)
+      .eq('is_default', true)
+      .single()
+    resolvedSegmentId = primarySeg?.id ?? null
+  }
 
   const [orgResult, docsResult] = await Promise.all([
     supabase
@@ -44,7 +56,7 @@ async function loadClientContext(clientId: string): Promise<ClientDocContext> {
       .single(),
     supabase
       .from('strategy_documents')
-      .select('document_type, content')
+      .select('document_type, content, segment_id')
       .eq('organisation_id', clientId)
       .eq('status', 'active')
       .in('document_type', ['icp', 'positioning', 'tov'])
@@ -54,7 +66,15 @@ async function loadClientContext(clientId: string): Promise<ClientDocContext> {
   const clientName = (orgResult.data?.name as string | null) ?? 'the client'
 
   const docs = docsResult.data ?? []
-  const icpDoc  = docs.find(d => d.document_type === 'icp')?.content as Record<string, unknown> | undefined
+
+  // ICP is segment-scoped: use the doc matching the resolved segment.
+  // Falls back to any active ICP if the segment match is missing (defensive only).
+  const icpDoc = (
+    docs.find(d => d.document_type === 'icp' && d.segment_id === resolvedSegmentId)
+    ?? docs.find(d => d.document_type === 'icp')
+  )?.content as Record<string, unknown> | undefined
+
+  // Positioning and TOV are org-level (segment_id IS NULL) — no segment filter needed.
   const posDoc  = docs.find(d => d.document_type === 'positioning')?.content as Record<string, unknown> | undefined
   const tovDoc  = docs.find(d => d.document_type === 'tov')?.content as Record<string, unknown> | undefined
 
@@ -393,7 +413,7 @@ export async function synthesizeResearch(
   if (!apiKey) throw new Error('research/synthesize: ANTHROPIC_API_KEY not set')
 
   const detectedSignal = detectRecencySignal(rawData, new Date())
-  const clientCtx = await loadClientContext(clientId)
+  const clientCtx = await loadClientContext(clientId, prospect.segment_id)
   const systemPrompt = buildSynthesisPrompt({ ...clientCtx, signalObservation: detectedSignal.signal_observation })
   const researchSections = formatResearchSections(rawData)
 

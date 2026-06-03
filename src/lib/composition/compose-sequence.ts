@@ -36,6 +36,7 @@ export interface ComposedSequence {
 interface ProspectRow {
   id: string
   organisation_id: string
+  segment_id: string | null
   variant_id: string | null
   personalisation_trigger: string | null
   has_dateable_signal: boolean | null
@@ -91,14 +92,16 @@ export async function composeSequence({
 }): Promise<ComposedSequence> {
   const supabase = getServiceClient()
 
-  // Step 1 — Fetch the approved messaging document for this client.
-  const messagingDoc = await fetchApprovedMessagingDoc(supabase, client_id)
-
-  // Step 2 — Assign a variant if the prospect has none.
+  // Step 2 — Fetch the prospect first so we have segment_id for the messaging lookup.
   const prospect = await fetchProspect(supabase, prospect_id, client_id)
+
+  // Step 1 — Fetch the approved messaging document for this client + segment.
+  const messagingDoc = await fetchApprovedMessagingDoc(supabase, client_id, prospect.segment_id)
+
+  // Step 3 — Assign a variant if the prospect has none.
   const variantId = await resolveVariant(supabase, prospect, messagingDoc, client_id)
 
-  // Step 3 — Fetch the personalisation trigger (with ICP fallback).
+  // Step 4 — Fetch the personalisation trigger (with ICP fallback).
   const trigger = await resolveTrigger(supabase, prospect, client_id)
 
   // Step 4 — Apply the trigger to email 1 of the assigned variant.
@@ -127,12 +130,42 @@ export async function composeSequence({
 
 async function fetchApprovedMessagingDoc(
   supabase: ServiceClient,
-  client_id: string
+  client_id: string,
+  segment_id: string | null
 ): Promise<MessagingContent> {
+  // Resolve primary segment if null — NULL-segment prospects must never error.
+  let resolvedSegmentId = segment_id
+  if (!resolvedSegmentId) {
+    const { data: primarySeg } = await supabase
+      .from('segments')
+      .select('id')
+      .eq('organisation_id', client_id)
+      .eq('is_default', true)
+      .single()
+    resolvedSegmentId = primarySeg?.id ?? null
+  }
+
+  const query = supabase
+    .from('strategy_documents')
+    .select('content')
+    .eq('organisation_id', client_id)
+    .eq('document_type', 'messaging')
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  // Fetch segment-specific messaging when we have a resolved segment.
+  // Fall through to segment-agnostic fetch if the segment has no dedicated doc yet.
+  if (resolvedSegmentId) {
+    const { data: segData } = await query.eq('segment_id', resolvedSegmentId).maybeSingle()
+    if (segData) return segData.content as MessagingContent
+  }
+
+  // Fallback: any active messaging doc for this client (e.g. during migration).
   const { data, error } = await supabase
     .from('strategy_documents')
     .select('content')
-    .eq('organisation_id', client_id) // explicit isolation filter
+    .eq('organisation_id', client_id)
     .eq('document_type', 'messaging')
     .eq('status', 'active')
     .order('created_at', { ascending: false })
@@ -158,7 +191,7 @@ async function fetchProspect(
 ): Promise<ProspectRow> {
   const { data, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, variant_id, personalisation_trigger, has_dateable_signal, signal_relevance, role, first_name, last_name, company_name')
+    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, has_dateable_signal, signal_relevance, role, first_name, last_name, company_name')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id) // explicit isolation filter
     .single()
@@ -244,19 +277,50 @@ async function resolveTrigger(
   const stored = prospect.personalisation_trigger?.trim()
   if (stored && stored.length > 0) return stored
 
-  // Fallback: read tier 1 pain point from the ICP document.
-  return fetchPainProxy(supabase, client_id, prospect.role)
+  // Fallback: read tier 1 pain point from the segment's ICP document.
+  return fetchPainProxy(supabase, client_id, prospect.segment_id, prospect.role)
 }
 
 async function fetchPainProxy(
   supabase: ServiceClient,
   client_id: string,
+  segment_id: string | null,
   prospectRole: string | null
 ): Promise<string> {
+  // Resolve primary segment for null — same pattern as messaging fetch.
+  let resolvedSegmentId = segment_id
+  if (!resolvedSegmentId) {
+    const { data: primarySeg } = await supabase
+      .from('segments')
+      .select('id')
+      .eq('organisation_id', client_id)
+      .eq('is_default', true)
+      .single()
+    resolvedSegmentId = primarySeg?.id ?? null
+  }
+
+  // Fetch the ICP for this specific segment; fall back to any active ICP if not found.
+  let query = supabase
+    .from('strategy_documents')
+    .select('content')
+    .eq('organisation_id', client_id)
+    .eq('document_type', 'icp')
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (resolvedSegmentId) {
+    const { data: segData } = await query.eq('segment_id', resolvedSegmentId).maybeSingle()
+    if (segData) {
+      const painPoint = extractPainFromIcp(segData.content as IcpContent)
+      if (painPoint) return painPoint
+    }
+  }
+
   const { data, error } = await supabase
     .from('strategy_documents')
     .select('content')
-    .eq('organisation_id', client_id) // explicit isolation filter
+    .eq('organisation_id', client_id)
     .eq('document_type', 'icp')
     .eq('status', 'active')
     .order('created_at', { ascending: false })

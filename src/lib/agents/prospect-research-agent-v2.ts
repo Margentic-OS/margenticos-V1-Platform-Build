@@ -158,7 +158,7 @@ export async function runProspectResearchAgentV2({
     const supabase = getServiceClient()
     const { data: prospect, error: fetchError } = await supabase
       .from('prospects')
-      .select('id, first_name, last_name, company_name, role, email, linkedin_url, website_url, organisation_id')
+      .select('id, first_name, last_name, company_name, role, email, linkedin_url, website_url, organisation_id, segment_id')
       .eq('id', prospect_id)
       .eq('organisation_id', client_id)
       .single()
@@ -167,9 +167,31 @@ export async function runProspectResearchAgentV2({
       throw new Error(`Prospect not found: ${prospect_id} for client ${client_id}`)
     }
 
+    // Part C: if segment_id is null (prospect created before backfill or outside the
+    // sourcing path), stamp it with the org's primary segment now. This ensures every
+    // prospect has a segment before research and compose run.
+    let segmentId: string | null = prospect.segment_id ?? null
+    if (!segmentId) {
+      const { data: primarySeg } = await supabase
+        .from('segments')
+        .select('id')
+        .eq('organisation_id', client_id)
+        .eq('is_default', true)
+        .single()
+      segmentId = primarySeg?.id ?? null
+      if (segmentId) {
+        await supabase
+          .from('prospects')
+          .update({ segment_id: segmentId })
+          .eq('id', prospect_id)
+          .eq('organisation_id', client_id)
+      }
+    }
+
     const ctx: ProspectContext = {
       id:              prospect.id,
       organisation_id: prospect.organisation_id,
+      segment_id:      segmentId,
       first_name:      prospect.first_name,
       last_name:       prospect.last_name,
       company_name:    prospect.company_name,

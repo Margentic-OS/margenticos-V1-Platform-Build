@@ -15,6 +15,7 @@ import peopleMatchSuccess from '../src/lib/integrations/handlers/apollo/__fixtur
 const TEST_PROSPECT = {
   id: 'test-id',
   organisation_id: 'test-org',
+  segment_id: null,
   first_name: 'Jane',
   last_name: 'Smith',
   company_name: 'Test Co',
