@@ -1801,3 +1801,39 @@ Complete all items before the first paying client goes live:
 - Finding #6 from /cso 2026-06-01-cso.json
 - Resolved 2026-06-02 by moving dogfood-prospects-batch-1.csv to ~/Documents/
 - Reminder: prospect/PII data belongs in the database (RLS-protected), never in a flat file in the repo directory — even if gitignored
+
+---
+
+## Segment-aware sending path — deferred items (June 2026)
+
+### [post-c0] Set is_default=true in the "create org" path
+- When a new org is created (intake flow or operator-created), the first segment must
+  have is_default=true set at insert time.
+- Currently the backfill migration handles all existing orgs. Any new org created after
+  2026-06-03 without is_default=true set will have no primary segment and all
+  resolveOrgPrimarySegment() calls will return null, causing the ICP/messaging fallback
+  to silently produce no documents.
+- Trigger: before onboarding the first new paying client post-c0.
+
+### [post-c0] Multi-segment UI — operator segment management
+- The data model now supports multiple named segments per org (each with their own
+  ICP, messaging doc, and prospect set), but there is no UI for creating or managing
+  segments beyond the default one.
+- Concretely: to create a second segment, change the is_default flag, or rename a
+  segment, an operator must currently run SQL directly.
+- Trigger: first client who explicitly needs separate ICPs for two distinct buyer types.
+
+### [post-c0] Second-segment ICP + messaging generation flow
+- The agent routes for ICP and messaging both resolve a single segment per run. There
+  is no orchestration to run generation for all segments of a given org in one call.
+- When a client has two segments, an operator must trigger the ICP agent twice (once
+  per segment) by passing segment_id explicitly in the request body.
+- Trigger: first multi-segment client.
+
+### [post-c0] Part C prospect stamping for sourcing pipeline
+- The research agent stamps segment_id on first run for any NULL-segment prospect
+  (Part C). This handles manually-created prospects and the dogfood batch.
+- When a proper Apollo/sourcing pipeline exists and inserts prospects programmatically,
+  that pipeline should stamp segment_id at insert time rather than relying on the
+  research agent to backfill it. Currently no automated sourcing pipeline exists.
+- Trigger: when a sourcing pipeline is built that writes to the prospects table.

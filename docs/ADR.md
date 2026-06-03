@@ -1824,3 +1824,48 @@ Apollo response shapes are NOT typed at this stage. The graceful degradation pat
 
 The verification harness (`/docs/prompts/subscription-activation-verification.md`) is the planned remediation for every item in the "NOT covered" column. It is designed to be run as a single self-contained session the day subscriptions activate.
 
+---
+
+## ADR-025 — is_default flag as the canonical "primary segment" marker
+Date: June 2026 | Status: Accepted
+
+Context:
+Multiple places in the codebase needed to answer "which segment is this org's primary?"
+The original fallbacks used inconsistent heuristics: agent routes used ORDER BY created_at
+LIMIT 1, which is non-deterministic when two segments share the same timestamp. A slug
+check (WHERE slug = 'default') works now but breaks the moment an org renames their
+default segment. Both patterns were scattered across agent routes, composition, and the
+research agent with no shared resolver.
+
+Decision:
+Add an `is_default boolean NOT NULL DEFAULT false` column to the segments table.
+Enforce exactly one is_default=true per org at the database level using a partial unique
+index: `CREATE UNIQUE INDEX segments_org_primary_idx ON segments(organisation_id) WHERE
+is_default = true`. All "which segment is primary?" fallbacks route through a single
+shared resolver: `resolveOrgPrimarySegment(supabase, orgId)` in
+`src/lib/segments/resolve-primary-segment.ts`.
+
+Reasoning:
+The partial unique index makes an invariant (one primary per org) unbreakable by
+application bugs or direct DB writes — the constraint fires at the Postgres level, not
+just in application code. The shared resolver means there is one place to change if the
+resolution logic ever needs to evolve. The flag survives segment renames and reordering,
+unlike slug or ordering heuristics.
+
+Rejected alternatives:
+- slug = 'default' check: breaks if an org renames their segment; couples the code
+  to a naming convention that must never change.
+- ORDER BY created_at LIMIT 1: non-deterministic; picks whichever segment was created
+  first, which may not be the segment the operator intends as primary.
+- Application-layer enforcement only (no DB constraint): a race condition or a direct
+  SQL write can silently create two "primary" segments; the partial unique index makes
+  that impossible.
+
+Consequences:
+Every new org must have exactly one segment with is_default=true set at creation time.
+The partial unique index will reject any attempt to set a second segment as primary
+without first unsetting the current one. The intake flow and any future "create org"
+path must be updated to set is_default=true on the first segment it creates.
+resolveOrgPrimarySegment() is the only permitted way to answer "which segment is primary"
+throughout the codebase — inline fallbacks should not be added.
+
