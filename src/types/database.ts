@@ -79,6 +79,11 @@ export type Database = {
           replied_count: number
           sent_count: number
           sequence_name: string | null
+          shell_delays: Json | null
+          shell_doc_id: string | null
+          shell_segment_id: string | null
+          shell_step_count: number | null
+          shell_synced_at: string | null
           started_at: string | null
           status: string
           updated_at: string
@@ -96,6 +101,11 @@ export type Database = {
           replied_count?: number
           sent_count?: number
           sequence_name?: string | null
+          shell_delays?: Json | null
+          shell_doc_id?: string | null
+          shell_segment_id?: string | null
+          shell_step_count?: number | null
+          shell_synced_at?: string | null
           started_at?: string | null
           status?: string
           updated_at?: string
@@ -113,6 +123,11 @@ export type Database = {
           replied_count?: number
           sent_count?: number
           sequence_name?: string | null
+          shell_delays?: Json | null
+          shell_doc_id?: string | null
+          shell_segment_id?: string | null
+          shell_step_count?: number | null
+          shell_synced_at?: string | null
           started_at?: string | null
           status?: string
           updated_at?: string
