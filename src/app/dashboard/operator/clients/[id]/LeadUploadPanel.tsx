@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { handleUploadLeads } from './actions'
-import type { UploadLeadsResult, CampaignOutcome } from './actions'
+import type { UploadLeadsResult, CampaignOutcome, BlockedSegmentReason } from './actions'
 
 interface Props {
   orgId: string
@@ -128,18 +128,31 @@ function SuccessDisplay({
   const totalIncomplete = result.outcomes.reduce((n, o) => n + (o.ok ? o.incomplete : 0), 0)
 
   const isPartial = result.hasPartialFailure
-  const headerText = isPartial ? 'Upload complete (with errors)' : 'Upload complete'
-  const headerClass = isPartial ? 'text-[#92400E]' : 'text-brand-green-success'
-  const containerClass = isPartial
+  const hasBlocked = result.blockedSegments.length > 0
+  const hasUploaded = result.outcomes.length > 0
+
+  const headerText = !hasUploaded && hasBlocked
+    ? 'Upload held — awaiting approval'
+    : isPartial || hasBlocked
+      ? 'Upload complete (some segments held)'
+      : 'Upload complete'
+  const headerClass = !hasUploaded && hasBlocked
+    ? 'text-[#92400E]'
+    : isPartial || hasBlocked
+      ? 'text-[#92400E]'
+      : 'text-brand-green-success'
+  const containerClass = !hasUploaded && hasBlocked
     ? 'bg-[#FEFCE8] border border-[#FDE68A]'
-    : 'bg-[#EBF5E6] border border-[#BDDAB0]'
+    : isPartial || hasBlocked
+      ? 'bg-[#FEFCE8] border border-[#FDE68A]'
+      : 'bg-[#EBF5E6] border border-[#BDDAB0]'
 
   return (
     <div className="space-y-3">
       <div className={`${containerClass} rounded-[8px] px-4 py-3 space-y-2`}>
         <p className={`text-[12px] font-medium ${headerClass}`}>{headerText}</p>
 
-        {/* Aggregate summary (only meaningful if at least one success) */}
+        {/* Aggregate upload summary (only shown when something was actually uploaded) */}
         {totalAttempted > 0 && (
           <div className="grid grid-cols-2 gap-x-6 gap-y-0.5">
             <StatRow label="Attempted" value={totalAttempted} />
@@ -159,6 +172,15 @@ function SuccessDisplay({
             ))}
           </div>
         )}
+
+        {/* Blocked segments — named reasons so the operator knows what to approve */}
+        {hasBlocked && (
+          <div className={`space-y-1 ${totalAttempted > 0 ? 'border-t border-black/10 pt-2 mt-2' : ''}`}>
+            {result.blockedSegments.map((b, i) => (
+              <BlockedSegmentRow key={b.segmentId ?? i} blocked={b} />
+            ))}
+          </div>
+        )}
       </div>
 
       <button
@@ -168,6 +190,16 @@ function SuccessDisplay({
         Upload again
       </button>
     </div>
+  )
+}
+
+function BlockedSegmentRow({ blocked }: { blocked: BlockedSegmentReason }) {
+  const segLabel = blocked.segmentName ?? (blocked.segmentId ? blocked.segmentId.slice(0, 8) + '…' : 'Default segment')
+  return (
+    <p className="text-[11px] text-[#92400E]">
+      <span className="mr-1">⏸</span>
+      Awaiting client approval for {segLabel}: {blocked.pendingDocs.join(', ')}
+    </p>
   )
 }
 

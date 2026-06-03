@@ -6,6 +6,7 @@ import { validateCampaign } from '@/lib/integrations/handlers/instantly/validate
 import { uploadLeads } from '@/lib/integrations/handlers/instantly/uploadLeads'
 import { orderMailboxes } from '@/lib/integrations/handlers/instantly/orderMailboxes'
 import { INSTANTLY_DFY_ALLOWED_TLDS } from '@/lib/integrations/handlers/instantly/constants'
+import { assertStrategyApproved } from '@/lib/approval/assertStrategyApproved'
 import type { ProspectForUpload, DfyOrderResult } from '@/lib/integrations/handlers/instantly/types'
 
 export type SetupStatusField = 'campaigns' | 'linkedin'
@@ -166,8 +167,14 @@ export type CampaignOutcome =
   | { external_id: string; ok: true; created: number; duplicated: number; in_blocklist: number; invalid: number; incomplete: number; attempted: number }
   | { external_id: string; ok: false; error: string }
 
+export type BlockedSegmentReason = {
+  segmentId: string | null
+  segmentName: string | null
+  pendingDocs: string[]
+}
+
 export type UploadLeadsResult =
-  | { ok: true; outcomes: CampaignOutcome[]; hasPartialFailure: boolean }
+  | { ok: true; outcomes: CampaignOutcome[]; hasPartialFailure: boolean; blockedSegments: BlockedSegmentReason[] }
   | { ok: false; error: string }
 
 export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResult> {
@@ -184,11 +191,20 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
-  // Fetch pending prospects with their Instantly campaign UUID via join.
+  // Resolve the primary segment once — used to map null-segment prospects to a real segment.
+  const { data: primarySeg } = await supabase
+    .from('segments')
+    .select('id')
+    .eq('organisation_id', orgId)
+    .eq('is_default', true)
+    .maybeSingle()
+  const primarySegmentId = primarySeg?.id ?? null
+
+  // Fetch pending prospects with segment_id included for approval gating.
   // Filters: status=pending, campaign assigned, personalisation trigger present, email present.
   const { data: rows, error: fetchErr } = await supabase
     .from('prospects')
-    .select('email, personalisation_trigger, first_name, last_name, company_name, role, campaigns!inner(external_id)')
+    .select('email, personalisation_trigger, first_name, last_name, company_name, role, segment_id, campaigns!inner(external_id)')
     .eq('organisation_id', orgId)
     .eq('outbound_upload_status', 'pending')
     .not('campaign_id', 'is', null)
@@ -200,12 +216,56 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   }
 
   if (!rows || rows.length === 0) {
-    return { ok: true, outcomes: [], hasPartialFailure: false }
+    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments: [] }
   }
 
-  // Group by Instantly campaign UUID (external_id). Each campaign is uploaded as a separate batch.
+  // Build a map from each raw segment_id in this batch to its resolved segment_id.
+  // NULL-segment prospects resolve to the primary segment (matching compose-sequence logic).
+  const rawSegmentIds = new Set(rows.map(r => r.segment_id))
+  const resolvedFromRaw = new Map<string | null, string | null>()
+  for (const rawId of rawSegmentIds) {
+    resolvedFromRaw.set(rawId, rawId ?? primarySegmentId)
+  }
+
+  // Check approval for each unique resolved segment.
+  // Per-segment independence: an unapproved segment blocks only its own prospects.
+  const uniqueResolvedIds = new Set([...resolvedFromRaw.values()])
+  const approvedResolvedIds = new Set<string | null>()
+  const blockedSegments: BlockedSegmentReason[] = []
+
+  for (const resolvedId of uniqueResolvedIds) {
+    const check = await assertStrategyApproved(supabase, orgId, resolvedId)
+    if (check.approved) {
+      approvedResolvedIds.add(resolvedId)
+    } else {
+      // Fetch the segment name for the operator-facing reason message.
+      let segmentName: string | null = null
+      if (resolvedId) {
+        const { data: seg } = await supabase
+          .from('segments')
+          .select('name')
+          .eq('id', resolvedId)
+          .maybeSingle()
+        segmentName = seg?.name ?? null
+      }
+      blockedSegments.push({ segmentId: resolvedId, segmentName, pendingDocs: check.pendingDocs })
+    }
+  }
+
+  // Filter prospects to only those whose resolved segment is approved.
+  const approvedRows = rows.filter(row => {
+    const resolvedId = resolvedFromRaw.get(row.segment_id) ?? null
+    return approvedResolvedIds.has(resolvedId)
+  })
+
+  if (approvedRows.length === 0) {
+    // All prospects held by the gate — nothing to upload this run.
+    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments }
+  }
+
+  // Group approved prospects by Instantly campaign UUID. Each campaign is a separate batch.
   const byExternalId = new Map<string, ProspectForUpload[]>()
-  for (const row of rows) {
+  for (const row of approvedRows) {
     const campaign = row.campaigns as { external_id: string | null } | null
     const externalId = campaign?.external_id
     if (!externalId || !row.email) continue
@@ -221,7 +281,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   }
 
   if (byExternalId.size === 0) {
-    return { ok: false, error: 'No prospects have a valid Instantly campaign UUID assigned.' }
+    return { ok: false, error: 'No approved prospects have a valid Instantly campaign UUID assigned.' }
   }
 
   // Run all campaign uploads, collecting per-campaign outcomes.
@@ -253,6 +313,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     ok: true,
     outcomes,
     hasPartialFailure: outcomes.some(o => !o.ok),
+    blockedSegments,
   }
 }
 
