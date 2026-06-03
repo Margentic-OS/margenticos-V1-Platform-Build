@@ -576,6 +576,7 @@ async function writeDocumentSuggestion(
     .from('document_suggestions')
     .insert({
       organisation_id,            // always scoped to this client
+      segment_id: null,           // positioning is org-level, not segment-scoped
       document_id: existingDocument?.id ?? null, // null for initial generation
       document_type: 'positioning',
       field_path: 'full_document',

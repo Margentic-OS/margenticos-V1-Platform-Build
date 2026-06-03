@@ -149,6 +149,7 @@ export type Database = {
           rejection_reason: string | null
           reviewed_at: string | null
           reviewed_by: string | null
+          segment_id: string | null
           sequence_position: number | null
           signal_count: number
           status: string
@@ -169,6 +170,7 @@ export type Database = {
           rejection_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
+          segment_id?: string | null
           sequence_position?: number | null
           signal_count?: number
           status?: string
@@ -189,6 +191,7 @@ export type Database = {
           rejection_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
+          segment_id?: string | null
           sequence_position?: number | null
           signal_count?: number
           status?: string
@@ -229,6 +232,13 @@ export type Database = {
             columns: ["reviewed_by"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_suggestions_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "segments"
             referencedColumns: ["id"]
           },
         ]
@@ -463,6 +473,7 @@ export type Database = {
           organisation_id: string
           response_value: string | null
           section: string
+          segment_id: string | null
           updated_at: string
           version: number
           word_count: number
@@ -475,6 +486,7 @@ export type Database = {
           organisation_id: string
           response_value?: string | null
           section: string
+          segment_id?: string | null
           updated_at?: string
           version?: number
           word_count?: number
@@ -487,6 +499,7 @@ export type Database = {
           organisation_id?: string
           response_value?: string | null
           section?: string
+          segment_id?: string | null
           updated_at?: string
           version?: number
           word_count?: number
@@ -504,6 +517,13 @@ export type Database = {
             columns: ["organisation_id"]
             isOneToOne: false
             referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intake_responses_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "segments"
             referencedColumns: ["id"]
           },
         ]
@@ -1007,6 +1027,7 @@ export type Database = {
           research_ran_at: string | null
           research_source: string | null
           role: string | null
+          segment_id: string | null
           signal_observation: string | null
           signal_relevance: string
           suppressed: boolean
@@ -1041,6 +1062,7 @@ export type Database = {
           research_ran_at?: string | null
           research_source?: string | null
           role?: string | null
+          segment_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string
           suppressed?: boolean
@@ -1075,6 +1097,7 @@ export type Database = {
           research_ran_at?: string | null
           research_source?: string | null
           role?: string | null
+          segment_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string
           suppressed?: boolean
@@ -1113,6 +1136,13 @@ export type Database = {
             columns: ["organisation_id"]
             isOneToOne: false
             referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prospects_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "segments"
             referencedColumns: ["id"]
           },
         ]
@@ -1321,6 +1351,45 @@ export type Database = {
           },
         ]
       }
+      segments: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          organisation_id: string
+          slug: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          organisation_id: string
+          slug: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          organisation_id?: string
+          slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "segments_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "segments_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       signals: {
         Row: {
           campaign_id: string | null
@@ -1412,6 +1481,7 @@ export type Database = {
           last_updated_at: string
           organisation_id: string
           plain_text: string | null
+          segment_id: string | null
           status: string
           update_trigger: string | null
           version: string
@@ -1426,6 +1496,7 @@ export type Database = {
           last_updated_at?: string
           organisation_id: string
           plain_text?: string | null
+          segment_id?: string | null
           status?: string
           update_trigger?: string | null
           version?: string
@@ -1440,6 +1511,7 @@ export type Database = {
           last_updated_at?: string
           organisation_id?: string
           plain_text?: string | null
+          segment_id?: string | null
           status?: string
           update_trigger?: string | null
           version?: string
@@ -1457,6 +1529,13 @@ export type Database = {
             columns: ["organisation_id"]
             isOneToOne: false
             referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "strategy_documents_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "segments"
             referencedColumns: ["id"]
           },
         ]
@@ -1727,3 +1806,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+

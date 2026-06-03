@@ -83,7 +83,7 @@ async function notifyIfAllDocsComplete(organisation_id: string): Promise<void> {
 
 export async function POST(request: NextRequest) {
   // ── 1. Parse request body ──────────────────────────────────────────────────
-  let body: { organisation_id?: string; is_refresh?: boolean }
+  let body: { organisation_id?: string; segment_id?: string | null; is_refresh?: boolean }
   try {
     body = await request.json()
   } catch {
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { organisation_id, is_refresh = false } = body
+  const { organisation_id, segment_id: bodySegmentId, is_refresh = false } = body
 
   if (!organisation_id || typeof organisation_id !== 'string') {
     return NextResponse.json(
@@ -179,15 +179,45 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── 5. Run the agent ───────────────────────────────────────────────────────
+  // ── 5. Resolve segment_id ──────────────────────────────────────────────────
+  // Priority: (1) explicit body param, (2) org's intake segment, (3) first org segment.
+  // Never hardcodes the 'default' slug — keys off the UUID that was backfilled.
+  let resolvedSegmentId: string | null = bodySegmentId ?? null
+
+  if (!resolvedSegmentId) {
+    const { data: intakeRow } = await supabase
+      .from('intake_responses')
+      .select('segment_id')
+      .eq('organisation_id', organisation_id)
+      .not('segment_id', 'is', null)
+      .limit(1)
+      .single()
+
+    resolvedSegmentId = intakeRow?.segment_id ?? null
+  }
+
+  if (!resolvedSegmentId) {
+    const { data: firstSegment } = await supabase
+      .from('segments')
+      .select('id')
+      .eq('organisation_id', organisation_id)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single()
+
+    resolvedSegmentId = firstSegment?.id ?? null
+  }
+
+  // ── 6. Run the agent ───────────────────────────────────────────────────────
   logger.info(
     'ICP route: starting agent run',
-    { operator_id: operatorId, organisation_id, org_name: org.name, is_refresh }
+    { operator_id: operatorId, organisation_id, org_name: org.name, segment_id: resolvedSegmentId, is_refresh }
   )
 
   try {
     const result = await runIcpGenerationAgent({
       organisation_id,
+      segment_id: resolvedSegmentId,
       supabase,
       is_refresh,
     })

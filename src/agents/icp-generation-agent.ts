@@ -30,6 +30,8 @@ export interface IcpAgentInput {
   organisation_id: string
   /** Supabase client authenticated as the operator. Passed in from the API route. */
   supabase: SupabaseClient
+  /** Segment this generation run is scoped to. NULL = org-level (should not occur for ICP). */
+  segment_id?: string | null
   /** Optional: if true, includes existing ICP document content for refresh context. */
   is_refresh?: boolean
 }
@@ -68,9 +70,9 @@ interface ExistingDocument {
 export async function runIcpGenerationAgent(
   input: IcpAgentInput
 ): Promise<IcpAgentResult> {
-  const { organisation_id, supabase, is_refresh = false } = input
+  const { organisation_id, supabase, segment_id = null, is_refresh = false } = input
 
-  logger.info('ICP agent: starting', { organisation_id, is_refresh })
+  logger.info('ICP agent: starting', { organisation_id, segment_id, is_refresh })
 
   const agentRun = await startAgentRun({ client_id: organisation_id, agent_name: 'icp-generation' })
 
@@ -170,6 +172,7 @@ export async function runIcpGenerationAgent(
   // Step 9: Write to document_suggestions — never to strategy_documents directly.
   const suggestionId = await writeDocumentSuggestion(supabase, {
     organisation_id,
+    segment_id,
     existingDocument,
     generatedContent,
     parsedDocument,
@@ -508,6 +511,7 @@ async function writeDocumentSuggestion(
   supabase: SupabaseClient,
   params: {
     organisation_id: string
+    segment_id: string | null
     existingDocument: ExistingDocument | null
     generatedContent: string
     parsedDocument: Record<string, unknown>
@@ -519,6 +523,7 @@ async function writeDocumentSuggestion(
 ): Promise<string> {
   const {
     organisation_id,
+    segment_id,
     existingDocument,
     generatedContent,
     completeness,
@@ -551,6 +556,7 @@ async function writeDocumentSuggestion(
     .from('document_suggestions')
     .insert({
       organisation_id,          // always scoped to this client
+      segment_id,               // segment this ICP was generated for
       document_id: existingDocument?.id ?? null, // null for initial generation
       document_type: 'icp',
       field_path: 'full_document',

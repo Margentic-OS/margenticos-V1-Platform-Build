@@ -66,6 +66,8 @@ export interface MessagingAgentInput {
   organisation_id: string
   /** Supabase client authenticated as the operator. Passed in from the API route. */
   supabase: SupabaseClient
+  /** Segment this generation run is scoped to. NULL = org-level (should not occur for Messaging). */
+  segment_id?: string | null
   /** Optional: if true, includes existing Messaging document content for refresh context. */
   is_refresh?: boolean
 }
@@ -176,9 +178,9 @@ interface RunStats {
 export async function runMessagingGenerationAgent(
   input: MessagingAgentInput
 ): Promise<MessagingAgentResult> {
-  const { organisation_id, supabase, is_refresh = false } = input
+  const { organisation_id, supabase, segment_id = null, is_refresh = false } = input
 
-  logger.info('Messaging agent: starting', { organisation_id, is_refresh })
+  logger.info('Messaging agent: starting', { organisation_id, segment_id, is_refresh })
 
   // Start agent run logging — every run is recorded to agent_runs table.
   const agentRun = await startAgentRun({
@@ -325,6 +327,7 @@ export async function runMessagingGenerationAgent(
     // Step 14: Write validated variants to document_suggestions.
     const suggestionId = await writeDocumentSuggestion(supabase, {
       organisation_id,
+      segment_id,
       requiredDocs,
       existingDocument,
       variants: passedVariants,
@@ -1339,6 +1342,7 @@ async function writeDocumentSuggestion(
   supabase: SupabaseClient,
   params: {
     organisation_id: string
+    segment_id: string | null
     requiredDocs: RequiredDocuments
     existingDocument: ExistingMessagingDocument | null
     variants: Record<string, EmailRecord[]>
@@ -1351,6 +1355,7 @@ async function writeDocumentSuggestion(
 ): Promise<string> {
   const {
     organisation_id,
+    segment_id,
     requiredDocs,
     existingDocument,
     variants,
@@ -1416,6 +1421,7 @@ async function writeDocumentSuggestion(
     .from('document_suggestions')
     .insert({
       organisation_id,
+      segment_id,               // segment this Messaging Playbook was generated for
       document_id: existingDocument?.id ?? null,
       document_type: 'messaging',
       field_path: 'full_document',

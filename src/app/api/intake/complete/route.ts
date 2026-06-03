@@ -73,9 +73,10 @@ export async function POST(_request: NextRequest) {
 
   // ── 4. Defense-in-depth: re-verify 80% threshold ──────────────────────────
   // The form checks this client-side, but a direct POST could bypass it.
+  // segment_id is read here so the ICP and Messaging dispatches can carry it.
   const { data: intakeRows } = await supabase
     .from('intake_responses')
-    .select('is_critical, response_value')
+    .select('is_critical, response_value, segment_id')
     .eq('organisation_id', orgId)
 
   const criticalRows = (intakeRows ?? []).filter(r => r.is_critical)
@@ -83,6 +84,10 @@ export async function POST(_request: NextRequest) {
   const completeness = criticalRows.length > 0
     ? answeredRows.length / criticalRows.length
     : 0
+
+  // Resolve segment_id from backfilled intake rows. Fall back to first org segment if NULL.
+  const intakeSegmentId: string | null =
+    (intakeRows ?? []).find(r => r.segment_id != null)?.segment_id ?? null
 
   if (completeness < 0.8) {
     // Reset the guard so the client can try again once more fields are answered
@@ -122,7 +127,23 @@ export async function POST(_request: NextRequest) {
       return NextResponse.json({ error: 'Server misconfiguration.' }, { status: 500 })
     }
 
-    const dispatchAgent = async (path: string) => {
+    // Resolve segment for ICP and Messaging dispatches.
+    // intakeSegmentId was populated from the backfilled intake_responses.segment_id.
+    // If still null (edge case: brand-new org with no backfill yet), fetch the first segment.
+    let dispatchSegmentId: string | null = intakeSegmentId
+    if (!dispatchSegmentId) {
+      const adminClient = getAdminClient()
+      const { data: firstSeg } = await adminClient
+        .from('segments')
+        .select('id')
+        .eq('organisation_id', orgId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single()
+      dispatchSegmentId = firstSeg?.id ?? null
+    }
+
+    const dispatchAgent = async (path: string, extraPayload?: Record<string, unknown>) => {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 8000)
       try {
@@ -133,7 +154,7 @@ export async function POST(_request: NextRequest) {
             'Content-Type': 'application/json',
             'x-internal-secret': secret,
           },
-          body: JSON.stringify({ organisation_id: orgId }),
+          body: JSON.stringify({ organisation_id: orgId, ...extraPayload }),
         })
         logger.info(`intake-complete: dispatched ${path}`, { orgId })
       } catch {
@@ -145,11 +166,13 @@ export async function POST(_request: NextRequest) {
       }
     }
 
+    const segmentPayload = dispatchSegmentId ? { segment_id: dispatchSegmentId } : undefined
+
     await Promise.all([
-      dispatchAgent('/api/agents/icp'),
+      dispatchAgent('/api/agents/icp', segmentPayload),
       dispatchAgent('/api/agents/positioning'),
       dispatchAgent('/api/agents/tov'),
-      dispatchAgent('/api/agents/messaging'),
+      dispatchAgent('/api/agents/messaging', segmentPayload),
     ])
   })
 
