@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
@@ -8,6 +9,8 @@ import { MessagingDocumentView } from '@/components/dashboard/strategy/Messaging
 import { IcpDocumentView } from '@/components/dashboard/strategy/IcpDocumentView'
 import { PositioningDocumentView } from '@/components/dashboard/strategy/PositioningDocumentView'
 import { TovDocumentView } from '@/components/dashboard/strategy/TovDocumentView'
+import { SegmentTabStrip } from '@/components/dashboard/strategy/SegmentTabStrip'
+import type { SegmentTab } from '@/components/dashboard/strategy/SegmentTabStrip'
 import { getDocumentLabel, DOCUMENT_META } from '@/lib/document-labels'
 import { PrintButton } from '@/components/dashboard/strategy/PrintButton'
 import { RegenerateButton } from '@/components/dashboard/strategy/RegenerateButton'
@@ -15,6 +18,11 @@ import type { DocumentType } from '@/types'
 import type { Json } from '@/types/database'
 
 const VALID_TYPES: DocumentType[] = ['icp', 'positioning', 'tov', 'messaging']
+
+// ICP and messaging are segment-scoped; positioning and tov are org-level.
+const SEGMENT_SCOPED_TYPES: DocumentType[] = ['icp', 'messaging']
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function getOrgInitials(name: string): string {
   return name
@@ -41,7 +49,7 @@ export default async function StrategyDocumentPage({
   searchParams,
 }: {
   params: Promise<{ type: string }>
-  searchParams: Promise<{ client?: string }>
+  searchParams: Promise<{ client?: string; segment?: string }>
 }) {
   const { type } = await params
 
@@ -50,6 +58,7 @@ export default async function StrategyDocumentPage({
   }
 
   const docType = type as DocumentType
+  const isSegmentScoped = SEGMENT_SCOPED_TYPES.includes(docType)
 
   const supabase = await createClient()
   const {
@@ -58,7 +67,7 @@ export default async function StrategyDocumentPage({
 
   if (!user) redirect('/login')
 
-  const { client: clientParam } = await searchParams
+  const { client: clientParam, segment: segmentParam } = await searchParams
   const { organisationId } = await resolveViewingOrg(supabase, user, clientParam)
 
   const { data: org } = await supabase
@@ -69,18 +78,57 @@ export default async function StrategyDocumentPage({
 
   if (!org) redirect('/dashboard')
 
-  const { data: doc, error: docError } = await supabase
+  // --- Segment resolution (ICP and Messaging only) ---
+  let segments: SegmentTab[] = []
+  let selectedSegmentId: string | null = null
+
+  if (isSegmentScoped) {
+    const { data: segRows } = await supabase
+      .from('segments')
+      .select('id, name, is_default')
+      .eq('organisation_id', org.id)
+      .order('is_default', { ascending: false })
+      .order('created_at', { ascending: true })
+
+    segments = segRows ?? []
+
+    const primarySegment = segments.find(s => s.is_default) ?? segments[0] ?? null
+
+    // Validate the ?segment= param: must be a UUID belonging to the VIEWING org.
+    // Foreign or malformed ids fall back to the org's primary segment.
+    const candidateId = segmentParam && UUID_RE.test(segmentParam) ? segmentParam : null
+    const candidateValid = candidateId ? segments.some(s => s.id === candidateId) : false
+
+    selectedSegmentId = candidateValid ? candidateId! : (primarySegment?.id ?? null)
+  }
+
+  // --- Document fetch ---
+  let docQuery = supabase
     .from('strategy_documents')
-    .select('document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger')
+    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger')
     .eq('organisation_id', org.id)
     .eq('document_type', docType)
     .in('status', ['active', 'approved'])
     .order('last_updated_at', { ascending: false })
     .limit(1)
-    .maybeSingle()
+
+  if (isSegmentScoped) {
+    // Filter by the resolved segment. If no segment exists yet, filter by null
+    // so we return nothing rather than the wrong segment's doc.
+    if (selectedSegmentId) {
+      docQuery = docQuery.eq('segment_id', selectedSegmentId)
+    } else {
+      docQuery = docQuery.is('segment_id', null)
+    }
+  } else {
+    // Positioning and TOV are org-level docs (segment_id IS NULL).
+    docQuery = docQuery.is('segment_id', null)
+  }
+
+  const { data: doc, error: docError } = await docQuery.maybeSingle()
 
   if (docError) {
-    Sentry.captureException(docError, { extra: { orgId: org.id, docType } })
+    Sentry.captureException(docError, { extra: { orgId: org.id, docType, selectedSegmentId } })
   }
 
   const docLabel = getDocumentLabel(docType)
@@ -115,6 +163,16 @@ export default async function StrategyDocumentPage({
                 })}
               </p>
             </div>
+          )}
+
+          {/* Segment tab strip — renders only for ICP/Messaging with 2+ segments */}
+          {isSegmentScoped && selectedSegmentId && segments.length >= 2 && (
+            <Suspense fallback={null}>
+              <SegmentTabStrip
+                segments={segments}
+                selectedSegmentId={selectedSegmentId}
+              />
+            </Suspense>
           )}
 
           {docError ? (
