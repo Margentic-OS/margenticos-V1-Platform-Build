@@ -1475,6 +1475,9 @@ export type Database = {
       }
       strategy_documents: {
         Row: {
+          approved_at: string | null
+          approval_source: string | null
+          client_approval_status: string
           content: Json
           created_at: string
           document_type: string
@@ -1483,6 +1486,7 @@ export type Database = {
           is_stale: boolean
           last_updated_at: string
           organisation_id: string
+          pending_since: string
           plain_text: string | null
           segment_id: string | null
           status: string
@@ -1490,6 +1494,9 @@ export type Database = {
           version: string
         }
         Insert: {
+          approved_at?: string | null
+          approval_source?: string | null
+          client_approval_status?: string
           content?: Json
           created_at?: string
           document_type: string
@@ -1498,6 +1505,7 @@ export type Database = {
           is_stale?: boolean
           last_updated_at?: string
           organisation_id: string
+          pending_since?: string
           plain_text?: string | null
           segment_id?: string | null
           status?: string
@@ -1505,6 +1513,9 @@ export type Database = {
           version?: string
         }
         Update: {
+          approved_at?: string | null
+          approval_source?: string | null
+          client_approval_status?: string
           content?: Json
           created_at?: string
           document_type?: string
@@ -1513,6 +1524,7 @@ export type Database = {
           is_stale?: boolean
           last_updated_at?: string
           organisation_id?: string
+          pending_since?: string
           plain_text?: string | null
           segment_id?: string | null
           status?: string
