@@ -20,16 +20,20 @@ function sourceLabel(source: string | null): string {
 }
 
 async function postJson(url: string, body: Record<string, string>): Promise<string | null> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({})) as { error?: string }
-    return data.error ?? 'Something went wrong. Try again.'
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({})) as { error?: string }
+      return data.error ?? 'Something went wrong. Try again.'
+    }
+    return null
+  } catch {
+    return 'Could not reach the server. Check your connection and try again.'
   }
-  return null
 }
 
 export function DocApprovalControls({
