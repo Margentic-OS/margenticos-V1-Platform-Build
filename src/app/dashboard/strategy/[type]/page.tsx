@@ -14,6 +14,7 @@ import type { SegmentTab } from '@/components/dashboard/strategy/SegmentTabStrip
 import { getDocumentLabel, DOCUMENT_META } from '@/lib/document-labels'
 import { PrintButton } from '@/components/dashboard/strategy/PrintButton'
 import { RegenerateButton } from '@/components/dashboard/strategy/RegenerateButton'
+import { DocApprovalControls } from '@/components/dashboard/strategy/DocApprovalControls'
 import type { DocumentType } from '@/types'
 import type { Json } from '@/types/database'
 
@@ -68,7 +69,8 @@ export default async function StrategyDocumentPage({
   if (!user) redirect('/login')
 
   const { client: clientParam, segment: segmentParam } = await searchParams
-  const { organisationId } = await resolveViewingOrg(supabase, user, clientParam)
+  const { organisationId, role } = await resolveViewingOrg(supabase, user, clientParam)
+  const isOperatorViewing = role === 'operator'
 
   const { data: org } = await supabase
     .from('organisations')
@@ -105,7 +107,7 @@ export default async function StrategyDocumentPage({
   // --- Document fetch ---
   let docQuery = supabase
     .from('strategy_documents')
-    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger')
+    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, client_approval_status, approval_source, approved_at, change_summary, revision_note')
     .eq('organisation_id', org.id)
     .eq('document_type', docType)
     .in('status', ['active', 'approved'])
@@ -192,6 +194,14 @@ export default async function StrategyDocumentPage({
                   <PrintButton />
                 </div>
               </div>
+              <DocApprovalControls
+                docId={doc.id}
+                clientApprovalStatus={doc.client_approval_status}
+                approvalSource={doc.approval_source}
+                changeSummary={doc.change_summary}
+                revisionNote={doc.revision_note}
+                isOperator={isOperatorViewing}
+              />
               <DocumentContent
                 docType={docType}
                 content={doc.content}
