@@ -1477,6 +1477,7 @@ export type Database = {
         Row: {
           approved_at: string | null
           approval_source: string | null
+          change_summary: string | null
           client_approval_status: string
           content: Json
           created_at: string
@@ -1488,6 +1489,7 @@ export type Database = {
           organisation_id: string
           pending_since: string
           plain_text: string | null
+          revision_note: string | null
           segment_id: string | null
           status: string
           update_trigger: string | null
@@ -1496,6 +1498,7 @@ export type Database = {
         Insert: {
           approved_at?: string | null
           approval_source?: string | null
+          change_summary?: string | null
           client_approval_status?: string
           content?: Json
           created_at?: string
@@ -1507,6 +1510,7 @@ export type Database = {
           organisation_id: string
           pending_since?: string
           plain_text?: string | null
+          revision_note?: string | null
           segment_id?: string | null
           status?: string
           update_trigger?: string | null
@@ -1515,6 +1519,7 @@ export type Database = {
         Update: {
           approved_at?: string | null
           approval_source?: string | null
+          change_summary?: string | null
           client_approval_status?: string
           content?: Json
           created_at?: string
@@ -1526,6 +1531,7 @@ export type Database = {
           organisation_id?: string
           pending_since?: string
           plain_text?: string | null
+          revision_note?: string | null
           segment_id?: string | null
           status?: string
           update_trigger?: string | null
@@ -1689,6 +1695,18 @@ export type Database = {
       }
       get_my_organisation_id: { Args: never; Returns: string }
       is_operator: { Args: never; Returns: boolean }
+      promote_strategy_doc_version: {
+        Args: {
+          p_org_id: string
+          p_doc_type: string
+          p_segment_id: string | null
+          p_content: Json
+          p_update_trigger: string
+          p_revision_note?: string | null
+          p_change_summary?: string | null
+        }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
