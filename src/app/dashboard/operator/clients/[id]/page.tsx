@@ -50,8 +50,8 @@ export default async function ClientDetailPage({
 
   const setupStatus = parseSetupStatus(org.setup_status)
 
-  // Fetch feature flag and pending lead count in parallel — non-blocking on failure.
-  const [flagResult, pendingCountResult] = await Promise.all([
+  // Fetch flag, pending count, campaigns, and primary segment in parallel.
+  const [flagResult, pendingCountResult, campaignsResult, primarySegResult] = await Promise.all([
     supabase
       .from('integrations_registry')
       .select('is_active')
@@ -66,10 +66,31 @@ export default async function ClientDetailPage({
       .not('campaign_id', 'is', null)
       .not('personalisation_trigger', 'is', null)
       .not('email', 'is', null),
+    supabase
+      .from('campaigns')
+      .select('id, external_id, name, shell_synced_at, shell_step_count')
+      .eq('organisation_id', org.id)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('segments')
+      .select('id')
+      .eq('organisation_id', org.id)
+      .eq('is_default', true)
+      .maybeSingle(),
   ])
 
   const instantlyApiActive = flagResult.data?.is_active ?? false
   const pendingCount = pendingCountResult.count ?? 0
+  const campaigns = (campaignsResult.data ?? [])
+    .filter(c => c.external_id !== null)
+    .map(c => ({
+      internalId: c.id,
+      externalId: c.external_id as string,
+      name: c.name,
+      shellSyncedAt: c.shell_synced_at,
+      shellStepCount: c.shell_step_count,
+    }))
+  const primarySegmentId = primarySegResult.data?.id ?? null
 
   return (
     <>
@@ -96,6 +117,8 @@ export default async function ClientDetailPage({
               orgId={org.id}
               instantlyApiActive={instantlyApiActive}
               pendingCount={pendingCount}
+              primarySegmentId={primarySegmentId}
+              campaigns={campaigns}
             />
 
             <MailboxOrderPanel

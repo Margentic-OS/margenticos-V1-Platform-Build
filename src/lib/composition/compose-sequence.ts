@@ -6,6 +6,17 @@
 // The caller is responsible for pushing the composed sequence to Instantly.
 //
 // Client isolation: every query filters by client_id. Never queries without client_id.
+//
+// Approval invariant (Addendum-2): every strategy_document fetch requires BOTH
+//   status = 'active'  AND  client_approval_status = 'approved'
+// If a required doc (Messaging) is absent or unapproved, composeSequence throws with a
+// named reason. Optional enrichment docs (ICP pain proxy, Positioning value hook) fall
+// back to safe defaults when absent; they never fall back to an unapproved version.
+//
+// Snapshot pattern: callers that compose multiple prospects for the same segment should
+// call fetchComposeDocs() once after the approval gate passes and pass the result as
+// preloadedDocs. This prevents a mid-batch race where a client revision between prospect N
+// and prospect N+1 would cause later leads to compose from a new pending version.
 
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
@@ -31,6 +42,17 @@ export interface ComposedSequence {
   client_id: string
   variant_id: string
   emails: ComposedEmail[]
+}
+
+// Pre-fetched approved docs for a segment — passed into composeSequence to avoid
+// per-prospect DB fetches and prevent the mid-batch race (Addendum-2).
+export interface ComposeDocs {
+  /** Active + approved Messaging doc content for this segment. Required. */
+  messagingDoc: MessagingContent
+  /** Pre-extracted pain point string from the active + approved ICP doc (optional enrichment). */
+  icpPainPoint?: string
+  /** Pre-extracted cold_outreach_hook from the active + approved Positioning doc (optional enrichment). */
+  positioningValueHook?: string
 }
 
 interface ProspectRow {
@@ -77,8 +99,44 @@ interface IcpContent {
       pain_points?: string | string[]
     }
   }
-  // various field name conventions across ICP generations
   [key: string]: unknown
+}
+
+// Re-export MessagingContent so callers can type ComposeDocs correctly.
+export type { MessagingContent }
+
+// ─── Snapshot fetch — call once at gate-pass per segment ─────────────────────
+
+// Returns the approved docs for a segment for use as a preloaded snapshot.
+// Throws if the Messaging doc is absent or unapproved (same invariant as compose itself).
+// ICP and Positioning are optional enrichments — missing/unapproved falls back to defaults.
+export async function fetchComposeDocs(
+  supabase: ServiceClient,
+  client_id: string,
+  segment_id: string | null,
+): Promise<ComposeDocs> {
+  // Resolve primary segment for null prospects — same logic as compose itself.
+  let resolvedSegmentId = segment_id
+  if (!resolvedSegmentId) {
+    const { data: primarySeg } = await supabase
+      .from('segments')
+      .select('id')
+      .eq('organisation_id', client_id)
+      .eq('is_default', true)
+      .single()
+    resolvedSegmentId = primarySeg?.id ?? null
+  }
+
+  // Messaging: required — throw if absent or unapproved.
+  const messagingDoc = await fetchApprovedMessagingDoc(supabase, client_id, resolvedSegmentId)
+
+  // ICP: optional enrichment — extract pain point if approved.
+  const icpPainPoint = await fetchApprovedIcpPainPoint(supabase, client_id, resolvedSegmentId)
+
+  // Positioning: optional enrichment — extract value hook if approved.
+  const positioningValueHook = await fetchApprovedPositioningHook(supabase, client_id)
+
+  return { messagingDoc, icpPainPoint, positioningValueHook }
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -86,30 +144,37 @@ interface IcpContent {
 export async function composeSequence({
   prospect_id,
   client_id,
+  preloadedDocs,
 }: {
   prospect_id: string
   client_id: string
+  /** Pre-fetched approved docs from fetchComposeDocs(). Skips per-prospect DB fetches when provided. */
+  preloadedDocs?: ComposeDocs
 }): Promise<ComposedSequence> {
   const supabase = getServiceClient()
 
   // Step 2 — Fetch the prospect first so we have segment_id for the messaging lookup.
   const prospect = await fetchProspect(supabase, prospect_id, client_id)
 
-  // Step 1 — Fetch the approved messaging document for this client + segment.
-  const messagingDoc = await fetchApprovedMessagingDoc(supabase, client_id, prospect.segment_id)
+  // Step 1 — Use preloaded Messaging doc or fetch it (with approval check).
+  const messagingDoc = preloadedDocs?.messagingDoc
+    ?? await fetchApprovedMessagingDoc(supabase, client_id, prospect.segment_id)
 
   // Step 3 — Assign a variant if the prospect has none.
   const variantId = await resolveVariant(supabase, prospect, messagingDoc, client_id)
 
   // Step 4 — Fetch the personalisation trigger (with ICP fallback).
-  const trigger = await resolveTrigger(supabase, prospect, client_id)
+  const trigger = await resolveTrigger(supabase, prospect, client_id, preloadedDocs?.icpPainPoint)
 
   // Step 4 — Apply the trigger to email 1 of the assigned variant.
   const variantEmails  = getVariantEmails(messagingDoc, variantId)
   const afterTrigger   = applyTriggerToEmail1(variantEmails, trigger)
 
   // Step 4b — Haiku bridge + personalized CTA for Email 1.
-  const clientValueHook = await fetchClientValueHook(supabase, client_id)
+  const clientValueHook = preloadedDocs?.positioningValueHook
+    ?? await fetchApprovedPositioningHook(supabase, client_id)
+    ?? 'consistent outbound pipeline without founder involvement'
+
   const composedEmails  = await applyPersonalization(
     afterTrigger,
     prospect,
@@ -145,41 +210,93 @@ async function fetchApprovedMessagingDoc(
     resolvedSegmentId = primarySeg?.id ?? null
   }
 
-  const query = supabase
-    .from('strategy_documents')
-    .select('content')
-    .eq('organisation_id', client_id)
-    .eq('document_type', 'messaging')
-    .eq('status', 'active')
-    .order('created_at', { ascending: false })
-    .limit(1)
+  // Both status='active' AND client_approval_status='approved' required.
+  const baseQuery = () =>
+    supabase
+      .from('strategy_documents')
+      .select('content')
+      .eq('organisation_id', client_id)
+      .eq('document_type', 'messaging')
+      .eq('status', 'active')
+      .eq('client_approval_status', 'approved')
+      .order('created_at', { ascending: false })
+      .limit(1)
 
   // Fetch segment-specific messaging when we have a resolved segment.
-  // Fall through to segment-agnostic fetch if the segment has no dedicated doc yet.
   if (resolvedSegmentId) {
-    const { data: segData } = await query.eq('segment_id', resolvedSegmentId).maybeSingle()
+    const { data: segData } = await baseQuery().eq('segment_id', resolvedSegmentId).maybeSingle()
     if (segData) return segData.content as MessagingContent
   }
 
-  // Fallback: any active messaging doc for this client (e.g. during migration).
-  const { data, error } = await supabase
-    .from('strategy_documents')
-    .select('content')
-    .eq('organisation_id', client_id)
-    .eq('document_type', 'messaging')
-    .eq('status', 'active')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
+  // Fallback: any approved messaging doc for this client.
+  const { data, error } = await baseQuery().single()
 
   if (error || !data) {
     throw new Error(
-      `compose-sequence: no active messaging document found for client ${client_id}. ` +
-      'Approve a messaging suggestion before composing sequences.'
+      `compose-sequence: no active + approved Messaging document found for client ${client_id}. ` +
+      'The client must approve the Messaging document before sequences can be composed.'
     )
   }
 
   return data.content as MessagingContent
+}
+
+// ─── Approved ICP pain point — optional enrichment ───────────────────────────
+
+async function fetchApprovedIcpPainPoint(
+  supabase: ServiceClient,
+  client_id: string,
+  segment_id: string | null,
+): Promise<string | undefined> {
+  const baseQuery = () =>
+    supabase
+      .from('strategy_documents')
+      .select('content')
+      .eq('organisation_id', client_id)
+      .eq('document_type', 'icp')
+      .eq('status', 'active')
+      .eq('client_approval_status', 'approved')
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+  let content: IcpContent | null = null
+
+  if (segment_id) {
+    const { data } = await baseQuery().eq('segment_id', segment_id).maybeSingle()
+    if (data) content = data.content as IcpContent
+  }
+
+  if (!content) {
+    const { data } = await baseQuery().maybeSingle()
+    if (data) content = data.content as IcpContent
+  }
+
+  return content ? extractPainFromIcp(content) ?? undefined : undefined
+}
+
+// ─── Approved Positioning value hook — optional enrichment ───────────────────
+
+// Exported so fetchComposeDocs can call it and so callers that need just the hook can too.
+export async function fetchApprovedPositioningHook(
+  supabase: ServiceClient,
+  client_id: string,
+): Promise<string | undefined> {
+  const { data } = await supabase
+    .from('strategy_documents')
+    .select('content')
+    .eq('organisation_id', client_id)
+    .eq('document_type', 'positioning')
+    .eq('status', 'active')
+    .eq('client_approval_status', 'approved')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!data) return undefined
+
+  const content = data.content as Record<string, unknown>
+  const hook = (content?.key_messages as Record<string, string> | undefined)?.cold_outreach_hook
+  return typeof hook === 'string' && hook.trim() ? hook.trim() : undefined
 }
 
 // ─── Step 2 — Resolve variant ─────────────────────────────────────────────────
@@ -271,13 +388,17 @@ async function resolveVariant(
 async function resolveTrigger(
   supabase: ServiceClient,
   prospect: ProspectRow,
-  client_id: string
+  client_id: string,
+  preloadedIcpPainPoint?: string,
 ): Promise<string> {
   // Use the stored trigger if present.
   const stored = prospect.personalisation_trigger?.trim()
   if (stored && stored.length > 0) return stored
 
-  // Fallback: read tier 1 pain point from the segment's ICP document.
+  // Use pre-fetched ICP pain point if available.
+  if (preloadedIcpPainPoint) return preloadedIcpPainPoint
+
+  // Fallback: read tier 1 pain point from the segment's approved ICP document.
   return fetchPainProxy(supabase, client_id, prospect.segment_id, prospect.role)
 }
 
@@ -299,42 +420,37 @@ async function fetchPainProxy(
     resolvedSegmentId = primarySeg?.id ?? null
   }
 
-  // Fetch the ICP for this specific segment; fall back to any active ICP if not found.
-  let query = supabase
-    .from('strategy_documents')
-    .select('content')
-    .eq('organisation_id', client_id)
-    .eq('document_type', 'icp')
-    .eq('status', 'active')
-    .order('created_at', { ascending: false })
-    .limit(1)
+  // Both status='active' AND client_approval_status='approved' required.
+  const baseQuery = () =>
+    supabase
+      .from('strategy_documents')
+      .select('content')
+      .eq('organisation_id', client_id)
+      .eq('document_type', 'icp')
+      .eq('status', 'active')
+      .eq('client_approval_status', 'approved')
+      .order('created_at', { ascending: false })
+      .limit(1)
 
   if (resolvedSegmentId) {
-    const { data: segData } = await query.eq('segment_id', resolvedSegmentId).maybeSingle()
+    const { data: segData } = await baseQuery().eq('segment_id', resolvedSegmentId).maybeSingle()
     if (segData) {
       const painPoint = extractPainFromIcp(segData.content as IcpContent)
       if (painPoint) return painPoint
     }
   }
 
-  const { data, error } = await supabase
-    .from('strategy_documents')
-    .select('content')
-    .eq('organisation_id', client_id)
-    .eq('document_type', 'icp')
-    .eq('status', 'active')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
+  const { data } = await baseQuery().maybeSingle()
 
-  if (error || !data) {
-    logger.warn('compose-sequence: ICP document not found for pain proxy fallback', { client_id })
+  if (!data) {
+    // No approved ICP doc — fall back to role proxy (safe default, not unapproved content).
+    logger.warn('compose-sequence: no active + approved ICP document found — using role proxy', {
+      client_id,
+    })
     return buildRoleProxy(prospectRole)
   }
 
-  const icpContent = data.content as IcpContent
-  const painPoint = extractPainFromIcp(icpContent)
-
+  const painPoint = extractPainFromIcp(data.content as IcpContent)
   if (painPoint) return painPoint
 
   logger.warn('compose-sequence: could not extract pain point from ICP, using role proxy', {
@@ -346,22 +462,18 @@ async function fetchPainProxy(
 // Tries several common JSON paths in the ICP content structure.
 function extractPainFromIcp(content: IcpContent): string | null {
   const candidates: (string | undefined)[] = [
-    // Most common path
     typeof content?.tier_1?.four_forces?.push === 'string'
       ? content.tier_1.four_forces.push
       : undefined,
-    // Nested icp wrapper
     typeof content?.icp?.tier_1?.four_forces?.push === 'string'
       ? content.icp.tier_1.four_forces.push
       : undefined,
-    // pain_points as string
     typeof content?.tier_1?.pain_points === 'string'
       ? content.tier_1.pain_points
       : undefined,
     typeof content?.tier_1?.pain_point === 'string'
       ? content.tier_1.pain_point
       : undefined,
-    // pain_points as array — take first item
     Array.isArray(content?.tier_1?.pain_points) && content.tier_1!.pain_points!.length > 0
       ? (content.tier_1!.pain_points as string[])[0]
       : undefined,
@@ -423,14 +535,13 @@ function applyTriggerToEmail1(emails: StoredEmail[], trigger: string): ComposedE
 
     // Find {{first_name}} line and the opener (first non-empty line after it).
     let firstNameIdx = lines.findIndex(l => l.trim() === '{{first_name}}')
-    if (firstNameIdx === -1) firstNameIdx = -1 // opener is line 0 in this case
+    if (firstNameIdx === -1) firstNameIdx = -1
 
     const openerIdx = lines.findIndex(
       (l, i) => i > firstNameIdx && l.trim().length > 0
     )
 
     if (openerIdx === -1) {
-      // No opener found — prepend trigger to the body
       return {
         ...email,
         body: `{{first_name}}\n\n${formattedTrigger}\n\n${email.body}`.trim(),
@@ -446,30 +557,6 @@ function applyTriggerToEmail1(emails: StoredEmail[], trigger: string): ComposedE
 
 // ─── Step 4b — Bridge + personalized CTA ─────────────────────────────────────
 
-// Fetch the cold outreach hook from the active positioning doc.
-// Used as context for the Haiku personalization call.
-async function fetchClientValueHook(
-  supabase: ServiceClient,
-  client_id: string,
-): Promise<string> {
-  const { data } = await supabase
-    .from('strategy_documents')
-    .select('content')
-    .eq('organisation_id', client_id)
-    .eq('document_type', 'positioning')
-    .eq('status', 'active')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (!data) return 'consistent outbound pipeline without founder involvement'
-
-  const content = data.content as Record<string, unknown>
-  const hook = (content?.key_messages as Record<string, string> | undefined)?.cold_outreach_hook
-  return typeof hook === 'string' && hook.trim() ? hook.trim() : 'consistent outbound pipeline without founder involvement'
-}
-
-// Email 1 word limit and the pre-check threshold (90% of max = must have 10% headroom).
 const EMAIL1_MAX_WORDS  = 90
 const BRIDGE_HEADROOM   = Math.floor(EMAIL1_MAX_WORDS * 0.9)  // 81 words
 
@@ -486,7 +573,6 @@ async function applyPersonalization(
       const useBridgePath = prospect.has_dateable_signal === true && prospect.signal_relevance === 'use_as_hook'
       const tier = useBridgePath ? 'tier1' : 'tier3'
 
-      // Pre-check: skip bridge generation entirely if too little headroom.
       const currentWords   = countWords(email.body)
       const canFitBridge   = tier === 'tier1' && currentWords <= BRIDGE_HEADROOM
 
@@ -525,7 +611,6 @@ async function applyPersonalization(
 }
 
 // Insert bridge as a new paragraph immediately after the trigger line.
-// Trigger is the first non-empty paragraph after {{first_name}}.
 function insertBridgeAfterTrigger(body: string, bridge: string): string {
   const paragraphs = body.split('\n\n')
   const firstNameIdx = paragraphs.findIndex(p => p.trim() === '{{first_name}}')
@@ -542,8 +627,6 @@ function replaceCtaParagraph(body: string, cta: string): string {
   const paragraphs = body.split('\n\n')
   const nonEmpty   = paragraphs.map((p, i) => ({ p, i })).filter(({ p }) => p.trim().length > 0)
 
-  // Last non-empty paragraph is the sign-off (sender's first name).
-  // Second-to-last is the CTA to replace.
   if (nonEmpty.length < 2) return body
 
   const ctaEntry   = nonEmpty[nonEmpty.length - 2]
@@ -564,3 +647,6 @@ function getServiceClient() {
   }
   return createClient(url, key)
 }
+
+// Export getServiceClient for use by fetchComposeDocs when called from outside this module.
+export { getServiceClient as getComposeServiceClient }

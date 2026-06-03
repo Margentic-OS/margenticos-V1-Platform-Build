@@ -83,7 +83,27 @@ export interface DfyOrderResult {
 
 // ── GET /api/v2/campaigns/{id} ────────────────────────────────────────────────
 
-// Used by validateCampaign.ts. Typed here per ADR-024 Pillar 4.
+// Used by validateCampaign.ts and syncSequenceShell.ts. Typed here per ADR-024 Pillar 4.
+// The full GET response includes the campaign's current sequences — captured here so
+// syncSequenceShell can read them before overwriting (addendum-4: preserve other settings).
+export interface SequenceVariant {
+  subject: string
+  body: string
+  enabled?: boolean
+}
+
+export interface SequenceStep {
+  type?: string
+  delay: number
+  delay_unit: 'days' | 'hours'
+  enabled?: boolean
+  variants: SequenceVariant[]
+}
+
+export interface SequenceConfig {
+  steps: SequenceStep[]
+}
+
 export interface CampaignDetailResponse {
   id: string
   name: string
@@ -92,6 +112,23 @@ export interface CampaignDetailResponse {
   campaign_type?: string
   created_at?: string
   updated_at?: string
+  sequences?: SequenceConfig[]
+  // Preserve any additional fields returned by the API for safe write-back.
+  [key: string]: unknown
+}
+
+// ── PATCH /api/v2/campaigns/{id} ─────────────────────────────────────────────
+
+// Partial update — only sequences is sent; all other campaign settings are untouched.
+// Contract test asserts no other field is present in the PATCH body.
+export interface CampaignUpdateRequest {
+  sequences: SequenceConfig[]
+}
+
+export interface CampaignUpdateResponse {
+  id: string
+  updated_at?: string
+  [key: string]: unknown
 }
 
 // ── Typed errors ──────────────────────────────────────────────────────────────
