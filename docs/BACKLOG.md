@@ -1858,3 +1858,32 @@ Complete all items before the first paying client goes live:
   first, exactly as handleUploadLeads does. One failed check = do not compose or push.
 - The gate helper is already written and tested: `src/lib/approval/assertStrategyApproved.ts`.
 - Trigger: when composeSequence is first connected to a real call site.
+
+### [style] actions.ts error message names "Instantly" above the integration handler layer
+- Added 2026-06-03.
+- Line `actions.ts:267`: `'No approved prospects have a valid Instantly campaign UUID assigned.'`
+  names the tool in an operator-facing error message inside the server action layer.
+  CLAUDE.md: tool names belong only inside handler functions in the integrations layer.
+- Fix: rephrase to "No approved prospects have a valid campaign UUID assigned."
+- Impact: cosmetic only; no functional or security issue.
+- Trigger: next edit to that error message or a general style pass.
+
+### [build] Pre-existing Sentry warnings in production build
+- Added 2026-06-03.
+- Two warnings appear every build:
+  1. No global-error.js handler — React rendering errors not reported to Sentry.
+     Fix: add app/global-error.tsx with Sentry.captureException.
+  2. Deprecated sentry.client.config.ts — should be renamed instrumentation-client.ts.
+     Fix: rename file (or move content) as Sentry docs instruct.
+- Neither affects runtime error reporting for non-render errors (Sentry is wired for API errors).
+- Trigger: Sentry configuration pass before first paying client.
+
+### [data-model] status='approved' is unreachable in strategy_documents queries and RLS policy
+- Added 2026-06-03.
+- The clients_read_own_active_strategy_docs RLS policy and several page/helper queries
+  filter `status IN ('active', 'approved')`. No code ever writes status='approved' to a
+  strategy_documents row — promote_strategy_doc_version always writes 'active'.
+- Functional impact: none (the dead condition is never matched).
+- Cleanup: remove 'approved' from the RLS policy USING clause and from app-code selects
+  that check status IN ('active', 'approved') to keep them accurate.
+- Trigger: next migration touching strategy_documents schema.
