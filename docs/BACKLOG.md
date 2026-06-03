@@ -1848,16 +1848,22 @@ Complete all items before the first paying client goes live:
 - Do NOT add these to vercel.json. They are correctly scheduled and running.
 
 ### [approval-gate] composeSequence has no callers — gate it when it is wired up
-- Added 2026-06-03.
+- Added 2026-06-03. Updated 2026-06-03 (final sweep).
 - `src/lib/composition/compose-sequence.ts` exports `composeSequence()` which builds
   the full email sequence from ICP, Messaging, Positioning, and TOV documents. It is
   not called from anywhere in the codebase today — sequence content is pre-configured
   manually in Instantly.
-- When composeSequence IS wired up (called at send time or from a dispatch path),
-  that call site must call `assertStrategyApproved(supabase, orgId, resolvedSegmentId)`
-  first, exactly as handleUploadLeads does. One failed check = do not compose or push.
-- The gate helper is already written and tested: `src/lib/approval/assertStrategyApproved.ts`.
-- Trigger: when composeSequence is first connected to a real call site.
+- CONFIRMED BUG: composeSequence fetches strategy_documents by status='active' only —
+  it does NOT check client_approval_status='approved'. If wired up today it would pull
+  content from client-unapproved docs and compose outbound emails from them, bypassing
+  the entire approval gate. Three affected fetches: fetchApprovedMessagingDoc (line ~148),
+  fetchPainProxy ICP fetch (line ~303), fetchClientValueHook positioning fetch (line ~451).
+- Fix required before any caller is added: either add .eq('client_approval_status','approved')
+  to all three fetches, OR call assertStrategyApproved() at the top of composeSequence()
+  and throw/return early if any doc is pending.
+- The gate helper is already written: `src/lib/approval/assertStrategyApproved.ts`.
+- Trigger: when composeSequence is first connected to a real call site. Do not wire it
+  up without fixing this first.
 
 ### [style] actions.ts error message names "Instantly" above the integration handler layer
 - Added 2026-06-03.
