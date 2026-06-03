@@ -1837,3 +1837,15 @@ Complete all items before the first paying client goes live:
   that pipeline should stamp segment_id at insert time rather than relying on the
   research agent to backfill it. Currently no automated sourcing pipeline exists.
 - Trigger: when a sourcing pipeline is built that writes to the prospects table.
+
+### [cleanup] Existing cron routes not registered in vercel.json
+- Added 2026-06-03.
+- vercel.json currently registers only one cron: the new strategy-doc-auto-approve route
+  (daily 06:00 UTC added in the client-approval chunk).
+- Two earlier cron routes exist but are NOT registered in vercel.json:
+    - src/app/api/cron/process-replies/route.ts
+    - src/app/api/cron/instantly-poll/route.ts
+- These routes are commented as Vercel Cron but will never fire in production without
+  vercel.json entries. Before any of this logic is needed in production, add their
+  schedule entries to vercel.json.
+- Trigger: before process-replies or instantly-poll behaviour is needed in production.
