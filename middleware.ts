@@ -1,9 +1,6 @@
 // Supabase SSR middleware — required for session refresh and cookie propagation.
 // Without this, supabase.auth.getUser() in Server Components receives stale/null
 // sessions even immediately after a successful login.
-//
-// Also injects x-pathname into request headers so the dashboard layout can detect
-// operator routes without importing next/headers in a way that breaks streaming.
 
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
@@ -38,10 +35,6 @@ export async function middleware(request: NextRequest) {
   // Refresh the session. Must be called before any conditional logic that reads
   // the user — do not move this call or add logic before it.
   await supabase.auth.getUser()
-
-  // Inject the pathname so dashboard/layout.tsx can detect operator routes
-  // without triggering layout re-renders on every request.
-  response.headers.set('x-pathname', request.nextUrl.pathname)
 
   return response
 }
