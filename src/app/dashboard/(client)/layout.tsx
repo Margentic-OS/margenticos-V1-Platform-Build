@@ -78,11 +78,16 @@ export default async function ClientLayout({
 
   return (
     <div className="flex min-h-screen bg-surface-shell">
-      <Sidebar
-        orgName={org?.name ?? ''}
-        pipelineUnlocked={org?.pipeline_unlocked ?? false}
-        dashboardState={dashboardState}
-      />
+      {/* Sidebar uses useSearchParams to resolve the org name and preserve ?client=
+          in nav links when an operator is viewing a client. Suspense is required. */}
+      <Suspense fallback={<aside className="w-[210px] min-h-screen bg-brand-green shrink-0" />}>
+        <Sidebar
+          orgName={org?.name ?? ''}
+          pipelineUnlocked={org?.pipeline_unlocked ?? false}
+          dashboardState={dashboardState}
+          allOrgs={allOrgs}
+        />
+      </Suspense>
       <div className="flex-1 flex flex-col min-w-0">
         {/* Banner shown only when an operator has clicked "View as client" and is
             on a genuine client route. The (client) route group guarantees we are

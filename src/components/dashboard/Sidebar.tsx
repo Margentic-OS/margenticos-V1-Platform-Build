@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
+import { appendClientParam } from '@/lib/dashboard/client-param'
 
 export type DashboardState = 'intake_incomplete' | 'strategy_in_review' | 'documents_active'
 
@@ -9,6 +10,10 @@ interface SidebarProps {
   orgName: string
   pipelineUnlocked: boolean
   dashboardState: DashboardState
+  // Provided only when the layout knows the user is an operator. Used to
+  // resolve the correct client name from ?client= (O-3) and to preserve
+  // ?client= across nav links (O-4). Real clients receive an empty array.
+  allOrgs?: { id: string; name: string }[]
 }
 
 // TODO: Restore Campaigns at T-10 days pre-launch when campaigns are provisioned
@@ -51,8 +56,16 @@ function getStepStatus(
   return 'pending'
 }
 
-export function Sidebar({ orgName, pipelineUnlocked, dashboardState }: SidebarProps) {
+export function Sidebar({ orgName, pipelineUnlocked, dashboardState, allOrgs }: SidebarProps) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  // O-3: when an operator is viewing a client via ?client=, resolve the
+  // client's name from the passed org list rather than the operator's own name.
+  const clientId = allOrgs && allOrgs.length > 0 ? searchParams.get('client') : null
+  const resolvedOrgName = clientId
+    ? (allOrgs?.find(o => o.id === clientId)?.name ?? orgName)
+    : orgName
 
   function isActive(href: string) {
     return pathname === href || pathname.startsWith(href + '/')
@@ -73,7 +86,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState }: SidebarPr
           Viewing
         </p>
         <p className="text-[#F5F0E8] text-[12px] font-medium leading-snug">
-          {orgName || 'Your organisation'}
+          {resolvedOrgName || 'Your organisation'}
         </p>
       </div>
 
@@ -93,7 +106,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState }: SidebarPr
             return (
               <li key={item.href}>
                 <Link
-                  href={locked ? '#' : item.href}
+                  href={locked ? '#' : appendClientParam(item.href, clientId)}
                   aria-disabled={locked}
                   className={[
                     'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
@@ -126,7 +139,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState }: SidebarPr
             return (
               <li key={item.href}>
                 <Link
-                  href={item.href}
+                  href={appendClientParam(item.href, clientId)}
                   className={[
                     'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
                     active

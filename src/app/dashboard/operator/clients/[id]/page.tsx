@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
@@ -101,12 +102,12 @@ export default async function ClientDetailPage({
       />
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 max-w-[1040px]">
-          <a
+          <Link
             href="/dashboard/operator"
             className="inline-flex items-center gap-1.5 text-[12px] text-text-secondary hover:text-text-primary transition-colors mb-6"
           >
             ← Return to operator view
-          </a>
+          </Link>
 
           <div className="space-y-4">
             <SetupStatusPanel orgId={org.id} initialStatus={setupStatus} />

@@ -5,6 +5,7 @@
 // Mirrors src/app/dashboard/error.tsx; adjusted for operator context.
 
 import { useEffect } from 'react'
+import Link from 'next/link'
 import * as Sentry from '@sentry/nextjs'
 
 interface ErrorProps {
@@ -34,12 +35,12 @@ export default function OperatorError({ error, reset }: ErrorProps) {
             >
               Try again
             </button>
-            <a
+            <Link
               href="/dashboard/operator"
               className="px-4 py-2 text-xs font-medium text-text-secondary border border-border-card rounded-[20px] hover:text-text-primary transition-colors"
             >
               Back to operator hub
-            </a>
+            </Link>
           </div>
         </div>
       </div>
