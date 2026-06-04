@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
@@ -58,6 +59,14 @@ export default async function OperatorPage() {
         title="All clients"
         subtitle={`${clients.length} ${clients.length === 1 ? 'client' : 'clients'}`}
         userEmail={user.email}
+        action={
+          <Link
+            href="/dashboard/operator/clients/new"
+            className="text-[11px] font-medium text-white bg-[#1C3A2A] hover:bg-[#152e21] px-3 py-1.5 rounded-[6px] transition-colors"
+          >
+            + Add client
+          </Link>
+        }
       />
       <WarningsRail />
       <AllClientsView clients={clients} />

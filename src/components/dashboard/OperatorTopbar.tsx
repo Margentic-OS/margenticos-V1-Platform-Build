@@ -5,6 +5,7 @@ interface OperatorTopbarProps {
   title: string
   subtitle?: string
   userEmail?: string | null
+  action?: React.ReactNode
 }
 
 function getInitials(email: string | null | undefined): string {
@@ -14,7 +15,7 @@ function getInitials(email: string | null | undefined): string {
   return parts.slice(0, 2).map(p => p[0].toUpperCase()).join('')
 }
 
-export function OperatorTopbar({ eyebrow, title, subtitle, userEmail }: OperatorTopbarProps) {
+export function OperatorTopbar({ eyebrow, title, subtitle, userEmail, action }: OperatorTopbarProps) {
   return (
     <header className="h-14 bg-surface-content border-b border-border-card flex items-center justify-between px-7 shrink-0 print:hidden">
       <div>
@@ -32,6 +33,7 @@ export function OperatorTopbar({ eyebrow, title, subtitle, userEmail }: Operator
       </div>
 
       <div className="flex items-center gap-3">
+        {action}
         {/* View as client — strips operator additions and shows the pure client experience */}
         <Link
           href="/dashboard"
