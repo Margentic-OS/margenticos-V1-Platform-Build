@@ -36,6 +36,11 @@ export async function uploadLeads(
   // Flag drives URL: off → mock server, on → production.
   const baseUrl = resolveInstantlyBaseUrl(isActive)
 
+  // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
+  if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
+    throw new InstantlyFlagError('uploadLeads: instantly_api_active is false — cannot upload leads to production')
+  }
+
   const requestBody = {
     campaign_id: campaignId,
     leads: leads.map(lead => ({

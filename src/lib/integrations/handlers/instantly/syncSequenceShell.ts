@@ -141,6 +141,13 @@ export async function syncSequenceShell(input: ShellSyncInput): Promise<ShellSyn
   // Flag drives URL selection: flag off → mock server, flag on → production.
   const baseUrl = resolveInstantlyBaseUrl(isActive)
 
+  // Safety gate: flag off + INSTANTLY_API_BASE_URL set to production URL = dangerous
+  // misconfiguration. Block rather than accidentally calling the live API.
+  // (flag off + no env override → in-process mock via shouldUseMockDispatch; that path is safe.)
+  if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
+    return { ok: false, reason: 'flag_disabled' }
+  }
+
   const stepCount = getDocStepCount(messagingDoc)
   if (stepCount === 0) {
     return {
