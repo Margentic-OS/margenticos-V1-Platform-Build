@@ -1913,3 +1913,26 @@ Complete all items before the first paying client goes live:
       Document the behaviour — this informs whether assertCompleteVariables is the right guard
       or whether partial sets should be silently excluded earlier.
 - Trigger: first real upload to a live campaign after client one onboards.
+
+### [pre-c0] Verify SUPABASE_SERVICE_ROLE_KEY is set in Vercel production environment
+- Added 2026-06-04.
+- handleUploadLeads calls getComposeServiceClient() which explicitly throws if
+  SUPABASE_SERVICE_ROLE_KEY is absent. This was the most likely root cause of the
+  error boundary crash seen during staging on 2026-06-03.
+- The fix (top-level try/catch in handleUploadLeads + handleSyncSequenceShell) prevents
+  future crashes from this. But the key must still be set so composition actually works.
+- How to verify: Vercel dashboard → margenticos-platform → Settings → Environment Variables.
+  Confirm SUPABASE_SERVICE_ROLE_KEY appears under Production scope. If missing, add it now.
+  Value is in .env.local locally. Never echo the value in chat or logs.
+- Trigger: before attempting the first real upload post-fix.
+
+### [lesson] Server action unhandled throw → React error boundary (2026-06-04)
+- Any exception that escapes a Next.js server action propagates to the React error boundary.
+  The page crashes visually instead of returning an inline error.
+- Fix pattern: every server action must wrap its entire business logic in try/catch and
+  return { ok: false, error: message } — never let raw exceptions escape.
+  Auth redirect() calls (redirect('/login'), redirect('/dashboard')) must remain OUTSIDE
+  the try/catch — they work by throwing a special error that Next.js catches internally.
+  Wrapping them would intercept the redirect and turn it into an { ok: false } return.
+- Applied to: handleUploadLeads and handleSyncSequenceShell in actions.ts (2026-06-04).
+- Apply this pattern to any new server action that calls code which can throw.

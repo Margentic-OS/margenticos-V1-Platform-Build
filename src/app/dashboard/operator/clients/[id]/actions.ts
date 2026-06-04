@@ -226,6 +226,8 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
+  try {
+
   // Resolve primary segment once.
   const { data: primarySeg } = await supabase
     .from('segments')
@@ -448,6 +450,10 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     shellBlockedCampaigns,
     compositionFailureCount,
   }
+
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 // ── Shell sync action ─────────────────────────────────────────────────────────
@@ -473,6 +479,8 @@ export async function handleSyncSequenceShell(
     .single()
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  try {
 
   // Resolve segment.
   let resolvedSegmentId = segmentId
@@ -549,6 +557,10 @@ export async function handleSyncSequenceShell(
     }
 
     return { ok: true, stepCount: result.stepCount, syncedAt: result.syncedAt }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
