@@ -1936,3 +1936,29 @@ Complete all items before the first paying client goes live:
   Wrapping them would intercept the redirect and turn it into an { ok: false } return.
 - Applied to: handleUploadLeads and handleSyncSequenceShell in actions.ts (2026-06-04).
 - Apply this pattern to any new server action that calls code which can throw.
+
+### [resilience] Schema-drift sweep: strategy_documents content JSON consumers (item g)
+- Added 2026-06-04.
+- Every file that reads strategy_documents.content and unpacks fields (ICP document,
+  positioning document, TOV guide, messaging document) was written at different times
+  and may carry different shape assumptions (e.g. field presence, nesting, optional keys).
+- Risk: a promoted document with a slightly different content shape silently drops fields
+  in the UI or causes a runtime error in an agent that expects strict field presence.
+- Fix: audit all consumers, centralize normalization in a single doc-load helper that
+  validates and fills defaults before any consumer touches the content. Emit a Sentry
+  warning if a field is absent that the consumer requires.
+- Scope: read all files that call supabase.from('strategy_documents').select() and trace
+  how they unpack content. Centralize into src/lib/docs/load-strategy-doc.ts (or similar).
+- Trigger: before adding any new document type or new agent that reads document content.
+
+### [resilience] Render fallback for malformed strategy_document content (item i)
+- Added 2026-06-04.
+- If strategy_documents.content is null, an unexpected shape, or missing a required key,
+  the current document rendering components propagate the error to the React error boundary,
+  crashing the full page rather than showing an inline message.
+- Fix: each document section component should catch the shape error at the field level and
+  render a yellow "Content unavailable — contact support" banner inline instead of throwing.
+  This is a UI resilience fix, not a data fix — it makes bad data visible rather than
+  catastrophic.
+- Trigger: next touch of any document display component, or before first paying client
+  onboarding (whichever comes first).
