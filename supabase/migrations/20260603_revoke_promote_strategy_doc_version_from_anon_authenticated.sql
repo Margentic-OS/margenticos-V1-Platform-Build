@@ -15,7 +15,24 @@
 -- The /api/documents/revise route already calls the function via a service-role
 -- client and verifies org ownership before the RPC call. This migration ensures
 -- the function is unreachable except through that gated path.
+--
+-- This migration is idempotent: wrapped in a DO block so it is a harmless no-op
+-- if it runs before the function exists (e.g. alphabetical ordering on a fresh
+-- deploy where this file (r) sorts before strategy_docs_revision.sql (s)).
+-- The authoritative REVOKE now also lives inside strategy_docs_revision.sql
+-- immediately after CREATE FUNCTION, eliminating any ordering gap.
 
-REVOKE EXECUTE
-  ON FUNCTION public.promote_strategy_doc_version(uuid, text, uuid, jsonb, text, text, text)
-  FROM anon, authenticated;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'promote_strategy_doc_version'
+  ) THEN
+    REVOKE EXECUTE
+      ON FUNCTION public.promote_strategy_doc_version(uuid, text, uuid, jsonb, text, text, text)
+      FROM anon, authenticated;
+  END IF;
+END
+$$;

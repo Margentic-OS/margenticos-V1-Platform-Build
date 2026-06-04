@@ -2052,3 +2052,31 @@ Complete all items before the first paying client goes live:
   3. /qa (QA audit): pre-c1. End-to-end scenario coverage for the intake → strategy →
      approval → upload → poll → reply-handling pipeline.
 - These are planned audits, not yet run. Schedule /cso before leaving for Costa Rica.
+
+---
+
+## Security — items deferred from 2026-06-04 CSO batch fix
+
+### [security] NEXT_INTERNAL_SECRET rotation policy — pre-c1
+- Added 2026-06-04. Bucket: pre-c1.
+- NEXT_INTERNAL_SECRET is the shared secret that allows internal server-to-server calls
+  (e.g. agent dispatch via x-internal-secret header) to bypass the operator session check.
+  It carries the same blast radius as a service-role key: a leaked value lets any caller
+  trigger unbounded LLM agent runs for any org.
+- Action: (a) ensure it is generated with at least 32 bytes of randomness (openssl rand -hex 32);
+  (b) store in Vercel env vars only — never committed; (c) rotate on suspected exposure with
+  the same urgency as rotating SUPABASE_SERVICE_ROLE_KEY or a third-party API key.
+- A comment was added to src/app/api/agents/icp/route.ts as a code-level reminder.
+- All other agent routes that check x-internal-secret should receive the same comment in a
+  future pass (positioning, tov, messaging agent routes).
+
+### [security] postcss transitive CVE in next — GHSA-qx2v-qp2m-jg93 — monitor
+- Added 2026-06-04. Bucket: monitor / low urgency.
+- next@16.2.7 bundles postcss@8.4.31 internally. The fix requires postcss >=8.5.10.
+- npm audit fix --force would downgrade next to 9.3.3 — not viable.
+- The vulnerability is PostCSS XSS via unescaped </style> in CSS stringify output.
+  This only applies if user-controlled CSS is processed through postcss. In Next.js,
+  postcss runs at build time only — there is no runtime attack surface in production.
+- Action: monitor next.js release notes for a patch that bumps the internal postcss.
+  When next ships a version with postcss >=8.5.10 internally, upgrade and close this item.
+- Do NOT use npm audit fix --force for this CVE.

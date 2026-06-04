@@ -105,6 +105,9 @@ END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.promote_strategy_doc_version(uuid, text, uuid, jsonb, text, text, text) FROM PUBLIC;
+-- Supabase auto-issues individual grants to anon + authenticated for every newly
+-- created function; REVOKE FROM PUBLIC does not remove those individual grants.
+REVOKE EXECUTE ON FUNCTION public.promote_strategy_doc_version(uuid, text, uuid, jsonb, text, text, text) FROM anon, authenticated;
 
 -- ── 3. Restore segment-aware approve_document_suggestion ──────────────────────
 -- Delegates archival + insert to promote_strategy_doc_version.

@@ -3,9 +3,12 @@
 // Rejects the current suggestion and fires a new agent run for the same
 // document type. Returns immediately — the agent runs asynchronously.
 //
+// Operator-only: triggering an agent regeneration is an unbounded LLM cost.
+// Clients use the comment→revise path on the document page instead.
+//
 // Three auth checks on every request:
 //   1. User is authenticated
-//   2. User is operator OR client_id matches their own organisation_id
+//   2. User role must be 'operator'
 //   3. Suggestion exists, belongs to client_id, and is pending
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -81,10 +84,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
   }
 
-  // ── 2. Operator OR own organisation ─────────────────────────────────────────
+  // ── 2. Operator only ─────────────────────────────────────────────────────────
   const { data: userRow, error: userError } = await supabase
     .from('users')
-    .select('role, organisation_id')
+    .select('role')
     .eq('id', user.id)
     .single()
 
@@ -92,16 +95,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Could not verify user role.' }, { status: 403 })
   }
 
-  const isOperator = userRow.role === 'operator'
-  const isOwnOrg   = userRow.organisation_id === client_id
-
-  if (!isOperator && !isOwnOrg) {
-    logger.warn('Regenerate route: unauthorised attempt', {
+  if (userRow.role !== 'operator') {
+    logger.warn('Regenerate route: non-operator attempt', {
       user_id: user.id,
       client_id,
       role: userRow.role,
     })
-    return NextResponse.json({ error: 'Not authorised for this organisation.' }, { status: 403 })
+    return NextResponse.json({ error: 'Operator access required.' }, { status: 403 })
   }
 
   // ── 3 & 4. If a suggestion_id was provided, verify and reject it ─────────────

@@ -8,6 +8,11 @@
 // Example: curl https://app.margenticos.com/api/mock/instantly/campaigns/test-id
 
 import { NextRequest, NextResponse } from 'next/server'
+
+// Block this route in production — it exists only for local development curl testing.
+const isProduction = process.env.VERCEL_ENV === 'production' ||
+  (process.env.NODE_ENV === 'production' && !process.env.VERCEL_ENV)
+
 import {
   mockCampaignAnalytics,
   mockCampaignGet,
@@ -36,6 +41,7 @@ async function toNext(r: Response) {
 // ── GET ───────────────────────────────────────────────────────────────────────
 
 export async function GET(_req: NextRequest, ctx: RouteContext) {
+  if (isProduction) return new NextResponse('Not found', { status: 404 })
   const { path } = await ctx.params
   const [resource, id] = path
 
@@ -50,6 +56,7 @@ export async function GET(_req: NextRequest, ctx: RouteContext) {
 // ── POST ──────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest, ctx: RouteContext) {
+  if (isProduction) return new NextResponse('Not found', { status: 404 })
   const { path } = await ctx.params
   const [resource, subpath] = path
 
@@ -73,6 +80,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 // ── PATCH ─────────────────────────────────────────────────────────────────────
 
 export async function PATCH(_req: NextRequest, ctx: RouteContext) {
+  if (isProduction) return new NextResponse('Not found', { status: 404 })
   const { path } = await ctx.params
   const [resource, id] = path
 

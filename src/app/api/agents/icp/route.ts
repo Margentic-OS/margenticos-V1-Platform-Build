@@ -104,6 +104,9 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 2. Auth: operator session OR internal secret ───────────────────────────
+  // NEXT_INTERNAL_SECRET should be treated with the same rotation policy as API
+  // keys — rotate on suspected exposure, generate with at least 32 bytes of
+  // randomness, and store only in Vercel env vars (never committed). See BACKLOG.
   const internalSecret = process.env.NEXT_INTERNAL_SECRET
   const providedSecret = request.headers.get('x-internal-secret')
   const isInternalCall = internalSecret && providedSecret === internalSecret

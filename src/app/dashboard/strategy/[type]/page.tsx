@@ -190,7 +190,9 @@ export default async function StrategyDocumentPage({
                   updateTrigger={doc.update_trigger}
                 />
                 <div className="flex items-center gap-4">
-                  <RegenerateButton clientId={org.id} docType={docType} />
+                  {isOperatorViewing && (
+                    <RegenerateButton clientId={org.id} docType={docType} />
+                  )}
                   <PrintButton />
                 </div>
               </div>
