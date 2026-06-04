@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "npx tsx scripts/check-use-server-exports.ts",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "next lint",
