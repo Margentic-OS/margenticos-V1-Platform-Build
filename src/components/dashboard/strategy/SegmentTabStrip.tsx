@@ -29,7 +29,7 @@ export function SegmentTabStrip({ segments, selectedSegmentId }: SegmentTabStrip
   if (segments.length <= 1) return null
 
   return (
-    <div className="flex gap-0 border-b border-border-card mb-6 print:hidden">
+    <div role="tablist" className="flex gap-2 border-b border-border-card mb-6 print:hidden">
       {segments.map(seg => {
         const href = pathname + buildStrategyParams({ clientParam, segmentId: seg.id, isDefaultSegment: seg.is_default })
         const isActive = seg.id === selectedSegmentId
@@ -37,6 +37,8 @@ export function SegmentTabStrip({ segments, selectedSegmentId }: SegmentTabStrip
           <Link
             key={seg.id}
             href={href}
+            role="tab"
+            aria-selected={isActive}
             className={[
               'px-4 py-2 text-[13px] font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
               isActive

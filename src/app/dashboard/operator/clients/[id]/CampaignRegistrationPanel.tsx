@@ -70,7 +70,7 @@ export function CampaignRegistrationPanel({ orgId }: { orgId: string }) {
       <div className="px-5 py-4 border-b border-border-card">
         <h2 className="text-[13px] font-semibold text-text-primary">Campaign registration</h2>
         <p className="text-[11px] text-text-secondary mt-0.5">
-          Register an Instantly campaign UUID to link it to this client.
+          Register a campaign ID to link it to this client.
         </p>
       </div>
 
@@ -97,7 +97,7 @@ export function CampaignRegistrationPanel({ orgId }: { orgId: string }) {
             {/* UUID input */}
             <div>
               <label className="block text-[11px] font-medium text-text-secondary mb-1.5">
-                Instantly campaign UUID
+                Campaign ID
               </label>
               <input
                 type="text"
@@ -174,7 +174,7 @@ export function CampaignRegistrationPanel({ orgId }: { orgId: string }) {
 
               {(state.phase === 'validating' || state.phase === 'registering') && (
                 <p className="text-[11px] text-text-secondary">
-                  {state.phase === 'validating' ? 'Checking with Instantly…' : 'Registering campaign…'}
+                  {state.phase === 'validating' ? 'Verifying campaign…' : 'Registering campaign…'}
                 </p>
               )}
             </div>

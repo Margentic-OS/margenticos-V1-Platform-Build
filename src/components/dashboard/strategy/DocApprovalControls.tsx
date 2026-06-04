@@ -14,8 +14,8 @@ interface Props {
 
 function sourceLabel(source: string | null): string {
   if (source === 'client') return 'Approved by you'
-  if (source === 'operator') return 'Approved by your team'
-  if (source === 'auto') return 'Auto-approved'
+  if (source === 'operator') return 'Approved by MargenticOS'
+  if (source === 'auto') return 'Auto-approved after the review window'
   return 'Approved'
 }
 
@@ -159,14 +159,14 @@ export function DocApprovalControls({
                     <button
                       onClick={() => { setError(null); setChangeFormOpen(true) }}
                       disabled={busy}
-                      className="text-[11px] text-text-secondary border border-border-card hover:border-text-secondary rounded-[6px] px-3 py-1.5 transition-colors disabled:opacity-40"
+                      className="text-[11px] text-text-secondary border border-border-card hover:border-text-secondary rounded-[6px] px-3 py-1.5 transition-colors disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-[#1C3A2A] focus-visible:ring-offset-1"
                     >
                       Request changes
                     </button>
                     <button
                       onClick={handleApprove}
                       disabled={busy}
-                      className="text-[11px] text-white bg-[#1C3A2A] hover:bg-[#152e21] px-3 py-1.5 rounded-[6px] disabled:opacity-50 transition-colors"
+                      className="text-[11px] text-white bg-[#1C3A2A] hover:bg-[#152e21] px-3 py-1.5 rounded-[6px] disabled:opacity-50 transition-colors focus-visible:ring-2 focus-visible:ring-[#1C3A2A] focus-visible:ring-offset-1"
                     >
                       {loading === 'approving' ? 'Approving…' : 'Approve'}
                     </button>

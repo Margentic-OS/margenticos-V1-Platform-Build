@@ -141,6 +141,38 @@ export default async function DashboardPage({
     .eq('organisation_id', org.id)
     .eq('status', 'pending')
 
+  // Derive campaign setup status from real signals (registered campaigns + lead uploads).
+  const [campaignsRes, uploadedCountRes] = await Promise.all([
+    supabase
+      .from('campaigns')
+      .select('id, shell_synced_at')
+      .eq('organisation_id', org.id)
+      .not('external_id', 'is', null),
+    supabase
+      .from('prospects')
+      .select('id', { count: 'exact', head: true })
+      .eq('organisation_id', org.id)
+      .not('campaign_id', 'is', null)
+      .neq('outbound_upload_status', 'pending'),
+  ])
+
+  const registeredCampaigns = campaignsRes.data ?? []
+  const uploadedCount = uploadedCountRes.count ?? 0
+  const derivedCampaignsStatus: 'pending' | 'in_progress' | 'complete' =
+    registeredCampaigns.length === 0
+      ? 'pending'
+      : !registeredCampaigns.some(c => c.shell_synced_at !== null) || uploadedCount === 0
+      ? 'in_progress'
+      : 'complete'
+
+  const rawSetupStatus = (org.setup_status ?? {}) as { campaigns?: string; linkedin?: string }
+  const derivedSetupStatus = {
+    campaigns: derivedCampaignsStatus,
+    linkedin: (['pending', 'in_progress', 'complete'].includes(rawSetupStatus.linkedin ?? '')
+      ? rawSetupStatus.linkedin
+      : 'pending') as 'pending' | 'in_progress' | 'complete',
+  }
+
   const pendingTypes = new Set((pendingSuggRows ?? []).map(s => s.document_type))
 
   // ─── Determine dashboard state ────────────────────────────────────────────
@@ -243,7 +275,7 @@ export default async function DashboardPage({
           documents={activeDocuments}
           engagementMonth={org.engagement_month}
           contractStartDate={org.contract_start_date}
-          setupStatus={org.setup_status as { campaigns: 'pending' | 'in_progress' | 'complete'; linkedin: 'pending' | 'in_progress' | 'complete' }}
+          setupStatus={derivedSetupStatus}
           clientParam={clientParam}
         />
       )}

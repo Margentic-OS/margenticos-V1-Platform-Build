@@ -143,7 +143,7 @@ export default async function StrategyDocumentPage({
       <DashboardTopbar
         eyebrow="Strategy"
         title={docLabel}
-        subtitle={doc ? `v${doc.version} — updated ${formatRelativeDate(doc.last_updated_at)}` : ''}
+        subtitle={doc ? `v${doc.version} — updated ${formatRelativeDate(doc.last_updated_at)}` : 'Not yet generated'}
         statusLabel={statusLabel}
         statusVariant={statusVariant}
         orgInitials={orgInitials}

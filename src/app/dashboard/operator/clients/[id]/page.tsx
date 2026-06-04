@@ -51,8 +51,8 @@ export default async function ClientDetailPage({
 
   const setupStatus = parseSetupStatus(org.setup_status)
 
-  // Fetch flag, pending count, campaigns, and primary segment in parallel.
-  const [flagResult, pendingCountResult, campaignsResult, primarySegResult] = await Promise.all([
+  // Fetch flag, pending count, campaigns, uploaded count, and primary segment in parallel.
+  const [flagResult, pendingCountResult, campaignsResult, uploadedCountResult, primarySegResult] = await Promise.all([
     supabase
       .from('integrations_registry')
       .select('is_active')
@@ -73,6 +73,12 @@ export default async function ClientDetailPage({
       .eq('organisation_id', org.id)
       .order('created_at', { ascending: true }),
     supabase
+      .from('prospects')
+      .select('id', { count: 'exact', head: true })
+      .eq('organisation_id', org.id)
+      .not('campaign_id', 'is', null)
+      .neq('outbound_upload_status', 'pending'),
+    supabase
       .from('segments')
       .select('id')
       .eq('organisation_id', org.id)
@@ -91,7 +97,15 @@ export default async function ClientDetailPage({
       shellSyncedAt: c.shell_synced_at,
       shellStepCount: c.shell_step_count,
     }))
+  const uploadedCount = uploadedCountResult.count ?? 0
   const primarySegmentId = primarySegResult.data?.id ?? null
+
+  const derivedCampaignsStatus: SetupStatusValue =
+    campaigns.length === 0
+      ? 'pending'
+      : !campaigns.some(c => c.shellSyncedAt !== null) || uploadedCount === 0
+      ? 'in_progress'
+      : 'complete'
 
   return (
     <>
@@ -110,7 +124,7 @@ export default async function ClientDetailPage({
           </Link>
 
           <div className="space-y-4">
-            <SetupStatusPanel orgId={org.id} initialStatus={setupStatus} />
+            <SetupStatusPanel orgId={org.id} initialStatus={setupStatus} derivedCampaignsStatus={derivedCampaignsStatus} />
 
             <CampaignRegistrationPanel orgId={org.id} />
 

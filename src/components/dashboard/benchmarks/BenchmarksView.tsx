@@ -147,7 +147,7 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
             rel="noopener noreferrer"
             className="underline"
           >
-            Instantly&apos;s 2025 cold email report
+            a 2025 cold email industry report
           </a>{' '}
           (billions of emails analysed) and{' '}
           <a

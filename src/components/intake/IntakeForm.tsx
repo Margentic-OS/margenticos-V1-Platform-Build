@@ -408,7 +408,7 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
               key={section.id}
               onClick={() => setActiveSection(section.id)}
               className={[
-                'px-3 py-1.5 text-[11px] sm:text-[10px] font-medium rounded-[20px] border transition-colors min-h-[36px] touch-manipulation',
+                'px-3 py-1.5 text-[11px] sm:text-[10px] font-medium rounded-[20px] border transition-colors min-h-[44px] touch-manipulation',
                 activeSection === section.id
                   ? 'bg-brand-green text-[#F5F0E8] border-brand-green'
                   : sectionComplete(section)

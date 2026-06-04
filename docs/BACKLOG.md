@@ -2120,23 +2120,43 @@ Complete all items before the first paying client goes live:
 
 ### [pre-c1] Part 3 client-role verification checklist — design review
 - Added 2026-06-04. Bucket: pre-c1.
-- This item holds the verbatim Part 3 checklist from the design review session that ran
-  immediately before this route-group refactor. The checklist verifies that a real
-  client user (non-operator) cannot see operator chrome, operator nav items, or the
-  OperatorViewingBanner.
-- STATUS: verbatim checklist not yet added to this entry. Retrieve from the design
-  review session output and paste here before the pre-c1 QA pass.
+- Verifies that a real client user (non-operator role) cannot see operator chrome,
+  operator nav items, or the OperatorViewingBanner. Must be manually verified with a
+  live client-role account before c1 onboarding.
+- Checklist (6 items — manual, requires a non-operator Supabase user):
+  1. Log in with a client-role account (users.role != 'operator').
+  2. Visit /dashboard → green Sidebar renders; no OperatorSidebar, no amber "Operator
+     mode" pill, no client-selector dropdown.
+  3. Visit /dashboard/strategy/icp → client chrome persists; sidebar shows Results +
+     Strategy sections only; no "Operator only" nav section visible.
+  4. OperatorViewingBanner is absent — the amber "You are viewing the client experience"
+     banner must not render (it only renders when isOperator=true in the layout).
+  5. Navigate between /dashboard and /dashboard/strategy/* using sidebar links → no
+     chrome flicker, no stale operator chrome bleeds through.
+  6. The "Viewing" label in the sidebar shows the client's own org name — not an
+     operator's org name, and no ?client= param logic fires.
 - Trigger: before the /qa audit run that gates c1 onboarding.
 
-### [pre-c1] P1–P4 design findings batch — awaiting post-/qa fix pass
-- Added 2026-06-04. Bucket: pre-c1.
-- The design review session identified findings labelled P1 through P4 across the
-  client dashboard UI. These were intentionally NOT folded into the chrome route-group
-  refactor (scope control: pure structure in C1, pure behaviour in C2 only).
-- These findings are pending a dedicated fix pass after the /qa audit confirms the
-  chrome refactor is stable in production.
-- STATUS: verbatim P1–P4 finding descriptions not yet added to this entry. Retrieve
-  from the design review session output and add them here, each with its priority tag
-  and exact file/component reference.
-- Trigger: after V1–V5 browser verification passes in production. Run /qa, collect the
-  visual findings, then address P1–P4 in a single batched PR.
+### [EXECUTED 2026-06-04] P1–P4 design findings batch — batched fix pass complete
+- Added 2026-06-04. Executed 2026-06-04 in the batched fix pass session.
+- All design-review findings from the pre-chrome-refactor /design-review run were
+  addressed in a single batched fix pass alongside two operator-side findings.
+- Findings addressed:
+    S-1 (DocApprovalControls): 'operator' source label → 'Approved by MargenticOS';
+        'auto' label → 'Auto-approved after the review window'
+    S-2 (DocApprovalControls): focus-visible rings added to Approve and Request changes
+        buttons
+    S-3 (SegmentTabStrip): role="tablist" on container, role="tab" aria-selected on
+        each Link
+    S-4 (SegmentTabStrip): gap-0 → gap-2 on tab strip container
+    S-5 (strategy/[type]/page.tsx): empty string subtitle fallback → 'Not yet generated'
+    M-2 (IntakeForm): section tab buttons min-h-[36px] → min-h-[44px]
+    B-1 (BenchmarksView): "Instantly's 2025 cold email report" → "a 2025 cold email
+        industry report"
+    O-5 (OperatorSidebar): Approvals moved from Results section to Operator only section
+    Item 1 (AllClientsView): dead View button href fixed → /dashboard?client=<id>
+    Item 2 (SetupStatusPanel): campaigns status row replaced with auto-derived read-only
+        pill; derivation from registered campaigns + lead upload activity
+    Item 3 (ADR-001 sweep): Instantly/registry column name references removed from
+        CampaignRegistrationPanel, LeadUploadPanel, MailboxOrderPanel, SetupStatusPanel
+- M-1 (responsive sidebar) explicitly excluded — pre-c1 design task, separate item above.

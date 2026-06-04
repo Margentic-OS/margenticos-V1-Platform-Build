@@ -12,6 +12,7 @@ export interface SetupStatusShape {
 interface SetupStatusPanelProps {
   orgId: string
   initialStatus: SetupStatusShape
+  derivedCampaignsStatus: SetupStatusValue
 }
 
 const STATUS_OPTIONS: { value: SetupStatusValue; label: string }[] = [
@@ -60,7 +61,28 @@ function StatusSelector({
   )
 }
 
-export function SetupStatusPanel({ orgId, initialStatus }: SetupStatusPanelProps) {
+function DerivedStatusPill({ value }: { value: SetupStatusValue }) {
+  const styles: Record<SetupStatusValue, string> = {
+    pending: 'bg-surface-content border-border-card text-text-secondary',
+    in_progress: 'bg-[#FEF7E6] border-[#F0D080] text-[#7A4800]',
+    complete: 'bg-[#EBF5E6] border-[#BDDAB0] text-brand-green-success',
+  }
+  const labels: Record<SetupStatusValue, string> = {
+    pending: 'Pending',
+    in_progress: 'In progress',
+    complete: 'Complete',
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`px-3 py-1.5 rounded-[6px] text-[11px] font-medium border ${styles[value]}`}>
+        {labels[value]}
+      </span>
+      <span className="text-[10px] text-text-muted">Auto</span>
+    </div>
+  )
+}
+
+export function SetupStatusPanel({ orgId, initialStatus, derivedCampaignsStatus }: SetupStatusPanelProps) {
   const [status, setStatus] = useState<SetupStatusShape>(initialStatus)
 
   return (
@@ -74,15 +96,10 @@ export function SetupStatusPanel({ orgId, initialStatus }: SetupStatusPanelProps
           <div>
             <p className="text-[13px] font-medium text-text-primary">Cold email campaigns</p>
             <p className="text-[11px] text-text-secondary mt-0.5">
-              Instantly campaigns configured and active
+              Derived from registered campaigns and lead upload activity
             </p>
           </div>
-          <StatusSelector
-            orgId={orgId}
-            field="campaigns"
-            value={status.campaigns}
-            onChange={(v) => setStatus((s) => ({ ...s, campaigns: v }))}
-          />
+          <DerivedStatusPill value={derivedCampaignsStatus} />
         </div>
 
         <div className="px-5 py-4 flex items-center justify-between">

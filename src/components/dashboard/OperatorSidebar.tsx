@@ -19,7 +19,6 @@ interface OperatorSidebarProps {
 const NAV_RESULTS = [
   { label: 'Pipeline', href: '/dashboard/pipeline' },
   { label: 'Benchmarks', href: '/dashboard/benchmarks' },
-  { label: 'Approvals', href: '/dashboard/operator/approvals' },
 ]
 
 const NAV_STRATEGY = [
@@ -31,6 +30,7 @@ const NAV_STRATEGY = [
 
 const NAV_OPERATOR = [
   { label: 'All clients', href: '/dashboard/operator' },
+  { label: 'Approvals', href: '/dashboard/operator/approvals' },
   { label: 'Reply queue', href: '/dashboard/operator/triage' },
   { label: 'FAQ curation', href: '/dashboard/operator/faqs' },
   { label: 'Agent activity', href: '/dashboard/operator/activity' },
@@ -147,7 +147,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
           {NAV_RESULTS.map((item) => (
             <li key={item.href}>
               <Link
-                href={item.href === '/dashboard/operator/approvals' ? item.href : appendClientParam(item.href, selectedId)}
+                href={appendClientParam(item.href, selectedId)}
                 className={[
                   'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
                   isActive(item.href)

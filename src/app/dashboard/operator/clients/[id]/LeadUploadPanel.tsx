@@ -118,7 +118,7 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, prima
             <div className="bg-[#FEFCE8] border border-[#FDE68A] rounded-[8px] px-4 py-3">
               <p className="text-[12px] font-medium text-[#92400E]">Mock mode active</p>
               <p className="text-[11px] text-[#92400E] mt-0.5">
-                Outbound provider flag is off. Calls go to the mock server, not production. Flip instantly_api_active in integrations_registry to enable real uploads.
+                Outbound provider flag is off. Calls go to the mock server, not production. Enable live mode in integration settings to enable real uploads.
               </p>
             </div>
           )}

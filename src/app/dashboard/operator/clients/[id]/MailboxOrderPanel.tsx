@@ -93,7 +93,7 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
       <div className="px-5 py-4 border-b border-border-card">
         <h2 className="text-[13px] font-semibold text-text-primary">DFY mailbox ordering</h2>
         <p className="text-[11px] text-text-secondary mt-0.5">
-          Order pre-warmed Instantly DFY email accounts. Get a quote first, then confirm. Supported TLDs: .com, .org.
+          Order pre-warmed DFY email accounts. Get a quote first, then confirm. Supported TLDs: .com, .org.
         </p>
       </div>
 
@@ -103,8 +103,8 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
           <div className="bg-[#FEFCE8] border border-[#FDE68A] rounded-[8px] px-4 py-3">
             <p className="text-[12px] font-medium text-[#92400E]">Mock mode active</p>
             <p className="text-[11px] text-[#92400E] mt-0.5">
-              instantly_api_active is false. Quotes will call the mock server.
-              The confirm button is disabled until the flag is enabled.
+              Live mode is off. Quotes will call the mock server.
+              The confirm button is disabled until live mode is enabled.
             </p>
           </div>
         )}
@@ -115,7 +115,7 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
             <div className="bg-[#EBF5E6] border border-[#BDDAB0] rounded-[8px] px-4 py-3">
               <p className="text-[12px] font-medium text-brand-green-success">Order placed</p>
               <p className="text-[11px] text-brand-green-success mt-0.5">
-                Instantly DFY mailboxes have been ordered. Allow 24–72 hours for setup.
+                DFY mailboxes have been ordered. Allow 24–72 hours for setup.
               </p>
             </div>
             <button
@@ -173,7 +173,7 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
               <div className="bg-[#FEFCE8] border border-[#FDE68A] rounded-[8px] px-4 py-3">
                 <p className="text-[12px] font-medium text-[#92400E]">Order not confirmed</p>
                 <p className="text-[11px] text-[#92400E] mt-0.5">
-                  Instantly returned success but didn't place the order. This usually means a transient issue on their side. The error has been logged. Verify in your Instantly dashboard before retrying.
+                  The provider returned success but didn't confirm the order. This usually means a transient issue. The error has been logged. Verify in your provider dashboard before retrying.
                 </p>
               </div>
             )}
@@ -211,8 +211,8 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
                   className="mt-0.5 h-3.5 w-3.5 accent-brand-green-operator cursor-pointer"
                 />
                 <span className="text-[11px] text-text-secondary">
-                  I understand this will charge my Instantly account
-                  {state.totalPrice !== null ? ` $${state.totalPrice.toFixed(2)}` : ''} for{' '}
+                  I understand this will place a real order
+                  {state.totalPrice !== null ? ` for $${state.totalPrice.toFixed(2)}` : ''} covering{' '}
                   {state.domains.length} mailbox{state.domains.length === 1 ? '' : 'es'}
                 </span>
               </label>
@@ -235,7 +235,7 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
                   <button
                     onClick={handlePlaceOrder}
                     disabled={isWorking || !instantlyApiActive || !state.orderIsValid || !confirmed}
-                    title={!instantlyApiActive ? 'Enable instantly_api_active flag to place real orders' : !confirmed ? 'Check the confirmation box above to proceed' : undefined}
+                    title={!instantlyApiActive ? 'Enable live mode to place real orders' : !confirmed ? 'Check the confirmation box above to proceed' : undefined}
                     className="px-4 py-2 bg-brand-green-operator text-white rounded-[6px] text-[12px] font-medium hover:bg-brand-green-operator/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Confirm and place real order
@@ -252,7 +252,7 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
 
               {isWorking && (
                 <p className="text-[11px] text-text-secondary">
-                  {state.phase === 'quoting' ? 'Getting quote from Instantly…' : 'Placing order…'}
+                  {state.phase === 'quoting' ? 'Getting quote…' : 'Placing order…'}
                 </p>
               )}
             </div>
@@ -260,7 +260,7 @@ export function MailboxOrderPanel({ orgId, instantlyApiActive }: Props) {
             {/* Disabled confirm explanation */}
             {state.phase === 'quoted' && !instantlyApiActive && (
               <p className="text-[11px] text-[#92400E]">
-                The confirm button is disabled. Set instantly_api_active=true in integrations_registry to enable real orders.
+                The confirm button is disabled. Enable live mode in integration settings to place real orders.
               </p>
             )}
           </>
