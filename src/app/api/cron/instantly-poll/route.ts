@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
   // Future: if active campaign count exceeds ~50, consider batching with concurrency limit.
   const campaignStatsResult = { updated: 0, skipped: 0, errors: 0 }
   try {
-    const statsMap = await fetchCampaignStats(apiKey, baseUrl)
+    const statsMap = await fetchCampaignStats(apiKey, isActive, baseUrl)
 
     const { data: activeCampaigns } = await supabase
       .from('campaigns')

@@ -9,6 +9,9 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 
 export async function getInstantlyApiKey(_organisationId: string): Promise<string> {
+  // Test/CI override — bypasses DB lookup when key is provided directly.
+  if (process.env.INSTANTLY_API_KEY_OVERRIDE) return process.env.INSTANTLY_API_KEY_OVERRIDE
+
   const supabase = createSupabaseClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -37,6 +40,11 @@ export async function getInstantlyApiKey(_organisationId: string): Promise<strin
 // Reads the instantly_api_active feature flag from integrations_registry.
 // Returns false if the row is missing or unreadable — fail-safe toward mock mode.
 export async function getInstantlyApiActive(): Promise<boolean> {
+  // Test/CI override — bypasses DB lookup when flag is provided directly.
+  if (process.env.INSTANTLY_API_ACTIVE !== undefined) {
+    return process.env.INSTANTLY_API_ACTIVE === 'true'
+  }
+
   const supabase = createSupabaseClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,

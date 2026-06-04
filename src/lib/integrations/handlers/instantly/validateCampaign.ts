@@ -7,8 +7,9 @@
 // Return value fields are chosen to give the operator enough context to confirm
 // "this is the right campaign" without pulling every field from the Instantly response.
 
-import { resolveInstantlyBaseUrl } from './constants'
+import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from './constants'
 import { getInstantlyApiKey, getInstantlyApiActive } from './auth'
+import { mockCampaignGet } from './mock-dispatch'
 
 export interface CampaignValidationResult {
   name: string
@@ -25,16 +26,20 @@ export async function validateCampaign(
   const baseUrl = resolveInstantlyBaseUrl(isActive)
 
   let response: Response
-  try {
-    response = await fetch(`${baseUrl}/campaigns/${campaignUuid}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    })
-  } catch (err) {
-    throw new Error(`Instantly is currently unreachable — try again in a moment. (${String(err)})`)
+  if (shouldUseMockDispatch(isActive)) {
+    response = mockCampaignGet(campaignUuid)
+  } else {
+    try {
+      response = await fetch(`${baseUrl}/campaigns/${campaignUuid}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      })
+    } catch (err) {
+      throw new Error(`Outbound provider is currently unreachable — try again in a moment. (${String(err)})`)
+    }
   }
 
   if (response.status === 404) {

@@ -202,6 +202,7 @@ export async function sendApprovedDraft(
     { replyToUuid, eaccount, subject, bodyText: assembledBody },
     instantlyApiKey,
     baseUrl,
+    isActive,
     { signal: AbortSignal.timeout(20000) },
   )
 

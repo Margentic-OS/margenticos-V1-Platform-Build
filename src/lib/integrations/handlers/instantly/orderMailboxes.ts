@@ -10,7 +10,8 @@
 
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
-import { resolveInstantlyBaseUrl, INSTANTLY_DFY_ALLOWED_TLDS } from './constants'
+import { resolveInstantlyBaseUrl, shouldUseMockDispatch, INSTANTLY_DFY_ALLOWED_TLDS } from './constants'
+import { mockDfyOrder } from './mock-dispatch'
 import { getInstantlyApiKey, getInstantlyApiActive } from './auth'
 import type { DfyOrderItem, DfyOrderResponse, DfyOrderResult } from './types'
 import {
@@ -64,17 +65,21 @@ export async function orderMailboxes(
   }
 
   let response: Response
-  try {
-    response = await fetch(`${baseUrl}/dfy-email-account-orders`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    })
-  } catch (err) {
-    throw new InstantlyNetworkError(`Instantly is unreachable: ${String(err)}`)
+  if (shouldUseMockDispatch(isActive)) {
+    response = mockDfyOrder(items)
+  } else {
+    try {
+      response = await fetch(`${baseUrl}/dfy-email-account-orders`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      })
+    } catch (err) {
+      throw new InstantlyNetworkError(`Outbound provider is unreachable: ${String(err)}`)
+    }
   }
 
   if (response.status === 429) {

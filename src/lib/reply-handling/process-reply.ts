@@ -34,7 +34,8 @@ import {
   sendThreadReply,
 } from '@/lib/integrations/handlers/instantly/reply-actions'
 import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
-import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
+import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from '@/lib/integrations/handlers/instantly/constants'
+import { mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
 import { orchestrateDraft } from './draft-orchestrator'
 
 type SupabaseServiceClient = SupabaseClient<Database>
@@ -113,17 +114,20 @@ async function resolveInstantlyLeadId(
   apiKey: string,
   fromEmail: string,
   baseUrl: string,
+  isActive: boolean,
 ): Promise<string | null> {
   const fromRaw = (raw.lead_id ?? raw.from_address_id) as string | undefined
   if (fromRaw) return fromRaw
 
   // Fallback: look up by email
   try {
-    const response = await fetch(`${baseUrl}/leads/list`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: fromEmail, limit: 1 }),
-    })
+    const response = shouldUseMockDispatch(isActive)
+      ? mockLeadsList()
+      : await fetch(`${baseUrl}/leads/list`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: fromEmail, limit: 1 }),
+        })
     if (!response.ok) return null
     const json = await response.json().catch(() => null)
     const items = (Array.isArray(json) ? json : json?.items) as Array<{ id: string }> | undefined
@@ -256,6 +260,7 @@ async function processOneSignal(
   supabase: SupabaseServiceClient,
   instantlyApiKey: string,
   baseUrl: string,
+  isActive: boolean,
   signal: {
     id: string
     organisation_id: string
@@ -472,7 +477,7 @@ async function processOneSignal(
 
   if (actionTaken === 'suppress') {
     const leadInstantlyId = fromEmail
-      ? await resolveInstantlyLeadId(raw, instantlyApiKey, fromEmail, baseUrl)
+      ? await resolveInstantlyLeadId(raw, instantlyApiKey, fromEmail, baseUrl, isActive)
       : null
 
     let suppressResult: { ok: boolean; error: string | undefined; raw: unknown } = {
@@ -482,7 +487,7 @@ async function processOneSignal(
     }
 
     if (leadInstantlyId) {
-      const r = await suppressLead(leadInstantlyId, instantlyApiKey, baseUrl)
+      const r = await suppressLead(leadInstantlyId, instantlyApiKey, baseUrl, isActive)
       suppressResult = { ok: r.ok, error: r.error, raw: r.raw }
     } else {
       logger.warn('process-reply: could not resolve Instantly lead ID — DB suppression only', {
@@ -614,6 +619,7 @@ async function processOneSignal(
       { replyToUuid, eaccount, subject: replySubject, bodyText },
       instantlyApiKey,
       baseUrl,
+      isActive,
     )
 
     await updateActionRow(supabase, actionRowId, {
@@ -736,7 +742,7 @@ export async function processReplies(
 
   for (const signal of signals) {
     try {
-      const outcome = await processOneSignal(supabase, instantlyApiKey, baseUrl, signal)
+      const outcome = await processOneSignal(supabase, instantlyApiKey, baseUrl, isActive, signal)
       if (outcome === 'processed') result.processed++
       else if (outcome === 'skipped') result.skipped++
       else result.errors++

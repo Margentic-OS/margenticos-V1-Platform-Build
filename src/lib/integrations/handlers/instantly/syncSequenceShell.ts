@@ -22,7 +22,8 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
-import { resolveInstantlyBaseUrl, summarizeResponseBody } from './constants'
+import { resolveInstantlyBaseUrl, shouldUseMockDispatch, summarizeResponseBody } from './constants'
+import { mockCampaignPatch } from './mock-dispatch'
 import { getInstantlyApiKey, getInstantlyApiActive } from './auth'
 import type { Database } from '@/types/database'
 import type {
@@ -182,19 +183,23 @@ export async function syncSequenceShell(input: ShellSyncInput): Promise<ShellSyn
   const sequences = buildShellSequences(stepCount, delays)
   const patchBody: CampaignUpdateRequest = { sequences }
 
-  // PATCH the campaign on the outbound provider.
+  // PATCH the campaign on the outbound provider (or dispatch to in-process mock).
   let response: Response
-  try {
-    response = await fetch(`${baseUrl}/campaigns/${campaignExternalId}`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(patchBody),
-    })
-  } catch (err) {
-    throw new InstantlyNetworkError(`syncSequenceShell: network error: ${String(err)}`)
+  if (shouldUseMockDispatch(isActive)) {
+    response = mockCampaignPatch(campaignExternalId)
+  } else {
+    try {
+      response = await fetch(`${baseUrl}/campaigns/${campaignExternalId}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(patchBody),
+      })
+    } catch (err) {
+      throw new InstantlyNetworkError(`syncSequenceShell: network error: ${String(err)}`)
+    }
   }
 
   if (response.status === 429) {

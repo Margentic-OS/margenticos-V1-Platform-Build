@@ -16,6 +16,8 @@
 //                     Sends a reply in the existing email thread.
 
 import { logger } from '@/lib/logger'
+import { shouldUseMockDispatch } from './constants'
+import { mockLeadPatch, mockEmailReply } from './mock-dispatch'
 
 export interface ActionResult {
   ok: boolean
@@ -29,21 +31,26 @@ export async function suppressLead(
   leadInstantlyId: string,
   apiKey: string,
   baseUrl: string,
+  isActive: boolean,
 ): Promise<ActionResult> {
   let response: Response
-  try {
-    response = await fetch(`${baseUrl}/leads/${leadInstantlyId}`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ lt_interest_status: -1 }),
-    })
-  } catch (err) {
-    const msg = `Network error: ${String(err)}`
-    logger.error('Instantly reply-actions: suppressLead network error', { lead_id: leadInstantlyId, error: msg })
-    return { ok: false, error: msg }
+  if (shouldUseMockDispatch(isActive)) {
+    response = mockLeadPatch(leadInstantlyId)
+  } else {
+    try {
+      response = await fetch(`${baseUrl}/leads/${leadInstantlyId}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ lt_interest_status: -1 }),
+      })
+    } catch (err) {
+      const msg = `Network error: ${String(err)}`
+      logger.error('Instantly reply-actions: suppressLead network error', { lead_id: leadInstantlyId, error: msg })
+      return { ok: false, error: msg }
+    }
   }
 
   const raw = await response.json().catch(async () => {
@@ -73,33 +80,38 @@ export async function sendThreadReply(
   },
   apiKey: string,
   baseUrl: string,
+  isActive: boolean,
   options?: { signal?: AbortSignal }
 ): Promise<ActionResult> {
   const { replyToUuid, eaccount, subject, bodyText } = params
 
   let response: Response
-  try {
-    response = await fetch(`${baseUrl}/emails/reply`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        reply_to_uuid: replyToUuid,
-        eaccount,
-        subject,
-        body: { text: bodyText },
-      }),
-      signal: options?.signal,
-    })
-  } catch (err) {
-    const isAbort = err instanceof Error && err.name === 'AbortError'
-    const msg = isAbort
-      ? `AbortError: sendThreadReply timed out`
-      : `Network error: ${String(err)}`
-    logger.error('Instantly reply-actions: sendThreadReply network error', { reply_to_uuid: replyToUuid, error: msg })
-    return { ok: false, error: msg }
+  if (shouldUseMockDispatch(isActive)) {
+    response = mockEmailReply()
+  } else {
+    try {
+      response = await fetch(`${baseUrl}/emails/reply`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          reply_to_uuid: replyToUuid,
+          eaccount,
+          subject,
+          body: { text: bodyText },
+        }),
+        signal: options?.signal,
+      })
+    } catch (err) {
+      const isAbort = err instanceof Error && err.name === 'AbortError'
+      const msg = isAbort
+        ? `AbortError: sendThreadReply timed out`
+        : `Network error: ${String(err)}`
+      logger.error('Instantly reply-actions: sendThreadReply network error', { reply_to_uuid: replyToUuid, error: msg })
+      return { ok: false, error: msg }
+    }
   }
 
   const raw = await response.json().catch(async () => {

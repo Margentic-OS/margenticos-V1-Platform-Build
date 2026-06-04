@@ -9,7 +9,8 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
-import { resolveInstantlyBaseUrl, summarizeResponseBody } from './constants'
+import { resolveInstantlyBaseUrl, shouldUseMockDispatch, summarizeResponseBody } from './constants'
+import { mockLeadsAdd } from './mock-dispatch'
 import { getInstantlyApiKey, getInstantlyApiActive } from './auth'
 import type {
   ProspectForUpload,
@@ -51,17 +52,21 @@ export async function uploadLeads(
   }
 
   let response: Response
-  try {
-    response = await fetch(`${baseUrl}/leads/add`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    })
-  } catch (err) {
-    throw new InstantlyNetworkError(`Instantly is unreachable: ${String(err)}`)
+  if (shouldUseMockDispatch(isActive)) {
+    response = mockLeadsAdd(leads)
+  } else {
+    try {
+      response = await fetch(`${baseUrl}/leads/add`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      })
+    } catch (err) {
+      throw new InstantlyNetworkError(`Outbound provider is unreachable: ${String(err)}`)
+    }
   }
 
   if (response.status === 429) {

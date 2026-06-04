@@ -27,8 +27,9 @@ import * as Sentry from '@sentry/nextjs'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database, Json } from '@/types/database'
 import { logger } from '@/lib/logger'
-import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
+import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from '@/lib/integrations/handlers/instantly/constants'
 import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
+import { mockEmailsList, mockEmailGet, mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
 const SOURCE = 'instantly'
 
 // UNVERIFIED — these values are assumed from training data, not confirmed against
@@ -176,6 +177,7 @@ async function fetchOutboundEmailBody(
   emailObj: Record<string, unknown>,
   apiKey: string,
   baseUrl: string,
+  isActive: boolean,
 ): Promise<OutboundEmailCapture> {
   let outboundUuid: string | null = null
   for (const field of OUTBOUND_UUID_CANDIDATE_FIELDS) {
@@ -192,13 +194,15 @@ async function fetchOutboundEmailBody(
   const timeoutId = setTimeout(() => controller.abort(), 5000)
 
   try {
-    const response = await fetch(`${baseUrl}/emails/${outboundUuid}`, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal,
-    })
+    const response = shouldUseMockDispatch(isActive)
+      ? mockEmailGet(outboundUuid)
+      : await fetch(`${baseUrl}/emails/${outboundUuid}`, {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          signal: controller.signal,
+        })
 
     if (!response.ok) {
       logger.warn('Instantly poll: outbound email fetch failed', {
@@ -301,24 +305,30 @@ async function instantlyGet(
   apiKey: string,
   params: Record<string, string>,
   baseUrl: string,
+  isActive: boolean,
 ): Promise<{ data: unknown[] | null; nextCursor: string | null; error: string | null }> {
-  const url = new URL(`${baseUrl}${path}`)
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== '') {
-      url.searchParams.set(key, value)
-    }
-  }
-
   let response: Response
-  try {
-    response = await fetch(url.toString(), {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    })
-  } catch (err) {
-    return { data: null, nextCursor: null, error: `Network error: ${String(err)}` }
+
+  if (shouldUseMockDispatch(isActive)) {
+    // Mock: /emails → empty list; other paths not expected in polling
+    response = mockEmailsList()
+  } else {
+    const url = new URL(`${baseUrl}${path}`)
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && value !== '') {
+        url.searchParams.set(key, value)
+      }
+    }
+    try {
+      response = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      })
+    } catch (err) {
+      return { data: null, nextCursor: null, error: `Network error: ${String(err)}` }
+    }
   }
 
   if (!response.ok) {
@@ -345,19 +355,24 @@ async function instantlyPost(
   apiKey: string,
   body: Record<string, unknown>,
   baseUrl: string,
+  isActive: boolean,
 ): Promise<{ data: unknown[] | null; nextCursor: string | null; error: string | null }> {
   let response: Response
-  try {
-    response = await fetch(`${baseUrl}${path}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
-  } catch (err) {
-    return { data: null, nextCursor: null, error: `Network error: ${String(err)}` }
+  if (shouldUseMockDispatch(isActive)) {
+    response = mockLeadsList()
+  } else {
+    try {
+      response = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      })
+    } catch (err) {
+      return { data: null, nextCursor: null, error: `Network error: ${String(err)}` }
+    }
   }
 
   if (!response.ok) {
@@ -405,7 +420,7 @@ export async function pollInstantlyReplies(
       }
       if (cursor) params.starting_after = cursor
 
-      const { data: emails, nextCursor, error } = await instantlyGet('/emails', apiKey, params, baseUrl)
+      const { data: emails, nextCursor, error } = await instantlyGet('/emails', apiKey, params, baseUrl, isActive)
 
       if (error) {
         await setCursorError(supabase, resource, error)
@@ -450,7 +465,7 @@ export async function pollInstantlyReplies(
           continue
         }
 
-        const outbound = await fetchOutboundEmailBody(e, apiKey, baseUrl)
+        const outbound = await fetchOutboundEmailBody(e, apiKey, baseUrl, isActive)
 
         const outcome = await writeSignal(supabase, {
           organisation_id: campaignRow.organisation_id,
@@ -562,7 +577,7 @@ export async function pollInstantlyLeadStatus(
         }
         if (pageCursor) body.starting_after = pageCursor
 
-        const { data: leads, nextCursor, error } = await instantlyPost('/leads/list', apiKey, body, baseUrl)
+        const { data: leads, nextCursor, error } = await instantlyPost('/leads/list', apiKey, body, baseUrl, isActive)
 
         if (error) {
           // Log and move on to the next campaign — one campaign failure doesn't abort the run.

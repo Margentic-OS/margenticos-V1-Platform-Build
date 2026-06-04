@@ -338,6 +338,7 @@ await runTest(
     { replyToUuid: 'test-uuid', eaccount: 'test@test.com', subject: 'Re: test', bodyText: 'Test body' },
     'test-api-key',
     'https://api.instantly.ai/api/v2',
+    true,  // isActive=true: test is verifying AbortSignal behavior via real fetch path
     { signal: AbortSignal.abort() },
   )
   assert(

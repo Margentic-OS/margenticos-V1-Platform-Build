@@ -4,19 +4,6 @@
 
 const PROD_URL = 'https://api.instantly.ai/api/v2'
 
-/**
- * Resolves the base URL for the in-app Instantly mock server.
- *
- * Uses VERCEL_URL (deployment-specific) over NEXT_PUBLIC_APP_URL (usually the
- * production custom domain) so preview environments hit the right instance.
- * Third-party mock at developer.instantly.ai/_mock/api/v2 is dead as of 2026-06-04.
- */
-function getMockBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}/api/mock/instantly`
-  if (process.env.NEXT_PUBLIC_APP_URL) return `${process.env.NEXT_PUBLIC_APP_URL}/api/mock/instantly`
-  return 'http://localhost:3000/api/mock/instantly'
-}
-
 /** @deprecated Use resolveInstantlyBaseUrl(isActive) instead. */
 export const INSTANTLY_API_BASE = PROD_URL
 
@@ -29,20 +16,20 @@ export const INSTANTLY_API_BASE_URL: string =
 export const INSTANTLY_DFY_ALLOWED_TLDS = ['.com', '.org'] as const
 
 /**
- * The canonical resolver for all Instantly call sites.
+ * Returns the base URL for real Instantly API calls.
  *
- * - INSTANTLY_API_BASE_URL env var always wins (test/override use).
- * - isActive=true  → production URL (real money, real sends).
- * - isActive=false → in-app mock URL (no subscription required).
+ * - INSTANTLY_API_BASE_URL env var always wins (external test server override).
+ * - isActive=false: in-process mock dispatch runs before any fetch, so the URL returned
+ *   here is irrelevant in that path — but callers still resolve it for code clarity.
  *
- * This means the flag drives URL selection at every call site — not NODE_ENV.
- * Vercel preview and production environments both use NODE_ENV="production",
- * so a NODE_ENV-based check always returns the production URL on Vercel even
- * when the flag is deliberately off for staged testing.
+ * URL selection is NOT based on NODE_ENV. Vercel sets NODE_ENV="production" on
+ * preview deployments, so NODE_ENV-based checks always resolve production URLs on Vercel
+ * even when the flag is deliberately off.
  */
 export function resolveInstantlyBaseUrl(isActive: boolean): string {
   if (process.env.INSTANTLY_API_BASE_URL) return process.env.INSTANTLY_API_BASE_URL
-  return isActive ? PROD_URL : getMockBaseUrl()
+  void isActive  // isActive=false → mock dispatch, URL unused; isActive=true → PROD_URL below
+  return PROD_URL
 }
 
 /** @deprecated Use resolveInstantlyBaseUrl(isActive) instead. */
@@ -51,9 +38,20 @@ export function getInstantlyApiBaseUrl(): string {
 }
 
 /**
+ * Returns true when calls should be dispatched to in-process mock functions
+ * rather than fetching the real Instantly API.
+ *
+ * - isActive=false AND no INSTANTLY_API_BASE_URL override → mock dispatch
+ * - isActive=false AND INSTANTLY_API_BASE_URL set → real fetch to external test server
+ * - isActive=true → real fetch regardless
+ */
+export function shouldUseMockDispatch(isActive: boolean): boolean {
+  return !isActive && !process.env.INSTANTLY_API_BASE_URL
+}
+
+/**
  * Summarizes an HTTP response body for error messages.
- * If the body is HTML (e.g. an error page), returns a compact summary instead of
- * dumping raw markup into the UI. Otherwise truncates at 400 chars.
+ * Detects HTML error pages and returns a compact summary instead of dumping raw markup.
  */
 export function summarizeResponseBody(body: string, status: number): string {
   const trimmed = body.trimStart()
