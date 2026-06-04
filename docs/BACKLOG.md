@@ -2114,6 +2114,11 @@ Complete all items before the first paying client goes live:
        operator-working mode. Client chrome remains for genuine view-as-client.
     C) Operator chrome everywhere, banner indicates "viewing as client" but nav stays
        operator-green.
+- First-use evidence (2026-06-04): first time navigating to a client strategy doc via
+  the View button, operator instinct was to expect teal/operator chrome to stay — "should
+  stay operator chrome here." This is concrete pressure supporting Option B (separate
+  operator-working route under operator/ chrome). Not yet a decision; logged for when
+  the trigger fires.
 - Trigger: decide before operator workflow is used heavily or before adding operator-only
   strategy tools (e.g. force-approve, regenerate buttons visible to operators only).
   Do not build speculatively — decide when the use case pressure is concrete.
@@ -2160,3 +2165,41 @@ Complete all items before the first paying client goes live:
     Item 3 (ADR-001 sweep): Instantly/registry column name references removed from
         CampaignRegistrationPanel, LeadUploadPanel, MailboxOrderPanel, SetupStatusPanel
 - M-1 (responsive sidebar) explicitly excluded — pre-c1 design task, separate item above.
+
+### [decision] Setup-status definition — campaigns auto-derived, LinkedIn manual
+- Added 2026-06-04. Bucket: decision record (not a to-do).
+- Pending = no campaign registered in the campaigns table with a non-null external_id.
+- In progress = campaigns registered but shell unsynced (shell_synced_at IS NULL on all)
+  OR no leads have been uploaded yet (prospects with non-pending upload_status = 0).
+- Complete = campaigns registered + at least one shell synced + leads uploaded.
+- "Complete" is distinct from "live" — email warmup separately gates campaigns going live.
+  A client can be Setup=Complete while still in the warmup period.
+- LinkedIn status stays manual: no system signal exists that reliably indicates LinkedIn
+  content is configured and active. An operator sets it manually on the client detail page.
+- Implementation: deriveCampaignsStatus() in src/lib/dashboard/derive-setup-status.ts.
+  11 unit tests in src/lib/dashboard/__tests__/derive-setup-status.test.ts.
+
+### [product-decision] LinkedIn content card in DocumentsActiveState — keep or pull
+- Added 2026-06-04. Bucket: Doug's call, no build.
+- The "LinkedIn content" card in DocumentsActiveState.tsx promises delivery of LinkedIn
+  content to the client. The card currently reflects a manual setup-status value (operator
+  sets it on the client detail page).
+- Open question: is LinkedIn content delivery in scope for the near term? If the operator
+  is actively delivering LinkedIn posts (manual Taplio queue), the card is accurate and
+  should stay. If LinkedIn content is not being delivered yet, the card makes a promise
+  the system cannot currently fulfill.
+- Options: (a) keep the card — display "Pending" status until operator manually marks it
+  ready; (b) pull the card entirely until LinkedIn delivery is active and automated;
+  (c) keep but rename to "LinkedIn setup" and soften the promise language.
+- Trigger: Doug's call before c1 client onboarding. Do not change without a decision.
+
+### [architecture] Route placement constraint — no bare routes under dashboard/
+- Added 2026-06-04. Bucket: architecture rule (also in CLAUDE.md).
+- Routes must never be placed directly under src/app/dashboard/ outside (client)/ or
+  operator/. The dashboard/layout.tsx is a bare passthrough (no auth gate, no chrome).
+- A route directly under dashboard/ would be served with no authentication check and no
+  sidebar. This would be a silent security hole — the page would load but any Supabase
+  query would return empty (RLS blocks unauthenticated reads) rather than redirecting.
+- All new routes: place under (client)/ for client-facing pages, or operator/ for
+  operator-only pages. The route-group parentheses are invisible to URLs.
+- This is also enforced in CLAUDE.md Anti-patterns section.

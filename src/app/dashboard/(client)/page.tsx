@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
+import { deriveCampaignsStatus } from '@/lib/dashboard/derive-setup-status'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { IntakeIncompleteState } from '@/components/dashboard/empty-states/IntakeIncompleteState'
 import { StrategyInReviewState } from '@/components/dashboard/empty-states/StrategyInReviewState'
@@ -158,12 +159,7 @@ export default async function DashboardPage({
 
   const registeredCampaigns = campaignsRes.data ?? []
   const uploadedCount = uploadedCountRes.count ?? 0
-  const derivedCampaignsStatus: 'pending' | 'in_progress' | 'complete' =
-    registeredCampaigns.length === 0
-      ? 'pending'
-      : !registeredCampaigns.some(c => c.shell_synced_at !== null) || uploadedCount === 0
-      ? 'in_progress'
-      : 'complete'
+  const derivedCampaignsStatus = deriveCampaignsStatus(registeredCampaigns, uploadedCount)
 
   const rawSetupStatus = (org.setup_status ?? {}) as { campaigns?: string; linkedin?: string }
   const derivedSetupStatus = {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { approvalSourceLabel } from '@/lib/dashboard/approval-source-label'
 
 interface Props {
   docId: string
@@ -12,12 +13,6 @@ interface Props {
   isOperator: boolean
 }
 
-function sourceLabel(source: string | null): string {
-  if (source === 'client') return 'Approved by you'
-  if (source === 'operator') return 'Approved by MargenticOS'
-  if (source === 'auto') return 'Auto-approved after the review window'
-  return 'Approved'
-}
 
 async function postJson(url: string, body: Record<string, string>): Promise<string | null> {
   try {
@@ -199,7 +194,7 @@ export function DocApprovalControls({
         {!isPending && (
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-brand-green-success shrink-0" />
-            <span className="text-[12px] text-text-secondary">{sourceLabel(approvalSource)}</span>
+            <span className="text-[12px] text-text-secondary">{approvalSourceLabel(approvalSource)}</span>
           </div>
         )}
 

@@ -6,6 +6,7 @@ import { SetupStatusPanel } from './SetupStatusPanel'
 import { CampaignRegistrationPanel } from './CampaignRegistrationPanel'
 import { LeadUploadPanel } from './LeadUploadPanel'
 import { MailboxOrderPanel } from './MailboxOrderPanel'
+import { deriveCampaignsStatus } from '@/lib/dashboard/derive-setup-status'
 import type { SetupStatusShape } from './SetupStatusPanel'
 import type { SetupStatusValue } from './actions'
 
@@ -100,12 +101,10 @@ export default async function ClientDetailPage({
   const uploadedCount = uploadedCountResult.count ?? 0
   const primarySegmentId = primarySegResult.data?.id ?? null
 
-  const derivedCampaignsStatus: SetupStatusValue =
-    campaigns.length === 0
-      ? 'pending'
-      : !campaigns.some(c => c.shellSyncedAt !== null) || uploadedCount === 0
-      ? 'in_progress'
-      : 'complete'
+  const derivedCampaignsStatus: SetupStatusValue = deriveCampaignsStatus(
+    campaigns.map(c => ({ shell_synced_at: c.shellSyncedAt })),
+    uploadedCount
+  )
 
   return (
     <>

@@ -636,6 +636,10 @@ Never skip staging for any reason.
 Never end a session without committing completed work.
 Never make an architectural decision silently — always name it to Doug.
 Never proceed past a blocker without explaining it in plain English first.
+Never place a route directly under src/app/dashboard/ outside (client)/ or operator/ —
+  dashboard/layout.tsx is a bare passthrough with no auth gate and no chrome. A bare
+  dashboard/ route would be silently unauthenticated. Client pages go in (client)/,
+  operator pages go in operator/. Route-group parentheses are invisible to URLs.
 
 ---
 
