@@ -9,7 +9,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
-import { resolveInstantlyBaseUrl } from './constants'
+import { resolveInstantlyBaseUrl, summarizeResponseBody } from './constants'
 import { getInstantlyApiKey, getInstantlyApiActive } from './auth'
 import type {
   ProspectForUpload,
@@ -71,12 +71,12 @@ export async function uploadLeads(
   if (response.status === 400 || response.status === 422) {
     const body = await response.text().catch(() => '(unreadable)')
     throw new InstantlyValidationError(
-      `Lead upload rejected (${response.status}): ${body.slice(0, 400)}`
+      `Lead upload rejected (${response.status}): ${summarizeResponseBody(body, response.status)}`
     )
   }
 
   if (response.status >= 500) {
-    const errMsg = `Instantly transient outage (${response.status}) — try again later`
+    const errMsg = `Outbound provider transient outage (${response.status}) — try again later`
     Sentry.captureException(new Error(errMsg), { level: 'warning' })
     throw new InstantlyServerError(errMsg)
   }
@@ -84,7 +84,7 @@ export async function uploadLeads(
   if (!response.ok) {
     const body = await response.text().catch(() => '(unreadable)')
     throw new InstantlyApiError(
-      `Unexpected Instantly error (${response.status}): ${body.slice(0, 400)}`
+      `Unexpected outbound provider error (${response.status}): ${summarizeResponseBody(body, response.status)}`
     )
   }
 

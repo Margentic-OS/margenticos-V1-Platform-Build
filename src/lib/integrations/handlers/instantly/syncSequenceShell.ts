@@ -22,7 +22,7 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
-import { resolveInstantlyBaseUrl } from './constants'
+import { resolveInstantlyBaseUrl, summarizeResponseBody } from './constants'
 import { getInstantlyApiKey, getInstantlyApiActive } from './auth'
 import type { Database } from '@/types/database'
 import type {
@@ -204,7 +204,7 @@ export async function syncSequenceShell(input: ShellSyncInput): Promise<ShellSyn
   if (response.status === 400 || response.status === 422) {
     const body = await response.text().catch(() => '(unreadable)')
     throw new InstantlyValidationError(
-      `syncSequenceShell: rejected (${response.status}): ${body.slice(0, 400)}`
+      `syncSequenceShell: rejected (${response.status}): ${summarizeResponseBody(body, response.status)}`
     )
   }
 
@@ -217,7 +217,7 @@ export async function syncSequenceShell(input: ShellSyncInput): Promise<ShellSyn
   if (!response.ok) {
     const body = await response.text().catch(() => '(unreadable)')
     throw new InstantlyApiError(
-      `syncSequenceShell: unexpected error (${response.status}): ${body.slice(0, 400)}`
+      `syncSequenceShell: unexpected error (${response.status}): ${summarizeResponseBody(body, response.status)}`
     )
   }
 
