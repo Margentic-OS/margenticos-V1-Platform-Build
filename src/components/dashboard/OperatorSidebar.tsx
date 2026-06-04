@@ -19,7 +19,7 @@ interface OperatorSidebarProps {
 const NAV_RESULTS = [
   { label: 'Pipeline', href: '/dashboard/pipeline' },
   { label: 'Benchmarks', href: '/dashboard/benchmarks' },
-  { label: 'Approvals', href: '/dashboard/approvals' },
+  { label: 'Approvals', href: '/dashboard/operator/approvals' },
 ]
 
 const NAV_STRATEGY = [

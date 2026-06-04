@@ -1,5 +1,5 @@
 import type { Json } from '@/types/database'
-import type { IcpDocument, IcpTier } from '@/types'
+import type { IcpDocument, IcpTier, IcpTrigger } from '@/types'
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -89,7 +89,9 @@ function TierBlock({ tier, tierNum }: { tier: IcpTier; tierNum: 1 | 2 | 3 }) {
           </div>
         )}
 
-        <FieldRow label="Triggers" value={tier.triggers} />
+        <FieldRow label="Triggers" value={tier.triggers.map((t): string =>
+          typeof t === 'string' ? t : (t as IcpTrigger).trigger
+        )} />
         <FieldRow label="Switching costs" value={tier.switching_costs} />
 
         {tier.disqualifiers && tier.disqualifiers.length > 0 && (

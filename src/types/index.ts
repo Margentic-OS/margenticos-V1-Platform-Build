@@ -64,13 +64,19 @@ export interface IcpFourForces {
   habit: string[]
 }
 
+// Triggers may be plain strings (old schema) or structured objects (current schema).
+export interface IcpTrigger {
+  trigger: string
+  evidence_to_find?: string[]
+}
+
 export interface IcpTier {
   label: string
   description: string
   company_profile: IcpCompanyProfile
   buyer_profile: IcpBuyerProfile
   four_forces: IcpFourForces
-  triggers: string[]
+  triggers: Array<string | IcpTrigger>
   switching_costs: string[]
   disqualifiers: string[]
 }
