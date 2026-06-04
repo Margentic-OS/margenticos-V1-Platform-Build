@@ -7,7 +7,6 @@ import { validateCampaign } from '@/lib/integrations/handlers/instantly/validate
 import { uploadLeads } from '@/lib/integrations/handlers/instantly/uploadLeads'
 import { orderMailboxes } from '@/lib/integrations/handlers/instantly/orderMailboxes'
 import { syncSequenceShell, getDocStepCount } from '@/lib/integrations/handlers/instantly/syncSequenceShell'
-import { INSTANTLY_DFY_ALLOWED_TLDS } from '@/lib/integrations/handlers/instantly/constants'
 import { assertStrategyApproved } from '@/lib/approval/assertStrategyApproved'
 import {
   fetchComposeDocs,
@@ -583,8 +582,6 @@ export type DfyQuoteResult =
 export type DfyOrderActionResult =
   | { ok: true; order_placed: boolean }
   | { ok: false; error: string }
-
-export { INSTANTLY_DFY_ALLOWED_TLDS }
 
 export async function handleDfyQuote(orgId: string, domains: string[]): Promise<DfyQuoteResult> {
   const supabase = await createClient()

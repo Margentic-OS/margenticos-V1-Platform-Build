@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { handleDfyQuote, handleDfyRealOrder, INSTANTLY_DFY_ALLOWED_TLDS } from './actions'
+import { handleDfyQuote, handleDfyRealOrder } from './actions'
+import { INSTANTLY_DFY_ALLOWED_TLDS } from '@/lib/integrations/handlers/instantly/constants'
 
 interface Props {
   orgId: string
