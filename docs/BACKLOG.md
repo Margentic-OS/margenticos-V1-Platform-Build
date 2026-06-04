@@ -1962,3 +1962,93 @@ Complete all items before the first paying client goes live:
   catastrophic.
 - Trigger: next touch of any document display component, or before first paying client
   onboarding (whichever comes first).
+
+---
+
+## Items added 2026-06-04 (lap closeout / Costa Rica prep)
+
+### [feature] FAQ seed agent — post-c0, pre-c1 blocker
+- Added 2026-06-04. Bucket: pre-c1 (blocker).
+- An FAQ seed agent pre-populates a per-client FAQ store from the intake questionnaire,
+  ICP doc, and positioning doc so that inbound reply handlers and client-facing touchpoints
+  have a knowledge base to draw from.
+- This is a pre-c1 blocker: without it, the reply handling agent has no client context to
+  ground positive-reply responses in, and the risk of generic AI-flavored replies is high.
+- Trigger: before onboarding the first paying client (c1).
+
+### [feature] B-3A light client content approval panel — pre-c1
+- Added 2026-06-04. Bucket: pre-c1.
+- The current approval flow (cold_email, linkedin_post, linkedin_dm) is sequence-level.
+  B-3A specifies a lighter approval panel for individual content items (e.g. a single
+  composed email or LinkedIn post draft) so clients can review and approve one piece
+  without seeing the full sequence context.
+- Relevant PRD section: 08-approval.md (B-3A subsection).
+- Trigger: before first paying client is onboarded; the current flow is operator-only.
+
+### [quality] Em-dash / AI-tell cleanup on 4 doc-gen agents + composed copy QA — pre-c1
+- Added 2026-06-04. Bucket: pre-c1.
+- Evidence: comma-splice artifacts and suspected em-dash/en-dash characters were observed
+  in generated ICP, positioning, TOV, and messaging documents during the Costa Rica
+  prep lap. The scrubAITells() safety net exists on the messaging agent but may not
+  cover the three strategy doc-gen agents (ICP, positioning, TOV).
+- Fix: (1) audit all four agent prompts and output post-processing for em-dash suppression
+  and scrubAITells() coverage; (2) add a composed copy QA step that re-runs the validator
+  on stored composed copy to catch any artifacts that got through at generation time.
+- Trigger: before first paying client; this is a trust/quality issue that a prospect will
+  notice immediately.
+
+### [integration] H-3 polling + M-3 per-client Instantly key — pre-c1
+- Added 2026-06-04. Bucket: pre-c1.
+- H-3: the instantly-poll cron currently uses a single global Instantly API key stored in
+  integration_credentials. When multiple clients are active, it polls a shared Instantly
+  workspace. Per-client key isolation (M-3) requires each client to have their own key
+  stored per organisation_id, and the polling loop to iterate over all active client keys.
+- Both items are deferred until the second client is near onboarding, but must be
+  designed and implemented before c1 goes live to avoid data leakage between clients.
+- Trigger: before onboarding c1 (first paying client).
+
+### [resilience] M-4 dispatch retry with backoff — low priority
+- Added 2026-06-04. Bucket: low-priority / post-c1.
+- The current uploadLeads and syncSequenceShell handlers throw immediately on network
+  errors, rate limits (429), and transient server errors (5xx). There is no retry logic.
+  The server action (handleUploadLeads) returns { ok: false } and the operator must
+  manually re-trigger.
+- Fix: wrap the fetch call in an exponential backoff retry (2–3 attempts, caps at 30s)
+  for 429 and 5xx responses. Network errors should remain immediate-fail since they
+  likely indicate a persistent connectivity issue.
+- Trigger: when retry failures are observed in Sentry logs at a rate that creates
+  operational friction (not worth building speculatively before that point).
+
+### [review] Held 1,422-word TOV refresh suggestion — pre-c1
+- Added 2026-06-04. Bucket: pre-c1 review.
+- A document_suggestions row for the MargenticOS TOV guide contains a full_document
+  replacement with 1,422 words of refined tone-of-voice guidance. It has not been
+  reviewed or promoted.
+- Action: review the suggestion in the dashboard approval UI, decide whether to promote
+  it to the live TOV guide or discard, and close the suggestion row before the first
+  paying client is onboarded (so c1 campaigns use the most current TOV guidance).
+- Trigger: before c1 onboarding.
+
+### [security] Webhook secret rotation — post-c0 polish
+- Added 2026-06-04. Bucket: post-c0 polish.
+- SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET is the shared secret that authenticates
+  Supabase webhook calls to the approval notification endpoint. It was generated at
+  project setup and has not been rotated.
+- Action: rotate the secret in both Supabase webhook config and Vercel production env
+  as a post-c0 polish step. Low urgency while traffic is zero, but must be done before
+  any meaningful volume reaches the webhook endpoint.
+- Note: item may already appear in an earlier BACKLOG entry — if so, treat this as a
+  duplicate and keep only one.
+
+### [audit] gstack audits scheduled — Costa Rica + pre-c1
+- Added 2026-06-04. Bucket: see sub-items.
+- Three gstack audits are planned:
+  1. /cso (chief security officer audit): before Costa Rica activation. Review auth flow,
+     RLS policies, operator-route guards, and integration credential storage for gaps
+     that could affect the first live campaign.
+  2. /design-review: pre-c1. Full dashboard UI review for inconsistencies, missing states,
+     and the double-sidebar layout issue (two sidebars visible simultaneously on some
+     operator views — fold this into the design-review audit rather than fixing ad hoc).
+  3. /qa (QA audit): pre-c1. End-to-end scenario coverage for the intake → strategy →
+     approval → upload → poll → reply-handling pipeline.
+- These are planned audits, not yet run. Schedule /cso before leaving for Costa Rica.
