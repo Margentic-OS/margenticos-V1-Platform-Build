@@ -22,7 +22,7 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
-import { getInstantlyApiBaseUrl } from './constants'
+import { resolveInstantlyBaseUrl } from './constants'
 import { getInstantlyApiKey, getInstantlyApiActive } from './auth'
 import type { Database } from '@/types/database'
 import type {
@@ -123,10 +123,6 @@ function getServiceClient() {
   })
 }
 
-function isProductionUrl(url: string): boolean {
-  return url.includes('api.instantly.ai') && !url.includes('_mock')
-}
-
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export async function syncSequenceShell(input: ShellSyncInput): Promise<ShellSyncResult> {
@@ -140,12 +136,9 @@ export async function syncSequenceShell(input: ShellSyncInput): Promise<ShellSyn
   } = input
 
   const apiKey = await getInstantlyApiKey(organisationId)
-  const baseUrl = getInstantlyApiBaseUrl()
   const isActive = await getInstantlyApiActive()
-
-  if (!isActive && isProductionUrl(baseUrl)) {
-    return { ok: false, reason: 'flag_disabled' }
-  }
+  // Flag drives URL selection: flag off → mock server, flag on → production.
+  const baseUrl = resolveInstantlyBaseUrl(isActive)
 
   const stepCount = getDocStepCount(messagingDoc)
   if (stepCount === 0) {

@@ -9,7 +9,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
-import { getInstantlyApiBaseUrl } from './constants'
+import { resolveInstantlyBaseUrl } from './constants'
 import { getInstantlyApiKey, getInstantlyApiActive } from './auth'
 import type {
   ProspectForUpload,
@@ -25,26 +25,15 @@ import {
   InstantlyApiError,
 } from './types'
 
-function isProductionUrl(url: string): boolean {
-  return url.includes('api.instantly.ai') && !url.includes('_mock')
-}
-
 export async function uploadLeads(
   organisationId: string,
   campaignId: string,
   leads: ProspectForUpload[],
 ): Promise<LeadUploadResult> {
   const apiKey = await getInstantlyApiKey(organisationId)
-  const baseUrl = getInstantlyApiBaseUrl()
   const isActive = await getInstantlyApiActive()
-
-  // Defense in depth: refuse production calls when the feature flag is false.
-  // The UI also disables the upload button in this state, but the handler enforces independently.
-  if (!isActive && isProductionUrl(baseUrl)) {
-    throw new InstantlyFlagError(
-      'Cannot make production Instantly calls while instantly_api_active is false'
-    )
-  }
+  // Flag drives URL: off → mock server, on → production.
+  const baseUrl = resolveInstantlyBaseUrl(isActive)
 
   const requestBody = {
     campaign_id: campaignId,

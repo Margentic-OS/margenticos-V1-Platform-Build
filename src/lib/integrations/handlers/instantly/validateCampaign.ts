@@ -7,8 +7,8 @@
 // Return value fields are chosen to give the operator enough context to confirm
 // "this is the right campaign" without pulling every field from the Instantly response.
 
-import { INSTANTLY_API_BASE } from './constants'
-import { getInstantlyApiKey } from './auth'
+import { resolveInstantlyBaseUrl } from './constants'
+import { getInstantlyApiKey, getInstantlyApiActive } from './auth'
 
 export interface CampaignValidationResult {
   name: string
@@ -21,10 +21,12 @@ export async function validateCampaign(
   campaignUuid: string
 ): Promise<CampaignValidationResult> {
   const apiKey = await getInstantlyApiKey(organisationId)
+  const isActive = await getInstantlyApiActive()
+  const baseUrl = resolveInstantlyBaseUrl(isActive)
 
   let response: Response
   try {
-    response = await fetch(`${INSTANTLY_API_BASE}/campaigns/${campaignUuid}`, {
+    response = await fetch(`${baseUrl}/campaigns/${campaignUuid}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${apiKey}`,

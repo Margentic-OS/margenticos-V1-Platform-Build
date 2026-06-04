@@ -10,7 +10,7 @@
 
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
-import { getInstantlyApiBaseUrl, INSTANTLY_DFY_ALLOWED_TLDS } from './constants'
+import { resolveInstantlyBaseUrl, INSTANTLY_DFY_ALLOWED_TLDS } from './constants'
 import { getInstantlyApiKey, getInstantlyApiActive } from './auth'
 import type { DfyOrderItem, DfyOrderResponse, DfyOrderResult } from './types'
 import {
@@ -21,10 +21,6 @@ import {
   InstantlyServerError,
   InstantlyApiError,
 } from './types'
-
-function isProductionUrl(url: string): boolean {
-  return url.includes('api.instantly.ai') && !url.includes('_mock')
-}
 
 function extractTld(domain: string): string {
   const lastDot = domain.lastIndexOf('.')
@@ -48,13 +44,14 @@ export async function orderMailboxes(
   }
 
   const apiKey = await getInstantlyApiKey(organisationId)
-  const baseUrl = getInstantlyApiBaseUrl()
   const isActive = await getInstantlyApiActive()
+  // Flag drives URL: off → mock (quotes routed to mock too), on → production.
+  const baseUrl = resolveInstantlyBaseUrl(isActive)
 
-  // Real orders require the feature flag to be active in production.
-  if (!simulate && !isActive && isProductionUrl(baseUrl)) {
+  // Real orders require the feature flag active — block regardless of URL.
+  if (!simulate && !isActive) {
     throw new InstantlyFlagError(
-      'Cannot place real DFY orders while instantly_api_active is false'
+      'Cannot place real DFY orders while the outbound provider flag is disabled'
     )
   }
 
@@ -100,7 +97,7 @@ export async function orderMailboxes(
   if (!response.ok) {
     const body = await response.text().catch(() => '(unreadable)')
     throw new InstantlyApiError(
-      `Unexpected Instantly error (${response.status}): ${body.slice(0, 400)}`
+      `Unexpected outbound provider error (${response.status}): ${body.slice(0, 400)}`
     )
   }
 

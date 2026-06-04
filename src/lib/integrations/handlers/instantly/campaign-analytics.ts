@@ -14,7 +14,6 @@
 // happens here. Nothing above this file sees Instantly field names.
 
 import { logger } from '@/lib/logger'
-import { INSTANTLY_API_BASE } from './constants'
 
 export interface CampaignStatResult {
   sentCount:    number
@@ -34,11 +33,12 @@ interface InstantlyCampaignAnalyticsRow {
 // Returns a Map keyed by Instantly campaign UUID (matches campaigns.external_id).
 // Throws on network error or non-2xx response so the caller can handle isolation.
 export async function fetchCampaignStats(
-  apiKey: string
+  apiKey: string,
+  baseUrl: string,
 ): Promise<Map<string, CampaignStatResult>> {
   let response: Response
   try {
-    response = await fetch(`${INSTANTLY_API_BASE}/campaigns/analytics`, {
+    response = await fetch(`${baseUrl}/campaigns/analytics`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${apiKey}`,

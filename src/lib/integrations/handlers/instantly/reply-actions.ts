@@ -16,7 +16,6 @@
 //                     Sends a reply in the existing email thread.
 
 import { logger } from '@/lib/logger'
-import { INSTANTLY_API_BASE } from './constants'
 
 export interface ActionResult {
   ok: boolean
@@ -28,11 +27,12 @@ export interface ActionResult {
 
 export async function suppressLead(
   leadInstantlyId: string,
-  apiKey: string
+  apiKey: string,
+  baseUrl: string,
 ): Promise<ActionResult> {
   let response: Response
   try {
-    response = await fetch(`${INSTANTLY_API_BASE}/leads/${leadInstantlyId}`, {
+    response = await fetch(`${baseUrl}/leads/${leadInstantlyId}`, {
       method: 'PATCH',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -72,13 +72,14 @@ export async function sendThreadReply(
     bodyText: string
   },
   apiKey: string,
+  baseUrl: string,
   options?: { signal?: AbortSignal }
 ): Promise<ActionResult> {
   const { replyToUuid, eaccount, subject, bodyText } = params
 
   let response: Response
   try {
-    response = await fetch(`${INSTANTLY_API_BASE}/emails/reply`, {
+    response = await fetch(`${baseUrl}/emails/reply`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,

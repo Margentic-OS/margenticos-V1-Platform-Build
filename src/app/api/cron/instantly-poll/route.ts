@@ -29,7 +29,8 @@ import {
   INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
 } from '@/lib/integrations/polling/instantly'
 import { fetchCampaignStats } from '@/lib/integrations/handlers/instantly/campaign-analytics'
-import { getInstantlyApiKey } from '@/lib/integrations/handlers/instantly/auth'
+import { getInstantlyApiKey, getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
+import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
 
 const MONITOR_SLUG = 'instantly-poll'
 const MONITOR_CONFIG = {
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  // ── Fetch Instantly API key ─────────────────────────────────────────────────
+  // ── Resolve API key + base URL ─────────────────────────────────────────────
   let apiKey: string
   try {
     apiKey = await getInstantlyApiKey('')
@@ -72,6 +73,9 @@ export async function POST(request: NextRequest) {
       { status: 503 }
     )
   }
+
+  const isActive = await getInstantlyApiActive()
+  const baseUrl = resolveInstantlyBaseUrl(isActive)
 
   const results = {
     replies:       { written: 0, skipped: 0, errors: 0 },
@@ -122,7 +126,7 @@ export async function POST(request: NextRequest) {
   // Future: if active campaign count exceeds ~50, consider batching with concurrency limit.
   const campaignStatsResult = { updated: 0, skipped: 0, errors: 0 }
   try {
-    const statsMap = await fetchCampaignStats(apiKey)
+    const statsMap = await fetchCampaignStats(apiKey, baseUrl)
 
     const { data: activeCampaigns } = await supabase
       .from('campaigns')

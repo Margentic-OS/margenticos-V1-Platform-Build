@@ -27,7 +27,8 @@ import * as Sentry from '@sentry/nextjs'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database, Json } from '@/types/database'
 import { logger } from '@/lib/logger'
-import { INSTANTLY_API_BASE } from '@/lib/integrations/handlers/instantly/constants'
+import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
+import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 const SOURCE = 'instantly'
 
 // UNVERIFIED — these values are assumed from training data, not confirmed against
@@ -174,6 +175,7 @@ interface OutboundEmailCapture {
 async function fetchOutboundEmailBody(
   emailObj: Record<string, unknown>,
   apiKey: string,
+  baseUrl: string,
 ): Promise<OutboundEmailCapture> {
   let outboundUuid: string | null = null
   for (const field of OUTBOUND_UUID_CANDIDATE_FIELDS) {
@@ -190,7 +192,7 @@ async function fetchOutboundEmailBody(
   const timeoutId = setTimeout(() => controller.abort(), 5000)
 
   try {
-    const response = await fetch(`${INSTANTLY_API_BASE}/emails/${outboundUuid}`, {
+    const response = await fetch(`${baseUrl}/emails/${outboundUuid}`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
@@ -297,9 +299,10 @@ function parseInstantlyResponse(json: unknown): { data: unknown[]; nextCursor: s
 async function instantlyGet(
   path: string,
   apiKey: string,
-  params: Record<string, string>
+  params: Record<string, string>,
+  baseUrl: string,
 ): Promise<{ data: unknown[] | null; nextCursor: string | null; error: string | null }> {
-  const url = new URL(`${INSTANTLY_API_BASE}${path}`)
+  const url = new URL(`${baseUrl}${path}`)
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
       url.searchParams.set(key, value)
@@ -340,11 +343,12 @@ async function instantlyGet(
 async function instantlyPost(
   path: string,
   apiKey: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  baseUrl: string,
 ): Promise<{ data: unknown[] | null; nextCursor: string | null; error: string | null }> {
   let response: Response
   try {
-    response = await fetch(`${INSTANTLY_API_BASE}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -380,6 +384,8 @@ export async function pollInstantlyReplies(
   supabase: SupabaseServiceClient,
   apiKey: string
 ): Promise<PollResult> {
+  const isActive = await getInstantlyApiActive()
+  const baseUrl = resolveInstantlyBaseUrl(isActive)
   const resource = 'replies'
   const result: PollResult = { written: 0, skipped: 0, errors: 0 }
   const campaignCache = new Map<string, ResolvedCampaign | null>()
@@ -399,7 +405,7 @@ export async function pollInstantlyReplies(
       }
       if (cursor) params.starting_after = cursor
 
-      const { data: emails, nextCursor, error } = await instantlyGet('/emails', apiKey, params)
+      const { data: emails, nextCursor, error } = await instantlyGet('/emails', apiKey, params, baseUrl)
 
       if (error) {
         await setCursorError(supabase, resource, error)
@@ -444,7 +450,7 @@ export async function pollInstantlyReplies(
           continue
         }
 
-        const outbound = await fetchOutboundEmailBody(e, apiKey)
+        const outbound = await fetchOutboundEmailBody(e, apiKey, baseUrl)
 
         const outcome = await writeSignal(supabase, {
           organisation_id: campaignRow.organisation_id,
@@ -505,6 +511,8 @@ export async function pollInstantlyLeadStatus(
   instantlyStatus: string,
   signalType: 'email_bounced' | 'lead_unsubscribed'
 ): Promise<PollResult> {
+  const isActive = await getInstantlyApiActive()
+  const baseUrl = resolveInstantlyBaseUrl(isActive)
   const resource = signalType === 'email_bounced' ? 'leads_bounced' : 'leads_unsubscribed'
   const result: PollResult = { written: 0, skipped: 0, errors: 0 }
 
@@ -554,7 +562,7 @@ export async function pollInstantlyLeadStatus(
         }
         if (pageCursor) body.starting_after = pageCursor
 
-        const { data: leads, nextCursor, error } = await instantlyPost('/leads/list', apiKey, body)
+        const { data: leads, nextCursor, error } = await instantlyPost('/leads/list', apiKey, body, baseUrl)
 
         if (error) {
           // Log and move on to the next campaign — one campaign failure doesn't abort the run.

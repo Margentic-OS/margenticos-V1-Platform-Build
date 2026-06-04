@@ -17,7 +17,7 @@ export function PipelineApprovalBanner({ pendingCount }: PipelineApprovalBannerP
         <p className="text-[12px] text-[#7A4800]">{label}</p>
       </div>
       <a
-        href="/dashboard/approvals"
+        href="/dashboard/operator/approvals"
         className="text-[11px] font-medium text-[#7A4800] bg-[rgba(122,72,0,0.07)] border border-[#F0D080] px-3 py-1 rounded-[6px] hover:bg-[rgba(122,72,0,0.12)] transition-colors shrink-0"
       >
         Review now

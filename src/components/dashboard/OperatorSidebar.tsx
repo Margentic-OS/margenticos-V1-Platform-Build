@@ -147,7 +147,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
           {NAV_RESULTS.map((item) => (
             <li key={item.href}>
               <Link
-                href={item.href === '/dashboard/approvals' ? item.href : appendClientParam(item.href, selectedId)}
+                href={item.href === '/dashboard/operator/approvals' ? item.href : appendClientParam(item.href, selectedId)}
                 className={[
                   'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
                   isActive(item.href)

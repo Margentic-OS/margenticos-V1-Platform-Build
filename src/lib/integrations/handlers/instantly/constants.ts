@@ -2,36 +2,42 @@
 // Both the reply-actions handler and the polling layer import from here
 // so a base URL or version change only requires one edit.
 
-/** @deprecated Use getInstantlyApiBaseUrl() instead. Existing call sites migrate opportunistically
- *  when next touched — do not migrate speculatively to avoid risk of regression in working code. */
-export const INSTANTLY_API_BASE = 'https://api.instantly.ai/api/v2'
+const PROD_URL = 'https://api.instantly.ai/api/v2'
+const MOCK_URL = 'https://developer.instantly.ai/_mock/api/v2'
 
-// Configurable base URL for the Instantly V2 API. Set INSTANTLY_API_BASE_URL in your
-// environment to override — e.g. to keep mock mode active while a subscription is live,
-// or to point a test run at a local proxy.
-//
-// Development default: Instantly's public mock server (no subscription or API key required).
-// Production default: Instantly's live API.
-//
-// Both defaults include the /api/v2 path so handlers can append endpoint paths directly,
-// e.g. `${getInstantlyApiBaseUrl()}/leads/add`.
+/** @deprecated Use resolveInstantlyBaseUrl(isActive) instead. */
+export const INSTANTLY_API_BASE = PROD_URL
+
+/** @deprecated Use resolveInstantlyBaseUrl(isActive) instead. */
 export const INSTANTLY_API_BASE_URL: string =
   process.env.INSTANTLY_API_BASE_URL ??
-  (process.env.NODE_ENV === 'production'
-    ? 'https://api.instantly.ai/api/v2'
-    : 'https://developer.instantly.ai/_mock/api/v2')
+  (process.env.NODE_ENV === 'production' ? PROD_URL : MOCK_URL)
 
 // TLDs accepted by Instantly's DFY email account ordering API.
 // Source: Instantly docs (verified 2026-05-21). Extend here if Instantly adds TLDs.
 export const INSTANTLY_DFY_ALLOWED_TLDS = ['.com', '.org'] as const
 
-// Evaluated at call time — use this in handlers so tests can override via process.env
-// without module-cache issues.
+/**
+ * The canonical resolver for all Instantly call sites.
+ *
+ * - INSTANTLY_API_BASE_URL env var always wins (test/override use).
+ * - isActive=true  → production URL (real money, real sends).
+ * - isActive=false → mock URL (no subscription or API key required).
+ *
+ * This means the flag drives URL selection at every call site — not NODE_ENV.
+ * Vercel preview and production environments both use NODE_ENV="production",
+ * so a NODE_ENV-based check always returns the production URL on Vercel even
+ * when the flag is deliberately off for staged testing.
+ */
+export function resolveInstantlyBaseUrl(isActive: boolean): string {
+  if (process.env.INSTANTLY_API_BASE_URL) return process.env.INSTANTLY_API_BASE_URL
+  return isActive ? PROD_URL : MOCK_URL
+}
+
+/** @deprecated Use resolveInstantlyBaseUrl(isActive) instead. */
 export function getInstantlyApiBaseUrl(): string {
   return (
     process.env.INSTANTLY_API_BASE_URL ??
-    (process.env.NODE_ENV === 'production'
-      ? 'https://api.instantly.ai/api/v2'
-      : 'https://developer.instantly.ai/_mock/api/v2')
+    (process.env.NODE_ENV === 'production' ? PROD_URL : MOCK_URL)
   )
 }

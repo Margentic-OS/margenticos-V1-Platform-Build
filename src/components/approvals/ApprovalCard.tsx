@@ -12,6 +12,7 @@ export type PendingSuggestion = {
   current_value: string | null
   suggested_value: string
   suggestion_reason: string | null
+  created_at: string | null
   organisations: { name: string } | { name: string }[] | null
 }
 
@@ -636,9 +637,16 @@ export default function ApprovalCard({ suggestion, onResolved }: Props) {
           </span>
           <span className="text-[13px] font-medium text-text-primary">{fieldLabel}</span>
         </div>
-        <span className="text-[10px] uppercase tracking-[0.07em] text-text-secondary">
-          {clientName}
-        </span>
+        <div className="flex items-center gap-3">
+          {suggestion.created_at && (
+            <span className="text-[10px] text-text-muted">
+              {new Date(suggestion.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </span>
+          )}
+          <span className="text-[10px] uppercase tracking-[0.07em] text-text-secondary">
+            {clientName}
+          </span>
+        </div>
       </div>
 
       <div className="px-5 py-4 space-y-4">

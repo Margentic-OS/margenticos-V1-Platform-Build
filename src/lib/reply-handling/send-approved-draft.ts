@@ -22,7 +22,8 @@ import { logger } from '@/lib/logger'
 import { substituteBookingLink } from './substitute-booking-link'
 import { insertSignoff } from './insert-signoff'
 import { sendThreadReply } from '@/lib/integrations/handlers/instantly/reply-actions'
-import { getInstantlyApiKey } from '@/lib/integrations/handlers/instantly/auth'
+import { getInstantlyApiKey, getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
+import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
 import { extractFaq } from '@/lib/agents/faq-extraction-agent'
 import { loadOrgContext } from './load-org-context'
 
@@ -194,9 +195,13 @@ export async function sendApprovedDraft(
 
   // ── 8. Send via Instantly (20s ceiling) ──────────────────────────────────
 
+  const isActive = await getInstantlyApiActive()
+  const baseUrl = resolveInstantlyBaseUrl(isActive)
+
   const replyResult = await sendThreadReply(
     { replyToUuid, eaccount, subject, bodyText: assembledBody },
     instantlyApiKey,
+    baseUrl,
     { signal: AbortSignal.timeout(20000) },
   )
 

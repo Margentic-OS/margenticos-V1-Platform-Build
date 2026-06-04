@@ -79,16 +79,18 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, prima
   return (
     <div className="space-y-4">
       {/* Sequence shell panel — per campaign */}
-      {campaigns.length > 0 && (
-        <div className="bg-surface-card border border-border-card rounded-[10px] overflow-hidden">
-          <div className="px-5 py-4 border-b border-border-card">
-            <h2 className="text-[13px] font-semibold text-text-primary">Sequence shell</h2>
-            <p className="text-[11px] text-text-secondary mt-0.5">
-              The generic template on each campaign that holds the <code>{'{{m_*}}'}</code> variables. Must be synced before uploading leads.
-            </p>
-          </div>
-          <div className="px-5 py-4 space-y-3">
-            {campaigns.map(c => (
+      <div className="bg-surface-card border border-border-card rounded-[10px] overflow-hidden">
+        <div className="px-5 py-4 border-b border-border-card">
+          <h2 className="text-[13px] font-semibold text-text-primary">Sequence shell</h2>
+          <p className="text-[11px] text-text-secondary mt-0.5">
+            The generic template on each campaign that holds the <code>{'{{m_*}}'}</code> variables. Must be synced before uploading leads.
+          </p>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          {campaigns.length === 0 ? (
+            <p className="text-[12px] text-text-secondary">No campaigns registered for this client. Add campaigns in the client settings before syncing.</p>
+          ) : (
+            campaigns.map(c => (
               <ShellRow
                 key={c.internalId}
                 campaign={c}
@@ -97,10 +99,10 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, prima
                 syncError={syncErrors[c.internalId]}
                 onSync={() => handleSync(c.internalId, primarySegmentId)}
               />
-            ))}
-          </div>
+            ))
+          )}
         </div>
-      )}
+      </div>
 
       {/* Lead upload panel */}
       <div className="bg-surface-card border border-border-card rounded-[10px] overflow-hidden">
@@ -116,7 +118,7 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, prima
             <div className="bg-[#FEFCE8] border border-[#FDE68A] rounded-[8px] px-4 py-3">
               <p className="text-[12px] font-medium text-[#92400E]">Mock mode active</p>
               <p className="text-[11px] text-[#92400E] mt-0.5">
-                instantly_api_active is false. Calls go to the mock server, not production. Flip the flag in integrations_registry to enable real uploads.
+                Outbound provider flag is off. Calls go to the mock server, not production. Flip instantly_api_active in integrations_registry to enable real uploads.
               </p>
             </div>
           )}

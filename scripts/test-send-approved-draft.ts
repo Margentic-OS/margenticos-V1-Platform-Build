@@ -337,6 +337,7 @@ await runTest(
   const result = await sendThreadReply(
     { replyToUuid: 'test-uuid', eaccount: 'test@test.com', subject: 'Re: test', bodyText: 'Test body' },
     'test-api-key',
+    'https://api.instantly.ai/api/v2',
     { signal: AbortSignal.abort() },
   )
   assert(
