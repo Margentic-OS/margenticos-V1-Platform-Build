@@ -1,5 +1,6 @@
 'use server'
 
+import * as Sentry from '@sentry/nextjs'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { validateCampaign } from '@/lib/integrations/handlers/instantly/validateCampaign'
@@ -226,6 +227,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
+  return Sentry.withServerActionInstrumentation('handleUploadLeads', async (): Promise<UploadLeadsResult> => {
   try {
 
   // Resolve primary segment once.
@@ -452,8 +454,10 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   }
 
   } catch (err) {
+    Sentry.captureException(err)
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
+  }) // end withServerActionInstrumentation
 }
 
 // ── Shell sync action ─────────────────────────────────────────────────────────
@@ -480,6 +484,7 @@ export async function handleSyncSequenceShell(
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
+  return Sentry.withServerActionInstrumentation('handleSyncSequenceShell', async (): Promise<ShellSyncActionResult> => {
   try {
 
   // Resolve segment.
@@ -558,12 +563,15 @@ export async function handleSyncSequenceShell(
 
     return { ok: true, stepCount: result.stepCount, syncedAt: result.syncedAt }
   } catch (err) {
+    Sentry.captureException(err)
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 
   } catch (err) {
+    Sentry.captureException(err)
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
+  }) // end withServerActionInstrumentation
 }
 
 // ── DFY mailbox order actions ─────────────────────────────────────────────────
