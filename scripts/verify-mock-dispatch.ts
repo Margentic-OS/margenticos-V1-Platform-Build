@@ -21,7 +21,7 @@ process.env.INSTANTLY_API_KEY_OVERRIDE = 'test-key-verify'
 // If mock dispatch works, fetch is never called. If it is called, the test fails loudly.
 const originalFetch = globalThis.fetch
 let fetchCallCount = 0
-// @ts-expect-error - intentional override for test
+// @ts-ignore - intentional override for test; ts-expect-error fails when TS sees no error here
 globalThis.fetch = (url: RequestInfo | URL, ...args: unknown[]) => {
   const urlStr = String(url)
   if (
