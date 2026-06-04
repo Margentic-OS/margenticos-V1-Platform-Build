@@ -2080,3 +2080,63 @@ Complete all items before the first paying client goes live:
 - Action: monitor next.js release notes for a patch that bumps the internal postcss.
   When next ships a version with postcss >=8.5.10 internally, upgrade and close this item.
 - Do NOT use npm audit fix --force for this CVE.
+
+---
+
+## Dashboard chrome / design review — items from 2026-06-04 route-group session
+
+### [pre-c1] M-1 Responsive sidebar
+- Added 2026-06-04. Bucket: pre-c1 design task.
+- Both the client Sidebar (brand-green, w-[210px]) and the OperatorSidebar
+  (brand-green-operator, w-[210px]) are fixed-width with no responsive
+  behaviour. On viewports narrower than ~800px the sidebar is clipped by the
+  flex layout and the main content area has no usable width.
+- Fix required before a paying client opens the dashboard on a laptop or tablet.
+- Design decision needed: hamburger collapse, hidden-on-mobile with slide-in, or
+  icon-only collapsed state. Decide before building. ADR if the decision is
+  non-obvious.
+- Trigger: before c1 onboarding. This is a visual/UX pre-c1 gate.
+
+### [pre-c1] C-3 Chrome-mode decision: operator working on a client vs. view-as-client split
+- Added 2026-06-04. Bucket: deferred — decide after chrome route-group refactor ships.
+- Context: now that (client) and operator/ are separate layout trees, there are two
+  clearly distinct chrome modes available to operators: (a) operator/ chrome with the
+  full OperatorSidebar + client selector, and (b) (client) chrome with the green
+  Sidebar + OperatorViewingBanner. Currently, visiting strategy or results routes via
+  ?client= lands the operator in (client) chrome — the "view as client" experience.
+- The open question: when an operator is working on a client's strategy documents
+  (editing, approving, regenerating), should they be in operator/ chrome (with operator
+  tools visible) or in (client) chrome (pure client perspective)? The current design
+  uses (client) chrome for both use cases.
+- Options to evaluate:
+    A) Keep current: all ?client= routes use (client) chrome. Simple, fewer layout trees.
+    B) Add an /dashboard/operator/strategy/[type] route under operator/ chrome for the
+       operator-working mode. Client chrome remains for genuine view-as-client.
+    C) Operator chrome everywhere, banner indicates "viewing as client" but nav stays
+       operator-green.
+- Trigger: decide before operator workflow is used heavily or before adding operator-only
+  strategy tools (e.g. force-approve, regenerate buttons visible to operators only).
+  Do not build speculatively — decide when the use case pressure is concrete.
+
+### [pre-c1] Part 3 client-role verification checklist — design review
+- Added 2026-06-04. Bucket: pre-c1.
+- This item holds the verbatim Part 3 checklist from the design review session that ran
+  immediately before this route-group refactor. The checklist verifies that a real
+  client user (non-operator) cannot see operator chrome, operator nav items, or the
+  OperatorViewingBanner.
+- STATUS: verbatim checklist not yet added to this entry. Retrieve from the design
+  review session output and paste here before the pre-c1 QA pass.
+- Trigger: before the /qa audit run that gates c1 onboarding.
+
+### [pre-c1] P1–P4 design findings batch — awaiting post-/qa fix pass
+- Added 2026-06-04. Bucket: pre-c1.
+- The design review session identified findings labelled P1 through P4 across the
+  client dashboard UI. These were intentionally NOT folded into the chrome route-group
+  refactor (scope control: pure structure in C1, pure behaviour in C2 only).
+- These findings are pending a dedicated fix pass after the /qa audit confirms the
+  chrome refactor is stable in production.
+- STATUS: verbatim P1–P4 finding descriptions not yet added to this entry. Retrieve
+  from the design review session output and add them here, each with its priority tag
+  and exact file/component reference.
+- Trigger: after V1–V5 browser verification passes in production. Run /qa, collect the
+  visual findings, then address P1–P4 in a single batched PR.
