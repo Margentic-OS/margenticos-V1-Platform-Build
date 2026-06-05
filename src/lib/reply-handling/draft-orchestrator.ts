@@ -178,7 +178,7 @@ export async function orchestrateDraft(input: OrchestratorInput): Promise<Orches
   const { data: recentFailures } = await (supabase as any)
     .from('agent_runs')
     .select('id')
-    .eq('client_id', signal.organisation_id)
+    .eq('organisation_id', signal.organisation_id)
     .eq('agent_name', 'reply-draft-agent')
     .eq('status', 'failed')
     .gte('started_at', since24h)

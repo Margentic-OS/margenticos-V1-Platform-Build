@@ -75,7 +75,7 @@ export async function runIcpGenerationAgent(
 
   logger.info('ICP agent: starting', { organisation_id, segment_id, is_refresh })
 
-  const agentRun = await startAgentRun({ client_id: organisation_id, agent_name: 'icp-generation' })
+  const agentRun = await startAgentRun({ organisation_id, agent_name: 'icp-generation' })
 
   try {
   // Step 1: Fetch intake responses for this client only.

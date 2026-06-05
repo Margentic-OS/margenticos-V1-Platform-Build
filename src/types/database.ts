@@ -17,7 +17,7 @@ export type Database = {
       agent_runs: {
         Row: {
           agent_name: string
-          client_id: string
+          organisation_id: string
           completed_at: string | null
           duration_ms: number | null
           error_message: string | null
@@ -28,7 +28,7 @@ export type Database = {
         }
         Insert: {
           agent_name: string
-          client_id: string
+          organisation_id: string
           completed_at?: string | null
           duration_ms?: number | null
           error_message?: string | null
@@ -39,7 +39,7 @@ export type Database = {
         }
         Update: {
           agent_name?: string
-          client_id?: string
+          organisation_id?: string
           completed_at?: string | null
           duration_ms?: number | null
           error_message?: string | null
@@ -50,15 +50,15 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "agent_runs_client_id_fkey"
-            columns: ["client_id"]
+            foreignKeyName: "agent_runs_organisation_id_fkey"
+            columns: ["organisation_id"]
             isOneToOne: false
             referencedRelation: "client_organisation_view"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "agent_runs_client_id_fkey"
-            columns: ["client_id"]
+            foreignKeyName: "agent_runs_organisation_id_fkey"
+            columns: ["organisation_id"]
             isOneToOne: false
             referencedRelation: "organisations"
             referencedColumns: ["id"]

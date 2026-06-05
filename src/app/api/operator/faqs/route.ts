@@ -16,6 +16,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
+import { requireOperator } from '@/lib/supabase/require-operator'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,17 +43,6 @@ function buildServiceClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
-}
-
-async function requireOperator(
-  sessionClient: Awaited<ReturnType<typeof buildSessionClient>>,
-  serviceClient: ReturnType<typeof buildServiceClient>
-) {
-  const { data: { user }, error } = await sessionClient.auth.getUser()
-  if (error || !user) return { user: null, authorized: false }
-  const { data: userRow } = await serviceClient.from('users').select('role').eq('id', user.id).single()
-  if (!userRow || userRow.role !== 'operator') return { user, authorized: false }
-  return { user, authorized: true }
 }
 
 // ── GET ───────────────────────────────────────────────────────────────────────

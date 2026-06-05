@@ -184,7 +184,7 @@ export async function runMessagingGenerationAgent(
 
   // Start agent run logging — every run is recorded to agent_runs table.
   const agentRun = await startAgentRun({
-    client_id: organisation_id,
+    organisation_id,
     agent_name: 'messaging-generation',
   })
 

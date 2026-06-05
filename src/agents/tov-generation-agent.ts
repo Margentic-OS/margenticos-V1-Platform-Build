@@ -119,7 +119,7 @@ export async function runTovGenerationAgent(
 
   logger.info('TOV agent: starting', { organisation_id, is_refresh })
 
-  const agentRun = await startAgentRun({ client_id: organisation_id, agent_name: 'tov-generation' })
+  const agentRun = await startAgentRun({ organisation_id, agent_name: 'tov-generation' })
 
   try {
   // Step 1: Fetch intake responses for this client only.

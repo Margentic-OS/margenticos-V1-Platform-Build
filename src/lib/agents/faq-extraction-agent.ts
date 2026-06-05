@@ -102,7 +102,7 @@ export async function extractFaq(input: FaqExtractionInput): Promise<FaqExtracti
   const { data: existingRun } = await (supabase as any)
     .from('agent_runs')
     .select('id')
-    .eq('client_id', organisationId)
+    .eq('organisation_id', organisationId)
     .eq('agent_name', 'faq-extraction-agent')
     .eq('status', 'completed')
     .like('output_summary', `%${replyDraftId}%`)
@@ -462,7 +462,7 @@ async function writeAgentRun(supabase: SupabaseClient, args: AgentRunArgs): Prom
   const { error } = await (supabase as any)
     .from('agent_runs')
     .insert({
-      client_id: organisationId,
+      organisation_id: organisationId,
       agent_name: 'faq-extraction-agent',
       status,
       started_at: startedAt,

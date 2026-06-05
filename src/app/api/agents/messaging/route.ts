@@ -46,7 +46,7 @@ async function notifyIfAllDocsComplete(organisation_id: string): Promise<void> {
   const { count } = await adminClient
     .from('agent_runs')
     .select('id', { count: 'exact', head: true })
-    .eq('client_id', organisation_id)
+    .eq('organisation_id', organisation_id)
     .in('agent_name', AGENT_NAMES)
     .in('status', ['completed', 'failed'])
 

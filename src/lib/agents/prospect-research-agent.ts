@@ -357,7 +357,7 @@ export async function runProspectResearchAgent({
   prospect_id,
   client_id,
 }: ProspectResearchInput): Promise<TBVResult> {
-  const agentRun = await startAgentRun({ client_id, agent_name: 'prospect-research' })
+  const agentRun = await startAgentRun({ organisation_id: client_id, agent_name: 'prospect-research' })
   const systemPrompt = buildSystemPrompt()
   const stepsAttempted: string[] = []
 

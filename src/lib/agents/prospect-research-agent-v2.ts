@@ -151,7 +151,7 @@ export async function runProspectResearchAgentV2({
   prospect_id,
   client_id,
 }: ResearchInput): Promise<ResearchResult> {
-  const agentRun = await startAgentRun({ client_id, agent_name: 'prospect-research-v2' })
+  const agentRun = await startAgentRun({ organisation_id: client_id, agent_name: 'prospect-research-v2' })
 
   try {
     // Load prospect.

@@ -1928,3 +1928,47 @@ through variables on next upload automatically. Structure changes (step count or
 changes) require a re-sync, and are blocked if uploaded leads already exist for the
 campaign (they have already received the old-structure sequence).
 
+
+---
+
+## ADR-027 — Two-client pattern for SSR routes
+Date: June 2026 | Status: Accepted
+
+Context:
+`createServerClient` from `@supabase/ssr` was initialized with `SUPABASE_SERVICE_ROLE_KEY`
+across 18 API routes. After `auth.getUser()` activates the session, the SSR client
+replaces its Authorization header with `Bearer <user_access_token>` for all subsequent
+PostgREST requests. Postgres receives `role = authenticated`, not `role = service_role`.
+Any function or RLS policy requiring `service_role` silently fails with permission denied.
+This caused the `approve_document_suggestion` RPC to deny every operator Approve click
+for an extended period despite a correct GRANT on the DB side.
+
+Decision:
+Every API route that needs both session auth and privileged DB access uses two clients:
+
+  1. `sessionClient` — `createServerClient` from `@supabase/ssr` with `ANON_KEY` + cookies.
+     Used only for `auth.getUser()`. Never touches the database directly.
+
+  2. `serviceClient` — plain `createClient` from `@supabase/supabase-js` with
+     `SERVICE_ROLE_KEY`, no cookies. Used for all DB operations.
+
+Auth check (user authenticated, role verified) runs before any data read.
+
+Reasoning:
+The SSR client is designed to bridge the browser session into server-side requests. Its
+cookie integration is what enables session-aware auth. But this same mechanism overwrites
+the service role key once the session loads. The only safe use of the SSR client is for
+the single `auth.getUser()` call. All DB work must go through a plain service client that
+has no session context and therefore maintains service_role throughout.
+
+Rejected alternatives:
+- Single SSR client with service role key: broken by design — see context above.
+- Single service client for everything (no SSR): loses the ability to verify the user
+  session cookie. auth.getUser() on a plain service client does not validate cookies.
+
+Consequences:
+Every new operator or authenticated route must follow the two-client pattern.
+The shared helper `src/lib/supabase/require-operator.ts` encapsulates the auth +
+role-check using the two-client pattern; import it instead of duplicating the logic.
+Routes using only the session (no privileged DB operations) can continue to use a single
+SSR client with ANON_KEY.

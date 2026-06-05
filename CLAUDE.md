@@ -800,6 +800,7 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-016  TAM gate and inventory-driven sourcing
   ADR-017  Tiered enrichment and sending routing
   ADR-018  Deterministic code vs LLM usage principles
+  ADR-027  Two-client pattern for SSR routes (sessionClient + serviceClient)
 
 ---
 

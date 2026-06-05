@@ -1,7 +1,7 @@
 // Agent run logger — call this at the start of every agent invocation.
 // Writes to agent_runs via service role (no RLS INSERT policy for authenticated users).
 // Usage:
-//   const run = await startAgentRun({ client_id, agent_name })
+//   const run = await startAgentRun({ organisation_id, agent_name })
 //   // ... do work ...
 //   await run.complete('Processed 12 prospects')
 //   // or on failure:
@@ -26,10 +26,10 @@ export interface AgentRunHandle {
 }
 
 export async function startAgentRun({
-  client_id,
+  organisation_id,
   agent_name,
 }: {
-  client_id: string
+  organisation_id: string
   agent_name: string
 }): Promise<AgentRunHandle> {
   const supabase = getServiceClient()
@@ -37,12 +37,12 @@ export async function startAgentRun({
 
   const { data, error } = await supabase
     .from('agent_runs')
-    .insert({ client_id, agent_name, status: 'running', started_at: started_at.toISOString() })
+    .insert({ organisation_id, agent_name, status: 'running', started_at: started_at.toISOString() })
     .select('id')
     .single()
 
   if (error || !data) {
-    logger.error('startAgentRun: failed to insert agent_runs row', { agent_name, client_id, error: error?.message })
+    logger.error('startAgentRun: failed to insert agent_runs row', { agent_name, organisation_id, error: error?.message })
     // Return a no-op handle so the agent can continue without crashing on a logging failure
     return {
       run_id: 'unknown',

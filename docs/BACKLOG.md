@@ -2382,6 +2382,38 @@ live schema, pg_cron job state, integrations_registry. No code changes in this s
 
 ---
 
+### [monitor] Tripwire — "column client_id does not exist"
+
+- Added 2026-06-05.
+- One occurrence logged at 16:15:45 BST. Catalog sweep found no DB-side origin
+  (pg_policies, pg_proc, pg_views, pg_matviews, trigger functions all clean).
+  Closed as unattributed single occurrence. Not recurring as of close of session.
+- `agent_runs` is the only table in the schema using `client_id`; all other 18
+  tables use `organisation_id`. This naming inconsistency is the structural root.
+- **Tripwire for any dry-run or watcher session:** if this error appears again,
+  capture: (1) exact timestamp, (2) all concurrent Postgres activity within ±60s
+  (from `get_logs`), (3) which page/action the operator was performing at that moment.
+  Do not close as "transient" a second time — two occurrences means a live path.
+- Longer-term fix (see rename entry below): migrate `agent_runs.client_id` →
+  `agent_runs.organisation_id` to eliminate the inconsistency entirely.
+
+---
+
+### [post-build] Consolidate requireOperator into a shared lib helper
+
+- Added 2026-06-05.
+- `requireOperator(sessionClient, serviceClient)` is currently duplicated in two files:
+    `src/app/api/operator/faqs/route.ts` (definition + 2 call sites)
+    `src/app/api/operator/documents/force-approve/route.ts` (definition + 1 call site)
+- Both copies are identical after the two-client split fix (commit 317dbfd). Any future
+  change (e.g. adding audit logging to operator checks) requires updating both files.
+- Consolidate to: `src/lib/supabase/require-operator.ts` — export a single
+  `requireOperator(sessionClient, serviceClient)` async function.
+- Both route files import from there. No behaviour change, just DRY.
+- Trigger: next time either file is touched for any other reason.
+
+---
+
 ### [pre-c1] Supabase Pro — PITR backups before first paying client
 
 - Added 2026-06-05.
