@@ -1719,6 +1719,21 @@ Complete all items before the first paying client goes live:
   the package to Node.js at runtime), and use the current class API: `new PDFParse({ data: buffer }).getText()` which returns `{ text: string }`.
   Location: next.config.ts, src/lib/intake/extract-text.ts.
 
+- [lesson] Completed-claim-vs-reality miss: RESEND_FROM_EMAIL domain flip (2026-06-05)
+  The 2026-06-04 batch summary reported item 6 — "flip RESEND_FROM_EMAIL from
+  notifications.margenticos.com to margenticos.com sending domain" — as DONE.
+  Discovered 2026-06-05 (live-path audit): RESEND_FROM_EMAIL was still set to
+  notifications@notifications.margenticos.com in both Vercel production and .env.local.
+  The intent was recorded; the actual env var update was never executed.
+  Resolution 2026-06-05: updated to "MargenticOS <notifications@margenticos.com>" in
+  Vercel production, Vercel preview, and .env.local. Will take effect on the next deploy.
+  Also: [post-c0-polish] Configure Vercel Preview environment variables (2026-05-12 entry)
+  is partially resolved by this change — RESEND_FROM_EMAIL is now present in both scopes.
+  Pattern to prevent recurrence: any session summary item marked DONE that involves a
+  config-layer change (env var, DNS record, Supabase setting) must include a read-back
+  verification step (`vercel env ls | grep NAME`, dashboard screenshot, etc.) before
+  the DONE claim is written. Intent ≠ execution for config changes.
+
 ---
 
 ## Application-layer notes
