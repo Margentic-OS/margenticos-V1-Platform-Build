@@ -28,6 +28,8 @@ import { logger } from '@/lib/logger'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import { allDocsGeneratedTemplate, allDocsGeneratedSubject } from '@/lib/email/templates/all-docs-generated'
 
+export const maxDuration = 300
+
 function getAdminClient() {
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

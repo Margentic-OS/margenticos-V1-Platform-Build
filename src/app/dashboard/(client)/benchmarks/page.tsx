@@ -28,7 +28,7 @@ export default async function BenchmarksPage({
 
   const { data: org } = await supabase
     .from('organisations')
-    .select('id, name, engagement_month')
+    .select('id, name, engagement_month, pipeline_unlocked')
     .eq('id', organisationId ?? '')
     .single()
 
@@ -36,14 +36,17 @@ export default async function BenchmarksPage({
 
   const metrics = await computeCampaignMetrics(org.id, supabase)
 
+  const statusLabel = org.pipeline_unlocked ? 'Campaigns live' : 'Warming up'
+  const statusVariant = org.pipeline_unlocked ? 'live' : 'warming'
+
   return (
     <>
       <DashboardTopbar
         eyebrow={`Month ${org.engagement_month}`}
         title={org.name}
         subtitle="Benchmarks"
-        statusLabel="Campaigns live"
-        statusVariant="live"
+        statusLabel={statusLabel}
+        statusVariant={statusVariant}
         orgInitials={getOrgInitials(org.name)}
       />
       <div className="flex-1 overflow-y-auto bg-surface-content">

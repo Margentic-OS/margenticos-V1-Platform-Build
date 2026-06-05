@@ -31,10 +31,6 @@ const NAV_STRATEGY = [
 const NAV_OPERATOR = [
   { label: 'All clients', href: '/dashboard/operator' },
   { label: 'Approvals', href: '/dashboard/operator/approvals' },
-  { label: 'Reply queue', href: '/dashboard/operator/triage' },
-  { label: 'FAQ curation', href: '/dashboard/operator/faqs' },
-  { label: 'Agent activity', href: '/dashboard/operator/activity' },
-  { label: 'Signals log', href: '/dashboard/operator/signals' },
   { label: 'Settings', href: '/dashboard/operator/settings' },
 ]
 

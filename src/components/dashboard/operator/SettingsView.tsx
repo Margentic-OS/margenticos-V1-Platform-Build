@@ -114,17 +114,11 @@ export function SettingsView() {
     <div className="flex-1 overflow-y-auto bg-surface-content">
       <div className="px-7 py-6 max-w-[720px] space-y-5">
 
-        {/* Client selector at top — TODO: wire to real client list */}
-        <div className="flex items-center gap-3">
-          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary">
-            Configuring
+        {/* Placeholder notice — settings not yet wired to live data */}
+        <div className="px-4 py-3 rounded-[8px] bg-[#FEF7E6] border border-[#F0D080]">
+          <p className="text-[11px] text-[#7A4800] leading-relaxed">
+            Settings are not yet wired to live data. Values shown below are placeholders only and are not saved.
           </p>
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-surface-card border border-border-card rounded-[6px]">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-green-success shrink-0" />
-            <span className="text-[12px] font-medium text-text-primary">
-              {settings.orgName}
-            </span>
-          </div>
         </div>
 
         {/* Integrations */}

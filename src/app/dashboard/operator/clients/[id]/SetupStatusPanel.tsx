@@ -73,11 +73,13 @@ function DerivedStatusPill({ value }: { value: SetupStatusValue }) {
     complete: 'Complete',
   }
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5" title="Set automatically — not editable">
       <span className={`px-3 py-1.5 rounded-[6px] text-[11px] font-medium border ${styles[value]}`}>
         {labels[value]}
       </span>
-      <span className="text-[10px] text-text-muted">Auto</span>
+      <svg className="w-3 h-3 text-text-muted shrink-0" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+        <path d="M9 5V3.5a3 3 0 1 0-6 0V5H2v6h8V5H9ZM4.5 3.5a1.5 1.5 0 0 1 3 0V5h-3V3.5Z"/>
+      </svg>
     </div>
   )
 }

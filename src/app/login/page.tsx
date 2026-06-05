@@ -84,8 +84,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 </button>
               </form>
 
-              <p className="mt-4 text-center text-xs text-text-muted">
-                <a href="/login" className="hover:text-text-secondary transition-colors">
+              <p className="mt-4 text-center text-xs text-text-secondary">
+                <a href="/login" className="hover:underline transition-colors">
                   Send a new link
                 </a>
               </p>

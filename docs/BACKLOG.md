@@ -2356,3 +2356,34 @@ live schema, pg_cron job state, integrations_registry. No code changes in this s
   (e.g. doug+testclient@margenticos.com), confirm the welcome email arrives and the
   subject, body, and link are correctly formatted.
 - Trigger: during the founding-client dry-run walkthrough before c1 onboarding.
+
+---
+
+### [pre-live-sends] Reply visibility UI — operator surface for process-replies cron
+
+- Added 2026-06-05.
+- The process-replies cron (`/api/cron/process-replies`) ingests inbound replies from
+  Instantly and classifies them (positive / negative / OOO / info request). It runs on
+  a schedule and writes results to the database. There is currently no operator surface
+  to read classified replies, take action on information requests, or review the reply
+  queue.
+- The four stub nav items removed in this session (Reply queue, FAQ curation, Agent
+  activity, Signals log) were routing to 404 pages. They are removed from the sidebar
+  until real views exist.
+- Before live sends begin: build the Reply queue view so Doug can see classified replies
+  and action information requests in time. The 72-hour escalation path (system holding
+  message) cannot be effectively managed without this surface.
+- Priority: must exist before Costa Rica trip / before campaign sends go live.
+
+---
+
+### [pre-c1] Operator Settings — wire to live data
+
+- Added 2026-06-05.
+- `src/components/dashboard/operator/SettingsView.tsx` renders from `PLACEHOLDER_SETTINGS`
+  (hardcoded const, lines 24–37). It is not connected to the database.
+- Required when real: query `integrations_registry` for capabilities + connection status
+  per client org; query `organisations` or a `client_settings` table for per-client
+  approval toggles and booking URL.
+- TODO comment on line 21 of SettingsView.tsx captures the scope.
+- Currently shows a visible amber notice banner so the state is obvious to the operator.
