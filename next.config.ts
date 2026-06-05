@@ -23,6 +23,12 @@ const nextConfig: NextConfig = {
   // pdf-parse reads a test file at require() time that trips up Next.js bundling.
   // Marking it external tells Turbopack to leave it to Node.js at runtime.
   serverExternalPackages: ['pdf-parse'],
+  // Agents load system prompts via fs.readFile with a constructed path (process.cwd() +
+  // 'docs/prompts/...'). Vercel's static file tracer cannot follow dynamic paths, so the
+  // prompt files are absent from /var/task at runtime without this explicit inclusion.
+  outputFileTracingIncludes: {
+    '/api/**': ['./docs/prompts/**'],
+  },
   async headers() {
     return [
       {
