@@ -2042,15 +2042,14 @@ Complete all items before the first paying client goes live:
 - Trigger: when retry failures are observed in Sentry logs at a rate that creates
   operational friction (not worth building speculatively before that point).
 
-### [review] Held 1,422-word TOV refresh suggestion — pre-c1
-- Added 2026-06-04. Bucket: pre-c1 review.
-- A document_suggestions row for the MargenticOS TOV guide contains a full_document
-  replacement with 1,422 words of refined tone-of-voice guidance. It has not been
-  reviewed or promoted.
-- Action: review the suggestion in the dashboard approval UI, decide whether to promote
-  it to the live TOV guide or discard, and close the suggestion row before the first
-  paying client is onboarded (so c1 campaigns use the most current TOV guidance).
-- Trigger: before c1 onboarding.
+### [pre-c1] Regenerate TOV after agent quality pass
+
+- Updated 2026-06-05 (was: "Held 1,422-word TOV refresh suggestion").
+- The held TOV suggestion was rejected 2026-06-05. The suggestion row is disposed.
+- Action: once the TOV generation agent has been through the quality pass (em-dash
+  scrub, AI-tell removal, style rules enforcement), regenerate the MargenticOS TOV
+  guide so it reflects the improved agent output before c1 onboarding.
+- Trigger: after agent quality pass is complete; before c1 onboarding.
 
 ### ~~[security] Webhook secret rotation — post-c0 polish~~
 - SUPERSEDED 2026-06-05. Confirmed duplicate of the above entry. Rotation is now
@@ -2228,43 +2227,13 @@ Complete all items before the first paying client goes live:
 Findings from full read-only audit: codebase dependency inventory, Vercel env vars, Supabase
 live schema, pg_cron job state, integrations_registry. No code changes in this session.
 
-### [pre-c1] Auto-approve cron: investigate → decide → wire
+### ~~[pre-c1] Auto-approve cron: investigate → decide → wire~~ — DONE 2026-06-05
 
-- Added 2026-06-05 (live-path audit).
-- Route /api/cron/auto-approve exists, is correctly auth'd, and auto-approves elapsed
-  document_suggestions rows per each org's auto_approve_window_hours. **Nothing calls it.**
-  The Vercel cron entry was intentionally removed 2026-04-29 (Hobby silently rejects
-  sub-daily crons); no pg_cron replacement was added. The route has been silent since then.
-
-- **Investigation result (2026-06-05):**
-  One pending document_suggestions row in the DB:
-    org: MargenticOS (client-zero), document_type: tov, created_at: 2026-04-23 13:52 UTC
-  This is the deliberately HELD 1,422-word TOV refresh (see [review] entry in the
-  lap-closeout section: "Held 1,422-word TOV refresh suggestion").
-  auto_approve_window_hours = 72 for all orgs. Schema default = 72.
-  If the cron were wired and fired today, the held TOV suggestion would be immediately
-  auto-approved and published to the live MargenticOS TOV document — it elapsed 40+ days
-  ago. **Do not wire until the held suggestion is disposed.**
-
-- **Risk note:** auto-approve publishes unreviewed AI suggestions when the org's window
-  elapses. For real clients this is correct product behaviour. During pre-c1 testing,
-  the risk is that a test suggestion is silently published before the operator has
-  reviewed it. Consider whether MargenticOS (client-zero) should have a longer window
-  (e.g. 720 hours = 30 days) to prevent accidental auto-approval of test suggestions
-  while the system matures.
-
-- **Steps before wiring:**
-  1. Dispose of the held TOV suggestion via the operator approvals queue (approve or
-     reject). Confirm no other pending document_suggestions rows exist.
-  2. Decide whether to raise auto_approve_window_hours for MargenticOS and Test Client Co
-     for the testing period. UPDATE can be run directly in Supabase SQL editor.
-  3. Add a pg_cron job at `0 * * * *` (hourly) POSTing to
-     https://app.margenticos.com/api/cron/auto-approve with Bearer CRON_SECRET, same
-     net.http_post pattern as instantly-poll and process-replies. Apply via migration.
-
-- Prior entry: "[DONE 2026-04-23, updated 2026-04-29] Build a scheduler for auto-approve
-  timers" documents the route build and the intentional Vercel cron removal. That history
-  is correct. This entry captures the orphan state and the pre-c1 resolution path.
+- Wired 2026-06-05 via vercel.json cron at `0 * * * *`.
+- TOV held suggestion was rejected 2026-06-05; DB is clear of stale pending rows.
+- Hourly Vercel cron entry added (vercel.json). First tick will process 0 rows; subsequent
+  ticks will auto-approve any suggestions past their auto_approve_window_hours.
+- Prior investigation detail: see git history for the original entry above.
 
 ### [pre-c1] Supabase Vault: move two DB-stored secrets out of plaintext
 
@@ -2387,3 +2356,21 @@ live schema, pg_cron job state, integrations_registry. No code changes in this s
   approval toggles and booking URL.
 - TODO comment on line 21 of SettingsView.tsx captures the scope.
 - Currently shows a visible amber notice banner so the state is obvious to the operator.
+
+---
+
+### [pre-c1] Supabase Pro — PITR backups before first paying client
+
+- Added 2026-06-05.
+- Free tier has daily snapshots with 7-day retention only. No point-in-time recovery (PITR).
+- Upgrade to Pro ($25/month) before first paying client signs. Pro gives PITR with
+  30-day retention and scheduled backups to your own storage.
+- Also needed for: Supabase Vault (encrypted secret storage), log retention beyond 1 day.
+- Upgrade path: Supabase dashboard → Organization Settings → Billing → Upgrade to Pro.
+- Note: can do a manual pg_dump at any time for a one-off snapshot. Requires DB password
+  from Settings → Database → Connection info (password only shown once at creation, but
+  can be reset there). Command:
+    /opt/homebrew/opt/libpq/bin/pg_dump \
+      "postgresql://postgres:[PASSWORD]@db.hjpvnvjryxdjcfdsfhzy.supabase.co:5432/postgres" \
+      -f .backups/production-YYYYMMDD.sql
+  .backups/ is gitignored.
