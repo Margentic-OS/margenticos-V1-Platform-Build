@@ -1972,3 +1972,67 @@ The shared helper `src/lib/supabase/require-operator.ts` encapsulates the auth +
 role-check using the two-client pattern; import it instead of duplicating the logic.
 Routes using only the session (no privileged DB operations) can continue to use a single
 SSR client with ANON_KEY.
+
+---
+
+## ADR-028 — Code validators as hard gates on LLM output; prompt instructions are advisory only
+Date: June 2026 | Status: Accepted
+
+Context:
+LLM-generated content passes through two layers of style enforcement:
+  1. Prompt instructions: "Scan your output before returning. Never use em dashes."
+  2. Runtime code validators: `scrubAITells()`, `assertNoDashes()`, messaging
+     sequence validator (character limits, word counts, sign-off rules).
+
+There is a standing temptation to rely on the prompt instructions as the primary
+(or sole) enforcement mechanism, reasoning that the LLM follows instructions well
+enough that a code gate is redundant. This reasoning is incorrect and dangerous.
+
+The ICP/TOV/positioning/messaging agents target `claude-opus-4-6`, which generally
+follows style instructions reliably. But "reliably" is not "deterministically."
+LLM instruction-following degrades under: context length pressure, complex
+structured-output constraints competing with prose-quality constraints, model
+updates, and edge cases the prompt author did not anticipate. Prompt instructions
+are not a testable contract. Code validators are.
+
+The email sequence validator already demonstrates the correct pattern: every
+character limit, word count, and format constraint is enforced by code that throws
+before anything reaches the database, regardless of what the prompt requested.
+The messaging agent prompt also specifies these constraints. The two must agree
+(per CLAUDE.md: "When a prompt and a validator enforce the same rule, they must
+agree exactly") — but the code is the authority.
+
+Decision:
+Prompt instructions for style and format rules are advisory guidance for the LLM.
+Code validators are the enforcement gate. Both must exist. Neither replaces the other.
+
+Enforcement hierarchy:
+  Prompt instructions  → set the LLM's intent; produce higher-quality first-draft output
+  scrubAITells()       → catch any em-dash / AI-tell slippage at runtime before DB write
+  assertNoDashes()     → zero-tolerance hard throw; nothing with dashes reaches storage
+  Sequence validator   → enforces all structural constraints (counts, nulls, sign-offs)
+
+Any new LLM-generated output type that produces customer-facing content must have:
+  1. Style rules in the prompt (specific, enumerated, not vague)
+  2. A runtime code scrub/validator that enforces the same rules deterministically
+
+Adding rules to only the prompt is incomplete. Adding rules to only the validator
+without the prompt degrades output quality (the LLM doesn't know the constraint
+until correction time). Both layers are required, and they must agree.
+
+Reasoning:
+A validator catches what the prompt missed. This is not a theoretical edge case —
+the em-dash ban in the prompt does not prevent the model from emitting em-dashes
+under novel phrasing or context pressure. `assertNoDashes()` is the guarantee,
+not the prompt. The prompt is why the guarantee rarely fires.
+
+The cost of the code validator is one parse pass over a string that has already
+been generated. That cost is negligible compared to the cost of re-running the
+full agent because an em-dash slipped through to a client-visible document.
+
+Consequences:
+New agents producing customer-facing text must call `scrubAITells()` before storage.
+New structured output types with hard limits must have a validator enforcing them.
+When a prompt rule and a validator rule conflict, the validator rule is authoritative
+and the prompt must be updated to match in the same commit (per CLAUDE.md).
+Prompt-only enforcement is a defect, not a design choice.

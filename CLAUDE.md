@@ -801,6 +801,7 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-017  Tiered enrichment and sending routing
   ADR-018  Deterministic code vs LLM usage principles
   ADR-027  Two-client pattern for SSR routes (sessionClient + serviceClient)
+  ADR-028  Code validators as hard gates on LLM output; prompt instructions advisory only
 
 ---
 

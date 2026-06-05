@@ -420,7 +420,7 @@ async function writeAgentRun(supabase: SupabaseClient, args: AgentRunArgs): Prom
   const { error } = await (supabase as any)
     .from('agent_runs')
     .insert({
-      client_id: organisationId,
+      organisation_id: organisationId,
       agent_name: 'reply-draft-agent',
       status,
       started_at: startedAt,
