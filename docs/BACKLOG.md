@@ -1795,12 +1795,11 @@ Complete all items before the first paying client goes live:
 
 ## Security — deferred from /cso audit 2026-06-01
 
-### [post-c0-paid-tier] Migrate CRON_SECRET from Postgres GUC to Supabase Vault
-- Finding #3 from /cso 2026-06-01-cso.json
-- Currently stored in plaintext in cron.job.command for process-replies and instantly-poll
-- Acknowledged acceptable in supabase/migrations/20260429_reply_handling.sql:32 due to Hobby tier limitation
-- Action when Supabase plan upgrades: rotate CRON_SECRET into Vault, update cron jobs to read from Vault, remove plaintext value
-- Trigger: paid Supabase tier active
+### ~~[post-c0-paid-tier] Migrate CRON_SECRET from Postgres GUC to Supabase Vault~~
+- SUPERSEDED 2026-06-05: expanded scope (both CRON_SECRET + SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET),
+  reclassified to [pre-c1] (Vault API available on Free tier), URL repoint included.
+  See "[pre-c1] Supabase Vault: move two DB-stored secrets out of plaintext" in the
+  Live-path / config audit section at the bottom of this file.
 
 ### [post-c0-polish] Flip CSP from report-only to enforcement
 - Shipped 2026-06-02 in commit 65d077f as Content-Security-Policy-Report-Only
@@ -1815,11 +1814,11 @@ Complete all items before the first paying client goes live:
 - Becomes valuable as automated monitoring infrastructure when client count grows
 - Trigger: approaching 10 paying clients OR before flipping CSP to enforcement, whichever first
 
-### [post-c0-polish] Rotate SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET
-- Secret previously displayed in chat during setup (saved to password manager)
-- No concrete compromise vector — solo dev, no team, never on GitHub
-- Action only if context changes (team added, secret shared externally): generate new secret, `vercel env rm` + add, update Supabase Dashboard webhook header
-- Trigger: only if compromise vector emerges; otherwise leave
+### ~~[post-c0-polish] Rotate SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET~~
+- SUPERSEDED 2026-06-05: audit found this secret also stored as plaintext in the DB trigger
+  action statement, not just in the original chat context. Migration approach (Vault) covers
+  rotation by construction. See "[pre-c1] Supabase Vault" entry in Live-path / config audit
+  section below.
 
 ### [discipline-not-task] No flat-file prospect data in repo
 - Finding #6 from /cso 2026-06-01-cso.json
@@ -2053,16 +2052,10 @@ Complete all items before the first paying client goes live:
   paying client is onboarded (so c1 campaigns use the most current TOV guidance).
 - Trigger: before c1 onboarding.
 
-### [security] Webhook secret rotation — post-c0 polish
-- Added 2026-06-04. Bucket: post-c0 polish.
-- SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET is the shared secret that authenticates
-  Supabase webhook calls to the approval notification endpoint. It was generated at
-  project setup and has not been rotated.
-- Action: rotate the secret in both Supabase webhook config and Vercel production env
-  as a post-c0 polish step. Low urgency while traffic is zero, but must be done before
-  any meaningful volume reaches the webhook endpoint.
-- Note: item may already appear in an earlier BACKLOG entry — if so, treat this as a
-  duplicate and keep only one.
+### ~~[security] Webhook secret rotation — post-c0 polish~~
+- SUPERSEDED 2026-06-05. Confirmed duplicate of the above entry. Rotation is now
+  handled by construction in the Vault migration. See "[pre-c1] Supabase Vault" entry
+  in Live-path / config audit section below.
 
 ### [audit] gstack audits scheduled — Costa Rica + pre-c1
 - Added 2026-06-04. Bucket: see sub-items.
@@ -2227,3 +2220,139 @@ Complete all items before the first paying client goes live:
 - All new routes: place under (client)/ for client-facing pages, or operator/ for
   operator-only pages. The route-group parentheses are invisible to URLs.
 - This is also enforced in CLAUDE.md Anti-patterns section.
+
+---
+
+## Live-path / config audit — 2026-06-05
+
+Findings from full read-only audit: codebase dependency inventory, Vercel env vars, Supabase
+live schema, pg_cron job state, integrations_registry. No code changes in this session.
+
+### [pre-c1] Auto-approve cron: investigate → decide → wire
+
+- Added 2026-06-05 (live-path audit).
+- Route /api/cron/auto-approve exists, is correctly auth'd, and auto-approves elapsed
+  document_suggestions rows per each org's auto_approve_window_hours. **Nothing calls it.**
+  The Vercel cron entry was intentionally removed 2026-04-29 (Hobby silently rejects
+  sub-daily crons); no pg_cron replacement was added. The route has been silent since then.
+
+- **Investigation result (2026-06-05):**
+  One pending document_suggestions row in the DB:
+    org: MargenticOS (client-zero), document_type: tov, created_at: 2026-04-23 13:52 UTC
+  This is the deliberately HELD 1,422-word TOV refresh (see [review] entry in the
+  lap-closeout section: "Held 1,422-word TOV refresh suggestion").
+  auto_approve_window_hours = 72 for all orgs. Schema default = 72.
+  If the cron were wired and fired today, the held TOV suggestion would be immediately
+  auto-approved and published to the live MargenticOS TOV document — it elapsed 40+ days
+  ago. **Do not wire until the held suggestion is disposed.**
+
+- **Risk note:** auto-approve publishes unreviewed AI suggestions when the org's window
+  elapses. For real clients this is correct product behaviour. During pre-c1 testing,
+  the risk is that a test suggestion is silently published before the operator has
+  reviewed it. Consider whether MargenticOS (client-zero) should have a longer window
+  (e.g. 720 hours = 30 days) to prevent accidental auto-approval of test suggestions
+  while the system matures.
+
+- **Steps before wiring:**
+  1. Dispose of the held TOV suggestion via the operator approvals queue (approve or
+     reject). Confirm no other pending document_suggestions rows exist.
+  2. Decide whether to raise auto_approve_window_hours for MargenticOS and Test Client Co
+     for the testing period. UPDATE can be run directly in Supabase SQL editor.
+  3. Add a pg_cron job at `0 * * * *` (hourly) POSTing to
+     https://app.margenticos.com/api/cron/auto-approve with Bearer CRON_SECRET, same
+     net.http_post pattern as instantly-poll and process-replies. Apply via migration.
+
+- Prior entry: "[DONE 2026-04-23, updated 2026-04-29] Build a scheduler for auto-approve
+  timers" documents the route build and the intentional Vercel cron removal. That history
+  is correct. This entry captures the orphan state and the pre-c1 resolution path.
+
+### [pre-c1] Supabase Vault: move two DB-stored secrets out of plaintext
+
+- Added 2026-06-05 (live-path audit). Reclassified from post-c0-paid-tier.
+  Supersedes the two stale entries marked above (Vault migration 2026-06-01 and
+  webhook secret rotation 2026-06-04). Both are now struck through.
+
+- Two secrets are stored as plaintext inside Supabase database objects:
+  1. CRON_SECRET — embedded as a Bearer token in both cron.job command strings
+     (instantly-poll and process-replies). Readable via SELECT on cron.job.
+  2. SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET — embedded in the users-pending-review-notify
+     trigger action statement. Readable via SELECT on information_schema.triggers.
+  Neither secret appears in any committed migration file (confirmed 2026-06-05).
+  Access requires Supabase dashboard or SUPABASE_SERVICE_ROLE_KEY — an already-privileged
+  position. Reclassified to pre-c1 because Supabase Vault (pgsodium) is available on the
+  Free tier; the Hobby limitation in the original entry no longer applies.
+
+- **One atomic migration, five changes:**
+  1. Add both secrets to vault.secrets using vault.create_secret() with fresh values.
+  2. Rewrite both cron.job command strings to read vault.decrypted_secrets at runtime
+     instead of embedding the literal value. Use a DO block for idempotency.
+  3. Rewrite the users-pending-review-notify trigger action to read from Vault.
+  4. Fresh secret values are minted during the migration — rotation is included by
+     construction. No separate rotation step needed.
+  5. Repoint both pg_cron job URLs from margenticos-platform.vercel.app to
+     https://app.margenticos.com in the same edit.
+
+- **Vercel update required after migration:** update CRON_SECRET and
+  SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET in Vercel production to the newly minted values.
+  Do this before re-enabling the pg_cron jobs post-migration.
+
+- **Apply-confirmation step** (migrations have been committed-but-unapplied before):
+  After applying, verify all three callers work with the new values:
+  (a) POST /api/cron/instantly-poll manually with new CRON_SECRET — confirm 200.
+  (b) POST /api/cron/process-replies manually — confirm 200.
+  (c) Insert a test row into users_pending_review and confirm the trigger fires — check
+      Supabase dashboard → Logs → Edge Functions for the http_request call.
+  Verify applied state: Supabase dashboard → SQL Editor → check supabase_migrations table.
+
+### [pre-c1] Explicit maxDuration on all four agent routes — queue after /qa clears
+
+- Added 2026-06-05 (live-path audit). Bucket: pre-c1, low urgency. No deploy until /qa done.
+- /api/agents/icp, /api/agents/positioning, /api/agents/tov, /api/agents/messaging
+  do not export maxDuration. They rely on the Vercel platform default (currently 300s on
+  all plans). 300s is sufficient for Opus 4.6 generation at current intake sizes.
+- The absence of an explicit setting means a future Vercel plan change or default change
+  could silently shorten the timeout without a code alert.
+- Fix: add `export const maxDuration = 300` to each of the four route files.
+  One-line change per file, no behaviour change at current defaults.
+- Queue after /qa session clears. Do not deploy in the current /qa window.
+
+### [done-now] Four 2-minute dashboard checks — complete before closing this session
+
+- Added 2026-06-05. Doug checking now. Not Costa Rica items.
+
+  1. **Anthropic spend cap** — console.anthropic.com → Billing → Limits.
+     Confirm a spend cap is set. Without a cap, a dispatch bug (idempotency guard
+     fails on re-submit) could trigger unbounded Opus generation. At ~$2–5 per full
+     4-agent onboarding, a loop would accumulate quickly.
+     If no cap is set: add one before client-zero campaigns go live.
+
+  2. **Resend plan and daily headroom** — resend.com → account dashboard.
+     Free plan = 100 emails/day, 3,000/month. All emails route through Resend: auth magic
+     link, OTP codes, client welcome, intake-complete notification, doc-ready notifications
+     (4 per onboarding), pending-user alerts. 100/day is reachable on a heavy onboarding
+     or auth-troubleshooting day.
+     If on Free: upgrade to Resend Pro ($20/month) before c1 onboarding.
+
+  3. **Vercel cron last run — strategy-doc-auto-approve** — Vercel dashboard →
+     margenticos-platform → Settings → Crons.
+     Confirm last execution timestamp and no error state. The route is in vercel.json
+     at 0 6 * * * and is the only daily Vercel cron in the system. If it has never fired
+     or shows an error, investigate before c1 clients rely on the 3-day approval window.
+
+  4. **Supabase backup tier** — Supabase dashboard → Settings → Backups.
+     Free tier = daily snapshots, 7-day retention. Pro = PITR, 30-day retention.
+     At client-zero scale: daily snapshots are acceptable. Upgrade to Pro before first
+     paying client if your SLA commitment to that client requires PITR.
+
+### [pre-c1-smoke] Client welcome email delivery — verify on dry-run
+
+- Added 2026-06-05. Bucket: pre-c1, rides the founding-client dry-run.
+- sendTransactionalEmail() is called in clients/new/actions.ts when an operator creates
+  a new client. Template: src/lib/email/templates/client-welcome.ts. Sends to the
+  client's email address via Resend.
+- This path has not been confirmed exercised in production config. All prior client
+  creation was development/staging, or predated the Resend custom SMTP wiring.
+- Smoke check: create a test client via the operator dashboard using a real address
+  (e.g. doug+testclient@margenticos.com), confirm the welcome email arrives and the
+  subject, body, and link are correctly formatted.
+- Trigger: during the founding-client dry-run walkthrough before c1 onboarding.
