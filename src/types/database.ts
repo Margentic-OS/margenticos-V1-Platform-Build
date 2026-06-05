@@ -761,6 +761,7 @@ export type Database = {
           contract_start_date: string | null
           contract_status: string | null
           created_at: string
+          currency: string
           docs_complete_notification_sent_at: string | null
           engagement_month: number
           founder_first_name: string | null
@@ -784,6 +785,7 @@ export type Database = {
           contract_start_date?: string | null
           contract_status?: string | null
           created_at?: string
+          currency?: string
           docs_complete_notification_sent_at?: string | null
           engagement_month?: number
           founder_first_name?: string | null
@@ -807,6 +809,7 @@ export type Database = {
           contract_start_date?: string | null
           contract_status?: string | null
           created_at?: string
+          currency?: string
           docs_complete_notification_sent_at?: string | null
           engagement_month?: number
           founder_first_name?: string | null

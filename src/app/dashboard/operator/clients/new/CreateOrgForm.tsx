@@ -27,6 +27,8 @@ export function CreateOrgForm() {
     )
   }
 
+  const f = state.status === 'error' ? state.fields : undefined
+
   return (
     <form action={formAction} className="max-w-lg space-y-5">
       {state.status === 'error' && (
@@ -45,6 +47,7 @@ export function CreateOrgForm() {
           type="text"
           required
           autoComplete="off"
+          defaultValue={f?.org_name}
           className="w-full px-3 py-2 text-sm border border-border-card rounded-[6px] bg-surface-card text-text-primary focus:outline-none focus:ring-1 focus:ring-brand-green"
         />
       </div>
@@ -59,6 +62,7 @@ export function CreateOrgForm() {
           type="text"
           required
           autoComplete="off"
+          defaultValue={f?.founder_first_name}
           className="w-full px-3 py-2 text-sm border border-border-card rounded-[6px] bg-surface-card text-text-primary focus:outline-none focus:ring-1 focus:ring-brand-green"
         />
         <p className="mt-1 text-[11px] text-text-secondary">
@@ -76,6 +80,7 @@ export function CreateOrgForm() {
           type="email"
           required
           autoComplete="off"
+          defaultValue={f?.founder_email}
           className="w-full px-3 py-2 text-sm border border-border-card rounded-[6px] bg-surface-card text-text-primary focus:outline-none focus:ring-1 focus:ring-brand-green"
         />
         <p className="mt-1 text-[11px] text-text-secondary">
@@ -91,7 +96,7 @@ export function CreateOrgForm() {
           id="currency"
           name="currency"
           required
-          defaultValue="GBP"
+          defaultValue={f?.currency ?? 'GBP'}
           className="w-full px-3 py-2 text-sm border border-border-card rounded-[6px] bg-surface-card text-text-primary focus:outline-none focus:ring-1 focus:ring-brand-green"
         >
           <option value="GBP">GBP (£)</option>
@@ -110,7 +115,7 @@ export function CreateOrgForm() {
           type="number"
           required
           min="1"
-          defaultValue="8"
+          defaultValue={f?.monthly_meetings_target ?? '8'}
           className="w-full px-3 py-2 text-sm border border-border-card rounded-[6px] bg-surface-card text-text-primary focus:outline-none focus:ring-1 focus:ring-brand-green"
         />
       </div>
@@ -124,6 +129,7 @@ export function CreateOrgForm() {
           name="contract_start_date"
           type="date"
           required
+          defaultValue={f?.contract_start_date}
           className="w-full px-3 py-2 text-sm border border-border-card rounded-[6px] bg-surface-card text-text-primary focus:outline-none focus:ring-1 focus:ring-brand-green"
         />
       </div>
@@ -137,6 +143,7 @@ export function CreateOrgForm() {
           id="contract_end_date"
           name="contract_end_date"
           type="date"
+          defaultValue={f?.contract_end_date}
           className="w-full px-3 py-2 text-sm border border-border-card rounded-[6px] bg-surface-card text-text-primary focus:outline-none focus:ring-1 focus:ring-brand-green"
         />
       </div>

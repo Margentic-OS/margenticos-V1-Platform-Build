@@ -19,15 +19,29 @@ import { sendTransactionalEmail } from '@/lib/email/send'
 import { clientWelcomeTemplate, clientWelcomeSubject } from '@/lib/email/templates/client-welcome'
 import { getAppUrl } from '@/lib/urls/app-url'
 
+type FormFields = {
+  org_name: string
+  founder_first_name: string
+  founder_email: string
+  currency: string
+  monthly_meetings_target: string
+  contract_start_date: string
+  contract_end_date: string
+}
+
 export type CreateOrgState =
   | { status: 'idle' }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; fields?: FormFields }
   | { status: 'success'; orgId: string; orgName: string }
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
   return createSupabaseClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
+}
+
+function toSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'org'
 }
 
 export async function createOrganisation(
@@ -43,19 +57,29 @@ export async function createOrganisation(
   const contractStartDate   = formData.get('contract_start_date')?.toString() || null
   const contractEndDate     = formData.get('contract_end_date')?.toString() || null
 
+  const fields: FormFields = {
+    org_name: orgName,
+    founder_first_name: founderFirstName,
+    founder_email: founderEmail,
+    currency,
+    monthly_meetings_target: meetingsTargetRaw,
+    contract_start_date: contractStartDate ?? '',
+    contract_end_date: contractEndDate ?? '',
+  }
+
   if (!orgName || !founderFirstName || !founderEmail || !currency) {
-    return { status: 'error', message: 'Organisation name, founder first name, founder email, and currency are required.' }
+    return { status: 'error', message: 'Organisation name, founder first name, founder email, and currency are required.', fields }
   }
   if (!['GBP', 'EUR', 'USD'].includes(currency)) {
-    return { status: 'error', message: 'Currency must be GBP, EUR, or USD.' }
+    return { status: 'error', message: 'Currency must be GBP, EUR, or USD.', fields }
   }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   if (!emailRegex.test(founderEmail)) {
-    return { status: 'error', message: 'Founder email is not a valid email address.' }
+    return { status: 'error', message: 'Founder email is not a valid email address.', fields }
   }
   const monthlyMeetingsTarget = parseInt(meetingsTargetRaw, 10)
   if (isNaN(monthlyMeetingsTarget) || monthlyMeetingsTarget < 1) {
-    return { status: 'error', message: 'Monthly meetings target must be a positive whole number.' }
+    return { status: 'error', message: 'Monthly meetings target must be a positive whole number.', fields }
   }
 
   // ── 2. Operator auth check ──────────────────────────────────────────────────
@@ -63,7 +87,7 @@ export async function createOrganisation(
   const { data: { user }, error: authError } = await supabase.auth.getUser()
 
   if (authError || !user) {
-    return { status: 'error', message: 'Not authenticated.' }
+    return { status: 'error', message: 'Not authenticated.', fields }
   }
 
   const { data: userRow, error: roleError } = await supabase
@@ -73,7 +97,7 @@ export async function createOrganisation(
     .single()
 
   if (roleError || !userRow || userRow.role !== 'operator') {
-    return { status: 'error', message: 'Operator access required.' }
+    return { status: 'error', message: 'Operator access required.', fields }
   }
 
   // ── 3. Pre-invite check: does this email already exist in auth.users? ───────
@@ -94,6 +118,7 @@ export async function createOrganisation(
         return {
           status: 'error',
           message: 'A user with this email already exists. Check users_pending_review or delete the dangling auth user in the Supabase Dashboard before retrying.',
+          fields,
         }
       }
     }
@@ -104,10 +129,21 @@ export async function createOrganisation(
   // ── 4. INSERT organisation row ─────────────────────────────────────────────
   const adminClient = getAdminClient()
 
+  // Generate a URL-safe slug from the org name. On the rare collision, append a
+  // short base-36 timestamp so the uniqueness constraint is never the cause of failure.
+  const baseSlug = toSlug(orgName)
+  const { data: slugConflict } = await adminClient
+    .from('organisations')
+    .select('id')
+    .eq('slug', baseSlug)
+    .maybeSingle()
+  const slug = slugConflict ? `${baseSlug}-${Date.now().toString(36)}` : baseSlug
+
   const { data: org, error: orgError } = await adminClient
     .from('organisations')
     .insert({
       name: orgName,
+      slug,
       founder_first_name: founderFirstName,
       currency,
       monthly_meetings_target: monthlyMeetingsTarget,
@@ -119,7 +155,11 @@ export async function createOrganisation(
 
   if (orgError || !org) {
     logger.error('createOrganisation: failed to insert organisation', { orgName, error: orgError?.message })
-    return { status: 'error', message: 'Failed to create organisation record. Please try again.' }
+    return {
+      status: 'error',
+      message: `Failed to create organisation record: ${orgError?.message ?? 'Unknown error'}. Please try again.`,
+      fields,
+    }
   }
 
   const orgId = org.id
@@ -140,6 +180,7 @@ export async function createOrganisation(
     return {
       status: 'error',
       message: `Failed to generate invite link: ${linkError?.message ?? 'Unknown error'}. Organisation record removed.`,
+      fields,
     }
   }
 
@@ -160,6 +201,7 @@ export async function createOrganisation(
     return {
       status: 'error',
       message: 'Welcome email could not be sent. Organisation setup has been rolled back. Please try again.',
+      fields,
     }
   }
 
