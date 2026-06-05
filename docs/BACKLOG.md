@@ -2023,17 +2023,26 @@ Complete all items before the first paying client goes live:
 - Relevant PRD section: 08-approval.md (B-3A subsection).
 - Trigger: before first paying client is onboarded; the current flow is operator-only.
 
-### [quality] Em-dash / AI-tell cleanup on 4 doc-gen agents + composed copy QA — pre-c1
-- Added 2026-06-04. Bucket: pre-c1.
-- Evidence: comma-splice artifacts and suspected em-dash/en-dash characters were observed
-  in generated ICP, positioning, TOV, and messaging documents during the Costa Rica
-  prep lap. The scrubAITells() safety net exists on the messaging agent but may not
-  cover the three strategy doc-gen agents (ICP, positioning, TOV).
-- Fix: (1) audit all four agent prompts and output post-processing for em-dash suppression
-  and scrubAITells() coverage; (2) add a composed copy QA step that re-runs the validator
-  on stored composed copy to catch any artifacts that got through at generation time.
-- Trigger: before first paying client; this is a trust/quality issue that a prospect will
-  notice immediately.
+### ~~[quality] Em-dash / AI-tell cleanup on 4 doc-gen agents + composed copy QA — pre-c1~~
+- DONE 2026-06-05. Agent quality pass (Phases 0–3) complete.
+- All four agent prompts reworked with shared voice spec (7 rules + 3 exemplars).
+  scrubAITellsDeep() + assertNoDashes() gate wired to ICP, positioning, TOV agents.
+  13-unit Vitest test suite passing. Branch: worktree-agent-ae91d40d71b6a63b8.
+- Still pending: composed copy QA step (re-run validator on stored composed copy).
+  Deferred — add as separate BACKLOG item once post-Phase 4 TOV is confirmed clean.
+
+### [post-build] ADR-019: In-prompt self-checks are not gates — log as formal ADR
+- Added 2026-06-05. Bucket: post-build housekeeping.
+- Evidence: TOV v1 output contained four phrases explicitly listed in the tov-agent.md
+  banned-phrases self-check ("casual confidence", "relaxed language carrying serious
+  points", "bounces back fast", "treats setbacks as transitions"). The self-check
+  exists in the prompt but failed under generation. This is the general case, not a fluke.
+- Architectural conclusion: LLM self-checks are not enforcement. They are hints. The only
+  reliable gate is deterministic code: scrubAITellsDeep() + assertNoDashes() wired at the
+  agent output layer, throwing before any database write.
+- Action: formalise this as ADR-019 ("In-prompt self-checks are advisory; deterministic
+  post-generation gates are the enforcement layer") in docs/ADR.md. Update CLAUDE.md
+  ADR reference list.
 
 ### [integration] H-3 polling + M-3 per-client Instantly key — pre-c1
 - Added 2026-06-04. Bucket: pre-c1.
@@ -2059,12 +2068,11 @@ Complete all items before the first paying client goes live:
 
 ### [pre-c1] Regenerate TOV after agent quality pass
 
-- Updated 2026-06-05 (was: "Held 1,422-word TOV refresh suggestion").
-- The held TOV suggestion was rejected 2026-06-05. The suggestion row is disposed.
-- Action: once the TOV generation agent has been through the quality pass (em-dash
-  scrub, AI-tell removal, style rules enforcement), regenerate the MargenticOS TOV
-  guide so it reflects the improved agent output before c1 onboarding.
-- Trigger: after agent quality pass is complete; before c1 onboarding.
+- Updated 2026-06-05. Agent quality pass (Phases 0–3) complete. Phase 4 pending approval.
+- Phases 1–3 are in worktree-agent-ae91d40d71b6a63b8, awaiting Gate 1 review and merge.
+- Phase 4 (TOV regeneration for org 74243c62-f42d-4f3f-b93e-bd5e51f0b6c0) runs only after
+  Doug approves the Gate 1 diff and the worktree is merged to main.
+- Trigger: Doug approves Gate 1 → merge → run Phase 4 → present TOV for Gate 2 approval.
 
 ### ~~[security] Webhook secret rotation — post-c0 polish~~
 - SUPERSEDED 2026-06-05. Confirmed duplicate of the above entry. Rotation is now

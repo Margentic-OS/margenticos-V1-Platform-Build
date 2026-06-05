@@ -29,6 +29,19 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { fetchWebsiteContext, formatWebsiteContextForPrompt, type WebsitePageContext } from '@/lib/agents/website-context'
+import { scrubAITellsDeepExcluding, assertNoDashesExcluding } from '@/lib/style/customer-facing-style-rules'
+
+// Fields in the TOV output that hold verbatim writing samples from the founder.
+// These are passed through completely unchanged by both scrub and assert.
+// Generated prose fields — including before_after_examples — get the hard throw-and-abort gate.
+const TOV_VERBATIM_FIELDS: ReadonlySet<string> = new Set([
+  'evidence',                 // voice_characteristics[*].evidence + what_this_voice_never_does[*].evidence
+  'words_they_use',           // vocabulary.words_they_use — exact founder vocabulary extracted from samples
+  'dominant_sentence_length', // sentence_mechanics fields embed inline verbatim quotes
+  'fragment_usage',
+  'punctuation_patterns',
+  'opening_move_pattern',
+])
 
 // The model specified in the PRD for document generation agents.
 const TOV_MODEL = 'claude-opus-4-6'
@@ -213,12 +226,19 @@ export async function runTovGenerationAgent(
     )
   }
 
+  // Gate: field-aware scrub. Verbatim founder writing fields (TOV_VERBATIM_FIELDS) pass
+  // through completely unchanged. All other fields — including before_after_examples —
+  // get the same hard throw-and-abort gate as ICP and positioning agents.
+  const scrubbedDocument = scrubAITellsDeepExcluding(parsedDocument, 'tov-agent', TOV_VERBATIM_FIELDS)
+  assertNoDashesExcluding(scrubbedDocument, 'tov-agent', TOV_VERBATIM_FIELDS)
+  const scrubbedContent = JSON.stringify(scrubbedDocument)
+
   // Step 9: Write to document_suggestions — never to strategy_documents directly.
   const suggestionId = await writeDocumentSuggestion(supabase, {
     organisation_id,
     existingDocument,
-    generatedContent,
-    parsedDocument,
+    generatedContent: scrubbedContent,
+    parsedDocument: scrubbedDocument,
     intake,
     voiceInputs,
     completeness,
