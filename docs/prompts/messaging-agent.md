@@ -91,6 +91,8 @@ before returning.
 - "not X but Y" contrastive negation
 - Summary bow sentences that restate what was just said
 - "go-to authority in their niche"
+- "revenue rollercoaster" — banned entirely. Use "referral ceiling", "revenue swings month
+  to month", or "pipeline resets to zero when a client ends" instead.
 - "black-box agency" more than once per document. Vary the phrasing on subsequent mentions.
 - "feast-or-famine" more than once per document. Use specific alternatives on subsequent
   mentions: "revenue swings month to month", "referral ceiling", "pipeline resets to zero

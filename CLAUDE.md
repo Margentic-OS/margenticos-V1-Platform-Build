@@ -643,6 +643,43 @@ Never place a route directly under src/app/dashboard/ outside (client)/ or opera
 
 ---
 
+## Database security — two standing rules (learn from 2026-06-05)
+
+### Rule: Every REVOKE ships with explicit GRANTs to each legitimate caller
+
+Every migration that runs REVOKE EXECUTE FROM PUBLIC on a function must also include
+explicit GRANT EXECUTE TO <role> for each legitimate caller of that function — verified
+with has_function_privilege before committing:
+
+  GRANT EXECUTE ON FUNCTION public.fn_name(...) TO service_role;
+  SELECT has_function_privilege('service_role', 'public.fn_name(...)', 'EXECUTE');
+
+Grant only the roles that actually call the function:
+  service_role   → when a route owns the auth gate (most SECURITY DEFINER functions)
+  authenticated  → only when RLS policies or client-visible routes call it directly
+  pg_cron        → only for scheduled functions not accessible via REST
+
+Never REVOKE and commit without verifying callers. The 2026-06-05 incident: a May
+security-audit REVOKE removed PUBLIC access to approve_document_suggestion without
+granting service_role back. Every UI Approve click silently failed for days until
+the Postgres error log was checked directly.
+
+### Rule: Diagnostics on side-effecting functions use BEGIN ... ROLLBACK
+
+Never call a side-effecting Postgres function with a bare SELECT to "see what it does."
+SELECT fn() commits if the function has side effects (inserts, updates, deletes).
+Wrap in an explicit transaction and roll back:
+
+  BEGIN;
+  SELECT fn(arg1, arg2);
+  ROLLBACK;
+
+Omitting the ROLLBACK is the same as committing. The 2026-06-05 incident: a SELECT
+approve_document_suggestion(...) called as a diagnostic committed the approval and
+bypassed the UI verification the operator had asked to perform themselves.
+
+---
+
 ## When something breaks
 
 1. Read the Sentry error. It says exactly what broke and where.
