@@ -16,6 +16,7 @@ import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { runResearchQueries, formatResearchForPrompt, type ResearchBundle } from '@/lib/agents/tools/webSearch'
 import { fetchWebsiteContext, formatWebsiteContextForPrompt, type WebsitePageContext } from '@/lib/agents/website-context'
+import { scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
 
 // The model specified in the PRD for document generation agents.
 const ICP_MODEL = 'claude-opus-4-6'
@@ -169,13 +170,19 @@ export async function runIcpGenerationAgent(
     )
   }
 
+  // Gate: scrub em-dashes and AI tells from all prose string values in the document.
+  // Operates on string values only — never changes JSON structure.
+  const scrubbedDocument = scrubAITellsDeep(parsedDocument, 'icp-agent')
+  assertNoDashes(scrubbedDocument, 'icp-agent')
+  const scrubbedContent = JSON.stringify(scrubbedDocument)
+
   // Step 9: Write to document_suggestions — never to strategy_documents directly.
   const suggestionId = await writeDocumentSuggestion(supabase, {
     organisation_id,
     segment_id,
     existingDocument,
-    generatedContent,
-    parsedDocument,
+    generatedContent: scrubbedContent,
+    parsedDocument: scrubbedDocument,
     intake,
     completeness,
     is_refresh,

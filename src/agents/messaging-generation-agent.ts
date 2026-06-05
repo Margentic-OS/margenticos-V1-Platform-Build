@@ -24,7 +24,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
-import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
+import { scrubAITells, scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
 
 const MESSAGING_MODEL = 'claude-sonnet-4-6' // TEST ONLY — revert to claude-opus-4-6 for production (ADR-013)
 
@@ -1417,6 +1417,12 @@ async function writeDocumentSuggestion(
     ])
   )
 
+  // Full payload gate: scrub and assert on the entire variants JSON before writing.
+  // The per-email body scrub in processOneVariant already ran; this catches subject lines
+  // and any other prose fields that the body-only scrub did not cover.
+  const gatedVariants = scrubAITellsDeep(variantsForStorage, 'messaging-agent')
+  assertNoDashes(gatedVariants, 'messaging-agent')
+
   const { data, error } = await supabase
     .from('document_suggestions')
     .insert({
@@ -1426,7 +1432,7 @@ async function writeDocumentSuggestion(
       document_type: 'messaging',
       field_path: 'full_document',
       current_value: existingDocument?.plain_text ?? null,
-      suggested_value: JSON.stringify({ variants: variantsForStorage }),
+      suggested_value: JSON.stringify({ variants: gatedVariants }),
       suggestion_reason: suggestionReason,
       confidence_level: completeness >= 80 ? 'high' : 'low',
       signal_count: 0,
