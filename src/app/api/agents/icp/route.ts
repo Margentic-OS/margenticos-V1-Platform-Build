@@ -113,11 +113,11 @@ export async function POST(request: NextRequest) {
   const providedSecret = request.headers.get('x-internal-secret')
   const isInternalCall = internalSecret && providedSecret === internalSecret
 
-  // ── 3. Create Supabase client (service role — used for data access in both paths) ──
+  // ── 3. Create Supabase clients ─────────────────────────────────────────────
   const cookieStore = await cookies()
-  const supabase = createServerClient(
+  const sessionClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() { return cookieStore.getAll() },
@@ -129,12 +129,13 @@ export async function POST(request: NextRequest) {
       },
     }
   )
+  const supabase = getAdminClient()
 
   let operatorId = 'internal'
 
   if (!isInternalCall) {
     // ── 3a. Verify authenticated user ─────────────────────────────────────────
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await sessionClient.auth.getUser()
 
     if (authError || !user) {
       return NextResponse.json(

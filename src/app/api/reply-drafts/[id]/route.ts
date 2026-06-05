@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
 import { extractReplyBody } from '@/lib/reply-handling/extract-reply-body'
@@ -32,9 +33,9 @@ export async function GET(
   }
 
   const cookieStore = await cookies()
-  const supabase = createServerClient(
+  const sessionClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() { return cookieStore.getAll() },
@@ -44,9 +45,13 @@ export async function GET(
       },
     }
   )
+  const supabase = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
 
   // ── 1. Authenticated ──────────────────────────────────────────────────────────
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await sessionClient.auth.getUser()
   if (authError || !user) {
     return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
   }

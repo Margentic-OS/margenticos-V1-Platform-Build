@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
 
@@ -31,9 +32,10 @@ export async function POST(
   }
 
   const cookieStore = await cookies()
-  const supabase = createServerClient(
+  // Session client: reads user JWT from cookie — anon key only, no service role context
+  const sessionClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() { return cookieStore.getAll() },
@@ -45,9 +47,14 @@ export async function POST(
       },
     }
   )
+  // Service client: bypasses RLS as service_role — used for all DB operations
+  const supabase = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
 
   // ── 1. Authenticated ────────────────────────────────────────────────────────
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await sessionClient.auth.getUser()
   if (authError || !user) {
     return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
   }
@@ -109,10 +116,20 @@ export async function POST(
       document_type: suggestion.document_type,
       error: rpcError.message,
     })
-    return NextResponse.json(
-      { error: 'Approval failed. The suggestion has not been changed. Check server logs.' },
-      { status: 500 }
-    )
+    const msg = rpcError.message ?? ''
+    let clientError: string
+    if (msg.includes('not in pending status')) {
+      clientError = 'This suggestion was already approved or rejected — no changes made.'
+    } else if (msg.includes('missing the variants key')) {
+      clientError = 'This suggestion is missing required content. Regenerate and try again.'
+    } else if (msg.includes('not valid JSON')) {
+      clientError = 'This suggestion contains invalid data. Regenerate and try again.'
+    } else if (msg.includes('permission denied')) {
+      clientError = 'Permission error — contact the platform operator.'
+    } else {
+      clientError = `Approval failed: ${msg}. The suggestion has not been changed.`
+    }
+    return NextResponse.json({ error: clientError }, { status: 500 })
   }
 
   logger.info('Approve route: suggestion approved', {

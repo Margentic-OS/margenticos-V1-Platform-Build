@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
@@ -22,11 +23,11 @@ export const dynamic = 'force-dynamic'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-async function buildSupabase() {
+async function buildSessionClient() {
   const cookieStore = await cookies()
-  return createServerClient<Database>(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() { return cookieStore.getAll() },
@@ -38,17 +39,24 @@ async function buildSupabase() {
   )
 }
 
-async function requireOperator(supabase: Awaited<ReturnType<typeof buildSupabase>>) {
-  const { data: { user }, error } = await supabase.auth.getUser()
+async function requireOperator(
+  sessionClient: Awaited<ReturnType<typeof buildSessionClient>>,
+  serviceClient: ReturnType<typeof createServiceClient<Database>>
+) {
+  const { data: { user }, error } = await sessionClient.auth.getUser()
   if (error || !user) return { user: null, authorized: false }
-  const { data: userRow } = await supabase.from('users').select('role').eq('id', user.id).single()
+  const { data: userRow } = await serviceClient.from('users').select('role').eq('id', user.id).single()
   if (!userRow || userRow.role !== 'operator') return { user, authorized: false }
   return { user, authorized: true }
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = await buildSupabase()
-  const { user, authorized } = await requireOperator(supabase)
+  const sessionClient = await buildSessionClient()
+  const supabase = createServiceClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+  const { user, authorized } = await requireOperator(sessionClient, supabase)
 
   if (!authorized) {
     return NextResponse.json(

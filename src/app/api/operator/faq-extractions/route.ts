@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
@@ -18,9 +19,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export async function GET(request: NextRequest) {
   const cookieStore = await cookies()
-  const supabase = createServerClient<Database>(
+  const sessionClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() { return cookieStore.getAll() },
@@ -30,9 +31,13 @@ export async function GET(request: NextRequest) {
       },
     }
   )
+  const supabase = createServiceClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
 
   // ── 1. Auth ───────────────────────────────────────────────────────────────
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await sessionClient.auth.getUser()
   if (authError || !user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
 
   const { data: userRow } = await supabase.from('users').select('role').eq('id', user.id).single()

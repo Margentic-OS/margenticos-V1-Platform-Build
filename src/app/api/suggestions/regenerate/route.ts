@@ -63,9 +63,9 @@ export async function POST(request: NextRequest) {
   }
 
   const cookieStore = await cookies()
-  const supabase = createServerClient(
+  const sessionClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() { return cookieStore.getAll() },
@@ -77,9 +77,10 @@ export async function POST(request: NextRequest) {
       },
     }
   )
+  const supabase = makeServiceClient()
 
   // ── 1. Authenticated ────────────────────────────────────────────────────────
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await sessionClient.auth.getUser()
   if (authError || !user) {
     return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
   }
@@ -146,11 +147,9 @@ export async function POST(request: NextRequest) {
   // ── 5. Fire new agent run asynchronously ────────────────────────────────────
   // Phase 1: fire-and-forget. The agent writes a new pending suggestion when done.
   // A proper job queue should replace this in a later phase.
-  const serviceSupabase = makeServiceClient()
-
   void AGENT_MAP[document_type]({
     organisation_id: client_id,
-    supabase: serviceSupabase,
+    supabase,
     is_refresh: true,
   }).catch((err: unknown) => {
     logger.error('Regenerate route: agent run failed', {
