@@ -853,15 +853,37 @@ Signal processing agent and warnings engine backend deferred to Phase 2 — see 
   client is an onboarding embarrassment. The tool names in WarningsRail action text also violate
   the operator-facing tool-agnostic principle when the platform serves multiple integration options.
 
-- [pre-c1] Login page rate-limit error message is misleading (2026-05-05)
-  When Supabase OTP rate limits trigger (too many magic link requests from one address), the login
-  page shows the same generic "Something went wrong. Please try again." as a real auth failure.
-  An operator who doesn't recognise the rate-limit situation will keep requesting magic links,
-  deepening the rate-limit hole and potentially locking themselves out for several minutes.
-  Fix: parse the Supabase error response in src/app/login/actions.ts. Supabase rate-limit errors
-  return a recognisable code or message string. Show a distinct message:
-  "Too many requests — please wait a few minutes before trying again."
-  This is low-effort, high-impact for any operator doing rapid testing.
+- [DONE 2026-06-05] Login page rate-limit error message is misleading (2026-05-05)
+  RESOLVED as part of the auth front-door fix session (2026-06-05).
+  actions.ts already checked error.status === 429 and redirected to /login?error=rate_limited.
+  ERROR_MESSAGES['rate_limited'] = 'Too many login attempts. Please try again in an hour.'
+  Item was live before this session; flagged here for completeness. Confirmed by code review.
+
+- [DONE 2026-06-05] Auth front-door blocker — magic link non-delivery + auth_failed (2026-06-04/05)
+  ROOT CAUSE: Supabase project was using built-in SMTP (noreply@mail.app.supabase.io, shared relay,
+  2 emails/hour rate limit). Built-in relay has poor deliverability; "sent" logged in Supabase but
+  email silently dropped by receiving MTA. Rate limit of 2/hr meant repeated test requests exhausted
+  quota with no visible error.
+  MORNING auth_failed (benign): requesting a new link invalidates the prior OTP token (Supabase
+  single-use semantics). The earlier auth_failed was a superseded token from repeated test requests,
+  not a PKCE error or auth bug.
+
+  FIX — three changes, deployed as commits a134c49 (tests/utils) and d7a6ebc (OTP fallback):
+  A. Supabase SMTP → Resend custom SMTP (smtp.resend.com:465, sender: MargenticOS <login@margenticos.com>)
+     Rate limit raised from 2 → 10/hr. Email subject: "Sign in to MargenticOS". Configured via
+     Supabase management API (no code change). Verified: email arrives in seconds, sender correct.
+  B. margenticos.com verified in Resend (EU region). DNS added automatically via Netlify DNS REST API
+     (zone 69d56b71b4981c20806bb5aa): DKIM TXT on resend._domainkey, MX+TXT on send. subdomain.
+     SPF/DMARC: no apex merge needed (apex had no prior SPF; _dmarc already existed as p=none).
+  C. OTP-code fallback on login screen: email template updated to include {{ .Token }} (8-digit code
+     alongside the link). Login screen post-send state shows code entry form; verifyOtpCode server
+     action calls supabase.auth.verifyOtp type:email. Magic-link path unchanged. Scanner-proof:
+     code is not a URL and survives email scanner prefetch.
+
+  RESEND KEYS:
+  RESEND_API_KEY (send-only, existing) — transactional email from notifications@notifications.margenticos.com
+  RESEND_ADMIN_API_KEY (full-access, claude-code-admin key) — domain management automation; stored in
+    .env.local only; keep labeled for future automation; no rotation needed unless key is compromised.
 
 - [pre-c1] Verify auth redirect URLs in production for all auth flows (2026-05-05)
   The Supabase Site URL was previously set to localhost and was corrected on 2026-05-04
@@ -1621,6 +1643,8 @@ Complete all items before the first paying client goes live:
 - [ ] Run /qa on staging URL
 - [ ] Confirm all Calendly routing forms are configured per-client (Layer 3 qualification)
 - [ ] Review Lean Marketing contractor agreement for conflict-of-interest resolution
+- [x] Auth email routes via Resend custom SMTP — login@margenticos.com (verified domain), 10/hr
+      rate limit, OTP-code fallback on login screen. DONE 2026-06-05. No further action needed.
 
 ---
 
