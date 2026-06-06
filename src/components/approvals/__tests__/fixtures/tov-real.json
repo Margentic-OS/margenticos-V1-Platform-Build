@@ -1,0 +1,91 @@
+{
+  "voice_summary": "Direct, understated, and blunt. This voice writes the way a founder talks across a table: short sentences, plain vocabulary, dry humour, and a willingness to say the uncomfortable thing early.",
+  "voice_style_note": "Consistent with how you actually write. No contradiction to flag here.",
+  "voice_characteristics": [
+    {
+      "characteristic": "Blunt diagnosis delivered early",
+      "description": "The uncomfortable truth appears in the first half of any message, not buried in caveats at the end.",
+      "evidence": "\"On the first call I told him his plan to hire an ops manager wouldn't fix anything.\""
+    },
+    {
+      "characteristic": "Understated close, no hard sell",
+      "description": "Calls to action are low-pressure and give the reader an explicit out.",
+      "evidence": "\"If the timing's wrong now, fair enough, say the word.\""
+    }
+  ],
+  "do_dont_list": {
+    "do": [
+      "Open with a specific observation about the reader's situation.",
+      "Name the founder's real problem within the first two sentences.",
+      "Include at least one concrete number: price, timeline, team size, or revenue range.",
+      "Close with a low-pressure next step that gives the reader an explicit way to say no."
+    ],
+    "dont": [
+      "Never use exclamation marks.",
+      "Never open a message with I hope this finds you well.",
+      "Never list services before naming the problem those services solve.",
+      "Never promise specific results."
+    ]
+  },
+  "vocabulary": {
+    "words_they_use": ["fair enough", "say the word", "that's about it", "fixable", "fluff", "stuck", "embedded", "no pressure either way"],
+    "words_they_avoid": ["innovative", "robust", "seamless", "leverage", "synergy", "unlock", "game-changer", "holistic"],
+    "sentence_length": "Short to medium. Most sentences land between 8 and 18 words.",
+    "structural_patterns": [
+      "Opens with a concrete observation about the reader's situation or a specific fact.",
+      "Closes messages with a low-pressure next step that gives the reader an explicit exit."
+    ]
+  },
+  "writing_rules": [
+    {
+      "rule": "Never open with I or We",
+      "why": "This founder's natural register centres the reader's problem, not his own credentials.",
+      "example_violation": "I wanted to reach out because we help founder-led businesses.",
+      "example_correct": "Most £3m service firms I talk to have the same bottleneck."
+    },
+    {
+      "rule": "One question maximum per message",
+      "why": "This voice closes with a low-pressure next step, not a barrage of asks.",
+      "example_violation": "Would it be worth a quick chat? And is next week any good?",
+      "example_correct": "If that sounds familiar, worth a 15-minute call to see if the diagnostic fits."
+    },
+    {
+      "rule": "First touch under 100 words",
+      "why": "This founder is allergic to long pitches and values brevity.",
+      "example_violation": "Hi Mark, I hope this message finds you well. I wanted to introduce myself and our firm...",
+      "example_correct": "Mark\n\nMost recruitment firm founders at 25 staff are still the single point of failure.\n\nWorth a 15-minute call?"
+    }
+  ],
+  "what_this_voice_never_does": [
+    {
+      "rule": "Never uses exclamation marks",
+      "evidence": "Zero exclamation marks appear across all intake samples, the LinkedIn post, and every email."
+    },
+    {
+      "rule": "Never opens with credentials or company description",
+      "evidence": "None of the three writing samples open with who the founder is or what PartScale does."
+    },
+    {
+      "rule": "Never makes inflated outcome promises",
+      "evidence": "No ROI figures, no percentage improvements, no guaranteed language across all samples."
+    }
+  ],
+  "before_after_examples": [
+    {
+      "context": "LinkedIn first message to a founder/MD of a £5m recruitment firm with 30 staff, based in the UK.",
+      "before": "Hi Sarah, I hope you're well! I'm the founder of PartScale and we specialise in providing fractional COO leadership.",
+      "after": "Sarah\n\nAt 30 staff most recruitment firm founders are still the bottleneck in every decision. Holidays don't happen.\n\nThat's the gap we fill. Fractional, embedded, 1-2 days a week.\n\nWorth a 15-minute call?"
+    },
+    {
+      "context": "Follow-up email to a stalled prospect who attended a diagnostic intro call three weeks ago.",
+      "before": "Hi Tom, I just wanted to follow up on the proposal I sent over a few weeks ago.",
+      "after": "Tom\n\nNo pressure either way. You mentioned wanting the ops review done before your board meeting in September. If that still holds, we'd need to start by the 12th.\n\nIf the timing's shifted, fair enough."
+    }
+  ],
+  "sentence_mechanics": {
+    "dominant_sentence_length": "Short to medium, mostly 8 to 18 words. Defaults to direct declarative sentences.",
+    "fragment_usage": "Fragments are present but infrequent. They appear as closing punches: \"That's about it.\" \"Cheers.\"",
+    "punctuation_patterns": "Hard full stops dominate. No ellipses, no exclamation marks, anywhere.",
+    "opening_move_pattern": "Messages open with either the reader's name followed by a concrete observation, or a direct statement. Never with a greeting."
+  }
+}

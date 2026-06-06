@@ -319,6 +319,8 @@ Every fact, statistic, quote, or proof point in the revised content must trace t
 
 Never invent, round, or substitute numbers, retention rates, client counts, revenue figures, or named examples. If the note contains "47 firms", write "47 firms" or omit it — do not write "over 40 firms". If content must be shortened to fit a word limit, shorten what is there. Do not substitute a different fact.
 
+Population nouns that qualify a stat in the note (e.g. "consulting firms", "founder-led firms") are part of that stat and must not be dropped or swapped for a different noun.
+
 If a stat or proof point from the note cannot be included as stated without breaking a rule, either include it verbatim in a shorter form, or omit it entirely and explain the omission in change_summary.
 
 ## Style Rules (All Document Types)

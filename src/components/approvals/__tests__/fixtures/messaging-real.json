@@ -1,0 +1,20 @@
+{
+  "variants": {
+    "A": {
+      "emails": [
+        { "sequence_position": 1, "subject_line": "still the bottleneck", "subject_char_count": 20, "body": "{{first_name}}\n\nEvery holiday you haven't taken is sitting in your calendar as a meeting with someone else's problem.\n\nIs that something you're actively trying to fix?\n\nDoug", "word_count": 33 },
+        { "sequence_position": 2, "subject_line": null, "subject_char_count": 0, "body": "{{first_name}}\n\nThe pattern I see most often: the founder hires an ops manager and is back in every room within six months. The hire didn't fail. The structure did.\n\nDoes that sound like where you are?\n\nDoug", "word_count": 40 },
+        { "sequence_position": 3, "subject_line": null, "subject_char_count": 0, "body": "{{first_name}}\n\nMost founders who solve this didn't fix it by hiring better people. They fixed the structure the founder was sitting inside.\n\nWorth a call to see if the diagnostic fits?\n\nDoug", "word_count": 33 },
+        { "sequence_position": 4, "subject_line": "last note", "subject_char_count": 9, "body": "{{first_name}}\n\nThis is the last email from me on this. If the timing's wrong or it's not relevant, fair enough.\n\nIf it shifts, you know where to find us.\n\nDoug", "word_count": 32 }
+      ]
+    },
+    "B": {
+      "emails": [
+        { "sequence_position": 1, "subject_line": "still the bottleneck", "subject_char_count": 19, "body": "{{first_name}}\n\nMost founders at your stage describe the same week: every decision still routes through them, holidays don't happen.\n\nIs this something you're actively trying to sort?\n\nDoug", "word_count": 31 },
+        { "sequence_position": 2, "subject_line": null, "subject_char_count": 0, "body": "{{first_name}}\n\nMost founders I talk to at your stage have already tried the obvious fix. They promoted someone and within six months were back in every room.\n\nDoes that sound like where you are?\n\nDoug", "word_count": 36 },
+        { "sequence_position": 3, "subject_line": null, "subject_char_count": 0, "body": "{{first_name}}\n\nThe founders who get their time back changed what decisions were allowed to reach them. That shift doesn't happen by itself.\n\nWorth a call?\n\nDoug", "word_count": 28 },
+        { "sequence_position": 4, "subject_line": "last note", "subject_char_count": 9, "body": "{{first_name}}\n\nThis is the last I'll send. If the timing's wrong, fair enough.\n\nIf it ever becomes useful, the door's open.\n\nDoug", "word_count": 24 }
+      ]
+    }
+  }
+}

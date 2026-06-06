@@ -1,0 +1,91 @@
+{
+  "summary": "The ideal client is a founder-led UK service business at £2m–£10m revenue where the founder is still the operational bottleneck.",
+  "jtbd_statement": "Get me in front of founder-MDs who are stuck running everything so I can fill the pipeline without doing the outreach myself.",
+  "tier_1": {
+    "label": "Ideal Client",
+    "description": "Founder-MD of a UK B2B service business at £3m–£12m revenue who is personally stuck in delivery, has no real management layer, and has already tried to fix it themselves.",
+    "company_profile": {
+      "revenue_range": "£3m–£12m",
+      "headcount": "20–60 employees",
+      "stage": "Past early growth, hitting the complexity wall.",
+      "industries": ["Management Consulting", "Marketing Consulting", "Recruitment and Staffing"],
+      "geography": "UK, primarily England.",
+      "business_model": "Project-based or retainer-based services."
+    },
+    "buyer_profile": {
+      "title": "Founder / Managing Director",
+      "seniority": "Sole decision-maker. No board, no investors with veto power.",
+      "day_to_day": "In every room. Every decision routes through them.",
+      "identity": "They see themselves as a builder, not a manager."
+    },
+    "four_forces": {
+      "push": ["The founder has not taken a proper holiday in over a year."],
+      "pull": ["A management team that runs the weekly rhythm without the founder in the room."],
+      "anxiety": ["They have been burned by consultants before."],
+      "habit": ["Referrals keep arriving just often enough to remove the acute pain."]
+    },
+    "triggers": [
+      { "trigger": "A key senior person has left in the last 90 days.", "evidence_to_find": ["Apollo: headcount reduction signal."] }
+    ],
+    "switching_costs": ["£12k upfront for the diagnostic."],
+    "disqualifiers": ["Revenue below £2m.", "Product-based or SaaS business.", "Founder is not the sole decision-maker."]
+  },
+  "tier_2": {
+    "label": "Good Client",
+    "description": "Founder-led UK service businesses at £1.5m–£3m or £12m–£20m that fit the profile but sit outside the sweet spot.",
+    "company_profile": {
+      "revenue_range": "£1.5m–£3m or £12m–£20m",
+      "headcount": "12–20 or 60–80 employees",
+      "stage": "Approaching or past the complexity wall.",
+      "industries": ["Recruitment and Staffing", "Management Consulting", "Training and Development"],
+      "geography": "UK, any region.",
+      "business_model": "B2B services, retainer or project-based."
+    },
+    "buyer_profile": {
+      "title": "Founder / Managing Director, occasionally a co-founder pair",
+      "seniority": "Decision-maker or one of two decision-makers.",
+      "day_to_day": "Smaller end: doing everything. Larger end: pulled back in despite trying to step away.",
+      "identity": "Similar to Tier 1 but with key difference on urgency."
+    },
+    "four_forces": {
+      "push": ["Smaller end: founder knows the model breaks at 20 staff."],
+      "pull": ["Smaller end: idea of having someone who has done this before."],
+      "anxiety": ["Can they afford £5k a month when cash is tight?"],
+      "habit": ["The founder can still do everything personally."]
+    },
+    "triggers": [
+      { "trigger": "Founder has just lost a key client or had a quarter where revenue dropped 15%.", "evidence_to_find": ["Apollo: headcount flat or declining."] }
+    ],
+    "switching_costs": ["Smaller end: the £12k diagnostic is a larger proportion of available cash."],
+    "disqualifiers": ["Revenue below £1.5m.", "The founder wants advisory only.", "Venture-backed with an active board."]
+  },
+  "tier_3": {
+    "label": "Do Not Target",
+    "description": "Engaging these businesses wastes pipeline budget and risks failed engagements.",
+    "company_profile": {
+      "revenue_range": "Below £1m or above £25m",
+      "headcount": "Under 10 or over 100",
+      "stage": "Pre-product-market-fit or mature enough to need a full-time COO.",
+      "industries": ["Information Technology Consulting", "Data Analytics Consulting"],
+      "geography": "Outside the UK.",
+      "business_model": "SaaS, product-led, e-commerce, or any non-service business."
+    },
+    "buyer_profile": {
+      "title": "Non-founder operators or early-stage solopreneurs",
+      "seniority": "Not the sole decision-maker.",
+      "day_to_day": "Running a team too small for PartScale's intervention.",
+      "identity": "First-time founder or professional manager who sees fractional COOs as a cost."
+    },
+    "four_forces": {
+      "push": ["Sub-£1m founders feel overwhelmed but the real problem is unproven business model."],
+      "pull": ["Attracted to stepping back, but they are the delivery."],
+      "anxiety": ["Deep anxiety about cash."],
+      "habit": ["The founder is addicted to doing the work."]
+    },
+    "triggers": [
+      { "trigger": "A sub-£1m founder reaches out after reading a LinkedIn post.", "evidence_to_find": ["Apollo: company headcount under 10."] }
+    ],
+    "switching_costs": ["For PartScale, the cost is reputational."],
+    "disqualifiers": ["Revenue below £1m confirmed.", "Company is product-based or SaaS.", "Headquartered outside the UK.", "Already has a full-time COO."]
+  }
+}

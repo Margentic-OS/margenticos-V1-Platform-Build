@@ -1,0 +1,87 @@
+{
+  "positioning_summary": "PartScale is a fractional COO practice for founder-led UK service businesses doing £2m to £20m in revenue where the founder is still the operational bottleneck.",
+  "moore_positioning": {
+    "compressed_positioning_statement": "For founder-led UK service businesses doing £2m–£10m where the founder is still the bottleneck, PartScale is an embedded fractional COO practice that builds the management layer until the business runs without the founder in the room.",
+    "full_positioning_statement": "For founders of UK B2B service businesses at £2m to £10m revenue who are trapped in the day-to-day, PartScale is an embedded fractional COO practice that builds the leadership layer, installs a management cadence, and coaches a second-in-command so the business runs without the founder in every room."
+  },
+  "market_category": {
+    "chosen_category": "Embedded fractional COO for founder-led service businesses",
+    "why_this_frame": "This frame does three things for the Tier 1 buyer. First, fractional COO immediately signals senior operational leadership without the £150k+ hire. Second, embedded distinguishes PartScale from advisory consultancies and report-writers. Third, founder-led service businesses narrows the category enough that the buyer self-selects.",
+    "alternative_frames_considered": [
+      {
+        "frame": "Management consultancy",
+        "why_rejected": "This frame triggers the buyer's worst associations: expensive reports, no implementation, consultants who talk down to founders."
+      },
+      {
+        "frame": "Operations advisory or coaching",
+        "why_rejected": "Advisory and coaching frames signal episodic involvement: a call a week, a workshop, a framework. PartScale embeds 1-2 days a week and chairs the leadership meeting."
+      }
+    ]
+  },
+  "unique_attributes": [
+    {
+      "what_it_is": "The team embeds inside the client's business 1-2 days per week, chairs the leadership meeting, and runs operational cadence as a working member of the leadership team.",
+      "client_outcome": "The founder stops being pulled into operational decisions within the first 90 days.",
+      "why_competitors_cannot_claim_it": "Most fractional COO providers and management consultancies deliver through workshops and reports. Embedding requires senior people who can run a room without the founder present."
+    },
+    {
+      "what_it_is": "Every engagement starts with a 3-week diagnostic (£12k fixed) that produces a prioritised fix list before any retainer commitment.",
+      "client_outcome": "The founder gets a written, prioritised 90-day plan within 3 weeks, before committing a single pound to ongoing work.",
+      "why_competitors_cannot_claim_it": "Competitors either skip the diagnostic or run a discovery process that is really a sales exercise bundled into the first month."
+    }
+  ],
+  "value_themes": [
+    {
+      "theme": "The business runs without the founder in the room",
+      "for_whom": "Tier 1 founders at £2m–£10m who cannot take a week off without the phone ringing.",
+      "outcome_statement": "The leadership team runs the weekly cadence independently and the last holiday went uninterrupted."
+    },
+    {
+      "theme": "A second-in-command who actually owns the day-to-day",
+      "for_whom": "Tier 1 founders who have tried promoting someone internal and watched it fail.",
+      "outcome_statement": "The internal successor is making operational decisions the founder used to make, with the founder's trust earned through demonstrated competence."
+    }
+  ],
+  "competitive_alternatives": [
+    {
+      "name": "Keep running it themselves and hope the next hire fixes it",
+      "buyer_reasoning": "The founder has survived this long on personal competence. The honest logic is: I built this, I should be able to fix this.",
+      "limitation": "The founder is the structural problem. Hiring underneath themselves without changing how decisions flow just adds cost without removing the bottleneck."
+    },
+    {
+      "name": "Hire a full-time COO at £120k–£150k+",
+      "buyer_reasoning": "This feels like the proper solution. A permanent hire signals commitment and creates a clear reporting line.",
+      "limitation": "At £2m–£10m revenue, a £150k+ hire is a significant fixed cost bet on a single person. Most of these hires fail within 12 months because the founder never actually lets go."
+    }
+  ],
+  "best_fit_characteristics": {
+    "must_haves": [
+      "Founder-led UK B2B service business with £2m–£10m revenue and 15–80 staff.",
+      "The founder is the sole decision-maker.",
+      "The founder is currently the operational bottleneck: sales, delivery, hiring all route through them."
+    ],
+    "amplifiers": [
+      "A key person has recently quit or threatened to leave.",
+      "The founder has a specific milestone creating urgency: Q3/Q4 planning or a growth target."
+    ],
+    "disqualifiers": [
+      "Revenue below £1.5m.",
+      "The founder is not the decision-maker.",
+      "They want a one-off strategy document.",
+      "The business is product-based, e-commerce, or SaaS."
+    ]
+  },
+  "competitive_landscape": {
+    "white_space": "The territory no competitor is claiming clearly: we embed inside your business as a working member, we start by telling you what is broken before you commit to anything, and we stay until your own people take over.",
+    "direct_competitors": [
+      "Other fractional COO providers targeting founder-led UK SMEs, typically solo practitioners without a team or diagnostic-first model.",
+      "Mid-tier management consultancies offering operational strategy projects with deliverables focused on reports rather than execution."
+    ],
+    "dominant_narrative": "The message this buyer hears everywhere is we'll help you scale or we'll give you your time back. Every fractional COO and management consultancy makes some version of this claim."
+  },
+  "key_messages": {
+    "cold_outreach_hook": "Still the one answering every question that shouldn't reach you?",
+    "discovery_frame": "The problem is rarely the team. It is usually the structure around the founder. We are here to figure out where the decisions are getting stuck and what to fix first.",
+    "objection_response": "The difference is that we do not send you a report and leave. We sit inside the business two days a week and stay until your own people can do it without us."
+  }
+}
