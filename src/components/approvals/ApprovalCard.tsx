@@ -70,9 +70,38 @@ type TovCharacteristic = {
   evidence?: string
 }
 
+type DoDontItem = {
+  do?: string
+  dont?: string
+}
+
+type VocabularyDoc = {
+  preferred?: string[]
+  avoid?: string[]
+}
+
+type BeforeAfterExample = {
+  before?: string
+  after?: string
+  note?: string
+}
+
+type SentenceMechanics = {
+  avg_sentence_length?: string
+  punctuation_rules?: string
+  paragraph_length?: string
+}
+
 type TovDoc = {
   voice_summary?: string
+  voice_style_note?: string
   voice_characteristics?: TovCharacteristic[]
+  do_dont_list?: DoDontItem[]
+  vocabulary?: VocabularyDoc
+  writing_rules?: string[]
+  what_this_voice_never_does?: string[]
+  before_after_examples?: BeforeAfterExample[]
+  sentence_mechanics?: SentenceMechanics
 }
 
 type CompetitiveAlternative = {
@@ -81,9 +110,47 @@ type CompetitiveAlternative = {
   limitation?: string
 }
 
+type ValueTheme = {
+  theme?: string
+  proof_points?: string[]
+}
+
+type KeyMessage = {
+  audience?: string
+  message?: string
+  proof_point?: string
+}
+
 type PositioningDoc = {
   positioning_summary?: string
+  moore_positioning?: string
+  market_category?: string
+  unique_attributes?: string[]
+  value_themes?: ValueTheme[]
   competitive_alternatives?: CompetitiveAlternative[]
+  key_messages?: KeyMessage[]
+  best_fit_characteristics?: string[]
+  competitive_landscape?: string
+}
+
+type IcpTier = {
+  tier?: string
+  firmographics?: string
+  industry_focus?: string
+  company_size?: string
+  job_titles?: string[]
+  pain_indicators?: string[]
+  growth_signals?: string[]
+  tech_signals?: string[]
+  psychographics?: string
+  why_now?: string
+  disqualifiers?: string[]
+}
+
+type IcpDoc = {
+  icp_summary?: string
+  positioning_note?: string
+  tiers?: IcpTier[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -114,6 +181,37 @@ function parseSuggestedValue(raw: string): unknown {
   } catch {
     return null
   }
+}
+
+// Amendment 7: renders any field not explicitly handled by a typed renderer as key: value.
+function renderUnknownFields(obj: Record<string, unknown>, handledKeys: Set<string>) {
+  function fmtVal(val: unknown): string {
+    if (val === null || val === undefined) return ''
+    if (typeof val === 'string') return val
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val)
+    if (Array.isArray(val)) return val.map(fmtVal).filter(Boolean).join(', ')
+    return JSON.stringify(val)
+  }
+
+  const entries = Object.entries(obj)
+    .filter(([k]) => !handledKeys.has(k))
+    .map(([k, v]) => [k, fmtVal(v)] as const)
+    .filter(([, v]) => v)
+
+  if (entries.length === 0) return null
+
+  return (
+    <div className="space-y-3 pt-2 border-t border-border-card">
+      {entries.map(([key, val]) => (
+        <div key={key}>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">
+            {key.replace(/_/g, ' ')}
+          </p>
+          <p className="text-xs text-text-secondary leading-relaxed">{val}</p>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 // Extracts a plain string from a subject_line_option (object or legacy string)
@@ -220,6 +318,69 @@ function EmailSection({ label, email }: { label: string; email: MessagingEmail }
               </p>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── ICP tier card ────────────────────────────────────────────────────────────
+
+function IcpTierCard({ tier }: { tier: IcpTier }) {
+  const listFields = [
+    { label: 'Job titles', items: tier.job_titles ?? [] },
+    { label: 'Pain indicators', items: tier.pain_indicators ?? [] },
+    { label: 'Growth signals', items: tier.growth_signals ?? [] },
+    { label: 'Tech signals', items: tier.tech_signals ?? [] },
+    { label: 'Disqualifiers', items: tier.disqualifiers ?? [] },
+  ].filter(f => f.items.length > 0)
+
+  return (
+    <div className="bg-surface-content rounded-[8px] px-3 py-3 space-y-2.5">
+      {tier.tier && (
+        <p className="text-xs font-medium text-text-primary">{tier.tier}</p>
+      )}
+      {tier.firmographics && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">Firmographics</p>
+          <p className="text-xs text-text-secondary leading-relaxed">{tier.firmographics}</p>
+        </div>
+      )}
+      {tier.industry_focus && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">Industry</p>
+          <p className="text-xs text-text-secondary leading-relaxed">{tier.industry_focus}</p>
+        </div>
+      )}
+      {tier.company_size && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">Company size</p>
+          <p className="text-xs text-text-secondary leading-relaxed">{tier.company_size}</p>
+        </div>
+      )}
+      {listFields.map(({ label, items }) => (
+        <div key={label}>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">{label}</p>
+          <ul className="space-y-0.5">
+            {items.map((item, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-xs text-text-secondary leading-relaxed">
+                <span className="shrink-0 text-text-muted">·</span>
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {tier.psychographics && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">Psychographics</p>
+          <p className="text-xs text-text-secondary leading-relaxed">{tier.psychographics}</p>
+        </div>
+      )}
+      {tier.why_now && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">Why now</p>
+          <p className="text-xs text-text-secondary leading-relaxed">{tier.why_now}</p>
         </div>
       )}
     </div>
@@ -431,15 +592,25 @@ function renderMessaging(parsed: unknown) {
 
 function renderTov(parsed: unknown) {
   const doc = parsed as TovDoc
+  const handledKeys = new Set([
+    'voice_summary', 'voice_style_note', 'voice_characteristics',
+    'do_dont_list', 'vocabulary', 'writing_rules', 'what_this_voice_never_does',
+    'before_after_examples', 'sentence_mechanics',
+  ])
 
   return (
     <div className="space-y-5">
       {doc.voice_summary && (
         <div>
-          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">
-            Voice summary
-          </p>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Voice summary</p>
           <p className="text-xs text-text-primary leading-relaxed">{doc.voice_summary}</p>
+        </div>
+      )}
+
+      {doc.voice_style_note && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Voice style note</p>
+          <p className="text-xs text-text-primary leading-relaxed">{doc.voice_style_note}</p>
         </div>
       )}
 
@@ -455,9 +626,7 @@ function renderTov(parsed: unknown) {
                   <p className="text-xs font-medium text-text-primary mb-1">{c.characteristic}</p>
                 )}
                 {c.description && (
-                  <p className="text-xs text-text-secondary leading-relaxed mb-1.5">
-                    {c.description}
-                  </p>
+                  <p className="text-xs text-text-secondary leading-relaxed mb-1.5">{c.description}</p>
                 )}
                 {c.evidence && (
                   <p className="text-[11px] text-text-muted italic leading-relaxed">{c.evidence}</p>
@@ -467,21 +636,216 @@ function renderTov(parsed: unknown) {
           </div>
         </div>
       )}
+
+      {(doc.do_dont_list ?? []).length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Do / Don't</p>
+          <div className="space-y-1.5">
+            {doc.do_dont_list!.map((item, i) => (
+              <div key={i} className="grid grid-cols-2 gap-3">
+                {item.do && (
+                  <div className="bg-[#EAF3DE] rounded-[6px] px-2.5 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.07em] text-[#3B6D11] mb-0.5">Do</p>
+                    <p className="text-xs text-[#3B6D11] leading-relaxed">{item.do}</p>
+                  </div>
+                )}
+                {item.dont && (
+                  <div className="bg-[#FDEEE8] rounded-[6px] px-2.5 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.07em] text-[#8B2020] mb-0.5">Don't</p>
+                    <p className="text-xs text-[#8B2020] leading-relaxed">{item.dont}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {doc.vocabulary && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Vocabulary</p>
+          <div className="grid grid-cols-2 gap-3">
+            {(doc.vocabulary.preferred?.length ?? 0) > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.07em] text-[#3B6D11] mb-1.5">Preferred</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {doc.vocabulary.preferred!.map((w, i) => (
+                    <span key={i} className="text-[11px] bg-[#EAF3DE] text-[#3B6D11] rounded-[4px] px-2 py-0.5">{w}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {(doc.vocabulary.avoid?.length ?? 0) > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.07em] text-[#8B2020] mb-1.5">Avoid</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {doc.vocabulary.avoid!.map((w, i) => (
+                    <span key={i} className="text-[11px] bg-[#FDEEE8] text-[#8B2020] rounded-[4px] px-2 py-0.5">{w}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {(doc.writing_rules ?? []).length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Writing rules</p>
+          <ul className="space-y-1">
+            {doc.writing_rules!.map((rule, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-xs text-text-primary leading-relaxed">
+                <span className="shrink-0 text-text-muted mt-0.5">·</span>
+                {rule}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(doc.what_this_voice_never_does ?? []).length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">What this voice never does</p>
+          <ul className="space-y-1">
+            {doc.what_this_voice_never_does!.map((item, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-xs text-[#8B2020] leading-relaxed">
+                <span className="shrink-0 text-[#8B2020] mt-0.5">·</span>
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(doc.before_after_examples ?? []).length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Before / After examples</p>
+          <div className="space-y-3">
+            {doc.before_after_examples!.map((ex, i) => (
+              <div key={i} className="space-y-1.5">
+                {ex.before && (
+                  <div className="bg-[#FDEEE8] rounded-[6px] px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.07em] text-[#8B2020] mb-0.5">Before</p>
+                    <p className="text-xs text-[#8B2020] leading-relaxed italic">"{ex.before}"</p>
+                  </div>
+                )}
+                {ex.after && (
+                  <div className="bg-[#EAF3DE] rounded-[6px] px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.07em] text-[#3B6D11] mb-0.5">After</p>
+                    <p className="text-xs text-[#3B6D11] leading-relaxed italic">"{ex.after}"</p>
+                  </div>
+                )}
+                {ex.note && (
+                  <p className="text-[11px] text-text-muted italic px-1">{ex.note}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {doc.sentence_mechanics && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Sentence mechanics</p>
+          <div className="bg-surface-content rounded-[6px] px-3 py-2.5 space-y-2">
+            {doc.sentence_mechanics.avg_sentence_length && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-0.5">Avg sentence length</p>
+                <p className="text-xs text-text-primary">{doc.sentence_mechanics.avg_sentence_length}</p>
+              </div>
+            )}
+            {doc.sentence_mechanics.punctuation_rules && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-0.5">Punctuation rules</p>
+                <p className="text-xs text-text-primary">{doc.sentence_mechanics.punctuation_rules}</p>
+              </div>
+            )}
+            {doc.sentence_mechanics.paragraph_length && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-0.5">Paragraph length</p>
+                <p className="text-xs text-text-primary">{doc.sentence_mechanics.paragraph_length}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {renderUnknownFields(doc as Record<string, unknown>, handledKeys)}
     </div>
   )
 }
 
 function renderPositioning(parsed: unknown) {
   const doc = parsed as PositioningDoc
+  const handledKeys = new Set([
+    'positioning_summary', 'moore_positioning', 'market_category', 'unique_attributes',
+    'value_themes', 'competitive_alternatives', 'key_messages', 'best_fit_characteristics',
+    'competitive_landscape',
+  ])
 
   return (
     <div className="space-y-5">
       {doc.positioning_summary && (
         <div>
-          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">
-            Positioning summary
-          </p>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Positioning summary</p>
           <p className="text-xs text-text-primary leading-relaxed">{doc.positioning_summary}</p>
+        </div>
+      )}
+
+      {doc.moore_positioning && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Geoffrey Moore statement</p>
+          <p className="text-xs text-text-primary leading-relaxed italic bg-surface-content rounded-[6px] px-3 py-2.5">
+            {doc.moore_positioning}
+          </p>
+        </div>
+      )}
+
+      {doc.market_category && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Market category</p>
+          <p className="text-xs text-text-primary">{doc.market_category}</p>
+        </div>
+      )}
+
+      {(doc.unique_attributes ?? []).length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Unique attributes</p>
+          <ul className="space-y-1">
+            {doc.unique_attributes!.map((attr, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-xs text-text-primary leading-relaxed">
+                <span className="shrink-0 text-text-muted mt-0.5">·</span>
+                {attr}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(doc.value_themes ?? []).length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">
+            Value themes · {doc.value_themes!.length}
+          </p>
+          <div className="space-y-2">
+            {doc.value_themes!.map((theme, i) => (
+              <div key={i} className="bg-surface-content rounded-[6px] px-3 py-2.5">
+                {theme.theme && (
+                  <p className="text-xs font-medium text-text-primary mb-1">{theme.theme}</p>
+                )}
+                {(theme.proof_points ?? []).length > 0 && (
+                  <ul className="space-y-0.5">
+                    {theme.proof_points!.map((pp, j) => (
+                      <li key={j} className="flex items-start gap-1.5 text-xs text-text-secondary leading-relaxed">
+                        <span className="shrink-0 text-text-muted">·</span>
+                        {pp}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -497,9 +861,7 @@ function renderPositioning(parsed: unknown) {
                   <p className="text-xs font-medium text-text-primary mb-1">{alt.name}</p>
                 )}
                 {alt.buyer_reasoning && (
-                  <p className="text-xs text-text-secondary leading-relaxed mb-1">
-                    {alt.buyer_reasoning}
-                  </p>
+                  <p className="text-xs text-text-secondary leading-relaxed mb-1">{alt.buyer_reasoning}</p>
                 )}
                 {alt.limitation && (
                   <p className="text-[11px] text-[#8B2020] leading-relaxed">{alt.limitation}</p>
@@ -509,6 +871,90 @@ function renderPositioning(parsed: unknown) {
           </div>
         </div>
       )}
+
+      {(doc.key_messages ?? []).length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">
+            Key messages · {doc.key_messages!.length}
+          </p>
+          <div className="space-y-2">
+            {doc.key_messages!.map((msg, i) => (
+              <div key={i} className="bg-surface-content rounded-[6px] px-3 py-2.5">
+                {msg.audience && (
+                  <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">{msg.audience}</p>
+                )}
+                {msg.message && (
+                  <p className="text-xs text-text-primary leading-relaxed mb-1">{msg.message}</p>
+                )}
+                {msg.proof_point && (
+                  <p className="text-[11px] text-text-secondary italic leading-relaxed">{msg.proof_point}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(doc.best_fit_characteristics ?? []).length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Best fit characteristics</p>
+          <ul className="space-y-1">
+            {doc.best_fit_characteristics!.map((char, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-xs text-text-primary leading-relaxed">
+                <span className="shrink-0 text-text-muted mt-0.5">·</span>
+                {char}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {doc.competitive_landscape && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Competitive landscape</p>
+          <p className="text-xs text-text-primary leading-relaxed">{doc.competitive_landscape}</p>
+        </div>
+      )}
+
+      {renderUnknownFields(doc as Record<string, unknown>, handledKeys)}
+    </div>
+  )
+}
+
+function renderIcp(parsed: unknown) {
+  const doc = parsed as IcpDoc
+  const handledKeys = new Set(['icp_summary', 'positioning_note', 'tiers'])
+
+  return (
+    <div className="space-y-5">
+      {doc.icp_summary && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">ICP summary</p>
+          <p className="text-xs text-text-primary leading-relaxed">{doc.icp_summary}</p>
+        </div>
+      )}
+
+      {(doc.tiers ?? []).length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">
+            Tiers · {doc.tiers!.length}
+          </p>
+          <div className="space-y-3">
+            {doc.tiers!.map((tier, i) => (
+              <IcpTierCard key={i} tier={tier} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {doc.positioning_note && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-2">Positioning note</p>
+          <p className="text-xs text-text-primary leading-relaxed italic">{doc.positioning_note}</p>
+        </div>
+      )}
+
+      {renderUnknownFields(doc as Record<string, unknown>, handledKeys)}
     </div>
   )
 }
@@ -551,6 +997,7 @@ function renderSuggestedContent(docType: string, raw: string) {
   if (docType === 'messaging') return renderMessaging(parsed)
   if (docType === 'tov') return renderTov(parsed)
   if (docType === 'positioning') return renderPositioning(parsed)
+  if (docType === 'icp') return renderIcp(parsed)
   return renderGeneric(parsed, raw)
 }
 
