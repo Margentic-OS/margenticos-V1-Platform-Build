@@ -24,11 +24,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createCookieClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
-import { runDocumentRevisionAgent } from '@/lib/agents/revision/run-revision'
+import { runDocumentRevisionAgent, RevisionGateError } from '@/lib/agents/revision/run-revision'
 import type { Json } from '@/types/database'
 import { logger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const VALID_DOC_TYPES = ['icp', 'positioning', 'tov', 'messaging'] as const
@@ -98,7 +99,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unsupported document type.' }, { status: 400 })
   }
 
-  // ── 5. Run revision agent ──────────────────────────────────────────────────
+  // ── 5. Rate-limit check: max 5 client revisions per org per day ────────────
+  // Counts strategy_documents rows only until S5 adds document_suggestions.update_trigger.
+  const todayUtcMidnight = new Date()
+  todayUtcMidnight.setUTCHours(0, 0, 0, 0)
+
+  const { count: revisionCount } = await admin
+    .from('strategy_documents')
+    .select('id', { count: 'exact', head: true })
+    .eq('organisation_id', orgId)
+    .eq('update_trigger', 'client_revision')
+    .gte('created_at', todayUtcMidnight.toISOString())
+
+  if ((revisionCount ?? 0) >= 5) {
+    return NextResponse.json(
+      { error: "You've requested a lot of changes today. Try again tomorrow, or contact your outbound team if something is urgent." },
+      { status: 429 },
+    )
+  }
+
+  // ── 6. Run revision agent ──────────────────────────────────────────────────
   let revised_content: unknown
   let change_summary: string
 
@@ -113,6 +133,21 @@ export async function POST(request: NextRequest) {
     revised_content = result.revised_content
     change_summary = result.change_summary
   } catch (err) {
+    if (err instanceof RevisionGateError) {
+      logger.warn('POST /api/documents/revise: gate failure after retry', {
+        document_id,
+        org_id: orgId,
+        document_type: doc.document_type,
+        violations: err.violations,
+      })
+      // TODO (S4): send operator notification email here.
+      // The copy below says "notified" — the email ships in S4. Known temporary
+      // inconsistency during the no-clients window.
+      return NextResponse.json(
+        { error: "We couldn't apply this change while keeping the content within your outbound guidelines. Your outbound team has been notified and will review it manually." },
+        { status: 422 },
+      )
+    }
     logger.error('POST /api/documents/revise: revision agent failed', {
       document_id,
       org_id: orgId,
@@ -121,7 +156,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Revision agent failed. Try again.' }, { status: 500 })
   }
 
-  // ── 6. Create new version via shared archival helper ───────────────────────
+  // ── 7. Create new version via shared archival helper ───────────────────────
   // promote_strategy_doc_version handles the segment-scoped NULL-safe archival
   // (IS NOT DISTINCT FROM) and inserts the new active version with pending approval.
   const { data: newDoc, error: rpcError } = await admin.rpc('promote_strategy_doc_version', {

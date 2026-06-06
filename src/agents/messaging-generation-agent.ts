@@ -1049,6 +1049,20 @@ const BANNED_PARAGRAPH_OPENERS: ReadonlyArray<{ pattern: RegExp; label: string }
   { pattern: /^The result was\b/,             label: 'The result was' },
 ]
 
+// Hard gate limits enforced by validateEmails.
+// Exported so agent prompts can render the same numbers — no drift possible.
+export const EMAIL_WORD_LIMITS = {
+  email1MaxWords: 100,
+  email2MaxWords: 75,
+  email3MaxWords: 75,
+  email4MinWords: 30,
+  email4MaxWords: 50,
+} as const
+
+export const EMAIL_SUBJECT_LIMITS = {
+  email4MaxChars: 9,
+} as const
+
 // Category B: collect all violations across all four emails. Returns empty array if clean.
 // Exported for direct unit testing.
 export function validateEmails(
@@ -1098,11 +1112,11 @@ export function validateEmails(
     }
 
     const wc = email.word_count
-    if (pos === 1 && wc > 100) violations.push({ email: pos, issue: `word count ${wc} exceeds 100-word limit` })
-    if (pos === 2 && wc > 75)  violations.push({ email: pos, issue: `word count ${wc} exceeds 75-word limit` })
-    if (pos === 3 && wc > 75)  violations.push({ email: pos, issue: `word count ${wc} exceeds 75-word limit` })
-    if (pos === 4 && (wc < 30 || wc > 50)) {
-      violations.push({ email: pos, issue: `word count ${wc} is outside the 30–50 word range` })
+    if (pos === 1 && wc > EMAIL_WORD_LIMITS.email1MaxWords) violations.push({ email: pos, issue: `word count ${wc} exceeds ${EMAIL_WORD_LIMITS.email1MaxWords}-word limit` })
+    if (pos === 2 && wc > EMAIL_WORD_LIMITS.email2MaxWords) violations.push({ email: pos, issue: `word count ${wc} exceeds ${EMAIL_WORD_LIMITS.email2MaxWords}-word limit` })
+    if (pos === 3 && wc > EMAIL_WORD_LIMITS.email3MaxWords) violations.push({ email: pos, issue: `word count ${wc} exceeds ${EMAIL_WORD_LIMITS.email3MaxWords}-word limit` })
+    if (pos === 4 && (wc < EMAIL_WORD_LIMITS.email4MinWords || wc > EMAIL_WORD_LIMITS.email4MaxWords)) {
+      violations.push({ email: pos, issue: `word count ${wc} is outside the ${EMAIL_WORD_LIMITS.email4MinWords}–${EMAIL_WORD_LIMITS.email4MaxWords} word range` })
     }
 
     if ((pos === 2 || pos === 3) && email.subject_line !== null) {
@@ -1112,10 +1126,10 @@ export function validateEmails(
       })
     }
 
-    if (pos === 4 && email.subject_line !== null && email.subject_line.length > 9) {
+    if (pos === 4 && email.subject_line !== null && email.subject_line.length > EMAIL_SUBJECT_LIMITS.email4MaxChars) {
       violations.push({
         email: pos,
-        issue: `subject line "${email.subject_line}" is ${email.subject_line.length} chars, limit is 9`,
+        issue: `subject line "${email.subject_line}" is ${email.subject_line.length} chars, limit is ${EMAIL_SUBJECT_LIMITS.email4MaxChars}`,
       })
     }
 
