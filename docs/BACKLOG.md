@@ -2502,6 +2502,27 @@ live schema, pg_cron job state, integrations_registry. No code changes in this s
   PartScale is ever re-generated, this quote should be removed or replaced with real
   client evidence when available.
 
+### [prompt-fix] Messaging agent: peer-group framing over unverifiable recipient specifics (2026-06-06)
+
+- Added 2026-06-06. Not yet applied. Batch with JTBD pin and Rule 8 as the next messaging
+  agent prompt update.
+- The agent must never assert unverifiable specifics about the individual recipient
+  ("every holiday you haven't taken got cancelled because someone needed a decision only
+  you could make"). These read as fake personalisation when wrong, and they are usually
+  wrong. Wrong specifics break trust faster than generic copy.
+- Rule: frame pain as peer-group pattern observations drawn from the prospect's
+  company stage, team size, or industry — not as claimed knowledge of the recipient's
+  personal experience. Example rewrite:
+  - Wrong: "every holiday you haven't taken got cancelled because someone needed a
+    decision only you could make"
+  - Right: "most founders at your size haven't taken a real holiday in over a year"
+- The distinction: the right version is falsifiable in the same way but signals research
+  into the peer group, not surveillance of the individual. The prospect can agree without
+  feeling surveilled.
+- Where to add: messaging-agent.md, in the email copy rules section (same block as the
+  em-dash and opener restrictions). No shared-voice-spec.md update needed — this rule
+  is messaging-specific, not universal across all document types.
+
 ### [log] ICP A geographic scope claim vs source site (2026-06-06)
 
 - Added 2026-06-06. Revise-later example, no immediate action required.
@@ -2514,3 +2535,205 @@ live schema, pg_cron job state, integrations_registry. No code changes in this s
 - Action if PartScale requests a refresh or the ICP is revisited: flag this for the
   client to confirm whether regional focus is intentional or whether UK-wide is the
   correct scope.
+
+---
+
+### [pre-c0] Stale card in approvals queue after approval — outcome TBD (2026-06-06)
+
+- Added 2026-06-06. Outcome to be confirmed before priority is set.
+- After approving the positioning suggestion, the card remained visible in the
+  approvals queue. Outcome on hard refresh not yet confirmed.
+- **If card disappeared on hard refresh:** the approve flow is missing a
+  post-success revalidation/router.refresh() call. The mutation completes but the
+  client-side cache is not invalidated. Fix: call `router.refresh()` or
+  `revalidatePath('/dashboard/operator/approvals')` after a successful approval
+  POST. Priority: normal pre-c0.
+- **If card survived hard refresh:** the queue query is not filtering to
+  `status = 'pending'` — approved suggestions are showing as unapproved.
+  Priority: BLOCKER before C0. Check the query in
+  `src/app/dashboard/operator/approvals/page.tsx` — it should have
+  `.eq('status', 'pending')` on the `document_suggestions` select.
+- Confirm outcome and update this entry with the correct diagnosis and priority.
+
+### [discipline] Shared-voice-spec drift verification script (2026-06-06)
+
+- Added 2026-06-06.
+- Rule 7 body text already drifts between `shared-voice-spec.md` and the four
+  embedded copies in agent prompts (shared-voice-spec.md has a "Wrong final
+  sentence" example that the agent prompts omit). Any Rule edit risks silent
+  divergence because the sync is manual.
+- Build a script in the same family as `check-use-server-exports`:
+  extract the `## Shared voice rules` block from each of the four agent prompts,
+  strip heading-level differences (## vs ###), and diff against
+  `docs/prompts/shared-voice-spec.md`. Fail with a clear message if any block
+  does not match the canonical source.
+- Wire to CI or run as a pre-commit check alongside the existing TypeScript gate.
+- Trigger: next time any agent prompt is edited, or before C0.
+
+### [revise-later] Messaging variants converge at Email 2 (2026-06-06)
+
+- Added 2026-06-06. No action needed before C0 — monitor signal data first.
+- In the first PartScale messaging run (suggestion a894972a), three of four
+  variants (A, B, D) use the same core narrative at Email 2: founder hires ops
+  manager, gives them the title, back in every room within six months. The
+  framing differs slightly but the story is the same.
+- Strongest differentiation between variants is at Email 1 only (subject lines
+  and opener angle vary: "still the bottleneck" × 2, "founder still in every
+  room", "the ops manager won't fix it").
+- For the next refresh: prompt guidance should explicitly require that each
+  variant's Email 2 uses a distinct mechanism or proof point — not the same
+  story retold differently. The ops-manager failure narrative is strong; it
+  should belong to one variant only.
+
+### [phase-b] Finding #7: revision path gaps — policy decided (2026-06-06)
+
+- Added 2026-06-06. Feeds Phase B proposal. Policy set by Doug.
+- **Empirically confirmed in dry-run**: client submitted request-changes on ICP (v2→v3,
+  Engineering→Distribution Consulting) and Messaging (v1→v2, Variant A Email 1 opener).
+  Both revisions rendered correctly in the client UI with accurate change summaries and
+  surgical edits. New versions created via `update_trigger='client_revision'`,
+  `client_approval_status='pending'`, prior versions archived. Verified.
+- **Gap 1 confirmed**: zero `document_suggestions` rows created by either revision.
+  The revised content goes directly to `strategy_documents` as an active new version,
+  bypassing the operator review queue entirely.
+- **Gap 2 confirmed**: zero `agent_runs` entries for either revision. The revision agent
+  (`runDocumentRevisionAgent`) does not call `startAgentRun`. Operator has no visibility
+  into revision requests, not even in the run log — only the strategy_document version
+  history records that a revision occurred.
+- **Gap 3 confirmed**: no operator notification fired. No notification step exists in
+  `POST /api/documents/revise`.
+
+**Policy decisions (Doug, 2026-06-06) — implement in Phase B:**
+
+a. **Operator notification on every client revision, all doc types.** Fire immediately
+   on POST /api/documents/revise success. Notification must include: org name, doc type,
+   the revision note verbatim, and a link to the updated document.
+
+b. **Messaging revisions enter operator review before going live.** icp/positioning/tov
+   revisions go live immediately (notify-only). Messaging revisions must be staged as a
+   `document_suggestion` (pending) and go through the operator approvals queue before
+   becoming active. The client UI must set the expectation: "Messaging changes are
+   reviewed by your outbound team before going live."
+   Implementation note: the revise route must branch on `document_type === 'messaging'`
+   — write to `document_suggestions` instead of calling `promote_strategy_doc_version`
+   directly. The existing operator approvals queue handles the rest.
+
+c. **Revision agent conflict rule (all types).** When the client's revision note conflicts
+   with voice rules, output validators, or outbound constraints, the agent must:
+   - Honor the note's intent as fully as the constraints allow
+   - Produce the best compliant version, not a literal obedience that would fail a gate
+   - Never silently ignore the note
+   - Explain the mediation clearly in `change_summary` (e.g. "Your note asked for X;
+     the outbound length constraint required shortening to Y — the intent is preserved")
+
+d. **Revision path must run the same deterministic validators as initial generation.**
+   Currently unverified — the revision agent's output is not gated by the same
+   post-processor that messaging generation uses. Audit `runDocumentRevisionAgent` to
+   confirm validators run. Define the failure UX: a gate rejection must never surface to
+   the client as a raw 500 — it must return a human message and log the violation detail
+   for the operator. Proposed UX: "We couldn't apply this change while keeping the
+   content within your outbound guidelines. Your outbound team has been notified and
+   will review it manually."
+
+**Empirical proof from stress test (messaging v2 → v3, 2026-06-06):**
+
+Client submitted a long credentials paragraph requesting insertion into Email 1 of all four
+variants. The revision agent obeyed literally. Confirmed violations in the resulting v3:
+- Em-dashes in the body (rule violation — Rule 5 / assertNoDashes gate). The change_summary
+  itself also contains an em-dash ("introducing PartScale — covering…"), written by the
+  same unvalidated agent.
+- Email 1 word count: 178 words. Hard limit is 40–90 words. Gate never ran.
+- Credentials paragraph inserted across all four variants — the request said "the first
+  email" which could reasonably mean Variant A only, but the agent applied it to all four
+  without mediation or explanation.
+- None of this was caught: `scrubAITellsDeep`, `assertNoDashes`, `validateEmails`, and the
+  sequence validator are **never invoked** in the revision path. The revision agent
+  (`src/lib/agents/revision/run-revision.ts`) is a raw LLM call + JSON parse, nothing else.
+- Duration: ~60s (revision agent does not call `startAgentRun`; exact timing not in DB).
+
+**Phase B revision protocol spec (Doug, 2026-06-06) — implement in Phase B:**
+
+1. **Submit → immediate UI acknowledgment + progress state.** Show "Revising — usually
+   under two minutes" from the moment the POST fires. The change_summary arrives as the
+   success state of that indicator.
+
+2. **The agent MEDIATES — never obeys blind, never ignores.** Honor the note's intent
+   within the voice/outbound rules. Where the request conflicts with the rules, the
+   client's wish is still taken into account: implement the closest compliant version AND
+   relocate content that doesn't fit to a legitimate home (later email in the sequence,
+   signature, website suggestion). The change_summary must state what was honored, what
+   wasn't, why, and where it went instead. A client request is never silently discarded.
+
+3. **Revision output runs the SAME deterministic gates as generation.** On gate failure:
+   one automatic retry with failure context injected into the prompt; still failing →
+   route to operator with a friendly client-facing message. A raw error never reaches the
+   client. Proposed client-facing message: "We couldn't apply this change while keeping
+   the content within your outbound guidelines. Your outbound team has been notified and
+   will review it manually."
+
+4. **Messaging revisions land as pending-operator-review with operator notification, not
+   live.** icp/positioning/tov go live immediately, notify-only. Client-facing copy in
+   DocApprovalControls sets the expectation: "Messaging changes are reviewed by your
+   outbound team before going live."
+
+5. **LOG additions (no separate action items needed — tracked here):**
+   - Revision progress-indicator UX: wire the existing `loading === 'revising'` state
+     in DocApprovalControls to show "Revising — usually under two minutes" copy, not
+     just a spinner. Currently shows "Revising your document…" which is fine but
+     does not set a time expectation.
+   - No version-revert control on either side (operator or client). Revision is the
+     only restore path for either party. Accepted as-is; note for onboarding docs.
+   - DocApprovalControls post-approval gap: tracked separately as [pre-c1] above.
+
+6. **Revision runs tracked in `agent_runs` like generation runs.** Currently the revision
+   agent does not call `startAgentRun`, so every revision is invisible in the run log.
+   Duration, failure reason, and org attribution are unrecoverable after the fact.
+   Fix: call `startAgentRun` at the top of `runDocumentRevisionAgent`, call `run.complete`
+   on success (with change_summary as output_summary), and call `run.fail` on any thrown
+   error. Agent name: `'document-revision'` or `'<doc_type>-revision'` (TBD).
+
+7. **Operator-initiated revisions on active client documents.** Today the operator cannot
+   revise an active client document: `POST /api/documents/revise` resolves the org from the
+   caller's session (`users.organisation_id`), so any request from an operator account
+   returns null and the route 404s. The operator's only lever is the comment→suggestion
+   path, which is one step removed and does not trigger the revision agent directly.
+   Phase B adds: the operator can initiate a revision on any active client document,
+   operator-attributed, using the same mechanism and the same gates (validators, mediation
+   rule, operator review for messaging). The route must accept an explicit `organisation_id`
+   parameter for operator callers and verify that the caller has `role = 'operator'` before
+   bypassing the session-based org lookup. The change_summary must record
+   `update_trigger = 'operator_revision'` so the audit trail is clear.
+
+- Trigger: Phase B design approval before any implementation.
+
+### [pre-c1] Request changes unavailable after client approval — DocApprovalControls (2026-06-06)
+
+- Added 2026-06-06. Must fix before first paying client.
+- `DocApprovalControls.tsx` renders the Approve + Request changes block only when
+  `isPending === true` (line 115). Once a document is approved, that block is replaced
+  entirely by a green dot + approval label. The "Request changes" button is gone.
+- The revise route (`POST /api/documents/revise`) has no approval-status guard — it
+  accepts revisions on any active document regardless of `client_approval_status`. The
+  route works. Only the UI is broken.
+- Real-world impact: clients will need post-approval revisions within weeks of go-live
+  ("our pricing changed", "new service line", "we've stopped serving that vertical").
+  With no UI entry point, they'd have to contact the operator who would need to manually
+  reset `client_approval_status = 'pending'` to restore the controls.
+- Fix: render a lower-priority "Request an update" text link (or collapsed secondary
+  button) in the `!isPending` block, alongside the approval indicator. Submits to the
+  same `POST /api/documents/revise` route. Does NOT need to reset `client_approval_status`
+  first — the revise route creates a new version with `client_approval_status='pending'`,
+  which naturally restores the pending controls on the next render.
+
+### [revise-later] Messaging subject char-count discrepancy — likely trailing space (2026-06-06)
+
+- Added 2026-06-06. Cosmetic, no send impact.
+- Variant A Email 1 reports `subject_char_count: 20` for "still the bottleneck".
+  Variant B Email 1 reports `subject_char_count: 19` for what appears to be
+  identical text.
+- Most likely cause: a trailing space in one variant's subject_line string that
+  the model included but the eye cannot see in the dump.
+- No send impact (email clients trim subject whitespace). But the char-count
+  validator is counting it, which means the validator is correct and the model
+  introduced a trailing space. Add a `.trim()` to the subject_line field in the
+  post-processor to prevent this class of off-by-one in validator counts.
