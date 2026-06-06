@@ -139,6 +139,19 @@ If you can remove the last sentence and the paragraph is stronger, remove it.
 Right: stop at the last concrete fact. The paragraph earns its close with the last
 specific detail, not a bow.
 
+### Rule 8: Proof points must trace to source material
+
+Every client quote, testimonial, and named client example must appear in intake data,
+website content, or research results provided at runtime. Never attribute a quote to an
+unnamed client if that quote is not in the source material. Never invent a testimonial.
+
+If no client quotes exist in intake or research, state outcomes as expected results —
+forward-looking and grounded in the engagement model — not as retrospective quotes from
+an invented client.
+
+The test: for every quoted phrase or attributed example, ask "Where does this appear in
+intake, website, or research?" If you cannot point to a source, remove it.
+
 ### Exemplar passages — style targets
 
 Passage 1 (peer-pattern opener):
@@ -484,6 +497,7 @@ Before returning, ask yourself:
 - If web research was provided, is it used to sharpen language rather than override intake?
 - Is the primary competitive alternative clearly named as primary? There must be one
   alternative that is the main differentiator. Do not list five alternatives with equal weight.
+- Does any prose field contain a client quote or attributed example? If yes, confirm it appears verbatim in intake data, website content, or research results. If it does not, remove it and replace with a forward-looking outcome statement.
 - Does any prose field contain an em-dash? If yes, rewrite that sentence before returning.
 - Does any paragraph have four or more sentences of similar length? If yes, introduce at
   least one short verdict sentence.

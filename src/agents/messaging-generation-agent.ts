@@ -1160,27 +1160,11 @@ async function saveFailedGeneration(
   organisation_id: string,
   variantKey?: string
 ): Promise<void> {
-  const { mkdir, writeFile } = await import('fs/promises')
-  const { join } = await import('path')
-
-  const dir = join(process.cwd(), 'logs', 'messaging-agent-failures')
-  await mkdir(dir, { recursive: true })
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const variantSuffix = variantKey ? `-variant-${variantKey}` : ''
-  const filePath = join(dir, `${timestamp}${variantSuffix}.json`)
-
-  await writeFile(
-    filePath,
-    JSON.stringify(
-      { organisation_id, timestamp: new Date().toISOString(), variantKey, violations, emails },
-      null,
-      2
-    ),
-    'utf-8'
-  )
-
-  logger.info('Messaging agent: failed generation saved to disk', { path: filePath, variantKey })
+  logger.warn('Messaging agent: variant failed validation — full detail', {
+    organisation_id,
+    variantKey,
+    violations: violations.map(v => `Email ${v.email}: ${v.issue}`),
+  })
 }
 
 // ─── Retry logic ──────────────────────────────────────────────────────────────

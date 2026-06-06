@@ -2429,3 +2429,88 @@ live schema, pg_cron job state, integrations_registry. No code changes in this s
       "postgresql://postgres:[PASSWORD]@db.hjpvnvjryxdjcfdsfhzy.supabase.co:5432/postgres" \
       -f .backups/production-YYYYMMDD.sql
   .backups/ is gitignored.
+
+---
+
+### [pre-c0] ApprovalCard renderer audit — full payload vs rendered fields (2026-06-06)
+
+- Added 2026-06-06. Blocker before client-zero subscriptions go live.
+- `renderGeneric()` in `src/components/approvals/ApprovalCard.tsx` filters
+  `Object.entries()` to `string | number` only — every nested object is silently dropped.
+  ICP falls through to `renderGeneric()` (no `renderIcp` exists), losing ~94% of the
+  document payload before the operator sees it.
+- `renderPositioning()` exists but is confirmed incomplete — the positioning card rendered
+  thin in the dry-run onboarding session (2026-06-06), same approve-blind gap as ICP.
+- Fix required: build a dedicated `renderIcp()` renderer. Then diff every other doc type's
+  payload schema against what its renderer actually surfaces and fix any gaps.
+- Doc types to audit in priority order: ICP (missing renderer), Positioning (incomplete
+  renderer), TOV, Messaging. Each renderer must surface every top-level and nested field
+  the agent writes, not just string/number scalars.
+- Until renderers are fixed: dump full suggestion payload as markdown before any approval
+  in operator sessions. This is the workaround currently in use.
+- Context: Finding #6 from the 2026-06-06 onboarding dry-run session.
+
+---
+
+### [phase-b] Dispatch trigger redesign — intake completion to cascade (2026-06-06)
+
+- Added 2026-06-06. Proposal stage — no code until Doug approves the design.
+- **FIX 2: Parallel dispatch is structurally broken for new orgs.**
+  `POST /api/intake/complete` dispatches all 4 agents in parallel via `Promise.all`.
+  Positioning requires an approved ICP in `strategy_documents`. Messaging requires all
+  three approved. For any new org, these guards will always fail when dispatched
+  simultaneously at intake completion.
+- **FIX 3: `docs_complete_notification_sent_at` stamps too early.**
+  Currently stamps ~12s after dispatch inside `notifyIfAllDocsComplete()` called from the
+  ICP route. Fires when ICP finishes (or fails), regardless of the other three agents.
+  Should fire only when all four agents reach `completed`.
+- Phase B proposal must include:
+  1. Ripple map for cascade hook placement — shared helper called by operator approve route,
+     force-approve route, AND the 3-day auto-approve cron. All three paths trigger
+     downstream agents via the same helper, not inline code.
+  2. Idempotency — no dispatch if a `strategy_document` OR pending `document_suggestion`
+     already exists for the downstream doc type. Prevents re-runs triggering duplicate
+     cascade steps.
+  3. Dependency ordering — ICP and TOV run on intake completion (no dependencies).
+     Positioning dispatched only after ICP is approved. Messaging dispatched only after
+     ICP, TOV, and Positioning are all approved.
+  4. Operator failure alert — when any agent fails, notify the operator immediately.
+     The current model is silent failure.
+  5. Client-approval interplay — define whether client review happens per-doc as each
+     activates, or once the full set is ready. An ICP change request mid-cascade churns
+     every downstream document. This must be decided before building the cascade hook
+     (it determines what "approved" means for cascade trigger purposes).
+- Trigger: operator approval of Phase B design before any code is written.
+
+---
+
+### [prompt-fix] Positioning agent invents client quotes — Rule 8 added (2026-06-06)
+
+- Added 2026-06-06. Fix applied this session.
+- The positioning agent for PartScale produced: "One client described it as the first time
+  someone showed them what was actually broken instead of selling them the fix." No such
+  quote exists in intake data, the PartScale website (Home + About checked), or web research
+  (search returned nothing). The quote was fabricated.
+- Fix applied: Rule 8 added to `shared-voice-spec.md` and synced to all four document
+  generation agent prompts (icp-agent.md, positioning-agent.md, tov-agent.md,
+  messaging-agent.md). Rule: proof points must trace to intake, website, or research
+  results; never invent client quotes or testimonials. Expected outcomes written
+  forward-looking, not as retrospective invented quotes.
+- Quality checklist item also added to positioning-agent.md's "Quality self-check before
+  returning" section.
+- The PartScale positioning suggestion `8541c08c` was approved despite the defect. If
+  PartScale is ever re-generated, this quote should be removed or replaced with real
+  client evidence when available.
+
+### [log] ICP A geographic scope claim vs source site (2026-06-06)
+
+- Added 2026-06-06. Revise-later example, no immediate action required.
+- Active ICP A (strategy_document v2 for org a2b621fc) claims "Northern England and
+  Midlands concentration" as part of geographic targeting.
+- PartScale's website presents the firm as UK-wide with no regional restriction.
+- This is a minor over-specificity in the ICP, not a hallucination — the intake may
+  have implied regional concentration from founder location or client examples. But it
+  contradicts the public-facing positioning.
+- Action if PartScale requests a refresh or the ICP is revisited: flag this for the
+  client to confirm whether regional focus is intentional or whether UK-wide is the
+  correct scope.
