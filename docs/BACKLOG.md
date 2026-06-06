@@ -2737,3 +2737,82 @@ variants. The revision agent obeyed literally. Confirmed violations in the resul
   validator is counting it, which means the validator is correct and the model
   introduced a trailing space. Add a `.trim()` to the subject_line field in the
   post-processor to prevent this class of off-by-one in validator counts.
+
+---
+
+## Post-approval dashboard audit — 2026-06-06
+
+### [pre-c0] Client sidebar missing "Overview" nav entry (2026-06-06)
+
+- Added 2026-06-06. Must fix before client zero goes live.
+- The client's primary status page (`/dashboard`) has no entry point in the sidebar nav.
+  The sidebar starts at Pipeline (locked) and Benchmarks under the Results group, then
+  strategy sub-pages. There is no "Overview" item.
+- The wordmark ("MargenticOS") in the sidebar header is a plain `<span>` — confirmed not
+  a link. `src/components/dashboard/Sidebar.tsx` lines 76-81. The client has no in-nav
+  way to return to the overview after navigating into a strategy sub-page without using
+  browser back or retyping the URL.
+- Fix: add `{ label: 'Overview', href: '/dashboard' }` as the first item in the
+  `RESULTS_ITEMS` array (or a new top-level group) in `Sidebar.tsx`. Active state logic
+  should match exactly `/dashboard` — not startsWith, since every page starts with it.
+  Optionally convert the wordmark `<span>` to a `<Link href="/dashboard">` as a secondary
+  affordance, but the nav item is the minimum fix.
+
+### [pre-c0] LinkedIn mentions sweep — all client-facing surfaces behind one toggle (2026-06-06)
+
+- Added 2026-06-06. Supersedes and extends the [product-decision] entry above
+  (LinkedIn content card in DocumentsActiveState — keep or pull, 2026-06-04).
+  That entry asked a binary keep-or-pull question. This entry settles it:
+  **hide ALL client-facing LinkedIn mentions until the LinkedIn channel launches.**
+  Do not patch one surface at a time as they are discovered.
+- **Confirmed client-facing surfaces as of 2026-06-06:**
+  1. `DocumentsActiveState.tsx:97` — detail text: "Email sequences and LinkedIn content
+     being configured" (embedded in the email outreach setup step description)
+  2. `DocumentsActiveState.tsx:101` — card label: "LinkedIn content"
+  3. `DocumentsActiveState.tsx:104` — card detail: "First posts being drafted for your
+     approval"
+  4. `IntakeIncompleteState.tsx:22` — Messaging card description: "Email and LinkedIn
+     outreach frameworks"
+  5. `IntakeIncompleteState.tsx:41` — setup checklist item detail: "Email and LinkedIn
+     channels configured for your campaigns"
+- The `linkedin` setup-status key in `DocumentsActiveState.tsx` drives the entire
+  LinkedIn card (key, label, statusLabel, done). The whole card should be conditionally
+  rendered behind a `linkedinChannelEnabled` toggle (defaults false).
+- The toggle should live on the organisation record or in a feature-flags config so it
+  can be turned on per-client when LinkedIn delivery is actually active.
+- Operator-only references to LinkedIn (SetupStatusPanel.tsx) are unaffected — the
+  operator must still be able to see and set LinkedIn status.
+- **Do not sweep these individually** as they are noticed. Build the toggle once and
+  gate all surfaces in the same commit.
+
+### [pre-c0] Warmup progress % and launch date not anchored to real warmup state (2026-06-06)
+
+- Added 2026-06-06. Must fix before client zero goes live — this is a client-facing date
+  promise.
+- **Confirmed derivation**: `DocumentsActiveState.tsx` uses `contract_start_date + 42 days`
+  for both the launch date string (line 55) and `warmupProgressPercent` (lines 61-67).
+  `contract_start_date` is entered by the operator in `CreateOrgForm` at client creation.
+  The pipeline page (`/dashboard/(client)/pipeline/page.tsx` lines 23-28, 162) uses the
+  same function. For the DRY RUN PartScale org, `contract_start_date` aligns with org
+  creation date, making the displayed "4% / 17 July" read as "2 days elapsed / 6 weeks
+  from org creation."
+- **The problem**: `contract_start_date` is a form field, not a warmup signal. Email
+  warmup does not start until the client's mailboxes are connected to Instantly and
+  warmup is activated. A client can complete intake the same day the org is created yet
+  have mailboxes that haven't warmed at all. The 6-week clock and the client-facing
+  launch date are a hard promise derived from form-completion, not from technical reality.
+- **Required fix**: introduce `warmup_started_at` as a nullable timestamp on the
+  `organisations` table. The operator sets it manually when Instantly warmup is confirmed
+  active for the client's mailboxes. When `warmup_started_at IS NULL`:
+  - Hide the warmup progress bar entirely ("Warming up — your outbound team will confirm
+    when campaigns are ready to launch" or similar).
+  - Show no launch date. A client-facing launch date must never appear until warmup is
+    actually underway.
+  When `warmup_started_at IS NOT NULL`: derive progress as `(now - warmup_started_at) / 42 days`
+  and launch date as `warmup_started_at + 42 days`.
+- **Future state** (Phase B or later): replace `warmup_started_at`-based calculation with
+  live Instantly warmup analytics API (`GET /api/v2/accounts/warmup-analytics`) when
+  mailbox accounts are registered in the system. The API returns actual warm-up health
+  per mailbox, which is a better signal than elapsed time regardless of anchor.
+- Surfaces to update: `DocumentsActiveState.tsx` (progress bar + launch date), pipeline
+  page `estimateLaunchDate` and `MomentumBlock`/`MeetingsListCard` empty states.
