@@ -598,6 +598,19 @@ async function writeDocumentSuggestion(
     .single()
 
   if (error) {
+    // 23505 = unique_violation on document_suggestions_org_type_pending_unique.
+    // A pending suggestion already exists for this org+type — idempotent no-op.
+    if ((error as { code?: string }).code === '23505') {
+      logger.info('Positioning agent: duplicate pending suppressed by idempotency index', { organisation_id })
+      const { data: existing } = await supabase
+        .from('document_suggestions')
+        .select('id')
+        .eq('organisation_id', organisation_id)
+        .eq('document_type', 'positioning')
+        .eq('status', 'pending')
+        .single()
+      return (existing?.id ?? null) as string
+    }
     throw new Error(`Positioning agent: failed to write document suggestion — ${error.message}`)
   }
 

@@ -13,41 +13,53 @@ interface IntakeIncompleteStateProps {
   sections: IntakeSection[]
   totalCritical: number
   filledCritical: number
+  linkedinChannelEnabled: boolean
 }
 
-const STRATEGY_DOCS = [
-  { label: 'Prospect profile', desc: 'ICP definition and tier structure' },
-  { label: 'Positioning', desc: 'Value proposition and competitive edge' },
-  { label: 'Voice guide', desc: 'Tone, style, and communication rules' },
-  { label: 'Messaging', desc: 'Email and LinkedIn outreach frameworks' },
-]
+function buildStrategyDocs(linkedinEnabled: boolean) {
+  return [
+    { label: 'Prospect profile', desc: 'ICP definition and tier structure' },
+    { label: 'Positioning', desc: 'Value proposition and competitive edge' },
+    { label: 'Voice guide', desc: 'Tone, style, and communication rules' },
+    {
+      label: 'Messaging',
+      desc: linkedinEnabled
+        ? 'Email and LinkedIn outreach frameworks'
+        : 'Email outreach frameworks',
+    },
+  ]
+}
 
-const NEXT_STEPS = [
-  {
-    num: '01',
-    label: 'Complete intake',
-    detail: 'Answer questions about your business, clients, and approach',
-    isFirstStep: true,
-  },
-  {
-    num: '02',
-    label: 'Strategy documents generated',
-    detail: 'ICP, positioning, voice guide, and messaging — ready within 24 hours',
-    isFirstStep: false,
-  },
-  {
-    num: '03',
-    label: 'Integrations connected',
-    detail: 'Email and LinkedIn channels configured for your campaigns',
-    isFirstStep: false,
-  },
-  {
-    num: '04',
-    label: 'Campaigns go live',
-    detail: 'Outreach begins after a 4–6 week warmup period',
-    isFirstStep: false,
-  },
-]
+function buildNextSteps(linkedinEnabled: boolean) {
+  return [
+    {
+      num: '01',
+      label: 'Complete intake',
+      detail: 'Answer questions about your business, clients, and approach',
+      isFirstStep: true,
+    },
+    {
+      num: '02',
+      label: 'Strategy documents generated',
+      detail: 'ICP, positioning, voice guide, and messaging — ready within 24 hours',
+      isFirstStep: false,
+    },
+    {
+      num: '03',
+      label: 'Integrations connected',
+      detail: linkedinEnabled
+        ? 'Email and LinkedIn channels configured for your campaigns'
+        : 'Email channels configured for your campaigns',
+      isFirstStep: false,
+    },
+    {
+      num: '04',
+      label: 'Campaigns go live',
+      detail: 'Outreach begins after a 4–6 week warmup period',
+      isFirstStep: false,
+    },
+  ]
+}
 
 function sectionProgressClass(section: IntakeSection): string {
   if (section.filled === section.total && section.total > 0) return 'bg-brand-green-success'
@@ -65,7 +77,10 @@ export function IntakeIncompleteState({
   sections,
   totalCritical,
   filledCritical,
+  linkedinChannelEnabled,
 }: IntakeIncompleteStateProps) {
+  const strategyDocs = buildStrategyDocs(linkedinChannelEnabled)
+  const nextSteps = buildNextSteps(linkedinChannelEnabled)
   const hasStarted = filledCritical > 0 || sections.some(s => s.filled > 0)
   const overallPercent = totalCritical > 0
     ? Math.round((filledCritical / totalCritical) * 100)
@@ -109,7 +124,7 @@ export function IntakeIncompleteState({
                 What happens next
               </p>
               <ol className="space-y-4">
-                {NEXT_STEPS.map((step) => {
+                {nextSteps.map((step) => {
                   const done = step.isFirstStep
                     && filledCritical === totalCritical
                     && totalCritical > 0
@@ -227,7 +242,7 @@ export function IntakeIncompleteState({
                 Generated once intake is complete.
               </p>
               <ul className="space-y-3">
-                {STRATEGY_DOCS.map((doc) => (
+                {strategyDocs.map((doc) => (
                   <li key={doc.label} className="flex items-start gap-2.5">
                     <span className="w-4 h-4 rounded-full bg-[#F0ECE4] flex items-center justify-center shrink-0 mt-0.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-text-muted" />

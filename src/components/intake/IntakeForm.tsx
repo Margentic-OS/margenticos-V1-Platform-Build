@@ -7,7 +7,7 @@
 // See prd/sections/05-intake.md for the full question set and rules.
 
 import { useState, useCallback, useTransition, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { saveIntakeResponse } from '@/app/intake/actions'
 import type { IntakeFileRecord } from '@/app/intake/actions'
 import FileUploadSection from './FileUploadSection'
@@ -229,6 +229,13 @@ interface IntakeFormProps {
 }
 
 export default function IntakeForm({ initialValues, initialFiles }: IntakeFormProps) {
+  // If the client already crossed the threshold in a previous session, start in
+  // succeeded state so the button shows "Continue to dashboard" immediately.
+  const initialCriticalAnswered = ALL_QUESTIONS.filter(
+    q => q.isCritical && (initialValues[q.fieldKey]?.value ?? '').trim().length > 0
+  ).length
+  const alreadyDispatched = initialCriticalAnswered >= THRESHOLD
+
   const [values, setValues] = useState<Record<string, string>>(
     Object.fromEntries(Object.entries(initialValues).map(([k, v]) => [k, v.value]))
   )
@@ -236,42 +243,31 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
   const [shortAnswerKeys, setShortAnswerKeys] = useState<Set<string>>(new Set())
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id)
   const [, startTransition] = useTransition()
-  const [dispatchStatus, setDispatchStatus] = useState<'idle' | 'pending' | 'succeeded' | 'failed'>('idle')
-  const router = useRouter()
+  const [dispatchStatus, setDispatchStatus] = useState<'idle' | 'pending' | 'succeeded' | 'failed'>(
+    alreadyDispatched ? 'succeeded' : 'idle'
+  )
+  const [voiceTab, setVoiceTab] = useState<'upload' | 'type'>('upload')
+  const hasDispatchedRef = useRef(alreadyDispatched)
 
-  // Track whether /api/intake/complete has been fired this session.
-  // Initialised from server-side data: if the client already crossed the
-  // threshold in a previous session we skip the dispatch immediately.
-  const initialCriticalAnswered = ALL_QUESTIONS.filter(
-    q => q.isCritical && (initialValues[q.fieldKey]?.value ?? '').trim().length > 0
-  ).length
-  const hasDispatchedRef = useRef(initialCriticalAnswered >= THRESHOLD)
-
-  // Fire once when criticalAnswered first reaches THRESHOLD.
-  // The server route has its own idempotency guard (agents_dispatched_at),
-  // so a duplicate call is safe and returns 200 already_dispatched.
-  function checkAndDispatch(currentValues: Record<string, string>) {
+  // Called by the "Generate my strategy documents" button only.
+  // The server route has its own idempotency guard (agents_dispatched_at).
+  function fireDispatch() {
     if (hasDispatchedRef.current) return
-    const count = ALL_QUESTIONS.filter(
-      q => q.isCritical && (currentValues[q.fieldKey] ?? '').trim().length > 0
-    ).length
-    if (count >= THRESHOLD) {
-      hasDispatchedRef.current = true
-      setDispatchStatus('pending')
-      fetch('/api/intake/complete', { method: 'POST' })
-        .then(res => {
-          if (res.ok) {
-            setDispatchStatus('succeeded')
-          } else {
-            hasDispatchedRef.current = false
-            setDispatchStatus('failed')
-          }
-        })
-        .catch(() => {
+    hasDispatchedRef.current = true
+    setDispatchStatus('pending')
+    fetch('/api/intake/complete', { method: 'POST' })
+      .then(res => {
+        if (res.ok) {
+          setDispatchStatus('succeeded')
+        } else {
           hasDispatchedRef.current = false
           setDispatchStatus('failed')
-        })
-    }
+        }
+      })
+      .catch(() => {
+        hasDispatchedRef.current = false
+        setDispatchStatus('failed')
+      })
   }
 
   const criticalAnswered = ALL_QUESTIONS.filter(
@@ -331,9 +327,6 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
     if (question.fieldKey === 'company_url') {
       triggerWebsiteFetch(value)
     }
-
-    // values already reflects this field's new value (set synchronously via handleChange)
-    checkAndDispatch(values)
   }, [values, save, triggerWebsiteFetch])
 
   const handleChange = useCallback((fieldKey: string, value: string) => {
@@ -355,7 +348,6 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
       return next
     })
     save(question, value)
-    checkAndDispatch(newValues)
   }, [save, values])
 
   const sectionComplete = (section: Section) =>
@@ -536,10 +528,67 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
               })}
             </div>
 
-            {/* File upload — voice section only */}
+            {/* Voice samples — upload or type, voice section only */}
             {section.id === 'voice' && (
               <div className="mt-4 sm:mt-6">
-                <FileUploadSection initialFiles={initialFiles} />
+                <p className="text-xs font-medium text-text-primary mb-1">
+                  Voice samples
+                  <span className="ml-1.5 text-[10px] font-normal text-text-muted">(optional)</span>
+                </p>
+                <p className="text-[11px] text-text-secondary mb-3">
+                  Paste emails, proposals, or LinkedIn posts you have written. The more you share, the more accurately the voice guide reflects how you actually communicate.
+                </p>
+
+                {/* Tab toggles */}
+                <div className="flex gap-1 mb-3 p-1 bg-[#F0ECE4] rounded-[8px] w-fit">
+                  {(['upload', 'type'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setVoiceTab(tab)}
+                      className={[
+                        'px-3 py-1.5 text-[11px] font-medium rounded-[6px] transition-colors',
+                        voiceTab === tab
+                          ? 'bg-white text-text-primary shadow-sm'
+                          : 'text-text-secondary hover:text-text-primary',
+                      ].join(' ')}
+                    >
+                      {tab === 'upload' ? 'Upload files' : 'Type your voice'}
+                    </button>
+                  ))}
+                </div>
+
+                {voiceTab === 'upload' ? (
+                  <FileUploadSection initialFiles={initialFiles} />
+                ) : (
+                  <div>
+                    <textarea
+                      rows={8}
+                      placeholder="Paste emails, proposals, posts, or any writing that sounds like you…"
+                      className={`${inputBase} resize-y`}
+                      value={values['voice_typed_samples'] ?? ''}
+                      onChange={e => handleChange('voice_typed_samples', e.target.value)}
+                      onBlur={() => {
+                        const value = values['voice_typed_samples'] ?? ''
+                        startTransition(async () => {
+                          await saveIntakeResponse(
+                            'voice_typed_samples',
+                            'Voice samples (typed)',
+                            value,
+                            false,
+                            'voice'
+                          )
+                          if (value.trim()) {
+                            setSavedKeys(prev => new Set(prev).add('voice_typed_samples'))
+                          }
+                        })
+                      }}
+                    />
+                    {savedKeys.has('voice_typed_samples') && (values['voice_typed_samples'] ?? '').trim() && (
+                      <p className="mt-1.5 text-[10px] text-text-muted">Saved</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -562,31 +611,54 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
                   Next
                 </button>
               ) : (
-                <div className="flex flex-col items-end gap-2">
-                  {dispatchStatus === 'failed' && (
-                    <p className="text-[11px] text-[#C0392B]">
-                      Submission failed. Check your connection and try again.
-                    </p>
+                <div className="flex flex-col items-end gap-2 w-full">
+                  {dispatchStatus === 'succeeded' ? (
+                    <div className="w-full bg-[#EBF5E6] border border-[#C2E0B8] rounded-[10px] px-5 py-4">
+                      <p className="text-[13px] font-medium text-[#1C4A0E] mb-1">
+                        Building your strategy documents
+                      </p>
+                      <p className="text-[12px] text-[#3B6D11] mb-3">
+                        This takes 3–5 minutes. You can close this tab — documents will be waiting when you return.
+                      </p>
+                      <Link
+                        href="/dashboard"
+                        className="inline-flex items-center gap-1.5 text-[12px] font-medium text-brand-green hover:opacity-80 transition-opacity"
+                      >
+                        Continue to dashboard
+                        <span aria-hidden="true">→</span>
+                      </Link>
+                    </div>
+                  ) : (
+                    <>
+                      {dispatchStatus === 'failed' && (
+                        <p className="text-[11px] text-[#C0392B]">
+                          Submission failed. Check your connection and try again.
+                        </p>
+                      )}
+                      <button
+                        disabled={criticalAnswered < THRESHOLD || dispatchStatus === 'pending'}
+                        onClick={() => {
+                          if (dispatchStatus === 'failed') hasDispatchedRef.current = false
+                          fireDispatch()
+                        }}
+                        className={`px-5 py-2.5 text-xs font-medium rounded-[20px] min-h-[44px] touch-manipulation transition-opacity ${
+                          criticalAnswered < THRESHOLD
+                            ? 'text-text-muted bg-[#F0ECE4] cursor-not-allowed'
+                            : dispatchStatus === 'pending'
+                            ? 'text-[rgba(245,240,232,0.50)] bg-brand-green opacity-60 cursor-not-allowed'
+                            : 'text-[#F5F0E8] bg-brand-green hover:opacity-90'
+                        }`}
+                      >
+                        {dispatchStatus === 'pending'
+                          ? 'Building your documents…'
+                          : dispatchStatus === 'failed'
+                          ? 'Retry'
+                          : criticalAnswered < THRESHOLD
+                          ? 'Answer the required questions above to unlock'
+                          : 'Generate my strategy documents'}
+                      </button>
+                    </>
                   )}
-                  <button
-                    disabled={dispatchStatus === 'pending'}
-                    onClick={() => {
-                      if (dispatchStatus === 'pending') return
-                      if (dispatchStatus === 'failed') {
-                        hasDispatchedRef.current = false
-                        checkAndDispatch(values)
-                        return
-                      }
-                      router.push('/dashboard')
-                    }}
-                    className={`px-5 py-2.5 text-xs font-medium rounded-[20px] min-h-[44px] touch-manipulation ${
-                      dispatchStatus === 'pending'
-                        ? 'text-[rgba(245,240,232,0.50)] bg-brand-green opacity-60 cursor-not-allowed'
-                        : 'text-[#F5F0E8] bg-brand-green hover:opacity-90 transition-opacity'
-                    }`}
-                  >
-                    {dispatchStatus === 'pending' ? 'Submitting…' : dispatchStatus === 'failed' ? 'Retry' : 'Done'}
-                  </button>
                 </div>
               )}
             </div>

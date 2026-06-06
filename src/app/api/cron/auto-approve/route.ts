@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 
 // Written into reviewed_by to identify auto-approved suggestions in the DB.
 const SYSTEM_AUTO_APPROVE_ID = '00000000-0000-0000-0000-000000000001'
@@ -94,6 +95,8 @@ export async function POST(request: NextRequest) {
         document_type: suggestion.document_type,
       })
       succeeded++
+      // Cascade: supabase is service-role so RLS does not filter allThreeActive().
+      await triggerCascadeIfEligible(supabase, suggestion.organisation_id, suggestion.document_type)
     } catch (err) {
       logger.error('Auto-approve cron: failed to approve suggestion', {
         suggestion_id: suggestion.id,

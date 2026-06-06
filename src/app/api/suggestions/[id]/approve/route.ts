@@ -15,11 +15,12 @@
 //   - Marks the suggestion 'approved'
 // If any step fails, the entire transaction rolls back — suggestion stays 'pending'.
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
+import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 
 export async function POST(
   _request: NextRequest,
@@ -138,6 +139,10 @@ export async function POST(
     document_type: suggestion.document_type,
     operator_id: user.id,
   })
+
+  // Cascade: dispatch the next agent in sequence if eligible.
+  // Uses service-role client so allThreeActive() is not filtered by RLS.
+  after(() => triggerCascadeIfEligible(supabase, suggestion.organisation_id, suggestion.document_type))
 
   return NextResponse.json(newDoc, { status: 200 })
 }

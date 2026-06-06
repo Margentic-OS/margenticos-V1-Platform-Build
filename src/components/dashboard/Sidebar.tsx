@@ -75,9 +75,9 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, allOrgs }: 
     <aside className="w-[210px] min-h-screen bg-brand-green flex flex-col shrink-0 print:hidden">
       {/* Wordmark */}
       <div className="px-5 pt-6 pb-4">
-        <span className="text-[#F5F0E8] text-[15px] font-medium tracking-[-0.01em]">
+        <Link href="/dashboard" className="text-[#F5F0E8] text-[15px] font-medium tracking-[-0.01em] hover:opacity-80 transition-opacity">
           MargenticOS
-        </span>
+        </Link>
       </div>
 
       {/* Viewing label + org name */}
@@ -94,6 +94,23 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, allOrgs }: 
 
       {/* Navigation */}
       <nav className="flex-1 px-3 overflow-y-auto">
+        {/* Overview — exact-match only so /dashboard/strategy etc. don't activate it */}
+        <ul className="space-y-0.5 mb-4">
+          <li>
+            <Link
+              href={appendClientParam('/dashboard', clientId)}
+              className={[
+                'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
+                pathname === '/dashboard'
+                  ? 'bg-[rgba(245,240,232,0.08)] border-l-2 border-brand-green-accent text-[#F5F0E8] font-medium'
+                  : 'text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]',
+              ].join(' ')}
+            >
+              Overview
+            </Link>
+          </li>
+        </ul>
+
         {/* Results section */}
         <p className="px-2 mb-2 text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
           Results

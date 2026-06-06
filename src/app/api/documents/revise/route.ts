@@ -27,6 +27,7 @@ import type { Database } from '@/types/database'
 import { runDocumentRevisionAgent, RevisionGateError } from '@/lib/agents/revision/run-revision'
 import type { Json } from '@/types/database'
 import { logger } from '@/lib/logger'
+import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -162,7 +163,7 @@ export async function POST(request: NextRequest) {
   const { data: newDoc, error: rpcError } = await admin.rpc('promote_strategy_doc_version', {
     p_org_id:         doc.organisation_id,
     p_doc_type:       doc.document_type,
-    p_segment_id:     doc.segment_id,
+    p_segment_id:     doc.segment_id as string,
     p_content:        revised_content as Json,
     p_update_trigger: 'client_revision',
     p_revision_note:  trimmedNote,
@@ -185,6 +186,13 @@ export async function POST(request: NextRequest) {
     document_type: doc.document_type,
     prior_version: doc.version,
   })
+
+  // A client revision on icp/positioning/tov may unlock the next agent in sequence.
+  // Messaging revisions don't cascade (messaging has no downstream dependency).
+  // admin is service-role so allThreeActive() is not filtered by RLS.
+  if (doc.document_type !== 'messaging') {
+    await triggerCascadeIfEligible(admin, orgId, doc.document_type)
+  }
 
   const result = newDoc as { id: string; version: string; change_summary: string }
 

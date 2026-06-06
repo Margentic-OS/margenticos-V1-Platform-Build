@@ -6,6 +6,7 @@ import { SetupStatusPanel } from './SetupStatusPanel'
 import { CampaignRegistrationPanel } from './CampaignRegistrationPanel'
 import { LeadUploadPanel } from './LeadUploadPanel'
 import { MailboxOrderPanel } from './MailboxOrderPanel'
+import { WarmupControlPanel } from './WarmupControlPanel'
 import { deriveCampaignsStatus } from '@/lib/dashboard/derive-setup-status'
 import type { SetupStatusShape } from './SetupStatusPanel'
 import type { SetupStatusValue } from './actions'
@@ -44,7 +45,7 @@ export default async function ClientDetailPage({
   // ── 3. Fetch org — notFound() for both non-operator and missing org (no info leak) ──
   const { data: org } = await supabase
     .from('organisations')
-    .select('id, name, setup_status')
+    .select('id, name, setup_status, warmup_started_at')
     .eq('id', id)
     .maybeSingle()
 
@@ -138,6 +139,11 @@ export default async function ClientDetailPage({
             <MailboxOrderPanel
               orgId={org.id}
               instantlyApiActive={instantlyApiActive}
+            />
+
+            <WarmupControlPanel
+              orgId={org.id}
+              warmupStartedAt={org.warmup_started_at ?? null}
             />
           </div>
         </div>

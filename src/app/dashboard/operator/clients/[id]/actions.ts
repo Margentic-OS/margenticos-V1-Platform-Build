@@ -626,3 +626,31 @@ export async function handleDfyRealOrder(orgId: string, domains: string[]): Prom
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+// ── Warmup control ────────────────────────────────────────────────────────────
+
+export async function updateWarmupStartedAt(
+  orgId: string,
+  warmupStartedAt: string | null
+): Promise<{ error?: string }> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  const { error } = await supabase
+    .from('organisations')
+    .update({ warmup_started_at: warmupStartedAt })
+    .eq('id', orgId)
+
+  if (error) return { error: error.message }
+  return {}
+}

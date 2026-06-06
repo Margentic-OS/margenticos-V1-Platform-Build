@@ -19,6 +19,7 @@ import { cookies } from 'next/headers'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { requireOperator } from '@/lib/supabase/require-operator'
+import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 
 export const dynamic = 'force-dynamic'
 
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
 
   const { data: existing } = await supabase
     .from('strategy_documents')
-    .select('id, client_approval_status, organisation_id')
+    .select('id, client_approval_status, organisation_id, document_type')
     .eq('id', document_id)
     .eq('status', 'active')
     .maybeSingle()
@@ -105,6 +106,10 @@ export async function POST(request: NextRequest) {
     org_id: existing.organisation_id,
     operator_user_id: user!.id,
   })
+
+  // Force-approve substitutes for client approval; cascade is idempotent.
+  // supabase is service-role so allThreeActive() is not filtered by RLS.
+  await triggerCascadeIfEligible(supabase, existing.organisation_id, existing.document_type)
 
   return NextResponse.json({ approved: true, was_already_approved: false })
 }

@@ -21,6 +21,8 @@ interface DocumentsActiveStateProps {
   documents: ActiveDocument[]
   engagementMonth: number
   contractStartDate: string | null
+  warmupStartedAt: string | null
+  linkedinChannelEnabled: boolean
   setupStatus: SetupStatus
   clientParam?: string
 }
@@ -48,9 +50,9 @@ function formatRelativeDate(iso: string): string {
   return `${Math.floor(days / 7)} weeks ago`
 }
 
-function estimateLaunchDate(contractStartDate: string | null): string {
-  if (!contractStartDate) return 'in the coming weeks'
-  const start = new Date(contractStartDate)
+function estimateLaunchDate(warmupStartedAt: string | null): string {
+  if (!warmupStartedAt) return 'in the coming weeks'
+  const start = new Date(warmupStartedAt)
   // 6-week warmup period
   start.setDate(start.getDate() + 42)
   const now = new Date()
@@ -58,9 +60,9 @@ function estimateLaunchDate(contractStartDate: string | null): string {
   return start.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })
 }
 
-function warmupProgressPercent(contractStartDate: string | null): number {
-  if (!contractStartDate) return 0
-  const start = new Date(contractStartDate)
+function warmupProgressPercent(warmupStartedAt: string | null): number {
+  if (!warmupStartedAt) return 0
+  const start = new Date(warmupStartedAt)
   const now = new Date()
   const warmupMs = 42 * 24 * 60 * 60 * 1000 // 42 days in ms
   const elapsed = now.getTime() - start.getTime()
@@ -77,7 +79,8 @@ export function DocumentsActiveState({
   orgName: _orgName,
   documents,
   engagementMonth,
-  contractStartDate,
+  warmupStartedAt,
+  linkedinChannelEnabled,
   setupStatus,
   clientParam,
 }: DocumentsActiveStateProps) {
@@ -94,19 +97,21 @@ export function DocumentsActiveState({
       label: 'Campaign setup',
       statusLabel: statusLabel(setupStatus.campaigns),
       done: setupStatus.campaigns === 'complete',
-      detail: 'Email sequences and LinkedIn content being configured',
+      detail: linkedinChannelEnabled
+        ? 'Email sequences and LinkedIn content being configured'
+        : 'Email sequences being configured',
     },
-    {
+    ...(linkedinChannelEnabled ? [{
       key: 'linkedin',
       label: 'LinkedIn content',
       statusLabel: statusLabel(setupStatus.linkedin),
       done: setupStatus.linkedin === 'complete',
       detail: 'First posts being drafted for your approval',
-    },
+    }] : []),
   ]
   const docMap = new Map(documents.map(d => [d.type, d]))
-  const launchDate = estimateLaunchDate(contractStartDate)
-  const warmupPct = warmupProgressPercent(contractStartDate)
+  const launchDate = estimateLaunchDate(warmupStartedAt)
+  const warmupPct = warmupProgressPercent(warmupStartedAt)
 
   return (
     <div className="flex-1 overflow-y-auto bg-surface-content">
@@ -121,33 +126,41 @@ export function DocumentsActiveState({
               <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-[rgba(245,240,232,0.40)] mb-3">
                 Month {engagementMonth}
               </p>
-              <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">
-                Your campaigns launch {launchDate}
-              </h2>
+              {warmupStartedAt ? (
+                <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">
+                  Your campaigns launch {launchDate}
+                </h2>
+              ) : (
+                <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">
+                  Your strategy is ready
+                </h2>
+              )}
               <p className="text-[12px] text-[rgba(245,240,232,0.60)] leading-relaxed mb-5">
                 Strategy is ready. Email warmup runs for 6 weeks to protect your domain reputation before the first campaign goes live. Meetings will appear here once outreach begins.
               </p>
 
-              {/* Warmup progress */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-normal text-[rgba(245,240,232,0.45)]">
-                    Warmup progress
-                  </span>
-                  <span className="text-[10px] font-medium text-[rgba(245,240,232,0.65)]">
-                    {warmupPct}%
-                  </span>
+              {/* Warmup progress — hidden until operator sets warmup_started_at */}
+              {warmupStartedAt && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-normal text-[rgba(245,240,232,0.45)]">
+                      Warmup progress
+                    </span>
+                    <span className="text-[10px] font-medium text-[rgba(245,240,232,0.65)]">
+                      {warmupPct}%
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-[rgba(245,240,232,0.10)] rounded-full">
+                    <div
+                      className="h-full bg-brand-green-accent rounded-full transition-all duration-500"
+                      style={{ width: `${warmupPct}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-[rgba(245,240,232,0.35)] mt-1.5">
+                    Campaigns live once warmup reaches 100%
+                  </p>
                 </div>
-                <div className="h-1.5 bg-[rgba(245,240,232,0.10)] rounded-full">
-                  <div
-                    className="h-full bg-brand-green-accent rounded-full transition-all duration-500"
-                    style={{ width: `${warmupPct}%` }}
-                  />
-                </div>
-                <p className="text-[10px] text-[rgba(245,240,232,0.35)] mt-1.5">
-                  Campaigns live once warmup reaches 100%
-                </p>
-              </div>
+              )}
             </div>
 
             {/* Setup step cards */}
@@ -201,12 +214,15 @@ export function DocumentsActiveState({
               <div className="flex items-start justify-between mb-1">
                 <p className="text-[13px] font-medium text-text-primary">Strategy documents</p>
               </div>
-              <div className="flex items-center gap-1.5 mb-5">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-green-success" />
-                <p className="text-[11px] text-text-secondary">
-                  Strategy is learning from campaign data
-                </p>
-              </div>
+              {warmupStartedAt && (
+                <div className="flex items-center gap-1.5 mb-5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand-green-success" />
+                  <p className="text-[11px] text-text-secondary">
+                    Strategy is learning from campaign data
+                  </p>
+                </div>
+              )}
+              {!warmupStartedAt && <div className="mb-5" />}
 
               <ul className="space-y-4">
                 {DOCUMENT_ORDER.map((type) => {

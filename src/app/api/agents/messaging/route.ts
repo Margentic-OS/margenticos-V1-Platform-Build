@@ -25,8 +25,6 @@ import { cookies } from 'next/headers'
 import { runMessagingGenerationAgent } from '@/agents/messaging-generation-agent'
 import { resolveOrgPrimarySegment } from '@/lib/segments/resolve-primary-segment'
 import { logger } from '@/lib/logger'
-import { sendTransactionalEmail } from '@/lib/email/send'
-import { allDocsGeneratedTemplate, allDocsGeneratedSubject } from '@/lib/email/templates/all-docs-generated'
 
 export const maxDuration = 300
 
@@ -36,49 +34,6 @@ function getAdminClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
-}
-
-const AGENT_NAMES = ['icp-generation', 'positioning-generation', 'tov-generation', 'messaging-generation'] as const
-
-async function notifyIfAllDocsComplete(organisation_id: string): Promise<void> {
-  const adminClient = getAdminClient()
-
-  const { count } = await adminClient
-    .from('agent_runs')
-    .select('id', { count: 'exact', head: true })
-    .eq('organisation_id', organisation_id)
-    .in('agent_name', AGENT_NAMES)
-    .in('status', ['completed', 'failed'])
-
-  if ((count ?? 0) < 4) return
-
-  // Race-safety: the COUNT check is an early-exit optimisation. The true
-  // atomic claim is the UPDATE's WHERE docs_complete_notification_sent_at IS NULL
-  // guard. Two agents finishing simultaneously can both pass the COUNT, but only
-  // one will win the UPDATE — the other receives zero rows and exits early.
-  const { data: claimed } = await adminClient
-    .from('organisations')
-    .update({ docs_complete_notification_sent_at: new Date().toISOString() })
-    .eq('id', organisation_id)
-    .is('docs_complete_notification_sent_at', null)
-    .select('id, name')
-    .single()
-
-  if (!claimed) return
-
-  const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
-  if (!operatorEmail) {
-    logger.warn('agent route: RESEND_OPERATOR_EMAIL not set — all-docs notification skipped', { organisation_id })
-    return
-  }
-
-  await sendTransactionalEmail({
-    to: operatorEmail,
-    subject: allDocsGeneratedSubject(claimed.name),
-    html: allDocsGeneratedTemplate({ orgName: claimed.name, orgId: organisation_id }),
-  })
-
-  logger.info('agent route: all-docs-generated email sent', { organisation_id })
 }
 
 export async function POST(request: NextRequest) {
@@ -212,8 +167,6 @@ export async function POST(request: NextRequest) {
       is_refresh,
     })
 
-    await notifyIfAllDocsComplete(organisation_id)
-
     return NextResponse.json(result, { status: 200 })
 
   } catch (err) {
@@ -226,17 +179,13 @@ export async function POST(request: NextRequest) {
 
     // Surface pre-flight errors directly — missing name fields are operator-actionable.
     if (message.includes('required fields are missing')) {
-      await notifyIfAllDocsComplete(organisation_id)
       return NextResponse.json({ error: message }, { status: 422 })
     }
 
     // Surface document status errors directly — names exactly what needs approval.
     if (message.includes('documents need attention') || message.includes('has status "')) {
-      await notifyIfAllDocsComplete(organisation_id)
       return NextResponse.json({ error: message }, { status: 422 })
     }
-
-    await notifyIfAllDocsComplete(organisation_id)
 
     return NextResponse.json(
       { error: 'Messaging agent failed. Check server logs for details.' },

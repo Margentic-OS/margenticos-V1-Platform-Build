@@ -102,7 +102,7 @@ export default async function DashboardPage({
   // Fetch org
   const { data: org } = await supabase
     .from('organisations')
-    .select('id, name, engagement_month, contract_start_date, pipeline_unlocked, setup_status')
+    .select('id, name, engagement_month, contract_start_date, warmup_started_at, linkedin_channel_enabled, pipeline_unlocked, setup_status')
     .eq('id', organisationId ?? '')
     .single()
 
@@ -255,6 +255,7 @@ export default async function DashboardPage({
           sections={intakeSections}
           totalCritical={totalCritical}
           filledCritical={filledCritical}
+          linkedinChannelEnabled={org.linkedin_channel_enabled ?? false}
         />
       )}
 
@@ -271,6 +272,8 @@ export default async function DashboardPage({
           documents={activeDocuments}
           engagementMonth={org.engagement_month}
           contractStartDate={org.contract_start_date}
+          warmupStartedAt={org.warmup_started_at ?? null}
+          linkedinChannelEnabled={org.linkedin_channel_enabled ?? false}
           setupStatus={derivedSetupStatus}
           clientParam={clientParam}
         />

@@ -17,33 +17,33 @@ export type Database = {
       agent_runs: {
         Row: {
           agent_name: string
-          organisation_id: string
           completed_at: string | null
           duration_ms: number | null
           error_message: string | null
           id: string
+          organisation_id: string
           output_summary: string | null
           started_at: string
           status: string
         }
         Insert: {
           agent_name: string
-          organisation_id: string
           completed_at?: string | null
           duration_ms?: number | null
           error_message?: string | null
           id?: string
+          organisation_id: string
           output_summary?: string | null
           started_at?: string
           status: string
         }
         Update: {
           agent_name?: string
-          organisation_id?: string
           completed_at?: string | null
           duration_ms?: number | null
           error_message?: string | null
           id?: string
+          organisation_id?: string
           output_summary?: string | null
           started_at?: string
           status?: string
@@ -766,6 +766,7 @@ export type Database = {
           engagement_month: number
           founder_first_name: string | null
           id: string
+          linkedin_channel_enabled: boolean
           meetings_count: number
           monthly_meetings_target: number
           name: string
@@ -776,6 +777,7 @@ export type Database = {
           setup_status: Json
           slug: string
           updated_at: string
+          warmup_started_at: string | null
         }
         Insert: {
           agents_dispatched_at?: string | null
@@ -790,6 +792,7 @@ export type Database = {
           engagement_month?: number
           founder_first_name?: string | null
           id?: string
+          linkedin_channel_enabled?: boolean
           meetings_count?: number
           monthly_meetings_target?: number
           name: string
@@ -800,6 +803,7 @@ export type Database = {
           setup_status?: Json
           slug: string
           updated_at?: string
+          warmup_started_at?: string | null
         }
         Update: {
           agents_dispatched_at?: string | null
@@ -814,6 +818,7 @@ export type Database = {
           engagement_month?: number
           founder_first_name?: string | null
           id?: string
+          linkedin_channel_enabled?: boolean
           meetings_count?: number
           monthly_meetings_target?: number
           name?: string
@@ -824,6 +829,7 @@ export type Database = {
           setup_status?: Json
           slug?: string
           updated_at?: string
+          warmup_started_at?: string | null
         }
         Relationships: []
       }
@@ -1493,8 +1499,8 @@ export type Database = {
       }
       strategy_documents: {
         Row: {
-          approved_at: string | null
           approval_source: string | null
+          approved_at: string | null
           change_summary: string | null
           client_approval_status: string
           content: Json
@@ -1514,8 +1520,8 @@ export type Database = {
           version: string
         }
         Insert: {
-          approved_at?: string | null
           approval_source?: string | null
+          approved_at?: string | null
           change_summary?: string | null
           client_approval_status?: string
           content?: Json
@@ -1535,8 +1541,8 @@ export type Database = {
           version?: string
         }
         Update: {
-          approved_at?: string | null
           approval_source?: string | null
+          approved_at?: string | null
           change_summary?: string | null
           client_approval_status?: string
           content?: Json
@@ -1715,13 +1721,13 @@ export type Database = {
       is_operator: { Args: never; Returns: boolean }
       promote_strategy_doc_version: {
         Args: {
-          p_org_id: string
-          p_doc_type: string
-          p_segment_id: string | null
+          p_change_summary?: string
           p_content: Json
+          p_doc_type: string
+          p_org_id: string
+          p_revision_note?: string
+          p_segment_id: string
           p_update_trigger: string
-          p_revision_note?: string | null
-          p_change_summary?: string | null
         }
         Returns: Json
       }
