@@ -1,15 +1,17 @@
 // client-welcome: sent to the founder when the operator creates their organisation.
-// Contains the magic-link action_link from supabase.auth.admin.generateLink.
+// Contains the invite OTP code from supabase.auth.admin.generateLink (email_otp field).
+// No clickable token link — immune to Outlook Safe Links prefetch.
 // Industry-agnostic copy — no consulting-specific language.
 // No AI tells: no em dashes, no "seamless", no "leverage", etc.
 
 interface ClientWelcomeParams {
   founderFirstName: string
   orgName: string
-  actionLink: string
+  otpCode: string
+  loginUrl: string  // /login?email=...&invite=1 — non-consumable, safe for scanners
 }
 
-export function clientWelcomeTemplate({ founderFirstName, orgName, actionLink }: ClientWelcomeParams): string {
+export function clientWelcomeTemplate({ founderFirstName, orgName, otpCode, loginUrl }: ClientWelcomeParams): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -35,25 +37,30 @@ export function clientWelcomeTemplate({ founderFirstName, orgName, actionLink }:
               <p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">
                 Your MargenticOS account for <strong>${orgName}</strong> is ready.
               </p>
-              <p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">
-                Click the button below to set up your account and access your dashboard.
-                The link is valid for 24 hours.
+              <p style="margin:0 0 8px;font-size:15px;color:#444;line-height:1.6;">
+                Enter this code to access your dashboard:
               </p>
-              <table cellpadding="0" cellspacing="0" style="margin:32px 0;">
+              <div style="background:#f5f0e8;border-radius:8px;padding:20px 32px;text-align:center;margin:16px 0 24px;">
+                <span style="font-family:monospace;font-size:36px;font-weight:700;color:#1a1a1a;letter-spacing:0.18em;">${otpCode}</span>
+              </div>
+              <p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">
+                Go to your login page, enter your email address, and type the code above when prompted.
+              </p>
+              <table cellpadding="0" cellspacing="0" style="margin:24px 0;">
                 <tr>
                   <td style="background:#2d5a27;border-radius:6px;">
-                    <a href="${actionLink}"
+                    <a href="${loginUrl}"
                        style="display:inline-block;padding:14px 28px;color:#f5f0e8;font-size:15px;font-weight:600;text-decoration:none;">
-                      Set up my account
+                      Go to login page
                     </a>
                   </td>
                 </tr>
               </table>
-              <p style="margin:0 0 16px;font-size:13px;color:#888;line-height:1.6;">
-                If the button does not work, copy and paste this link into your browser:
+              <p style="margin:0 0 8px;font-size:13px;color:#888;line-height:1.6;">
+                Or open this address in your browser:
               </p>
               <p style="margin:0 0 32px;font-size:12px;color:#888;word-break:break-all;line-height:1.6;">
-                ${actionLink}
+                ${loginUrl}
               </p>
               <hr style="border:none;border-top:1px solid #eee;margin:0 0 24px;" />
               <p style="margin:0;font-size:13px;color:#aaa;line-height:1.6;">

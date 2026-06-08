@@ -164,34 +164,41 @@ export async function createOrganisation(
 
   const orgId = org.id
 
-  // ── 5. Generate invite link — compensating delete on failure ───────────────
+  // ── 5. Generate invite OTP — compensating delete on failure ───────────────
+  // We use email_otp (the typed code), not action_link (the consumable URL).
+  // action_link is a one-time token that Outlook Safe Links prefetches and
+  // consumes before the founder ever sees the email. email_otp is a short
+  // alphanumeric code the founder types manually — immune to prefetch.
   const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
     type: 'invite',
     email: founderEmail,
     options: {
-      redirectTo: `${getAppUrl()}/auth/callback`,
       data: { organisation_id: orgId, intended_role: 'client' },
     },
   })
 
-  if (linkError || !linkData?.properties?.action_link) {
+  if (linkError || !linkData?.properties?.email_otp) {
     logger.error('createOrganisation: generateLink failed — rolling back org', { orgId, error: linkError?.message })
     await adminClient.from('organisations').delete().eq('id', orgId)
     return {
       status: 'error',
-      message: `Failed to generate invite link: ${linkError?.message ?? 'Unknown error'}. Organisation record removed.`,
+      message: `Failed to generate invite code: ${linkError?.message ?? 'Unknown error'}. Organisation record removed.`,
       fields,
     }
   }
 
-  const actionLink  = linkData.properties.action_link
-  const authUserId  = linkData.user.id
+  const emailOtp   = linkData.properties.email_otp
+  const authUserId = linkData.user.id
+
+  // Login URL pre-fills the founder's email and signals invite flow so the
+  // login page skips the send-code step and goes straight to code entry.
+  const loginUrl = `${getAppUrl()}/login?email=${encodeURIComponent(founderEmail)}&invite=1`
 
   // ── 6. Send welcome email — compensating delete on failure ─────────────────
   const emailResult = await sendTransactionalEmail({
     to: founderEmail,
     subject: clientWelcomeSubject(orgName),
-    html: clientWelcomeTemplate({ founderFirstName, orgName, actionLink }),
+    html: clientWelcomeTemplate({ founderFirstName, orgName, otpCode: emailOtp, loginUrl }),
   })
 
   if (!emailResult.success) {
