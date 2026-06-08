@@ -62,8 +62,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               </p>
               <p className="text-text-secondary text-xs mb-5 leading-relaxed">
                 {isInvite
-                  ? <>Enter the 6-digit code from your welcome email to access your dashboard.</>
-                  : <>We sent a 6-digit code to{' '}
+                  ? <>Enter the 8-digit code from your welcome email to access your dashboard.</>
+                  : <>We sent an 8-digit code to{' '}
                     {sentEmail ? <span className="text-text-primary">{sentEmail}</span> : 'your email'}.
                     Enter it below.</>
                 }
@@ -83,9 +83,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                   type="text"
                   name="token"
                   inputMode="numeric"
-                  pattern="\d{6}"
-                  maxLength={6}
-                  placeholder="000000"
+                  pattern="\d{8}"
+                  maxLength={8}
+                  placeholder="00000000"
                   autoFocus
                   autoComplete="one-time-code"
                   className="w-full px-3 py-2 text-sm text-text-primary bg-surface-content border border-border-card rounded-[6px] placeholder:text-text-muted focus:outline-none focus:border-brand-green-accent transition-colors tracking-widest text-center font-mono"
@@ -113,7 +113,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 Sign in
               </p>
               <p className="text-text-secondary text-xs mb-5">
-                Enter your email and we&apos;ll send you a 6-digit code.
+                Enter your email and we&apos;ll send you an 8-digit code.
               </p>
 
               {errorMessage && (

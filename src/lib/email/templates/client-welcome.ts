@@ -38,7 +38,7 @@ export function clientWelcomeTemplate({ founderFirstName, orgName, otpCode, logi
                 Your MargenticOS account for <strong>${orgName}</strong> is ready.
               </p>
               <p style="margin:0 0 8px;font-size:15px;color:#444;line-height:1.6;">
-                Enter this code to access your dashboard:
+                Enter this 8-digit code to access your dashboard:
               </p>
               <div style="background:#f5f0e8;border-radius:8px;padding:20px 32px;text-align:center;margin:16px 0 24px;">
                 <span style="font-family:monospace;font-size:36px;font-weight:700;color:#1a1a1a;letter-spacing:0.18em;">${otpCode}</span>
