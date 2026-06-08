@@ -2432,55 +2432,53 @@ live schema, pg_cron job state, integrations_registry. No code changes in this s
 
 ---
 
-### [pre-c0] ApprovalCard renderer audit — full payload vs rendered fields (2026-06-06)
+### ~~[pre-c0] ApprovalCard renderer audit — ICP DONE; Positioning/TOV/Messaging verified (2026-06-06)~~
 
-- Added 2026-06-06. Blocker before client-zero subscriptions go live.
-- `renderGeneric()` in `src/components/approvals/ApprovalCard.tsx` filters
-  `Object.entries()` to `string | number` only — every nested object is silently dropped.
-  ICP falls through to `renderGeneric()` (no `renderIcp` exists), losing ~94% of the
-  document payload before the operator sees it.
-- `renderPositioning()` exists but is confirmed incomplete — the positioning card rendered
-  thin in the dry-run onboarding session (2026-06-06), same approve-blind gap as ICP.
-- Fix required: build a dedicated `renderIcp()` renderer. Then diff every other doc type's
-  payload schema against what its renderer actually surfaces and fix any gaps.
-- Doc types to audit in priority order: ICP (missing renderer), Positioning (incomplete
-  renderer), TOV, Messaging. Each renderer must surface every top-level and nested field
-  the agent writes, not just string/number scalars.
-- Until renderers are fixed: dump full suggestion payload as markdown before any approval
-  in operator sessions. This is the workaround currently in use.
+- Added 2026-06-06. **ICP: RESOLVED 2026-06-08 (commit dfd474e).**
+- Root cause: `renderGeneric()` filtered `Object.entries()` to `string | number` only, losing
+  every nested object. ICP had no dedicated renderer — ~80% of the payload was invisible
+  to the operator at approval time.
+- **ICP fix (S3 reopen, dfd474e):** `IcpTierCard` component built, rendering all tier fields:
+  `company_profile` (stage, revenue_range, headcount, geography, business_model, industries),
+  `buyer_profile` (title, seniority, day_to_day, identity), `four_forces` (collapsible pull/push/
+  habit/anxiety), `triggers` with `evidence_to_find`, `switching_costs`, `disqualifiers`.
+  `renderUnknownFields` fallback added at tier level so future fields cannot silently vanish.
+  34 tests assert nested content strings (not just envelope counts).
+- **S2 fix-pass (commit 3c46944):** all four doc-type renderers rebuilt against real DRY RUN schemas.
+  Positioning, TOV, Messaging renderers confirmed complete against real fixture data.
+  crash-class dead (renderCrashFallback added as belt-and-suspenders).
+- **Visual proof needed:** IcpTierCard visual confirmation is part of the S3 re-verify walk
+  (step 11: open ICP suggestion after it lands, confirm four_forces/triggers/switching_costs
+  are visible in the approval card UI).
 - Context: Finding #6 from the 2026-06-06 onboarding dry-run session.
 
 ---
 
 ### [phase-b] Dispatch trigger redesign — intake completion to cascade (2026-06-06)
 
-- Added 2026-06-06. Proposal stage — no code until Doug approves the design.
-- **FIX 2: Parallel dispatch is structurally broken for new orgs.**
-  `POST /api/intake/complete` dispatches all 4 agents in parallel via `Promise.all`.
-  Positioning requires an approved ICP in `strategy_documents`. Messaging requires all
-  three approved. For any new org, these guards will always fail when dispatched
-  simultaneously at intake completion.
-- **FIX 3: `docs_complete_notification_sent_at` stamps too early.**
-  Currently stamps ~12s after dispatch inside `notifyIfAllDocsComplete()` called from the
-  ICP route. Fires when ICP finishes (or fails), regardless of the other three agents.
-  Should fire only when all four agents reach `completed`.
-- Phase B proposal must include:
-  1. Ripple map for cascade hook placement — shared helper called by operator approve route,
-     force-approve route, AND the 3-day auto-approve cron. All three paths trigger
-     downstream agents via the same helper, not inline code.
-  2. Idempotency — no dispatch if a `strategy_document` OR pending `document_suggestion`
-     already exists for the downstream doc type. Prevents re-runs triggering duplicate
-     cascade steps.
-  3. Dependency ordering — ICP and TOV run on intake completion (no dependencies).
-     Positioning dispatched only after ICP is approved. Messaging dispatched only after
-     ICP, TOV, and Positioning are all approved.
-  4. Operator failure alert — when any agent fails, notify the operator immediately.
-     The current model is silent failure.
-  5. Client-approval interplay — define whether client review happens per-doc as each
-     activates, or once the full set is ready. An ICP change request mid-cascade churns
-     every downstream document. This must be decided before building the cascade hook
-     (it determines what "approved" means for cascade trigger purposes).
-- Trigger: operator approval of Phase B design before any code is written.
+- Added 2026-06-06.
+- **D1 (FIX 2) — RESOLVED 2026-06-08 (commit 50fd685):**
+  `POST /api/intake/complete` was dispatching all 4 agents in parallel. Positioning +
+  messaging failed immediately (no upstream docs yet), corrupting the completion logic.
+  Fix: intake now dispatches ICP + TOV only. Positioning and Messaging are staged
+  via `triggerCascadeIfEligible`. Confirmed in code: lines 178-181 of intake/complete/route.ts.
+- **D2 (FIX 3) — RESOLVED 2026-06-08 (commit 50fd685):**
+  `notifyIfAllDocsComplete()` was present in the ICP route and fired as soon as ICP
+  completed, sending a false "all documents ready" email. It was already removed from
+  positioning, tov, and messaging in the original S3 commit but was missed in icp/route.ts.
+  Fix: removed from icp/route.ts. Confirmed: no `notifyIfAllDocsComplete` in any agent route.
+- **ICP route false email (RESOLVED 2026-06-08):** The false `docs_complete` email was
+  confirmed to have fired to `RESEND_OPERATOR_EMAIL` in the S3 WALK TEST. D2 fix prevents recurrence.
+- Cascade helper (`triggerCascadeIfEligible`) + four callers shipped in S3 (commit dd098a1).
+  Idempotency index on `document_suggestions(org_id, doc_type) WHERE pending` is the backstop.
+- **S4 — RESOLVED 2026-06-08 (commit 2b0170e):** Four email templates built and wired.
+  `suggestion-ready` fires from each agent SUCCESS path after suggestion row written.
+  `agent-failure` fires from each agent ERROR path (all errors, including 422 pre-flights).
+  `client-revision-notify` and `messaging-revision-staged` built as stubs for S5 wiring.
+  Cascade TODO comment replaced with design-decision comment (notification fires from agent
+  route success path, never at dispatch time). All stale "Last-agent-finished" comments
+  removed from TOV/positioning/messaging route headers.
+- Phase B items 4-5 (operator failure alerts, client-approval interplay) — DONE in S4.
 
 ---
 
@@ -2816,3 +2814,103 @@ variants. The revision agent obeyed literally. Confirmed violations in the resul
   per mailbox, which is a better signal than elapsed time regardless of anchor.
 - Surfaces to update: `DocumentsActiveState.tsx` (progress bar + launch date), pipeline
   page `estimateLaunchDate` and `MomentumBlock`/`MeetingsListCard` empty states.
+
+---
+
+## Items added / confirmed 2026-06-08 (Phase B mid-flight handover session)
+
+### [note] founder_first_name is required by the add-client form — not a blocker (2026-06-08)
+
+- Added 2026-06-08. Informational — no build action needed.
+- The S3 WALK TEST org was created via direct DB insert, which did not populate
+  `organisations.founder_first_name`. The messaging cascade therefore had no name to
+  sign the generated copy with, causing the messaging agent to fail in that test.
+- This is NOT a system gap: the operator add-client form (`CreateOrgForm`) requires
+  `founder_first_name` at line 56 and the `create-org` server action (`actions.ts` line 147)
+  enforces it. Any org created via the UI will always have this populated.
+- Reminder: direct DB insert for test orgs must set `founder_first_name`. The S3 re-verify
+  uses the operator add-client form precisely to ensure this is populated automatically.
+
+### [pre-c0] S6: Intake UX fixes — four items (2026-06-08)
+
+- Added 2026-06-08. Must fix before client-zero goes live.
+
+**S6-A: False-green progress pills (ROOT CAUSE confirmed)**
+- Sections with zero required fields report complete before being touched.
+- "Your voice" and "Existing assets" showed green ticks on a fresh org in the S3 WALK TEST.
+- Root cause: `IntakeForm.tsx` derives section completion from `criticalFields` filtered to
+  that section. A section with no critical fields has `completeness = NaN` or `1` (divide by
+  zero edge case), which passes the green threshold.
+- Fix: if `criticalFields.length === 0` for a section, that section should report
+  `not_applicable` (no pill) or `incomplete` (empty pill), never `complete`.
+- File: `src/components/intake/IntakeForm.tsx` — section completion derivation logic.
+
+**S6-B: Em-dash sweep of intake question copy and confirmation/overview copy**
+- Known instances confirmed in the S3 WALK TEST UI pass:
+  - Dictation nudge: "speak your answers -" (uses a hyphen that should be a comma or period)
+  - Tab close hint: "close this tab -" (same)
+  - Voice samples hint: "anything showing your voice -" (same)
+  - Confirmation/overview state copy may also carry instances.
+- Sweep: grep all IntakeForm copy strings, the TOV section label/description, and any
+  overview/confirmation state strings in `IntakeIncompleteState.tsx` and `IntakeForm.tsx`
+  for ` - ` (space-hyphen-space used as an em-dash substitute) and true em-dashes.
+  Replace with periods, commas, or sentence restructuring per CLAUDE.md style rules.
+
+**S6-C: Flip TOV tab default to "Type your voice" primary, "Upload files" secondary**
+- Current state: the TOV section in IntakeForm opens with "Upload files" as the active tab.
+- Required: "Type your voice" should be the default active tab. Upload is a secondary option
+  for clients who have existing writing samples they want to attach.
+- File: `src/components/intake/IntakeForm.tsx` — TOV section tab initial state.
+
+**S6-D: Remove stray required asterisk from optional Voice-samples upload field**
+- The Voice-samples file upload field shows a required asterisk (*) despite being optional.
+- A client who sees the asterisk may feel blocked from submitting without uploading a file.
+- Fix: remove the asterisk from the label or wrapper. The field is not in the 12 critical
+  fields that gate the Generate button.
+- File: `src/components/intake/IntakeForm.tsx` — Voice-samples upload field label.
+
+### [DONE 2026-06-08] S3 re-verify — fresh org — ALL STEPS PASS
+
+- Added 2026-06-08. RESOLVED 2026-06-08.
+- Org: S3 Reverify (`0b636e90`), created via operator add-client form, `founder_first_name: Alex`.
+- D1 fix confirmed: `agents_dispatched_at` stamped once; ICP (112s) + TOV (75s) runs only;
+  positioning_runs=0; messaging_runs=0; `docs_complete_notification_sent_at=null`; no false email.
+- IcpTierCard visual proof confirmed by Doug: four_forces (collapsible), triggers with evidence
+  bullets, switching_costs, disqualifiers, buyer_profile (seniority/day_to_day/identity),
+  company_profile (stage/geography/business_model) all rendered. No content gaps.
+- S6 polish item identified: buyer_profile fields and company_profile fields render as a flat
+  labelled list with no subheading. Add "Buyer profile" and "Company profile" section
+  subheadings so groupings are visually obvious. Not a content gap — purely presentational.
+  See S6-E entry below.
+
+### [pre-c0] S6-E: IcpTierCard — add Buyer profile + Company profile subheadings — RESOLVED 2026-06-08 (commit 059036c)
+
+- Added 2026-06-08. Identified during S3 visual proof walk. Fixed same session.
+- Added `font-semibold` uppercase 10px section labels at the top of each block,
+  consistent with "Four forces" / "Triggers" style.
+- File: `src/components/approvals/ApprovalCard.tsx` — `IcpTierCard` component.
+
+### [MUST-FIX-BEFORE-B2] F-1: Magic link scanner consumption — blocks real client onboarding (2026-06-08)
+
+- Added 2026-06-08. Elevated from logged to MUST-FIX-BEFORE-B2.
+- **Confirmed break:** welcome email magic link (type=invite, action_link) consumed by
+  Gmail/corporate-gateway link prefetch before user clicks. Client sees "Invalid link.
+  Please request a new one." This breaks first-time client login on the welcome email.
+- **Also breaks B2:** the 360dungarvan dry-run walk (Doug's father clicks welcome email)
+  fails on this exact path if unfixed.
+- **Research required before building** (primary sources, not assumption):
+  - Does Supabase PKCE flow prevent scanner consumption? For sign-in flows (user initiates
+    from browser), PKCE stores a code_verifier in localStorage that the scanner lacks.
+    For INVITE links (no prior browser session), PKCE verifier cannot be pre-stored — need
+    to verify whether Supabase's admin generateLink supports PKCE and what happens when
+    a scanner follows the link without the verifier.
+  - Alternative: OTP-code-only welcome email. Send a 6-8 digit code; no URL to prefetch.
+    User goes to app, enters email + code. The login OTP path already exists for sign-in.
+    Needs: welcome email template rewrite + /welcome or /login code-entry extended for
+    first-time users.
+  - Supabase docs to check: Authentication > Magic links > PKCE flow; Email OTP;
+    `supabase.auth.admin.generateLink` options.
+- **Decision gate:** confirm which approach Supabase supports for invite/welcome links
+  specifically, then implement. Do not build until approach is decided.
+- Files affected: `src/lib/email/templates/client-welcome.ts`, `src/app/login/actions.ts`
+  (or new `/welcome` route), `src/app/dashboard/operator/clients/new/actions.ts`.
