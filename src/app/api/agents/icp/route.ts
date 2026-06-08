@@ -10,10 +10,6 @@
 //   2. User role is 'operator' — clients cannot trigger document generation
 //   3. organisation_id in the request is a real organisation
 //
-// Last-agent-finished: after the agent completes (or fails), checks whether
-// all four agent_runs for this org are done. If so, sends the operator email
-// and stamps docs_complete_notification_sent_at atomically.
-//
 // The agent writes to document_suggestions only.
 // Doug reviews and approves before anything reaches strategy_documents.
 //
@@ -26,8 +22,6 @@ import { cookies } from 'next/headers'
 import { runIcpGenerationAgent } from '@/agents/icp-generation-agent'
 import { resolveOrgPrimarySegment } from '@/lib/segments/resolve-primary-segment'
 import { logger } from '@/lib/logger'
-import { sendTransactionalEmail } from '@/lib/email/send'
-import { allDocsGeneratedTemplate, allDocsGeneratedSubject } from '@/lib/email/templates/all-docs-generated'
 
 export const maxDuration = 300
 
@@ -37,51 +31,6 @@ function getAdminClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
-}
-
-const AGENT_NAMES = ['icp-generation', 'positioning-generation', 'tov-generation', 'messaging-generation'] as const
-
-async function notifyIfAllDocsComplete(organisation_id: string): Promise<void> {
-  const adminClient = getAdminClient()
-
-  // Count agent_runs for this org that have finished (completed or failed).
-  const { count } = await adminClient
-    .from('agent_runs')
-    .select('id', { count: 'exact', head: true })
-    .eq('organisation_id', organisation_id)
-    .in('agent_name', AGENT_NAMES)
-    .in('status', ['completed', 'failed'])
-
-  if ((count ?? 0) < 4) return
-
-  // Race-safety: the COUNT check is an early-exit optimisation. The true
-  // atomic claim is the UPDATE's WHERE docs_complete_notification_sent_at IS NULL
-  // guard. Two agents finishing simultaneously can both pass the COUNT, but only
-  // one will win the UPDATE — the other receives zero rows and exits early.
-  // Atomically claim the notification slot — only one agent wins this.
-  const { data: claimed } = await adminClient
-    .from('organisations')
-    .update({ docs_complete_notification_sent_at: new Date().toISOString() })
-    .eq('id', organisation_id)
-    .is('docs_complete_notification_sent_at', null)
-    .select('id, name')
-    .single()
-
-  if (!claimed) return // another agent already sent the notification
-
-  const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
-  if (!operatorEmail) {
-    logger.warn('agent route: RESEND_OPERATOR_EMAIL not set — all-docs notification skipped', { organisation_id })
-    return
-  }
-
-  await sendTransactionalEmail({
-    to: operatorEmail,
-    subject: allDocsGeneratedSubject(claimed.name),
-    html: allDocsGeneratedTemplate({ orgName: claimed.name, orgId: organisation_id }),
-  })
-
-  logger.info('agent route: all-docs-generated email sent', { organisation_id })
 }
 
 export async function POST(request: NextRequest) {
@@ -221,8 +170,6 @@ export async function POST(request: NextRequest) {
       is_refresh,
     })
 
-    await notifyIfAllDocsComplete(organisation_id)
-
     return NextResponse.json(result, { status: 200 })
 
   } catch (err) {
@@ -232,9 +179,6 @@ export async function POST(request: NextRequest) {
       'ICP route: agent run failed',
       { organisation_id, error: message }
     )
-
-    // Still check — if this was the last agent even via failure, send the notification.
-    await notifyIfAllDocsComplete(organisation_id)
 
     return NextResponse.json(
       { error: 'ICP agent failed. Check server logs for details.' },

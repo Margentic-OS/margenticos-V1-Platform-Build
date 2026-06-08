@@ -1,8 +1,12 @@
 // POST /api/intake/complete
 //
 // Called by the client's intake form when critical-field completeness crosses
-// the 80% threshold for the first time. Dispatches all four strategy agents
-// (ICP, TOV, Positioning, Messaging) and notifies the operator.
+// the 80% threshold for the first time. Dispatches ICP + TOV agents only and
+// notifies the operator. Positioning and Messaging are staged: the cascade
+// helper (trigger-cascade.ts) dispatches them after their upstream docs are
+// approved. Dispatching all four simultaneously caused positioning + messaging
+// to fail immediately (no ICP doc exists yet) and triggered false
+// docs_complete notifications.
 //
 // Design: returns 202 immediately. Agent dispatch + operator email run in
 // after() so the client gets a fast response. Each agent runs as its own
@@ -168,11 +172,12 @@ export async function POST(_request: NextRequest) {
 
     const segmentPayload = dispatchSegmentId ? { segment_id: dispatchSegmentId } : undefined
 
+    // ICP and TOV only. Positioning is staged: cascade dispatches it after ICP
+    // is approved. Messaging is staged: cascade dispatches it after ICP +
+    // positioning + TOV are all approved.
     await Promise.all([
       dispatchAgent('/api/agents/icp', segmentPayload),
-      dispatchAgent('/api/agents/positioning'),
       dispatchAgent('/api/agents/tov'),
-      dispatchAgent('/api/agents/messaging', segmentPayload),
     ])
   })
 
