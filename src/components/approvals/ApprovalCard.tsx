@@ -485,6 +485,7 @@ function IcpTierCard({ tier }: { tier: IcpTierObject }) {
 
       {tier.company_profile && (
         <div className="space-y-1.5">
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted font-semibold">Company profile</p>
           {tier.company_profile.stage && (
             <div className="flex items-baseline gap-2">
               <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted shrink-0">Stage</p>
@@ -535,6 +536,7 @@ function IcpTierCard({ tier }: { tier: IcpTierObject }) {
 
       {tier.buyer_profile && (
         <div className="space-y-1.5">
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted font-semibold">Buyer profile</p>
           {tier.buyer_profile.title && (
             <div className="flex items-baseline gap-2">
               <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted shrink-0">Buyer</p>
