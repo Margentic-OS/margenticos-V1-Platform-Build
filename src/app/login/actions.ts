@@ -30,7 +30,14 @@ export async function sendMagicLink(formData: FormData) {
   // No emailRedirectTo — sends a 6-digit OTP code only, no clickable link.
   // Clickable links in auth emails are consumed by Outlook Safe Links prefetch,
   // which scans links before the user sees them (common in B2B Office 365 tenants).
-  const { error } = await supabase.auth.signInWithOtp({ email })
+  //
+  // shouldCreateUser: false — only users pre-provisioned via generateLink (invited
+  // by the operator) can sign in. A random email typed into the form is silently
+  // accepted by Supabase (no user-enumeration leak) but no email is sent.
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: false },
+  })
 
   if (error) {
     const isRateLimit = error.status === 429
