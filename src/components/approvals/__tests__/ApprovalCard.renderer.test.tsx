@@ -6,7 +6,7 @@
 
 import React from 'react'
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import ApprovalCard, { type PendingSuggestion } from '../ApprovalCard'
 
@@ -92,34 +92,70 @@ describe('Messaging — 1 payload field', () => {
   })
 })
 
-// ─── ICP — 5 payload fields ───────────────────────────────────────────────────
-// Fields: summary, jtbd_statement, tier_1, tier_2, tier_3
+// ─── ICP — nested content parity ─────────────────────────────────────────────
+// Assertions target content INSIDE tiers, not just top-level envelope fields.
+// A passing envelope (tier labels visible) while tier body is invisible is the
+// exact approve-blind failure S2 existed to kill — these tests prevent it.
 
-describe('ICP — 5 payload fields', () => {
-  it('PASS: summary renders as readable text', () => {
+describe('ICP — nested content parity', () => {
+  it('PASS: summary and jtbd_statement render', () => {
     renderCard('icp', icpFixture)
     expect(didCrash()).toBe(false)
     expect(screen.getByText(icpFixture.summary)).toBeInTheDocument()
-  })
-
-  it('PASS: jtbd_statement renders as readable text', () => {
-    renderCard('icp', icpFixture)
     expect(screen.getByText(icpFixture.jtbd_statement)).toBeInTheDocument()
   })
 
-  it('PASS: tier_1 label "Ideal Client" renders as distinct text node', () => {
+  it('PASS: tier labels render (envelope)', () => {
     renderCard('icp', icpFixture)
     expect(screen.getByText('Ideal Client')).toBeInTheDocument()
-  })
-
-  it('PASS: tier_2 label "Good Client" renders as distinct text node', () => {
-    renderCard('icp', icpFixture)
     expect(screen.getByText('Good Client')).toBeInTheDocument()
+    expect(screen.getByText('Do Not Target')).toBeInTheDocument()
   })
 
-  it('PASS: tier_3 label "Do Not Target" renders as distinct text node', () => {
+  it('PASS: tier_1 company_profile stage, geography, and business_model render', () => {
     renderCard('icp', icpFixture)
-    expect(screen.getByText('Do Not Target')).toBeInTheDocument()
+    expect(screen.getByText(icpFixture.tier_1.company_profile.stage)).toBeInTheDocument()
+    expect(screen.getByText(icpFixture.tier_1.company_profile.geography)).toBeInTheDocument()
+    expect(screen.getByText(icpFixture.tier_1.company_profile.business_model)).toBeInTheDocument()
+  })
+
+  it('PASS: tier_1 buyer_profile seniority, day_to_day, and identity all render', () => {
+    renderCard('icp', icpFixture)
+    expect(screen.getByText(icpFixture.tier_1.buyer_profile.seniority)).toBeInTheDocument()
+    expect(screen.getByText(icpFixture.tier_1.buyer_profile.day_to_day)).toBeInTheDocument()
+    expect(screen.getByText(icpFixture.tier_1.buyer_profile.identity)).toBeInTheDocument()
+  })
+
+  it('PASS: tier_1 triggers render with trigger text and evidence item', () => {
+    renderCard('icp', icpFixture)
+    expect(screen.getByText(icpFixture.tier_1.triggers[0].trigger)).toBeInTheDocument()
+    expect(screen.getByText(icpFixture.tier_1.triggers[0].evidence_to_find[0])).toBeInTheDocument()
+  })
+
+  it('PASS: tier_1 switching_costs render', () => {
+    renderCard('icp', icpFixture)
+    expect(screen.getByText(icpFixture.tier_1.switching_costs[0])).toBeInTheDocument()
+  })
+
+  it('PASS: tier_1 four_forces all four categories render after toggle is clicked', () => {
+    renderCard('icp', icpFixture)
+    // Three "Four forces" toggles exist (one per tier). Index 0 = tier_1.
+    const toggles = screen.getAllByRole('button', { name: /four forces/i })
+    fireEvent.click(toggles[0])
+    expect(screen.getByText(icpFixture.tier_1.four_forces.pull[0])).toBeInTheDocument()
+    expect(screen.getByText(icpFixture.tier_1.four_forces.push[0])).toBeInTheDocument()
+    expect(screen.getByText(icpFixture.tier_1.four_forces.anxiety[0])).toBeInTheDocument()
+    expect(screen.getByText(icpFixture.tier_1.four_forces.habit[0])).toBeInTheDocument()
+  })
+
+  it('PASS: tier renderUnknownFields surfaces unhandled keys injected into tier_1', () => {
+    const payload = {
+      ...icpFixture,
+      tier_1: { ...icpFixture.tier_1, _unknown_tier_field: 'tier-sentinel-xyz' },
+    }
+    renderCard('icp', payload)
+    expect(didCrash()).toBe(false)
+    expect(screen.getByText('tier-sentinel-xyz')).toBeInTheDocument()
   })
 })
 

@@ -461,8 +461,18 @@ function EmailSection({ label, email }: { label: string; email: MessagingEmail }
 // ─── ICP tier card ────────────────────────────────────────────────────────────
 
 function IcpTierCard({ tier }: { tier: IcpTierObject }) {
+  const [forcesOpen, setForcesOpen] = useState(false)
+
   const industries = tier.company_profile?.industries ?? []
   const disqualifiers = tier.disqualifiers ?? []
+  const switchingCosts = tier.switching_costs ?? []
+  const triggers = tier.triggers ?? []
+  const forces = tier.four_forces
+
+  const handledTierKeys = new Set([
+    'label', 'description', 'company_profile', 'buyer_profile',
+    'four_forces', 'triggers', 'switching_costs', 'disqualifiers',
+  ])
 
   return (
     <div className="bg-surface-content rounded-[8px] px-3 py-3 space-y-2.5">
@@ -472,8 +482,15 @@ function IcpTierCard({ tier }: { tier: IcpTierObject }) {
       {tier.description && (
         <p className="text-xs text-text-secondary leading-relaxed">{tier.description}</p>
       )}
+
       {tier.company_profile && (
         <div className="space-y-1.5">
+          {tier.company_profile.stage && (
+            <div className="flex items-baseline gap-2">
+              <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted shrink-0">Stage</p>
+              <p className="text-xs text-text-secondary">{tier.company_profile.stage}</p>
+            </div>
+          )}
           {tier.company_profile.revenue_range && (
             <div className="flex items-baseline gap-2">
               <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted shrink-0">Revenue</p>
@@ -484,6 +501,18 @@ function IcpTierCard({ tier }: { tier: IcpTierObject }) {
             <div className="flex items-baseline gap-2">
               <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted shrink-0">Headcount</p>
               <p className="text-xs text-text-secondary">{tier.company_profile.headcount}</p>
+            </div>
+          )}
+          {tier.company_profile.geography && (
+            <div className="flex items-baseline gap-2">
+              <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted shrink-0">Geography</p>
+              <p className="text-xs text-text-secondary">{tier.company_profile.geography}</p>
+            </div>
+          )}
+          {tier.company_profile.business_model && (
+            <div className="flex items-baseline gap-2">
+              <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted shrink-0">Model</p>
+              <p className="text-xs text-text-secondary">{tier.company_profile.business_model}</p>
             </div>
           )}
           {industries.length > 0 && (
@@ -503,21 +532,116 @@ function IcpTierCard({ tier }: { tier: IcpTierObject }) {
           )}
         </div>
       )}
-      {tier.buyer_profile?.title && (
-        <div className="flex items-baseline gap-2">
-          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted shrink-0">Buyer</p>
-          <p className="text-xs text-text-secondary">{tier.buyer_profile.title}</p>
+
+      {tier.buyer_profile && (
+        <div className="space-y-1.5">
+          {tier.buyer_profile.title && (
+            <div className="flex items-baseline gap-2">
+              <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted shrink-0">Buyer</p>
+              <p className="text-xs text-text-secondary">{tier.buyer_profile.title}</p>
+            </div>
+          )}
+          {tier.buyer_profile.seniority && (
+            <div className="flex items-baseline gap-2">
+              <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted shrink-0">Seniority</p>
+              <p className="text-xs text-text-secondary leading-relaxed">{tier.buyer_profile.seniority}</p>
+            </div>
+          )}
+          {tier.buyer_profile.day_to_day && (
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-0.5">Day to day</p>
+              <p className="text-xs text-text-secondary leading-relaxed">{tier.buyer_profile.day_to_day}</p>
+            </div>
+          )}
+          {tier.buyer_profile.identity && (
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-0.5">Identity</p>
+              <p className="text-xs text-text-secondary leading-relaxed">{tier.buyer_profile.identity}</p>
+            </div>
+          )}
         </div>
       )}
+
+      {forces && (
+        <div>
+          <button
+            onClick={() => setForcesOpen(v => !v)}
+            className="w-full flex items-center justify-between text-[10px] uppercase tracking-[0.07em] text-text-muted py-1"
+          >
+            <span>Four forces</span>
+            <span>{forcesOpen ? '▲' : '▼'}</span>
+          </button>
+          {forcesOpen && (
+            <div className="space-y-2 pt-1">
+              {(['pull', 'push', 'habit', 'anxiety'] as const).map(key => {
+                const items = forces[key]
+                if (!items?.length) return null
+                return (
+                  <div key={key}>
+                    <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-0.5 capitalize">{key}</p>
+                    <ul className="space-y-0.5">
+                      {items.map((item, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-xs text-text-secondary leading-relaxed">
+                          <span className="shrink-0">·</span>
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {triggers.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">
+            Triggers · {triggers.length}
+          </p>
+          <div className="space-y-2">
+            {triggers.map((t, i) => (
+              <div key={i} className="space-y-1">
+                {t.trigger && (
+                  <p className="text-xs text-text-secondary leading-relaxed">{t.trigger}</p>
+                )}
+                {t.evidence_to_find && t.evidence_to_find.length > 0 && (
+                  <ul className="pl-2 space-y-0.5">
+                    {t.evidence_to_find.map((e, j) => (
+                      <li key={j} className="flex items-start gap-1.5 text-[11px] text-text-muted leading-relaxed">
+                        <span className="shrink-0">·</span>
+                        {e}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {switchingCosts.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">Switching costs</p>
+          <ul className="space-y-0.5">
+            {switchingCosts.map((s, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-xs text-text-secondary leading-relaxed">
+                <span className="shrink-0">·</span>
+                {s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {disqualifiers.length > 0 && (
         <div>
           <p className="text-[10px] uppercase tracking-[0.07em] text-text-muted mb-1">Disqualifiers</p>
           <ul className="space-y-0.5">
             {disqualifiers.map((d, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-1.5 text-xs text-[#8B2020] leading-relaxed"
-              >
+              <li key={i} className="flex items-start gap-1.5 text-xs text-[#8B2020] leading-relaxed">
                 <span className="shrink-0 text-[#8B2020]">·</span>
                 {d}
               </li>
@@ -525,6 +649,8 @@ function IcpTierCard({ tier }: { tier: IcpTierObject }) {
           </ul>
         </div>
       )}
+
+      {renderUnknownFields(tier as Record<string, unknown>, handledTierKeys)}
     </div>
   )
 }
