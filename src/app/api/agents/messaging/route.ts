@@ -7,11 +7,10 @@
 //
 // Dependencies: ICP, Positioning, and TOV documents must all exist and be active.
 // If any are missing, the agent throws a clear error naming exactly which are absent.
-// This is the final agent in the document generation sequence.
+// Dispatched by the cascade helper after ICP + positioning + TOV are all approved.
 //
-// Last-agent-finished: after the agent completes (or fails), checks whether
-// all four agent_runs for this org are done. If so, sends the operator email
-// and stamps docs_complete_notification_sent_at atomically.
+// On success: sends the operator a suggestion-ready notification.
+// On failure: sends the operator an agent-failure alert.
 //
 // The agent writes to document_suggestions only.
 // Doug reviews and approves before anything reaches strategy_documents.
@@ -25,6 +24,9 @@ import { cookies } from 'next/headers'
 import { runMessagingGenerationAgent } from '@/agents/messaging-generation-agent'
 import { resolveOrgPrimarySegment } from '@/lib/segments/resolve-primary-segment'
 import { logger } from '@/lib/logger'
+import { sendTransactionalEmail } from '@/lib/email/send'
+import { suggestionReadyTemplate, suggestionReadySubject } from '@/lib/email/templates/suggestion-ready'
+import { agentFailureTemplate, agentFailureSubject } from '@/lib/email/templates/agent-failure'
 
 export const maxDuration = 300
 
@@ -167,6 +169,22 @@ export async function POST(request: NextRequest) {
       is_refresh,
     })
 
+    const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
+    if (operatorEmail) {
+      try {
+        await sendTransactionalEmail({
+          to: operatorEmail,
+          subject: suggestionReadySubject(org.name, 'messaging'),
+          html: suggestionReadyTemplate({ orgName: org.name, orgId: organisation_id, docType: 'messaging' }),
+        })
+      } catch (emailErr) {
+        logger.warn('Messaging route: operator notification failed', {
+          organisation_id,
+          error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+        })
+      }
+    }
+
     return NextResponse.json(result, { status: 200 })
 
   } catch (err) {
@@ -176,6 +194,22 @@ export async function POST(request: NextRequest) {
       'Messaging route: agent run failed',
       { organisation_id, error: message }
     )
+
+    const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
+    if (operatorEmail) {
+      try {
+        await sendTransactionalEmail({
+          to: operatorEmail,
+          subject: agentFailureSubject(org.name, 'messaging'),
+          html: agentFailureTemplate({ orgName: org.name, orgId: organisation_id, docType: 'messaging', error: message }),
+        })
+      } catch (emailErr) {
+        logger.warn('Messaging route: failure notification email failed', {
+          organisation_id,
+          error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+        })
+      }
+    }
 
     // Surface pre-flight errors directly — missing name fields are operator-actionable.
     if (message.includes('required fields are missing')) {

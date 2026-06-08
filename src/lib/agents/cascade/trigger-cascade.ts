@@ -131,7 +131,10 @@ export async function triggerCascadeIfEligible(
       const eligible = await isEligible(supabase, orgId, target)
       if (!eligible) continue
 
-      // TODO(S4): send operator notification email here when dispatch fires.
+      // Notification fires from the target agent route's success path — not here.
+      // Notifying at dispatch time would mean the operator gets an email before the
+      // document exists, which is confusing. The suggestion-ready email fires only
+      // after the agent has written the suggestion row.
       await fireDispatch(orgId, target)
     }
   } catch (err) {

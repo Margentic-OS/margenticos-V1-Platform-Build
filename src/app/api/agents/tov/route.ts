@@ -8,9 +8,8 @@
 // No dependency on ICP or Positioning documents — TOV generation is independent.
 // It works from writing samples (voice_samples) and intake preferences only.
 //
-// Last-agent-finished: after the agent completes (or fails), checks whether
-// all four agent_runs for this org are done. If so, sends the operator email
-// and stamps docs_complete_notification_sent_at atomically.
+// On success: sends the operator a suggestion-ready notification.
+// On failure: sends the operator an agent-failure alert.
 //
 // The agent writes to document_suggestions only.
 // Doug reviews and approves before anything reaches strategy_documents.
@@ -23,6 +22,9 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { runTovGenerationAgent } from '@/agents/tov-generation-agent'
 import { logger } from '@/lib/logger'
+import { sendTransactionalEmail } from '@/lib/email/send'
+import { suggestionReadyTemplate, suggestionReadySubject } from '@/lib/email/templates/suggestion-ready'
+import { agentFailureTemplate, agentFailureSubject } from '@/lib/email/templates/agent-failure'
 
 export const maxDuration = 300
 
@@ -144,6 +146,22 @@ export async function POST(request: NextRequest) {
       is_refresh,
     })
 
+    const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
+    if (operatorEmail) {
+      try {
+        await sendTransactionalEmail({
+          to: operatorEmail,
+          subject: suggestionReadySubject(org.name, 'tov'),
+          html: suggestionReadyTemplate({ orgName: org.name, orgId: organisation_id, docType: 'tov' }),
+        })
+      } catch (emailErr) {
+        logger.warn('TOV route: operator notification failed', {
+          organisation_id,
+          error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+        })
+      }
+    }
+
     return NextResponse.json(result, { status: 200 })
 
   } catch (err) {
@@ -153,6 +171,22 @@ export async function POST(request: NextRequest) {
       'TOV route: agent run failed',
       { organisation_id, error: message }
     )
+
+    const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
+    if (operatorEmail) {
+      try {
+        await sendTransactionalEmail({
+          to: operatorEmail,
+          subject: agentFailureSubject(org.name, 'tov'),
+          html: agentFailureTemplate({ orgName: org.name, orgId: organisation_id, docType: 'tov', error: message }),
+        })
+      } catch (emailErr) {
+        logger.warn('TOV route: failure notification email failed', {
+          organisation_id,
+          error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+        })
+      }
+    }
 
     return NextResponse.json(
       { error: 'TOV agent failed. Check server logs for details.' },

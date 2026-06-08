@@ -22,6 +22,9 @@ import { cookies } from 'next/headers'
 import { runIcpGenerationAgent } from '@/agents/icp-generation-agent'
 import { resolveOrgPrimarySegment } from '@/lib/segments/resolve-primary-segment'
 import { logger } from '@/lib/logger'
+import { sendTransactionalEmail } from '@/lib/email/send'
+import { suggestionReadyTemplate, suggestionReadySubject } from '@/lib/email/templates/suggestion-ready'
+import { agentFailureTemplate, agentFailureSubject } from '@/lib/email/templates/agent-failure'
 
 export const maxDuration = 300
 
@@ -170,6 +173,22 @@ export async function POST(request: NextRequest) {
       is_refresh,
     })
 
+    const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
+    if (operatorEmail) {
+      try {
+        await sendTransactionalEmail({
+          to: operatorEmail,
+          subject: suggestionReadySubject(org.name, 'icp'),
+          html: suggestionReadyTemplate({ orgName: org.name, orgId: organisation_id, docType: 'icp' }),
+        })
+      } catch (emailErr) {
+        logger.warn('ICP route: operator notification failed', {
+          organisation_id,
+          error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+        })
+      }
+    }
+
     return NextResponse.json(result, { status: 200 })
 
   } catch (err) {
@@ -179,6 +198,22 @@ export async function POST(request: NextRequest) {
       'ICP route: agent run failed',
       { organisation_id, error: message }
     )
+
+    const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
+    if (operatorEmail) {
+      try {
+        await sendTransactionalEmail({
+          to: operatorEmail,
+          subject: agentFailureSubject(org.name, 'icp'),
+          html: agentFailureTemplate({ orgName: org.name, orgId: organisation_id, docType: 'icp', error: message }),
+        })
+      } catch (emailErr) {
+        logger.warn('ICP route: failure notification email failed', {
+          organisation_id,
+          error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+        })
+      }
+    }
 
     return NextResponse.json(
       { error: 'ICP agent failed. Check server logs for details.' },

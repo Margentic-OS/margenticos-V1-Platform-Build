@@ -7,10 +7,10 @@
 //
 // Dependency: the positioning agent requires an active ICP document.
 // If none exists, the agent throws a clear error explaining what to do first.
+// Dispatched by the cascade helper after ICP is approved (ADR-019 staged dispatch).
 //
-// Last-agent-finished: after the agent completes (or fails), checks whether
-// all four agent_runs for this org are done. If so, sends the operator email
-// and stamps docs_complete_notification_sent_at atomically.
+// On success: sends the operator a suggestion-ready notification.
+// On failure: sends the operator an agent-failure alert.
 //
 // ADR-021: operator routes are cross-org — any org_id is valid for authenticated operators
 //
@@ -23,6 +23,9 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { runPositioningGenerationAgent } from '@/agents/positioning-generation-agent'
 import { logger } from '@/lib/logger'
+import { sendTransactionalEmail } from '@/lib/email/send'
+import { suggestionReadyTemplate, suggestionReadySubject } from '@/lib/email/templates/suggestion-ready'
+import { agentFailureTemplate, agentFailureSubject } from '@/lib/email/templates/agent-failure'
 
 export const maxDuration = 300
 
@@ -144,6 +147,22 @@ export async function POST(request: NextRequest) {
       is_refresh,
     })
 
+    const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
+    if (operatorEmail) {
+      try {
+        await sendTransactionalEmail({
+          to: operatorEmail,
+          subject: suggestionReadySubject(org.name, 'positioning'),
+          html: suggestionReadyTemplate({ orgName: org.name, orgId: organisation_id, docType: 'positioning' }),
+        })
+      } catch (emailErr) {
+        logger.warn('Positioning route: operator notification failed', {
+          organisation_id,
+          error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+        })
+      }
+    }
+
     return NextResponse.json(result, { status: 200 })
 
   } catch (err) {
@@ -153,6 +172,22 @@ export async function POST(request: NextRequest) {
       'Positioning route: agent run failed',
       { organisation_id, error: message }
     )
+
+    const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
+    if (operatorEmail) {
+      try {
+        await sendTransactionalEmail({
+          to: operatorEmail,
+          subject: agentFailureSubject(org.name, 'positioning'),
+          html: agentFailureTemplate({ orgName: org.name, orgId: organisation_id, docType: 'positioning', error: message }),
+        })
+      } catch (emailErr) {
+        logger.warn('Positioning route: failure notification email failed', {
+          organisation_id,
+          error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+        })
+      }
+    }
 
     // Surface ICP dependency errors directly — these are operator-actionable.
     if (
