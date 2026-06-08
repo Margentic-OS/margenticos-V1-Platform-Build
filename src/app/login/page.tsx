@@ -9,6 +9,7 @@
 //               The invite code was in the welcome email; no send step needed.
 
 import { sendMagicLink, verifyOtpCode } from './actions'
+import { SubmitButton } from './submit-button'
 
 interface LoginPageProps {
   searchParams: Promise<{ sent?: string; error?: string; next?: string; email?: string; invite?: string }>
@@ -90,12 +91,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                   autoComplete="one-time-code"
                   className="w-full px-3 py-2 text-sm text-text-primary bg-surface-content border border-border-card rounded-[6px] placeholder:text-text-muted focus:outline-none focus:border-brand-green-accent transition-colors tracking-widest text-center font-mono"
                 />
-                <button
-                  type="submit"
-                  className="w-full py-2 text-sm font-medium text-[#F5F0E8] bg-brand-green rounded-[20px] hover:opacity-90 transition-opacity"
-                >
+                <SubmitButton pendingText="Verifying…">
                   {isInvite ? 'Activate my account' : 'Sign in with code'}
-                </button>
+                </SubmitButton>
               </form>
 
               {!isInvite && (
@@ -132,12 +130,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                   autoFocus
                   className="w-full px-3 py-2 text-sm text-text-primary bg-surface-content border border-border-card rounded-[6px] placeholder:text-text-muted focus:outline-none focus:border-brand-green-accent transition-colors"
                 />
-                <button
-                  type="submit"
-                  className="w-full py-2 text-sm font-medium text-[#F5F0E8] bg-brand-green rounded-[20px] hover:opacity-90 transition-opacity"
-                >
+                <SubmitButton pendingText="Sending…">
                   Send code
-                </button>
+                </SubmitButton>
               </form>
             </>
           )}
