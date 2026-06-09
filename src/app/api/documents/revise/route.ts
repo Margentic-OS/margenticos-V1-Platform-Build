@@ -28,6 +28,8 @@ import { runDocumentRevisionAgent, RevisionGateError } from '@/lib/agents/revisi
 import type { Json } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
+import { sendTransactionalEmail } from '@/lib/email/send'
+import { revisionGateFailureTemplate, revisionGateFailureSubject } from '@/lib/email/templates/revision-gate-failure'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -156,9 +158,35 @@ export async function POST(request: NextRequest) {
         document_type: doc.document_type,
         violations: err.violations,
       })
-      // TODO (S4): send operator notification email here.
-      // The copy below says "notified" — the email ships in S4. Known temporary
-      // inconsistency during the no-clients window.
+
+      const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
+      if (operatorEmail) {
+        try {
+          const { data: orgRow } = await admin
+            .from('organisations')
+            .select('name')
+            .eq('id', orgId)
+            .single()
+          const orgName = orgRow?.name ?? orgId
+          await sendTransactionalEmail({
+            to: operatorEmail,
+            subject: revisionGateFailureSubject(orgName, doc.document_type),
+            html: revisionGateFailureTemplate({
+              orgName,
+              orgId,
+              docType: doc.document_type,
+              revisionNote: trimmedNote,
+            }),
+          })
+        } catch (emailErr) {
+          logger.warn('POST /api/documents/revise: gate failure notification email failed', {
+            document_id,
+            org_id: orgId,
+            error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+          })
+        }
+      }
+
       return NextResponse.json(
         { error: "We couldn't apply this change while keeping the content within your outbound guidelines. Your outbound team has been notified and will review it manually." },
         { status: 422 },
