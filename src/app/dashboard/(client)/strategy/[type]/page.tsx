@@ -133,6 +133,28 @@ export default async function StrategyDocumentPage({
     Sentry.captureException(docError, { extra: { orgId: org.id, docType, selectedSegmentId } })
   }
 
+  // Check whether a client revision is already staged and awaiting operator review.
+  // Only messaging revisions are staged; all other document types go live immediately.
+  let hasPendingRevision = false
+  if (docType === 'messaging' && doc) {
+    let suggQuery = supabase
+      .from('document_suggestions')
+      .select('id', { count: 'exact', head: true })
+      .eq('organisation_id', org.id)
+      .eq('document_type', 'messaging')
+      .eq('status', 'pending')
+      .eq('update_trigger', 'client_revision')
+
+    if (selectedSegmentId) {
+      suggQuery = suggQuery.eq('segment_id', selectedSegmentId)
+    } else {
+      suggQuery = suggQuery.is('segment_id', null)
+    }
+
+    const { count } = await suggQuery
+    hasPendingRevision = (count ?? 0) > 0
+  }
+
   const docLabel = getDocumentLabel(docType)
   const orgInitials = getOrgInitials(org.name)
   const statusVariant = org.pipeline_unlocked ? 'live' : 'warming'
@@ -203,6 +225,7 @@ export default async function StrategyDocumentPage({
                 changeSummary={doc.change_summary}
                 revisionNote={doc.revision_note}
                 isOperator={isOperatorViewing}
+                hasPendingRevision={hasPendingRevision}
               />
               <DocumentContent
                 docType={docType}
