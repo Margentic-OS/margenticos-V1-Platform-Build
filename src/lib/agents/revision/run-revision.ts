@@ -313,6 +313,14 @@ If the note asks you to remove a rule-required element (like the sign-off): expl
 
 A client request is never silently discarded. If something truly cannot be accommodated anywhere, say so clearly in change_summary.
 
+## Named Locations Are Fixed Targets
+
+When the client's note names a specific location in the copy (for example: the first line, the subject line, a particular email, the opening, the closing), treat that location as a fixed target.
+
+Make the change at that exact location to satisfy the request. You still decide HOW to satisfy it. What "clearer" or "simpler" means in context is your call. WHERE the change happens is not yours to move.
+
+If the named location reads fine to you, revise it as the client asked anyway. Do not identify a different passage you judge to be the real problem and change that instead. The client pointed at a specific spot. That spot must change.
+
 ## Evidence Rule (All Document Types)
 
 Every fact, statistic, quote, or proof point in the revised content must trace to one of three sources: the client's revision note, the current document, or intake data.
