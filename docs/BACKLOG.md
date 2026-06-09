@@ -2936,6 +2936,17 @@ variants. The revision agent obeyed literally. Confirmed violations in the resul
   mediate intent, just within the named target. Verify with a re-run after editing.
 - File: `run-revision.ts` (mediation prompt).
 
+### [pre-c1] REV-2: Revision agent ignores explicit positional targets - RESOLVED 2026-06-09
+
+- Resolved 2026-06-09. The "Named Locations Are Fixed Targets" section was added to
+  the mediation prompt in `src/lib/agents/revision/run-revision.ts`. When a client's
+  note names a specific location (the first line, email 2, the subject line, the
+  opening, the closing), that location is now a binding target: the change must happen
+  at that exact spot. The agent still decides HOW to satisfy the intent within the
+  named location; it no longer substitutes a different passage it judges to be the
+  real problem. Verified present in the prompt builder at the "Named Locations Are
+  Fixed Targets" section of `buildRevisionPrompt()`.
+
 ### [deferred] REV-1: update_trigger mislabel on promoted client revisions (2026-06-09)
 
 - Added 2026-06-09. Cosmetic. Identified during S5 build. Deliberately deferred.
@@ -2978,3 +2989,13 @@ variants. The revision agent obeyed literally. Confirmed violations in the resul
   has been sent") and route to code-entry regardless.
 - File: `src/app/login/actions.ts`.
   (or new `/welcome` route), `src/app/dashboard/operator/clients/new/actions.ts`.
+
+### [pre-c1] SEC-1: Sign-in enumeration leak - RESOLVED 2026-06-09
+
+- Resolved 2026-06-09. Both branches of `sendMagicLink` in `src/app/login/actions.ts`
+  now redirect to `/login?sent=true&email=...` regardless of whether the email is
+  registered. The 422 response (shouldCreateUser:false, otp_disabled) is caught,
+  logged at info level, and treated identically to a successful OTP send. No error
+  page, no different message, no distinguishing response. Verified in code: the
+  `isUnknownEmail` branch (lines ~46-53 of `actions.ts`) falls through to the same
+  `redirect()` call as the success path.
