@@ -12,6 +12,8 @@ export type PendingSuggestion = {
   current_value: string | null
   suggested_value: string
   suggestion_reason: string | null
+  revision_note: string | null
+  update_trigger: string | null
   created_at: string | null
   organisations: { name: string } | { name: string }[] | null
 }
@@ -1483,11 +1485,21 @@ export default function ApprovalCard({ suggestion, onResolved }: Props) {
       </div>
 
       <div className="px-5 py-4 space-y-4">
-        {/* Agent reasoning */}
+        {/* Client's request — shown for client revisions only */}
+        {suggestion.update_trigger === 'client_revision' && suggestion.revision_note && (
+          <div className="bg-surface-content border border-border-card rounded-[6px] px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1">
+              Client's request
+            </p>
+            <p className="text-xs text-text-primary leading-relaxed">{suggestion.revision_note}</p>
+          </div>
+        )}
+
+        {/* Agent reasoning / What the agent changed */}
         {suggestion.suggestion_reason && (
           <div className="bg-[#FEF7E6] border border-[#F0D080] rounded-[6px] px-3 py-2.5">
             <p className="text-[10px] uppercase tracking-[0.07em] text-[#7A4800] mb-1">
-              Agent reasoning
+              {suggestion.update_trigger === 'client_revision' ? 'What the agent changed' : 'Agent reasoning'}
             </p>
             <p className="text-xs text-[#7A4800] leading-relaxed">{suggestion.suggestion_reason}</p>
           </div>

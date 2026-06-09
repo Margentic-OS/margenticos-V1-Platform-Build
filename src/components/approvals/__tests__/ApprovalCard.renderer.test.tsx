@@ -57,6 +57,8 @@ function makeSuggestion(docType: string, payload: unknown): PendingSuggestion {
     current_value: null,
     suggested_value: JSON.stringify(payload),
     suggestion_reason: 'S2 fix-pass renderer verification',
+    revision_note: null,
+    update_trigger: null,
     created_at: '2026-06-06T00:00:00Z',
     organisations: { name: 'DRY RUN Org' },
   }
