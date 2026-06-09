@@ -3,10 +3,10 @@
 // Returns all reply_drafts rows requiring operator attention, enriched with
 // signal + prospect data and resolved FAQ text for Tier 2 drafts.
 //
-// Three auth checks on every request:
+// Two auth checks on every request:
 //   1. User is authenticated
 //   2. User role is 'operator'
-//   3. All rows are scoped to the operator's own organisation_id (ADR-003)
+// ADR-021: operator endpoint is cross-org — returns drafts from all organisations
 //
 // Statuses returned (triage queue):
 //   pending         — AI-drafted, awaiting operator approval

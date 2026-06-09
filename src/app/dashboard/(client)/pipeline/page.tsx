@@ -68,7 +68,7 @@ export default async function PipelinePage({
 
   const { data: org } = await supabase
     .from('organisations')
-    .select('id, name, engagement_month, contract_start_date, pipeline_unlocked, monthly_meetings_target')
+    .select('id, name, contract_start_date, pipeline_unlocked, monthly_meetings_target')
     .eq('id', organisationId ?? '')
     .single()
 
@@ -83,9 +83,9 @@ export default async function PipelinePage({
     return (
       <>
         <DashboardTopbar
-          eyebrow={`Month ${org.engagement_month}`}
+          eyebrow="Pipeline"
           title={org.name}
-          subtitle="Pipeline"
+          subtitle="Warming up"
           statusLabel="Warming up"
           statusVariant="warming"
           orgInitials={getOrgInitials(org.name)}
@@ -168,9 +168,9 @@ export default async function PipelinePage({
   return (
     <>
       <DashboardTopbar
-        eyebrow={`Month ${org.engagement_month}`}
+        eyebrow="Pipeline"
         title={org.name}
-        subtitle="Pipeline"
+        subtitle="Campaigns live"
         statusLabel="Campaigns live"
         statusVariant="live"
         orgInitials={getOrgInitials(org.name)}

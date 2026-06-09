@@ -4,10 +4,10 @@
 // FAQ rows are resolved from draft_metadata.faq_ids_used — useful for the
 // triage detail view and any future integrations that need the full picture.
 //
-// Three auth checks on every request:
+// Two auth checks on every request:
 //   1. User is authenticated
 //   2. User role is 'operator'
-//   3. Draft exists and belongs to the operator's organisation
+// ADR-021: operator endpoint is cross-org — draft ID lookup returns matching draft regardless of organisation
 //
 // Response shape:
 //   200 { draft: TriageDraftItem }

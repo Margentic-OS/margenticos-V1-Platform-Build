@@ -2999,3 +2999,58 @@ variants. The revision agent obeyed literally. Confirmed violations in the resul
   page, no different message, no distinguishing response. Verified in code: the
   `isUnknownEmail` branch (lines ~46-53 of `actions.ts`) falls through to the same
   `redirect()` call as the success path.
+
+---
+
+## Security findings from /cso audit 2026-06-09
+
+- [pre-c1] Dead /auth/callback route (src/app/auth/callback/route.ts)
+  The route is a leftover from the previous magic-link flow. It has zero references
+  in src/ and is unreachable under the current OTP-code flow (no emailRedirectTo is
+  set in sendMagicLink). It contains an unvalidated next-parameter redirect at line 27
+  that would be an open redirect IF the route were ever made reachable.
+  
+  Recommended action: delete the route (preferred, removes the latent risk entirely),
+  or if it must be kept for a planned magic-link path, add an internal-path guard
+  inside the route itself. Note that a naive next.startsWith('/') check is
+  insufficient: it must also reject protocol-relative URLs (leading double slash) and
+  backslash variants, which browsers can treat as external.
+  
+  Not exploitable today. Severity: low while unreachable.
+
+- [pre-c1] BACKLOG provenance correction: Fix 6 (commit 1b6ae3d, 2026-05-06)
+  That entry claims an open-redirect guard "must start with /" was implemented on the
+  magic-link callback. No such guard exists in src/app/auth/callback/route.ts.
+  
+  The actual protection in the live flow is the safeNextPath allowlist in
+  src/app/login/actions.ts lines 13-18 (restricts to /dashboard/, blocks
+  /dashboard/operator, defaults otherwise), which is sound.
+  
+  Recording this so the discrepancy is not mistaken for a missing fix later.
+
+- [pre-c1] Worktree branch reintroduces unguarded callback (.claude/worktrees/agent-ae91d40d71b6a63b8/src/app/login/actions.ts)
+  The in-progress branch sets emailRedirectTo to /auth/callback at line 32, making the
+  route reachable on that branch. It is currently safe only because the caller
+  pre-validates next via safeNextPath (lines 12-18).
+  
+  If that branch merges, the route must carry its own guard (per first entry above)
+  before or at merge time, because a future refactor of the caller would otherwise
+  open a real redirect hole.
+  
+  Flag to review at merge time.
+
+- [RESOLVED 2026-06-09] Documentation: reply-drafts routes access model corrections
+  Corrected header comments in src/app/api/reply-drafts/route.ts and src/app/api/reply-drafts/[id]/route.ts
+  to accurately reflect the actual implementation: operator cross-org access per ADR-021, not org-scoped per ADR-003.
+  Comments now state clearly that endpoints are cross-org, returning/querying drafts from all organisations.
+  Changed "Three auth checks" to "Two auth checks" and removed misleading org-scoping claims.
+  Shipped in commit: (pending - see git diff).
+
+- [RESOLVED 2026-06-09] Client dashboard data visibility: removed operator-only columns
+  Removed engagement_month from two client-facing queries:
+  1. src/app/dashboard/(client)/page.tsx line 105: removed engagement_month from organisations SELECT
+  2. src/app/dashboard/(client)/pipeline/page.tsx line 71: removed engagement_month from organisations SELECT
+  Also removed engagement_month property from DocumentsActiveState component (src/components/dashboard/empty-states/DocumentsActiveState.tsx)
+  and updated UI text from "Month X" to "Ready" / "Pipeline" to reflect that engagement data is operator-only.
+  RLS filters rows, not columns; app layer must prevent SELECT of sensitive fields.
+  Shipped in commit: (pending - see git diff).

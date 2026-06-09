@@ -19,7 +19,6 @@ interface SetupStatus {
 interface DocumentsActiveStateProps {
   orgName: string
   documents: ActiveDocument[]
-  engagementMonth: number
   contractStartDate: string | null
   warmupStartedAt: string | null
   linkedinChannelEnabled: boolean
@@ -78,7 +77,6 @@ function statusLabel(status: SetupStepStatus): string {
 export function DocumentsActiveState({
   orgName: _orgName,
   documents,
-  engagementMonth,
   warmupStartedAt,
   linkedinChannelEnabled,
   setupStatus,
@@ -124,7 +122,7 @@ export function DocumentsActiveState({
             {/* Welcome card — dark green */}
             <div className="bg-brand-green rounded-[10px] p-6">
               <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-[rgba(245,240,232,0.40)] mb-3">
-                Month {engagementMonth}
+                Ready
               </p>
               {warmupStartedAt ? (
                 <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">

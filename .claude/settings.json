@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)", "Bash(git:*)",
+      "Bash(ls:*)", "Bash(cat:*)", "Bash(grep:*)", "Bash(find:*)",
+      "Bash(mkdir:*)", "Bash(mv:*)", "Bash(cp:*)", "Bash(touch:*)",
+      "Bash(echo:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(sed:*)",
+      "Bash(dig:*)", "Bash(curl:*)", "Bash(python3:*)",
+      "Bash(vercel:*)", "Bash(supabase:*)"
+    ],
+    "deny": ["Bash(rm -rf:*)"]
+  }
+}

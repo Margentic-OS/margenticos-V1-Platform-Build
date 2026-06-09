@@ -38,8 +38,7 @@ type DashboardState = 'intake_incomplete' | 'strategy_in_review' | 'documents_ac
 
 function buildTopbarProps(
   orgName: string,
-  state: DashboardState,
-  engagementMonth: number
+  state: DashboardState
 ): {
   eyebrow: string
   title: string
@@ -73,7 +72,7 @@ function buildTopbarProps(
   }
 
   return {
-    eyebrow: `Month ${engagementMonth}`,
+    eyebrow: 'Ready to deploy',
     title: orgName,
     subtitle: 'Campaigns warming up',
     statusLabel: 'Warming up',
@@ -102,7 +101,7 @@ export default async function DashboardPage({
   // Fetch org
   const { data: org } = await supabase
     .from('organisations')
-    .select('id, name, engagement_month, contract_start_date, warmup_started_at, linkedin_channel_enabled, pipeline_unlocked, setup_status')
+    .select('id, name, contract_start_date, warmup_started_at, linkedin_channel_enabled, pipeline_unlocked, setup_status')
     .eq('id', organisationId ?? '')
     .single()
 
@@ -191,7 +190,7 @@ export default async function DashboardPage({
   if (intakeComplete && allDocsActive) state = 'documents_active'
   else if (intakeComplete) state = 'strategy_in_review'
 
-  const topbarProps = buildTopbarProps(org.name, state, org.engagement_month)
+  const topbarProps = buildTopbarProps(org.name, state)
 
   // ─── Build component-specific props ─────────────────────────────────────
 
@@ -270,7 +269,6 @@ export default async function DashboardPage({
         <DocumentsActiveState
           orgName={org.name}
           documents={activeDocuments}
-          engagementMonth={org.engagement_month}
           contractStartDate={org.contract_start_date}
           warmupStartedAt={org.warmup_started_at ?? null}
           linkedinChannelEnabled={org.linkedin_channel_enabled ?? false}
