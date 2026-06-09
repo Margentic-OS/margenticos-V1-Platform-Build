@@ -2913,4 +2913,68 @@ variants. The revision agent obeyed literally. Confirmed violations in the resul
 - **Decision gate:** confirm which approach Supabase supports for invite/welcome links
   specifically, then implement. Do not build until approach is decided.
 - Files affected: `src/lib/email/templates/client-welcome.ts`, `src/app/login/actions.ts`
+
+### [MUST-FIX-BEFORE-B2] F-1: Magic link scanner consumption - RESOLVED 2026-06-09
+
+- Resolved 2026-06-09 by the F-1 OTP work this session. Shipped the OTP-code-only
+  approach listed as the alternative: the Magic Link template now shows the token
+  code only (no ConfirmationURL), so there is no consumable URL for a scanner to
+  prefetch. Both auth legs (invite and returning-user) verified clean. OTP set to
+  8 digits, 86400s expiry. Double-submit race fixed via useFormStatus. Unblocks B2.
+
+### [pre-c1] REV-2: Revision agent ignores explicit positional targets (2026-06-09)
+
+- Added 2026-06-09. Observed during S5 verification. Client note said "in variant A,
+  email 1, the first line is confusing, make it simpler." The agent left the first
+  line untouched and rewrote the second sentence (the part it judged jargon-heavy).
+- **The problem:** when a client names a specific location (the first line, email 2,
+  the subject), the agent treats it as a hint and substitutes its own judgment of
+  what to change instead of honoring the named target.
+- **The fix:** in the mediation prompt, an explicit location is a binding target.
+  Change THAT location to satisfy the intent; do not relocate the change elsewhere.
+- **Caution:** do not over-correct into a literal transcriptionist. It must still
+  mediate intent, just within the named target. Verify with a re-run after editing.
+- File: `run-revision.ts` (mediation prompt).
+
+### [deferred] REV-1: update_trigger mislabel on promoted client revisions (2026-06-09)
+
+- Added 2026-06-09. Cosmetic. Identified during S5 build. Deliberately deferred.
+- **What:** approve_document_suggestion hardcodes update_trigger = 'signal_suggestion'
+  on promotion, so an approved staged messaging revision lands labeled signal_suggestion
+  in strategy_documents instead of client_revision.
+- **Why deferred:** SECURITY DEFINER change, belongs with the deferred operator-initiated
+  revisions phase. Correctness does not depend on it: the rate limiter was made type-aware
+  specifically so this label is purely cosmetic. The client-facing "what changed" copy is
+  driven by suggestion_reason, not update_trigger, so it reads correctly.
+- File: `approve_document_suggestion` (Postgres function).
+
+### [pre-c1] OPS-1: Operator client-detail view (2026-06-09)
+
+- Added 2026-06-09. Brainstormed during S5 closeout. Not blocking B2; wanted before
+  onboarding founding clients.
+- **Fields:** company name, primary contact, login email, website/domain, industry;
+  pricing/contract value, revenue range, contract start date; pipeline stage, the four
+  document statuses, segments, warmup/launch state, dispatch mode; outcomes (prospects,
+  sent, replies, meetings); last login, date onboarded.
+- **Build first:** the "what's waiting on you" block (pending approvals + staged
+  revisions). Highest value slice; the rest can follow.
+
+### [pre-b2] OPS-2: Test-automation harness (2026-06-09)
+
+- Added 2026-06-09. Scope before B2, where repeated full-journey walks start to pay off.
+- **What:** automated drive of the full client journey (onboard, generate, approve,
+  request changes, dispatch in mock mode) for regression safety as the surface grows.
+- **The crux:** OTP login is the one hard part for either Playwright-MCP or API-level.
+  Solve once: capture generateLink's email_otp, read auth.one_time_tokens with the
+  service role, or mint a service-role session. Everything else is easy after that.
+- **Decision gate:** Playwright-MCP vs API-level after scoping the login solution.
+
+### [pre-c1] SEC-1: Sign-in enumeration leak (2026-06-09)
+
+- Added 2026-06-09. Low severity (invite-only B2B). Identified during F-1 work.
+- **What:** signInWithOtp with shouldCreateUser:false returns 422 otp_disabled for
+  non-existent emails vs success for existing ones, revealing whether an account exists.
+- **The fix:** show one neutral message for both ("if that email is registered, a code
+  has been sent") and route to code-entry regardless.
+- File: `src/app/login/actions.ts`.
   (or new `/welcome` route), `src/app/dashboard/operator/clients/new/actions.ts`.
