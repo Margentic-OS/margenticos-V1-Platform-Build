@@ -200,7 +200,53 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Revision agent failed. Try again.' }, { status: 500 })
   }
 
-  // ── 7. Create new version via shared archival helper ───────────────────────
+  // ── 7a. Messaging: stage as pending suggestion for operator review ──────────
+  // Messaging revisions do not go live immediately. The active strategy_documents
+  // row is left untouched until an operator approves the staged suggestion.
+  if (doc.document_type === 'messaging') {
+    const { data: suggestion, error: insertError } = await admin
+      .from('document_suggestions')
+      .insert({
+        organisation_id: orgId,
+        document_type:   'messaging',
+        field_path:      'full_document',
+        status:          'pending',
+        update_trigger:  'client_revision',
+        revision_note:   trimmedNote,
+        suggestion_reason: change_summary,
+        suggested_value: JSON.stringify(revised_content),
+        segment_id:      doc.segment_id,
+        document_id:     doc.id,
+      })
+      .select('id')
+      .single()
+
+    if (insertError) {
+      if (insertError.code === '23505') {
+        return NextResponse.json(
+          { error: "A revision is already waiting for your outbound team to review. You'll be able to request another change once that one is processed." },
+          { status: 409 },
+        )
+      }
+      logger.error('POST /api/documents/revise: document_suggestions insert failed', {
+        document_id,
+        org_id: orgId,
+        error: insertError.message,
+      })
+      return NextResponse.json({ error: 'Failed to stage revision for review.' }, { status: 500 })
+    }
+
+    logger.info('POST /api/documents/revise: messaging revision staged', {
+      original_doc_id: document_id,
+      suggestion_id:   suggestion?.id,
+      org_id:          orgId,
+      user_id:         user.id,
+    })
+
+    return NextResponse.json({ staged: true, suggestion_id: suggestion?.id ?? null })
+  }
+
+  // ── 7b. Non-messaging: promote live via shared archival helper ──────────────
   // promote_strategy_doc_version handles the segment-scoped NULL-safe archival
   // (IS NOT DISTINCT FROM) and inserts the new active version with pending approval.
   const { data: newDoc, error: rpcError } = await admin.rpc('promote_strategy_doc_version', {
@@ -224,18 +270,15 @@ export async function POST(request: NextRequest) {
 
   logger.info('POST /api/documents/revise: revision created', {
     original_doc_id: document_id,
-    org_id: orgId,
-    user_id: user.id,
-    document_type: doc.document_type,
-    prior_version: doc.version,
+    org_id:          orgId,
+    user_id:         user.id,
+    document_type:   doc.document_type,
+    prior_version:   doc.version,
   })
 
-  // A client revision on icp/positioning/tov may unlock the next agent in sequence.
-  // Messaging revisions don't cascade (messaging has no downstream dependency).
+  // ICP/positioning/TOV revisions may unlock the next agent in the sequence.
   // admin is service-role so allThreeActive() is not filtered by RLS.
-  if (doc.document_type !== 'messaging') {
-    await triggerCascadeIfEligible(admin, orgId, doc.document_type)
-  }
+  await triggerCascadeIfEligible(admin, orgId, doc.document_type)
 
   const result = newDoc as { id: string; version: string; change_summary: string }
 
