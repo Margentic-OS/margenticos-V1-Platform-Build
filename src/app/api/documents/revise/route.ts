@@ -101,18 +101,33 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 5. Rate-limit check: max 5 client revisions per org per day ────────────
-  // Counts strategy_documents rows only until S5 adds document_suggestions.update_trigger.
+  // Counts across both tables so the limit holds regardless of which write path
+  // a given document type uses:
+  //   strategy_documents — non-messaging revisions that go live immediately
+  //                        (document_type != 'messaging' prevents double-counting
+  //                         if a messaging row ever appears here with client_revision)
+  //   document_suggestions — messaging revisions staged for operator review
   const todayUtcMidnight = new Date()
   todayUtcMidnight.setUTCHours(0, 0, 0, 0)
+  const todayIso = todayUtcMidnight.toISOString()
 
-  const { count: revisionCount } = await admin
-    .from('strategy_documents')
-    .select('id', { count: 'exact', head: true })
-    .eq('organisation_id', orgId)
-    .eq('update_trigger', 'client_revision')
-    .gte('created_at', todayUtcMidnight.toISOString())
+  const [{ count: liveCount }, { count: stagedCount }] = await Promise.all([
+    admin
+      .from('strategy_documents')
+      .select('id', { count: 'exact', head: true })
+      .eq('organisation_id', orgId)
+      .eq('update_trigger', 'client_revision')
+      .neq('document_type', 'messaging')
+      .gte('created_at', todayIso),
+    admin
+      .from('document_suggestions')
+      .select('id', { count: 'exact', head: true })
+      .eq('organisation_id', orgId)
+      .eq('update_trigger', 'client_revision')
+      .gte('created_at', todayIso),
+  ])
 
-  if ((revisionCount ?? 0) >= 5) {
+  if ((liveCount ?? 0) + (stagedCount ?? 0) >= 5) {
     return NextResponse.json(
       { error: "You've requested a lot of changes today. Try again tomorrow, or contact your outbound team if something is urgent." },
       { status: 429 },
