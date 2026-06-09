@@ -32,17 +32,25 @@ export async function sendMagicLink(formData: FormData) {
   // which scans links before the user sees them (common in B2B Office 365 tenants).
   //
   // shouldCreateUser: false — only users pre-provisioned via generateLink (invited
-  // by the operator) can sign in. A random email typed into the form is silently
-  // accepted by Supabase (no user-enumeration leak) but no email is sent.
+  // by the operator) can sign in. An unregistered email causes Supabase to return
+  // a 422 (otp_disabled). The error block below converts that to a neutral success
+  // redirect so callers cannot distinguish registered from unregistered emails.
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: { shouldCreateUser: false },
   })
 
   if (error) {
-    const isRateLimit = error.status === 429
-    logger.error('OTP send failed', { email, error: error.message, isRateLimit })
-    redirect(isRateLimit ? '/login?error=rate_limited' : '/login?error=send_failed')
+    // 422 means the email is not registered (shouldCreateUser:false, otp_disabled).
+    // Treat it identically to success so callers cannot probe whether an email has an account.
+    const isUnknownEmail = error.status === 422
+    if (isUnknownEmail) {
+      logger.info('OTP send skipped: unregistered email', { status: error.status })
+    } else {
+      const isRateLimit = error.status === 429
+      logger.error('OTP send failed', { email, error: error.message, isRateLimit })
+      redirect(isRateLimit ? '/login?error=rate_limited' : '/login?error=send_failed')
+    }
   }
 
   const nextParam = safeNext !== '/dashboard' ? `&next=${encodeURIComponent(safeNext)}` : ''
