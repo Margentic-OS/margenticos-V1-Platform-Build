@@ -3,7 +3,7 @@
 // the outbound guidelines after retrying. Operator must review manually and
 // handle the client's request. Fires from the RevisionGateError catch path
 // in /api/documents/revise.
-// Operator-facing only — not seen by clients.
+// Operator-facing only. Not seen by clients.
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   icp: 'ICP',
@@ -35,7 +35,7 @@ export function revisionGateFailureTemplate({
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${label} revision blocked — ${orgName}</title>
+  <title>${label} revision blocked for ${orgName}</title>
 </head>
 <body style="margin:0;padding:0;background:#f5f0e8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8;padding:40px 20px;">
@@ -44,13 +44,13 @@ export function revisionGateFailureTemplate({
         <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
           <tr>
             <td style="background:#7a2020;padding:24px 32px;">
-              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS — Operator</p>
+              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS: Operator</p>
             </td>
           </tr>
           <tr>
             <td style="padding:32px;">
               <p style="margin:0 0 16px;font-size:18px;font-weight:600;color:#1a1a1a;">
-                ${label} revision blocked by quality check — ${orgName}
+                ${label} revision blocked by quality check for ${orgName}
               </p>
               <p style="margin:0 0 16px;font-size:14px;color:#444;line-height:1.6;">
                 <strong>${orgName}</strong> requested a revision to their ${label} document.
@@ -91,5 +91,5 @@ export function revisionGateFailureTemplate({
 
 export function revisionGateFailureSubject(orgName: string, docType: string): string {
   const label = DOC_TYPE_LABELS[docType] ?? docType
-  return `${label} revision blocked — ${orgName} — review required`
+  return `${label} revision blocked for ${orgName}: review required`
 }

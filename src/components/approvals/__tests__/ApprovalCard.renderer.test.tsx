@@ -76,10 +76,10 @@ function didCrash() {
   return screen.queryByTestId('render-crash') !== null
 }
 
-// ─── Messaging — 1 payload field ─────────────────────────────────────────────
+// ─── Messaging: 1 payload field ──────────────────────────────────────────────
 // Field: variants
 
-describe('Messaging — 1 payload field', () => {
+describe('Messaging: 1 payload field', () => {
   it('PASS: variants renders A/B tab buttons without crash', () => {
     renderCard('messaging', messagingFixture)
     expect(didCrash()).toBe(false)
@@ -94,12 +94,12 @@ describe('Messaging — 1 payload field', () => {
   })
 })
 
-// ─── ICP — nested content parity ─────────────────────────────────────────────
+// ─── ICP: nested content parity ──────────────────────────────────────────────
 // Assertions target content INSIDE tiers, not just top-level envelope fields.
 // A passing envelope (tier labels visible) while tier body is invisible is the
-// exact approve-blind failure S2 existed to kill — these tests prevent it.
+// exact approve-blind failure S2 existed to kill; these tests prevent it.
 
-describe('ICP — nested content parity', () => {
+describe('ICP: nested content parity', () => {
   it('PASS: summary and jtbd_statement render', () => {
     renderCard('icp', icpFixture)
     expect(didCrash()).toBe(false)
@@ -161,12 +161,12 @@ describe('ICP — nested content parity', () => {
   })
 })
 
-// ─── TOV — 9 payload fields ───────────────────────────────────────────────────
+// ─── TOV: 9 payload fields ────────────────────────────────────────────────────
 // Fields: voice_summary, voice_style_note, voice_characteristics,
 //         do_dont_list, vocabulary, writing_rules, what_this_voice_never_does,
 //         before_after_examples, sentence_mechanics
 
-describe('TOV — 9 payload fields', () => {
+describe('TOV: 9 payload fields', () => {
   it('PASS: voice_summary renders as readable text', () => {
     renderCard('tov', tovFixture)
     expect(didCrash()).toBe(false)
@@ -220,12 +220,12 @@ describe('TOV — 9 payload fields', () => {
   })
 })
 
-// ─── Positioning — 9 payload fields ──────────────────────────────────────────
+// ─── Positioning: 9 payload fields ───────────────────────────────────────────
 // Fields: positioning_summary, moore_positioning, market_category, unique_attributes,
 //         value_themes, competitive_alternatives, best_fit_characteristics,
 //         competitive_landscape, key_messages
 
-describe('Positioning — 9 payload fields', () => {
+describe('Positioning: 9 payload fields', () => {
   it('PASS: positioning_summary renders as readable text', () => {
     renderCard('positioning', positioningFixture)
     expect(didCrash()).toBe(false)
@@ -251,7 +251,7 @@ describe('Positioning — 9 payload fields', () => {
     expect(screen.getByText(positioningFixture.unique_attributes[0].what_it_is)).toBeInTheDocument()
   })
 
-  it('PASS: value_themes[0] — theme, for_whom, and outcome_statement all render', () => {
+  it('PASS: value_themes[0]: theme, for_whom, and outcome_statement all render', () => {
     renderCard('positioning', positioningFixture)
     expect(screen.getByText('The business runs without the founder in the room')).toBeInTheDocument()
     expect(screen.getByText(positioningFixture.value_themes[0].for_whom)).toBeInTheDocument()
@@ -291,9 +291,9 @@ describe('Positioning — 9 payload fields', () => {
 
 // ─── Crash fallback (requirement 3) ──────────────────────────────────────────
 // Every renderer wraps its body in try/catch → renderCrashFallback on any throw.
-// A malformed or future-shaped payload renders ugly — it never takes down the approvals page.
+// A malformed or future-shaped payload renders ugly but never takes down the approvals page.
 
-describe('Crash fallback — malformed payloads never crash the approvals page', () => {
+describe('Crash fallback: malformed payloads never crash the approvals page', () => {
   it('TOV: writing_rules as array of null values falls back gracefully', () => {
     // null items cause TypeError in the old renderer (.rule on null); try/catch catches it
     const broken = { voice_summary: 'test summary', writing_rules: [null, null] }
@@ -305,7 +305,7 @@ describe('Crash fallback — malformed payloads never crash the approvals page',
 
   it('Positioning: moore_positioning as a primitive does not crash', () => {
     // Old renderer passed {doc.moore_positioning} as a React child, crashing on object.
-    // New renderer accesses .compressed_positioning_statement safely — no crash either way.
+    // New renderer accesses .compressed_positioning_statement safely, no crash either way.
     const payload = { positioning_summary: 'safe summary text', moore_positioning: 'unexpected string' }
     renderCard('positioning', payload)
     expect(didCrash()).toBe(false)
@@ -329,7 +329,7 @@ describe('Crash fallback — malformed payloads never crash the approvals page',
 
 // ─── Amendment 7: renderUnknownFields surfaces unknown keys ───────────────────
 
-describe('renderUnknownFields — amendment 7 fallback', () => {
+describe('renderUnknownFields: amendment 7 fallback', () => {
   it('surfaces a fake string field injected into a positioning payload', () => {
     const payload = { ...positioningFixture, _fake_field_xyz: 'sentinel-value-abc' }
     renderCard('positioning', payload)

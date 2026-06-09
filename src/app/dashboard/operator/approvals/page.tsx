@@ -1,4 +1,4 @@
-// Operator-only approvals page — document suggestions pending review.
+// Operator-only approvals page: document suggestions pending review.
 // Clients do not have access to document_suggestions; this route redirects
 // non-operators back to the main dashboard.
 
@@ -14,7 +14,7 @@ export default async function ApprovalsPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // ── 2. Operator role — checked on every request, not just at login ─────────
+  // ── 2. Operator role: checked on every request, not just at login ──────────
   const { data: userRow } = await supabase
     .from('users')
     .select('role')

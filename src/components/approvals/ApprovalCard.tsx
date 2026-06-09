@@ -20,7 +20,7 @@ export type PendingSuggestion = {
 
 // ─── Document-specific types ──────────────────────────────────────────────────
 
-// Messaging — legacy format helpers
+// Messaging: legacy format helpers
 type SubjectLineOption = {
   subject_line: string
   subject_char_count?: number
@@ -64,7 +64,7 @@ type MessagingDoc = {
   messaging_playbook?: MessagingDoc
 }
 
-// Messaging — new agent format (ADR-014 four-variant)
+// Messaging: new agent format (ADR-014 four-variant)
 type MessagingEmailNew = {
   sequence_position: number
   subject_line: string | null
@@ -77,7 +77,7 @@ type FourVariantDoc = {
   variants: Record<string, { emails: MessagingEmailNew[] }>
 }
 
-// TOV — real schema from DRY RUN org
+// TOV: real schema from DRY RUN org
 type TovCharacteristic = {
   characteristic?: string
   description?: string
@@ -133,7 +133,7 @@ type TovDoc = {
   sentence_mechanics?: SentenceMechanics
 }
 
-// Positioning — real schema from DRY RUN org
+// Positioning: real schema from DRY RUN org
 type CompetitiveAlternative = {
   name?: string
   buyer_reasoning?: string
@@ -198,7 +198,7 @@ type PositioningDoc = {
   key_messages?: KeyMessages
 }
 
-// ICP — real schema: flat tier_1/tier_2/tier_3 keys (not an array)
+// ICP: flat tier_1/tier_2/tier_3 keys (not an array)
 type IcpCompanyProfile = {
   revenue_range?: string
   headcount?: string
@@ -353,13 +353,13 @@ function renderGeneric(parsed: unknown, raw: string) {
   }
   return (
     <p className="text-xs text-text-secondary italic">
-      Content generated — approve to apply it to the strategy document.
+      Content generated. Approve to apply it to the strategy document.
     </p>
   )
 }
 
 // On any renderer crash: surface what renderGeneric can, then renderUnknownFields for the rest.
-// A malformed or future-shaped payload renders ugly — it never takes down the approvals page.
+// A malformed or future-shaped payload renders ugly but never takes down the approvals page.
 function renderCrashFallback(parsed: unknown) {
   const raw = typeof parsed === 'string' ? parsed : JSON.stringify(parsed ?? '')
   const generic = renderGeneric(parsed, raw)
@@ -692,7 +692,7 @@ function renderMessagingNew(emails: MessagingEmailNew[]) {
                     {email.subject_line}
                   </p>
                 ) : (
-                  <p className="text-xs text-[#9A9488] italic">threaded — no subject</p>
+                  <p className="text-xs text-[#9A9488] italic">threaded, no subject</p>
                 )}
               </div>
 
@@ -1448,7 +1448,7 @@ export default function ApprovalCard({ suggestion, onResolved }: Props) {
       setLoading(null)
       return
     }
-    setConfirmedMessage('Rejected. New suggestion generating — check back shortly.')
+    setConfirmedMessage('Rejected. New suggestion generating. Check back shortly.')
     setTimeout(() => onResolved(suggestion.id), 3000)
   }
 
@@ -1485,7 +1485,7 @@ export default function ApprovalCard({ suggestion, onResolved }: Props) {
       </div>
 
       <div className="px-5 py-4 space-y-4">
-        {/* Client's request — shown for client revisions only */}
+        {/* Client's request: shown for client revisions only */}
         {suggestion.update_trigger === 'client_revision' && suggestion.revision_note && (
           <div className="bg-surface-content border border-border-card rounded-[6px] px-3 py-2.5">
             <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1">

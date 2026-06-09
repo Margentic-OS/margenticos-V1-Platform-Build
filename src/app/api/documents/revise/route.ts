@@ -9,7 +9,7 @@
 //
 // Archival approach: reuses promote_strategy_doc_version rather than
 // reimplementing the segment-scoped NULL-safe predicate. This is the same
-// function that approve_document_suggestion calls internally — one predicate,
+// function that approve_document_suggestion calls internally; one predicate,
 // two callers.
 //
 // Three ownership checks before any data is written:
@@ -105,10 +105,10 @@ export async function POST(request: NextRequest) {
   // ── 5. Rate-limit check: max 5 client revisions per org per day ────────────
   // Counts across both tables so the limit holds regardless of which write path
   // a given document type uses:
-  //   strategy_documents — non-messaging revisions that go live immediately
+  //   strategy_documents: non-messaging revisions that go live immediately
   //                        (document_type != 'messaging' prevents double-counting
   //                         if a messaging row ever appears here with client_revision)
-  //   document_suggestions — messaging revisions staged for operator review
+  //   document_suggestions: messaging revisions staged for operator review
   const todayUtcMidnight = new Date()
   todayUtcMidnight.setUTCHours(0, 0, 0, 0)
   const todayIso = todayUtcMidnight.toISOString()
