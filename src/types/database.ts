@@ -164,12 +164,14 @@ export type Database = {
           rejection_reason: string | null
           reviewed_at: string | null
           reviewed_by: string | null
+          revision_note: string | null
           segment_id: string | null
           sequence_position: number | null
           signal_count: number
           status: string
           suggested_value: string
           suggestion_reason: string | null
+          update_trigger: string
         }
         Insert: {
           ab_variant?: string | null
@@ -185,12 +187,14 @@ export type Database = {
           rejection_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
+          revision_note?: string | null
           segment_id?: string | null
           sequence_position?: number | null
           signal_count?: number
           status?: string
           suggested_value: string
           suggestion_reason?: string | null
+          update_trigger?: string
         }
         Update: {
           ab_variant?: string | null
@@ -206,12 +210,14 @@ export type Database = {
           rejection_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
+          revision_note?: string | null
           segment_id?: string | null
           sequence_position?: number | null
           signal_count?: number
           status?: string
           suggested_value?: string
           suggestion_reason?: string | null
+          update_trigger?: string
         }
         Relationships: [
           {
@@ -1863,4 +1869,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-
