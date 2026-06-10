@@ -1228,6 +1228,44 @@ Revisit once prospect research agent is built and full outbound cycle is working
 
 ---
 
+## Design review findings (2026-06-10)
+
+Code-level design audit via source analysis (browser auth prevented live testing).
+Scope: client dashboard, intake questionnaire, strategy documents.
+Design audit report at /docs/.design-audit-temp/design-audit-report.md
+
+- FINDING-001 | Body text is 12px (WCAG AA violation claim)
+  Doug triage: Intentional per design.md and parked, not a violation.
+
+- FINDING-002 | Touch targets too small (12px nav items)
+  Doug triage: Parked as out of scope. This is a desktop B2B dashboard delivered as a service, not a public mobile site.
+
+- FINDING-003 | Sidebar not mobile-responsive
+  Doug triage: Parked as out of scope. Desktop B2B service, not mobile-first.
+
+- FINDING-004 | Two-column layout breaks on tablet
+  Doug triage: Parked as out of scope. Desktop-only B2B service.
+
+- FINDING-005 | Missing mobile layout
+  Doug triage: Parked as out of scope. Desktop-only B2B service.
+
+- FINDING-006 | No visible focus ring (WCAG 2.1 Level AA violation)
+  Doug triage: Accepted as real pre-c1 accessibility polish. Keep open.
+  Fix: add focus-visible:outline-2 focus-visible:outline-offset-2 to all interactive elements.
+
+- FINDING-007 | Keyboard focus states unclear
+  Doug triage: Accepted as real pre-c1 accessibility polish. Keep open.
+  Audit: test Tab/Shift-Tab navigation; hover state exists but no distinct focus indicator.
+
+- FINDING-008 | Hardcoded colors in components
+  Doug triage: Parked as maintainability note, not a blocker.
+  Issue: colors inline in TSX rather than centralized CSS variables.
+
+Overall design score: C+
+Overall AI slop score: A (clean, no generic patterns)
+
+---
+
 ## Post-Tier-1 items
 
 - [post-tier1-B] Uptime monitoring (2026-04-24)
