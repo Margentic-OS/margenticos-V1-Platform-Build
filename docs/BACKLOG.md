@@ -1051,6 +1051,77 @@ Signal processing agent and warnings engine backend deferred to Phase 2 — see 
 
 ---
 
+## Instantly live-verification checklist (from 2026-06-10 evidence audit)
+
+Systematic audit of all 10 Instantly API call sites, custom variable composition, response parsing, and mock shapes.
+Evidence recorded: custom-variables.ts, uploadLeads.ts, orderMailboxes.ts, syncSequenceShell.ts, reply-actions.ts,
+campaign-analytics.ts, validateCampaign.ts, instantly.ts polling layer, types.ts, mock-dispatch.ts.
+
+- [pre-c0, HIGH] Verify lead status values against live API (2026-06-10)
+  INSTANTLY_LEAD_STATUS_BOUNCED = '-2' and INSTANTLY_LEAD_STATUS_UNSUBSCRIBED = '-1' in
+  src/lib/integrations/polling/instantly.ts lines 39-40 are marked UNVERIFIED in code comments.
+  Values assumed from training data, never confirmed against live Instantly V2 API.
+  If wrong: bounce and unsubscribe polling will return zero signals with no error or warning.
+  Result: silent data gap that threatens sending-domain health and campaign health metrics.
+  Verification method: once a campaign is live with at least one bounced or unsubscribed lead,
+  call Instantly list_leads endpoint with no status filter, find the known-bounced lead, inspect
+  its status field value, compare to '-2' and '-1', update constants if different, redeploy.
+  Trigger: immediately after first Instantly campaign produces a bounced or unsubscribed lead.
+  Related: existing BACKLOG entry at line 265-275 (c0-blocker tag, 2026-04-28) has detailed verification steps.
+
+- [pre-c0, MEDIUM] HTTP 200 treated as business success without body status check (2026-06-10)
+  Eight of ten Instantly API call sites (uploadLeads, syncSequenceShell, suppressLead, sendThreadReply,
+  fetchCampaignStats, validateCampaign, pollInstantlyReplies, pollInstantlyLeadStatus) check response.ok
+  only and do not inspect a status field in the JSON response body.
+  Current assumption: Instantly V2 API never returns HTTP 200 with a business-level error status in body.
+  Risk: if Instantly ever returns 200 with { status: "error" } in the body, code treats it as success.
+  Action: consult Instantly V2 documentation to confirm whether 200-with-error-body is a real pattern.
+  If real: add body status checks (status field, error field, or similar) to those 8 call sites.
+  If not real: document the assumption in a comment on constants.ts and close this item.
+  Note: orderMailboxes correctly validates order_placed field as a business-success gate.
+
+- [pre-c0, MEDIUM] Mock response shapes hand-invented, not doc-copied (2026-06-10)
+  Mock dispatch functions (mock-dispatch.ts) provide test responses for all ten endpoints.
+  Five mocks were copied from real Instantly V2 docs (via types.ts comments dated 2026-05-21):
+    mockLeadsAdd: LeadUploadResponse structure matches docs
+  Five mocks were hand-invented without external documentation:
+    mockDfyOrder: $35/domain price is realistic but not from docs
+    mockCampaignGet/mockCampaignPatch: basic fields match, but sequences field hardcoded empty
+    mockEmailsList/mockLeadsList: generic { items, pagination } wrapper with no sample objects
+    mockEmailGet: eaccount field is critical for reply routing (validated in polling.ts line 445)
+      but response shape never cross-checked against real API
+    mockLeadPatch: lt_interest_status field matches request, no full response structure from docs
+    mockEmailReply: only id field needed, but completeness vs real API response unknown
+  Reply-handling and polling paths must be verified against real V2 responses before trust.
+  Action: after first Instantly campaign goes live, capture real API responses from the three endpoints
+  used by reply handling (GET /emails/:id, POST /leads/list, PATCH /leads/:id) and audit response shapes
+  against mock implementations. Update mocks if fields differ.
+  Timing: verify within first week of live campaign operation.
+
+- [pre-c0, MEDIUM] Silent drops in reply polling on missing campaign_id or eaccount (2026-06-10)
+  pollInstantlyReplies in instantly.ts (lines 439-443) logs a warning and skips events if email.id
+  or email.eaccount is missing. pollInstantlyLeadStatus (line 600) logs a warning if lead.id is missing.
+  Current behavior: warning logged, event dropped, counts incremented (result.errors++), but no alert.
+  At high reply volume (10+ per poll), silent drops could mask deliverability issues or API contract
+  breaks. Current error count is logged (logger.info at lines 497, 628) but no threshold trigger for alerts.
+  Action: add a trust-boundary counter to the polling result when missing-field errors exceed a threshold.
+  Proposed: if result.errors >5 on any single poll run, capture as a Sentry warning with the error count
+  and signal types affected. Operator can react if polling repeatedly drops high volumes of valid events.
+  Timing: wire before first live campaign polling (same trigger as lead-status verification).
+
+- [post-c0, LOW] No 429 backoff/retry on Instantly calls (2026-06-10)
+  All ten call sites detect HTTP 429 (rate limit) and throw an error or return error result,
+  but no exponential backoff or automatic retry logic exists. Polling loops have a safety ceiling
+  (MAX_PAGES=50 per resource, MAX_PAGES_PER_CAMPAIGN=50) but no 429 handling other than fail-fast.
+  Current assumption: Instantly's rate limits are generous enough that client-zero volume
+  (1 campaign, ~50-100 prospects/week) will never hit 429 in production.
+  If triggered: implement exponential backoff (2, 4, 8s delays) on any 429, up to 3 retries,
+  then fallback to error. Refer to prospect-research-agent.ts for a working example (429 retry
+  with p-limit coordination, lines ~380-420).
+  Acceptable at client-zero volume. Revisit at scale once multiple concurrent clients hit real 429s.
+
+---
+
 ## Monitor-and-expand (built minimal, needs to grow)
 
 - [monitor] ICPFilterSpec v1 (13 filter fields + meta)
@@ -1263,6 +1334,35 @@ Design audit report at /docs/.design-audit-temp/design-audit-report.md
 
 Overall design score: C+
 Overall AI slop score: A (clean, no generic patterns)
+
+---
+
+## Consolidated dry-run findings: Simcare + 360dungarvan B2, 2026-06-11
+
+B2 dry-run walk with two real organizations (Simcare and 360dungarvan) exposed four findings:
+
+- [pre-c0, HIGH] Transactional email junks on Outlook. Docs-ready notification landed in junk for an Outlook recipient, inboxed on Gmail. Target market is Microsoft-heavy. Action: SPF/DKIM/DMARC alignment audit on the Resend sending domain (margenticos.com, Resend EU), then re-test against an Outlook mailbox. From-address confirmed: "MargenticOS <notifications@margenticos.com>" (Production scope Vercel env).
+
+- [pre-c0, HIGH] ICP agent industry mislabel. 360dungarvan is a primary schools business (education sector) but the ICP agent labeled it "Management Consulting." Root cause: TAXONOMY GAP. The canonical industry list (src/lib/agents/icp-filter-spec.ts, CANONICAL_INDUSTRIES) has 25 categories, all consulting/professional services. No education sector exists. When the ICP agent (docs/prompts/icp-agent.md line 369: "If a relevant industry is not on this list, use the closest match") falls back, it lands on "Management Consulting." Recommended fix: (1) Add 3 education-sector categories to CANONICAL_INDUSTRIES (Primary/Secondary Education, Higher Education, Education Services). (2) Add education examples to the ICP agent prompt to sharpen non-consulting business recognition. (3) Rerun 360dungarvan ICP after taxonomy fix.
+
+- [VERIFIED 2026-06-11] Green Flag provenance — database investigation complete. The 360-bia-og (not 360dungarvan) strategy documents contain 50+ references to "Green Flag" and "Green Schools," appearing in ICP, Positioning, and Messaging generated content. Database scan results: (a) intake_responses: zero matches for "Green Flag" or "Green Schools"; (b) intake_website_pages: zero matches; (c) prospect_research_results: zero matches in synthesis_reasoning or trigger_text. Conclusion: UNSOURCED in client data. "Green Flag" appears ONLY in generated output, never in stored inputs. This represents an agent synthesizing plausible business context (Irish school sustainability program) without grounding in actual intake/research data. The ICP, Positioning, and Messaging agents all reference Green Flag as though it were client-provided, when it is pure generation. Addresses the architectural gap: agents should flag thin/absent context rather than filling gaps with plausible fiction.
+
+- [VERIFIED 2026-06-11] Em-dash verification — database scan complete. Query: emdash counts on strategy_documents for 360-bia-og and simcare organisations. Result: ZERO em-dashes found across all document types (ICP v1, Positioning v1, TOV v1, Messaging v1, and Simcare ICP v1-v2). Plain text fields all null (expected). JSON content fields: emdash_count = 0 on all rows. Verification confirms: assertNoDashes gate is functioning correctly on ICP, Positioning, TOV agents. Messaging agent scrubAITells runtime scrub is also working. All documents stored without em-dash contamination.
+
+- [post-B2 decision, deferred] Document cascade: regenerated ICP or positioning should set a staleness indicator on the messaging document, never auto-regenerate downstream content. Awaiting operator sign-off on 360dungarvan ICP refresh before implementing cascade logic.
+
+- [pre-c1] Operator per-client intake-form view, read-only, small standalone build, elevated priority per operator. Does not wait for full OPS-1. Operator needs visibility into submitted intake data (what the client entered) to cross-check ICP output against the source.
+
+- [pre-c1] Agent quality batch:
+  (a) Industry taxonomy expansion per root cause 2 above (add education sectors, rerun 360dungarvan, validate across 3 clients).
+  (b) ICP and positioning agents over-index on margin/monetization pain points; rebalance across pain dimensions for non-consulting verticals.
+  (c) TOV formality clamp: cold email brevity and conversational register override client brand formality as expressed within channel constraints.
+
+- [pre-c1, research first] Break-up email (Email 4) analysis. Variants are near-identical across conditions; review whether variation is intended. Client preference for hyperlinked company name in final email requires deliverability research; default remains no links in cold email bodies.
+
+- [note] B2 validated: outsider auth, cold intake, doc generation, revision loop, and approvals on two real orgs end-to-end. Compose and mock-dispatch leg not exercised in B2; covered by the 2026-06-04 lap on the reference org. Returning-user login leg for 360dungarvan pending one confirmation.
+
+- [pre-c1, product framing] Strategy documents land as impressive but clients are unsure of their purpose. Add framing copy in UI and onboarding positioning the documents as the engine that powers campaigns. No feature build.
 
 ---
 
@@ -3092,3 +3192,105 @@ variants. The revision agent obeyed literally. Confirmed violations in the resul
   and updated UI text from "Month X" to "Ready" / "Pipeline" to reflect that engagement data is operator-only.
   RLS filters rows, not columns; app layer must prevent SELECT of sensitive fields.
   Shipped in commit: (pending - see git diff).
+
+---
+
+## Consolidated dry-run findings: Simcare + 360dungarvan B2, 2026-06-11
+
+Investigation scope: ICP industry mislabel, Green Flag provenance, docs-ready email path, em-dash verification.
+Code audit completed 2026-06-11.
+
+- [pre-c0, HIGH] Transactional email junk-folder rate on Outlook
+  Evidence: docs-ready notification landed in junk for an Outlook recipient (inboxed on Gmail).
+  Target market is Microsoft-heavy (consulting firms, founders). SPF/DKIM/DMARC misalignment causes
+  Outlook to distrust Resend subdomain. Root cause likely: transactional mail from notifications.margenticos.com
+  but SPF/DKIM only configured on margenticos.com apex. Resend requires subdomain SPF/DKIM records.
+  Investigation 3 finding: docs-ready notifications use sendTransactionalEmail() in
+  src/app/api/intake/complete/route.ts (lines 114-118), from-address from RESEND_FROM_EMAIL env var.
+  Action: (a) Audit SPF/DKIM/DMARC alignment on the Resend sending domain, verify subdomain DNS records;
+  (b) re-test against an Outlook mailbox after fix; (c) include the actual from-address found in env vars.
+
+- [pre-c0, HIGH] ICP agent industry mislabel — primary-schools business tagged as "Management Consulting"
+  Root cause: canonical industries taxonomy gap. Investigation findings:
+  (a) ICP agent prompt (docs/prompts/icp-agent.md line 353-369) enforces canonical NAICS-derived
+      industries list from icp-filter-spec.ts. List includes 25 categories across consulting,
+      accounting, legal, HR, IT, and others — but NO education-sector categories.
+  (b) Canonical list (src/lib/agents/icp-filter-spec.ts lines 14-40) lacks education-related names.
+      No "Education Consulting", "K-12 Services", "Primary Education", "Educational Services",
+      or any school-sector category exists.
+  (c) Prompt rule (line 369): "If a relevant industry is not on this list, use the closest match.
+      Do NOT invent a new name." This forces a default to "Management Consulting" when a
+      primary-schools business (Education sector) is encountered.
+  Fix options: (1) Add education-sector categories to CANONICAL_INDUSTRIES and update the prompt
+  to reference the extended list, OR (2) Tighten the "closest match" fallback logic to warn/flag
+  when defaulting rather than silently accepting the mismatch. Recommend option (1) — education
+  is a major B2B vertical and the ICP agent is industry-agnostic. Categories to add:
+  "Education Consulting", "Training and Development" (already exists), "K-12 Services",
+  "Higher Education Services" (or "Academic Consulting").
+  
+  When fixed: regenerate ICP for affected org to validate new category is applied.
+
+- [pre-c1, RESEARCH] Green Flag provenance — source identified or agent hallucination?
+  The 360dungarvan messaging agent output references a "Green Flag initiative" the client
+  reports they never provided in intake. Cannot verify database state without live connection.
+  Investigation needed: (a) Check if company_url was populated + ingestion ran successfully;
+  (b) Query intake_website_pages for "Green Flag" or "Green Schools" text; (c) if found in
+  website content, mark as website-ingestion win; (d) if NOT found, log as agent hallucination
+  and add grounding rule to messaging agent (never synthesize external initiatives without
+  evidence in ICP/positioning/TOV documents).
+  Severity: low at client-zero volume; high signal for eval at scale if pattern repeats.
+
+- [pre-c1] Operator per-client intake-form view, read-only (OPS-1 dependency)
+  Status: Small, high-value standalone build, elevated priority per operator feedback.
+  Allows operator to review client's raw intake responses (text, files, website fetch results)
+  at any time. Helps debug agent output quality and verify data provenance.
+  Does not wait for full OPS-1 client-detail view — can ship independently.
+
+- [pre-c1] Agent quality batch — three coordinated fixes
+  (a) Industry taxonomy: add education-sector categories per finding above.
+  (b) ICP and positioning output: over-indexes on margin + efficiency pain; rebalance across
+      all pain dimensions discovered in client intake (delivery, retention, growth pipeline,
+      team retention, founder burnout, etc).
+  (c) TOV formality clamp: cold email brevity and conversational register must override client
+      brand-voice formality guideline. Currently TOV guide may instruct formal register that
+      kills reply rate in cold context. Channel constraints (email length limit, opener risk)
+      override brand preference in outbound.
+
+- [pre-c1, RESEARCH] Break-up email near-identical across variants — intent verification needed
+  Four-email sequence Email 4 (break-up) is near-identical across the A/B variants in generated
+  copy. Review whether intended (economics suggest yes — final touch is final), or whether copy
+  variation was lost in template rendering. If the former, document as architecture note.
+  If the latter, review copy-generation prompt for variant-awareness.
+  Also: client preference for hyperlinked company name in final email. Deliverability research
+  required (links in cold-email body increase spam-filter risk). Default policy: no body links.
+
+- [post-B2 decision] Document cascade staleness: regeneration should flag staleness, never auto-regen
+  When a client requests ICP or positioning refresh, the downstream messaging and TOV documents
+  should be marked as stale (new flag or status change) rather than auto-regenerating. Operator
+  should see the cascade and choose whether to also refresh downstream docs or hold them.
+  Awaiting operator sign-off on workflow, then implement as pre-c1 quality gate.
+
+- [note] B2 dry-run validation checkpoint: what shipped, what was covered, what pending
+  **Shipped end-to-end:** outsider auth (cold signup), intake form completion, document generation
+  (ICP, positioning, TOV, messaging), document approval with revision requests, dispatcher routing.
+  **Mocked in B2:** email composition and mock-dispatch (not live sending). Both exercised in
+  2026-06-04 reference-org lap; reusable for B2.
+  **Pending:** returning-user login flow for 360dungarvan (one confirmation still needed).
+  **Em-dash verification (Investigation 4):** cannot be run without live database connection.
+  Query strategy_documents for both orgs, count em-dashes per document_type. Expected result: zero
+  (all em-dashes should be stripped by assertNoDashes gate in icp-generation-agent.ts line 176).
+  
+- [pre-c1, PRODUCT FRAMING] Strategy documents: client confusion about purpose
+  Clients receive four impressive strategy documents (ICP, Positioning, TOV, Messaging) but
+  are unsure what they are for or how they power campaigns. Add framing copy in:
+  (a) Dashboard intro/contextual help: position docs as "the engine that powers all your outreach"
+  (b) Onboarding UI: brief explainer of each doc's role in campaign generation
+  (c) Document approval/revision UI: header explaining how each document informs agent output
+  No feature build required — copywriting + UI text changes only.
+
+- [note] Em-dash verification result (Investigation 4) — REQUIRES DATABASE ACCESS
+  Could not run without live Supabase connection. Should execute as separate task once
+  operator confirms 360dungarvan and Simcare org IDs. Query: SELECT COUNT(content::text),
+  for each organisation's strategy_documents where status='active', search content for
+  em-dash character (—) in all eight document types (ICP, Positioning, TOV, Messaging x2,
+  etc). Expected: zero per document if assertNoDashes gate is working.
