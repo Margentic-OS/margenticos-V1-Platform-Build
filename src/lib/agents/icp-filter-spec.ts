@@ -12,21 +12,20 @@
 // from these canonical names to Apollo's own taxonomy.
 
 export const CANONICAL_INDUSTRIES = [
+  // Professional Services & Consulting
   'Management Consulting',
   'Operations Consulting',
   'Marketing Consulting',
   'Human Resources Consulting',
   'Information Technology Consulting',
-  'Financial Advisory Services',
   'Strategy Consulting',
   'Sales Consulting',
+  'Financial Advisory Services',
   'Accounting Services',
   'Legal Services',
-  'Recruitment and Staffing',
-  'Training and Development',
   'Executive Coaching',
   'Business Coaching',
-  'Public Relations',
+  'Change Management Consulting',
   'Environmental Consulting',
   'Engineering Consulting',
   'Healthcare Consulting',
@@ -36,7 +35,67 @@ export const CANONICAL_INDUSTRIES = [
   'Compliance Consulting',
   'Data Analytics Consulting',
   'Cybersecurity Consulting',
-  'Change Management Consulting',
+  'Public Relations',
+  'Recruitment and Staffing',
+  'Training and Development',
+  // Education
+  'Primary and Secondary Education',
+  'Higher Education',
+  'Educational Services and Training',
+  // Healthcare & Life Sciences
+  'Healthcare Providers',
+  'Pharmaceutical Manufacturing',
+  'Medical Devices and Equipment',
+  'Biotechnology',
+  // Construction & Real Estate
+  'Construction and Building',
+  'Real Estate Development',
+  'Architecture and Engineering',
+  // Manufacturing
+  'General Manufacturing',
+  'Food and Beverage Manufacturing',
+  'Automotive Manufacturing',
+  'Electronics Manufacturing',
+  'Industrial Equipment Manufacturing',
+  // Financial Services
+  'Banking and Credit',
+  'Insurance',
+  'Investment and Securities',
+  'Wealth Management',
+  // Retail & E-Commerce
+  'Retail Trade',
+  'E-Commerce and Online Retail',
+  'Department Stores',
+  'Specialty Retail',
+  // Hospitality & Food Service
+  'Hotels and Lodging',
+  'Food Service and Restaurants',
+  'Hospitality Management',
+  // Transportation & Logistics
+  'Transportation and Warehousing',
+  'Logistics and Supply Chain',
+  'Freight and Cargo',
+  // Information Technology
+  'Software Publishers',
+  'IT Services and Consulting',
+  'Data Processing and Hosting',
+  'Telecommunications',
+  // Media & Entertainment
+  'Media and Broadcasting',
+  'Entertainment and Arts',
+  'Publishing',
+  // Agriculture & Natural Resources
+  'Agriculture',
+  'Forestry and Logging',
+  'Mining and Extraction',
+  // Energy & Utilities
+  'Electric Power Generation',
+  'Petroleum and Natural Gas',
+  'Utilities and Water',
+  // Government & Non-Profit
+  'Government Agencies',
+  'Non-Profit Organizations',
+  'Public Administration',
 ] as const
 
 export type CanonicalIndustry = typeof CANONICAL_INDUSTRIES[number]
@@ -75,6 +134,7 @@ export interface ICPFilterSpec {
   keywords: string[]
   keywords_excluded: string[]
   notes: string
+  unmatched_industries?: string[]     // Non-canonical industries flagged for operator review
 }
 
 // ─── ICP document types (mirrors icp-generation-agent.ts output schema) ───────

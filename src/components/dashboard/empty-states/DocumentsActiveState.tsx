@@ -212,6 +212,9 @@ export function DocumentsActiveState({
               <div className="flex items-start justify-between mb-1">
                 <p className="text-[13px] font-medium text-text-primary">Strategy documents</p>
               </div>
+              <p className="text-[11px] text-text-secondary mb-4">
+                The brain behind your campaigns. Review them to keep targeting sharp.
+              </p>
               {warmupStartedAt && (
                 <div className="flex items-center gap-1.5 mb-5">
                   <span className="w-1.5 h-1.5 rounded-full bg-brand-green-success" />
@@ -220,7 +223,7 @@ export function DocumentsActiveState({
                   </p>
                 </div>
               )}
-              {!warmupStartedAt && <div className="mb-5" />}
+              {!warmupStartedAt && <div className="mb-3" />}
 
               <ul className="space-y-4">
                 {DOCUMENT_ORDER.map((type) => {
