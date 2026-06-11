@@ -113,6 +113,14 @@ export default async function ClientDetailPage({
         eyebrow="Operator view"
         title={org.name}
         userEmail={user.email}
+        action={
+          <Link
+            href={`/dashboard/operator/clients/${org.id}/intake`}
+            className="text-[11px] font-medium text-white bg-[#1C3A2A] hover:bg-[#152e21] px-3 py-1.5 rounded-[6px] transition-colors"
+          >
+            View intake
+          </Link>
+        }
       />
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 max-w-[1040px]">
