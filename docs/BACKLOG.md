@@ -25,6 +25,47 @@
 
 ---
 
+## Agent quality batch from dry-run rounds (DONE 2026-06-11)
+
+- [DONE 2026-06-11] Agent prompt quality fixes from Simcare and 360dungarvan dry runs
+  Commit: 2e49dcf — "agents: sector-complete taxonomy, unmatched-industry flag, grounding rule, pain balance, cold-email register clamp, doc framing"
+
+  Issues found and fixed:
+  1. 360dungarvan (Irish primary-school meals business) tagged as "Management Consulting" because
+     CANONICAL_INDUSTRIES list contained only consulting categories. FIXED: Expanded list from 
+     25 to 76 entries covering all NAICS sectors (education, healthcare, construction, manufacturing, 
+     financial, retail, hospitality, logistics, tech, media, agriculture, energy, govt, non-profit).
+     Agent now maps unmapped industries to unmatched_industries array with operator review flag.
+     Commit: icp-filter-spec.ts, icp-agent.md (CHANGE 1-2).
+
+  2. 360dungarvan's messaging cited "Green Flag" schools initiative that doesn't appear in intake,
+     website, or research — model supplied it from world knowledge. FIXED: Added grounding rule
+     to all 4 document-generation prompts (icp, positioning, tov, messaging). Any externally 
+     verifiable third-party fact not in source materials must be listed in "Assumptions we have 
+     made" section for operator confirmation (CHANGE 3).
+
+  3. Simcare reported ICP and positioning over-focused on margin pain despite evidence of other
+     dimensions. FIXED: Added pain-dimension breadth rule to ICP and positioning prompts. Documents
+     must surface all pain dimensions (financial, time, operational, risk, growth, reputation, 
+     compliance) that evidence supports, not just financial (CHANGE 4).
+
+  4. Break-up email (Email 4) near-identical across variants A through D. FIXED: Added differentiation
+     requirement. Email 4 now reflects same opening angle as Email 1 in each variant, keeping variants
+     distinct while maintaining "this is the last email" message and permission-to-decline tone (CHANGE 6).
+
+  5. Clients find strategy documents impressive but unsure what to do with them. FIXED: Added framing
+     copy to dashboard: "The brain behind your campaigns. Review them to keep targeting sharp." Frames
+     documents as what powers campaigns, not reference material (CHANGE 7).
+
+  6. Highly formal TOV documents licensed overly formal cold emails. FIXED: Added channel-constraints
+     clamp to messaging prompt. Cold email register (conversational, short sentences, sub-100 words)
+     overrides brand formality. Client TOV expressed WITHIN constraints, not instead of them (CHANGE 5).
+
+  Version bumps: icp-agent, positioning-agent, tov-agent, messaging-agent all updated to 2026-06-11
+  with detailed changelog entries.
+
+---
+
 ## Benchmarks page (resolved and deferred items — 2026-05-05)
 
 - [DONE 2026-05-05] Benchmarks page v1 shipped
