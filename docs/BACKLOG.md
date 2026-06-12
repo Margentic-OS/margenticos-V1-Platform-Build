@@ -3490,3 +3490,24 @@ spec persistence (persistIcpFilterSpec helper called post-promotion), sourcing o
   Operator action: review why client approval is pending (approval_source NULL, approved_at NULL).
   Did the approval get stuck, or is this org still in ICP generation/review phase?
   Not a build blocker — informational flag for operator review.
+
+---
+
+## Identity rule reversal — founder-name signing (2026-06-12)
+
+- [pre-c1] REVERSED: outbound and replies now signed with founder name and title, not Team
+  ADR-020 updated (May 2026 → June 2026). Rationale: founder reviews and approves all operator-reviewed 
+  outbound and replies, so signing with their name and title is accurate and warm.
+  
+  Commit abb07f9: design.md, reply-handling.md, prd/09-reply-handling.md, new migration and types.
+  
+  Build complete:
+  - organisations table: added founder_last_name and founder_title (nullable text columns)
+  - Signature convention documented in design.md: plain text block, no links except Calendly in replies
+  - Instantly account-level signatures NOT used (signatures composed at send time — deliberate decision)
+  
+  Onboarding requirement (pre-c1): PandaDoc contract template must include consent clause.
+  Client founder explicitly consents to their name and title appearing on all outbound and replies
+  before campaign goes live. Required for first paid client onboarding.
+  
+  Next action: update PandaDoc contract draft with consent clause before shipping.
