@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 import { notifyAfterPromotion } from '@/lib/notifications/notify-after-promotion'
+import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import {
   approvalReminderTemplate,
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
 
   for (const suggestion of due) {
     try {
-      const { error: rpcError } = await supabase.rpc('approve_document_suggestion', {
+      const { data: newDoc, error: rpcError } = await supabase.rpc('approve_document_suggestion', {
         p_suggestion_id: suggestion.id,
         p_reviewer_id: SYSTEM_AUTO_APPROVE_ID,
       })
@@ -103,7 +104,12 @@ export async function POST(request: NextRequest) {
       })
       succeeded++
 
-      // Notify client and cascade in sequence.
+      // Persist ICP filter spec, notify client, and cascade in sequence.
+      // persistIcpFilterSpec is safe to call on any document type and never fails the promotion
+      const documentId = (newDoc as unknown as { id?: string } | null)?.id
+      if (documentId) {
+        await persistIcpFilterSpec(supabase, documentId)
+      }
       await notifyAfterPromotion(supabase, {
         organisation_id: suggestion.organisation_id,
         suggestion_id: suggestion.id,

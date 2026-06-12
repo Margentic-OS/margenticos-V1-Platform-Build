@@ -22,6 +22,7 @@ import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 import { notifyAfterPromotion } from '@/lib/notifications/notify-after-promotion'
+import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
 
 export async function POST(
   _request: NextRequest,
@@ -141,9 +142,14 @@ export async function POST(
     operator_id: user.id,
   })
 
-  // Notify client after promotion, then cascade to next agent if eligible.
-  // Both run in after() so they don't block the response.
+  // Persist ICP filter spec, notify client after promotion, then cascade to next agent if eligible.
+  // All run in after() so they don't block the response.
   after(async () => {
+    // persistIcpFilterSpec is safe to call on any document type and never fails the promotion
+    const documentId = newDoc?.id
+    if (documentId) {
+      await persistIcpFilterSpec(supabase, documentId)
+    }
     await notifyAfterPromotion(supabase, {
       organisation_id: suggestion.organisation_id,
       suggestion_id: id,
