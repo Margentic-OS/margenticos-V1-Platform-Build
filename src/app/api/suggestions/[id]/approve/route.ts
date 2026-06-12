@@ -21,6 +21,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
+import { notifyAfterPromotion } from '@/lib/notifications/notify-after-promotion'
 
 export async function POST(
   _request: NextRequest,
@@ -87,7 +88,7 @@ export async function POST(
   // Pre-check returns a clear 404/400 rather than an opaque error from the RPC function.
   const { data: suggestion, error: suggestionError } = await supabase
     .from('document_suggestions')
-    .select('id, organisation_id, document_type, status')
+    .select('id, organisation_id, document_type, status, update_trigger')
     .eq('id', id)
     .single()
 
@@ -140,9 +141,17 @@ export async function POST(
     operator_id: user.id,
   })
 
-  // Cascade: dispatch the next agent in sequence if eligible.
-  // Uses service-role client so allThreeActive() is not filtered by RLS.
-  after(() => triggerCascadeIfEligible(supabase, suggestion.organisation_id, suggestion.document_type))
+  // Notify client after promotion, then cascade to next agent if eligible.
+  // Both run in after() so they don't block the response.
+  after(async () => {
+    await notifyAfterPromotion(supabase, {
+      organisation_id: suggestion.organisation_id,
+      suggestion_id: id,
+      document_type: suggestion.document_type,
+      update_trigger: suggestion.update_trigger,
+    })
+    await triggerCascadeIfEligible(supabase, suggestion.organisation_id, suggestion.document_type)
+  })
 
   return NextResponse.json(newDoc, { status: 200 })
 }

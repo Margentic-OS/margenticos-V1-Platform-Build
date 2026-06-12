@@ -1,13 +1,15 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import ApprovalCard, { type PendingSuggestion } from './ApprovalCard'
 
 type Props = {
   initialSuggestions: PendingSuggestion[]
+  filteredClientId?: string | null
 }
 
-export default function ApprovalsView({ initialSuggestions }: Props) {
+export default function ApprovalsView({ initialSuggestions, filteredClientId }: Props) {
   const [suggestions, setSuggestions] = useState(initialSuggestions)
 
   function handleResolved(id: string) {
@@ -15,6 +17,11 @@ export default function ApprovalsView({ initialSuggestions }: Props) {
   }
 
   const count = suggestions.length
+  const filteredClient = suggestions.length > 0
+    ? Array.isArray(suggestions[0]?.organisations)
+      ? suggestions[0].organisations[0]?.name
+      : (suggestions[0]?.organisations as any)?.name
+    : null
 
   return (
     <div className="min-h-screen bg-surface-shell p-6">
@@ -29,6 +36,24 @@ export default function ApprovalsView({ initialSuggestions }: Props) {
               : 'No suggestions pending'}
           </p>
         </div>
+
+        {/* Client filter indicator — shown when filtered */}
+        {filteredClientId && filteredClient && (
+          <div className="flex items-center justify-between gap-3 bg-[#E3F2FD] border border-[#90CAF9] rounded-[10px] px-4 py-3 mb-5">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+              <p className="text-xs text-[#1565C0]">
+                Filtered to <span className="font-medium">{filteredClient}</span>
+              </p>
+            </div>
+            <Link
+              href="/dashboard/operator/approvals"
+              className="text-xs font-medium text-[#1565C0] hover:underline"
+            >
+              Clear filter
+            </Link>
+          </div>
+        )}
 
         {/* Amber summary banner — only when there are pending items */}
         {count > 0 && (

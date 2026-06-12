@@ -178,6 +178,50 @@ navigation. The VIEWING label (OperatorSidebar) and amber banner (OperatorViewin
 are both client components reading `useSearchParams()` directly — no layout-level
 propagation needed. ADR-022 closed.
 
+## Operator ergonomics batch — [DONE 2026-06-12]
+
+Three operator usability improvements shipped as a single commit:
+
+- **Item 1: Per-client approvals filtering**
+  Approvals page now accepts ?client= query param. Uses resolveViewingOrg to scope
+  suggestions to a single client when filtered. Filter indicator shows which client
+  is selected with a one-click "Clear filter" button. Entry point from client detail
+  page: View Approvals button now links to approvals pre-filtered to that client.
+  Files: src/app/dashboard/operator/approvals/page.tsx, ApprovalsView.tsx
+
+- **Item 2: Client switcher in OperatorViewingBanner**
+  When viewing a client's dashboard (?client= param present), the amber viewing-client
+  banner now shows an interactive dropdown listing all operator's organisations.
+  Selecting one swaps the ?client= param on the current path, preserving other params.
+  Allows quick navigation between clients without returning to operator view first.
+  File: src/components/dashboard/OperatorViewingBanner.tsx
+
+- **Item 3: Client detail enrichment (OPS-1 rebuild)**
+  Client detail page now displays two primary blocks:
+  
+  Block 1 - "Waiting on you": Lists pending actions (document suggestions, staged
+  revisions, approvals). Each item links to the relevant approval surface. Empty
+  state when no actions pending. Sourced from document_suggestions table filtered
+  by organisation and status=pending.
+  
+  Block 2 - "Client profile": Displays company and contact info (name, founder,
+  email, website), documents with version and status, campaigns state, warmup state,
+  dispatch mode (mock/live), last login and onboarded date. Fields discovered from
+  schema: organisations (name, founder_first_name, warmup_started_at, created_at),
+  users (email, last_seen_at), strategy_documents (document_type, status, version,
+  last_updated_at), campaigns (status, started_at, paused_at).
+  
+  Fields with no schema backing (not migrated, beyond scope):
+  - company_website (would come from intake_responses field_key='website_url')
+  - revenue_range (would come from intake_responses field_key='annual_revenue')
+  
+  These can be added as future schema extensions without changing the current view.
+  
+  Files: WaitingOnYouBlock.tsx, ClientProfileBlock.tsx (new), page.tsx (rebuilt)
+  
+Legacy setup panels (SetupStatusPanel, CampaignRegistrationPanel, etc.) preserved below
+the new OPS-1 blocks for operational continuity.
+
 ---
 
 ## Pre-client-zero gates (must resolve before MargenticOS runs live campaigns)
@@ -3138,16 +3182,22 @@ variants. The revision agent obeyed literally. Confirmed violations in the resul
   driven by suggestion_reason, not update_trigger, so it reads correctly.
 - File: `approve_document_suggestion` (Postgres function).
 
-### [pre-c1] OPS-1: Operator client-detail view (2026-06-09)
+### [DONE 2026-06-12] OPS-1: Operator client-detail view
 
 - Added 2026-06-09. Brainstormed during S5 closeout. Not blocking B2; wanted before
   onboarding founding clients.
-- **Fields:** company name, primary contact, login email, website/domain, industry;
-  pricing/contract value, revenue range, contract start date; pipeline stage, the four
-  document statuses, segments, warmup/launch state, dispatch mode; outcomes (prospects,
-  sent, replies, meetings); last login, date onboarded.
-- **Build first:** the "what's waiting on you" block (pending approvals + staged
-  revisions). Highest value slice; the rest can follow.
+- **Status: COMPLETE** — shipped 2026-06-12 as part of operator ergonomics batch.
+- **Fields delivered:** company name (organisations.name), founder/primary contact
+  (organisations.founder_first_name), login email (users.email), last login (users.last_seen_at),
+  the four document statuses (strategy_documents), warmup/launch state
+  (campaigns + organisations.warmup_started_at), dispatch mode (live/mock),
+  date onboarded (organisations.created_at), "Waiting on you" block (pending suggestions).
+- **Fields with no schema backing:** industry, pricing/contract value, revenue range,
+  contract start date, segments, outcomes — deferred as these would require additional
+  schema columns or are sourced from intake_responses as unstructured data.
+- **Split build:** Phase 1 (2026-06-12) delivered the "what's waiting on you" block
+  plus client profile section. Phase 2 can extend outcomes (prospects, sent, replies,
+  meetings) once campaign analytics/signals mature.
 
 ### [pre-b2] OPS-2: Test-automation harness (2026-06-09)
 
