@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { appendClientParam } from '@/lib/dashboard/client-param'
+import { ClientSwitcher } from './ClientSwitcher'
 
 export type DashboardState = 'intake_incomplete' | 'strategy_in_review' | 'documents_active'
 
@@ -85,9 +86,17 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, allOrgs }: 
         <p className="text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)] mb-[3px]">
           Viewing
         </p>
-        <p className="text-[#F5F0E8] text-[12px] font-medium leading-snug">
-          {resolvedOrgName || 'Your organisation'}
-        </p>
+        {clientId && allOrgs && allOrgs.length > 0 ? (
+          <ClientSwitcher
+            clients={allOrgs}
+            currentClientId={clientId}
+            buttonClassName="text-[#F5F0E8] text-[12px] font-medium leading-snug hover:opacity-80 transition-opacity inline-flex items-center gap-1"
+          />
+        ) : (
+          <p className="text-[#F5F0E8] text-[12px] font-medium leading-snug">
+            {resolvedOrgName || 'Your organisation'}
+          </p>
+        )}
       </div>
 
       <div className="mx-5 border-t border-[rgba(245,240,232,0.08)] mb-5" />
