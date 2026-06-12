@@ -3414,3 +3414,62 @@ Code audit completed 2026-06-11.
   for each organisation's strategy_documents where status='active', search content for
   em-dash character (—) in all eight document types (ICP, Positioning, TOV, Messaging x2,
   etc). Expected: zero per document if assertNoDashes gate is working.
+
+---
+
+## Prospect sourcing Phase B — Deferred items (2026-06-12)
+
+Phase B delivered: schema migration (icp_filter_spec, sourced_tier, qualified_at columns), 
+spec persistence (persistIcpFilterSpec helper called post-promotion), sourcing orchestrator 
+(PRD-15 steps 1-4), types/contracts. Mock dispatch ON; no live API calls.
+
+- [phase2] Backfill pre-existing approved ICPs with NULL icp_filter_spec (2026-06-12)
+  Three organisations have approved ICPs that were migrated with NULL icp_filter_spec:
+  - DRY RUN TEST (version 3, approved 2026-06-06)
+  - MargenticOS (version 5, approved 2026-06-03)
+  - Simcare (version 2, approved 2026-06-10)
+  Decision: backfill spec for these three to unblock sourcing when the handler goes live,
+  OR treat NULL as a gate requiring re-promotion. Deferred pending first real sourcing flow.
+  If backfill chosen: run persistIcpFilterSpec manually against these three document IDs,
+  or build a backfill SQL + batch runner.
+
+- [phase2] Apollo sourcing handler — POST /api/v1/mixed_people/search (2026-06-12)
+  Next build step. Orchestrator currently fails loudly at step 2 (no active handler for 
+  can_source_prospects) — correct current behaviour.
+  
+  Handler implementation scope:
+  1. Implement adapter-apollo.ts (SourcingHandler interface)
+  2. Translate ICPFilterSpec to Apollo mixed_people/search query payload (mapping canonical 
+     industries to Apollo taxonomy, building seniority+job_title query, geography filters)
+  3. Batch search calls (max 100 results per call) to reach target_batch_size
+  4. Response parsing: normalise Apollo response shape to ProspectCandidate array
+  5. Return candidates (not yet tier-routed — that's step 6)
+  
+  Note: Apollo endpoint is master API (mixed_people/search endpoint) per PRD-15.
+  The legacy mixed_people endpoint search is not the one to build against.
+  
+  Enable in orchestrator: update integrations_registry.is_active = true after handler 
+  implementation + testing.
+
+- [phase2] Complete sourcing steps 5-9: tier routing, dedup, DB writes, uploads (2026-06-12)
+  PRD-15 steps 5-9 currently throw NotImplemented in orchestrator.
+  
+  Step 5: Tier routing (assign sourced_tier per prospect based on ICP comparison)
+  Step 6: Prospect deduplication (check if prospect already exists in DB)
+  Step 7: Database writes (insert new prospects, update sourced_tier + qualified_at)
+  Step 8: Outbound upload (push to Instantly via can_upload_leads handler)
+  Step 9: Batch approval (toggle campaign.sourced_batch_ready for operator approval)
+  
+  Trigger: after Apollo handler ships and is tested.
+
+- [phase2, pre-c1] Schema: sourced_batch_ready toggle on campaigns table
+  Needed for step 9 (batch approval before uploading to Instantly).
+  Currently does not exist. Add boolean, DEFAULT false, used by operator approval flow
+  to toggle candidates live in Instantly.
+
+- [pre-c1] 360 Bia Og ICP approval status investigation (2026-06-12)
+  Query result at Phase A Amendment 7: 360 Bia Og has two ICP documents (v1 archived, v2 active)
+  but both have client_approval_status = 'pending'. Expected to hold an approved ICP.
+  Operator action: review why client approval is pending (approval_source NULL, approved_at NULL).
+  Did the approval get stuck, or is this org still in ICP generation/review phase?
+  Not a build blocker — informational flag for operator review.
