@@ -2,11 +2,11 @@
 //
 // Deduplication verdict engine for prospect sourcing.
 // Given a batch of sourced candidates, determines per-candidate verdict:
-//   'suppressed_match' — candidate matches a suppressed prospect (compliance signal)
-//   'duplicate_person_key' — source identity already exists in system
-//   'duplicate_linkedin' — normalised LinkedIn URL already exists
-//   'duplicate_email' — email already exists (case-insensitive)
-//   'new' — no match found, safe to ingest
+//   'suppressed_match' = candidate matches a suppressed prospect (compliance signal)
+//   'duplicate_person_key' = source identity already exists in system
+//   'duplicate_linkedin' = normalised LinkedIn URL already exists
+//   'duplicate_email' = email already exists (case-insensitive)
+//   'new' = no match found, safe to ingest
 //
 // Verification runs in order of strictness: suppression first (compliance),
 // then duplicates by identity (person key, LinkedIn, email).
@@ -18,6 +18,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
+import { normaliseLinkedInUrl } from './normalise-linkedin'
 
 type SupabaseServiceClient = ReturnType<typeof createClient<Database>>
 
@@ -333,17 +334,5 @@ async function queryEmailDuplicates(
   })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Utility: Normalise LinkedIn URL for comparison
-// ─────────────────────────────────────────────────────────────────────────────
-
-function normaliseLinkedInUrl(url: string | null): string | null {
-  if (!url) return null
-  return url
-    .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/^www\./, '')
-    .replace(/\/$/, '')
-    .replace(/\?.*$/, '')
-    .replace(/#.*$/, '')
-}
+// normaliseLinkedInUrl is imported from ./normalise-linkedin
+// All sourcing code paths (test, dedupe, orchestrator) must use the same function

@@ -15,6 +15,7 @@ import { randomUUID } from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 import { checkCandidates } from './dedupe'
+import { normaliseLinkedInUrl } from './normalise-linkedin'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
@@ -106,17 +107,6 @@ async function seedTestRows(): Promise<void> {
     },
   ]
 
-  function normaliseLinkedInUrl(url: string | null): string | null {
-    if (!url) return null
-    return url
-      .toLowerCase()
-      .replace(/^https?:\/\//, '')
-      .replace(/^www\./, '')
-      .replace(/\/$/, '')
-      .replace(/\?.*$/, '')
-      .replace(/#.*$/, '')
-  }
-
   for (const prospect of testProspects) {
     const { error } = await supabase
       .from('prospects')
@@ -124,11 +114,11 @@ async function seedTestRows(): Promise<void> {
         id: prospect.id,
         organisation_id: prospect.organisation_id,
         source_person_key: prospect.source_person_key,
-        email: prospect.email || null,
-        linkedin_url: prospect.linkedin_url || null,
-        linkedin_url_normalised: normaliseLinkedInUrl(prospect.linkedin_url || null),
+        email: prospect.email ?? null,
+        linkedin_url: prospect.linkedin_url ?? null,
+        linkedin_url_normalised: normaliseLinkedInUrl(prospect.linkedin_url ?? null),
         suppressed: prospect.suppressed,
-        suppression_reason: prospect.suppression_reason || null,
+        suppression_reason: prospect.suppression_reason ?? null,
       }])
     if (error && !error.message.includes('duplicate')) {
       console.error(`Failed to seed ${prospect.id}:`, error.message)
@@ -220,7 +210,7 @@ async function runDedupTest(): Promise<void> {
     console.log(`  Actual:   ${actualVerdict}\n`)
   }
 
-  console.log(`\nSummary: ${passed} passed, ${failed} failed`)
+  console.log(`Summary: ${passed} passed, ${failed} failed`)
 
   if (failed === 0) {
     console.log('\nAll dedupe verdicts fired correctly!')
