@@ -25,6 +25,7 @@
 // automatically after the reply-handling migration is applied and `supabase gen types` is run.
 
 import { SupabaseClient } from '@supabase/supabase-js'
+import * as Sentry from '@sentry/nextjs'
 import { Database, Json } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { classifyReply } from '@/lib/agents/reply-classifier'
@@ -632,10 +633,24 @@ async function processOneSignal(
     if (replyResult.ok) {
       // Mark prospect as having replied positively.
       if (prospectId) {
-        await supabase
+        const { error: updateError } = await supabase
           .from('prospects')
           .update({ qualification_status: 'replied_positive', updated_at: new Date().toISOString() })
           .eq('id', prospectId)
+
+        if (updateError) {
+          logger.error('process-reply: failed to update qualification_status', {
+            signal_id: signalId,
+            prospect_id: prospectId,
+            error: updateError.message,
+            error_code: updateError.code,
+          })
+          Sentry.captureException(updateError, {
+            tags: { component: 'reply-handler', action: 'qualification_status_update' },
+            extra: { signal_id: signalId, prospect_id: prospectId },
+          })
+          await Sentry.flush(2000)
+        }
       }
       await markSignalProcessed(supabase, signalId)
       logger.info('process-reply: Calendly reply sent', { signal_id: signalId, prospect_id: prospectId })

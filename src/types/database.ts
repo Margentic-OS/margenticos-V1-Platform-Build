@@ -758,6 +758,45 @@ export type Database = {
           },
         ]
       }
+      notifications_log: {
+        Row: {
+          id: string
+          notification_type: string
+          organisation_id: string
+          sent_at: string | null
+          subject_id: string
+        }
+        Insert: {
+          id?: string
+          notification_type: string
+          organisation_id: string
+          sent_at?: string | null
+          subject_id: string
+        }
+        Update: {
+          id?: string
+          notification_type?: string
+          organisation_id?: string
+          sent_at?: string | null
+          subject_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_log_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_log_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organisations: {
         Row: {
           agents_dispatched_at: string | null
@@ -1038,6 +1077,7 @@ export type Database = {
           campaign_id: string | null
           classified_at: string | null
           company_name: string | null
+          country: string | null
           created_at: string
           current_research_result_id: string | null
           email: string | null
@@ -1047,6 +1087,7 @@ export type Database = {
           id: string
           last_name: string | null
           linkedin_url: string | null
+          linkedin_url_normalised: string | null
           organisation_id: string
           outbound_lead_id: string | null
           outbound_upload_attempted_at: string | null
@@ -1054,12 +1095,16 @@ export type Database = {
           outbound_upload_status: string
           personalisation_trigger: string | null
           qualification_status: string | null
+          qualified_at: string | null
           research_ran_at: string | null
           research_source: string | null
           role: string | null
           segment_id: string | null
           signal_observation: string | null
           signal_relevance: string
+          source_person_key: string | null
+          sourced_tier: string | null
+          sourcing_review_status: string | null
           suppressed: boolean
           suppressed_at: string | null
           suppression_reason: string | null
@@ -1073,6 +1118,7 @@ export type Database = {
           campaign_id?: string | null
           classified_at?: string | null
           company_name?: string | null
+          country?: string | null
           created_at?: string
           current_research_result_id?: string | null
           email?: string | null
@@ -1082,6 +1128,7 @@ export type Database = {
           id?: string
           last_name?: string | null
           linkedin_url?: string | null
+          linkedin_url_normalised?: string | null
           organisation_id: string
           outbound_lead_id?: string | null
           outbound_upload_attempted_at?: string | null
@@ -1089,12 +1136,16 @@ export type Database = {
           outbound_upload_status?: string
           personalisation_trigger?: string | null
           qualification_status?: string | null
+          qualified_at?: string | null
           research_ran_at?: string | null
           research_source?: string | null
           role?: string | null
           segment_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string
+          source_person_key?: string | null
+          sourced_tier?: string | null
+          sourcing_review_status?: string | null
           suppressed?: boolean
           suppressed_at?: string | null
           suppression_reason?: string | null
@@ -1108,6 +1159,7 @@ export type Database = {
           campaign_id?: string | null
           classified_at?: string | null
           company_name?: string | null
+          country?: string | null
           created_at?: string
           current_research_result_id?: string | null
           email?: string | null
@@ -1117,6 +1169,7 @@ export type Database = {
           id?: string
           last_name?: string | null
           linkedin_url?: string | null
+          linkedin_url_normalised?: string | null
           organisation_id?: string
           outbound_lead_id?: string | null
           outbound_upload_attempted_at?: string | null
@@ -1124,12 +1177,16 @@ export type Database = {
           outbound_upload_status?: string
           personalisation_trigger?: string | null
           qualification_status?: string | null
+          qualified_at?: string | null
           research_ran_at?: string | null
           research_source?: string | null
           role?: string | null
           segment_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string
+          source_person_key?: string | null
+          sourced_tier?: string | null
+          sourcing_review_status?: string | null
           suppressed?: boolean
           suppressed_at?: string | null
           suppression_reason?: string | null
@@ -1513,6 +1570,7 @@ export type Database = {
           created_at: string
           document_type: string
           generated_at: string | null
+          icp_filter_spec: Json | null
           id: string
           is_stale: boolean
           last_updated_at: string
@@ -1534,6 +1592,7 @@ export type Database = {
           created_at?: string
           document_type: string
           generated_at?: string | null
+          icp_filter_spec?: Json | null
           id?: string
           is_stale?: boolean
           last_updated_at?: string
@@ -1555,6 +1614,7 @@ export type Database = {
           created_at?: string
           document_type?: string
           generated_at?: string | null
+          icp_filter_spec?: Json | null
           id?: string
           is_stale?: boolean
           last_updated_at?: string

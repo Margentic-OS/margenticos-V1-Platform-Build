@@ -1030,6 +1030,18 @@ Signal processing agent and warnings engine backend deferred to Phase 2 — see 
   Not an ADR-001 violation (the display is meant to show tool names), but it is stale mock data
   that should be wired to real data.
 
+- [pre-c1] Prospect state machine cleanup: qualification_status design (2026-06-12)
+  DEFERRED. qualification_status currently mixes research verdict semantics (qualified/flagged_for_review/disqualified)
+  with an engagement event ('replied_positive' added 2026-06-12 fix). The reply handler does not gate on suppressed
+  before marking replied_positive, and no mutual-exclusion constraints exist across qualification_status, suppressed,
+  and outbound_upload_status. Minimal fix shipped 2026-06-12 (allow 'replied_positive' in CHECK constraint).
+  Full cleanup deferred to pre-c1: design a proper prospect state machine covering:
+    - Research phase (unassessed -> researched -> disqualified)
+    - Engagement phase (no_reply -> replied_positive / replied_negative -> meeting_booked)
+    - Suppression state (not_suppressed -> suppressed, mutual-exclusive with engagement)
+  Current status allows silently overwriting one dimension with another. Not data-lossy (previous value readable
+  in updated_at history), but confusing. Ticket for design work pre-c1.
+
 - [pre-c1] FAQ seed agent — generate baseline FAQ library per client at onboarding (2026-05-12)
   Status: Deferred. Pre-client-one blocker. Not needed for client zero.
 
@@ -3463,10 +3475,14 @@ spec persistence (persistIcpFilterSpec helper called post-promotion), sourcing o
   
   Trigger: after Apollo handler ships and is tested.
 
-- [phase2, pre-c1] Schema: sourced_batch_ready toggle on campaigns table
-  Needed for step 9 (batch approval before uploading to Instantly).
-  Currently does not exist. Add boolean, DEFAULT false, used by operator approval flow
-  to toggle candidates live in Instantly.
+- [phase2, pre-c1] Candidate-level sourcing review gate (2026-06-12)
+  REJECTED 2026-06-12: campaign-level sourced_batch_ready boolean.
+  Replaced with prospect-level sourcing_review_status column (pending_review / approved / rejected).
+  Operator approves per candidate or per batch BEFORE enrichment spend (Phase B).
+  Gate position: after orchestrator deduplication, before enrichment, before sending.
+  Design: prospects.sourcing_review_status enum, indexed per organisation.
+  Rejection reason: campaign-level boolean was wrong granularity (all-or-nothing).
+  Prospect-level allows operator to cherry-pick candidates before costly enrichment.
 
 - [pre-c1] 360 Bia Og ICP approval status investigation (2026-06-12)
   Query result at Phase A Amendment 7: 360 Bia Og has two ICP documents (v1 archived, v2 active)
