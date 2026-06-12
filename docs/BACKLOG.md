@@ -66,6 +66,35 @@
 
 ---
 
+## Grounding propagation (DONE 2026-06-12)
+
+- [DONE 2026-06-12] Upstream assumptions propagation into messaging document
+  Commit: cf95798 — "agents: propagate upstream assumptions into messaging document"
+
+  The grounding rule (Rule 9) added in the 2026-06-11 batch ensures messaging documents
+  flag any external facts not in source materials. However, the upstream documents
+  (ICP, positioning, TOV) may already have flagged assumptions. Messaging must carry
+  forward those upstream assumptions, attributed to their source, if the messaging
+  output relies on them.
+
+  Implementation:
+  1. Added UpstreamAssumption interface to track assumption origin (documentType field)
+  2. New extractAssumptionsFromDocument() function parses "Assumptions we have made"
+     sections from plain_text of each strategy document
+  3. Extract upstream assumptions in main agent flow (Step 7, before Claude call)
+  4. Pass upstream_assumptions through VariantGenerationContext to all variant generation
+  5. Include upstream assumptions in prompt context with clear labeling
+  6. Added Rule 10 to messaging-agent.md defining propagation semantics:
+     - Carry forward only assumptions the messaging actually relies on
+     - Attribute each to its source (ICP, Positioning, or TOV)
+     - Avoid noise inheritance: do not copy unused assumptions
+  7. Updated quality self-check with four verification points for assumptions
+
+  Result: Complete audit trail of assumptions across the engagement. Client can see
+  which external facts were verified at earlier stages vs which are new to the messaging.
+
+---
+
 ## Benchmarks page (resolved and deferred items — 2026-05-05)
 
 - [DONE 2026-05-05] Benchmarks page v1 shipped
