@@ -18,12 +18,20 @@
 
 ## Session start ritual — read these before anything else
 
-Every new Claude Code session must read, in order:
-  1. /CLAUDE.md (this file)
-  2. /docs/BACKLOG.md (deferred items and follow-ups)
-  3. /docs/ADR.md (architecture decisions)
-  4. The relevant /prd/sections/NN-*.md file for the current task
-  - For prospect research agent v2 state and architecture, see `docs/prospect-research-agent-v2-state.md`
+Every new Claude Code session must:
+
+1. Run `git status` to check working tree state.
+   If the working tree is dirty (uncommitted changes or untracked files not in .gitignore):
+   - STOP. Do not proceed.
+   - Ask Doug whether another session is active before doing anything.
+   - One build session at a time is the standing rule to prevent merge conflicts and context loss.
+
+2. Read, in order:
+   - /CLAUDE.md (this file)
+   - /docs/BACKLOG.md (deferred items and follow-ups)
+   - /docs/ADR.md (architecture decisions)
+   - The relevant /prd/sections/NN-*.md file for the current task
+   - For prospect research agent v2 state: see `docs/prospect-research-agent-v2-state.md`
 
 Do not skip BACKLOG.md. It captures items consciously deferred in earlier sessions
 that you would otherwise forget. Missing an item in BACKLOG.md has cost real hours

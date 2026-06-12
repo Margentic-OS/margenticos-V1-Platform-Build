@@ -231,7 +231,7 @@ Loading states (skeleton copy):
 
 **ADR-020 (June 2026, reversed from May 2026):** All operator-reviewed replies and outbound emails sign with the founder's first name and title, never company team.
 
-  Signature: ${founderFirstName} ${founderTitle}
+  Signature: ${founderFirstName} ${founderLastName}, ${founderTitle}
   Example: Doug Pettit, Founder & Head of Pipeline
 
 Rationale: replies and outbound that reach prospects are reviewed and approved by the founder. Signing with the founder's name and title reflects this accurately rather than obscuring authorship.
@@ -258,7 +258,7 @@ Warm, personal, from Doug. Not a system notification.
 
 Plain-text signature block (no HTML, no images, no hyperlinks except Calendly in replies only):
 
-  ${founderFirstName} ${founderTitle}
+  ${founderFirstName} ${founderLastName}, ${founderTitle}
   ${companyName}
   ${companyDomain}
 

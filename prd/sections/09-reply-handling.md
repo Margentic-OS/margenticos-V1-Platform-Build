@@ -26,20 +26,20 @@ Response:
   Send automated reply within the same business hour.
   Include the client's Calendly booking link.
   Use the phrase "grab a slot" — warm, low-friction.
-  Signed as: founder first name only (e.g. "Doug" or "Sarah")
+  Signed as: founder first name, last name, and title (e.g. "Doug Pettit, Founder & Head of Pipeline")
 
 Identity rules (strict):
-  Always sign operator-reviewed replies with the founder's name — the founder reviewed and approved it
+  Always sign operator-reviewed replies with the founder's full name and title — the founder reviewed and approved it
   Never mention "AI" or "automated" — unnecessary, adds friction
   Never mention "MargenticOS" — clients don't know who we are
   Warm, human, plausible timing — signature reflects the founder personally approving the reply
-  Client consent to founder-name signing is captured at onboarding
+  Client consent to founder-name-and-title signing is captured at onboarding (required before first campaign)
 
 Reply must be:
   - Under 60 words
   - Warm but not gushing
   - One clear call to action (the booking link)
-  - Signed with founder first name (per ADR-020)
+  - Signed with founder name and title per ADR-020 (see design.md for signature block format)
 
 ---
 
