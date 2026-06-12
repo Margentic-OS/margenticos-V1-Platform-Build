@@ -115,6 +115,12 @@ interface StrategyDocument {
   status: string
 }
 
+// Extracted assumption from an upstream document.
+interface UpstreamAssumption {
+  documentType: string
+  assumption: string
+}
+
 // Validated pre-flight context — org name, sender first name, prospect company name.
 // These are required for email generation. Missing any of them aborts the run.
 interface PreflightContext {
@@ -153,6 +159,7 @@ interface VariantGenerationContext {
   patterns: PatternRow[]
   completeness: number
   preflight: PreflightContext
+  upstreamAssumptions: UpstreamAssumption[]
 }
 
 // Records the outcome for one variant slot after first pass + any retries/fallbacks.
@@ -232,7 +239,23 @@ export async function runMessagingGenerationAgent(
     // Step 6: Read patterns table (cross-client, read-only, may be empty in phase one).
     const patterns = await fetchPatterns(supabase)
 
-    // Step 7: Build the user message requesting four variants.
+    // Step 7: Extract upstream assumptions from strategy documents.
+    const upstreamAssumptions: UpstreamAssumption[] = [
+      ...extractAssumptionsFromDocument(requiredDocs.icp).map(a => ({
+        documentType: 'icp',
+        assumption: a,
+      })),
+      ...extractAssumptionsFromDocument(requiredDocs.positioning).map(a => ({
+        documentType: 'positioning',
+        assumption: a,
+      })),
+      ...extractAssumptionsFromDocument(requiredDocs.tov).map(a => ({
+        documentType: 'tov',
+        assumption: a,
+      })),
+    ]
+
+    // Step 8: Build the user message requesting four variants.
     const userMessage = buildUserMessage({
       organisation_id,
       intake,
@@ -241,20 +264,21 @@ export async function runMessagingGenerationAgent(
       patterns,
       completeness,
       preflight,
+      upstreamAssumptions,
     })
 
-    // Step 8: Call Claude — one API call for all four variants.
+    // Step 9: Call Claude — one API call for all four variants.
     logger.info('Messaging agent: calling Claude for four variants', {
       organisation_id,
       model: MESSAGING_MODEL,
     })
     const generatedContent = await callClaude(userMessage)
 
-    // Step 9: Parse the four-variant structure.
+    // Step 10: Parse the four-variant structure.
     // Expected: { variants: { A: { emails: [...] }, B: { emails: [...] }, C: {...}, D: {...} } }
     const rawVariants = parseVariantsFromClaude(generatedContent)
 
-    // Step 10: Post-process each variant independently.
+    // Step 11: Post-process each variant independently.
     // Em-dash auto-fix + sign-off fix + 10-rule validation gate runs per variant.
     const { passedVariants, variantFailures } = await processAllVariants(
       rawVariants,
@@ -262,7 +286,7 @@ export async function runMessagingGenerationAgent(
       organisation_id
     )
 
-    // Step 11: Initialise run stats. The initial four-variant call counts as 1 API call.
+    // Step 12: Initialise run stats. The initial four-variant call counts as 1 API call.
     const runStats: RunStats = {
       slotOutcomes: [],
       totalApiCalls: 1,
@@ -280,7 +304,7 @@ export async function runMessagingGenerationAgent(
       }
     }
 
-    // Step 12: Retry any failing variants (up to 3 attempts on original angle,
+    // Step 13: Retry any failing variants (up to 3 attempts on original angle,
     // then fallback angles). Only fires if variants actually failed.
     if (variantFailures.length > 0) {
       const retryContext: VariantGenerationContext = {
@@ -290,6 +314,7 @@ export async function runMessagingGenerationAgent(
         patterns,
         completeness,
         preflight,
+        upstreamAssumptions,
       }
 
       for (const failure of variantFailures) {
@@ -308,7 +333,7 @@ export async function runMessagingGenerationAgent(
 
     runStats.durationMs = Date.now() - startedAt
 
-    // Step 13: Minimum threshold check — 3 or 4 variants must pass.
+    // Step 14: Minimum threshold check — 3 or 4 variants must pass.
     const passedCount = Object.keys(passedVariants).length
     if (passedCount < 3) {
       const droppedOutcomes = runStats.slotOutcomes.filter(o => o.result === 'dropped')
@@ -324,7 +349,7 @@ export async function runMessagingGenerationAgent(
       throw new Error(failureMessage)
     }
 
-    // Step 14: Write validated variants to document_suggestions.
+    // Step 15: Write validated variants to document_suggestions.
     const suggestionId = await writeDocumentSuggestion(supabase, {
       organisation_id,
       segment_id,
@@ -338,7 +363,7 @@ export async function runMessagingGenerationAgent(
       runStats,
     })
 
-    // Step 15: Complete the agent run with full stats.
+    // Step 16: Complete the agent run with full stats.
     const firstPassCount = runStats.slotOutcomes.filter(o => o.result === 'first_pass').length
     const retryCount = runStats.slotOutcomes.filter(o => o.result === 'retry').length
     const fallbackCount = runStats.slotOutcomes.filter(o => o.result === 'fallback').length
@@ -546,13 +571,36 @@ async function fetchPatterns(supabase: SupabaseClient): Promise<PatternRow[]> {
 
 // ─── Prompt construction ──────────────────────────────────────────────────────
 
+// Extracts "Assumptions we have made" section from a document's plain_text.
+// Returns an array of assumption strings, or empty array if no section found.
+function extractAssumptionsFromDocument(
+  doc: StrategyDocument
+): string[] {
+  if (!doc.plain_text) return []
+
+  const assumptionsMatch = doc.plain_text.match(
+    /##\s+Assumptions\s+we\s+have\s+made\s*\n([\s\S]*?)(?=\n##|\Z)/i
+  )
+
+  if (!assumptionsMatch || !assumptionsMatch[1]) return []
+
+  const lines = assumptionsMatch[1]
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.startsWith('-') || line.startsWith('*'))
+    .map(line => line.replace(/^[-*]\s+/, '').trim())
+    .filter(line => line.length > 0)
+
+  return lines
+}
+
 // Builds the shared context block used by both buildUserMessage and buildSingleVariantUserMessage.
 // Returns the completeness note and all context sections (intake, documents, sender, refresh, patterns).
 function buildBaseContext(params: VariantGenerationContext): {
   completenessNote: string
   contextBlocks: string
 } {
-  const { intake, requiredDocs, existingDocument, patterns, completeness, preflight } = params
+  const { intake, requiredDocs, existingDocument, patterns, completeness, preflight, upstreamAssumptions } = params
 
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
     if (!acc[row.section]) acc[row.section] = []
@@ -632,9 +680,21 @@ function buildBaseContext(params: VariantGenerationContext): {
     `Sender first name (use this on the sign-off line of every email — never leave it blank): ${preflight.sender_first_name}\n` +
     `Client company name (use for context in copy — write as plain text, never as a merge tag): ${preflight.company_name}`
 
+  const upstreamAssumptionsContext = upstreamAssumptions.length > 0
+    ? `\n\n---\n\n## UPSTREAM ASSUMPTIONS FROM STRATEGY DOCUMENTS\n\n` +
+      'The following assumptions appear in the ICP, Positioning, or TOV documents. ' +
+      'If the messaging output relies on any of these, carry them into the messaging document\'s own ' +
+      '"Assumptions we have made" section, attributed to their source. Do not copy assumptions the ' +
+      'messaging does not use.\n\n' +
+      upstreamAssumptions.map(a => {
+        const sourceLabel = a.documentType === 'icp' ? 'ICP' : a.documentType === 'positioning' ? 'Positioning' : 'Tone of Voice'
+        return `- ${sourceLabel}: ${a.assumption}`
+      }).join('\n')
+    : ''
+
   const contextBlocks =
     `## INTAKE QUESTIONNAIRE RESPONSES\n\n${intakeSections}` +
-    icpBlock + positioningBlock + tovBlock + senderContext + refreshContext + patternContext
+    icpBlock + positioningBlock + tovBlock + senderContext + upstreamAssumptionsContext + refreshContext + patternContext
 
   return { completenessNote, contextBlocks }
 }
@@ -647,6 +707,7 @@ function buildUserMessage(params: {
   patterns: PatternRow[]
   completeness: number
   preflight: PreflightContext
+  upstreamAssumptions: UpstreamAssumption[]
 }): string {
   const { completenessNote, contextBlocks } = buildBaseContext(params)
 
