@@ -810,6 +810,8 @@ export type Database = {
           docs_complete_notification_sent_at: string | null
           engagement_month: number
           founder_first_name: string | null
+          founder_last_name: string | null
+          founder_title: string | null
           id: string
           linkedin_channel_enabled: boolean
           meetings_count: number
@@ -836,6 +838,8 @@ export type Database = {
           docs_complete_notification_sent_at?: string | null
           engagement_month?: number
           founder_first_name?: string | null
+          founder_last_name?: string | null
+          founder_title?: string | null
           id?: string
           linkedin_channel_enabled?: boolean
           meetings_count?: number
@@ -862,6 +866,8 @@ export type Database = {
           docs_complete_notification_sent_at?: string | null
           engagement_month?: number
           founder_first_name?: string | null
+          founder_last_name?: string | null
+          founder_title?: string | null
           id?: string
           linkedin_channel_enabled?: boolean
           meetings_count?: number

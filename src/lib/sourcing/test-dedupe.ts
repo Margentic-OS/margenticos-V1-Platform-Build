@@ -11,6 +11,7 @@
 // 3. Verifies verdicts match expectations
 // 4. Logs results without deleting test rows (marked for cleanup post-test)
 
+import { randomUUID } from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 import { checkCandidates } from './dedupe'
@@ -18,6 +19,10 @@ import { checkCandidates } from './dedupe'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 const DRY_RUN_ORG_ID = 'dry-run-test-org-id'
+
+function genUUID(): string {
+  return randomUUID()
+}
 
 const supabase = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY)
 
@@ -49,7 +54,7 @@ async function seedTestRows(): Promise<void> {
     suppression_reason?: string | null
   }> = [
     {
-      id: 'test-suppressed-by-person-key',
+      id: genUUID(),
       organisation_id: orgId,
       source_person_key: 'apollo:suppressed-person-123',
       email: 'suppressed-person@example.com',
@@ -58,7 +63,7 @@ async function seedTestRows(): Promise<void> {
       suppression_reason: 'dedupe-test: suppressed for person_key match testing',
     },
     {
-      id: 'test-suppressed-by-linkedin',
+      id: genUUID(),
       organisation_id: orgId,
       source_person_key: 'apollo:different-person',
       email: 'different-person@example.com',
@@ -67,7 +72,7 @@ async function seedTestRows(): Promise<void> {
       suppression_reason: 'dedupe-test: suppressed for linkedin match testing',
     },
     {
-      id: 'test-suppressed-by-email',
+      id: genUUID(),
       organisation_id: orgId,
       source_person_key: 'apollo:third-person',
       email: 'suppressed-email@example.com',
@@ -76,7 +81,7 @@ async function seedTestRows(): Promise<void> {
       suppression_reason: 'dedupe-test: suppressed for email match testing',
     },
     {
-      id: 'test-duplicate-person-key',
+      id: genUUID(),
       organisation_id: orgId,
       source_person_key: 'apollo:duplicate-person-456',
       email: 'duplicate-person@example.com',
@@ -84,7 +89,7 @@ async function seedTestRows(): Promise<void> {
       suppressed: false,
     },
     {
-      id: 'test-duplicate-linkedin',
+      id: genUUID(),
       organisation_id: orgId,
       source_person_key: 'apollo:new-person-789',
       email: 'newperson@example.com',
@@ -92,7 +97,7 @@ async function seedTestRows(): Promise<void> {
       suppressed: false,
     },
     {
-      id: 'test-duplicate-email',
+      id: genUUID(),
       organisation_id: orgId,
       source_person_key: 'apollo:email-person-101',
       email: 'duplicate-email@example.com',
@@ -100,6 +105,17 @@ async function seedTestRows(): Promise<void> {
       suppressed: false,
     },
   ]
+
+  function normaliseLinkedInUrl(url: string | null): string | null {
+    if (!url) return null
+    return url
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '')
+      .replace(/\/$/, '')
+      .replace(/\?.*$/, '')
+      .replace(/#.*$/, '')
+  }
 
   for (const prospect of testProspects) {
     const { error } = await supabase
@@ -110,6 +126,7 @@ async function seedTestRows(): Promise<void> {
         source_person_key: prospect.source_person_key,
         email: prospect.email || null,
         linkedin_url: prospect.linkedin_url || null,
+        linkedin_url_normalised: normaliseLinkedInUrl(prospect.linkedin_url || null),
         suppressed: prospect.suppressed,
         suppression_reason: prospect.suppression_reason || null,
       }])

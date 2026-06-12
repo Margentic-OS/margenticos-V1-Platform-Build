@@ -229,26 +229,22 @@ Loading states (skeleton copy):
 
 ### Sign-offs for outbound emails
 
-**ADR-020 (May 2026):** All sent replies sign off with the founder's first name only.
+**ADR-020 (June 2026, reversed from May 2026):** All operator-reviewed replies and outbound emails sign with the founder's first name and title, never company team.
 
-  \n\n${founderFirstName}
+  Signature: ${founderFirstName} ${founderTitle}
+  Example: Doug Pettit, Founder & Head of Pipeline
 
-Never: company team name, never "AI", never "MargenticOS", never "automated".
+Rationale: replies and outbound that reach prospects are reviewed and approved by the founder. Signing with the founder's name and title reflects this accurately rather than obscuring authorship.
 
-Phase 2 operator-approved drafts: the operator reviews and approves before sending, so
-signing as the founder is accurate — a human did review it.
+Never: "AI", "automated", "MargenticOS", impersonal or generic team attribution.
 
-Phase 1 auto-Calendly responses (high-confidence direct booking signal): tightly
-constrained body, purpose-built for brevity and factual content. Founder sign-off is
-consistent with the founder personally responding to a booking request.
+Operator-reviewed approval requirement: Founder names appear on replies only after the founder or client operator has reviewed and approved. This is warm, human, and plausible.
 
-Company team attribution is retained only for system-generated messages that are
-not operator-reviewed: holding messages (information request escalation) and opt-out
-confirmations. These are separate code paths not affected by ADR-020.
+Client consent captured at onboarding: before any campaign goes live, client founder confirms their name and title will appear on outbound and replies to prospects.
 
-`organisations.founder_first_name` is a hard requirement at send time. Missing it
-blocks the send with a logged error. Must be populated during client onboarding before
-any campaigns go live.
+System-generated messages (not operator-reviewed): holding messages (information request escalation) and auto-suppression confirmations use company team attribution only.
+
+`organisations.founder_first_name` and `organisations.founder_title` are hard requirements at send time for outbound/replies. Missing either blocks the send with a logged error. Must be populated during client onboarding before any campaigns go live.
 
 Opt-out footer (mandatory in all outbound):
 "Not the right fit? Just reply 'stop' and I'll leave you alone."
@@ -257,6 +253,30 @@ Never use the word "unsubscribe."
 90-day document refresh email tone:
 Warm, personal, from Doug. Not a system notification.
 "It's been 90 days — anything changed worth updating in your strategy?"
+
+### Signature convention for outbound email identity
+
+Plain-text signature block (no HTML, no images, no hyperlinks except Calendly in replies only):
+
+  ${founderFirstName} ${founderTitle}
+  ${companyName}
+  ${companyDomain}
+
+Example:
+  Doug Pettit, Founder & Head of Pipeline
+  Margentic OS
+  margenticos.com
+
+No hyperlinks in cold sequence steps. Calendly link permitted only in reply emails and book-meeting responses.
+
+Instantly account-level signatures are NOT configured. Signatures are composed into email bodies by the content pipeline at send time. This is a deliberate architectural decision: it ensures all signatures are identical across accounts and allows testing signature variants without reconfiguring Instantly accounts.
+
+Never:
+  - LinkedIn URLs or social handles in signatures
+  - Multiple contact methods
+  - Credentials or certifications (these belong in strategy documents or FAQs, not signatures)
+  - Emoji or special characters
+  - Email addresses unless explicitly requested by client
 
 ---
 

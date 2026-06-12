@@ -114,7 +114,7 @@ export async function checkCandidates(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Query helpers: batched per dimension
+// Query helpers: batched per dimension. Map query results back to candidates.
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function querySuppressedMatches(
@@ -122,27 +122,34 @@ async function querySuppressedMatches(
   organisationId: string,
   candidates: ProspectCandidate[],
 ): Promise<DuplicateMatch[]> {
-  // Match suppressed prospects on any identity dimension we hold
-  const personKeys = candidates.map(c => c.source_person_key).filter(Boolean)
-  const linkedinUrls = candidates.map(c => c.linkedin_url).filter(Boolean)
-  const emails = candidates.map(c => c.email).filter(Boolean)
+  // Build maps from candidate data to candidate for result mapping
+  const personKeyToCandidate = new Map(
+    candidates.filter(c => c.source_person_key).map(c => [c.source_person_key, c]),
+  )
+  const linkedinToCandidate = new Map(
+    candidates
+      .filter((c): c is typeof c & { linkedin_url: string } => c.linkedin_url !== null && c.linkedin_url !== undefined)
+      .map(c => [normaliseLinkedInUrl(c.linkedin_url)!, c]),
+  )
+  const emailToCandidate = new Map(
+    candidates
+      .filter(c => c.email)
+      .map(c => [(c.email || '').toLowerCase(), c]),
+  )
 
-  if (!personKeys.length && !linkedinUrls.length && !emails.length) {
-    return []
-  }
-
-  // Build OR conditions for all dimensions
-  let query = supabase
-    .from('prospects')
-    .select('source_person_key')
-    .eq('organisation_id', organisationId)
-    .eq('suppressed', true)
-
+  const matchedCandidateKeys = new Set<string>()
   const matches: DuplicateMatch[] = []
 
   // Query by person_key
-  if (personKeys.length) {
-    const { data: pkMatches, error: pkError } = await query.in('source_person_key', personKeys)
+  if (personKeyToCandidate.size) {
+    const personKeys = Array.from(personKeyToCandidate.keys())
+    const { data: pkMatches, error: pkError } = await supabase
+      .from('prospects')
+      .select('source_person_key')
+      .eq('organisation_id', organisationId)
+      .eq('suppressed', true)
+      .in('source_person_key', personKeys)
+
     if (pkError) {
       logger.error('sourcing/dedupe: suppressed person_key query failed', {
         organisation_id: organisationId,
@@ -150,48 +157,52 @@ async function querySuppressedMatches(
       })
     } else if (pkMatches) {
       for (const row of pkMatches) {
-        matches.push({ source_person_key: row.source_person_key as string, verdict: 'suppressed_match' })
+        const matchedDbKey = row.source_person_key as string
+        const candidate = personKeyToCandidate.get(matchedDbKey)
+        if (candidate && !matchedCandidateKeys.has(candidate.source_person_key)) {
+          matches.push({ source_person_key: candidate.source_person_key, verdict: 'suppressed_match' })
+          matchedCandidateKeys.add(candidate.source_person_key)
+        }
       }
     }
   }
 
   // Query by normalised LinkedIn URL
-  if (linkedinUrls.length) {
-    const normalisedUrls = linkedinUrls
-      .map(url => (url ? normaliseLinkedInUrl(url) : null))
-      .filter(Boolean) as string[]
-    if (normalisedUrls.length) {
-      const { data: liMatches, error: liError } = await supabase
-        .from('prospects')
-        .select('source_person_key')
-        .eq('organisation_id', organisationId)
-        .eq('suppressed', true)
-        .in('linkedin_url_normalised', normalisedUrls)
+  if (linkedinToCandidate.size) {
+    const normalisedUrls = Array.from(linkedinToCandidate.keys())
+    const { data: liMatches, error: liError } = await supabase
+      .from('prospects')
+      .select('linkedin_url_normalised')
+      .eq('organisation_id', organisationId)
+      .eq('suppressed', true)
+      .in('linkedin_url_normalised', normalisedUrls)
 
-      if (liError) {
-        logger.error('sourcing/dedupe: suppressed linkedin query failed', {
-          organisation_id: organisationId,
-          error: liError.message,
-        })
-      } else if (liMatches) {
-        for (const row of liMatches) {
-          if (!matches.some(m => m.source_person_key === row.source_person_key)) {
-            matches.push({ source_person_key: row.source_person_key as string, verdict: 'suppressed_match' })
-          }
+    if (liError) {
+      logger.error('sourcing/dedupe: suppressed linkedin query failed', {
+        organisation_id: organisationId,
+        error: liError.message,
+      })
+    } else if (liMatches) {
+      for (const row of liMatches) {
+        const normalisedUrl = row.linkedin_url_normalised as string
+        const candidate = linkedinToCandidate.get(normalisedUrl)
+        if (candidate && !matchedCandidateKeys.has(candidate.source_person_key)) {
+          matches.push({ source_person_key: candidate.source_person_key, verdict: 'suppressed_match' })
+          matchedCandidateKeys.add(candidate.source_person_key)
         }
       }
     }
   }
 
   // Query by email (case-insensitive)
-  if (emails.length) {
-    const lowerEmails = emails.map(e => (e || '').toLowerCase()).filter(Boolean)
+  if (emailToCandidate.size) {
+    const lowerEmails = Array.from(emailToCandidate.keys())
     const { data: emailMatches, error: emailError } = await supabase
       .from('prospects')
-      .select('source_person_key')
+      .select('email')
       .eq('organisation_id', organisationId)
       .eq('suppressed', true)
-      .in('email', lowerEmails) // Note: relies on Postgres lower() in index for case-insensitivity
+      .in('email', lowerEmails)
 
     if (emailError) {
       logger.error('sourcing/dedupe: suppressed email query failed', {
@@ -200,8 +211,11 @@ async function querySuppressedMatches(
       })
     } else if (emailMatches) {
       for (const row of emailMatches) {
-        if (!matches.some(m => m.source_person_key === row.source_person_key)) {
-          matches.push({ source_person_key: row.source_person_key as string, verdict: 'suppressed_match' })
+        const lowerEmail = ((row.email as string) || '').toLowerCase()
+        const candidate = emailToCandidate.get(lowerEmail)
+        if (candidate && !matchedCandidateKeys.has(candidate.source_person_key)) {
+          matches.push({ source_person_key: candidate.source_person_key, verdict: 'suppressed_match' })
+          matchedCandidateKeys.add(candidate.source_person_key)
         }
       }
     }
@@ -215,7 +229,8 @@ async function queryPersonKeyDuplicates(
   organisationId: string,
   candidates: ProspectCandidate[],
 ): Promise<DuplicateMatch[]> {
-  const personKeys = candidates.map(c => c.source_person_key).filter(Boolean)
+  const candidatesByPersonKey = new Map(candidates.map(c => [c.source_person_key, c]))
+  const personKeys = Array.from(candidatesByPersonKey.keys())
   if (!personKeys.length) return []
 
   const { data, error } = await supabase
@@ -223,7 +238,7 @@ async function queryPersonKeyDuplicates(
     .select('source_person_key')
     .eq('organisation_id', organisationId)
     .in('source_person_key', personKeys)
-    .is('suppressed', false) // Exclude suppressed rows (already checked)
+    .is('suppressed', false)
 
   if (error) {
     logger.error('sourcing/dedupe: person_key query failed', {
@@ -244,14 +259,18 @@ async function queryLinkedInDuplicates(
   organisationId: string,
   candidates: ProspectCandidate[],
 ): Promise<DuplicateMatch[]> {
-  const linkedinUrls = candidates.map(c => c.linkedin_url).filter(Boolean) as string[]
-  if (!linkedinUrls.length) return []
+  const linkedinToCandidate = new Map(
+    candidates
+      .filter((c): c is typeof c & { linkedin_url: string } => c.linkedin_url !== null && c.linkedin_url !== undefined)
+      .map(c => [normaliseLinkedInUrl(c.linkedin_url)!, c]),
+  )
+  if (!linkedinToCandidate.size) return []
 
-  const normalisedUrls = linkedinUrls.map(url => normaliseLinkedInUrl(url)).filter(Boolean) as string[]
+  const normalisedUrls = Array.from(linkedinToCandidate.keys())
 
   const { data, error } = await supabase
     .from('prospects')
-    .select('source_person_key')
+    .select('linkedin_url_normalised')
     .eq('organisation_id', organisationId)
     .in('linkedin_url_normalised', normalisedUrls)
     .is('suppressed', false)
@@ -264,10 +283,14 @@ async function queryLinkedInDuplicates(
     return []
   }
 
-  return (data || []).map(row => ({
-    source_person_key: row.source_person_key as string,
-    verdict: 'duplicate_linkedin' as const,
-  }))
+  return (data || []).map(row => {
+    const normalisedUrl = row.linkedin_url_normalised as string
+    const candidate = linkedinToCandidate.get(normalisedUrl)
+    return {
+      source_person_key: candidate!.source_person_key,
+      verdict: 'duplicate_linkedin' as const,
+    }
+  })
 }
 
 async function queryEmailDuplicates(
@@ -275,16 +298,18 @@ async function queryEmailDuplicates(
   organisationId: string,
   candidates: ProspectCandidate[],
 ): Promise<DuplicateMatch[]> {
-  const emails = (candidates.map(c => c.email).filter(Boolean) as (string | null)[]).filter(
-    (e): e is string => e !== null,
+  const emailToCandidate = new Map(
+    candidates
+      .filter(c => c.email)
+      .map(c => [(c.email || '').toLowerCase(), c]),
   )
-  if (!emails.length) return []
+  if (!emailToCandidate.size) return []
 
-  const lowerEmails = emails.map(e => e.toLowerCase())
+  const lowerEmails = Array.from(emailToCandidate.keys())
 
   const { data, error } = await supabase
     .from('prospects')
-    .select('source_person_key')
+    .select('email')
     .eq('organisation_id', organisationId)
     .in('email', lowerEmails)
     .is('suppressed', false)
@@ -298,10 +323,14 @@ async function queryEmailDuplicates(
     return []
   }
 
-  return (data || []).map(row => ({
-    source_person_key: row.source_person_key as string,
-    verdict: 'duplicate_email' as const,
-  }))
+  return (data || []).map(row => {
+    const lowerEmail = ((row.email as string) || '').toLowerCase()
+    const candidate = emailToCandidate.get(lowerEmail)
+    return {
+      source_person_key: candidate!.source_person_key,
+      verdict: 'duplicate_email' as const,
+    }
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

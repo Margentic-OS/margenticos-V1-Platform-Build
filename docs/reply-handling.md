@@ -7,10 +7,11 @@
 [Not yet built]
 
 ## Reply types
-positive        → Automated same-hour response with booking link. Signed "[Company] Team."
+positive        → Automated same-hour response with booking link. Signed with founder first name.
 information     → No automation. Flag to client. Escalation: 15h → 48h → 72h holding msg.
 negative/opt-out → Immediate suppression. Push to Instantly API. No further contact.
 out-of-office   → Pause sequence. Extract return date. Resume day after (10 days default).
 
 ## Identity rule
-Always signed as "[Client Company Name] Team". Never founder name. Never "AI". Never "MargenticOS".
+All operator-reviewed replies signed as: founder first name only. Never "AI". Never "automated". Never "MargenticOS".
+System-generated messages not reviewed by operator (holding messages, opt-out confirmations) signed as "[Company] Team".

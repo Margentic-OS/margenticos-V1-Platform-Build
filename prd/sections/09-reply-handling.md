@@ -26,20 +26,20 @@ Response:
   Send automated reply within the same business hour.
   Include the client's Calendly booking link.
   Use the phrase "grab a slot" — warm, low-friction.
-  Signed as: "[Client Company Name] Team"
+  Signed as: founder first name only (e.g. "Doug" or "Sarah")
 
 Identity rules (strict):
-  Never use the founder's name — implies they personally wrote this in real time
+  Always sign operator-reviewed replies with the founder's name — the founder reviewed and approved it
   Never mention "AI" or "automated" — unnecessary, adds friction
   Never mention "MargenticOS" — clients don't know who we are
-  Always use company team name — warm, professional, legally clean, not deceptive
-  The agent acts as a competent team member from the client's company
+  Warm, human, plausible timing — signature reflects the founder personally approving the reply
+  Client consent to founder-name signing is captured at onboarding
 
 Reply must be:
   - Under 60 words
   - Warm but not gushing
   - One clear call to action (the booking link)
-  - Signed as [Company] Team
+  - Signed with founder first name (per ADR-020)
 
 ---
 
@@ -58,7 +58,7 @@ Escalation sequence (if client doesn't respond):
   T+48h:  Second reminder — "Still waiting on your reply to [First Name]"
   T+72h:  Optional holding message sent to prospect (system-generated, warm, buys time)
           Toggle per client, default: off
-          Holding message signed by [Company] Team
+          Holding message signed by company team (system-generated, not operator-reviewed)
           Example: "Thanks for your message — [First Name] will get back to you shortly."
 
 Doug can reply directly on the client's behalf via GoHighLevel if needed.
