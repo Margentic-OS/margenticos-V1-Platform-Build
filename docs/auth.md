@@ -142,6 +142,10 @@ pass checks 1 and 2. The `/api/suggestions/[id]/approve` route and `assertStrate
 are two examples where all three checks are enforced explicitly before any data is returned
 or modified.
 
+Operator routes that span multiple organisations (for example, the reply-drafts routes)
+intentionally perform only checks 1 and 2, omitting check 3, because operators are
+cross-organisational by design per ADR-021 and must access data across all clients.
+
 ---
 
 ## organisation_id for operators vs clients

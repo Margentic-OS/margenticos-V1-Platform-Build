@@ -65,6 +65,8 @@ export default async function ClientDetailPage({
     clientUserResult,
     strategyDocsResult,
     pendingSuggestionsResult,
+    intakeWebsiteResult,
+    intakeRevenueResult,
   ] = await Promise.all([
     supabase
       .from('integrations_registry')
@@ -114,6 +116,18 @@ export default async function ClientDetailPage({
       .eq('organisation_id', org.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false }),
+    supabase
+      .from('intake_responses')
+      .select('response_value')
+      .eq('organisation_id', org.id)
+      .eq('field_key', 'company_website')
+      .maybeSingle(),
+    supabase
+      .from('intake_responses')
+      .select('response_value')
+      .eq('organisation_id', org.id)
+      .eq('field_key', 'company_revenue_range')
+      .maybeSingle(),
   ])
 
   const instantlyApiActive = flagResult.data?.is_active ?? false
@@ -130,6 +144,8 @@ export default async function ClientDetailPage({
   const uploadedCount = uploadedCountResult.count ?? 0
   const primarySegmentId = primarySegResult.data?.id ?? null
   const clientUser = clientUserResult.data
+  const website = intakeWebsiteResult.data?.response_value ?? undefined
+  const revenueRange = intakeRevenueResult.data?.response_value ?? undefined
 
   const derivedCampaignsStatus: SetupStatusValue = deriveCampaignsStatus(
     campaigns.map(c => ({ shell_synced_at: c.shellSyncedAt })),
@@ -165,12 +181,6 @@ export default async function ClientDetailPage({
     status: liveOrActiveCampaigns.some(c => c.paused_at) ? 'paused' as const : 'active' as const,
   } : undefined
 
-  // Fields that exist in schema vs. requested but missing
-  const requestedFields = [
-    'company_website', // from intake but not in organisations
-  ]
-  const missingFields = requestedFields
-
   return (
     <>
       <OperatorTopbar
@@ -204,7 +214,8 @@ export default async function ClientDetailPage({
                 orgName={org.name}
                 founderName={org.founder_first_name ?? undefined}
                 clientEmail={clientUser?.email}
-                revenueRange="—" // Would come from intake_responses if persisted
+                website={website}
+                revenueRange={revenueRange}
                 documents={documents}
                 campaignState={campaignState}
                 warmupState={{
@@ -215,7 +226,7 @@ export default async function ClientDetailPage({
                 lastLoginAt={clientUser?.last_seen_at ?? undefined}
                 onboardedAt={org.created_at}
                 intakeUrl={`/dashboard/operator/clients/${org.id}/intake`}
-                missingFields={missingFields}
+                missingFields={[]}
               />
             </div>
 
