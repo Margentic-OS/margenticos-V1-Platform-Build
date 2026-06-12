@@ -3433,20 +3433,21 @@ spec persistence (persistIcpFilterSpec helper called post-promotion), sourcing o
   If backfill chosen: run persistIcpFilterSpec manually against these three document IDs,
   or build a backfill SQL + batch runner.
 
-- [phase2] Apollo sourcing handler — POST /api/v1/mixed_people/search (2026-06-12)
+- [phase2] Apollo sourcing handler: POST /api/v1/mixed_people/api_search (2026-06-12)
   Next build step. Orchestrator currently fails loudly at step 2 (no active handler for 
-  can_source_prospects) — correct current behaviour.
+  can_source_prospects) - correct current behaviour.
   
   Handler implementation scope:
   1. Implement adapter-apollo.ts (SourcingHandler interface)
-  2. Translate ICPFilterSpec to Apollo mixed_people/search query payload (mapping canonical 
+  2. Translate ICPFilterSpec to Apollo mixed_people/api_search query payload (mapping canonical 
      industries to Apollo taxonomy, building seniority+job_title query, geography filters)
   3. Batch search calls (max 100 results per call) to reach target_batch_size
   4. Response parsing: normalise Apollo response shape to ProspectCandidate array
-  5. Return candidates (not yet tier-routed — that's step 6)
+  5. Return candidates (not yet tier-routed: that's step 6)
   
-  Note: Apollo endpoint is master API (mixed_people/search endpoint) per PRD-15.
-  The legacy mixed_people endpoint search is not the one to build against.
+  Note: Apollo endpoint is master API (POST /api/v1/mixed_people/api_search, master API key required, 
+  plan-gated above free, confirmed live 2026-06-12). The legacy mixed_people/search endpoint is not 
+  the build target.
   
   Enable in orchestrator: update integrations_registry.is_active = true after handler 
   implementation + testing.
