@@ -264,6 +264,66 @@ export type Database = {
           },
         ]
       }
+      enrichment_runs: {
+        Row: {
+          batch_size: number
+          created_at: string | null
+          credits_consumed: number
+          error_message: string | null
+          id: string
+          missing_records: number
+          organisation_id: string
+          run_timestamp: string
+          status: string
+          total_requested_enrichments: number
+          unique_enriched_records: number
+          updated_at: string | null
+        }
+        Insert: {
+          batch_size: number
+          created_at?: string | null
+          credits_consumed: number
+          error_message?: string | null
+          id?: string
+          missing_records: number
+          organisation_id: string
+          run_timestamp: string
+          status: string
+          total_requested_enrichments: number
+          unique_enriched_records: number
+          updated_at?: string | null
+        }
+        Update: {
+          batch_size?: number
+          created_at?: string | null
+          credits_consumed?: number
+          error_message?: string | null
+          id?: string
+          missing_records?: number
+          organisation_id?: string
+          run_timestamp?: string
+          status?: string
+          total_requested_enrichments?: number
+          unique_enriched_records?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "enrichment_runs_organisation_fk"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "enrichment_runs_organisation_fk"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       faq_extractions: {
         Row: {
           created_at: string
@@ -1087,6 +1147,9 @@ export type Database = {
           created_at: string
           current_research_result_id: string | null
           email: string | null
+          email_status: string | null
+          enrichment_run_id: string | null
+          enrichment_status: string | null
           first_name: string | null
           has_dateable_signal: boolean
           icp_fit: string
@@ -1128,6 +1191,9 @@ export type Database = {
           created_at?: string
           current_research_result_id?: string | null
           email?: string | null
+          email_status?: string | null
+          enrichment_run_id?: string | null
+          enrichment_status?: string | null
           first_name?: string | null
           has_dateable_signal?: boolean
           icp_fit?: string
@@ -1169,6 +1235,9 @@ export type Database = {
           created_at?: string
           current_research_result_id?: string | null
           email?: string | null
+          email_status?: string | null
+          enrichment_run_id?: string | null
+          enrichment_status?: string | null
           first_name?: string | null
           has_dateable_signal?: boolean
           icp_fit?: string
