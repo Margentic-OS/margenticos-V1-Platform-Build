@@ -191,7 +191,8 @@ export const apolloHandler = {
   },
 
   // Execute: call Apollo api_search, paginate, return ProspectCandidate array
-  execute: async (filter: Record<string, unknown>): Promise<ProspectCandidate[]> => {
+  // Input: the original spec (containing all filter fields including those used for post-filtering)
+  execute: async (spec: Record<string, unknown>): Promise<ProspectCandidate[]> => {
     const apiKey = process.env.APOLLO_API_KEY
     if (!apiKey) {
       const msg = 'APOLLO_API_KEY not set in environment'
@@ -208,7 +209,7 @@ export const apolloHandler = {
     let morePages = true
 
     while (morePages && page <= MAX_PAGES && totalFetched < MAX_RESULTS) {
-      const request = apolloHandler.adapter(filter) as ApolloApiSearchRequest
+      const request = apolloHandler.adapter(spec) as ApolloApiSearchRequest
       request.page = page
       request.per_page = 100
 
@@ -251,8 +252,8 @@ export const apolloHandler = {
         }
 
         // Post-filter criteria from spec
-        const jobTitlesExcluded = filter.job_titles_excluded as string[] | undefined
-        const keywordsExcluded = filter.keywords_excluded as string[] | undefined
+        const jobTitlesExcluded = spec.job_titles_excluded as string[] | undefined
+        const keywordsExcluded = spec.keywords_excluded as string[] | undefined
 
         // Convert Apollo people to ProspectCandidate, apply post-filters
         for (const person of data.data) {

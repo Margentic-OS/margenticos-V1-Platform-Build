@@ -3,7 +3,7 @@
 // Unit tests for Apollo sourcing handler.
 // Tests adapter translation, seniority mapping, post-filtering, and pagination.
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import { apolloHandler } from '@/lib/sourcing/handlers/adapter-apollo'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import type { ProspectCandidate } from '@/lib/sourcing/dedupe'
@@ -157,6 +157,10 @@ describe('apolloHandler.adapter', () => {
 // ─── Post-filter tests ───────────────────────────────────────────────────────
 
 describe('apolloHandler.execute - post-filtering', () => {
+  beforeEach(() => {
+    process.env.APOLLO_API_KEY = 'test-key-fixture'
+  })
+
   it('drops candidates with excluded job titles (case-insensitive substring)', async () => {
     // Mock fetch to return fixture
     global.fetch = vi.fn(async () => ({
@@ -181,8 +185,7 @@ describe('apolloHandler.execute - post-filtering', () => {
       notes: '',
     }
 
-    const request = apolloHandler.adapter(spec as unknown as Record<string, unknown>)
-    const candidates = await apolloHandler.execute(request as Record<string, unknown>)
+    const candidates = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
 
     // apollo-004 has title "Director of Sales" which matches excluded "Director of Sales"
     const apollo004 = candidates.find(c => c.source_person_key === 'apollo:apollo-004')
@@ -215,8 +218,7 @@ describe('apolloHandler.execute - post-filtering', () => {
       notes: '',
     }
 
-    const request = apolloHandler.adapter(spec as unknown as Record<string, unknown>)
-    const candidates = await apolloHandler.execute(request as Record<string, unknown>)
+    const candidates = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
 
     // apollo-005 has company "Marketing Consultancy Staffing Services" which contains "staffing"
     const apollo005 = candidates.find(c => c.source_person_key === 'apollo:apollo-005')
@@ -249,8 +251,7 @@ describe('apolloHandler.execute - post-filtering', () => {
       notes: '',
     }
 
-    const request = apolloHandler.adapter(spec as unknown as Record<string, unknown>)
-    const candidates = await apolloHandler.execute(request as Record<string, unknown>)
+    const candidates = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
 
     // apollo-004 has has_email: false, should be dropped
     const apollo004 = candidates.find(c => c.source_person_key === 'apollo:apollo-004')
@@ -287,8 +288,7 @@ describe('apolloHandler.execute - ProspectCandidate format', () => {
       notes: '',
     }
 
-    const request = apolloHandler.adapter(spec as unknown as Record<string, unknown>)
-    const candidates = await apolloHandler.execute(request as Record<string, unknown>)
+    const candidates = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
 
     expect(candidates.length).toBeGreaterThan(0)
     candidates.forEach(c => {
