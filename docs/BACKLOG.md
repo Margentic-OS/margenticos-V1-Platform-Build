@@ -433,6 +433,30 @@ the new OPS-1 blocks for operational continuity.
   this run). headcount_max=15 borders Tier 3 territory ("10+ person firm with in-house sales teams").
   Per-client override in the filter spec approval UI will handle this. Monitor across first 3 clients.
 
+- [DONE 2026-06-13] Apollo enrichment handler — ID-mapping corruption and missing prospect handling fixed
+  Commit: e1b73b1 — "fix: Apollo enrichment handler ID-mapping corruption and missing prospect handling"
+  
+  Two critical bugs fixed in enrichProspectsForOrganisation:
+  
+  1. ID-mapping corruption: The handler used a placeholder find() that matched the FIRST prospect in
+     a batch rather than the correct prospect for each Apollo match. With partial responses (e.g., 7 of 10
+     enriched), enriched data was written to the wrong prospect rows. Fixed by loading prospect rows for
+     the batch, building a Map from source_person_key to prospect.id, and looking up each match.id correctly.
+  
+  2. Incomplete outcome handling: Prospects sent for enrichment that did not appear in response.matches[]
+     were logged but never marked as enrichment_status='held_missing'. Fixed by computing unreturned
+     prospects and setting enrichment_status='held_missing' for each.
+  
+  Both fixes preserve existing correct behaviour:
+    - Dedupe recheck runs before enrichment_status='enriched'
+    - Verdict ordering from getDedupeVerdict is maintained
+    - email_status stores Apollo's value; only 'verified' yields enriched
+    - Credits consumed recorded per run
+    - reveal_personal_emails/reveal_phone_number/run_waterfall_* stay false
+  
+  Test suite verified with new ID-mapping tests for partial batches.
+  Handler remains is_active=false until audit approves activation.
+
 - [pre-c0] Apollo api_handler_ref values stale — must correct before activation (2026-06-13)
   Runtime audit 2026-06-13: integrations_registry rows for Apollo have incorrect api_handler_ref paths.
   can_enrich_contact and can_source_prospects point to src/lib/handlers/apollo and
