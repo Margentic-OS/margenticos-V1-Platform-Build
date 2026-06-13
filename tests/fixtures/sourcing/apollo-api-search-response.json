@@ -1,0 +1,124 @@
+{
+  "data": [
+    {
+      "id": "apollo-001",
+      "first_name": "Sarah",
+      "last_name_obfuscated": "M***",
+      "title": "Founder",
+      "last_refreshed_at": "2026-06-13T10:00:00Z",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "true",
+      "organization": {
+        "name": "Management Consulting Advisory",
+        "has_industry": true,
+        "has_phone": true,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": true,
+        "has_employee_count": true
+      }
+    },
+    {
+      "id": "apollo-002",
+      "first_name": "Marcus",
+      "last_name_obfuscated": "J***",
+      "title": "Chief Strategy Officer",
+      "last_refreshed_at": "2026-06-12T15:30:00Z",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "false",
+      "organization": {
+        "name": "Strategy Consulting Partners",
+        "has_industry": true,
+        "has_phone": true,
+        "has_city": true,
+        "has_state": false,
+        "has_country": true,
+        "has_zip_code": false,
+        "has_revenue": true,
+        "has_employee_count": true
+      }
+    },
+    {
+      "id": "apollo-003",
+      "first_name": "Elena",
+      "last_name_obfuscated": "R***",
+      "title": "VP of Operations",
+      "last_refreshed_at": "2026-06-13T08:45:00Z",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "true",
+      "organization": {
+        "name": "Operations Consulting Group",
+        "has_industry": true,
+        "has_phone": true,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": false,
+        "has_employee_count": true
+      }
+    },
+    {
+      "id": "apollo-004",
+      "first_name": "David",
+      "last_name_obfuscated": "K***",
+      "title": "Director of Sales",
+      "last_refreshed_at": "2026-06-11T12:00:00Z",
+      "has_email": false,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "false",
+      "organization": {
+        "name": "Sales Consulting Ltd",
+        "has_industry": true,
+        "has_phone": false,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": true,
+        "has_employee_count": false
+      }
+    },
+    {
+      "id": "apollo-005",
+      "first_name": "Lisa",
+      "last_name_obfuscated": "T***",
+      "title": "Founder",
+      "last_refreshed_at": "2026-06-13T09:15:00Z",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "true",
+      "organization": {
+        "name": "Marketing Consultancy Staffing Services",
+        "has_industry": true,
+        "has_phone": true,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": true,
+        "has_employee_count": true
+      }
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 100,
+    "total_entries": 5
+  }
+}
