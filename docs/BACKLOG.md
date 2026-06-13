@@ -433,6 +433,14 @@ the new OPS-1 blocks for operational continuity.
   this run). headcount_max=15 borders Tier 3 territory ("10+ person firm with in-house sales teams").
   Per-client override in the filter spec approval UI will handle this. Monitor across first 3 clients.
 
+- [pre-c0] Apollo api_handler_ref values stale — must correct before activation (2026-06-13)
+  Runtime audit 2026-06-13: integrations_registry rows for Apollo have incorrect api_handler_ref paths.
+  can_enrich_contact and can_source_prospects point to src/lib/handlers/apollo and
+  src/lib/sourcing/adapter-apollo (non-existent). Real handlers: adapter-apollo.ts and
+  adapter-apollo-enrichment.ts in src/lib/sourcing/handlers/. Seed migration 20260420 also has wrong
+  paths. Update both registry rows and seed before reactivating capabilities. Also: can_enrich_contact
+  is_active=true but should be false — corrected in seed migration 2026-06-13 commit 2725c0f.
+
 - [DEFERRED — pending Apollo Basic activation] TAM report validated against MargenticOS's own TAM
   Apollo free plan returns 403 on both people/search and mixed_people/search endpoints.
   TAM gate code is designed and validated (deriveFilterSpec() produces the correct payload shape).
