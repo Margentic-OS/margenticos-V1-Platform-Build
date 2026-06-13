@@ -127,6 +127,26 @@ export async function enrichProspectsForOrganisation(
       const batch = batches[batchIdx]
 
       try {
+        // Load prospect rows for this batch to map source_person_key to prospect.id
+        const batchSourcePersonKeys = batch.map(apolloId => `apollo:${apolloId}`)
+        const { data: prospectRows, error: prospectError } = await (supabase as any)
+          .from('prospects')
+          .select('id, source_person_key')
+          .eq('organisation_id', organisationId)
+          .in('source_person_key', batchSourcePersonKeys)
+
+        if (prospectError) {
+          throw new Error(`Failed to load prospect rows for batch: ${prospectError.message}`)
+        }
+
+        // Build Map from source_person_key to prospect.id
+        const keyToProspectId = new Map<string, string>()
+        if (prospectRows) {
+          for (const row of prospectRows) {
+            keyToProspectId.set(row.source_person_key, row.id)
+          }
+        }
+
         const response = await callApolloBulkMatch(apiKey, batch)
 
         enrichmentRun.total_requested_enrichments += response.total_requested_enrichments
@@ -143,16 +163,16 @@ export async function enrichProspectsForOrganisation(
         })
 
         // Process each match: populate identity, recheck dedupe, set enrichment_status
+        const returnedApolloIds = new Set<string>()
         for (const match of response.matches) {
-          const prospectId = batch.find(id => {
-            // Find the prospect ID corresponding to this Apollo person ID
-            // We'll need to query the DB to map apollo:id to prospect.id
-            return true // Placeholder; see below
-          })
+          const sourcePersonKey = `apollo:${match.id}`
+          returnedApolloIds.add(match.id)
+          const prospectId = keyToProspectId.get(sourcePersonKey)
 
           if (!prospectId) {
             logger.warn('enrichment: could not map Apollo ID to prospect ID', {
               apollo_id: match.id,
+              source_person_key: sourcePersonKey,
             })
             continue
           }
@@ -166,12 +186,34 @@ export async function enrichProspectsForOrganisation(
           )
         }
 
-        // Handle missing records (not in matches[])
-        if (response.missing_records > 0) {
-          logger.info('enrichment: missing records in batch', {
+        // Handle unreturned records: mark as held_missing
+        const unreportedSourceKeys = batchSourcePersonKeys.filter(
+          key => !returnedApolloIds.has(key.replace('apollo:', '')),
+        )
+        if (unreportedSourceKeys.length > 0) {
+          logger.info('enrichment: marking unreturned prospects as held_missing', {
             operation_id: operationId,
-            missing_count: response.missing_records,
+            unreturned_count: unreportedSourceKeys.length,
           })
+
+          const unreportedProspectIds = unreportedSourceKeys
+            .map(key => keyToProspectId.get(key))
+            .filter((id): id is string => id !== undefined)
+
+          if (unreportedProspectIds.length > 0) {
+            const { error: missingError } = await (supabase as any)
+              .from('prospects')
+              .update({ enrichment_status: 'held_missing' })
+              .eq('organisation_id', organisationId)
+              .in('id', unreportedProspectIds)
+
+            if (missingError) {
+              logger.error('enrichment: failed to mark unreturned prospects as held_missing', {
+                operation_id: operationId,
+                error: missingError.message,
+              })
+            }
+          }
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
