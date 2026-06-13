@@ -3541,3 +3541,48 @@ spec persistence (persistIcpFilterSpec helper called post-promotion), sourcing o
   
   Trigger: immediately before flipping is_active=true on Apollo handler (Phase C activation)
   or any future handler.
+
+---
+
+## Apollo enrichment handler Phase B (2026-06-13, build complete)
+
+- [phase2] Live enrichment acceptance test gate (2026-06-13, deferred to Phase C)
+  REQUIREMENT: Before Apollo enrichment is enabled for production use, run a single small
+  live enrichment batch to verify credits_consumed calculations and verified-email gating.
+  
+  Current state: enrichment handler built and fully tested with fixtures (12 unit tests pass).
+  All outcomes covered: verified-pass, not-verified-hold, no-email-hold, missing-record,
+  duplicate-collision (held_duplicate when enriched email collides with suppressed row).
+  is_active stays false in integrations_registry.
+  
+  Acceptance test procedure (Phase C):
+  1. In integrations_registry, flip Apollo enrichment handler is_active=true
+  2. Select 5-10 prospects from MargenticOS client-zero who passed sourcing review
+  3. Run enrichProspectsForOrganisation() on that batch via a test endpoint or CLI
+  4. Verify:
+     - API 200 responses received for all bulk_match calls
+     - credits_consumed recorded in enrichment_runs table matches response values
+     - email_status values stored on prospects match Apollo's response (verified vs non-verified)
+     - enrichment_status correctly set: enriched only for verified + clean dedupe, others held_*
+     - No email or linkedin_url data appears on prospects unless email_status=verified
+  5. Flip is_active back to false until production readiness confirmed
+  
+  Next action: Schedule for Phase C gating work. Handler is production-ready pending this test.
+
+- [phase2] Independent email verification layer (Hunter.io or equivalent) (2026-06-13)
+  REQUIREMENT: After enrichment populates email, verify it against an independent email-validation
+  service before campaigns begin sending.
+  
+  Current state: Enrichment handles Apollo's email_status directly. email_status !== verified
+  prospects are held (marked held_unverified, held_no_email, or held_duplicate) and ineligible
+  for campaign. Independent verification is the next gate before send-eligibility.
+  
+  Design notes (from PRD-15, Phase 2):
+  - Hunter.io v2 API: email_verification endpoint, ~$0.50 per verification
+  - Alternative: Instantly's built-in email validation via trigger flag (no cost, slower)
+  - Consider cost-benefit: phase two when volume justifies the expense
+  
+  Related: MyEmailVerifier mentioned in Phase A plan was research-only (2026-06-13);
+  the actual implementation choice is deferred to Phase 2 scoping.
+  
+  Next action: Research Hunter.io API and cost model before Phase 2 build.
