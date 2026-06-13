@@ -3511,3 +3511,33 @@ spec persistence (persistIcpFilterSpec helper called post-promotion), sourcing o
   before campaign goes live. Required for first paid client onboarding.
   
   Next action: update PandaDoc contract draft with consent clause before shipping.
+
+---
+
+## Apollo sourcing handler Phase B (2026-06-13)
+
+- [pre-activation] Wire orchestrator manifest-check gate (2026-06-13)
+  REQUIREMENT: Before flipping any sourcing handler is_active=true, wire the orchestrator
+  manifest validation gate so that populated spec fields absent from the handler's
+  supported_fields list push to unsupportedFields and throw OperatorWarning.
+
+  Current state (2026-06-13): The orchestrator.ts manifest check (lines 107-145) is stubbed.
+  unsupportedFields is initialized but never populated. The validation logic is missing:
+    if (isPopulated && !capabilityRow.supported_fields.includes(field)) {
+      unsupportedFields.push(field)
+    }
+  
+  Impact: When Apollo handler is registered with is_active=false, unsupported spec fields
+  (departments, company_age_min_years, company_age_max_years, funding_stage, funded_since,
+  technologies_used) will NOT fail loudly. They will silently pass the manifest check and
+  fail later at Step 5 with a generic NotImplemented error. This is poor operator experience.
+  
+  Build effort: 10-15 minutes. Add the above validation check in the for loop at line 112.
+  
+  Test: verify that a spec using an unsupported field (e.g. departments) now throws
+  OperatorWarning before Step 5, with message:
+    "Handler Apollo does not support required filter fields: departments.
+     Contact platform operator to configure sourcing for this client."
+  
+  Trigger: immediately before flipping is_active=true on Apollo handler (Phase C activation)
+  or any future handler.
