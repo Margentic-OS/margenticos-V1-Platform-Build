@@ -13,7 +13,7 @@ VALUES
   ('can_send_email',             'instantly',   true,  'src/lib/handlers/instantly',   '{}'),
   ('can_schedule_linkedin_post', 'taplio',      true,  'src/lib/handlers/taplio',      '{}'),
   ('can_send_linkedin_dm',       'lemlist',     true,  'src/lib/handlers/lemlist',     '{}'),
-  ('can_enrich_contact',         'apollo',      true,  'src/lib/handlers/apollo',      '{}'),
+  ('can_enrich_contact',         'apollo',      false, 'src/lib/handlers/apollo',      '{}'),
   ('can_book_meeting',           'calendly',    true,  'src/lib/handlers/calendly',    '{}'),
   ('can_track_meeting',          'gohighlevel', true,  'src/lib/handlers/gohighlevel', '{}'),
   ('can_validate_email',         'hunter',      false, 'src/lib/handlers/hunter',      '{}')
