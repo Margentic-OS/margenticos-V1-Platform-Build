@@ -25,6 +25,42 @@
 
 ---
 
+## Enrichment execution (DONE 2026-06-15)
+
+- [DONE 2026-06-15] Enrichment execution path built: trigger, lock, operator route
+  Commit: 45f8c0c — "feat: enrichment execution trigger with lock-based concurrency safety"
+  
+  Completed:
+  1. Added enrichment_locked_at column (timestamptz) for in-flight lock tracking.
+     Lock is orthogonal to enrichment_status (outcome tracking only).
+     Index on (organisation_id, enrichment_locked_at, enrichment_status).
+  2. enrichApprovedBatch() trigger function implemented with amendments:
+     - Selects: sourcing_review_status='approved' AND enrichment_status IS NULL
+     - Stale-lock reclaim: prospects with lock >30 min old and still unenriched are reclaimable
+     - One-run-per-org safety via enrichment_locked_at atomic UPDATE-before-call
+     - Derives Apollo IDs from source_person_key, calls handler unchanged
+     - Populates enrichment_run_id on all enriched prospects (audit trail)
+  3. Operator API route: POST /api/operator/organisations/[id]/enrich-approved-batch
+     Requires operator role, not wired to cron or public routes.
+     Returns enrichment run status, credit counts, outcome breakdown.
+  4. Handler dormancy verified: can_enrich_contact is_active=false in integrations_registry
+
+  Next: Phase 3 (tiering + review UI). This session's enrichment trigger is execution-only;
+  no tiering assignment or dashboard review surface built yet. Trigger is not invoked by
+  any live route or cron — operator-only and manually callable when needed.
+
+## Enrichment tiering and review surface (deferred to next session)
+
+- [phase3] Build tiering classification and operator review UI (after 2026-06-15)
+  Phase 3 scope:
+  1. Classify enriched prospects into Tier 1/2/3 per PRD-15 (sourced_tier assignment)
+  2. Build operator dashboard review panel to inspect pre-approval prospects
+  3. Wire approval action (sourcing_review_status: pending_review -> approved)
+  4. Integrate tiering into reply-handling and downstream routing
+  
+  Currently: enrichment_trigger is built and ready; enriched prospects have enrichment_status
+  but not yet sourced_tier or approval mechanism. Review surface does not exist.
+
 ## Agent quality batch from dry-run rounds (DONE 2026-06-11)
 
 - [DONE 2026-06-11] Agent prompt quality fixes from Simcare and 360dungarvan dry runs
