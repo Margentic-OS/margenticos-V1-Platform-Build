@@ -1142,18 +1142,22 @@ export type Database = {
         Row: {
           campaign_id: string | null
           classified_at: string | null
+          company_headcount: number | null
+          company_industry: string | null
           company_name: string | null
           country: string | null
           created_at: string
           current_research_result_id: string | null
           email: string | null
           email_status: string | null
+          enrichment_locked_at: string | null
           enrichment_run_id: string | null
           enrichment_status: string | null
           first_name: string | null
           has_dateable_signal: boolean
           icp_fit: string
           id: string
+          job_title: string | null
           last_name: string | null
           linkedin_url: string | null
           linkedin_url_normalised: string | null
@@ -1186,18 +1190,22 @@ export type Database = {
         Insert: {
           campaign_id?: string | null
           classified_at?: string | null
+          company_headcount?: number | null
+          company_industry?: string | null
           company_name?: string | null
           country?: string | null
           created_at?: string
           current_research_result_id?: string | null
           email?: string | null
           email_status?: string | null
+          enrichment_locked_at?: string | null
           enrichment_run_id?: string | null
           enrichment_status?: string | null
           first_name?: string | null
           has_dateable_signal?: boolean
           icp_fit?: string
           id?: string
+          job_title?: string | null
           last_name?: string | null
           linkedin_url?: string | null
           linkedin_url_normalised?: string | null
@@ -1230,18 +1238,22 @@ export type Database = {
         Update: {
           campaign_id?: string | null
           classified_at?: string | null
+          company_headcount?: number | null
+          company_industry?: string | null
           company_name?: string | null
           country?: string | null
           created_at?: string
           current_research_result_id?: string | null
           email?: string | null
           email_status?: string | null
+          enrichment_locked_at?: string | null
           enrichment_run_id?: string | null
           enrichment_status?: string | null
           first_name?: string | null
           has_dateable_signal?: boolean
           icp_fit?: string
           id?: string
+          job_title?: string | null
           last_name?: string | null
           linkedin_url?: string | null
           linkedin_url_normalised?: string | null

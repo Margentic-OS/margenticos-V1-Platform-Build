@@ -115,6 +115,16 @@ Card content: clear hierarchy, breathing room between rows.
   Not qualified:     #8B2020 text, #FDEEE8 bg, #EFBCAA border
   No show:           same as not qualified
 
+### Prospect tiering badges
+Used in operator sourcing review UI to indicate prospect tier (sourced_tier field).
+Graded scale: best to acceptable. NOT traffic-light semantics.
+Tier 1 (best):      #3B6D11 text, #EBF5E6 bg, #BDDAB0 border
+Tier 2 (good):      #5D7F23 text, #EAF3DE bg, #C0DD97 border
+Tier 3 (acceptable): #9A9488 text, #F0ECE4 bg, no border (neutral grey, same as version badge)
+
+Note: Amber and red are reserved for real status states (pending/warning, error/unqualified).
+Tier 3 is valid and acceptable — never use error colours that would confuse it with rejection.
+
 ### Progress bars
 Height: 3–6px. Background: #F0ECE4. Fill: #1C3A2A.
 Border radius: 2–3px.
