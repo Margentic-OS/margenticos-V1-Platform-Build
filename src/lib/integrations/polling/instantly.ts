@@ -18,10 +18,22 @@
 //   At very large lead counts (10k+), replace with webhook-based ingestion.
 //
 // Status values for bounced/unsubscribed leads:
-//   INSTANTLY_LEAD_STATUS_BOUNCED and INSTANTLY_LEAD_STATUS_UNSUBSCRIBED below.
-//   These values are from Instantly V2 API documentation — verify against live API
-//   before first production poll. If a poll returns zero bounces/unsubscribes on an
-//   account where you expect some, the status values are the first thing to check.
+//   WARNING: The values and field below are UNVERIFIED.
+//
+//   Research (2026-06-15): Instantly's public V2 API documentation does not enumerate
+//   the numeric status values for the lead status field. The field itself that carries
+//   bounce/unsubscribe signals (status vs lt_interest_status vs enrichment_status) is
+//   also unconfirmed.
+//
+//   Current assumption: status field uses -2 for bounced, -1 for unsubscribed.
+//   This assumption has NOT been confirmed against a live Instantly API response.
+//
+//   CRITICAL: A wrong status value means bounce detection silently never fires, leaving
+//   a bouncing campaign undetected and risking permanent damage to sending domains.
+//
+//   Before any production send, this MUST be verified by calling the real Instantly API
+//   and inspecting the actual status field on a known-bounced and known-unsubscribed lead.
+//   See BACKLOG: "Instantly bounce/unsub detection - live field and value verification".
 
 import * as Sentry from '@sentry/nextjs'
 import { SupabaseClient } from '@supabase/supabase-js'
@@ -32,12 +44,13 @@ import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/aut
 import { mockEmailsList, mockEmailGet, mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
 const SOURCE = 'instantly'
 
-// UNVERIFIED — these values are assumed from training data, not confirmed against
-// a live Instantly API response. Verify before trusting bounce/unsubscribe signals:
-// call list_leads with no status filter against a known-bounced lead and inspect
-// the actual `status` field value. See BACKLOG [c0-blocker] Verify Instantly lead status values.
+// Status value constants - UNVERIFIED pending live API confirmation.
 export const INSTANTLY_LEAD_STATUS_BOUNCED = '-2'
 export const INSTANTLY_LEAD_STATUS_UNSUBSCRIBED = '-1'
+
+// Safety flag: set to true only after live verification confirms the status values and
+// field are correct. While false, polling logs a warning that it operates on unverified values.
+export const INSTANTLY_LEAD_STATUS_VERIFIED = false
 
 type SupabaseServiceClient = SupabaseClient<Database>
 
@@ -399,6 +412,15 @@ export async function pollInstantlyReplies(
   supabase: SupabaseServiceClient,
   apiKey: string
 ): Promise<PollResult> {
+  if (!INSTANTLY_LEAD_STATUS_VERIFIED) {
+    logger.warn('Instantly poll: operating on UNVERIFIED lead status values pending live confirmation', {
+      bounce_value: INSTANTLY_LEAD_STATUS_BOUNCED,
+      unsubscribe_value: INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
+      field_unconfirmed: true,
+      fix: 'See BACKLOG: Instantly bounce/unsub detection - live field and value verification',
+    })
+  }
+
   const isActive = await getInstantlyApiActive()
   const baseUrl = resolveInstantlyBaseUrl(isActive)
   const resource = 'replies'
@@ -526,6 +548,17 @@ export async function pollInstantlyLeadStatus(
   instantlyStatus: string,
   signalType: 'email_bounced' | 'lead_unsubscribed'
 ): Promise<PollResult> {
+  if (!INSTANTLY_LEAD_STATUS_VERIFIED) {
+    logger.warn('Instantly poll: operating on UNVERIFIED lead status values pending live confirmation', {
+      signal_type: signalType,
+      requested_status: instantlyStatus,
+      bounce_value: INSTANTLY_LEAD_STATUS_BOUNCED,
+      unsubscribe_value: INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
+      field_unconfirmed: true,
+      fix: 'See BACKLOG: Instantly bounce/unsub detection - live field and value verification',
+    })
+  }
+
   const isActive = await getInstantlyApiActive()
   const baseUrl = resolveInstantlyBaseUrl(isActive)
   const resource = signalType === 'email_bounced' ? 'leads_bounced' : 'leads_unsubscribed'

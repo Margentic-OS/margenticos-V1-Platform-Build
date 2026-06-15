@@ -3868,3 +3868,37 @@ spec persistence (persistIcpFilterSpec helper called post-promotion), sourcing o
     4. Integrate email_send_eligible gate into sending path (currently computed, not yet checked before sends)
     
   Next action: Live verifier acceptance test and sending path integration
+
+---
+
+## Instantly Bounce/Unsub Detection - Live Field and Value Verification (2026-06-15, BLOCKER)
+
+**PRE-ACTIVATION BLOCKER** - Must be verified BEFORE any production send to MargenticOS client.
+
+- Status: UNVERIFIED (research shows Instantly's public V2 API docs do not enumerate the lead status enum)
+- Issue: Polling code assumes status values -1 (unsub) and -2 (bounce) and a `status` field on leads returned by /leads/list
+  but neither the field name nor the numeric values have been confirmed against actual Instantly API responses.
+- Risk: If the field or values are wrong, bounce detection silently never fires. A bouncing campaign produces no signal,
+  leaving domain/IP damage undetected and unrepaired. Permanent reputational damage to client sending infrastructure.
+- Current state: Code logs warnings ("operating on UNVERIFIED values") on every poll while INSTANTLY_LEAD_STATUS_VERIFIED flag is false.
+
+What must be confirmed before activation:
+  1. Reactivate Instantly Growth plan for MargenticOS client-zero workspace
+  2. Trigger a real bounce (malformed email address or known dead domain) on a test campaign
+  3. Trigger a real unsubscribe (reply with opt-out or manual suppression) on a test campaign
+  4. Call GET /api/v2/leads/list?status=<value> for each of the test leads (bounced and unsubscribed)
+  5. Inspect the actual /leads/list response shape:
+     - WHICH field carries the status signal? (status / lt_interest_status / enrichment_status / other?)
+     - WHICH numeric value appears for the bounced lead?
+     - WHICH numeric value appears for the unsubscribed lead?
+  6. If the actual values or field differ from the current assumptions:
+     - Correct INSTANTLY_LEAD_STATUS_BOUNCED and INSTANTLY_LEAD_STATUS_UNSUBSCRIBED constants
+     - Correct the field reference in pollInstantlyLeadStatus if needed
+     - Update the comment with the confirmed values and source (date, endpoint, actual response)
+  7. Flip INSTANTLY_LEAD_STATUS_VERIFIED = true (silences warnings, code operates in confident mode)
+  8. Commit: "fix: Instantly bounce/unsub detection - values and field confirmed against live API"
+
+No production send to a client is allowed until this blocker is complete and INSTANTLY_LEAD_STATUS_VERIFIED = true.
+The warnings in polling logs make this impossible to overlook.
+
+Next action: At activation, immediately before enabling sends, run the live verification sequence above.
