@@ -1,4 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createClient as createServerClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 import * as Sentry from '@sentry/nextjs'
 
@@ -12,12 +13,12 @@ interface AutoheldResult {
   org_id: string
 }
 
-export async function resolveAutoHeldMeetings(): Promise<AutoheldResult[]> {
+export async function resolveAutoHeldMeetings(supabase?: SupabaseClient): Promise<AutoheldResult[]> {
   try {
-    const supabase = await createClient()
+    const client = supabase || (await createServerClient())
 
     // Fetch all organisations with their auto_held_window_hours
-    const { data: orgs, error: orgsError } = await supabase
+    const { data: orgs, error: orgsError } = await client
       .from('organisations')
       .select('id, auto_held_window_hours')
 
@@ -40,7 +41,7 @@ export async function resolveAutoHeldMeetings(): Promise<AutoheldResult[]> {
       const now = new Date()
 
       // Find meetings eligible for auto-hold
-      const { data: eligibleMeetings, error: fetchError } = await supabase
+      const { data: eligibleMeetings, error: fetchError } = await client
         .from('meetings')
         .select('id, scheduled_start_at')
         .eq('organisation_id', org.id)
@@ -76,7 +77,7 @@ export async function resolveAutoHeldMeetings(): Promise<AutoheldResult[]> {
       }
 
       // Update all eligible meetings to auto-held
-      const { error: updateError, count } = await supabase
+      const { error: updateError, count } = await client
         .from('meetings')
         .update({
           meeting_status: 'held',
