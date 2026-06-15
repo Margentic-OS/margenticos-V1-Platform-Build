@@ -746,44 +746,74 @@ export type Database = {
       }
       meetings: {
         Row: {
+          billed_at: string | null
           booked_at: string
+          calendly_event_uuid: string | null
+          calendly_invitee_uuid: string | null
           campaign_id: string | null
           created_at: string
+          held_confirmed_by: string | null
+          held_decision_locked: boolean
           id: string
+          invitee_phone: string | null
+          is_billable: boolean
           meeting_date: string | null
+          meeting_status: string
           organisation_id: string
           prospect_id: string | null
           qualification: string | null
           qualification_notes: string | null
           revenue_value: number | null
+          scheduled_start_at: string | null
+          source: string
           status: string
           updated_at: string
         }
         Insert: {
+          billed_at?: string | null
           booked_at?: string
+          calendly_event_uuid?: string | null
+          calendly_invitee_uuid?: string | null
           campaign_id?: string | null
           created_at?: string
+          held_confirmed_by?: string | null
+          held_decision_locked?: boolean
           id?: string
+          invitee_phone?: string | null
+          is_billable?: boolean
           meeting_date?: string | null
+          meeting_status?: string
           organisation_id: string
           prospect_id?: string | null
           qualification?: string | null
           qualification_notes?: string | null
           revenue_value?: number | null
+          scheduled_start_at?: string | null
+          source?: string
           status?: string
           updated_at?: string
         }
         Update: {
+          billed_at?: string | null
           booked_at?: string
+          calendly_event_uuid?: string | null
+          calendly_invitee_uuid?: string | null
           campaign_id?: string | null
           created_at?: string
+          held_confirmed_by?: string | null
+          held_decision_locked?: boolean
           id?: string
+          invitee_phone?: string | null
+          is_billable?: boolean
           meeting_date?: string | null
+          meeting_status?: string
           organisation_id?: string
           prospect_id?: string | null
           qualification?: string | null
           qualification_notes?: string | null
           revenue_value?: number | null
+          scheduled_start_at?: string | null
+          source?: string
           status?: string
           updated_at?: string
         }
@@ -861,7 +891,10 @@ export type Database = {
         Row: {
           agents_dispatched_at: string | null
           auto_approve_window_hours: number
+          auto_held_window_hours: number
+          billing_basis: string
           calendly_url: string | null
+          calendly_webhook_secret: string | null
           contract_end_date: string | null
           contract_start_date: string | null
           contract_status: string | null
@@ -881,6 +914,7 @@ export type Database = {
           pipeline_unlock_at: string | null
           pipeline_unlock_manual_override: boolean
           pipeline_unlocked: boolean
+          reminder_handling: string | null
           setup_status: Json
           slug: string
           updated_at: string
@@ -889,7 +923,10 @@ export type Database = {
         Insert: {
           agents_dispatched_at?: string | null
           auto_approve_window_hours?: number
+          auto_held_window_hours?: number
+          billing_basis?: string
           calendly_url?: string | null
+          calendly_webhook_secret?: string | null
           contract_end_date?: string | null
           contract_start_date?: string | null
           contract_status?: string | null
@@ -909,6 +946,7 @@ export type Database = {
           pipeline_unlock_at?: string | null
           pipeline_unlock_manual_override?: boolean
           pipeline_unlocked?: boolean
+          reminder_handling?: string | null
           setup_status?: Json
           slug: string
           updated_at?: string
@@ -917,7 +955,10 @@ export type Database = {
         Update: {
           agents_dispatched_at?: string | null
           auto_approve_window_hours?: number
+          auto_held_window_hours?: number
+          billing_basis?: string
           calendly_url?: string | null
+          calendly_webhook_secret?: string | null
           contract_end_date?: string | null
           contract_start_date?: string | null
           contract_status?: string | null
@@ -937,6 +978,7 @@ export type Database = {
           pipeline_unlock_at?: string | null
           pipeline_unlock_manual_override?: boolean
           pipeline_unlocked?: boolean
+          reminder_handling?: string | null
           setup_status?: Json
           slug?: string
           updated_at?: string
@@ -1149,23 +1191,20 @@ export type Database = {
           created_at: string
           current_research_result_id: string | null
           email: string | null
+          email_send_eligible: boolean | null
           email_status: string | null
           enrichment_locked_at: string | null
           enrichment_run_id: string | null
           enrichment_status: string | null
-          email_send_eligible: boolean
-          independent_email_status: string | null
-          independent_verified_at: string | null
-          last_verification_error: string | null
-          verification_attempt_count: number
-          verification_locked_at: string | null
-          verification_provider: string
           first_name: string | null
           has_dateable_signal: boolean
           icp_fit: string
           id: string
+          independent_email_status: string | null
+          independent_verified_at: string | null
           job_title: string | null
           last_name: string | null
+          last_verification_error: string | null
           linkedin_url: string | null
           linkedin_url_normalised: string | null
           organisation_id: string
@@ -1192,6 +1231,9 @@ export type Database = {
           trigger_data: Json | null
           updated_at: string
           variant_id: string | null
+          verification_attempt_count: number | null
+          verification_locked_at: string | null
+          verification_provider: string | null
           website_url: string | null
         }
         Insert: {
@@ -1204,23 +1246,20 @@ export type Database = {
           created_at?: string
           current_research_result_id?: string | null
           email?: string | null
+          email_send_eligible?: boolean | null
           email_status?: string | null
           enrichment_locked_at?: string | null
           enrichment_run_id?: string | null
           enrichment_status?: string | null
-          email_send_eligible?: boolean
-          independent_email_status?: string | null
-          independent_verified_at?: string | null
-          last_verification_error?: string | null
-          verification_attempt_count?: number
-          verification_locked_at?: string | null
-          verification_provider?: string
           first_name?: string | null
           has_dateable_signal?: boolean
           icp_fit?: string
           id?: string
+          independent_email_status?: string | null
+          independent_verified_at?: string | null
           job_title?: string | null
           last_name?: string | null
+          last_verification_error?: string | null
           linkedin_url?: string | null
           linkedin_url_normalised?: string | null
           organisation_id: string
@@ -1247,6 +1286,9 @@ export type Database = {
           trigger_data?: Json | null
           updated_at?: string
           variant_id?: string | null
+          verification_attempt_count?: number | null
+          verification_locked_at?: string | null
+          verification_provider?: string | null
           website_url?: string | null
         }
         Update: {
@@ -1259,23 +1301,20 @@ export type Database = {
           created_at?: string
           current_research_result_id?: string | null
           email?: string | null
+          email_send_eligible?: boolean | null
           email_status?: string | null
           enrichment_locked_at?: string | null
           enrichment_run_id?: string | null
           enrichment_status?: string | null
-          email_send_eligible?: boolean
-          independent_email_status?: string | null
-          independent_verified_at?: string | null
-          last_verification_error?: string | null
-          verification_attempt_count?: number
-          verification_locked_at?: string | null
-          verification_provider?: string
           first_name?: string | null
           has_dateable_signal?: boolean
           icp_fit?: string
           id?: string
+          independent_email_status?: string | null
+          independent_verified_at?: string | null
           job_title?: string | null
           last_name?: string | null
+          last_verification_error?: string | null
           linkedin_url?: string | null
           linkedin_url_normalised?: string | null
           organisation_id?: string
@@ -1302,6 +1341,9 @@ export type Database = {
           trigger_data?: Json | null
           updated_at?: string
           variant_id?: string | null
+          verification_attempt_count?: number | null
+          verification_locked_at?: string | null
+          verification_provider?: string | null
           website_url?: string | null
         }
         Relationships: [
