@@ -25,6 +25,61 @@
 
 ---
 
+## Operator sourcing review UI (DONE 2026-06-15)
+
+- [DONE 2026-06-15] Operator review UI built (Phase 3 part B)
+  Commits: 39f5ef4, f1b106c — "feat: operator sourcing review UI with enrich-and-tier sequencing"
+  
+  Completed:
+  1. Pipeline overview (/sourcing-review): shows counts per organisation (multi-org shape,
+     defaults to selected client). Four metric cards per org: pending_review, approved_unenriched,
+     tier_1, tier_2, tier_3. Links to Gate 1 (Review pending) and Gate 2 (Review quality).
+  
+  2. Gate 1 batch approval (/sourcing-review/approve): fast batch summary from ICP filter spec
+     (target title, revenue range, email verified count). Prospect table (50 per page).
+     Exclude escape hatch (bulk checkbox + exclude). One approve action. Spend + test-mode warning.
+  
+  3. Gate 2 tiered review (/sourcing-review/review): enriched prospects grouped by tier_1/2/3.
+     Each tier expandable, shows top 20 per tier with "view all" link. Firmographics visible:
+     name, email, company, job_title, company_headcount, company_industry, email_status.
+  
+  4. Enrich-and-tier action sequenced as one operator click:
+     - Single "Enrich and tier batch" button on overview
+     - Triggers /api/operator/organisations/[id]/enrich-approved-batch
+     - On success, automatically triggers /api/operator/organisations/[id]/tier-enriched-batch
+     - Shows progress: "Enriching..." then "Tiering..."
+     - On completion, page reloads to show updated counts
+     - If enrichment fails, surfaces error (no auto-tier)
+     - Spend warning: "will consume Apollo credits"
+     - Dormant state: "test mode — no live API calls yet"
+  
+  5. Types regenerated: company_headcount, company_industry, job_title now in prospects table
+     (were in live schema, types were stale). Gate 2 shows full firmographics.
+  
+  6. Design.md updated: tier badge colours as graded scale (not traffic-light).
+     Tier 1: #3B6D11 text, #EBF5E6 bg, #BDDAB0 border (same as Qualified).
+     Tier 2: #5D7F23 text, #EAF3DE bg, #C0DD97 border (mid-green).
+     Tier 3: #9A9488 text, #F0ECE4 bg (neutral grey, same as version badge).
+  
+  Wiring: UI only. Routes to existing operator APIs (approve-prospects, enrich-approved-batch,
+  tier-enriched-batch). No new backend logic. can_enrich_contact is_active=false (confirmed).
+  
+  Scope boundary: Gate 1 is fast batch approval (no per-prospect review). Gate 2 is spot-check
+  only (top-20-per-tier). No bulk edit, no per-prospect approval, no refinement loop.
+  Operator sees pipeline state and drives gate sequences.
+  
+  What remains before activation of live enrichment:
+    1. Add sourcing-review to operator sidebar nav (optional nav link or hamburger section)
+    2. Test Gate 1 → approve → Gate 2 flow end-to-end with real org
+    3. Verify enrich-and-tier auto-sequencing works (enrichment succeeds, tiering fires)
+    4. Once ready: set can_enrich_contact is_active=true in integrations_registry
+    5. Run a live enrichment batch (test mode will become live Apollo calls at this point)
+    6. Verify prospect enrichment_status and sourced_tier are populated correctly
+    7. Verify Gate 2 displays tiered prospects with all firmographics
+    8. Activate live sending once enriched prospects are in place
+
+---
+
 ## Enrichment execution (DONE 2026-06-15, tests added 2026-06-15)
 
 - [DONE 2026-06-15] Enrichment execution path built: trigger, lock, operator route
