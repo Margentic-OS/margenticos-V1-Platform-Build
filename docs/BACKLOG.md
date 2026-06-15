@@ -25,7 +25,7 @@
 
 ---
 
-## Enrichment execution (DONE 2026-06-15)
+## Enrichment execution (DONE 2026-06-15, tests added 2026-06-15)
 
 - [DONE 2026-06-15] Enrichment execution path built: trigger, lock, operator route
   Commit: 45f8c0c — "feat: enrichment execution trigger with lock-based concurrency safety"
@@ -45,6 +45,23 @@
      Returns enrichment run status, credit counts, outcome breakdown.
   4. Handler dormancy verified: can_enrich_contact is_active=false in integrations_registry
 
+- [DONE 2026-06-15] Comprehensive unit tests for enrichment-trigger lock and handler logic
+  Commit: 1d877d4 — "test: comprehensive unit tests for enrichment-trigger lock and handler logic"
+  
+  All 14 tests passing:
+  1. Lock acquisition on approved+unenriched prospects only
+  2. Stale-lock reclaim after 30-minute threshold
+  3. Prevention of double-enrichment (concurrency guard via freshly-locked exclusion)
+  4. Apollo ID derivation and validation (prefix stripping, invalid key filtering)
+  5. Handler invocation with correct organisation_id and apollo_ids array
+  6. Credits recording from handler response
+  7. enrichment_run_id population on enriched prospects
+  8. Error handling and empty batch cases
+  
+  Tests use established mocking pattern (vi.mock + vi.mocked) for Supabase client;
+  no live Apollo calls occur. Tests validate lock mechanics, ID transformation,
+  and credit flow — three areas critical to money-handling correctness.
+  
   Next: Phase 3 (tiering + review UI). This session's enrichment trigger is execution-only;
   no tiering assignment or dashboard review surface built yet. Trigger is not invoked by
   any live route or cron — operator-only and manually callable when needed.
