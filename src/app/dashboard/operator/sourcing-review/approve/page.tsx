@@ -62,7 +62,7 @@ export default async function ApprovePage({
       icpSummary.targetTitle = (spec.target_job_titles as string[]).slice(0, 2).join(', ')
     }
     if (spec.company_headcount_min && spec.company_headcount_max) {
-      icpSummary.revenueRange = `${spec.company_headcount_min}–${spec.company_headcount_max} employees`
+      icpSummary.revenueRange = `${spec.company_headcount_min}-${spec.company_headcount_max} employees`
     }
   }
 
