@@ -30,6 +30,7 @@ const NAV_STRATEGY = [
 
 const NAV_OPERATOR = [
   { label: 'All clients', href: '/dashboard/operator' },
+  { label: 'Sourcing review', href: '/dashboard/operator/sourcing-review' },
   { label: 'Approvals', href: '/dashboard/operator/approvals' },
   { label: 'Settings', href: '/dashboard/operator/settings' },
 ]

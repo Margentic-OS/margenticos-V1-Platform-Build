@@ -27,7 +27,7 @@ export function PipelineOverview({ metrics, selectedClientId }: PipelineOverview
   if (metrics.length === 0) {
     return (
       <div className="bg-white rounded-[10px] border border-border-card p-6 text-center">
-        <p className="text-text-secondary text-sm">No pipeline data available.</p>
+        <p className="text-text-secondary text-sm">No prospects sourced yet. Once a sourcing run completes, prospects awaiting your approval will appear here.</p>
       </div>
     )
   }

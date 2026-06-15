@@ -77,6 +77,20 @@ export function Gate1ApproveBatch({
     [prospects]
   )
 
+  if (prospects.length === 0) {
+    return (
+      <div className="bg-white rounded-[10px] border border-border-card p-6 text-center">
+        <p className="text-text-secondary text-sm mb-4">No prospects awaiting approval. Check back once the sourcing run is complete.</p>
+        <Link
+          href={`/dashboard/operator/sourcing-review?client=${organisationId}`}
+          className="inline-block px-4 py-2 rounded-[6px] bg-[#F0ECE4] text-text-primary font-medium text-sm hover:bg-[#E8E2D8] transition-colors"
+        >
+          Back to pipeline
+        </Link>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Batch summary */}
