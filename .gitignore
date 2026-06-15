@@ -62,3 +62,6 @@ council/
 dogfood-prospects-batch-1.csv
 .gstack/
 .backups/
+
+# Claude Code tooling artifacts — local state, not for version control
+.claude/

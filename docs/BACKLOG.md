@@ -3770,3 +3770,101 @@ spec persistence (persistIcpFilterSpec helper called post-promotion), sourcing o
   registry to match actual import paths (descriptive purposes only), or leave as-is. No urgency.
   
   Next action: None (observation for future reference).
+
+---
+
+## Email Verification Layer Phase B (2026-06-15, build complete)
+
+- [DONE 2026-06-15] Independent email verification layer built (MyEmailVerifier, decoupled from tiering)
+  Commit: 98263da — "feat: independent email verification layer (MyEmailVerifier)"
+  
+  Schema: 7 additive columns on prospects table
+    - independent_email_status (text): MyEmailVerifier verdict value
+    - email_send_eligible (boolean): final send-eligibility gate (Valid + NOT catch-all only)
+    - independent_verified_at (timestamptz): when verification last ran
+    - verification_attempt_count (integer): retry counter for Grey-listed retries
+    - last_verification_error (text): error message if verification failed
+    - verification_provider (text): provider name (default: myemailverifier)
+    - verification_locked_at (timestamptz): in-flight lock for concurrency safety
+  Index: on (organisation_id, enrichment_status, independent_email_status, independent_verified_at, verification_attempt_count)
+    for efficient selection of unverified enriched prospects and Grey-listed retries.
+  
+  Handler (src/lib/sourcing/handlers/adapter-myemailverifier.ts):
+    - Provider-agnostic handler behind integrations_registry (can_validate_email capability)
+    - Endpoint: GET https://client.myemailverifier.com/verifier/validate_single/[email]/API_KEY
+    - Verdict mapping: Status values returned are "Valid", "Invalid", "Unknown", "Catch All", "Grey-listed"
+    - Send-eligibility rule: email_send_eligible = true only when Status='Valid' AND catch_all=false
+    - All other verdicts result in send_eligible=false (fail-closed)
+    - Mocked in unit tests; no live API calls in this build
+  
+  Trigger (src/lib/sourcing/verification-trigger.ts):
+    - Decoupled re-runnable pass (Amendment 1: independent of tiering, parallel pass)
+    - Selection: enriched prospects where independent_email_status IS NULL (never verified)
+      PLUS enriched prospects where independent_email_status='Grey-listed'
+      AND independent_verified_at < (now - 6 hours) AND verification_attempt_count < 3
+      (Amendment 2: Grey-listed retry logic with 6-hour window, max 3 attempts)
+    - Lock pattern: verification_locked_at column, stale-reclaim after 30 minutes
+      prevents double-verification and concurrent runs
+    - Rate limit: 30 emails per minute (enforced via batch spacing)
+    - Daily free-tier limit: 100 verifications per day (Amendment 3: binding constraint)
+      When daily allowance exhausted, trigger stops without marking unverified send_eligible
+    - Fail-closed: unverified enriched prospect defaults to email_send_eligible=false
+    - Idempotent: once independent_email_status is set, prospect excluded from future runs
+      unless Grey-listed and within retry window
+  
+  Registry (Amendment 4: reconciled existing rows):
+    - Added MyEmailVerifier: capability=can_validate_email, tool_name=myemailverifier,
+      is_active=false, api_handler_ref=src/lib/sourcing/handlers/adapter-myemailverifier
+    - Hunter.io row retained: capability=can_validate_email, tool_name=hunter, is_active=false
+      (Phase Two placeholder, no conflict)
+    - Apollo enrichment confirmed: capability=can_enrich_contact, tool_name=apollo, is_active=false
+  
+  Operator route (src/app/api/operator/verify-enriched/):
+    - POST /api/operator/verify-enriched
+    - Requires operator role, organisation_id, optional max_batch_size parameter
+    - Returns VerificationRun result with counts and status
+  
+  Tests (src/lib/sourcing/verification-trigger.test.ts):
+    - 15 unit tests all passing, covering:
+      - Verdict mapping (Valid+not-catch-all → send_eligible=true; all others → false)
+      - Default state (unverified enriched defaults to send_eligible=false)
+      - Grey-listed retry logic (re-selected past 6-hour window; not re-selected within window; not re-selected past attempt cap)
+      - Rate limiting (30 emails per minute = 2 second delay per email)
+      - Daily free-tier limit (100 verifications per day, binding constraint)
+    - No database-dependent integration tests (avoided live DB timeout issues)
+    - All tests use mocked handler; no live MyEmailVerifier calls
+  
+  Type generation:
+    - Regenerated src/types/database.ts to include all 7 new verification columns
+    - Manually added to prospects Row/Insert/Update sections (type generation CLI had version conflict)
+  
+  Part 0 (tiny copy fix included in this commit):
+    - Gate2TieredReview.tsx: changed dashes ("—") to "Pending enrichment" for null firmographic fields
+      (company_headcount, company_industry, job_title) in the prospect review table
+    - Confirmed zero em-dashes in all new code
+  
+  Architecture decisions (all amendments approved):
+    - Amendment 1: Verification and tiering are independent parallel passes, neither gates the other
+    - Amendment 2: Grey-listed prospects are re-verifiable within 6-hour window, max 3 attempts
+      (prevents permanent stranding of prospects waiting for domain to become responsive)
+    - Amendment 3: Daily free-tier limit (100/day) is the binding constraint, not per-minute rate
+    - Amendment 4: Query live registry schema first; reconcile existing can_validate_email rows;
+      add MyEmailVerifier as new row, keep Hunter.io as Phase Two placeholder
+  
+  Safety properties confirmed:
+    - No live verifier API calls in this build
+    - is_active=false for both MyEmailVerifier and Apollo (dormant, no activation yet)
+    - Fail-closed: unverified prospects default to send_eligible=false
+    - Idempotent: lock pattern prevents double-verification
+    - Audit trail: verification_provider, independent_verified_at, verification_attempt_count logged
+  
+  A prospect is send-ready only when sourced_tier IS NOT NULL AND email_send_eligible=true.
+  Verification failure never blocks tiering and vice versa.
+  
+  What remains before activation:
+    1. Live acceptance gate: Doug verifies known-good and known-bad email against MyEmailVerifier live
+    2. Set can_validate_email is_active=true in integrations_registry when ready
+    3. Monitor Grey-listed retry behavior at scale (first batch with >5 Grey-listed prospects)
+    4. Integrate email_send_eligible gate into sending path (currently computed, not yet checked before sends)
+    
+  Next action: Live verifier acceptance test and sending path integration
