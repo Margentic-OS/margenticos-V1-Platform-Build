@@ -236,7 +236,8 @@ describe('Calendly Webhook Handler', () => {
 
       expect(updated?.meeting_status).toBe('canceled')
       expect(updated?.is_billable).toBe(false)
-      expect(updated?.held_decision_locked).toBe(true)
+      // held_decision_locked should remain false — canceled is excluded by status check, not lock
+      expect(updated?.held_decision_locked).toBe(false)
     })
   })
 

@@ -178,13 +178,13 @@ async function handleInviteeCanceled(
     return
   }
 
-  // Update meeting: set canceled, remove from billing, lock from confirmation flow
+  // Update meeting: set canceled, remove from billing
+  // Do NOT set held_decision_locked — canceled is excluded by status check in auto-held query
   const { error: updateError } = await supabase
     .from('meetings')
     .update({
       meeting_status: 'canceled',
       is_billable: false,
-      held_decision_locked: true,
     })
     .eq('id', meeting.id)
 
