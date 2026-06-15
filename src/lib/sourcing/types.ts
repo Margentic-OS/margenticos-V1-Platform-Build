@@ -39,8 +39,8 @@ export interface SourcingRunResult {
 export interface SourcingHandler {
   name: string
   supported_fields: string[]
-  adapter: (spec: Record<string, unknown>) => Record<string, unknown>
-  execute: (filter: Record<string, unknown>) => Promise<Record<string, unknown>[]>
+  adapter: (spec: unknown) => unknown
+  execute: (spec: unknown) => Promise<unknown[]>
 }
 
 export const FILTER_FIELDS = [

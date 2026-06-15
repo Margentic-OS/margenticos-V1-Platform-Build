@@ -3618,3 +3618,24 @@ spec persistence (persistIcpFilterSpec helper called post-promotion), sourcing o
   the actual implementation choice is deferred to Phase 2 scoping.
   
   Next action: Research Hunter.io API and cost model before Phase 2 build.
+
+---
+
+## Sourcing orchestrator Phase B (2026-06-15, build complete)
+
+- [post-build] Stale api_handler_ref metadata in integrations_registry (2026-06-15)
+  OBSERVATION: During sourcing orchestrator build, api_handler_ref columns on Apollo registry rows
+  (apollo_api_active, can_enrich_contact, can_source_prospects) are read but never used for
+  handler resolution. Handler dispatch uses tool_name mapping to imported handler objects instead.
+  
+  Current state: api_handler_ref values are cosmetic dead metadata, not load-bearing. Examples:
+    can_source_prospects: api_handler_ref = 'src/lib/sourcing/adapter-apollo' (unused)
+    can_enrich_contact:   api_handler_ref = 'src/lib/handlers/apollo' (unused)
+  
+  Non-issue: This is safe. tool_name-based dispatch is correct and extensible. No handler
+  resolution breaks if api_handler_ref is stale or missing.
+  
+  Optional cleanup: Anytime during maintenance, delete or update api_handler_ref values in the
+  registry to match actual import paths (descriptive purposes only), or leave as-is. No urgency.
+  
+  Next action: None (observation for future reference).
