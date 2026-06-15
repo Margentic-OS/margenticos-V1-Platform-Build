@@ -206,7 +206,7 @@ export function Gate1ApproveBatch({
           Enrichment will consume Apollo credits
         </p>
         <p className="text-xs text-[#7A4800] mb-3">
-          Currently in test mode — no live API calls will be made. Activation of live enrichment requires a separate step.
+          Currently in test mode. No live API calls will be made. Activation of live enrichment requires a separate step.
         </p>
       </div>
 

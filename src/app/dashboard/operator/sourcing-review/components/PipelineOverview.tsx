@@ -154,7 +154,7 @@ export function PipelineOverview({ metrics, selectedClientId }: PipelineOverview
               {org.approved_unenriched_count > 0 && (
                 <div className="text-xs text-[#7A4800] bg-[#FEF7E6] px-3 py-2 rounded-[6px] border border-[#F0D080]">
                   <p className="font-medium mb-0.5">Enrich and tier will consume Apollo credits</p>
-                  <p>Currently in test mode — no live API calls will be made yet.</p>
+                  <p>Currently in test mode. No live API calls will be made yet.</p>
                 </div>
               )}
             </div>

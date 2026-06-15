@@ -97,7 +97,7 @@ export default async function SourcingReviewPage({
   )
 
   const approvalMessage = approvedParam
-    ? ` — ${approvedParam} prospect${approvedParam !== '1' ? 's' : ''} approved, ready to enrich`
+    ? `. ${approvedParam} prospect${approvedParam !== '1' ? 's' : ''} approved, ready to enrich`
     : ''
 
   return (

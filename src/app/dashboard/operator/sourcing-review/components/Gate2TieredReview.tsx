@@ -19,21 +19,21 @@ interface Gate2TieredReviewProps {
 
 const tierConfig = {
   tier_1: {
-    label: 'Tier 1 — Best fit',
+    label: 'Tier 1: Best fit',
     textColor: 'text-[#3B6D11]',
     bgColor: 'bg-[#EBF5E6]',
     borderColor: 'border-[#BDDAB0]',
     description: 'Verified email, seniority, headcount, industry match.',
   },
   tier_2: {
-    label: 'Tier 2 — Good fit',
+    label: 'Tier 2: Good fit',
     textColor: 'text-[#5D7F23]',
     bgColor: 'bg-[#EAF3DE]',
     borderColor: 'border-[#C0DD97]',
     description: 'Verified email, seniority, one or more relaxed firmographics.',
   },
   tier_3: {
-    label: 'Tier 3 — Acceptable',
+    label: 'Tier 3: Acceptable',
     textColor: 'text-[#9A9488]',
     bgColor: 'bg-[#F0ECE4]',
     borderColor: '',
@@ -159,7 +159,7 @@ export function Gate2TieredReview({
       {/* Summary */}
       <div className="bg-white rounded-[10px] border border-border-card p-6">
         <h2 className="text-base font-medium text-text-primary mb-4">
-          Quality review — {totalEnriched} enriched prospects
+          Quality review: {totalEnriched} enriched prospects
         </h2>
 
         <div className="grid grid-cols-3 gap-4 mb-6">
