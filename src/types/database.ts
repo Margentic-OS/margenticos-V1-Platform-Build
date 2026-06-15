@@ -1153,6 +1153,13 @@ export type Database = {
           enrichment_locked_at: string | null
           enrichment_run_id: string | null
           enrichment_status: string | null
+          email_send_eligible: boolean
+          independent_email_status: string | null
+          independent_verified_at: string | null
+          last_verification_error: string | null
+          verification_attempt_count: number
+          verification_locked_at: string | null
+          verification_provider: string
           first_name: string | null
           has_dateable_signal: boolean
           icp_fit: string
@@ -1201,6 +1208,13 @@ export type Database = {
           enrichment_locked_at?: string | null
           enrichment_run_id?: string | null
           enrichment_status?: string | null
+          email_send_eligible?: boolean
+          independent_email_status?: string | null
+          independent_verified_at?: string | null
+          last_verification_error?: string | null
+          verification_attempt_count?: number
+          verification_locked_at?: string | null
+          verification_provider?: string
           first_name?: string | null
           has_dateable_signal?: boolean
           icp_fit?: string
@@ -1249,6 +1263,13 @@ export type Database = {
           enrichment_locked_at?: string | null
           enrichment_run_id?: string | null
           enrichment_status?: string | null
+          email_send_eligible?: boolean
+          independent_email_status?: string | null
+          independent_verified_at?: string | null
+          last_verification_error?: string | null
+          verification_attempt_count?: number
+          verification_locked_at?: string | null
+          verification_provider?: string
           first_name?: string | null
           has_dateable_signal?: boolean
           icp_fit?: string

@@ -49,11 +49,11 @@ function ProspectRow({ prospect }: { prospect: Prospect }) {
       </td>
       <td className="px-4 py-3 text-text-secondary font-mono text-xs">{prospect.email}</td>
       <td className="px-4 py-3 text-text-primary">{prospect.company_name || '—'}</td>
-      <td className="px-4 py-3 text-text-secondary">{prospect.job_title || '—'}</td>
+      <td className="px-4 py-3 text-text-secondary">{prospect.job_title || 'Pending enrichment'}</td>
       <td className="px-4 py-3 text-text-secondary">
-        {prospect.company_headcount ? `${prospect.company_headcount} people` : '—'}
+        {prospect.company_headcount ? `${prospect.company_headcount} people` : 'Pending enrichment'}
       </td>
-      <td className="px-4 py-3 text-text-secondary">{prospect.company_industry || '—'}</td>
+      <td className="px-4 py-3 text-text-secondary">{prospect.company_industry || 'Pending enrichment'}</td>
       <td className="px-4 py-3">
         {prospect.email_status === 'verified' ? (
           <span className="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-[#EBF5E6] text-[#3B6D11] border border-[#BDDAB0]">
