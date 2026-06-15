@@ -66,17 +66,40 @@
   no tiering assignment or dashboard review surface built yet. Trigger is not invoked by
   any live route or cron — operator-only and manually callable when needed.
 
-## Enrichment tiering and review surface (deferred to next session)
+## Tiering and approval infrastructure (DONE 2026-06-15)
 
-- [phase3] Build tiering classification and operator review UI (after 2026-06-15)
-  Phase 3 scope:
-  1. Classify enriched prospects into Tier 1/2/3 per PRD-15 (sourced_tier assignment)
-  2. Build operator dashboard review panel to inspect pre-approval prospects
-  3. Wire approval action (sourcing_review_status: pending_review -> approved)
-  4. Integrate tiering into reply-handling and downstream routing
+- [DONE 2026-06-15] Tiering classification and approval flow built (Phase 3 part A)
+  Commit: 6babc0a — "feat: tiering and approval infrastructure (Phase 3)"
   
-  Currently: enrichment_trigger is built and ready; enriched prospects have enrichment_status
-  but not yet sourced_tier or approval mechanism. Review surface does not exist.
+  Completed:
+  1. Schema: Migration 20260615_prospects_add_firmographics.sql adds company_headcount, company_industry, job_title (all nullable) to prospects table. Persisted by enrichment handler from Apollo bulk_match response.
+  
+  2. Approval function: approveProspects() moves prospects from pending_review -> approved and sets qualified_at=now() at approval time. Operator-gated via POST /api/operator/organisations/[id]/approve-prospects.
+  
+  3. Tier classification: classifyTier() pure deterministic function. Per DECISION 2 (locked):
+     - Tier 1: verified email + decision-maker seniority + headcount in strict range + industry matches ICP
+     - Tier 2: verified email + decision-maker seniority + at least one of {headcount ±50% widened, industry adjacent}, not Tier 1
+     - Tier 3: verified email + decision-maker seniority + significantly loosened (headcount out of widened OR industry mismatch), only if TAM allows
+     - Seniority NEVER loosens; non-decision-maker always discarded
+     - Null job_title discards (seniority unknown)
+     - Non-verified email (held_*) discards
+  
+  4. Tiering trigger: tierEnrichedBatch() separate pass reading enrichment_status='enriched' AND sourced_tier IS NULL prospects. Reads ICP filter spec and TAM status. Operator-gated via POST /api/operator/organisations/[id]/tier-enriched-batch.
+  
+  5. Enrichment handler update: enrichAndVerifyProspect() now persists company_headcount, company_industry, job_title from Apollo response, handles nulls gracefully.
+  
+  6. Sourcing orchestrator: Removed premature qualified_at from prospect insert (now set only at approval time).
+  
+  7. Testing: 19 comprehensive unit tests all passing. Tests cover approval flow, tier classification rules, seniority enforcement, null handling, determinism, TAM gating.
+  
+  Scope boundary: Tiering and approval built and tested. Operator-only routes, not reachable from cron or client UI. Enrichment handler stays is_active=false. No live Apollo calls.
+  
+- [phase4] Build operator review UI and per-client tier_config (deferred)
+  Phase 4 scope (next session):
+  1. Dashboard review panel to inspect pending_review prospects before approval
+  2. Approval/reject UI controls
+  3. Per-client tier_config customization (override default thresholds per organisation)
+  4. Integrate tiering into reply-handling downstream routing (currently only sourced_tier stored, not yet routed)
 
 ## Agent quality batch from dry-run rounds (DONE 2026-06-11)
 
