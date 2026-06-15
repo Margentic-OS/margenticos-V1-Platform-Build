@@ -284,7 +284,6 @@ export async function runSourcing(
           organisation_id: client_id,
           source_person_key: candidate.source_person_key,
           sourcing_review_status: 'pending_review',
-          qualified_at: now,
           sourced_tier: null,
           email: null,
           linkedin_url: null,

@@ -316,6 +316,7 @@ async function callApolloBulkMatch(
 /**
  * Enrich a single prospect and verify dedupe.
  * Amendment 2: populate identity fields FIRST, then recheck dedupe, THEN set enrichment_status.
+ * Amendment 5 (2026-06-15): populate firmographics (headcount, industry, title) for tiering.
  */
 async function enrichAndVerifyProspect(
   supabase: SupabaseServiceClient,
@@ -331,7 +332,12 @@ async function enrichAndVerifyProspect(
   const companyDomain = apolloMatch.organisation?.primary_domain || null
   const emailStatus = apolloMatch.email_status || null
 
-  // Step 2: Populate identity fields on prospect row
+  // Step 1b: Extract firmographic fields for tiering (all nullable, Apollo may not return them)
+  const companyHeadcount = apolloMatch.organisation?.estimated_num_employees || null
+  const companyIndustry = apolloMatch.organisation?.industry || null
+  const jobTitle = apolloMatch.title || null
+
+  // Step 2: Populate identity and firmographic fields on prospect row
   const { error: updateError } = await (supabase as any)
     .from('prospects')
     .update({
@@ -340,12 +346,15 @@ async function enrichAndVerifyProspect(
       linkedin_url_normalised: linkedinUrlNormalised,
       website_url: companyDomain,
       email_status: emailStatus,
+      company_headcount: companyHeadcount,
+      company_industry: companyIndustry,
+      job_title: jobTitle,
     })
     .eq('id', prospectId)
     .eq('organisation_id', organisationId)
 
   if (updateError) {
-    logger.error('enrichment: failed to populate identity fields', {
+    logger.error('enrichment: failed to populate identity and firmographic fields', {
       operation_id: operationId,
       prospect_id: prospectId,
       error: updateError.message,
