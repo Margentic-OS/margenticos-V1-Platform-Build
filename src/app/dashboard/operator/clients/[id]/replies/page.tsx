@@ -20,8 +20,9 @@ async function loadAllReplies(orgId: string) {
 export default async function OperatorClientRepliesPage({
   params,
 }: {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }) {
+  const { id } = await params
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -39,14 +40,14 @@ export default async function OperatorClientRepliesPage({
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name')
-    .eq('id', params.id)
+    .eq('id', id)
     .single()
 
   if (!org) {
     redirect('/dashboard/operator')
   }
 
-  const replies = await loadAllReplies(params.id)
+  const replies = await loadAllReplies(id)
 
   return (
     <>
