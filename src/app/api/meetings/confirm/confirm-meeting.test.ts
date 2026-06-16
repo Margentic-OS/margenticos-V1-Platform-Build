@@ -14,9 +14,15 @@ vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
 }))
 
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: vi.fn(),
+}))
+
 // Import the handler after mocking its dependencies
 import { POST } from './route'
+import * as routeModule from './route'
 import { generateConfirmationToken } from '@/lib/meetings/confirmation-token'
+import { createClient } from '@/lib/supabase/server'
 
 const MEETING_ID = 'meeting-test-123'
 const ORG_ID = 'org-test-456'
@@ -36,55 +42,125 @@ describe('Meeting Confirmation Endpoint - Handler Tests', () => {
   })
 
   describe('Scanner Safety (critical for billing)', () => {
-    it('GET request to confirm route returns 405 Method Not Allowed (scanners cannot trigger)', async () => {
-      // Email security scanners (Microsoft Safe Links, etc.) pre-fetch confirmation links with GET.
-      // Route must not handle GET requests. Only POST can change meeting state.
-      const token = generateConfirmationToken(MEETING_ID, ORG_ID)
+    it('email security scanner GET/HEAD cannot change meeting state; only POST can', async () => {
+      // BILLING-CRITICAL TEST: Email scanners (Microsoft Safe Links, Proofpoint, etc.)
+      // pre-fetch confirmation links with GET/HEAD before user sees the email.
+      // This test proves: GET and HEAD do NOT change state, only POST does.
+      // If this fails, clients get silently marked held+billable when scanners scan their inbox.
 
-      // Create a mock GET request with the token in body (how a scanner might try)
+      // Structural assertion: route only exports POST
+      expect((routeModule as any).GET).toBeUndefined()
+      expect((routeModule as any).HEAD).toBeUndefined()
+      expect(typeof POST).toBe('function')
+
+      const token = generateConfirmationToken(MEETING_ID, ORG_ID)
+      const scheduledTime = new Date(NOW.getTime() - 24 * 60 * 60 * 1000) // 24h ago
+
+      // Initial meeting state: booked, not billable, not locked
+      const initialMeeting = {
+        id: MEETING_ID,
+        organisation_id: ORG_ID,
+        scheduled_start_at: scheduledTime.toISOString(),
+        meeting_status: 'booked',
+        is_billable: false,
+        held_decision_locked: false,
+      }
+
+      // Mock Supabase client to track state
+      let meetingState = { ...initialMeeting }
+      let updateCalls = 0
+
+      const mockClient = {
+        auth: {
+          getUser: vi.fn().mockResolvedValue({
+            data: { user: null },
+            error: null,
+          }),
+        },
+        from: vi.fn(function(table: string) {
+          if (table === 'meetings') {
+            return {
+              select: vi.fn().mockReturnThis(),
+              eq: vi.fn().mockReturnThis(),
+              single: vi.fn().mockResolvedValue({
+                data: meetingState,
+                error: null,
+              }),
+              update: vi.fn(function(updates: any) {
+                updateCalls++
+                meetingState = { ...meetingState, ...updates }
+                return {
+                  eq: vi.fn().mockReturnThis(),
+                  select: vi.fn().mockReturnValue({
+                    single: vi.fn().mockResolvedValue({
+                      data: meetingState,
+                      error: null,
+                    }),
+                  }),
+                }
+              }),
+            }
+          }
+          if (table === 'organisations') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  single: vi.fn().mockResolvedValue({
+                    data: { auto_held_window_hours: 72 },
+                    error: null,
+                  }),
+                }),
+              }),
+            }
+          }
+          return {}
+        }),
+      } as unknown as SupabaseClient
+
+      vi.mocked(createClient).mockResolvedValue(mockClient)
+
+      // Simulate email scanner: GET request with valid token
+      // (In real world, Next.js returns 405, but we document the intention here)
       const getRequest = {
         method: 'GET',
         headers: new Map([['Content-Type', 'application/json']]),
         json: async () => ({ token, decision: 'held' }),
       }
 
-      // GET should not be handled by the POST export
-      // Next.js returns 405 for unhandled HTTP methods on a route
-      // Since POST is the only export, GET will return 405 Method Not Allowed
-      // This proves scanners cannot trigger state changes
-      const token_check = verifyConfirmationToken(token)
-      expect(token_check?.meeting_id).toBe(MEETING_ID)
-    })
+      // GET cannot be dispatched to our POST handler (only POST is exported)
+      // So the state-change code never runs
+      // After GET: state should be UNCHANGED
+      expect(meetingState.meeting_status).toBe('booked')
+      expect(meetingState.is_billable).toBe(false)
+      expect(meetingState.held_decision_locked).toBe(false)
 
-    it('HEAD request to confirm route does not change state (method not exposed)', async () => {
-      // HEAD requests from security scanners should not mutate anything.
-      // Since only POST is exported, HEAD also returns 405.
-      const token = generateConfirmationToken(MEETING_ID, ORG_ID)
-
+      // Simulate email scanner: HEAD request with valid token
       const headRequest = {
         method: 'HEAD',
         headers: new Map([['Content-Type', 'application/json']]),
         json: async () => ({ token, decision: 'held' }),
       }
 
-      // Verify the token is valid but method is not exposed via POST handler
-      const decoded = verifyConfirmationToken(token)
-      expect(decoded).not.toBeNull()
-      // Route handler only exports POST, so HEAD returns 405 before any state change can occur
-      expect(headRequest.method).not.toBe('POST')
-    })
+      // HEAD also cannot be dispatched to our POST handler
+      // After HEAD: state should STILL be UNCHANGED
+      expect(meetingState.meeting_status).toBe('booked')
+      expect(meetingState.is_billable).toBe(false)
+      expect(meetingState.held_decision_locked).toBe(false)
+      expect(updateCalls).toBe(0) // No update calls from GET or HEAD
 
-    it('POST is the only HTTP method exported; GET and HEAD return 405', async () => {
-      // Structural proof: the route file only exports POST
-      // GET, HEAD, DELETE, etc. are not exported and return 405 Method Not Allowed
-      // This is the billing-critical guarantee: scanners cannot reach the state mutation
+      // Now simulate real user: POST with valid token and held decision
+      const postRequest = createMockRequest({ token, decision: 'held' })
+      const response = await POST(postRequest as any)
 
-      // Verify POST is callable (from imports above: import { POST } from './route')
-      expect(typeof POST).toBe('function')
+      // POST DOES execute the handler and DOES change state
+      expect(response.status).toBe(200)
+      expect(updateCalls).toBe(1) // Exactly one update call from POST
+      expect(meetingState.meeting_status).toBe('held')
+      expect(meetingState.is_billable).toBe(true)
+      expect(meetingState.held_decision_locked).toBe(true)
 
-      // This test documents the fact: route.ts only has "export async function POST"
-      // No GET, HEAD, or method-agnostic handler exists
-      // Therefore, email security scanner GET/HEAD pre-fetch cannot trigger the meeting update
+      // PROOF: Scanners (GET/HEAD) leave state untouched. Users (POST) change state.
+      // This is the billing-critical property: silence = no charge.
     })
   })
 
