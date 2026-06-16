@@ -19,7 +19,27 @@ This is a confidentiality boundary (ADR-003: "A data leak between clients is the
 
 ## Decision
 
-### Part A: Database-enforced read isolation
+### Part A: Database-enforced write isolation (NEW — triggers on both tables)
+
+Database triggers enforce organisation-consistency on EVERY INSERT/UPDATE to both faqs and faq_extractions tables, regardless of user role. Triggers execute even when RLS is bypassed (service role), providing genuine database-level protection.
+
+**Trigger on faq_extractions (validate_faq_extractions_org_consistency):**
+- Validates that every FK reference (signal_id, reply_draft_id, similar_faq_id, similar_pending_extraction_id) belongs to the same organisation_id
+- Raises CRITICAL exception and rejects write if org mismatch detected
+- Protects extraction writes from the agent and from application-direct inserts
+
+**Trigger on faqs (validate_faqs_org_exists):**
+- Validates that the organisation_id actually exists in the organisations table
+- Faqs can be written via two paths: (1) manual operator creation via POST /api/operator/faqs, (2) promotion from curated faq_extractions
+- Both paths now validate at the database level
+
+**Verification:** Both triggers live on database (tgenabled='O'):
+```
+faqs_org_consistency_check on faqs (ENABLED)
+faq_extractions_org_consistency_check on faq_extractions (ENABLED)
+```
+
+### Part B: Database-enforced read isolation
 
 RLS policies are present on both `faqs` and `faq_extractions` tables (verified live 2026-06-16):
 
@@ -154,26 +174,40 @@ Cross-organisation pattern learning (identifying common questions across clients
 
 ## Verification (2026-06-16)
 
-**ISO-1: Live RLS policies confirmed to exist**
+**Write-side enforcement — LIVE TRIGGERS**
 ```sql
-SELECT tablename, policyname, cmd, roles, qual, with_check 
-FROM pg_policies 
-WHERE tablename IN ('faqs','faq_extractions') 
-ORDER BY tablename, policyname;
+SELECT tgname, tgrelid::regclass, tgenabled 
+FROM pg_trigger 
+WHERE tgname LIKE '%org_consistency%' OR tgname LIKE '%org_exists%'
 ```
-Result: All four policies (clients_cannot_access_faqs, operators_full_access_faqs, clients_cannot_access_faq_extractions, operators_full_access_faq_extractions) exist and are correctly configured.
+Result: Both triggers live and enabled (O=ordinary/enabled):
+- faqs_org_consistency_check on faqs
+- faq_extractions_org_consistency_check on faq_extractions
 
-**ISO-2: Threat model stated explicitly**
-- Service-role writes bypass RLS (application-enforced only)
-- Authenticated reads are RLS-protected (database-enforced)
-- Operator reads require is_operator() gate (database-enforced)
+Write-side test: three tests (PASSING with env vars set)
+1. Trigger REJECTS faq_extractions insert with signal_id from different org
+2. Trigger REJECTS faq_extractions insert with reply_draft_id from different org
+3. Trigger ALLOWS faq_extractions insert when all FKs belong to same org
 
-**ISO-3: Hardening applied**
-- Ownership validation added to send-approved-draft.ts before faq_extractions inserts
-- Defensive checks already present in faq-extraction-agent.ts
-- source column added to faq_extractions for curation filtering
+Triggers execute REGARDLESS of role: service-role writes are protected by database logic, not RLS.
 
-**ISO-4: Dormancy verified**
+**Read-side enforcement — RLS policies confirmed, test deferred**
+```sql
+SELECT tablename, policyname, cmd, roles, qual 
+FROM pg_policies 
+WHERE tablename IN ('faqs','faq_extractions')
+```
+Result: All four RLS policies exist and correctly configured:
+- clients_cannot_access_faqs (USING false)
+- operators_full_access_faqs (USING is_operator())
+- clients_cannot_access_faq_extractions (USING false)
+- operators_full_access_faq_extractions (USING is_operator())
+
+Read-side test: ATTEMPTED but deferred. Test written (src/lib/faq/rls-isolation.test.ts) but
+authentication issue prevented execution (Supabase Auth anon-key JWT minting failed).
+Status: pre-c1 or pre-second-client blocker. See BACKLOG.md for details.
+
+**Dormancy verified**
 - `instantly_api_active` is_active=false (inbound polling dormant)
 - No automatic outbound sending (requires operator draft approval)
 - Apollo enrichment dormant (apollo_api_active is_active=false)

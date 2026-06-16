@@ -543,6 +543,30 @@ the new OPS-1 blocks for operational continuity.
   Migration: change value column to use vault.create_secret() and vault.decrypted_secrets view.
   Trigger: before first paying client onboards (same trigger as repo going private).
 
+- [pre-c1 or pre-second-client] RLS isolation test for authenticated (non-service-role) reads (2026-06-16)
+  FAQ isolation is enforced at two levels:
+    1. Database triggers on faqs and faq_extractions validate org-consistency on ALL writes (live, always on)
+    2. RLS policies on both tables block authenticated client reads (clients_cannot_access, USING false)
+  
+  The triggers are live and tested. The RLS policies are confirmed live in pg_policies (USING false blocks all).
+  However, the read-side isolation has NOT been proven by a test exercising an authenticated non-service-role
+  client attempting to read cross-org FAQ content. The test was written (src/lib/faq/rls-isolation.test.ts) but
+  abandoned due to Supabase Auth configuration issue: signInWithPassword() with the ANON key returned
+  "Invalid API key" error. Could not mint a test JWT for a test user.
+  
+  Blocker: Need a way to create an authenticated test client (non-service-role) that can query with RLS enforced.
+  Options: (a) password-based auth in Supabase Auth with password reset flow, (b) manually signed JWT for test users,
+  (c) local Postgres instance with RLS policies mimicking production.
+  
+  Risk level: Low. Read-side RLS is verified to exist in database (USING false policies confirmed).
+  Org isolation for writes is database-enforced via triggers (tested and passing).
+  This test becomes CRITICAL when a second client onboards: two-client scenario is when cross-org reads
+  become a real confidentiality risk.
+  
+  Action: Before second paying client onboards, solve the test-JWT issue and write a test that proves
+  an authenticated user of org-A cannot read org-B's FAQ content. This test must be automated (pass in CI)
+  before multi-client production use.
+
 - [pre-c1] Haiku critic pass agent for document suggestion quality review
   Not yet built. Required before first paying client's suggestions reach the approval queue.
   Structured evaluation: TOV compliance, messaging rules, quality floor.

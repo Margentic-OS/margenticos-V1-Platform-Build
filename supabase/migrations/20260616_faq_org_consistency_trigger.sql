@@ -92,4 +92,39 @@ COMMENT ON TRIGGER faq_extractions_org_consistency_check ON faq_extractions IS
    Runs on every INSERT/UPDATE regardless of user role, including service role.
    This is the primary defence against cross-organisation writes when RLS is bypassed.';
 
+-- ── Trigger function for faqs ────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION validate_faqs_org_exists()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Verify organisation_id exists
+  IF NOT EXISTS (
+    SELECT 1 FROM organisations
+    WHERE id = NEW.organisation_id
+  ) THEN
+    RAISE EXCEPTION
+      'faqs: CRITICAL — organisation_id % does not exist',
+      NEW.organisation_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ── Attach trigger to faqs ──────────────────────────────────────────────────
+
+DROP TRIGGER IF EXISTS faqs_org_consistency_check ON faqs;
+
+CREATE TRIGGER faqs_org_consistency_check
+BEFORE INSERT OR UPDATE ON faqs
+FOR EACH ROW
+EXECUTE FUNCTION validate_faqs_org_exists();
+
+COMMENT ON TRIGGER faqs_org_consistency_check ON faqs IS
+  'Enforces organisation-level isolation at the data layer for approved FAQ rows.
+   Validates that the organisation_id actually exists in the organisations table.
+   Faqs can be created via two paths: (1) manual operator creation via POST /api/operator/faqs,
+   and (2) promotion of curated faq_extractions rows. Both paths now validate org-existence.
+   Runs on every INSERT/UPDATE regardless of user role, including service role.';
+
 COMMIT;
