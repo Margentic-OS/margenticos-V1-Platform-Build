@@ -308,6 +308,46 @@ export async function sendApprovedDraft(
 
         for (const result of extractionResults) {
           try {
+            // ISO-3 Hardening: Validate organisation_id ownership before write.
+            // Service role bypasses RLS, so application must ensure all writes are to the correct org.
+            // Any FK references (similar_faq_id, similar_pending_extraction_id) were already
+            // validated by the extraction agent (lines 312-353) to belong to this organisation.
+
+            if (result.similar_faq_id) {
+              const { data: faqCheck } = await supabase
+                .from('faqs')
+                .select('organisation_id')
+                .eq('id', result.similar_faq_id)
+                .maybeSingle()
+
+              if (!faqCheck || faqCheck.organisation_id !== organisationId) {
+                const msg = `CRITICAL: similar_faq_id ${result.similar_faq_id} does not belong to organisation ${organisationId}`
+                logger.error('send-approved-draft: FAQ ownership validation failed', {
+                  draft_id: replyDraftId,
+                  faq_id: result.similar_faq_id,
+                })
+                continue // Skip this extraction; do not write it
+              }
+            }
+
+            if (result.similar_pending_extraction_id) {
+              const { data: extractionCheck } = await supabase
+                .from('faq_extractions')
+                .select('organisation_id')
+                .eq('id', result.similar_pending_extraction_id)
+                .maybeSingle()
+
+              if (!extractionCheck || extractionCheck.organisation_id !== organisationId) {
+                const msg = `CRITICAL: similar_pending_extraction_id ${result.similar_pending_extraction_id} does not belong to organisation ${organisationId}`
+                logger.error('send-approved-draft: pending extraction ownership validation failed', {
+                  draft_id: replyDraftId,
+                  extraction_id: result.similar_pending_extraction_id,
+                })
+                continue // Skip this extraction; do not write it
+              }
+            }
+
+            // Ownership checks passed. Write the extraction.
             await supabase.from('faq_extractions').insert({
               organisation_id: organisationId,
               signal_id: draft.signal_id,
@@ -320,6 +360,7 @@ export async function sendApprovedDraft(
               potential_names_flagged: result.potential_names_flagged as unknown as Json,
               prompt_version: result.prompt_version,
               status: 'pending',
+              source: 'reply_extracted',
             })
           } catch (insertErr) {
             const msg = insertErr instanceof Error ? insertErr.message : String(insertErr)

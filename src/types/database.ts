@@ -339,6 +339,7 @@ export type Database = {
           similar_faq_id: string | null
           similar_pending_extraction_id: string | null
           similarity_score: number | null
+          source: string
           status: string
           suggested_answer: string
         }
@@ -356,6 +357,7 @@ export type Database = {
           similar_faq_id?: string | null
           similar_pending_extraction_id?: string | null
           similarity_score?: number | null
+          source?: string
           status?: string
           suggested_answer: string
         }
@@ -373,6 +375,7 @@ export type Database = {
           similar_faq_id?: string | null
           similar_pending_extraction_id?: string | null
           similarity_score?: number | null
+          source?: string
           status?: string
           suggested_answer?: string
         }
