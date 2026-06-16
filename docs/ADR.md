@@ -2036,3 +2036,70 @@ New structured output types with hard limits must have a validator enforcing the
 When a prompt rule and a validator rule conflict, the validator rule is authoritative
 and the prompt must be updated to match in the same commit (per CLAUDE.md).
 Prompt-only enforcement is a defect, not a design choice.
+
+## ADR-026 — Client reply view: org-scoping RLS-backed, intent-filtering chokepoint-enforced
+
+Date: June 2026 | Status: Accepted
+
+### Context
+
+The client reply view (new) exposes reply data to authenticated clients for the first time. Prior to this build, clients had no visibility into replies. The view must enforce two independent filters:
+
+1. **Org-scoping**: a client from org A must NEVER see org B's replies (confidentiality boundary)
+2. **Intent-filtering**: a client must see ONLY the 5 positive intents (positive_direct_booking, positive_passive, information_request_generic, information_request_commercial, objection_mild), never opt_out, out_of_office, or unclear
+
+The two filters have different enforcement models. This asymmetry is worth recording.
+
+### Decision
+
+**Org-scoping: RLS-backed + query-level filter (defence-in-depth)**
+- RLS policy: `clients_read_own_replies` on reply_handling_actions table, scoped by `organisation_id`
+- Query-level filter: `WHERE organisation_id = $clientOrgId` in every client-facing query
+- Consequence: if application code forgets the WHERE clause, RLS still blocks cross-org reads
+
+**Intent-filtering: Chokepoint-enforced ONLY (no database backstop)**
+- Single function: `getClientVisibleReplies()` in src/lib/reply-handling/get-client-visible-replies.ts
+- ALL client-facing reply reads MUST go through this function; direct table queries are prohibited
+- The function always applies: `WHERE classified_intent IN ('positive_direct_booking', 'positive_passive', ...)`
+- Consequence: if a client-facing query ever bypasses the choicepoint, it has no database protection — the intent filter is ONLY application-level
+
+WHY the asymmetry?
+- Org-scoping is table-level: different rows have different `organisation_id` values; an RLS policy can filter rows by `organisation_id`
+- Intent-filtering is value-level: all rows are from the same client, but some have hidden intent values; an RLS policy cannot filter rows based on column values within the same table (RLS works on org_id, not on fields within a client's data)
+- The architectural consequence: org-scoping gets a database backstop; intent-filtering does not
+
+### Enforcement
+
+Single chokepoint: `getClientVisibleReplies(supabase, clientOrgId)`
+- Takes supabase client and client's organisation_id
+- Returns only rows where organisation_id == clientOrgId AND classified_intent IN (5 positive intents)
+- This is the ONLY function client-facing code may call to read reply data
+
+The client reply page (/dashboard/(client)/replies/page.tsx) calls this function.
+No route in the client-auth area queries reply_handling_actions or signals directly.
+
+### Tests
+
+All passing; DRY RUN test org seeded at fixture creation, never deleted:
+
+1. **Cross-org filtering**: org A's query returns zero org B rows (chokepoint enforces organisation_id filter)
+2. **Intent filtering**: org A's query with all 8 intents present returns zero opt_out/out_of_office/unclear rows (chokepoint enforces intent filter at data layer, not UI-only)
+3. **Operator view unfiltered**: getAllRepliesForOrg(orgId) returns all 8 intents for campaign health monitoring
+
+### Consequences
+
+1. `getClientVisibleReplies()` is a chokepoint. Any new client-facing reply read must use this function.
+2. `getAllRepliesForOrg()` is the operator-only variant (no intent filtering, returns all 8 intents).
+3. Do NOT scatter the org + intent filters across multiple queries. Do NOT add a "raw" query path for client data. The chokepoint enforces both together.
+4. Intent-filtering has no database backstop. Showing a client a hidden intent (opt_out, out_of_office, unclear) is a relationship-damaging failure. The chokepoint's invariant (hardened by tests) prevents this.
+5. RLS policy `clients_read_own_replies` is the last-line defence for org-scoping. If the chokepoint ever bypasses the WHERE clause, RLS catches it. This defence does not exist for intent-filtering.
+
+### Rationale
+
+Org-scoping needs defence-in-depth because a cross-org leak is a security failure. Showing org A one row from org B is a breach.
+
+Intent-filtering is application-enforced only because the intent values all belong to the same client; an RLS policy works on rows/users, not on column values within a user's scope. The chokepoint pattern (one function, always called, always applies both filters) is simpler and sufficient.
+
+### Follow-ups (tracked in BACKLOG.md)
+- Authenticated-user RLS test deferred (JWT-minting limitation, pre-second-client item)
+- Client-note feature deferred (fast-follow only if clients ask)
