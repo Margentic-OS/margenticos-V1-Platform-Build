@@ -9,7 +9,9 @@ import { CampaignRegistrationPanel } from './CampaignRegistrationPanel'
 import { LeadUploadPanel } from './LeadUploadPanel'
 import { MailboxOrderPanel } from './MailboxOrderPanel'
 import { WarmupControlPanel } from './WarmupControlPanel'
+import { CampaignMetricsPanel } from '@/components/dashboard/operator/CampaignMetricsPanel'
 import { deriveCampaignsStatus } from '@/lib/dashboard/derive-setup-status'
+import { getAllCampaignMetricsForOrg } from '@/lib/metrics/get-client-visible-campaign-metrics'
 import type { SetupStatusShape } from './SetupStatusPanel'
 import type { SetupStatusValue } from './actions'
 
@@ -67,6 +69,7 @@ export default async function ClientDetailPage({
     pendingSuggestionsResult,
     intakeWebsiteResult,
     intakeRevenueResult,
+    campaignMetrics,
   ] = await Promise.all([
     supabase
       .from('integrations_registry')
@@ -128,6 +131,7 @@ export default async function ClientDetailPage({
       .eq('organisation_id', org.id)
       .eq('field_key', 'company_revenue_range')
       .maybeSingle(),
+    getAllCampaignMetricsForOrg(supabase, org.id),
   ])
 
   const instantlyApiActive = flagResult.data?.is_active ?? false
@@ -232,6 +236,8 @@ export default async function ClientDetailPage({
 
             {/* Legacy setup panels */}
             <div className="space-y-4">
+              <CampaignMetricsPanel metrics={campaignMetrics} />
+
               <SetupStatusPanel orgId={org.id} initialStatus={setupStatus} derivedCampaignsStatus={derivedCampaignsStatus} />
 
               <CampaignRegistrationPanel orgId={org.id} />

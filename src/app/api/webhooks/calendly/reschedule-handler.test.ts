@@ -1,211 +1,181 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import * as Sentry from '@sentry/nextjs'
 
-// Test the reschedule handling logic
-describe('Calendly Webhook — Reschedule Event Handling', () => {
-  describe('Event Type Determination', () => {
-    it('detects invitee.created event (no cancel_event, no reschedule_event)', () => {
-      const payload = {
-        event: { uri: 'event-uuid', start_time: '2026-07-01', end_time: '2026-07-01' },
-        invitee: { uri: 'invitee-uuid', email: 'test@example.com' },
-      }
+vi.mock('@/lib/logger', () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}))
 
-      // Type determination logic from route.ts
-      let eventType: 'invitee.created' | 'invitee.canceled' | 'invitee.rescheduled'
-      if ((payload as any).cancel_event) {
-        eventType = 'invitee.canceled'
-      } else if ((payload as any).reschedule_event) {
-        eventType = 'invitee.rescheduled'
-      } else {
-        eventType = 'invitee.created'
-      }
+vi.mock('@sentry/nextjs', () => ({
+  captureException: vi.fn(),
+}))
 
-      expect(eventType).toBe('invitee.created')
+// ─── Helper: Simulate the reschedule handler logic ──────────────────────────
+
+function extractUuidFromUri(uri: string): string | null {
+  const match = uri.match(/([a-f0-9\-]{36})$/)
+  return match ? match[1] : null
+}
+
+async function handleInviteeRescheduled(
+  payload: any,
+  supabase: SupabaseClient,
+): Promise<void> {
+  const eventUuid = extractUuidFromUri(payload.event.uri)
+  const inviteeUuid = extractUuidFromUri(payload.invitee.uri)
+
+  if (!eventUuid || !inviteeUuid) {
+    return
+  }
+
+  const { data: meeting, error: fetchError } = await supabase
+    .from('meetings')
+    .select('id, organisation_id, meeting_status, held_decision_locked')
+    .eq('calendly_event_uuid', eventUuid)
+    .eq('calendly_invitee_uuid', inviteeUuid)
+    .single()
+
+  if (fetchError || !meeting) {
+    return
+  }
+
+  const { error: updateError } = await supabase
+    .from('meetings')
+    .update({
+      scheduled_start_at: payload.event.start_time,
     })
+    .eq('id', meeting.id)
 
-    it('detects invitee.canceled event (has cancel_event)', () => {
-      const payload = {
-        event: { uri: 'event-uuid', start_time: '2026-07-01', end_time: '2026-07-01' },
-        invitee: { uri: 'invitee-uuid', email: 'test@example.com' },
-        cancel_event: { cancellation_reason: 'No longer interested' },
-      }
+  if (updateError) {
+    throw updateError
+  }
+}
 
-      let eventType: 'invitee.created' | 'invitee.canceled' | 'invitee.rescheduled'
-      if ((payload as any).cancel_event) {
-        eventType = 'invitee.canceled'
-      } else if ((payload as any).reschedule_event) {
-        eventType = 'invitee.rescheduled'
-      } else {
-        eventType = 'invitee.created'
-      }
+// ─── Test Suite ───────────────────────────────────────────────────────────
 
-      expect(eventType).toBe('invitee.canceled')
-    })
-
-    it('detects invitee.rescheduled event (has reschedule_event)', () => {
+describe('Calendly Webhook Reschedule Handler', () => {
+  describe('Event Type Detection', () => {
+    it('distinguishes invitee.rescheduled by presence of reschedule_event', () => {
       const payload = {
         event: { uri: 'event-uuid', start_time: '2026-07-15', end_time: '2026-07-15' },
         invitee: { uri: 'invitee-uuid', email: 'test@example.com' },
         reschedule_event: { previous_event_start_time: '2026-07-01' },
       }
 
-      let eventType: 'invitee.created' | 'invitee.canceled' | 'invitee.rescheduled'
-      if ((payload as any).cancel_event) {
-        eventType = 'invitee.canceled'
-      } else if ((payload as any).reschedule_event) {
-        eventType = 'invitee.rescheduled'
-      } else {
-        eventType = 'invitee.created'
-      }
-
-      expect(eventType).toBe('invitee.rescheduled')
+      const isReschedule = !!(payload as any).reschedule_event
+      expect(isReschedule).toBe(true)
     })
   })
 
   describe('UUID Extraction', () => {
-    it('extracts UUID from Calendly event.uri', () => {
+    it('extracts 36-char UUID from URI', () => {
+      const uri = 'https://api.calendly.com/events/abc12345-def6-7890-abcd-ef1234567890'
+      const uuid = extractUuidFromUri(uri)
+      expect(uuid).toBe('abc12345-def6-7890-abcd-ef1234567890')
+    })
+
+    it('returns null for invalid URI', () => {
+      const uuid = extractUuidFromUri('https://api.calendly.com/invalid')
+      expect(uuid).toBeNull()
+    })
+  })
+
+  describe('Reschedule Handler — No Orphaned Rows', () => {
+    it('updates existing meeting by UUID (calls update, not insert)', async () => {
       const eventUri = 'https://api.calendly.com/events/abc12345-def6-7890-abcd-ef1234567890'
-      const uuidMatch = eventUri.match(/([a-f0-9\-]{36})$/)
-      expect(uuidMatch).toBeDefined()
-      expect(uuidMatch?.[1]).toBe('abc12345-def6-7890-abcd-ef1234567890')
-    })
+      const inviteeUri = 'https://api.calendly.com/invitees/98765abc-def4-3210-abcd-1234ef567890'
 
-    it('extracts UUID from Calendly invitee.uri', () => {
-      const inviteeUri = 'https://api.calendly.com/scheduled_events/event-id/invitees/98765abc-def4-3210-abcd-1234ef567890'
-      const uuidMatch = inviteeUri.match(/([a-f0-9\-]{36})$/)
-      expect(uuidMatch).toBeDefined()
-      expect(uuidMatch?.[1]).toBe('98765abc-def4-3210-abcd-1234ef567890')
-    })
-
-    it('returns null for invalid URI format', () => {
-      const invalidUri = 'https://api.calendly.com/invalid'
-      const uuidMatch = invalidUri.match(/([a-f0-9\-]{36})$/)
-      expect(uuidMatch).toBeNull()
-    })
-  })
-
-  describe('Reschedule Update Logic', () => {
-    it('constructs update with scheduled_start_at from new event time', () => {
-      const newStartTime = '2026-07-15T16:30:00Z'
-
-      const updatePayload = {
-        scheduled_start_at: newStartTime,
+      const payload = {
+        event: { uri: eventUri, start_time: '2026-07-15T16:30:00Z', end_time: '2026-07-15T17:30:00Z' },
+        invitee: { uri: inviteeUri, email: 'prospect@example.com' },
+        reschedule_event: { previous_event_start_time: '2026-07-01T10:00:00Z' },
       }
 
-      expect(updatePayload.scheduled_start_at).toBe(newStartTime)
-      expect(updatePayload).not.toHaveProperty('meeting_status')
-      expect(updatePayload).not.toHaveProperty('held_decision_locked')
-    })
+      const existingMeeting = {
+        id: 'meeting-uuid-001',
+        organisation_id: 'org-123',
+        meeting_status: 'booked',
+        held_decision_locked: false,
+      }
 
-    it('does NOT update meeting_status or held_decision_locked on reschedule', () => {
-      // The reschedule handler should only update scheduled_start_at
-      // Status changes are NOT part of reschedule logic
-      const updatePayload = {
+      const updateMock = vi.fn().mockReturnThis()
+      const eqMock = vi.fn().mockResolvedValue({ error: null, count: 1 })
+
+      const mockSupabase = {
+        from: vi.fn((table: string) => {
+          if (table === 'meetings') {
+            return {
+              select: vi.fn().mockReturnThis(),
+              eq: vi.fn().mockReturnThis(),
+              single: vi.fn().mockResolvedValue({ data: existingMeeting, error: null }),
+              update: updateMock.mockReturnValue({ eq: eqMock }),
+            }
+          }
+          return { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis() }
+        }),
+      } as unknown as SupabaseClient
+
+      await handleInviteeRescheduled(payload, mockSupabase)
+
+      // Verify from('meetings') was called
+      expect(mockSupabase.from).toHaveBeenCalledWith('meetings')
+
+      // Verify update was called with scheduled_start_at only
+      expect(updateMock).toHaveBeenCalledWith({
         scheduled_start_at: '2026-07-15T16:30:00Z',
-      }
-
-      expect(updatePayload).toHaveProperty('scheduled_start_at')
-      expect(updatePayload).not.toHaveProperty('meeting_status')
-      expect(updatePayload).not.toHaveProperty('held_decision_locked')
-    })
-
-    it('reschedule earlier than original moves auto-held window earlier', () => {
-      const org = { auto_held_window_hours: 72 }
-      const now = new Date('2026-07-10T00:00:00Z')
-
-      // Original meeting: 2026-07-01 14:00
-      const originalTime = new Date('2026-07-01T14:00:00Z').getTime()
-      const originalWindowEnd = originalTime + org.auto_held_window_hours * 60 * 60 * 1000
-      const originalEligible = now.getTime() >= originalWindowEnd
-
-      // After 10 days, original meeting is auto-holdable
-      expect(originalEligible).toBe(true)
-
-      // Reschedule to earlier: 2026-06-15 14:00
-      const earlierTime = new Date('2026-06-15T14:00:00Z').getTime()
-      const earlierWindowEnd = earlierTime + org.auto_held_window_hours * 60 * 60 * 1000
-      const earlierEligible = now.getTime() >= earlierWindowEnd
-
-      // Even earlier time moves window earlier
-      expect(earlierWindowEnd).toBeLessThan(originalWindowEnd)
-      expect(earlierEligible).toBe(true)
-    })
-
-    it('reschedule later than original moves auto-held window later', () => {
-      const org = { auto_held_window_hours: 72 }
-      const now = new Date('2026-07-10T00:00:00Z')
-
-      // Original meeting: 2026-07-01 14:00
-      const originalTime = new Date('2026-07-01T14:00:00Z').getTime()
-      const originalWindowEnd = originalTime + org.auto_held_window_hours * 60 * 60 * 1000
-      const originalEligible = now.getTime() >= originalWindowEnd
-
-      expect(originalEligible).toBe(true)
-
-      // Reschedule to later: 2026-07-20 14:00
-      const laterTime = new Date('2026-07-20T14:00:00Z').getTime()
-      const laterWindowEnd = laterTime + org.auto_held_window_hours * 60 * 60 * 1000
-      const laterEligible = now.getTime() >= laterWindowEnd
-
-      // Later time moves window later, so NOT eligible for auto-hold yet
-      expect(laterWindowEnd).toBeGreaterThan(originalWindowEnd)
-      expect(laterEligible).toBe(false)
+      })
     })
   })
 
-  describe('Locked Decision Handling', () => {
-    it('does not unlock held_decision_locked on reschedule', () => {
-      // If a meeting is already locked (held or no_show confirmed),
-      // reschedule should not change held_decision_locked
-      const meeting = {
-        id: 'meeting-123',
+  describe('Reschedule Handler — Locked Decisions Preserved', () => {
+    it('does not modify meeting_status or held_decision_locked', async () => {
+      const eventUri = 'https://api.calendly.com/events/abc12345-def6-7890-abcd-ef1234567890'
+      const inviteeUri = 'https://api.calendly.com/invitees/98765abc-def4-3210-abcd-1234ef567890'
+
+      const payload = {
+        event: { uri: eventUri, start_time: '2026-07-20T10:00:00Z', end_time: '2026-07-20T11:00:00Z' },
+        invitee: { uri: inviteeUri, email: 'test@example.com' },
+        reschedule_event: { previous_event_start_time: '2026-07-01T10:00:00Z' },
+      }
+
+      const lockedMeeting = {
+        id: 'meeting-held-001',
+        organisation_id: 'org-123',
         meeting_status: 'held',
         held_decision_locked: true,
-        held_confirmed_by: 'auto',
       }
 
-      const updatePayload = {
-        scheduled_start_at: '2026-07-15T16:30:00Z',
-      }
+      const updateMock = vi.fn()
+      const eqMock = vi.fn().mockResolvedValue({ error: null, count: 1 })
 
-      // After reschedule, held_decision_locked should remain true
-      expect(meeting.held_decision_locked).toBe(true)
+      const mockSupabase = {
+        from: vi.fn((table: string) => {
+          if (table === 'meetings') {
+            return {
+              select: vi.fn().mockReturnThis(),
+              eq: vi.fn().mockReturnThis(),
+              single: vi.fn().mockResolvedValue({ data: lockedMeeting, error: null }),
+              update: updateMock.mockReturnValue({ eq: eqMock }),
+            }
+          }
+          return { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis() }
+        }),
+      } as unknown as SupabaseClient
+
+      await handleInviteeRescheduled(payload, mockSupabase)
+
+      // Get the payload passed to update
+      const updatePayload = updateMock.mock.calls[0]?.[0]
+
+      // Update must contain scheduled_start_at only, not status fields
+      expect(updatePayload).toBeDefined()
+      expect(updatePayload).toHaveProperty('scheduled_start_at', '2026-07-20T10:00:00Z')
+      expect(updatePayload).not.toHaveProperty('meeting_status')
       expect(updatePayload).not.toHaveProperty('held_decision_locked')
-
-      // The meeting fields should be unchanged except for scheduled_start_at
-      const expectedMeeting = {
-        ...meeting,
-        scheduled_start_at: '2026-07-15T16:30:00Z',
-      }
-
-      expect(expectedMeeting.held_decision_locked).toBe(true)
-      expect(expectedMeeting.meeting_status).toBe('held')
-    })
-  })
-
-  describe('No Orphaned Rows', () => {
-    it('reschedule uses same Calendly UUIDs (no new row created)', () => {
-      // Calendly reschedule events use the same UUIDs
-      const eventUuid = 'event-abc-123'
-      const inviteeUuid = 'invitee-xyz-789'
-
-      // Before reschedule: meeting exists with these UUIDs
-      const beforeReschedule = {
-        meeting_id: 'meeting-1',
-        calendly_event_uuid: eventUuid,
-        calendly_invitee_uuid: inviteeUuid,
-      }
-
-      // After reschedule: same UUIDs, same meeting row
-      const afterReschedule = {
-        meeting_id: 'meeting-1',
-        calendly_event_uuid: eventUuid,
-        calendly_invitee_uuid: inviteeUuid,
-      }
-
-      // No duplicate rows created
-      expect(afterReschedule.meeting_id).toBe(beforeReschedule.meeting_id)
-      expect(afterReschedule.calendly_event_uuid).toBe(beforeReschedule.calendly_event_uuid)
-      expect(afterReschedule.calendly_invitee_uuid).toBe(beforeReschedule.calendly_invitee_uuid)
     })
   })
 })

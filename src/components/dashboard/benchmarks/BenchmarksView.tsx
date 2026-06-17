@@ -22,12 +22,11 @@ function fmt(n: number): string {
 }
 
 export function BenchmarksView({ metrics }: BenchmarksViewProps) {
-  const { sentCount, replyCount, bounceCount, positiveReplyCount, meetingCount, hasData } = metrics
+  const { sentCount, replyCount, positiveReplyCount, meetingCount, hasData } = metrics
 
   // ── Rate calculations ──────────────────────────────────────────────────────
   const replyRatePct        = pct(replyCount,         sentCount)
   const meetingRatePct      = pct(meetingCount,        sentCount)
-  const bounceRatePct       = pct(bounceCount,         sentCount)
   const positiveReplyRatePct = pct(positiveReplyCount, replyCount)
 
   // ── Status computation ─────────────────────────────────────────────────────
@@ -43,12 +42,6 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
     : meetingRatePct >= TIER1_BENCHMARKS.meetingBookingRate.amber.threshold ? 'amber'
     : 'red'
 
-  // Bounce rate — lower is better (inverted thresholds)
-  const bounceStatus = !hasData ? null
-    : bounceRatePct < TIER1_BENCHMARKS.bounceRate.green.maxThreshold  ? 'green'
-    : bounceRatePct < TIER1_BENCHMARKS.bounceRate.amber.maxThreshold  ? 'amber'
-    : 'red'
-
   // Positive reply rate — higher is better; requires replies to be non-zero
   const hasReplies = replyCount > 0
   const positiveStatus = !hasReplies ? null
@@ -60,7 +53,6 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
   const STATUS_LABELS: Record<string, Record<'green' | 'amber' | 'red', string>> = {
     reply:    { green: 'On track',     amber: 'Within range', red: 'Needs attention' },
     meeting:  { green: 'On track',     amber: 'Below target', red: 'Needs attention' },
-    bounce:   { green: 'Healthy',      amber: 'Watch this',   red: 'Pause risk'      },
     positive: { green: 'Healthy',      amber: 'Watch this',   red: 'List quality issue' },
   }
 
@@ -101,22 +93,6 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
           benchmarkTarget="Target ≥ 2%"
           sourceLabel={TIER1_BENCHMARKS.meetingBookingRate.sourceLabel}
           emptyStateCopy="Appears once campaigns go live."
-          formatValue={fmtPct}
-        />
-
-        {/* Bounce rate */}
-        <BenchmarkCard
-          label="Bounce Rate"
-          clientValue={hasData ? bounceRatePct : null}
-          clientSubtext={hasData
-            ? `${fmt(bounceCount)} bounces from ${fmt(sentCount)} sent`
-            : null}
-          status={bounceStatus as 'green' | 'amber' | 'red' | null}
-          statusLabel={statusLabel('bounce', bounceStatus as 'green' | 'amber' | 'red' | null)}
-          benchmarkRange="0–2%"
-          benchmarkTarget="Target < 1%"
-          sourceLabel={TIER1_BENCHMARKS.bounceRate.sourceLabel}
-          emptyStateCopy="Tracked automatically once campaigns are sending."
           formatValue={fmtPct}
         />
 
