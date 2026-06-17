@@ -24,6 +24,9 @@ interface CalendlyWebhookPayload {
     cancellation_reason?: string
     canceled_by?: string
   }
+  reschedule_event?: {
+    previous_event_start_time?: string
+  }
 }
 
 function verifyCalendlySignature(
@@ -206,6 +209,77 @@ async function handleInviteeCanceled(
   })
 }
 
+async function handleInviteeRescheduled(
+  payload: CalendlyWebhookPayload,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  _orgId: string
+): Promise<void> {
+  const eventUuid = extractUuidFromUri(payload.event.uri)
+  const inviteeUuid = extractUuidFromUri(payload.invitee.uri)
+
+  if (!eventUuid || !inviteeUuid) {
+    logger.warn('calendly webhook: failed to extract UUIDs from reschedule event', {
+      event_uri: payload.event.uri,
+      invitee_uri: payload.invitee.uri,
+    })
+    return
+  }
+
+  // Find meeting by Calendly UUIDs (same UUIDs persist across reschedule)
+  const { data: meeting, error: fetchError } = await supabase
+    .from('meetings')
+    .select('id, organisation_id, meeting_status, held_decision_locked')
+    .eq('calendly_event_uuid', eventUuid)
+    .eq('calendly_invitee_uuid', inviteeUuid)
+    .single()
+
+  if (fetchError) {
+    if (fetchError.code === 'PGRST116') {
+      // Row not found — this can happen if the booking was never written
+      logger.warn('calendly webhook: meeting not found for reschedule', {
+        event_uuid: eventUuid,
+      })
+      return
+    }
+    logger.error('calendly webhook: fetch meeting for reschedule failed', {
+      error: fetchError.message,
+    })
+    throw fetchError
+  }
+
+  if (!meeting) {
+    return
+  }
+
+  // If decision is locked (held, no_show, or auto-held), don't change status but update the time
+  // If still booked and unlocked, just update the time and keep status booked
+  const { error: updateError } = await supabase
+    .from('meetings')
+    .update({
+      scheduled_start_at: payload.event.start_time,
+    })
+    .eq('id', meeting.id)
+
+  if (updateError) {
+    logger.error('calendly webhook: reschedule update failed', {
+      meeting_id: meeting.id,
+      error: updateError.message,
+    })
+    Sentry.captureException(updateError, {
+      extra: { webhook: 'calendly', event_uuid: eventUuid, action: 'reschedule' },
+    })
+    throw updateError
+  }
+
+  logger.info('calendly webhook: invitee rescheduled', {
+    organisation_id: meeting.organisation_id,
+    meeting_id: meeting.id,
+    event_uuid: eventUuid,
+    new_scheduled_start: payload.event.start_time,
+    was_locked: meeting.held_decision_locked,
+  })
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const payload = await request.text()
@@ -248,7 +322,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Determine event type
-    const eventType = parsedPayload.cancel_event ? 'invitee.canceled' : 'invitee.created'
+    let eventType: 'invitee.created' | 'invitee.canceled' | 'invitee.rescheduled'
+    if (parsedPayload.cancel_event) {
+      eventType = 'invitee.canceled'
+    } else if (parsedPayload.reschedule_event) {
+      eventType = 'invitee.rescheduled'
+    } else {
+      eventType = 'invitee.created'
+    }
 
     // For now, we need to determine org_id from the invitee email + prospecting context
     // In phase one, webhooks must be org-specific (separate URL per org or secret per org in DB)
@@ -275,6 +356,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await handleInviteeCreated(parsedPayload, supabase, orgId)
     } else if (eventType === 'invitee.canceled') {
       await handleInviteeCanceled(parsedPayload, supabase, orgId)
+    } else if (eventType === 'invitee.rescheduled') {
+      await handleInviteeRescheduled(parsedPayload, supabase, orgId)
     }
 
     return NextResponse.json({ success: true }, { status: 200 })

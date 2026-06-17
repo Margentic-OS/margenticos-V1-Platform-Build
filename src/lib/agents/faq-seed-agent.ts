@@ -231,12 +231,16 @@ export async function generateFaqSeedCandidates(input: FaqSeedInput): Promise<Fa
     return []
   }
 
-  // ── 6. Log success ─────────────────────────────────────────────────────────
+  // ── 6. Persist to faq_extractions (best-effort) ────────────────────────────
+  await writeFaqExtractionResults(supabase, organisationId, results)
+
+  // ── 7. Log success ─────────────────────────────────────────────────────────
   await writeAgentRun(supabase, {
     organisationId,
     status: 'completed',
     outputSummary: JSON.stringify({
       faq_count: results.length,
+      written_to_extractions: results.length,
       prompt_version: PROMPT_VERSION,
       source_distribution: results.reduce(
         (acc, r) => {
@@ -253,6 +257,38 @@ export async function generateFaqSeedCandidates(input: FaqSeedInput): Promise<Fa
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function writeFaqExtractionResults(
+  supabase: SupabaseClient,
+  organisationId: string,
+  results: FaqSeedResult[],
+): Promise<void> {
+  if (results.length === 0) return
+
+  for (const result of results) {
+    try {
+      await supabase.from('faq_extractions').insert({
+        organisation_id: organisationId,
+        signal_id: null,  // seed-generated FAQs have no associated signal
+        reply_draft_id: null,  // seed-generated FAQs have no associated reply
+        extracted_question: result.extracted_question,
+        suggested_answer: result.suggested_answer,
+        source: 'seed_generated',
+        status: 'pending',
+        potential_names_flagged: [],
+        prompt_version: result.prompt_version,
+      })
+    } catch (insertErr) {
+      const msg = insertErr instanceof Error ? insertErr.message : String(insertErr)
+      logger.warn('faq-seed-agent: faq_extractions insert failed (best-effort)', {
+        organisation_id: organisationId,
+        extracted_question: result.extracted_question.slice(0, 50),
+        error: msg,
+      })
+      // Best-effort: continue with next result even if this one fails
+    }
+  }
+}
 
 function buildSystemPrompt(organisationName: string): string {
   return `You are an expert FAQ generator for ${organisationName}. Your task is to generate

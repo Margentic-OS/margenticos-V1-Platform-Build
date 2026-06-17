@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/strategy-doc-auto-approve",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/resolve-auto-held",
+      "schedule": "0 9 * * *"
     }
   ]
 }

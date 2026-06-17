@@ -3926,3 +3926,72 @@ No production send to a client is allowed until this blocker is complete and INS
 The warnings in polling logs make this impossible to overlook.
 
 Next action: At activation, immediately before enabling sends, run the live verification sequence above.
+
+---
+
+## Integration audit fixes (2026-06-17)
+
+Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 20260617_* + resolve-auto-held route.
+
+- [DONE 2026-06-17] Auto-held resolution is now triggered via daily cron
+  Added: POST /api/cron/resolve-auto-held (route.ts + test).
+  Wiring: vercel.json crons array now includes resolve-auto-held at 09:00 UTC (once-daily, Hobby-compatible).
+  Confirms: resolveAutoHeldMeetings() is idempotent, org-safe, queries by scheduled_start_at + auto_held_window_hours,
+  sets is_billable=true + held_confirmed_by='auto' + held_decision_locked=true, leaves billed_at NULL.
+  Excludes: canceled/rescheduled meetings by meeting_status check, already-locked meetings by held_decision_locked check.
+  Tests: CRON_SECRET auth (rejects unauthenticated), window calculation (past window resolved, within window untouched),
+  meeting status exclusions (canceled, rescheduled not auto-held).
+  All tests passing. Auto-held resolution will now fire daily at 09:00 UTC on both preview and production.
+
+- [DONE 2026-06-17] FAQ seed agent now writes results to faq_extractions
+  Added: writeFaqExtractionResults() function in faq-seed-agent.ts — best-effort write loop.
+  Each result: organisation_id (required, always set), signal_id: null, reply_draft_id: null,
+  source: 'seed_generated', status: 'pending', potential_names_flagged: [], prompt_version.
+  Insertion failure (DB error, RLS trigger rejection): logged as warn, loop continues (best-effort).
+  Schema: Migration 20260617_faq_extractions_nullable_fk.sql makes signal_id and reply_draft_id nullable
+  (were NOT NULL before). Org-consistency trigger already handles NULLs gracefully (checks IS NOT NULL before validating).
+  Tests: writes are org-scoped (always include organisation_id), source='seed_generated' and status='pending' enforced,
+  multiple results handled without throwing, one write failure doesn't block subsequent results.
+  Schema safety confirmed: no read path assumes non-NULL signal_id or reply_draft_id; approve-new already handles NULL gracefully.
+
+- [DONE 2026-06-17] Calendly reschedule events (invitee.rescheduled) now handled by webhook
+  Added: handleInviteeRescheduled() function in src/app/api/webhooks/calendly/route.ts.
+  Event type determination: payload.reschedule_event present → 'invitee.rescheduled' event.
+  Handler: finds meeting by same Calendly UUIDs (event_uuid + invitee_uuid — reschedule uses same IDs),
+  updates scheduled_start_at to new event.start_time. Does NOT update meeting_status or held_decision_locked
+  (preserves existing decision state).
+  Auto-held window re-bases automatically: auto-held query keys off scheduled_start_at, so new time is evaluated
+  on next cron run. Reschedule earlier moves window earlier (higher auto-hold likelihood). Reschedule later moves
+  window later (lower likelihood, meeting may no longer be eligible).
+  No orphaned rows: same UUIDs → same meeting row → update only, no new insert.
+  Locked decisions unchanged: if held_decision_locked=true, reschedule doesn't unlock (decision final).
+  Tests: event type detection (created/canceled/rescheduled), UUID extraction, reschedule update logic,
+  window movement on earlier/later reschedule, locked decision stays locked, no duplicate rows created.
+  All tests passing.
+
+- [pre-activation] Process-replies and instantly-poll crons are NOT scheduled (2026-06-17)
+  Critical finding from phase A discovery: process-replies and instantly-poll cron routes exist and have MONITOR_CONFIG
+  with crontab schedules ('*/5 * * * *' and '*/15 * * * *' respectively), BUT their pg_cron jobs are commented-out
+  in their migrations. These crons do not currently run.
+  
+  Current state:
+    - process-replies: has MONITOR_CONFIG, route exists, pg_cron line 82-83 commented "Commented out for manual testing"
+    - instantly-poll: has MONITOR_CONFIG, route exists, pg_cron line 81-82 commented similarly
+    - Only strategy-doc-auto-approve and resolve-auto-held are in vercel.json and actually running
+  
+  Impact while dormant: None. No signals exist to process, Instantly dormancy is intact (is_active=false).
+  Impact on activation: When is_active=true (Instantly live sending begins), reply_received signals will accumulate
+  but processReplies will not run. No positive replies will be answered, no meeting confirmations will be sent.
+  The system will appear to hang from the operator's perspective.
+  
+  Blocker for activation: These two crons MUST have real schedules (either pg_cron or alternative) before
+  activation. Hobby tier blocks sub-daily Vercel crons (hence pg_cron + pg_net is the correct approach, same as
+  earlier implementation). Re-enable the pg_cron lines and schedule both jobs at activation.
+  
+  Action before c1 activation:
+    1. Apply migrations (already in repo, not applied to Supabase yet): 20260428_instantly_polling.sql, 20260429_reply_handling.sql
+    2. Uncomment the cron.schedule() lines in both migrations
+    3. Re-apply migrations to live Supabase (idempotent, will replace existing commented-out jobs)
+    4. Verify via Supabase SQL Editor: SELECT * FROM cron.job; confirm both jobs present and not paused
+    5. Run the routes manually to confirm they execute without error: curl https://app.margenticos.com/api/cron/process-replies
+    6. Then mark is_active=true for Instantly integration and begin live testing
