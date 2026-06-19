@@ -507,6 +507,10 @@ Never write Best, Best regards, Warm regards, Cheers, Thanks, Thanks so much, Ta
 Regards, or any other closer before the name. Just the name. Pull the sender's first name
 from the organisation data passed with this request.
 
+A mandatory opt-out footer will be appended by the platform after your sign-off generation.
+Do not include it in the email body. The footer is: "Not the right fit? Just reply 'stop' and I'll leave you alone."
+This footer is added outside the word-count limit and appears on all four emails in the sequence.
+
 #### Tone of voice document integration
 
 Apply the client's tone of voice document to word choice, idioms, register, and spelling
