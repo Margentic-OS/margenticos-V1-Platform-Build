@@ -3,15 +3,17 @@
 // Tests for FAQ seed agent org-isolation.
 // Proves that the seed agent only reads and writes to the target organisation.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { generateFaqSeedCandidates } from './faq-seed-agent'
 
 // Mock Anthropic
 vi.mock('@anthropic-ai/sdk', () => {
-  return {
-    default: vi.fn(() => ({
-      messages: {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  class MockAnthropic {
+    messages: { stream: ReturnType<typeof vi.fn> }
+    constructor(_config: unknown) {
+      this.messages = {
         stream: vi.fn(() => ({
           finalMessage: vi.fn().mockResolvedValue({
             content: [
@@ -35,8 +37,11 @@ vi.mock('@anthropic-ai/sdk', () => {
             ],
           }),
         })),
-      },
-    })),
+      }
+    }
+  }
+  return {
+    default: MockAnthropic,
   }
 })
 
@@ -55,12 +60,17 @@ describe('FAQ seed agent org-isolation', () => {
   beforeEach(() => {
     mockSupabase = {
       from: vi.fn(() => ({
-        insert: vi.fn().mockReturnThis(),
+        insert: vi.fn().mockResolvedValue({ data: null, error: null }),
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         single: vi.fn().mockResolvedValue({ data: { id: 'agent-run-123' }, error: null }),
       })),
     } as unknown as SupabaseClient
+    process.env.ANTHROPIC_API_KEY = 'test-key-not-real'
+  })
+
+  afterEach(() => {
+    delete process.env.ANTHROPIC_API_KEY
   })
 
   it('agent receives organisationId as required parameter', async () => {
