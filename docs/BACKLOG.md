@@ -4076,3 +4076,14 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   any genuinely-missing migration directly and idempotently, one at a time, verifying immediately.
   Applied this way on 2026-06-19 (both verified): 20260617_campaigns_open_count, 20260617_faq_extractions_nullable_fk.
   Pre-c1 cleanup: repair the migration history so push can be trusted again.
+
+## Do NOT apply 20260616_client_reply_view_rls (decided 2026-06-19)
+
+- [pre-c1] Leave 20260616_client_reply_view_rls.sql unapplied; delete it during the migration-history repair.
+  The client reply view reads via a service-role chokepoint (getClientVisibleReplies in
+  src/lib/reply-handling/get-client-visible-replies.ts) that filters BOTH organisation_id and
+  classified_intent in-query, so it works without any client RLS policy. The migration's
+  clients_read_own_replies policy org-scopes but does NOT intent-filter, so applying it would let an
+  authenticated client directly query reply_handling_actions and read ALL their org's replies, including
+  opt_out / out_of_office / objection / unclear, which the product deliberately hides from clients.
+  Current state (no client policy, default-deny for authed clients, RLS still enabled) is correct and safer.
