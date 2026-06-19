@@ -258,7 +258,7 @@ export async function generateFaqSeedCandidates(input: FaqSeedInput): Promise<Fa
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function writeFaqExtractionResults(
+export async function writeFaqExtractionResults(
   supabase: SupabaseClient,
   organisationId: string,
   results: FaqSeedResult[],

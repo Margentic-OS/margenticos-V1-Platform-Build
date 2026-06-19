@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { writeFaqExtractionResults, type FaqSeedResult } from './faq-seed-agent'
 
 vi.mock('@/lib/logger', () => ({
   logger: {
@@ -8,43 +9,6 @@ vi.mock('@/lib/logger', () => ({
     error: vi.fn(),
   },
 }))
-
-// ─── Helper: Real writeFaqExtractionResults implementation for testing ──
-
-interface FaqSeedResult {
-  extracted_question: string
-  suggested_answer: string
-  source_material: string
-  prompt_version: string
-}
-
-async function writeFaqExtractionResults(
-  supabase: SupabaseClient,
-  organisationId: string,
-  results: FaqSeedResult[],
-): Promise<void> {
-  if (results.length === 0) return
-
-  for (const result of results) {
-    try {
-      await supabase.from('faq_extractions').insert({
-        organisation_id: organisationId,
-        signal_id: null,
-        reply_draft_id: null,
-        extracted_question: result.extracted_question,
-        suggested_answer: result.suggested_answer,
-        source: 'seed_generated',
-        status: 'pending',
-        potential_names_flagged: [],
-        prompt_version: result.prompt_version,
-      })
-    } catch (insertErr) {
-      // Best-effort: log and continue
-      const msg = insertErr instanceof Error ? insertErr.message : String(insertErr)
-      // Logger call would go here but we're testing the continuation
-    }
-  }
-}
 
 describe('FAQ Seed Agent — writeFaqExtractionResults', () => {
   describe('Insert Structure and Org Scoping', () => {

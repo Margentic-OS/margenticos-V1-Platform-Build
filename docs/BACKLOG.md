@@ -3991,6 +3991,14 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   All tests passing.
 
 - [pre-activation] Process-replies and instantly-poll crons are NOT scheduled (2026-06-17)
+  
+  SUPERSEDED 2026-06-19: This entry is incorrect. Verified live: both crons are scheduled and active
+  (instantly-poll '*/15', process-replies '*/5', both active=true) and firing on schedule returning
+  HTTP 200 (confirmed via cron.job, cron.job_run_details, net._http_response). pg_cron and pg_net are
+  installed. The reply crons are NOT a pre-activation blocker; activation blocker (a) is closed.
+  DO NOT re-apply 20260428_instantly_polling or 20260429_reply_handling: their repo versions use
+  current_setting() placeholder URLs and re-applying would replace the working live jobs with broken ones.
+  
   Critical finding from phase A discovery: process-replies and instantly-poll cron routes exist and have MONITOR_CONFIG
   with crontab schedules ('*/5 * * * *' and '*/15 * * * *' respectively), BUT their pg_cron jobs are commented-out
   in their migrations. These crons do not currently run.
@@ -4056,3 +4064,15 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   Context: found during 1b, the read-side authenticated-user RLS test. That test PASSED overall. Client read
   isolation is enforced across all org-scoped tables, proven live with positive and negative controls on two
   separate orgs plus a full schema-wide policy scan. This entry is the one consistency flag from that scan.
+
+## Migration history drifted from the live ledger; no blind supabase db push (found 2026-06-19)
+
+- [pre-c1] The repo supabase/migrations folder is not a faithful record of what is applied. It omits the
+  earliest migrations (live starts at 20260415; the repo's first file is 20260419) and mixes filename
+  conventions, so derived versions do not match the applied-migrations table. Neither a filename diff nor
+  supabase db push / supabase migration list can be trusted. A blind push could re-run renamed migrations
+  and break working state, including live cron jobs.
+  RULE until repaired: do not run supabase db push. Reconcile by effect against the live schema and apply
+  any genuinely-missing migration directly and idempotently, one at a time, verifying immediately.
+  Applied this way on 2026-06-19 (both verified): 20260617_campaigns_open_count, 20260617_faq_extractions_nullable_fk.
+  Pre-c1 cleanup: repair the migration history so push can be trusted again.
