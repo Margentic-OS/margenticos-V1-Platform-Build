@@ -25,6 +25,27 @@
 
 ---
 
+## Cold email opt-out compliance (DONE 2026-06-19)
+
+- [DONE 2026-06-19] Opt-out footer added to all generated cold emails (CAN-SPAM/GDPR compliance)
+  Commit: 53c0a95 — "fix: add opt-out footer to all generated cold emails (CAN-SPAM compliance)"
+  
+  Completed:
+  1. Added deterministic post-generation footer appending via applyOptOutFooter() function
+  2. Footer: "Not the right fit? Just reply 'stop' and I'll leave you alone."
+  3. Applied to all 4 emails in sequence (emails 1, 2, 3, 4)
+  4. Positioned after body/CTA but before sender sign-off (no impact on word counts)
+  5. Validation gate ensures footer presence on all emails (rejects if missing)
+  6. Updated messaging-agent.md prompt to clarify footer is platform-added, not AI-generated
+  7. Tested with sample 4-email sequence — all checks pass
+  8. No live sends (is_active=false, dormant state maintained)
+  
+  Gap closed: Generated cold emails now include mandatory opt-out invitation per CAN-SPAM
+  requirements. Reply "stop" triggers suppression (reply-handling system already built).
+  Ready for pre-c0 live send testing.
+
+---
+
 ## Operator sourcing review UI (DONE 2026-06-15)
 
 - [DONE 2026-06-15] Operator review UI built (Phase 3 part B)
