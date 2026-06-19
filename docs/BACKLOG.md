@@ -4016,3 +4016,43 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
     4. Verify via Supabase SQL Editor: SELECT * FROM cron.job; confirm both jobs present and not paused
     5. Run the routes manually to confirm they execute without error: curl https://app.margenticos.com/api/cron/process-replies
     6. Then mark is_active=true for Instantly integration and begin live testing
+
+## Competitor-exclusion in sourcing is NOT implemented (verified 2026-06-19)
+
+- [post-c1] Sourcing does not exclude a client's own competitors. Verified false against live code and live DB.
+  Evidence (code): ICPFilterSpec (src/lib/agents/icp-filter-spec.ts) exposes only job_titles_excluded,
+  industries_excluded, keywords_excluded. No competitor field. FILTER_FIELDS (src/lib/sourcing/types.ts)
+  has no competitor entry. Apollo adapter (src/lib/sourcing/handlers/adapter-apollo.ts, supported_fields
+  approx lines 92-106, post-filter approx lines 254-291) post-filters on job_titles_excluded and
+  keywords_excluded only. No DB column and no DB function implement competitor or prospect exclusion.
+  The only competitor reference in the codebase is display-only in ApprovalCard.tsx (positioning doc)
+  and is never read by sourcing.
+  Evidence (data): no competitor field on organisations, segments, or sourcing tables;
+  strategy_documents.icp_filter_spec is NULL on all 41 documents across all 6 orgs.
+  Failure mode: FAIL OPEN. If a competitors_excluded field were added to the spec it would be silently
+  ignored (absent from supported_fields, not post-filtered). The orchestrator manifest check is reported
+  to throw on unsupported populated fields, but the activation handover flags the Apollo manifest gate as
+  stubbed (pre-activation blocker d). If it is genuinely stubbed, the silent drop is not caught. Resolve
+  this question under blocker d.
+  Deferred rationale (not pre-c1): competitors rarely match a buyer ICP; Gate 1 operator approval has a
+  manual exclude escape hatch; at c0/c1 Doug reviews every batch. Build only at scale, or if a founding
+  client explicitly requires named-competitor exclusion at volume.
+  If built: add competitors_excluded to ICPFilterSpec, add it to FILTER_FIELDS, add it to the Apollo
+  adapter supported_fields and post-filter block, and update the ICP agent to derive the field from the
+  ICP document.
+
+## RLS mechanism inconsistency on intake_website_pages (found 2026-06-19, during 1b read-side RLS verification)
+
+- [pre-c1] intake_website_pages RLS policies gate on auth.jwt() ->> 'role' (values 'client' / 'operator')
+  instead of the users-table lookup (get_my_organisation_id() / is_operator()) that every other table uses.
+  Standard Supabase JWTs carry role='authenticated' at that claim, not 'client', so the client SELECT policy
+  most likely fails CLOSED (clients cannot read their own website pages) unless the app injects a custom role
+  claim into the JWT. This is NOT a security leak: the client policy is still AND-scoped to the user's own
+  organisation_id, so there is no cross-org exposure either way. It is a consistency and possible
+  functional-bug item.
+  Action pre-c1: confirm whether any client-facing view needs to read intake_website_pages. If yes, either
+  ensure the role claim is injected into the JWT, or rewrite the policy to the standard
+  get_my_organisation_id() pattern for consistency with the rest of the schema.
+  Context: found during 1b, the read-side authenticated-user RLS test. That test PASSED overall. Client read
+  isolation is enforced across all org-scoped tables, proven live with positive and negative controls on two
+  separate orgs plus a full schema-wide policy scan. This entry is the one consistency flag from that scan.
