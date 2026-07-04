@@ -528,17 +528,43 @@ the new OPS-1 blocks for operational continuity.
   action_succeeded = false  → sendThreadReply API call failed; prospect needs manual Calendly link.
   action_succeeded = null   → run was interrupted mid-call; email status unknown; verify in Instantly.
 
-- [c0-blocker] Verify Instantly lead status values for bounced and unsubscribed (2026-04-28)
+- [c0-blocker] Verify Instantly lead status values for bounced and unsubscribed (2026-04-28, updated 2026-07-04)
   Constants INSTANTLY_LEAD_STATUS_BOUNCED = '-2' and INSTANTLY_LEAD_STATUS_UNSUBSCRIBED = '-1'
-  in src/lib/polling/instantly.ts are assumed from training data, NOT confirmed against the live API.
+  in src/lib/integrations/polling/instantly.ts are assumed from training data, NOT confirmed against the live API.
   If wrong, bounce and unsubscribe polling will return zero signals with no error — silent data gap.
-  How to verify: once a campaign is live with at least one bounced or unsubscribed lead:
-    1. Call the Instantly MCP list_leads with no status filter and the campaign UUID
-    2. Find a known-bounced lead in the result
-    3. Check the exact value of its `status` field
-    4. If it differs from '-2' (bounced) or '-1' (unsubscribed), update the constants and redeploy
-  Trigger: immediately after first Instantly campaign produces a bounced or unsubscribed lead.
-  Location: src/lib/integrations/polling/instantly.ts lines 35-36 + same constants exported to route.ts
+  
+  UPDATE 2026-07-04 (live introspection found critical field mismatch):
+  Polling code READ path assumes `status` field; suppression WRITE path (reply-actions.ts:47) uses `lt_interest_status`.
+  Code comment hedges 3 candidate fields: status / lt_interest_status / enrichment_status.
+  This is a FIELD NAME MISMATCH. Polling silently detects zero events if reading wrong field.
+  
+  Confirmed via live API (2026-07-04):
+  - Webhook events email_bounced and lead_unsubscribed exist and are published (GET /webhooks/event-types → 200 OK)
+  - Aggregate bounce metrics ARE clean: GET /campaigns/analytics returns bounced_count (field present, values clean)
+  - Workspace has zero campaigns/leads (dormant is_active=false) → cannot inspect live lead schema to confirm real field names
+  
+  Blocked on: live bounce/unsub lead data. Cannot generate safely now (would require sending from warming mailboxes).
+  
+  Resolution (at dry run, before c0):
+    1. Create test campaign in Instantly with small lead batch
+    2. Seed batch with 1 guaranteed-bounce address + 1 test unsubscribe; let them run 24-48h
+    3. Once bounced/unsubscribed leads exist: GET /leads/list on test campaign (no filter)
+    4. Inspect actual field names and values on those leads:
+       - Bounced lead: what field carries bounce status? what is the exact value?
+       - Unsubscribed lead: what field carries unsub status? what is the exact value?
+    5. Align polling READ code (src/lib/integrations/polling/instantly.ts lines 7, 548-549, 607-609) to match actual field
+    6. Wire consumers:
+       - email_bounced signal → update prospect.bounced=true, exclude from send_eligible checks
+       - lead_unsubscribed signal → update prospect.suppressed=true (same as reply opt-out)
+    7. Update constants if values differ from -2/-1
+    8. Flip INSTANTLY_LEAD_STATUS_VERIFIED = true after confirmation
+  
+  Gap C (auto-pause at 2% bounce rate): defer to pre-c1. At c0, operator watches bounced_count on dashboard
+  and pauses campaigns manually. Build detection+exclusion at dry run; automation deferred.
+  
+  Location: src/lib/integrations/polling/instantly.ts lines 47-53 (constants + flag)
+           src/lib/integrations/handlers/instantly/reply-actions.ts lines 47 (write path)
+           Full findings: /tmp/instantly-schema-findings.md (2026-07-04 introspection)
 
 - [DONE 2026-04-29] pg_cron activation for both polling jobs (2026-04-28, completed 2026-04-29)
   Both migrations applied. Calendly URL set. Both cron jobs rescheduled with hardcoded values
