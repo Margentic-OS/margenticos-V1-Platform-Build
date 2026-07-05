@@ -4016,6 +4016,36 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   window movement on earlier/later reschedule, locked decision stays locked, no duplicate rows created.
   All tests passing.
 
+- [pre-c1, revenue-triggered] Calendly webhook activation — audit complete, code ready (2026-07-05)
+  
+  Code-side audit confirmed: webhook endpoint fully implemented and tested.
+  Signature verification: HMAC-SHA256 with timing-safe comparison ✅
+  Event handlers: invitee.created (booking), invitee.canceled, invitee.rescheduled ✅
+  Meeting mapping: prospect lookup via tracking tag or email, unknown emails silently dropped ✅
+  Idempotent upsert via calendly_event_uuid conflict key ✅
+  All three event types tested and passing.
+  
+  Live config status: Endpoint accessible at https://app.margenticos.com/api/webhooks/calendly
+  Blocker: CALENDLY_WEBHOOK_SECRET not yet set in Vercel production (required for signature verification).
+  
+  Why deferred: Calendly free plan does not support webhooks. Requires Standard+ (~$12/mo paid plan).
+  c0 discovery calls are Doug's own (personal calendar). Meeting tracking is a client dashboard (c1) need.
+  No paid clients yet = no need for webhook subscription yet.
+  
+  Activation sequence (first paying client onboarding):
+    1. Client upgrades their Calendly account to Standard or higher
+    2. In Calendly Settings → Integrations → Webhooks:
+       - New subscription: callback = https://app.margenticos.com/api/webhooks/calendly
+       - Events: invitee.created, invitee.canceled, invitee.rescheduled
+       - Copy signing secret
+    3. Set CALENDLY_WEBHOOK_SECRET in Vercel production environment to the signing secret
+    4. Test: Create a booking via Calendly link. Verify meeting row created in Supabase with correct
+       prospect_id, meeting_status='booked', calendly_event_uuid populated.
+    5. Ensure test invitee email matches a prospect row in the client's organisation (email match is fallback).
+       Otherwise: use Calendly tracking tags (prospect_id parameter in booking link).
+  
+  Do NOT: Build a polling workaround for free Calendly. Webhooks are required for this integration.
+
 - [pre-activation] Process-replies and instantly-poll crons are NOT scheduled (2026-06-17)
   
   SUPERSEDED 2026-06-19: This entry is incorrect. Verified live: both crons are scheduled and active
