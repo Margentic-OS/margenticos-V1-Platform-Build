@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger'
 import * as Sentry from '@sentry/nextjs'
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
+import { sendFirstMeetingEmail } from '@/lib/notifications/send-first-meeting-email'
 
 // Calendly Webhook v2 Reference: https://developer.calendly.com/reference/calendly_v2/calendly-webhook-api
 // This handler processes two events: invitee.created (booking) and invitee.canceled (cancellation)
@@ -137,6 +138,17 @@ async function handleInviteeCreated(
     event_uuid: eventUuid,
     scheduled_start: payload.event.start_time,
   })
+
+  // Fire first-meeting email
+  if (prospectId) {
+    await sendFirstMeetingEmail({
+      supabase,
+      organisationId: orgId,
+      meetingId: inviteeUuid || eventUuid || 'unknown',
+      prospectId,
+      scheduledStartAt: payload.event.start_time,
+    })
+  }
 }
 
 async function handleInviteeCanceled(

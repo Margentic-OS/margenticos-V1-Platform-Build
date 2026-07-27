@@ -38,6 +38,7 @@ import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/aut
 import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from '@/lib/integrations/handlers/instantly/constants'
 import { mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
 import { orchestrateDraft } from './draft-orchestrator'
+import { sendFirstReplyEmail } from '@/lib/notifications/send-first-reply-email'
 
 type SupabaseServiceClient = SupabaseClient<Database>
 
@@ -446,6 +447,18 @@ async function processOneSignal(
   }
 
   const tierAssigned = ['suppress', 'ooo_log', 'send_reply'].includes(actionTaken) ? 1 : 2
+
+  // ── Fire first-reply email if this is a qualifying reply (not opt_out/ooo/unclear) ───
+  // Excludes: opt_out, out_of_office, unclear
+  // Includes: positive_direct_booking, positive_passive, information_request_*, objection_mild
+  if (!['opt_out', 'out_of_office', 'unclear'].includes(intent)) {
+    await sendFirstReplyEmail({
+      supabase,
+      organisationId: signal.organisation_id,
+      prospectId: prospectId,
+      classifiedIntent: intent,
+    })
+  }
 
   // ── Write action row before acting (Tier 1 only — idempotency guard on send_reply/suppress) ──
   // For the orchestrator path (actionTaken === 'log_only'), the row is written AFTER
