@@ -49,7 +49,7 @@ export default async function ClientDetailPage({
   // ── 3. Fetch org — notFound() for both non-operator and missing org (no info leak) ──
   const { data: org } = await supabase
     .from('organisations')
-    .select('id, name, founder_first_name, setup_status, warmup_started_at, created_at')
+    .select('id, name, founder_first_name, setup_status, warmup_started_at, warmup_completed_at, created_at')
     .eq('id', id)
     .maybeSingle()
 
@@ -258,6 +258,7 @@ export default async function ClientDetailPage({
               <WarmupControlPanel
                 orgId={org.id}
                 warmupStartedAt={org.warmup_started_at ?? null}
+                warmupCompletedAt={org.warmup_completed_at ?? null}
               />
             </div>
           </div>

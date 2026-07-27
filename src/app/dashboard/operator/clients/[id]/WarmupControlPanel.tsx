@@ -1,21 +1,28 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { updateWarmupStartedAt } from './actions'
+import { updateWarmupStartedAt, updateWarmupCompletedAt } from './actions'
 
 interface WarmupControlPanelProps {
   orgId: string
   warmupStartedAt: string | null
+  warmupCompletedAt?: string | null
 }
 
-export function WarmupControlPanel({ orgId, warmupStartedAt: initial }: WarmupControlPanelProps) {
+export function WarmupControlPanel({
+  orgId,
+  warmupStartedAt: initial,
+  warmupCompletedAt: initialCompleted,
+}: WarmupControlPanelProps) {
   const [current, setCurrent] = useState(initial)
+  const [completed, setCompleted] = useState(initialCompleted)
   // HTML date input uses YYYY-MM-DD
   const [dateInput, setDateInput] = useState(
     initial ? initial.slice(0, 10) : ''
   )
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [completionError, setCompletionError] = useState<string | null>(null)
   const [, startTransition] = useTransition()
 
   function handleSave() {
@@ -45,6 +52,30 @@ export function WarmupControlPanel({ orgId, warmupStartedAt: initial }: WarmupCo
         setCurrent(null)
         setDateInput('')
         setSaved(true)
+      }
+    })
+  }
+
+  function handleMarkComplete() {
+    setCompletionError(null)
+    startTransition(async () => {
+      const result = await updateWarmupCompletedAt(orgId, true)
+      if (result.error) {
+        setCompletionError(result.error)
+      } else {
+        setCompleted(new Date().toISOString())
+      }
+    })
+  }
+
+  function handleMarkIncomplete() {
+    setCompletionError(null)
+    startTransition(async () => {
+      const result = await updateWarmupCompletedAt(orgId, false)
+      if (result.error) {
+        setCompletionError(result.error)
+      } else {
+        setCompleted(null)
       }
     })
   }
@@ -107,6 +138,35 @@ export function WarmupControlPanel({ orgId, warmupStartedAt: initial }: WarmupCo
 
       {error && (
         <p className="mt-2 text-[11px] text-[#C0392B]">{error}</p>
+      )}
+
+      {current && (
+        <div className="mt-4 pt-4 border-t border-border-card">
+          <p className="text-[11px] text-text-secondary mb-3">Warmup completion:</p>
+          <div className="flex gap-2">
+            {!completed ? (
+              <button
+                onClick={handleMarkComplete}
+                className="px-3 py-1.5 text-xs font-medium bg-[#2d5a27] text-[#f5f0e8] rounded-sm hover:opacity-90 transition-opacity"
+              >
+                Mark complete
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={handleMarkIncomplete}
+                  className="px-3 py-1.5 text-xs font-medium text-text-secondary border border-border-card rounded-sm hover:text-text-primary transition-colors"
+                >
+                  Mark incomplete
+                </button>
+                <p className="text-[10px] text-[#3B6D11] self-center">Completed</p>
+              </>
+            )}
+          </div>
+          {completionError && (
+            <p className="mt-2 text-[11px] text-[#C0392B]">{completionError}</p>
+          )}
+        </div>
       )}
     </div>
   )

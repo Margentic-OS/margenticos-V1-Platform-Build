@@ -777,3 +777,98 @@ export async function updateWarmupStartedAt(
   if (error) return { error: error.message }
   return {}
 }
+
+export async function updateWarmupCompletedAt(
+  orgId: string,
+  completed: boolean
+): Promise<{ error?: string }> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  const warmupCompletedAt = completed ? new Date().toISOString() : null
+
+  const { data: org, error: fetchError } = await supabase
+    .from('organisations')
+    .select('id, name')
+    .eq('id', orgId)
+    .single()
+
+  if (fetchError || !org) {
+    return { error: 'Organisation not found' }
+  }
+
+  const { error: updateError } = await supabase
+    .from('organisations')
+    .update({ warmup_completed_at: warmupCompletedAt })
+    .eq('id', orgId)
+
+  if (updateError) {
+    return { error: updateError.message }
+  }
+
+  // Fire email if completing (not clearing)
+  if (completed) {
+    try {
+      // Dedup via notifications_log
+      const { error: logError } = await supabase
+        .from('notifications_log')
+        .insert({
+          organisation_id: orgId,
+          notification_type: 'warming_complete',
+          subject_id: orgId,
+        })
+
+      if (logError && logError.code !== '23505') {
+        // Log error but don't fail the completion
+        logger.error('updateWarmupCompletedAt: failed to log notification', {
+          organisation_id: orgId,
+          error: logError.message,
+        })
+      } else if (!logError || logError.code === '23505') {
+        // Send email if first time, skip if already sent
+        if (!logError) {
+          const { data: clientUser } = await supabase
+            .from('users')
+            .select('email')
+            .eq('organisation_id', orgId)
+            .eq('role', 'client')
+            .single()
+
+          if (clientUser?.email) {
+            const { warmingCompleteTemplate, warmingCompleteSubject, warmingCompleteTemplateText } =
+              await import('@/lib/email/templates/warming-complete')
+
+            await sendTransactionalEmail({
+              to: clientUser.email,
+              subject: warmingCompleteSubject(org.name),
+              html: warmingCompleteTemplate({ orgName: org.name }),
+              text: warmingCompleteTemplateText({ orgName: org.name }),
+            })
+
+            logger.info('updateWarmupCompletedAt: warming_complete email sent', {
+              organisation_id: orgId,
+            })
+          }
+        }
+      }
+    } catch (err) {
+      // Don't fail the update if email fails
+      logger.error('updateWarmupCompletedAt: email send failed (non-blocking)', {
+        organisation_id: orgId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  return {}
+}
