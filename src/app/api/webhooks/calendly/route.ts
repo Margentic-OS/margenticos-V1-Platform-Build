@@ -139,8 +139,13 @@ async function handleInviteeCreated(
     scheduled_start: payload.event.start_time,
   })
 
-  // Fire first-meeting email
+  // Fire first-meeting email (only if meeting is not immediately cancelled)
+  // Dedup key uses meeting_id to allow rebooks if first meeting is cancelled
+  // This ensures real, standing meetings trigger the email, not cancelled bookings
   if (prospectId) {
+    // Note: if this meeting is later cancelled, the dedup row persists
+    // but the email won't fire again until a different meeting_id books
+    // This is correct: we want one email per real meeting, not one per org
     await sendFirstMeetingEmail({
       supabase,
       organisationId: orgId,

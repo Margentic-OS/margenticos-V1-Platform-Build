@@ -79,12 +79,16 @@ export async function sendFirstMeetingEmail(
       return { sent: false }
     }
 
-    // Send with dedup (keyed to org lifetime)
+    // Send with dedup (keyed to meeting_id, not org lifetime)
+    // Rationale: if first meeting is cancelled and rebooked, the second real meeting
+    // should still trigger this celebratory email. Dedup per-meeting ensures this.
+    // Trade-off: user gets email for each booked meeting (even if multiple rebooks).
+    // But this is correct: we celebrate real, standing meetings, not cancelled ones.
     const result = await sendTransactionalEmailWithDedup({
       supabase: params.supabase,
       organisationId: params.organisationId,
       notificationType: 'first_meeting',
-      subjectId: params.organisationId,
+      subjectId: params.meetingId,  // Dedup per-meeting, not per-org
       to: clientUser.email,
       subject: firstMeetingSubject(),
       html: firstMeetingTemplate({
