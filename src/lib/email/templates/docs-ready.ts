@@ -27,3 +27,22 @@ export function docsReadyTemplate(params: {
 </body>
 </html>`
 }
+
+export function docsReadyTemplateText(params: {
+  orgName: string
+  orgId: string
+}): string {
+  const appUrl = getAppUrl()
+  const dashboardUrl = `${appUrl}/dashboard/documents`
+
+  return `All four strategy documents for your campaigns have been generated and are ready for your review:
+
+- ICP: Who your ideal customers are and what matters most to them
+- Positioning: What makes your offer distinct
+- Tone of Voice: How you speak to your market
+- Messaging: The core themes and angles for outreach
+
+Review Documents: ${dashboardUrl}
+
+${params.orgName} Team`
+}

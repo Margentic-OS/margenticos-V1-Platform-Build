@@ -78,3 +78,22 @@ export function messagingRevisionStagedTemplate({
 export function messagingRevisionStagedSubject(orgName: string): string {
   return `Messaging revision staged — ${orgName} — review required`
 }
+
+export function messagingRevisionStagedTemplateText({
+  orgName,
+  orgId,
+  revisionNote,
+}: MessagingRevisionStagedParams): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.margenticos.com'
+  const orgUrl = `${appUrl}/dashboard/operator?client=${orgId}`
+  const safeNote = revisionNote.slice(0, 1000)
+
+  return `Messaging revision staged for review
+
+${orgName} submitted a revision to their Messaging Playbook. The revised playbook is staged and waiting for your approval before going live. Messaging revisions do not go live automatically.
+
+Revision note from client:
+${safeNote}
+
+Review and approve: ${orgUrl}`
+}

@@ -80,3 +80,24 @@ export function clientWelcomeTemplate({ founderFirstName, orgName, otpCode, logi
 export function clientWelcomeSubject(orgName: string): string {
   return `Your ${orgName} account is ready`
 }
+
+export function clientWelcomeTemplateText({ founderFirstName, orgName, otpCode, loginUrl }: ClientWelcomeParams): string {
+  return `Your ${orgName} account is ready
+
+Hi ${founderFirstName},
+
+Your MargenticOS account for ${orgName} is ready.
+
+Enter this 8-digit code to access your dashboard:
+
+${otpCode}
+
+Go to your login page, enter your email address, and type the code above when prompted.
+
+Go to login page: ${loginUrl}
+
+Or open this address in your browser:
+${loginUrl}
+
+If you were not expecting this invitation, you can ignore this email. No action is required.`
+}

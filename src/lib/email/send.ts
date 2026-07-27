@@ -36,9 +36,22 @@ export async function sendTransactionalEmail(params: SendEmailParams): Promise<S
   const from = getFromAddress()
   const replyTo = getReplyTo()
 
+  // Test override: if TEST_EMAIL_RECIPIENT is set, redirect all emails to it
+  // Used during staging/testing to avoid sending real emails to real addresses
+  const testRecipient = process.env.TEST_EMAIL_RECIPIENT
+  const finalTo = testRecipient || params.to
+
+  if (testRecipient) {
+    logger.info('sendTransactionalEmail: test recipient override active', {
+      intended_to: params.to,
+      test_to: testRecipient,
+      subject: params.subject,
+    })
+  }
+
   const { data, error } = await resendClient.emails.send({
     from,
-    to: params.to,
+    to: finalTo,
     subject: params.subject,
     html: params.html,
     ...(params.text ? { text: params.text } : {}),

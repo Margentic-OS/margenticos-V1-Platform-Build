@@ -88,3 +88,24 @@ export function clientRevisionNotifySubject(orgName: string, docType: string): s
   const label = DOC_TYPE_LABELS[docType] ?? docType
   return `Client revision submitted — ${label} — ${orgName}`
 }
+
+export function clientRevisionNotifyTemplateText({
+  orgName,
+  orgId,
+  docType,
+  revisionNote,
+}: ClientRevisionNotifyParams): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.margenticos.com'
+  const orgUrl = `${appUrl}/dashboard/operator?client=${orgId}`
+  const label = DOC_TYPE_LABELS[docType] ?? docType
+  const safeNote = revisionNote.slice(0, 1000)
+
+  return `Client revision submitted — ${label}
+
+${orgName} submitted a revision request for their ${label} document. The revision agent has run and the updated document is ready to view.
+
+Revision note from client:
+${safeNote}
+
+View updated document: ${orgUrl}`
+}

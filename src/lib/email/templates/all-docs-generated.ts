@@ -67,3 +67,20 @@ export function allDocsGeneratedTemplate({ orgName, orgId }: AllDocsGeneratedPar
 export function allDocsGeneratedSubject(orgName: string): string {
   return `Documents ready: ${orgName} — all four strategy docs generated`
 }
+
+export function allDocsGeneratedTemplateText({ orgName, orgId }: AllDocsGeneratedParams): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.margenticos.com'
+  const orgUrl = `${appUrl}/dashboard/operator?client=${orgId}`
+
+  return `Documents ready: ${orgName}
+
+All four strategy documents for ${orgName} have finished generating and are ready for your review.
+
+Documents to review:
+- Ideal Client Profile (ICP)
+- Positioning
+- Tone of Voice
+- Messaging Playbook
+
+Review documents: ${orgUrl}`
+}
