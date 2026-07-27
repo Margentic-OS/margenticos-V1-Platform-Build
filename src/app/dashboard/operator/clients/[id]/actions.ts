@@ -15,6 +15,7 @@ import {
 } from '@/lib/composition/compose-sequence'
 import { composedToVariables, assertCompleteVariables } from '@/lib/composition/custom-variables'
 import { logger } from '@/lib/logger'
+import { sendTransactionalEmail } from '@/lib/email/send'
 import type { ProspectForUpload, DfyOrderResult } from '@/lib/integrations/handlers/instantly/types'
 
 export type SetupStatusField = 'campaigns' | 'linkedin'
@@ -513,7 +514,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     // Build email→prospect_id map once (safe exclusion keyed on id, not email)
     // Avoids risk of removing wrong lead if emails duplicate or are null
     const emailToProspectId = new Map<string, string>(
-      (rawRows ?? []).map(r => [r.email, r.id])
+      (rawRows ?? []).filter(r => r.email !== null).map(r => [r.email!, r.id])
     )
 
     // Remove rejected leads from byExternalId (by prospect id via email lookup)
