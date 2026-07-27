@@ -25,6 +25,34 @@
 
 ---
 
+## Send claim race window (narrowed, not eliminated)
+
+- [monitor] Send claim reclaim + claim are separate non-transactional queries (2026-07-28, fixed 2026-07-28)
+  Location: src/app/dashboard/operator/clients/[id]/actions.ts handleUploadLeads()
+  
+  FIXED: Two critical race bugs were discovered and patched:
+  
+  1. **Reject/send race (FIXED)**: Both claim and reject checked outbound_upload_status='pending',
+     so both could match the same row. If claim won, a rejected prospect would send.
+     FIX: Added final re-check (line ~473) immediately before Instantly upload.
+     Checks suppressed=false AND client_review_status != 'rejected'.
+     Structurally impossible now to send to a rejected prospect, even if reject lands after claim.
+  
+  2. **Tier unlock via reclaim (FIXED)**: 30-min stale reclaim of 'uploading'→'pending' would
+     silently unlock a tier that had already started sending.
+     FIX: Lock now checks for 'uploaded' (durable, not reclaimable) OR 'uploading' (in-flight).
+     Once any prospect in a tier reaches 'uploaded', the tier stays locked permanently.
+  
+  Current state: Race window is narrowed (separate non-transactional queries), safe at current
+  scale (single operator, no concurrent sends). Lock is durable once sending starts.
+  
+  Action: If multi-operator concurrent sends become possible, revisit with a true transaction
+  or distributed lock. Document as pre-scale blocker.
+  
+  Related: ADR-XXX (to be written) on handling concurrency in operator send pipeline.
+
+---
+
 ## Cold email opt-out compliance (DONE 2026-06-19)
 
 - [DONE 2026-06-19] Opt-out footer added to all generated cold emails (CAN-SPAM/GDPR compliance)

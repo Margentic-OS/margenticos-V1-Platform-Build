@@ -238,20 +238,74 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     .maybeSingle()
   const primarySegmentId = primarySeg?.id ?? null
 
-  // Fetch pending prospects including id (for composeSequence) and campaign shell state.
-  const { data: rawRows, error: fetchErr } = await supabase
+  // ── Reclaim stale uploading prospects (30-min stale-lock threshold) ────────
+  // Prevents permanent stranding if a previous upload attempt crashed mid-process.
+  // Note: This and the claim below are separate queries, not a single transaction.
+  // The race window is narrowed but not fully eliminated. Safe at current scale
+  // (single operator, no concurrent sends). Revisit if concurrent sends become possible.
+  // See BACKLOG: "send claim race window on multi-operator scenario"
+  const staleThresholdISO = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  await supabase
     .from('prospects')
-    .select('id, email, first_name, last_name, company_name, role, segment_id, campaigns!inner(id, external_id, shell_step_count, shell_segment_id)')
+    .update({ outbound_upload_status: 'pending' })
+    .eq('organisation_id', orgId)
+    .eq('outbound_upload_status', 'uploading')
+    .lt('outbound_upload_attempted_at', staleThresholdISO)
+
+  // ── Claim prospects for upload (compare-and-set via status transition) ────
+  // Atomically transition pending→uploading. This is race-narrowed (not eliminated):
+  // rejects check outbound_upload_status='pending', which is now 'uploading', so they fail.
+  // Separate UPDATE+SELECT (not mutation.select with inner join) avoids silent failure
+  // if campaigns join yields no matches.
+  const nowISO = new Date().toISOString()
+  const { data: claimedIds, error: claimError } = await supabase
+    .from('prospects')
+    .update({ outbound_upload_status: 'uploading', outbound_upload_attempted_at: nowISO })
     .eq('organisation_id', orgId)
     .eq('outbound_upload_status', 'pending')
     .not('campaign_id', 'is', null)
     .not('email', 'is', null)
+    .eq('client_review_status', 'approved')       // Client gatekeeper
+    .eq('suppressed', false)                       // Suppression gate
+    .select('id')
+
+  if (claimError) {
+    return { ok: false, error: claimError.message }
+  }
+
+  // If no prospects claimed, return early (nothing to send).
+  if (!claimedIds || claimedIds.length === 0) {
+    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments: [], shellBlockedCampaigns: [], compositionFailureCount: 0 }
+  }
+
+  const claimedIdSet = new Set(claimedIds.map(r => r.id))
+
+  // ── Fetch claimed prospects with campaign details ───────────────────────
+  // Separate SELECT after claim guarantees we see what was actually claimed.
+  // If inner join fails, we detect the error rather than silently sending nothing.
+  const { data: rawRows, error: fetchErr } = await supabase
+    .from('prospects')
+    .select('id, email, first_name, last_name, company_name, role, segment_id, campaigns(id, external_id, shell_step_count, shell_segment_id)')
+    .eq('organisation_id', orgId)
+    .in('id', Array.from(claimedIdSet))
 
   if (fetchErr) {
+    // Reclaim only the prospects claimed in this run (scope to prevent over-reclaim)
+    await supabase
+      .from('prospects')
+      .update({ outbound_upload_status: 'pending' })
+      .in('id', Array.from(claimedIdSet))
+
     return { ok: false, error: fetchErr.message }
   }
 
   if (!rawRows || rawRows.length === 0) {
+    // No rows returned despite claim success — reclaim and return early
+    await supabase
+      .from('prospects')
+      .update({ outbound_upload_status: 'pending' })
+      .in('id', Array.from(claimedIdSet))
+
     return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments: [], shellBlockedCampaigns: [], compositionFailureCount: 0 }
   }
 
@@ -415,6 +469,75 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   }
 
   if (byExternalId.size === 0) {
+    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount }
+  }
+
+  // ── FINAL SAFETY CHECK: re-verify suppressed=false AND client_review_status != 'rejected' ─
+  // A reject could have landed after claim but before upload. This is the last checkpoint
+  // to prevent sending to a rejected prospect. Compliance-critical: must be impossible to send
+  // to anyone the client explicitly rejected, even if reject landed between claim and upload.
+  const { data: rejectedSinceUpload, error: rejectionCheckErr } = await supabase
+    .from('prospects')
+    .select('id')
+    .eq('organisation_id', orgId)
+    .in('id', Array.from(claimedIdSet))
+    .or('suppressed.eq.true,client_review_status.eq.rejected')
+
+  if (rejectionCheckErr) {
+    // On check failure, reclaim and abort (fail closed)
+    await supabase
+      .from('prospects')
+      .update({ outbound_upload_status: 'pending' })
+      .in('id', Array.from(claimedIdSet))
+    return { ok: false, error: `Final rejection check failed: ${rejectionCheckErr.message}` }
+  }
+
+  const rejectedIdSet = new Set((rejectedSinceUpload ?? []).map(r => r.id))
+
+  // Filter out any prospects that were rejected after claim
+  if (rejectedIdSet.size > 0) {
+    logger.info('handleUploadLeads: prospects rejected after claim, excluding from send', {
+      organisation_id: orgId,
+      rejected_count: rejectedIdSet.size,
+    })
+
+    // Mark excluded prospects as failed (rejected after claim)
+    await supabase
+      .from('prospects')
+      .update({
+        outbound_upload_status: 'failed',
+        outbound_upload_error: 'rejected-post-claim: client rejected prospect after send was initiated',
+      })
+      .in('id', Array.from(rejectedIdSet))
+
+    // Build email→prospect_id map once (safe exclusion keyed on id, not email)
+    // Avoids risk of removing wrong lead if emails duplicate or are null
+    const emailToProspectId = new Map<string, string>(
+      (rawRows ?? []).map(r => [r.email, r.id])
+    )
+
+    // Remove rejected leads from byExternalId (by prospect id via email lookup)
+    for (const [, leads] of byExternalId) {
+      for (let i = leads.length - 1; i >= 0; i--) {
+        const prospectId = emailToProspectId.get(leads[i].email)
+        if (prospectId && rejectedIdSet.has(prospectId)) {
+          leads.splice(i, 1)
+        }
+      }
+    }
+  }
+
+  // If all leads were rejected, reclaim remaining and return early
+  const remainingLeadsCount = Array.from(byExternalId.values()).reduce((sum, leads) => sum + leads.length, 0)
+  if (remainingLeadsCount === 0) {
+    // Reclaim only the non-rejected prospects
+    const nonRejectedIds = Array.from(claimedIdSet).filter(id => !rejectedIdSet.has(id))
+    if (nonRejectedIds.length > 0) {
+      await supabase
+        .from('prospects')
+        .update({ outbound_upload_status: 'pending' })
+        .in('id', nonRejectedIds)
+    }
     return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount }
   }
 

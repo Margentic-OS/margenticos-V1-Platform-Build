@@ -49,10 +49,10 @@ export async function tierEnrichedBatch(
 
     const spec = icpDoc.icp_filter_spec as ICPFilterSpec
 
-    // ── Step 2: Read TAM status ──────────────────────────────────────────────
+    // ── Step 2: Read TAM status and review gate config ──────────────────────
     const { data: org, error: orgError } = await supabase
       .from('organisations')
-      .select('tam_status, tam_override_reason')
+      .select('tam_status, tam_override_reason, client_review_enabled')
       .eq('id', organisationId)
       .single()
 
@@ -125,16 +125,24 @@ export async function tierEnrichedBatch(
       )
     )
 
-    // ── Step 5: Update prospects with sourced_tier ──────────────────────────
+    // ── Step 5: Update prospects with sourced_tier and tier_published_at ────
+    // If client_review_enabled = false, auto-publish and auto-approve at tiering time
+    const tierPublishedAt = org.client_review_enabled === false ? new Date().toISOString() : null
+    const clientReviewStatus = org.client_review_enabled === false ? 'approved' : null
+
     let updateCount = 0
     for (const result of results) {
       if (result.sourced_tier === null) {
         continue // Don't update untiered prospects (stay NULL)
       }
 
+      const updatePayload: Record<string, unknown> = { sourced_tier: result.sourced_tier }
+      if (tierPublishedAt) updatePayload.tier_published_at = tierPublishedAt
+      if (clientReviewStatus) updatePayload.client_review_status = clientReviewStatus
+
       const { error: updateError } = await supabase
         .from('prospects')
-        .update({ sourced_tier: result.sourced_tier })
+        .update(updatePayload)
         .eq('id', result.prospect_id)
         .eq('organisation_id', organisationId)
 
