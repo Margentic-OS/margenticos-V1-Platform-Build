@@ -61,6 +61,27 @@ async function getTierData(
     : null
   const isAutoSanctioned = tierPublishedAt ? new Date(tierPublishedAt).getTime() < now.getTime() - AUTO_SANCTION_DAYS * 24 * 60 * 60 * 1000 : false
 
+  // ── 1b. Get tier created date (first prospect in tier) ────────────────────
+  const { data: tierCreatedData, error: tierCreatedError } = await supabase
+    .from('prospects')
+    .select('created_at')
+    .eq('organisation_id', orgId)
+    .eq('sourced_tier', tier)
+    .eq('suppressed', false)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (tierCreatedError) {
+    logger.warn('getTierData: failed to fetch tier created date', {
+      organisation_id: orgId,
+      tier,
+      error: tierCreatedError.message,
+    })
+  }
+
+  const tierCreatedAt = tierCreatedData?.created_at ?? null
+
   // ── 2. Check if tier is locked (durable: any prospect reached 'uploaded') ───
   // Lock persists across stale-lock reclaim because 'uploaded' is terminal.
   // 'uploading' is transient but also blocks during in-flight sends.

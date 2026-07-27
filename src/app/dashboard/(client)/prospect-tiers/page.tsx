@@ -5,6 +5,15 @@ import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import { TierCard } from './components/TierCard'
 import { logger } from '@/lib/logger'
 
+function getOrgInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w[0].toUpperCase())
+    .join('')
+}
+
 interface TierData {
   tier: 'tier_1' | 'tier_2' | 'tier_3'
   tier_created_at: string | null
@@ -32,7 +41,20 @@ export default async function ProspectTiersPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { organisationId, organisationName } = await resolveViewingOrg(supabase, user)
+  const { organisationId } = await resolveViewingOrg(supabase, user, undefined)
+
+  if (!organisationId) {
+    redirect('/login')
+  }
+
+  // Fetch organisation name
+  const { data: org } = await supabase
+    .from('organisations')
+    .select('name')
+    .eq('id', organisationId)
+    .single()
+
+  const organisationName = org?.name || 'Organisation'
 
   // Fetch tier data from API route
   let tierData: TierData[] = []
@@ -74,8 +96,10 @@ export default async function ProspectTiersPage() {
       <DashboardTopbar
         eyebrow="Ready to deploy"
         title={`Review Prospects — ${organisationName}`}
-        subtitle={nonEmptyTiers.length === 0 ? 'No prospects to review' : undefined}
-        userEmail={user.email}
+        subtitle={nonEmptyTiers.length === 0 ? 'No prospects to review' : ''}
+        statusLabel="Waiting for approval"
+        statusVariant="setup"
+        orgInitials={getOrgInitials(organisationName)}
       />
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 max-w-[1200px]">

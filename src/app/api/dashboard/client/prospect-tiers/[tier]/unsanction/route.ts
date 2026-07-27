@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { logger } from '@/lib/logger'
 
-export async function POST(
+export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ tier: string }> }
 ) {
@@ -33,6 +33,9 @@ export async function POST(
     }
 
     const orgId = userRow.organisation_id
+    if (!orgId) {
+      return NextResponse.json({ error: 'User has no organisation' }, { status: 403 })
+    }
 
     // Check if tier is locked: any prospect reached 'uploaded' (durable) or is 'uploading' (in flight).
     // Use both checks: 'uploaded' survives reclaim, 'uploading' catches in-flight sends.
@@ -53,43 +56,44 @@ export async function POST(
       )
     }
 
-    // Sanction: update pending prospects to approved
-    const { data: sanctioned, error: sanctionError } = await supabase
+    // Unsanction: revert approved prospects back to NULL (pending)
+    // This allows the client to review them again before sending
+    const { data: unsanctioned, error: unsanctionError } = await supabase
       .from('prospects')
-      .update({ client_review_status: 'approved' })
+      .update({ sourcing_review_status: null })
       .eq('organisation_id', orgId)
       .eq('sourced_tier', tier)
-      .in('client_review_status', [null, 'pending_review'])
+      .eq('sourcing_review_status', 'approved')
       .eq('suppressed', false)
       .select('id')
 
-    if (sanctionError) throw sanctionError
+    if (unsanctionError) throw unsanctionError
 
-    const sanctionedCount = (sanctioned ?? []).length
+    const unsanctionedCount = (unsanctioned ?? []).length
 
-    logger.info('prospect-tier sanction: success', {
+    logger.info('prospect-tier unsanction: success', {
       user_id: user.id,
       organisation_id: orgId,
       tier,
-      sanctioned_count: sanctionedCount,
+      unsanctioned_count: unsanctionedCount,
     })
 
     return NextResponse.json({
       ok: true,
-      sanctioned_count: sanctionedCount,
+      unsanctioned_count: unsanctionedCount,
       tier,
     })
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
 
-    logger.error('prospect-tier sanction: failed', {
+    logger.error('prospect-tier unsanction: failed', {
       user_id: user.id,
       tier,
       error: errorMsg,
     })
 
     return NextResponse.json(
-      { error: `Sanction failed: ${errorMsg}` },
+      { error: `Unsanction failed: ${errorMsg}` },
       { status: 500 }
     )
   }

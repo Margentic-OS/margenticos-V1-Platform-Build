@@ -31,6 +31,9 @@ export async function POST(
     }
 
     const orgId = userRow.organisation_id
+    if (!orgId) {
+      return NextResponse.json({ error: 'User has no organisation' }, { status: 403 })
+    }
 
     // Race-safe reject: fail if prospect is already sending (outbound_upload_status != 'pending')
     const { data: rejected, error: rejectError } = await supabase

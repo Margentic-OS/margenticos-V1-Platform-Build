@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { formatDistanceToNow } from 'date-fns'
 import { logger } from '@/lib/logger'
 
 interface TierData {
@@ -72,7 +71,7 @@ export function TierCard({ tier, tierLabel, organisationId }: TierCardProps) {
 
   const getStatusMessage = () => {
     if (tier.tier_is_locked) {
-      return 'This tier is sending now. You can't modify it. Contact support if you need to make changes.'
+      return 'This tier is sending now. You can\'t modify it. Contact support if you need to make changes.'
     }
 
     if (tier.tier_sanction_status === 'sanctioned_auto') {
