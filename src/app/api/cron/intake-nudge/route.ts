@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     // Find organisations with incomplete intake and no activity in 48h
     const { data: orgs, error: orgsError } = await supabase
       .from('organisations')
-      .select('id, name')
+      .select('id, name, contract_start_date')
       .filter(
         'intake_last_activity_at',
         'lt',
@@ -96,22 +96,33 @@ export async function POST(request: NextRequest) {
           .single()
 
         if (clientUser?.email) {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.margenticos.com'
+          const intakeUrl = `${appUrl}/dashboard/intake`
+
+          // Format kickoff date from contract_start_date
+          let kickoffDate = 'your kickoff call'
+          if (org.contract_start_date) {
+            const kickoffDateObj = new Date(org.contract_start_date)
+            kickoffDate = kickoffDateObj.toLocaleDateString('en-GB', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })
+          }
+
           await sendTransactionalEmail({
             to: clientUser.email,
             subject: intakeNudgeSubject(),
             html: intakeNudgeTemplate({
-              orgName: org.name,
               completionPercent: completeness,
+              intakeUrl,
+              kickoffDate,
             }),
-            text: `Let's finish your intake questionnaire
-
-You're ${completeness}% of the way through your intake questionnaire. Just a few more answers and we can unlock your AI-powered pipeline.
-
-The questions are quick — most teams finish in under 15 minutes. Pick up where you left off:
-
-Continue intake: ${process.env.NEXT_PUBLIC_APP_URL || 'https://app.margenticos.com'}/dashboard/intake
-
-${org.name} Team`,
+            text: intakeNudgeTemplate({
+              completionPercent: completeness,
+              intakeUrl,
+              kickoffDate,
+            }),
           })
 
           nudgedCount++

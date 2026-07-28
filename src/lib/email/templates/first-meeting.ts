@@ -1,19 +1,16 @@
-// first-meeting: celebratory email sent to client when first meeting is booked
+// first-meeting: branded email sent to client when first meeting is booked
 // Event: first meeting record created for organisation
-// Contains: celebration + prospect details (or generic if prospect_id is NULL)
-// Variant 1: First meeting ever (this template)
-// Variant 2: Subsequent meetings (not in scope for phase 1)
+// Branded email with HTML card template
 
 export interface FirstMeetingParams {
-  orgName: string
   prospectName?: string | null
-  prospectCompany?: string | null
   prospectTitle?: string | null
+  prospectCompany?: string | null
   meetingTime: string // formatted date e.g. "30 July 2026 at 2:00 PM"
 }
 
-export function firstMeetingSubject(): string {
-  return `You've booked your first meeting`
+export function firstMeetingSubject(prospectCompany?: string | null): string {
+  return prospectCompany ? `meeting booked: ${prospectCompany}` : `meeting booked`
 }
 
 export function firstMeetingTemplate(params: FirstMeetingParams): string {
@@ -29,7 +26,7 @@ export function firstMeetingTemplate(params: FirstMeetingParams): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>You've booked your first meeting</title>
+  <title>meeting booked</title>
 </head>
 <body style="margin:0;padding:0;background:#f5f0e8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8;padding:40px 20px;">
@@ -44,28 +41,21 @@ export function firstMeetingTemplate(params: FirstMeetingParams): string {
           <tr>
             <td style="padding:40px 32px 32px;">
               <p style="margin:0 0 24px;font-size:22px;font-weight:600;color:#1a1a1a;line-height:1.3;">
-                The ball is rolling
-              </p>
-              <p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">
-                Your first meeting has been booked with ${prospectLine} on ${params.meetingTime}.
+                Meeting booked
               </p>
               <p style="margin:0 0 24px;font-size:15px;color:#444;line-height:1.6;">
-                This is the first of many conversations that will shape your pipeline. Prepare your talking points and good luck.
+                ${prospectLine} — ${params.meetingTime}, in your calendar. Details and reply history in your dashboard.
               </p>
               <table cellpadding="0" cellspacing="0" style="margin:24px 0;">
                 <tr>
                   <td style="background:#2d5a27;border-radius:6px;">
                     <a href="${dashboardUrl}"
                        style="display:inline-block;padding:14px 28px;color:#f5f0e8;font-size:15px;font-weight:600;text-decoration:none;">
-                      View pipeline
+                      View dashboard
                     </a>
                   </td>
                 </tr>
               </table>
-              <hr style="border:none;border-top:1px solid #eee;margin:0 0 24px;" />
-              <p style="margin:0;font-size:13px;color:#aaa;line-height:1.6;">
-                ${params.orgName} Team
-              </p>
             </td>
           </tr>
         </table>
@@ -81,13 +71,9 @@ export function firstMeetingTemplateText(params: FirstMeetingParams): string {
     ? `${params.prospectName}${params.prospectTitle ? `, ${params.prospectTitle}` : ''}${params.prospectCompany ? ` at ${params.prospectCompany}` : ''}`
     : 'Your prospect'
 
-  return `The ball is rolling
+  return `Meeting booked
 
-Your first meeting has been booked with ${prospectLine} on ${params.meetingTime}.
+${prospectLine} — ${params.meetingTime}, in your calendar. Details and reply history in your dashboard.
 
-This is the first of many conversations that will shape your pipeline. Prepare your talking points and good luck.
-
-View pipeline: ${process.env.NEXT_PUBLIC_APP_URL || 'https://app.margenticos.com'}/dashboard
-
-${params.orgName} Team`
+View dashboard: ${process.env.NEXT_PUBLIC_APP_URL || 'https://app.margenticos.com'}/dashboard`
 }

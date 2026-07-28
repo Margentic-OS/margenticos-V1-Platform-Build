@@ -1,86 +1,37 @@
 // warmup-halfway: sent to client ~17 days after email warmup starts
 // Event: cron job triggered by organisations.warmup_started_at
-// Contains: progress summary, link to pipeline view
+// Plain text, signed "Doug" — relationship email
 
 export interface WarmupHalfwayParams {
-  orgName: string
-  warmupStartedAt: string // ISO date
+  sendDate: string  // formatted date e.g. "August 10"
 }
 
-export function warmupHalfwaySubject(orgName: string): string {
-  return `Your email warmup is underway`
+export function warmupHalfwaySubject(): string {
+  return `halfway through warming`
 }
 
 export function warmupHalfwayTemplate(params: WarmupHalfwayParams): string {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.margenticos.com'
-  const pipelineUrl = `${appUrl}/dashboard`
+  const body = `Quick update. Your domains are about halfway through their warming cycle, on schedule. Nothing needed from you. Your list is approved, your sequences are written, and the only thing between here and your first sends is time. First emails go out around ${params.sendDate}.
 
-  const startDate = new Date(params.warmupStartedAt)
-  const daysElapsed = Math.floor((Date.now() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+Doug`
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Your email warmup is underway</title>
+  <title>${warmupHalfwaySubject()}</title>
 </head>
-<body style="margin:0;padding:0;background:#f5f0e8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8;padding:40px 20px;">
-    <tr>
-      <td align="center">
-        <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
-          <tr>
-            <td style="background:#2d5a27;padding:24px 32px;">
-              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS</p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:40px 32px 32px;">
-              <p style="margin:0 0 24px;font-size:22px;font-weight:600;color:#1a1a1a;line-height:1.3;">
-                Warmup in progress
-              </p>
-              <p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">
-                We've been warming up your sending reputation for ${daysElapsed} days now. Your mailboxes are building trust with inboxes and improving deliverability with each send.
-              </p>
-              <p style="margin:0 0 24px;font-size:15px;color:#444;line-height:1.6;">
-                Warmup continues for roughly another 17 days. Your team will be notified when it's complete.
-              </p>
-              <table cellpadding="0" cellspacing="0" style="margin:24px 0;">
-                <tr>
-                  <td style="background:#2d5a27;border-radius:6px;">
-                    <a href="${pipelineUrl}"
-                       style="display:inline-block;padding:14px 28px;color:#f5f0e8;font-size:15px;font-weight:600;text-decoration:none;">
-                      View your dashboard
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              <hr style="border:none;border-top:1px solid #eee;margin:0 0 24px;" />
-              <p style="margin:0;font-size:13px;color:#aaa;line-height:1.6;">
-                ${params.orgName} Team
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <div style="padding:20px;">
+    <p style="margin:0;font-size:15px;color:#333;line-height:1.6;white-space:pre-wrap;">${body}</p>
+  </div>
 </body>
 </html>`
 }
 
 export function warmupHalfwayTemplateText(params: WarmupHalfwayParams): string {
-  const startDate = new Date(params.warmupStartedAt)
-  const daysElapsed = Math.floor((Date.now() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+  return `Quick update. Your domains are about halfway through their warming cycle, on schedule. Nothing needed from you. Your list is approved, your sequences are written, and the only thing between here and your first sends is time. First emails go out around ${params.sendDate}.
 
-  return `Warmup in progress
-
-We've been warming up your sending reputation for ${daysElapsed} days now. Your mailboxes are building trust with inboxes and improving deliverability with each send.
-
-Warmup continues for roughly another 17 days. Your team will be notified when it's complete.
-
-View your dashboard: ${process.env.NEXT_PUBLIC_APP_URL || 'https://app.margenticos.com'}/dashboard
-
-${params.orgName} Team`
+Doug`
 }

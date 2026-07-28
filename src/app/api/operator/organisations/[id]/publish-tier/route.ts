@@ -15,7 +15,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import * as Sentry from '@sentry/nextjs'
 import { sendTransactionalEmail } from '@/lib/email/send'
-import { listReadyTemplate, listReadySubject } from '@/lib/email/templates/list-ready'
+import { listReadyTemplate, listReadyTemplateText, listReadySubject } from '@/lib/email/templates/list-ready'
 
 type TierName = 'tier_1' | 'tier_2' | 'tier_3'
 
@@ -149,20 +149,26 @@ export async function POST(
             .single()
 
           if (clientUser?.email) {
-            const autoSanctionDate = new Date(new Date(publishedAt).getTime() + 4 * 24 * 60 * 60 * 1000)
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.margenticos.com'
+            const reviewUrl = `${appUrl}/dashboard/prospect-tiers`
+            const lockDate = new Date(new Date(publishedAt).getTime() + 4 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })
+
             await sendTransactionalEmail({
               to: clientUser.email,
-              subject: listReadySubject(org.name),
+              subject: listReadySubject(),
               html: listReadyTemplate({
-                orgName: org.name,
-                orgId: organisationId,
-                tier,
-                publishedCount,
-                reviewDeadline: autoSanctionDate.toLocaleDateString('en-GB', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                }),
+                prospectCount: publishedCount,
+                reviewUrl,
+                lockDate,
+              }),
+              text: listReadyTemplateText({
+                prospectCount: publishedCount,
+                reviewUrl,
+                lockDate,
               }),
             })
 

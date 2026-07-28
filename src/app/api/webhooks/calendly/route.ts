@@ -152,6 +152,7 @@ async function handleInviteeCreated(
       meetingId: inviteeUuid || eventUuid || 'unknown',
       prospectId,
       scheduledStartAt: payload.event.start_time,
+      bookedAt: new Date().toISOString(),  // webhook receipt time = booking event time
     })
   }
 }

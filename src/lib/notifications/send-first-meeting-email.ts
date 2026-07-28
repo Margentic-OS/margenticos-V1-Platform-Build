@@ -1,10 +1,13 @@
 // Sends FIRST_MEETING email when first meeting is booked for an organisation
 // Called from meeting creation webhook/endpoint
+// Backfill guard: only fires on events for orgs created on or after feature activation date
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { sendTransactionalEmailWithDedup } from './send-transactional-with-dedup'
 import { firstMeetingTemplate, firstMeetingTemplateText, firstMeetingSubject } from '@/lib/email/templates/first-meeting'
+
+const FEATURE_ACTIVATION_DATE = new Date('2026-07-27').toISOString()
 
 export interface SendFirstMeetingEmailParams {
   supabase: SupabaseClient
@@ -12,12 +15,23 @@ export interface SendFirstMeetingEmailParams {
   meetingId: string
   prospectId?: string | null
   scheduledStartAt: string // ISO timestamp
+  bookedAt: string  // ISO timestamp of when meeting was booked
 }
 
 export async function sendFirstMeetingEmail(
   params: SendFirstMeetingEmailParams
 ): Promise<{ sent: boolean }> {
   try {
+    // Backfill guard: only send if meeting event occurred after feature activation
+    if (params.bookedAt < FEATURE_ACTIVATION_DATE) {
+      logger.info('sendFirstMeetingEmail: meeting booked before feature activation, skipping', {
+        organisation_id: params.organisationId,
+        booked_at: params.bookedAt,
+        activation_date: FEATURE_ACTIVATION_DATE,
+      })
+      return { sent: false }
+    }
+
     // Fetch organisation name
     const { data: org, error: orgError } = await params.supabase
       .from('organisations')
@@ -81,25 +95,21 @@ export async function sendFirstMeetingEmail(
 
     // Send with dedup (keyed to meeting_id, not org lifetime)
     // Rationale: if first meeting is cancelled and rebooked, the second real meeting
-    // should still trigger this celebratory email. Dedup per-meeting ensures this.
-    // Trade-off: user gets email for each booked meeting (even if multiple rebooks).
-    // But this is correct: we celebrate real, standing meetings, not cancelled ones.
+    // should still trigger this email. Dedup per-meeting ensures this.
     const result = await sendTransactionalEmailWithDedup({
       supabase: params.supabase,
       organisationId: params.organisationId,
       notificationType: 'first_meeting',
       subjectId: params.meetingId,  // Dedup per-meeting, not per-org
       to: clientUser.email,
-      subject: firstMeetingSubject(),
+      subject: firstMeetingSubject(prospectCompany),
       html: firstMeetingTemplate({
-        orgName: org.name,
         prospectName,
         prospectCompany,
         prospectTitle,
         meetingTime: formattedTime,
       }),
       text: firstMeetingTemplateText({
-        orgName: org.name,
         prospectName,
         prospectCompany,
         prospectTitle,

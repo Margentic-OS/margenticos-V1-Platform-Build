@@ -849,11 +849,21 @@ export async function updateWarmupCompletedAt(
             const { warmingCompleteTemplate, warmingCompleteSubject, warmingCompleteTemplateText } =
               await import('@/lib/email/templates/warming-complete')
 
+            // Calculate send date: 1 day after confirmation (when warming_completed_at was set)
+            // Tied to the actual confirmation time, not a fixed offset from warmup start
+            const sendDateObj = new Date(warmupCompletedAt!)
+            sendDateObj.setDate(sendDateObj.getDate() + 1)
+            const sendDate = sendDateObj.toLocaleDateString('en-GB', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })
+
             await sendTransactionalEmail({
               to: clientUser.email,
-              subject: warmingCompleteSubject(org.name),
-              html: warmingCompleteTemplate({ orgName: org.name }),
-              text: warmingCompleteTemplateText({ orgName: org.name }),
+              subject: warmingCompleteSubject(),
+              html: warmingCompleteTemplate({ sendDate }),
+              text: warmingCompleteTemplateText({ sendDate }),
             })
 
             logger.info('updateWarmupCompletedAt: warming_complete email sent', {

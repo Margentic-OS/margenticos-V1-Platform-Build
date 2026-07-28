@@ -269,6 +269,7 @@ async function processOneSignal(
     campaign_id: string | null
     raw_data: Json
     original_outbound_body: string | null
+    created_at: string
   },
 ): Promise<'processed' | 'skipped' | 'error'> {
   const raw = signal.raw_data as Record<string, unknown>
@@ -456,7 +457,8 @@ async function processOneSignal(
       supabase,
       organisationId: signal.organisation_id,
       prospectId: prospectId,
-      classifiedIntent: intent,
+      classifiedIntent: intent,  // kept for logging
+      signalCreatedAt: signal.created_at,  // backfill guard: only fire for new events
     })
   }
 
@@ -749,7 +751,7 @@ export async function processReplies(
 
   const { data: signals, error: fetchError } = await supabase
     .from('signals')
-    .select('id, organisation_id, campaign_id, raw_data, original_outbound_body')
+    .select('id, organisation_id, campaign_id, raw_data, original_outbound_body, created_at')
     .eq('signal_type', 'reply_received')
     .eq('processed', false)
     .order('created_at', { ascending: true })

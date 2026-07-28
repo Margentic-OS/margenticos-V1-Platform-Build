@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import * as Sentry from '@sentry/nextjs'
 import { sendTransactionalEmail } from '@/lib/email/send'
-import { warmupHalfwayTemplate, warmupHalfwaySubject, warmupHalfwayTemplateText } from '@/lib/email/templates/warmup-halfway'
+import { warmupHalfwayTemplate, warmupHalfwayTemplateText, warmupHalfwaySubject } from '@/lib/email/templates/warmup-halfway'
 
 const WARMUP_MILESTONE_DAYS = 17
 
@@ -79,16 +79,23 @@ export async function POST(request: NextRequest) {
           .single()
 
         if (clientUser?.email) {
+          // Calculate expected send date (warmup start + ~34 days)
+          const sendDateObj = new Date(org.warmup_started_at)
+          sendDateObj.setDate(sendDateObj.getDate() + 34)
+          const sendDate = sendDateObj.toLocaleDateString('en-GB', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          })
+
           await sendTransactionalEmail({
             to: clientUser.email,
-            subject: warmupHalfwaySubject(org.name),
+            subject: warmupHalfwaySubject(),
             html: warmupHalfwayTemplate({
-              orgName: org.name,
-              warmupStartedAt: org.warmup_started_at,
+              sendDate,
             }),
             text: warmupHalfwayTemplateText({
-              orgName: org.name,
-              warmupStartedAt: org.warmup_started_at,
+              sendDate,
             }),
           })
 

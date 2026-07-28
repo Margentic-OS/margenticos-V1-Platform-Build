@@ -1,38 +1,36 @@
 // Sends FIRST_REPLY email when first qualifying human reply is classified
 // Called from reply processing pipeline
+// Backfill guard: only fires on events for orgs created on or after feature activation date
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { sendTransactionalEmailWithDedup } from './send-transactional-with-dedup'
-import { firstReplyTemplate, firstReplyTemplateText, firstReplySubject, type FirstReplyVariant } from '@/lib/email/templates/first-reply'
+import { firstReplyTemplate, firstReplyTemplateText, firstReplySubject } from '@/lib/email/templates/first-reply'
+
+const FEATURE_ACTIVATION_DATE = new Date('2026-07-27').toISOString()
 
 export interface SendFirstReplyEmailParams {
   supabase: SupabaseClient
   organisationId: string
   prospectId: string | null
   classifiedIntent: string
-}
-
-// Map classified_intent to email variant
-function getVariantFromIntent(intent: string): FirstReplyVariant {
-  switch (intent) {
-    case 'positive_direct_booking':
-    case 'positive_passive':
-      return 'positive'
-    case 'information_request_generic':
-    case 'information_request_commercial':
-      return 'question'
-    case 'objection_mild':
-      return 'objection'
-    default:
-      return 'question'
-  }
+  signalCreatedAt: string  // ISO timestamp of when reply event occurred
 }
 
 export async function sendFirstReplyEmail(
   params: SendFirstReplyEmailParams
 ): Promise<{ sent: boolean }> {
   try {
+    // Backfill guard: only send if reply event occurred after feature activation
+    if (params.signalCreatedAt < FEATURE_ACTIVATION_DATE) {
+      logger.info('sendFirstReplyEmail: reply event before feature activation, skipping', {
+        organisation_id: params.organisationId,
+        signal_created_at: params.signalCreatedAt,
+        activation_date: FEATURE_ACTIVATION_DATE,
+      })
+      return { sent: false }
+    }
+
     // Fetch organisation name
     const { data: org, error: orgError } = await params.supabase
       .from('organisations')
@@ -64,9 +62,6 @@ export async function sendFirstReplyEmail(
       }
     }
 
-    // Determine email variant based on classified intent
-    const variant = getVariantFromIntent(params.classifiedIntent)
-
     // Fetch client email
     const { data: clientUser } = await params.supabase
       .from('users')
@@ -82,23 +77,19 @@ export async function sendFirstReplyEmail(
       return { sent: false }
     }
 
-    // Send with dedup
+    // Send with dedup (keyed to org lifetime — one email per org)
     const result = await sendTransactionalEmailWithDedup({
       supabase: params.supabase,
       organisationId: params.organisationId,
       notificationType: 'first_reply',
-      subjectId: params.organisationId,
+      subjectId: params.organisationId,  // Dedup per-org, not per-prospect
       to: clientUser.email,
-      subject: firstReplySubject(variant),
+      subject: firstReplySubject(),
       html: firstReplyTemplate({
-        orgName: org.name,
-        variant,
         prospectName,
         prospectCompany,
       }),
       text: firstReplyTemplateText({
-        orgName: org.name,
-        variant,
         prospectName,
         prospectCompany,
       }),
