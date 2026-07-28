@@ -21,7 +21,7 @@ export function listReadyTemplate(params: ListReadyParams): string {
 
 Have a look through and reject anyone you don't want contacted. That includes existing clients, live deals, competitors, or anyone you already know. This matters for two reasons. First, nobody gets an email from you who shouldn't. Second, you'll never be billed for a meeting with someone you didn't approve.
 
-Please review by ${params.lockDate}. After that the list locks so we stay on schedule for your send date.
+Please review by ${params.lockDate}. After that we proceed with the list as it stands, so we stay on schedule for your send date.
 
 ${params.reviewUrl}
 
@@ -50,7 +50,7 @@ export function listReadyTemplateText(params: ListReadyParams): string {
 
 Have a look through and reject anyone you don't want contacted. That includes existing clients, live deals, competitors, or anyone you already know. This matters for two reasons. First, nobody gets an email from you who shouldn't. Second, you'll never be billed for a meeting with someone you didn't approve.
 
-Please review by ${params.lockDate}. After that the list locks so we stay on schedule for your send date.
+Please review by ${params.lockDate}. After that we proceed with the list as it stands, so we stay on schedule for your send date.
 
 ${params.reviewUrl}
 
