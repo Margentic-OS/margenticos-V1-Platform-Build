@@ -16,6 +16,7 @@ export const CANONICAL_INDUSTRIES = [
   'Management Consulting',
   'Operations Consulting',
   'Marketing Consulting',
+  'Advertising and Marketing Agencies',
   'Human Resources Consulting',
   'Information Technology Consulting',
   'Strategy Consulting',
@@ -50,6 +51,7 @@ export const CANONICAL_INDUSTRIES = [
   // Construction & Real Estate
   'Construction and Building',
   'Real Estate Development',
+  'Property Management Services',
   'Architecture and Engineering',
   // Manufacturing
   'General Manufacturing',
@@ -67,6 +69,7 @@ export const CANONICAL_INDUSTRIES = [
   'E-Commerce and Online Retail',
   'Department Stores',
   'Specialty Retail',
+  'Wholesale Trade',
   // Hospitality & Food Service
   'Hotels and Lodging',
   'Food Service and Restaurants',

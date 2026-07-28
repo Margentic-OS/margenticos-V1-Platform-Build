@@ -411,11 +411,11 @@ Return raw JSON only.
    Primary and Secondary Education | Higher Education | Educational Services and Training |
    Healthcare Providers | Pharmaceutical Manufacturing | Medical Devices and Equipment |
    Biotechnology | Construction and Building | Real Estate Development |
-   Architecture and Engineering | General Manufacturing | Food and Beverage Manufacturing |
+   Property Management Services | Architecture and Engineering | General Manufacturing | Food and Beverage Manufacturing |
    Automotive Manufacturing | Electronics Manufacturing | Industrial Equipment Manufacturing |
    Banking and Credit | Insurance | Investment and Securities | Wealth Management |
    Retail Trade | E-Commerce and Online Retail | Department Stores | Specialty Retail |
-   Hotels and Lodging | Food Service and Restaurants | Hospitality Management |
+   Wholesale Trade | Hotels and Lodging | Food Service and Restaurants | Hospitality Management |
    Transportation and Warehousing | Logistics and Supply Chain | Freight and Cargo |
    Software Publishers | IT Services and Consulting | Data Processing and Hosting |
    Telecommunications | Media and Broadcasting | Entertainment and Arts | Publishing |
@@ -423,7 +423,7 @@ Return raw JSON only.
    Electric Power Generation | Petroleum and Natural Gas | Utilities and Water |
    Government Agencies | Non-Profit Organizations | Public Administration |
    Management Consulting | Operations Consulting | Marketing Consulting |
-   Human Resources Consulting | Information Technology Consulting |
+   Advertising and Marketing Agencies | Human Resources Consulting | Information Technology Consulting |
    Financial Advisory Services | Strategy Consulting | Sales Consulting |
    Accounting Services | Legal Services | Recruitment and Staffing |
    Training and Development | Executive Coaching | Business Coaching |
