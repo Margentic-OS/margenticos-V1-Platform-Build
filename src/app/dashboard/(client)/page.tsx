@@ -36,6 +36,8 @@ function getOrgInitials(name: string): string {
 
 type DashboardState = 'intake_incomplete' | 'strategy_in_review' | 'documents_active'
 
+type StrategyReviewSubstate = 'generating' | 'team_reviewing'
+
 function buildTopbarProps(
   orgName: string,
   state: DashboardState
@@ -141,6 +143,14 @@ export default async function DashboardPage({
     .eq('organisation_id', org.id)
     .eq('status', 'pending')
 
+  // Fetch agent runs to determine if doc-generation agents are still running.
+  // Used to distinguish "Generating your documents" from "Team reviewing" state.
+  const { data: agentRunsRows } = await supabase
+    .from('agent_runs')
+    .select('id, agent_name, status, started_at')
+    .eq('organisation_id', org.id)
+    .in('agent_name', ['icp-generation', 'positioning-generation', 'tov-generation', 'messaging-generation'])
+
   // Derive campaign setup status from real signals (registered campaigns + lead uploads).
   const [campaignsRes, uploadedCountRes] = await Promise.all([
     supabase
@@ -189,6 +199,24 @@ export default async function DashboardPage({
   let state: DashboardState = 'intake_incomplete'
   if (intakeComplete && allDocsActive) state = 'documents_active'
   else if (intakeComplete) state = 'strategy_in_review'
+
+  // Determine sub-state within strategy_in_review:
+  // - If any doc-generation agent is still running → 'generating'
+  // - Else if pending suggestions exist → 'team_reviewing'
+  // - Else → 'generating' (covers transition moment between agent completion and suggestion creation)
+  let strategyReviewSubstate: StrategyReviewSubstate = 'generating'
+  if (state === 'strategy_in_review') {
+    const agentRuns = agentRunsRows ?? []
+    const hasRunningAgents = agentRuns.some(r => r.status === 'running')
+
+    if (hasRunningAgents) {
+      strategyReviewSubstate = 'generating'
+    } else if ((pendingSuggRows ?? []).length > 0) {
+      strategyReviewSubstate = 'team_reviewing'
+    } else {
+      strategyReviewSubstate = 'generating'
+    }
+  }
 
   const topbarProps = buildTopbarProps(org.name, state)
 
@@ -262,6 +290,7 @@ export default async function DashboardPage({
         <StrategyInReviewState
           orgName={org.name}
           documents={docReviewStatuses}
+          substate={strategyReviewSubstate}
         />
       )}
 

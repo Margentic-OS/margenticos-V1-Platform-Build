@@ -11,6 +11,7 @@ export interface DocumentReviewStatus {
 interface StrategyInReviewStateProps {
   orgName: string
   documents: DocumentReviewStatus[]
+  substate: 'generating' | 'team_reviewing'
 }
 
 
@@ -50,7 +51,7 @@ const WHAT_NEXT = [
   'All campaign content goes through you for approval before anything sends.',
 ]
 
-export function StrategyInReviewState({ orgName: _orgName, documents }: StrategyInReviewStateProps) {
+export function StrategyInReviewState({ orgName: _orgName, documents, substate }: StrategyInReviewStateProps) {
   const docMap = new Map(documents.map(d => [d.type, d]))
   const readyCount = documents.filter(
     d => d.status === 'approved' || d.status === 'active'
@@ -69,14 +70,29 @@ export function StrategyInReviewState({ orgName: _orgName, documents }: Strategy
               <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-[rgba(245,240,232,0.40)] mb-3">
                 Strategy build
               </p>
-              <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">
-                Your strategy is being built
-              </h2>
-              <p className="text-[12px] text-[rgba(245,240,232,0.60)] leading-relaxed mb-5">
-                {readyCount > 0
-                  ? `${readyCount} of 4 documents are ready. The rest are generating now — usually takes a few hours. We'll be in touch once everything is approved.`
-                  : "We've received your intake. Our agents are generating your prospect profile, positioning, voice guide, and messaging documents. This usually takes a few hours."}
-              </p>
+              {substate === 'generating' ? (
+                <>
+                  <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">
+                    Generating your documents
+                  </h2>
+                  <p className="text-[12px] text-[rgba(245,240,232,0.60)] leading-relaxed mb-5">
+                    {readyCount > 0
+                      ? `${readyCount} of 4 documents are ready. Right now we're building your prospect profile, your positioning, your voice, and your messaging. It's the strategy your whole pipeline runs on.`
+                      : "This is where it starts. Right now we're building your prospect profile, your positioning, your voice, and your messaging. It's the strategy your whole pipeline runs on, and it's being made specifically for you."}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">
+                    Your documents are being reviewed
+                  </h2>
+                  <p className="text-[12px] text-[rgba(245,240,232,0.60)] leading-relaxed mb-5">
+                    {readyCount > 0
+                      ? `${readyCount} of 4 documents are ready. Before you see them, they're getting a personal once-over from the MargenticOS team. We'll email you the moment they're ready to review.`
+                      : "Your strategy documents are built. Before you see them, they're getting a personal once-over from the MargenticOS team, because your positioning should be right, not just fast. We'll email you the moment they're ready to review."}
+                  </p>
+                </>
+              )}
 
               {/* Progress bar */}
               <div className="mb-2">
