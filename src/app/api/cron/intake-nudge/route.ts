@@ -114,13 +114,13 @@ export async function POST(request: NextRequest) {
             to: clientUser.email,
             subject: intakeNudgeSubject(),
             html: intakeNudgeTemplate({
-              clientFirstName: org.founder_first_name || 'there',
+              clientFirstName: org.founder_first_name,
               completionPercent: completeness,
               intakeUrl,
               kickoffDate,
             }),
             text: intakeNudgeTemplateText({
-              clientFirstName: org.founder_first_name || 'there',
+              clientFirstName: org.founder_first_name,
               completionPercent: completeness,
               intakeUrl,
               kickoffDate,

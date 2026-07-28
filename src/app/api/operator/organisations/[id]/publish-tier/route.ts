@@ -140,6 +140,24 @@ export async function POST(
             subject_id: batchId,
           })
 
+          // Fetch total published count across ALL tiers (matches what UI shows)
+          // The client sees all tiers together on the page, so email shows total prospect count
+          // not just this tier, ensuring it matches the running total they see on review page
+          const { count: totalPublishedCount, error: countError } = await supabase
+            .from('prospects')
+            .select('id', { count: 'exact' })
+            .eq('organisation_id', organisationId)
+            .not('tier_published_at', 'is', null)
+            .eq('suppressed', false)
+
+          if (countError) {
+            logger.warn('publish-tier: failed to fetch total published count', {
+              organisation_id: organisationId,
+              tier,
+              error: countError.message,
+            })
+          }
+
           // Fetch client email
           const { data: clientUser } = await supabase
             .from('users')
@@ -157,18 +175,21 @@ export async function POST(
               day: 'numeric',
             })
 
+            // Use total published count (not batch count) so email matches UI
+            const prospectCountForEmail = totalPublishedCount ?? publishedCount
+
             await sendTransactionalEmail({
               to: clientUser.email,
               subject: listReadySubject(lockDate),
               html: listReadyTemplate({
-                clientFirstName: org.founder_first_name || 'there',
-                prospectCount: publishedCount,
+                clientFirstName: org.founder_first_name,
+                prospectCount: prospectCountForEmail,
                 reviewUrl,
                 lockDate,
               }),
               text: listReadyTemplateText({
-                clientFirstName: org.founder_first_name || 'there',
-                prospectCount: publishedCount,
+                clientFirstName: org.founder_first_name,
+                prospectCount: prospectCountForEmail,
                 reviewUrl,
                 lockDate,
               }),

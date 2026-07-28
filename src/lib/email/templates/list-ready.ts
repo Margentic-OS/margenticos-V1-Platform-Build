@@ -3,7 +3,7 @@
 // Plain text, signed "Doug" — relationship email
 
 export interface ListReadyParams {
-  clientFirstName: string
+  clientFirstName: string | null
   prospectCount: number
   reviewUrl: string
   lockDate: string  // formatted date e.g. "July 30"
@@ -14,9 +14,10 @@ export function listReadySubject(lockDate: string): string {
 }
 
 export function listReadyTemplate(params: ListReadyParams): string {
-  const body = `Hi ${params.clientFirstName},
+  const greeting = params.clientFirstName ? `Hi ${params.clientFirstName},\n\n` : ''
+  const countFormatted = params.prospectCount.toLocaleString('en-US')
 
-${params.prospectCount} prospects sourced against your Prospect Profile, deduplicated, enriched, and email-verified. Names, companies and websites are all in your dashboard.
+  const body = `${greeting}${countFormatted} prospects sourced against your Prospect Profile, deduplicated, enriched, and email-verified. Names, companies and websites are all in your dashboard.
 
 Have a look through and reject anyone you don't want contacted. That includes existing clients, live deals, competitors, or anyone you already know. This matters for two reasons. First, nobody gets an email from you who shouldn't. Second, you'll never be billed for a meeting with someone you didn't approve.
 
@@ -42,9 +43,10 @@ Doug`
 }
 
 export function listReadyTemplateText(params: ListReadyParams): string {
-  return `Hi ${params.clientFirstName},
+  const greeting = params.clientFirstName ? `Hi ${params.clientFirstName},\n\n` : ''
+  const countFormatted = params.prospectCount.toLocaleString('en-US')
 
-${params.prospectCount} prospects sourced against your Prospect Profile, deduplicated, enriched, and email-verified. Names, companies and websites are all in your dashboard.
+  return `${greeting}${countFormatted} prospects sourced against your Prospect Profile, deduplicated, enriched, and email-verified. Names, companies and websites are all in your dashboard.
 
 Have a look through and reject anyone you don't want contacted. That includes existing clients, live deals, competitors, or anyone you already know. This matters for two reasons. First, nobody gets an email from you who shouldn't. Second, you'll never be billed for a meeting with someone you didn't approve.
 

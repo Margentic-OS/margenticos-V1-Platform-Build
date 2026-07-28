@@ -3,7 +3,7 @@
 // Plain text, signed "Doug" — relationship email
 
 export interface IntakeNudgeParams {
-  clientFirstName: string
+  clientFirstName: string | null
   completionPercent: number
   intakeUrl: string
   kickoffDate: string  // formatted date e.g. "July 30"
@@ -14,9 +14,8 @@ export function intakeNudgeSubject(): string {
 }
 
 export function intakeNudgeTemplate(params: IntakeNudgeParams): string {
-  const body = `Hi ${params.clientFirstName},
-
-You've completed ${params.completionPercent}% of your intake questionnaire. No rush from my side except one thing. Our call on ${params.kickoffDate} runs through your finished strategy documents, and I can't build those without it. Takes about 25 minutes.
+  const greeting = params.clientFirstName ? `Hi ${params.clientFirstName},\n\n` : ''
+  const body = `${greeting}You've completed ${params.completionPercent}% of your intake questionnaire. No rush from my side except one thing. Our call on ${params.kickoffDate} runs through your finished strategy documents, and I can't build those without it. Takes about 25 minutes.
 
 ${params.intakeUrl}
 
@@ -38,9 +37,8 @@ Doug`
 }
 
 export function intakeNudgeTemplateText(params: IntakeNudgeParams): string {
-  return `Hi ${params.clientFirstName},
-
-You've completed ${params.completionPercent}% of your intake questionnaire. No rush from my side except one thing. Our call on ${params.kickoffDate} runs through your finished strategy documents, and I can't build those without it. Takes about 25 minutes.
+  const greeting = params.clientFirstName ? `Hi ${params.clientFirstName},\n\n` : ''
+  return `${greeting}You've completed ${params.completionPercent}% of your intake questionnaire. No rush from my side except one thing. Our call on ${params.kickoffDate} runs through your finished strategy documents, and I can't build those without it. Takes about 25 minutes.
 
 ${params.intakeUrl}
 
