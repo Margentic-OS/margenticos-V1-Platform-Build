@@ -40,16 +40,13 @@ export function firstReplyTemplate(params: FirstReplyParams): string {
           <tr>
             <td style="padding:40px 32px 32px;">
               <p style="margin:0 0 24px;font-size:22px;font-weight:600;color:#1a1a1a;line-height:1.3;">
-                First reply is in
+                We've got our first one.
               </p>
               <p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">
-                We've got our first one — ${prospectLine} just replied. I'm handling it from here.
-              </p>
-              <p style="margin:0 0 16px;font-size:15px;color:#444;line-height:1.6;">
-                Quick note: this is the only reply notification I'll send you. From now on you'll only hear from me when a meeting gets booked — the reply activity lives in your dashboard if you ever want to look.
+                ${prospectLine} just replied to your email. Real human, real conversation. After weeks of setup and preparation, the pipeline just went from theory to working.
               </p>
               <p style="margin:0 0 24px;font-size:15px;color:#444;line-height:1.6;">
-                But I wanted you to see this one, because it means the pipeline just went from theory to real. More coming.
+                I'm handling the reply from here. This is the only reply notification you'll get from me. From now on you'll only hear from me when meetings are booked. All the reply activity lives in your dashboard if you want to follow along.
               </p>
               <table cellpadding="0" cellspacing="0" style="margin:24px 0;">
                 <tr>
@@ -76,13 +73,11 @@ export function firstReplyTemplateText(params: FirstReplyParams): string {
     ? `${params.prospectName}${params.prospectCompany ? ` at ${params.prospectCompany}` : ''}`
     : 'A prospect'
 
-  return `First reply is in
+  return `We've got our first one.
 
-We've got our first one — ${prospectLine} just replied. I'm handling it from here.
+${prospectLine} just replied to your email. Real human, real conversation. After weeks of setup and preparation, the pipeline just went from theory to working.
 
-Quick note: this is the only reply notification I'll send you. From now on you'll only hear from me when a meeting gets booked — the reply activity lives in your dashboard if you ever want to look.
-
-But I wanted you to see this one, because it means the pipeline just went from theory to real. More coming.
+I'm handling the reply from here. This is the only reply notification you'll get from me. From now on you'll only hear from me when meetings are booked. All the reply activity lives in your dashboard if you want to follow along.
 
 View dashboard: ${process.env.NEXT_PUBLIC_APP_URL || 'https://app.margenticos.com'}/dashboard`
 }

@@ -861,7 +861,7 @@ export async function updateWarmupCompletedAt(
 
             await sendTransactionalEmail({
               to: clientUser.email,
-              subject: warmingCompleteSubject(),
+              subject: warmingCompleteSubject(sendDate),
               html: warmingCompleteTemplate({ sendDate }),
               text: warmingCompleteTemplateText({ sendDate }),
             })

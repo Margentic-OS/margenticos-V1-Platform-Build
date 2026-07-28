@@ -62,7 +62,7 @@ export async function POST(
     // ── 3. Verify organisation exists ──────────────────────────────────────
     const { data: org, error: orgError } = await supabase
       .from('organisations')
-      .select('id, name, client_review_enabled')
+      .select('id, name, founder_first_name, client_review_enabled')
       .eq('id', organisationId)
       .single()
 
@@ -159,13 +159,15 @@ export async function POST(
 
             await sendTransactionalEmail({
               to: clientUser.email,
-              subject: listReadySubject(),
+              subject: listReadySubject(lockDate),
               html: listReadyTemplate({
+                clientFirstName: org.founder_first_name || 'there',
                 prospectCount: publishedCount,
                 reviewUrl,
                 lockDate,
               }),
               text: listReadyTemplateText({
+                clientFirstName: org.founder_first_name || 'there',
                 prospectCount: publishedCount,
                 reviewUrl,
                 lockDate,

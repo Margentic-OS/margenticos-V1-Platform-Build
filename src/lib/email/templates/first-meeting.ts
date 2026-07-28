@@ -41,10 +41,10 @@ export function firstMeetingTemplate(params: FirstMeetingParams): string {
           <tr>
             <td style="padding:40px 32px 32px;">
               <p style="margin:0 0 24px;font-size:22px;font-weight:600;color:#1a1a1a;line-height:1.3;">
-                Meeting booked
+                Meeting booked.
               </p>
               <p style="margin:0 0 24px;font-size:15px;color:#444;line-height:1.6;">
-                ${prospectLine} — ${params.meetingTime}, in your calendar. Details and reply history in your dashboard.
+                ${prospectLine}, ${params.meetingTime}. Details and reply history in your dashboard.
               </p>
               <table cellpadding="0" cellspacing="0" style="margin:24px 0;">
                 <tr>
@@ -71,9 +71,9 @@ export function firstMeetingTemplateText(params: FirstMeetingParams): string {
     ? `${params.prospectName}${params.prospectTitle ? `, ${params.prospectTitle}` : ''}${params.prospectCompany ? ` at ${params.prospectCompany}` : ''}`
     : 'Your prospect'
 
-  return `Meeting booked
+  return `Meeting booked.
 
-${prospectLine} — ${params.meetingTime}, in your calendar. Details and reply history in your dashboard.
+${prospectLine}, ${params.meetingTime}. Details and reply history in your dashboard.
 
 View dashboard: ${process.env.NEXT_PUBLIC_APP_URL || 'https://app.margenticos.com'}/dashboard`
 }

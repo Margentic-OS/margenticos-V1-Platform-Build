@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import * as Sentry from '@sentry/nextjs'
 import { sendTransactionalEmail } from '@/lib/email/send'
-import { intakeNudgeTemplate, intakeNudgeSubject } from '@/lib/email/templates/intake-nudge'
+import { intakeNudgeTemplate, intakeNudgeTemplateText, intakeNudgeSubject } from '@/lib/email/templates/intake-nudge'
 
 async function getAdminClient() {
   return createClient(
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     // Find organisations with incomplete intake and no activity in 48h
     const { data: orgs, error: orgsError } = await supabase
       .from('organisations')
-      .select('id, name, contract_start_date')
+      .select('id, name, contract_start_date, founder_first_name')
       .filter(
         'intake_last_activity_at',
         'lt',
@@ -114,11 +114,13 @@ export async function POST(request: NextRequest) {
             to: clientUser.email,
             subject: intakeNudgeSubject(),
             html: intakeNudgeTemplate({
+              clientFirstName: org.founder_first_name || 'there',
               completionPercent: completeness,
               intakeUrl,
               kickoffDate,
             }),
-            text: intakeNudgeTemplate({
+            text: intakeNudgeTemplateText({
+              clientFirstName: org.founder_first_name || 'there',
               completionPercent: completeness,
               intakeUrl,
               kickoffDate,

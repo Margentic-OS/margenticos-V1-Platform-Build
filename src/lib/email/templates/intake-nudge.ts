@@ -3,6 +3,7 @@
 // Plain text, signed "Doug" — relationship email
 
 export interface IntakeNudgeParams {
+  clientFirstName: string
   completionPercent: number
   intakeUrl: string
   kickoffDate: string  // formatted date e.g. "July 30"
@@ -13,7 +14,11 @@ export function intakeNudgeSubject(): string {
 }
 
 export function intakeNudgeTemplate(params: IntakeNudgeParams): string {
-  const body = `Your intake questionnaire is about ${params.completionPercent}% done. No rush from my side except one thing. Our call on ${params.kickoffDate} runs through your finished strategy documents, and I can't build those without it. Takes about 20 minutes: ${params.intakeUrl}
+  const body = `Hi ${params.clientFirstName},
+
+You've completed ${params.completionPercent}% of your intake questionnaire. No rush from my side except one thing. Our call on ${params.kickoffDate} runs through your finished strategy documents, and I can't build those without it. Takes about 25 minutes.
+
+${params.intakeUrl}
 
 Doug`
 
@@ -33,7 +38,11 @@ Doug`
 }
 
 export function intakeNudgeTemplateText(params: IntakeNudgeParams): string {
-  return `Your intake questionnaire is about ${params.completionPercent}% done. No rush from my side except one thing. Our call on ${params.kickoffDate} runs through your finished strategy documents, and I can't build those without it. Takes about 20 minutes: ${params.intakeUrl}
+  return `Hi ${params.clientFirstName},
+
+You've completed ${params.completionPercent}% of your intake questionnaire. No rush from my side except one thing. Our call on ${params.kickoffDate} runs through your finished strategy documents, and I can't build those without it. Takes about 25 minutes.
+
+${params.intakeUrl}
 
 Doug`
 }
