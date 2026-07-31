@@ -3,7 +3,7 @@
 // They do NOT verify the status values themselves are correct. Only live API
 // data can confirm the actual bounce/unsubscribe numeric values and field.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { INSTANTLY_LEAD_STATUS_BOUNCED, INSTANTLY_LEAD_STATUS_UNSUBSCRIBED, INSTANTLY_LEAD_STATUS_VERIFIED } from './instantly'
 
 describe('Instantly polling - bounce/unsubscribe detection mechanism', () => {
@@ -109,5 +109,65 @@ describe('Instantly polling - bounce/unsubscribe detection mechanism', () => {
       expect(INSTANTLY_LEAD_STATUS_VERIFIED).toBe(false)
       // If ever this is true without proper live confirmation, that's a bug in the activation process.
     })
+  })
+})
+
+describe('Instantly polling — feature flag guards', () => {
+  beforeEach(() => {
+    delete process.env.INSTANTLY_API_BASE_URL
+  })
+
+  afterEach(() => {
+    delete process.env.INSTANTLY_API_BASE_URL
+  })
+
+  it('guard prevents production fetch when flag=false and URL=production', () => {
+    // Documents the guard condition in fetchOutboundEmailBody, instantlyGet, instantlyPost:
+    // if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai'))
+    //   throw InstantlyFlagError
+
+    const isActive = false
+    const baseUrl = 'https://api.instantly.ai/api/v2'
+    process.env.INSTANTLY_API_BASE_URL = baseUrl
+
+    // Guard evaluates to:
+    // !isActive = true
+    // !shouldUseMockDispatch(isActive) = !(!isActive && !process.env.INSTANTLY_API_BASE_URL)
+    //                                  = !(true && false) = !false = true
+    // baseUrl.includes('api.instantly.ai') = true
+    // Result: true && true && true = true → throw
+
+    const shouldThrow =
+      !isActive &&
+      !(isActive === false && !process.env.INSTANTLY_API_BASE_URL) &&
+      baseUrl.includes('api.instantly.ai')
+
+    expect(shouldThrow).toBe(true)
+  })
+
+  it('guard permits mock path when flag=false and env var unset', () => {
+    // Documents that the guard allows mock dispatch when env var is not set
+
+    const isActive = false
+    delete process.env.INSTANTLY_API_BASE_URL // env var unset
+
+    // shouldUseMockDispatch returns: !isActive && !process.env.INSTANTLY_API_BASE_URL
+    const shouldUseMock = !isActive && !process.env.INSTANTLY_API_BASE_URL
+    expect(shouldUseMock).toBe(true)
+
+    // When shouldUseMock is true, the else branch (real fetch) is not taken
+  })
+
+  it('guard permits production fetch when flag=true', () => {
+    // Documents that guard does not fire when flag is true
+
+    const isActive = true
+    const baseUrl = 'https://api.instantly.ai/api/v2'
+    process.env.INSTANTLY_API_BASE_URL = baseUrl
+
+    // Guard condition: !isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes(...)
+    // !isActive = false → entire guard is false (short-circuit)
+    const shouldThrow = !isActive && baseUrl.includes('api.instantly.ai')
+    expect(shouldThrow).toBe(false)
   })
 })

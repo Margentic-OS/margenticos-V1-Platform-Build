@@ -16,6 +16,7 @@
 import { logger } from '@/lib/logger'
 import { shouldUseMockDispatch } from './constants'
 import { mockCampaignAnalytics } from './mock-dispatch'
+import { InstantlyFlagError } from './types'
 
 export interface CampaignStatResult {
   sentCount:    number
@@ -39,6 +40,11 @@ export async function fetchCampaignStats(
   isActive: boolean,
   baseUrl: string,
 ): Promise<Map<string, CampaignStatResult>> {
+  // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
+  if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
+    throw new InstantlyFlagError('fetchCampaignStats: instantly_api_active is false — cannot call production Instantly')
+  }
+
   let response: Response
   if (shouldUseMockDispatch(isActive)) {
     response = mockCampaignAnalytics()

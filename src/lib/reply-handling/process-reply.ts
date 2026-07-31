@@ -37,6 +37,7 @@ import {
 import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from '@/lib/integrations/handlers/instantly/constants'
 import { mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
+import { InstantlyFlagError } from '@/lib/integrations/handlers/instantly/types'
 import { orchestrateDraft } from './draft-orchestrator'
 import { sendFirstReplyEmail } from '@/lib/notifications/send-first-reply-email'
 
@@ -120,6 +121,11 @@ async function resolveInstantlyLeadId(
 ): Promise<string | null> {
   const fromRaw = (raw.lead_id ?? raw.from_address_id) as string | undefined
   if (fromRaw) return fromRaw
+
+  // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
+  if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
+    throw new InstantlyFlagError('resolveInstantlyLeadId: instantly_api_active is false — cannot call production Instantly')
+  }
 
   // Fallback: look up by email
   try {

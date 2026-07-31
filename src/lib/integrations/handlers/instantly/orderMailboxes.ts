@@ -49,6 +49,12 @@ export async function orderMailboxes(
   // Flag drives URL: off → mock (quotes routed to mock too), on → production.
   const baseUrl = resolveInstantlyBaseUrl(isActive)
 
+  // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
+  // Exception: simulate=true is the documented quote-only workflow (deliberate, non-destructive).
+  if (!isActive && !simulate && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
+    throw new InstantlyFlagError('orderMailboxes: instantly_api_active is false — cannot order mailboxes from production')
+  }
+
   // Real orders require the feature flag active — block regardless of URL.
   if (!simulate && !isActive) {
     throw new InstantlyFlagError(

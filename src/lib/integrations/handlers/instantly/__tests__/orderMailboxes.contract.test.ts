@@ -218,6 +218,15 @@ describe('orderMailboxes — feature flag guard', () => {
     ).resolves.toBeDefined()
   })
 
+  it('throws InstantlyFlagError for real order when flag=false and URL is production', async () => {
+    vi.mocked(auth.getInstantlyApiActive).mockResolvedValue(false)
+    process.env.INSTANTLY_API_BASE_URL = 'https://api.instantly.ai/api/v2'
+
+    await expect(
+      orderMailboxes(ORG_ID, TEST_DOMAINS, false)
+    ).rejects.toThrow(InstantlyFlagError)
+  })
+
   it('allows real order when flag=true and URL is production', async () => {
     vi.mocked(auth.getInstantlyApiActive).mockResolvedValue(true)
     process.env.INSTANTLY_API_BASE_URL = 'https://api.instantly.ai/api/v2'

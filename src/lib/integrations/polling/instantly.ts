@@ -42,6 +42,7 @@ import { logger } from '@/lib/logger'
 import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from '@/lib/integrations/handlers/instantly/constants'
 import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 import { mockEmailsList, mockEmailGet, mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
+import { InstantlyFlagError } from '@/lib/integrations/handlers/instantly/types'
 const SOURCE = 'instantly'
 
 // Status value constants - UNVERIFIED pending live API confirmation.
@@ -192,6 +193,11 @@ async function fetchOutboundEmailBody(
   baseUrl: string,
   isActive: boolean,
 ): Promise<OutboundEmailCapture> {
+  // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
+  if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
+    throw new InstantlyFlagError('fetchOutboundEmailBody: instantly_api_active is false — cannot call production Instantly')
+  }
+
   let outboundUuid: string | null = null
   for (const field of OUTBOUND_UUID_CANDIDATE_FIELDS) {
     const val = emailObj[field]
@@ -320,6 +326,11 @@ async function instantlyGet(
   baseUrl: string,
   isActive: boolean,
 ): Promise<{ data: unknown[] | null; nextCursor: string | null; error: string | null }> {
+  // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
+  if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
+    throw new InstantlyFlagError('instantlyGet: instantly_api_active is false — cannot call production Instantly')
+  }
+
   let response: Response
 
   if (shouldUseMockDispatch(isActive)) {
@@ -370,6 +381,11 @@ async function instantlyPost(
   baseUrl: string,
   isActive: boolean,
 ): Promise<{ data: unknown[] | null; nextCursor: string | null; error: string | null }> {
+  // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
+  if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
+    throw new InstantlyFlagError('instantlyPost: instantly_api_active is false — cannot call production Instantly')
+  }
+
   let response: Response
   if (shouldUseMockDispatch(isActive)) {
     response = mockLeadsList()

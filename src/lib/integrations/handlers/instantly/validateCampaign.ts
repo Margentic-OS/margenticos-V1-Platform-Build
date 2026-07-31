@@ -10,6 +10,7 @@
 import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from './constants'
 import { getInstantlyApiKey, getInstantlyApiActive } from './auth'
 import { mockCampaignGet } from './mock-dispatch'
+import { InstantlyFlagError } from './types'
 
 export interface CampaignValidationResult {
   name: string
@@ -24,6 +25,11 @@ export async function validateCampaign(
   const apiKey = await getInstantlyApiKey(organisationId)
   const isActive = await getInstantlyApiActive()
   const baseUrl = resolveInstantlyBaseUrl(isActive)
+
+  // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
+  if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
+    throw new InstantlyFlagError('validateCampaign: instantly_api_active is false — cannot call production Instantly')
+  }
 
   let response: Response
   if (shouldUseMockDispatch(isActive)) {

@@ -18,6 +18,7 @@
 import { logger } from '@/lib/logger'
 import { shouldUseMockDispatch } from './constants'
 import { mockLeadPatch, mockEmailReply } from './mock-dispatch'
+import { InstantlyFlagError } from './types'
 
 export interface ActionResult {
   ok: boolean
@@ -33,6 +34,11 @@ export async function suppressLead(
   baseUrl: string,
   isActive: boolean,
 ): Promise<ActionResult> {
+  // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
+  if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
+    throw new InstantlyFlagError('suppressLead: instantly_api_active is false — cannot call production Instantly')
+  }
+
   let response: Response
   if (shouldUseMockDispatch(isActive)) {
     response = mockLeadPatch(leadInstantlyId)
@@ -84,6 +90,11 @@ export async function sendThreadReply(
   options?: { signal?: AbortSignal }
 ): Promise<ActionResult> {
   const { replyToUuid, eaccount, subject, bodyText } = params
+
+  // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
+  if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
+    throw new InstantlyFlagError('sendThreadReply: instantly_api_active is false — cannot call production Instantly')
+  }
 
   let response: Response
   if (shouldUseMockDispatch(isActive)) {
