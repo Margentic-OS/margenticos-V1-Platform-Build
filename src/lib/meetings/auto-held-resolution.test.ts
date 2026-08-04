@@ -15,11 +15,16 @@ vi.mock('@sentry/nextjs', () => ({
 }))
 
 function createOrgMockChain(orgs: Array<{ id: string; auto_held_window_hours: number }>) {
-  const chain: any = {
-    select: vi.fn().mockReturnValue({
+  const selectChain: any = {
+    is: vi.fn().mockReturnValue({
       then: (resolve: (v: unknown) => unknown) =>
         Promise.resolve({ data: orgs, error: null }).then(resolve),
     }),
+    then: (resolve: (v: unknown) => unknown) =>
+      Promise.resolve({ data: orgs, error: null }).then(resolve),
+  }
+  const chain: any = {
+    select: vi.fn().mockReturnValue(selectChain),
   }
   return chain
 }

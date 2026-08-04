@@ -581,10 +581,12 @@ export async function pollInstantlyLeadStatus(
   const result: PollResult = { written: 0, skipped: 0, errors: 0 }
 
   // Fetch campaigns registered in our system that have an Instantly campaign UUID.
+  // Exclude campaigns belonging to archived organisations — do not spend credits on archived clients.
   const { data: campaigns, error: campaignsError } = await supabase
     .from('campaigns')
-    .select('id, organisation_id, external_id')
+    .select('id, organisation_id, external_id, organisations!inner(archived_at)')
     .not('external_id', 'is', null)
+    .is('organisations.archived_at', null)
 
   if (campaignsError) {
     logger.error('Instantly poll: failed to fetch campaigns for lead status scan', {

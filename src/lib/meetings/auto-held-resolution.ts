@@ -17,10 +17,11 @@ export async function resolveAutoHeldMeetings(supabase?: SupabaseClient): Promis
   try {
     const client = supabase || (await createServerClient())
 
-    // Fetch all organisations with their auto_held_window_hours
+    // Fetch all organisations with their auto_held_window_hours, excluding archived orgs
     const { data: orgs, error: orgsError } = await client
       .from('organisations')
       .select('id, auto_held_window_hours')
+      .is('archived_at', null)
 
     if (orgsError) {
       logger.error('auto-held resolution: failed to fetch organisations', {

@@ -30,10 +30,11 @@ export async function POST(request: NextRequest) {
     const now = new Date()
     const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString()
 
-    // Find organisations with incomplete intake and no activity in 48h
+    // Find organisations with incomplete intake and no activity in 48h, excluding archived orgs
     const { data: orgs, error: orgsError } = await supabase
       .from('organisations')
       .select('id, name, contract_start_date, founder_first_name')
+      .is('archived_at', null)
       .filter(
         'intake_last_activity_at',
         'lt',

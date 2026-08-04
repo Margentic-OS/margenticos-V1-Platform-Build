@@ -50,15 +50,16 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    // Verify organisation exists
+    // Verify organisation exists and is not archived
     const { data: org, error: orgError } = await supabase
       .from('organisations')
       .select('id')
       .eq('id', organisationId)
+      .is('archived_at', null)
       .single()
 
     if (orgError || !org) {
-      return NextResponse.json({ error: 'Organisation not found' }, { status: 404 })
+      return NextResponse.json({ error: 'Organisation not found or archived' }, { status: 404 })
     }
 
     logger.info('tier-enriched-batch: operator triggered', {

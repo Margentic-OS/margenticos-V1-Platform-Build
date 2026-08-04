@@ -308,6 +308,41 @@ async function processOneSignal(
     return 'skipped'
   }
 
+  // ── Archived org gate — do not process signals for archived organisations ──
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: archiveCheckOrg } = await (supabase as any)
+    .from('organisations')
+    .select('id, archived_at')
+    .eq('id', signal.organisation_id)
+    .single()
+
+  if (archiveCheckOrg?.archived_at) {
+    // Org is archived — record the gate action but don't process the signal.
+    // action_succeeded=true because this is not a failure, just a legitimate skip.
+    await insertActionRow(supabase, {
+      organisation_id: signal.organisation_id,
+      signal_id: signalId,
+      prospect_id: null,
+      campaign_id: signal.campaign_id,
+      classified_intent: null,
+      classification_confidence: null,
+      classification_reasoning: null,
+      tier_assigned: null,
+      action_taken: 'org_archived',
+      action_payload: null,
+      action_succeeded: true,
+      attempt_number: 1,
+    })
+    logger.info('process-reply: org archived, signal skipped', {
+      signal_id: signalId,
+      organisation_id: signal.organisation_id,
+      archived_at: archiveCheckOrg.archived_at,
+    })
+    await markSignalProcessed(supabase, signalId)
+    return 'processed'
+  }
+
   // ── Retry limit check ─────────────────────────────────────────────────────
 
   const attemptNumber = existing.classifierFailedCount + 1

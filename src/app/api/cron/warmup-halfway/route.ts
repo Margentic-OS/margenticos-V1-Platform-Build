@@ -31,10 +31,11 @@ export async function POST(request: NextRequest) {
     const now = new Date()
     const milestoneDate = new Date(now.getTime() - WARMUP_MILESTONE_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
-    // Find organisations with warmup_started_at ~17 days ago
+    // Find organisations with warmup_started_at ~17 days ago, excluding archived orgs
     const { data: orgs, error: orgsError } = await supabase
       .from('organisations')
       .select('id, name, warmup_started_at')
+      .is('archived_at', null)
       .not('warmup_started_at', 'is', null)
       .lte('warmup_started_at', milestoneDate)
 

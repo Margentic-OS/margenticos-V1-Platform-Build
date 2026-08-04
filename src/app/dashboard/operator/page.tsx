@@ -27,6 +27,7 @@ export default async function OperatorPage() {
     supabase
       .from('organisations')
       .select('id, name, pipeline_unlocked, engagement_month, payment_status, contract_status')
+      .is('archived_at', null)
       .order('name'),
     supabase
       .from('document_suggestions')

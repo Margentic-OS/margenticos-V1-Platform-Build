@@ -62,8 +62,9 @@ export default async function ClientLayout({
 
   // Fetch all orgs so the operator banner can name the client being viewed.
   // Operators have read access to all organisations via operators_full_access_organisations RLS policy.
+  // Exclude archived orgs from the list.
   const allOrgs = isOperator
-    ? (await supabase.from('organisations').select('id, name').order('name')).data ?? []
+    ? (await supabase.from('organisations').select('id, name').is('archived_at', null).order('name')).data ?? []
     : []
 
   const { data: org } = await supabase

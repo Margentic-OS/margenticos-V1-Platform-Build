@@ -357,9 +357,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Look up org by webhook secret (future: per-org secrets in DB)
     // For now: assume all webhooks are for the operator's "client zero" testing
     // TODO: implement per-org secret lookup in organisations table
+    // Exclude archived orgs — do not create meetings for archived clients.
     const { data: orgs } = await supabase
       .from('organisations')
       .select('id')
+      .is('archived_at', null)
       .limit(1)
 
     if (!orgs || orgs.length === 0) {

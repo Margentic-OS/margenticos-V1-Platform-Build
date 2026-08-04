@@ -27,6 +27,7 @@ export default async function OperatorLayout({
   const { data: clients } = await supabase
     .from('organisations')
     .select('id, name, pipeline_unlocked')
+    .is('archived_at', null)
     .order('name')
 
   return (
