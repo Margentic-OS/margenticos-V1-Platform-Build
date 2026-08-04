@@ -723,6 +723,7 @@ export type Database = {
           created_at: string
           id: string
           is_active: boolean
+          supported_fields: string[] | null
           tool_name: string
           updated_at: string
         }
@@ -734,6 +735,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
+          supported_fields?: string[] | null
           tool_name: string
           updated_at?: string
         }
@@ -745,6 +747,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
+          supported_fields?: string[] | null
           tool_name?: string
           updated_at?: string
         }
@@ -903,6 +906,7 @@ export type Database = {
       organisations: {
         Row: {
           agents_dispatched_at: string | null
+          archived_at: string | null
           auto_approve_window_hours: number
           auto_held_window_hours: number
           billing_basis: string
@@ -938,6 +942,7 @@ export type Database = {
         }
         Insert: {
           agents_dispatched_at?: string | null
+          archived_at?: string | null
           auto_approve_window_hours?: number
           auto_held_window_hours?: number
           billing_basis?: string
@@ -973,6 +978,7 @@ export type Database = {
         }
         Update: {
           agents_dispatched_at?: string | null
+          archived_at?: string | null
           auto_approve_window_hours?: number
           auto_held_window_hours?: number
           billing_basis?: string

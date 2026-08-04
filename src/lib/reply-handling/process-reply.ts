@@ -310,8 +310,7 @@ async function processOneSignal(
 
   // ── Archived org gate — do not process signals for archived organisations ──
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: archiveCheckOrg } = await (supabase as any)
+  const { data: archiveCheckOrg } = await supabase
     .from('organisations')
     .select('id, archived_at')
     .eq('id', signal.organisation_id)

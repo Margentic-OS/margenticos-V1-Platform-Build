@@ -84,6 +84,7 @@ describe('Org Archiving — Contract Tests', () => {
     archivedCampaignId = archCamp.id
 
     // Create a signal for the archived org to test late-arrival gate
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: sig, error: sigErr } = await supabase
       .from('signals')
       .insert({
@@ -92,7 +93,7 @@ describe('Org Archiving — Contract Tests', () => {
         signal_type: 'reply_received',
         source: 'instantly',
         external_event_id: `test-reply-${Date.now()}`,
-        raw_data: { from_address_email: 'sender@example.com' } as unknown as Record<string, unknown>,
+        raw_data: { from_address_email: 'sender@example.com' } as any,
         processed: false,
       })
       .select('id')
