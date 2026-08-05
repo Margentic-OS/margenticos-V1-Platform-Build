@@ -77,5 +77,5 @@ export function agentFailureTemplate({ orgName, orgId, docType, error }: AgentFa
 
 export function agentFailureSubject(orgName: string, docType: string): string {
   const label = DOC_TYPE_LABELS[docType] ?? docType
-  return `${label} agent failed — ${orgName}`
+  return `${label} agent failed: ${orgName}`
 }

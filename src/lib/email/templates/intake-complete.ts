@@ -25,7 +25,7 @@ export function intakeCompleteTemplate({ orgName, orgId }: IntakeCompleteParams)
         <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
           <tr>
             <td style="background:#2d5a27;padding:24px 32px;">
-              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS — Operator</p>
+              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS Operator</p>
             </td>
           </tr>
           <tr>
@@ -61,5 +61,5 @@ export function intakeCompleteTemplate({ orgName, orgId }: IntakeCompleteParams)
 }
 
 export function intakeCompleteSubject(orgName: string): string {
-  return `Intake complete: ${orgName} — agents dispatched`
+  return `Intake complete, ${orgName}: agents dispatched`
 }

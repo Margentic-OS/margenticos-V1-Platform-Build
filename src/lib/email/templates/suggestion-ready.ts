@@ -68,5 +68,5 @@ export function suggestionReadyTemplate({ orgName, orgId, docType }: SuggestionR
 
 export function suggestionReadySubject(orgName: string, docType: string): string {
   const label = DOC_TYPE_LABELS[docType] ?? docType
-  return `${label} ready to review — ${orgName}`
+  return `${label} ready to review: ${orgName}`
 }

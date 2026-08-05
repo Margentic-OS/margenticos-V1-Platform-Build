@@ -76,7 +76,7 @@ export function messagingRevisionStagedTemplate({
 }
 
 export function messagingRevisionStagedSubject(orgName: string): string {
-  return `Messaging revision staged — ${orgName} — review required`
+  return `Messaging revision staged, ${orgName}: review required`
 }
 
 export function messagingRevisionStagedTemplateText({

@@ -101,7 +101,7 @@ export async function notifyAfterPromotion(
         supabase,
         {
           to: clientEmail,
-          subject: docsReadySubject(orgName),
+          subject: docsReadySubject(),
           html: docsReadyTemplate({ orgName, orgId: organisation_id }),
         },
         organisation_id,

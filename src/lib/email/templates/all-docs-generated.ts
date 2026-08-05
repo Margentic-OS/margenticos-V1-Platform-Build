@@ -25,7 +25,7 @@ export function allDocsGeneratedTemplate({ orgName, orgId }: AllDocsGeneratedPar
         <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
           <tr>
             <td style="background:#2d5a27;padding:24px 32px;">
-              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS — Operator</p>
+              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS Operator</p>
             </td>
           </tr>
           <tr>
@@ -65,7 +65,7 @@ export function allDocsGeneratedTemplate({ orgName, orgId }: AllDocsGeneratedPar
 }
 
 export function allDocsGeneratedSubject(orgName: string): string {
-  return `Documents ready: ${orgName} — all four strategy docs generated`
+  return `Documents ready, ${orgName}: all four strategy docs generated`
 }
 
 export function allDocsGeneratedTemplateText({ orgName, orgId }: AllDocsGeneratedParams): string {

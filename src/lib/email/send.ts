@@ -9,6 +9,8 @@ const isDev = process.env.NODE_ENV === 'development'
 const UNDEFINED_PATTERN = /\bundefined\b/gi
 const NULL_PATTERN = /\bnull\b/gi
 const NAN_PATTERN = /\bNaN\b/gi
+const EM_DASH_PATTERN = /—/g
+const EN_DASH_PATTERN = /–/g
 
 function validateEmailContent(subject: string, html: string, text?: string): string | null {
   const toCheck = [subject, html, ...(text ? [text] : [])]
@@ -22,6 +24,12 @@ function validateEmailContent(subject: string, html: string, text?: string): str
     }
     if (NAN_PATTERN.test(content)) {
       return `Email contains literal "NaN" string`
+    }
+    if (EM_DASH_PATTERN.test(content)) {
+      return `Email contains em dash (—) — use colon or comma instead`
+    }
+    if (EN_DASH_PATTERN.test(content)) {
+      return `Email contains en dash (–) — use colon or comma instead`
     }
   }
 

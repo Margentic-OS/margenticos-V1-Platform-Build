@@ -69,6 +69,59 @@ describe('sendTransactionalEmail', () => {
       }
     })
 
+    it('should reject email with em dash in subject', async () => {
+      const result = await sendTransactionalEmail({
+        to: 'test@example.com',
+        subject: 'Intake complete — agents dispatched',
+        html: '<p>Valid content</p>',
+      })
+
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error).toContain('em dash')
+      }
+    })
+
+    it('should reject email with em dash in html', async () => {
+      const result = await sendTransactionalEmail({
+        to: 'test@example.com',
+        subject: 'Valid subject',
+        html: '<p>Docs ready — all four generated</p>',
+      })
+
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error).toContain('em dash')
+      }
+    })
+
+    it('should reject email with em dash in text', async () => {
+      const result = await sendTransactionalEmail({
+        to: 'test@example.com',
+        subject: 'Valid subject',
+        html: '<p>Valid content</p>',
+        text: 'Review by August 10 — do not delay',
+      })
+
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error).toContain('em dash')
+      }
+    })
+
+    it('should reject email with en dash in subject', async () => {
+      const result = await sendTransactionalEmail({
+        to: 'test@example.com',
+        subject: 'Intake complete – agents dispatched',
+        html: '<p>Valid content</p>',
+      })
+
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error).toContain('en dash')
+      }
+    })
+
     it('should allow word "undefined" in URLs without false positive', async () => {
       const result = await sendTransactionalEmail({
         to: 'test@example.com',

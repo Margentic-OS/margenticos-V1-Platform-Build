@@ -86,7 +86,7 @@ export function clientRevisionNotifyTemplate({
 
 export function clientRevisionNotifySubject(orgName: string, docType: string): string {
   const label = DOC_TYPE_LABELS[docType] ?? docType
-  return `Client revision submitted — ${label} — ${orgName}`
+  return `Client revision submitted: ${label}, ${orgName}`
 }
 
 export function clientRevisionNotifyTemplateText({
