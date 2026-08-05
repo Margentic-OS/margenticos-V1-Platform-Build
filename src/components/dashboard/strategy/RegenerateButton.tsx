@@ -34,7 +34,7 @@ export function RegenerateButton({ clientId, docType }: Props) {
   if (state === 'done') {
     return (
       <p className="text-[11px] text-[#7A4800]">
-        New suggestion generating — check back shortly.
+        New suggestion is being prepared — check back shortly.
       </p>
     )
   }

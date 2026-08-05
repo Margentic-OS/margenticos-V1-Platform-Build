@@ -40,7 +40,7 @@ function buildNextSteps(linkedinEnabled: boolean) {
     },
     {
       num: '02',
-      label: 'Strategy documents generated',
+      label: 'Strategy documents ready',
       detail: 'ICP, positioning, voice guide, and messaging — ready within 24 hours',
       isFirstStep: false,
     },

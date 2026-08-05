@@ -33,7 +33,7 @@ const NAV_STRATEGY = [
 
 const SETUP_STEPS = [
   { label: 'Complete intake' },
-  { label: 'Documents generated' },
+  { label: 'Documents ready' },
   { label: 'Integrations connected' },
   { label: 'Campaigns live' },
 ]

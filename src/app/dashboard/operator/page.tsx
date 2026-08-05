@@ -21,13 +21,18 @@ export default async function OperatorPage() {
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
-  // Fetch all client organisations and pending approval counts in parallel.
+  // Fetch all client organisations (both active and archived) and pending approval counts in parallel.
   // Explicit client_id filter on the suggestions query — do not rely on RLS alone.
-  const [{ data: orgs }, { data: suggestions }] = await Promise.all([
+  const [{ data: activeOrgs }, { data: archivedOrgs }, { data: suggestions }] = await Promise.all([
     supabase
       .from('organisations')
-      .select('id, name, pipeline_unlocked, engagement_month, payment_status, contract_status')
+      .select('id, name, pipeline_unlocked, engagement_month, payment_status, contract_status, archived_at')
       .is('archived_at', null)
+      .order('name'),
+    supabase
+      .from('organisations')
+      .select('id, name, pipeline_unlocked, engagement_month, payment_status, contract_status, archived_at')
+      .not('archived_at', 'is', null)
       .order('name'),
     supabase
       .from('document_suggestions')
@@ -43,11 +48,23 @@ export default async function OperatorPage() {
     }
   }
 
-  const clients: ClientSummary[] = (orgs ?? []).map(o => ({
+  const clients: ClientSummary[] = (activeOrgs ?? []).map(o => ({
     id: o.id,
     name: o.name,
     pipeline_unlocked: o.pipeline_unlocked ?? false,
     engagement_month: o.engagement_month ?? null,
+    archived_at: o.archived_at,
+    payment_status: o.payment_status ?? null,
+    contract_status: o.contract_status ?? null,
+    pendingApprovals: approvalCounts[o.id] ?? 0,
+  }))
+
+  const archivedClientsData: ClientSummary[] = (archivedOrgs ?? []).map(o => ({
+    id: o.id,
+    name: o.name,
+    pipeline_unlocked: o.pipeline_unlocked ?? false,
+    engagement_month: o.engagement_month ?? null,
+    archived_at: o.archived_at,
     payment_status: o.payment_status ?? null,
     contract_status: o.contract_status ?? null,
     pendingApprovals: approvalCounts[o.id] ?? 0,
@@ -58,7 +75,7 @@ export default async function OperatorPage() {
       <OperatorTopbar
         eyebrow="Operator view"
         title="All clients"
-        subtitle={`${clients.length} ${clients.length === 1 ? 'client' : 'clients'}`}
+        subtitle={`${clients.length} ${clients.length === 1 ? 'client' : 'clients'}${archivedClientsData.length > 0 ? ` + ${archivedClientsData.length} archived` : ''}`}
         userEmail={user.email}
         action={
           <Link
@@ -70,7 +87,7 @@ export default async function OperatorPage() {
         }
       />
       <WarningsRail />
-      <AllClientsView clients={clients} />
+      <AllClientsView clients={clients} archivedClients={archivedClientsData} />
     </>
   )
 }

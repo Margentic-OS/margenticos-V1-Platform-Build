@@ -34,7 +34,7 @@ export function docsReadyTemplate(params: {
                 Your strategy documents are ready
               </p>
               <p style="margin:0 0 20px;font-size:14px;color:#444;line-height:1.6;">
-                All four documents have been generated and are ready for your review and feedback.
+                All four documents are ready for your review and feedback.
               </p>
               <p style="margin:0 0 24px;font-size:14px;color:#444;line-height:1.8;">
                 What's included:
@@ -74,7 +74,7 @@ export function docsReadyTemplateText(params: {
 
   return `Your strategy documents are ready
 
-All four documents have been generated and are ready for your review and feedback.
+All four documents are ready for your review and feedback.
 
 What's included:
 
