@@ -1460,17 +1460,17 @@ async function writeDocumentSuggestion(
   } = params
 
   const answeredCount = params.intake.filter(
-    r => r.response_value && r.response_value.trim().length > 0
+    r => r.response_value && r.response_value.trim().length > 0 && r.is_critical
   ).length
-  const totalCount = params.intake.length
+  const totalCount = params.intake.filter(r => r.is_critical).length
 
   const refreshNote = is_refresh
     ? ` Refresh — existing v${existingDocument?.version ?? '?'} document used as context.`
     : ' Initial generation.'
 
   const completenessNote = completeness < 80
-    ? ` ⚠️ Intake completeness: ${completeness}% (${answeredCount}/${totalCount} fields).`
-    : ` Intake completeness: ${completeness}% (${answeredCount}/${totalCount} fields).`
+    ? ` ⚠️ Intake completeness: ${completeness}% (${answeredCount}/${totalCount} required fields).`
+    : ` Intake completeness: ${completeness}% (${answeredCount}/${totalCount} required fields).`
 
   // Use runStats for the variant summary when available (reflects post-retry final state).
   let variantNote: string

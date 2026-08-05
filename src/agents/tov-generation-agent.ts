@@ -608,9 +608,9 @@ async function writeDocumentSuggestion(
   } = params
 
   const answeredCount = params.intake.filter(
-    r => r.response_value && r.response_value.trim().length > 0
+    r => r.response_value && r.response_value.trim().length > 0 && r.is_critical
   ).length
-  const totalCount = params.intake.length
+  const totalCount = params.intake.filter(r => r.is_critical).length
 
   const refreshNote = is_refresh
     ? ` This is a refresh — the existing v${existingDocument?.version ?? '?'} document was used as context.`
@@ -618,8 +618,8 @@ async function writeDocumentSuggestion(
 
   const completenessNote =
     completeness < 80
-      ? ` ⚠️ Intake completeness was ${completeness}% (${answeredCount}/${totalCount} fields answered).`
-      : ` Intake completeness: ${completeness}% (${answeredCount}/${totalCount} fields answered).`
+      ? ` ⚠️ Intake completeness was ${completeness}% (${answeredCount}/${totalCount} required fields answered).`
+      : ` Intake completeness: ${completeness}% (${answeredCount}/${totalCount} required fields answered).`
 
   // Voice sample quality note — included in suggestion_reason so Doug knows
   // how much raw material the agent had to work with.

@@ -55,7 +55,7 @@ function buildNextSteps(linkedinEnabled: boolean) {
     {
       num: '04',
       label: 'Campaigns go live',
-      detail: 'Outreach begins after a 4–6 week warmup period',
+      detail: 'Outreach begins after a 4-6 week warmup period',
       isFirstStep: false,
     },
   ]

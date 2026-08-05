@@ -41,10 +41,10 @@ const revenueOptions = (values: Record<string, string>): string[] => {
   const sym = CURRENCY_SYMBOLS[values['company_currency']] ?? '£'
   return [
     `Under ${sym}100K`,
-    `${sym}100K–${sym}300K`,
-    `${sym}300K–${sym}600K`,
-    `${sym}600K–${sym}1M`,
-    `${sym}1M–${sym}2M`,
+    `${sym}100K - ${sym}300K`,
+    `${sym}300K - ${sym}600K`,
+    `${sym}600K - ${sym}1M`,
+    `${sym}1M - ${sym}2M`,
     `Over ${sym}2M`,
   ]
 }
@@ -97,7 +97,7 @@ const SECTIONS: Section[] = [
       },
       {
         fieldKey: 'company_differentiators',
-        label: "What makes your firm genuinely different from others who do what you do? Not the marketing answer — the real one.",
+        label: "What makes your firm genuinely different from others who do what you do? Not the marketing answer. The real one.",
         isCritical: true,
         type: 'long',
         dictation: true,
@@ -110,7 +110,7 @@ const SECTIONS: Section[] = [
     questions: [
       {
         fieldKey: 'clients_clone',
-        label: "Think about your single best client — the one you'd clone if you could. Describe them. Not their job title. What makes them different to work with? What do they believe or understand that most of your clients don't?",
+        label: "Think about your single best client, the one you'd clone if you could. Describe them. Not their job title. What makes them different to work with? What do they believe or understand that most of your clients don't?",
         isCritical: true,
         type: 'long',
         dictation: true,
@@ -131,7 +131,7 @@ const SECTIONS: Section[] = [
       },
       {
         fieldKey: 'clients_what_tipped',
-        label: "What do you think actually tipped them toward working with you? Not the polished answer — the real one. Was there a specific conversation, a moment, something you said or showed them?",
+        label: "What do you think actually tipped them toward working with you? Not the polished answer. The real one. Was there a specific conversation, a moment, something you said or showed them?",
         isCritical: true,
         type: 'long',
         dictation: true,
@@ -355,6 +355,9 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
       .filter(q => q.isCritical)
       .every(q => (values[q.fieldKey] ?? '').trim().length > 0)
 
+  const sectionHasCriticalFields = (section: Section) =>
+    section.questions.some(q => q.isCritical)
+
   const currentIndex = SECTIONS.findIndex(s => s.id === activeSection)
 
   return (
@@ -395,23 +398,32 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
 
         {/* Section nav */}
         <div className="flex gap-2 mb-6 flex-wrap">
-          {SECTIONS.map(section => (
-            <button
-              key={section.id}
-              onClick={() => setActiveSection(section.id)}
-              className={[
-                'px-3 py-1.5 text-[11px] sm:text-[10px] font-medium rounded-[20px] border transition-colors min-h-[44px] touch-manipulation',
-                activeSection === section.id
-                  ? 'bg-brand-green text-[#F5F0E8] border-brand-green'
-                  : sectionComplete(section)
-                  ? 'bg-[#EBF5E6] text-[#2B5A1E] border-[#BDDAB0]'
-                  : 'bg-surface-card text-text-secondary border-border-card',
-              ].join(' ')}
-            >
-              {section.title}
-              {sectionComplete(section) && activeSection !== section.id && ' ✓'}
-            </button>
-          ))}
+          {SECTIONS.map(section => {
+            const hasCritical = sectionHasCriticalFields(section)
+            const isComplete = sectionComplete(section)
+            return (
+              <button
+                key={section.id}
+                onClick={() => setActiveSection(section.id)}
+                className={[
+                  'px-3 py-1.5 text-[11px] sm:text-[10px] font-medium rounded-[20px] border transition-colors min-h-[44px] touch-manipulation',
+                  activeSection === section.id
+                    ? 'bg-brand-green text-[#F5F0E8] border-brand-green'
+                    : !hasCritical
+                    ? 'bg-[#F0ECE4] text-[#9A9488] border-[#E8E2D8]'
+                    : isComplete
+                    ? 'bg-[#EBF5E6] text-[#2B5A1E] border-[#BDDAB0]'
+                    : 'bg-surface-card text-text-secondary border-border-card',
+                ].join(' ')}
+              >
+                <span>{section.title}</span>
+                {!hasCritical && activeSection !== section.id && (
+                  <span className="ml-1.5 text-[9px] font-normal text-[#9A9488]">Optional</span>
+                )}
+                {hasCritical && isComplete && activeSection !== section.id && ' ✓'}
+              </button>
+            )
+          })}
         </div>
 
         {/* Active section */}
@@ -618,7 +630,7 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
                         Building your strategy documents
                       </p>
                       <p className="text-[12px] text-[#3B6D11] mb-3">
-                        This takes 3–5 minutes. You can close this tab — documents will be waiting when you return.
+                        This takes 3-5 minutes. You can close this tab. Documents will be waiting when you return.
                       </p>
                       <Link
                         href="/dashboard"
