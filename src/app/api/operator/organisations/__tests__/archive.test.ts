@@ -20,10 +20,13 @@ describe('Archive/Unarchive Organisation', () => {
     })
 
     // Create test organisation
+    testOrgName = `Archive Test Org ${Date.now()}`
+    const testSlug = `archive-test-${Date.now()}`
     const { data: org, error: createError } = await supabase
       .from('organisations')
       .insert({
-        name: `Archive Test Org ${Date.now()}`,
+        name: testOrgName,
+        slug: testSlug,
         founder_first_name: 'Test',
       })
       .select('id, name, archived_at')
