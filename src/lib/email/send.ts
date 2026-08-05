@@ -4,6 +4,30 @@ import { resendClient } from './client'
 
 const isDev = process.env.NODE_ENV === 'development'
 
+// Word-boundary pattern for undefined/null/NaN detection.
+// Matches literal instances only (not substrings in URLs or object IDs).
+const UNDEFINED_PATTERN = /\bundefined\b/gi
+const NULL_PATTERN = /\bnull\b/gi
+const NAN_PATTERN = /\bNaN\b/gi
+
+function validateEmailContent(subject: string, html: string, text?: string): string | null {
+  const toCheck = [subject, html, ...(text ? [text] : [])]
+
+  for (const content of toCheck) {
+    if (UNDEFINED_PATTERN.test(content)) {
+      return `Email contains literal "undefined" string`
+    }
+    if (NULL_PATTERN.test(content)) {
+      return `Email contains literal "null" string`
+    }
+    if (NAN_PATTERN.test(content)) {
+      return `Email contains literal "NaN" string`
+    }
+  }
+
+  return null
+}
+
 function getFromAddress(): string {
   if (process.env.RESEND_FROM_EMAIL) {
     return process.env.RESEND_FROM_EMAIL
@@ -35,6 +59,35 @@ type SendResult =
 export async function sendTransactionalEmail(params: SendEmailParams): Promise<SendResult> {
   const from = getFromAddress()
   const replyTo = getReplyTo()
+
+  // Validate email content for undefined/null/NaN strings before sending.
+  // This catches template rendering failures where variables were not provided.
+  const validationError = validateEmailContent(params.subject, params.html, params.text)
+  if (validationError) {
+    const message = `Email content validation failed: ${validationError}`
+    logger.error('sendTransactionalEmail: content validation failed', {
+      to: params.to,
+      subject: params.subject,
+      error: validationError,
+    })
+    Sentry.captureException(new Error(message), {
+      extra: {
+        to: params.to,
+        subject: params.subject,
+        validation_error: validationError,
+        html_length: params.html.length,
+        text_length: params.text?.length ?? 0,
+      },
+      tags: {
+        component: 'sendTransactionalEmail',
+        error_type: 'content_validation',
+      },
+    })
+    try {
+      await Sentry.flush(2000)
+    } catch {}
+    return { success: false, error: message }
+  }
 
   // Test override: if TEST_EMAIL_RECIPIENT is set, redirect all emails to it
   // Used during staging/testing to avoid sending real emails to real addresses

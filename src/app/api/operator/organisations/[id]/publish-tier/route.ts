@@ -176,30 +176,43 @@ export async function POST(
             })
 
             // Use total published count (not batch count) so email matches UI
+            // Must be a finite number > 0 — never send list_ready for zero prospects
             const prospectCountForEmail = totalPublishedCount ?? publishedCount
 
-            await sendTransactionalEmail({
-              to: clientUser.email,
-              subject: listReadySubject(lockDate),
-              html: listReadyTemplate({
-                clientFirstName: org.founder_first_name,
-                prospectCount: prospectCountForEmail,
-                reviewUrl,
-                lockDate,
-              }),
-              text: listReadyTemplateText({
-                clientFirstName: org.founder_first_name,
-                prospectCount: prospectCountForEmail,
-                reviewUrl,
-                lockDate,
-              }),
-            })
+            if (!Number.isFinite(prospectCountForEmail) || prospectCountForEmail <= 0) {
+              logger.warn('publish-tier: suppressed list_ready email — prospect count invalid', {
+                organisation_id: organisationId,
+                tier,
+                prospect_count: prospectCountForEmail,
+              })
+              Sentry.captureMessage(
+                `list_ready email suppressed: invalid prospect count ${prospectCountForEmail}`,
+                'warning'
+              )
+            } else {
+              await sendTransactionalEmail({
+                to: clientUser.email,
+                subject: listReadySubject(lockDate),
+                html: listReadyTemplate({
+                  clientFirstName: org.founder_first_name,
+                  prospectCount: prospectCountForEmail,
+                  reviewUrl,
+                  lockDate,
+                }),
+                text: listReadyTemplateText({
+                  clientFirstName: org.founder_first_name,
+                  prospectCount: prospectCountForEmail,
+                  reviewUrl,
+                  lockDate,
+                }),
+              })
 
-            logger.info('publish-tier: list_ready email sent', {
-              organisation_id: organisationId,
-              tier,
-              client_email: clientUser.email,
-            })
+              logger.info('publish-tier: list_ready email sent', {
+                organisation_id: organisationId,
+                tier,
+                client_email: clientUser.email,
+              })
+            }
           }
         }
       } catch (emailError) {
