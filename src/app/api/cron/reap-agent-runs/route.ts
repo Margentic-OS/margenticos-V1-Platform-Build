@@ -1,11 +1,13 @@
 // POST /api/cron/reap-agent-runs
 //
-// Called by Vercel Cron every 5 minutes. Finds all agent_runs with
-// status='running' that have been in that state for longer than 10 minutes
-// and marks them 'failed' with a note that they were reaped.
+// Called by Supabase pg_cron every 10 minutes via pg_net HTTP POST.
+// Finds all agent_runs with status='running' that have been in that state for
+// longer than 10 minutes and marks them 'failed' with a note that they were reaped.
 //
-// Auth: Vercel injects CRON_SECRET as the Authorization bearer token on every
-// cron invocation. Any request without a valid token is rejected immediately.
+// Auth: Authorization: Bearer ${CRON_SECRET} — same pattern as /api/cron/process-replies.
+// IMPORTANT: On Supabase Hobby tier, current_setting('app.cron_secret') returns NULL.
+// The cron job must be manually rescheduled with the secret hardcoded after migration.
+// See migration 20260807 for the rescheduling instructions.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'

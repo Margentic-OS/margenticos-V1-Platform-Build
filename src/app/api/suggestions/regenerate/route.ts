@@ -12,7 +12,7 @@
 //   2. User role — operators can regenerate anything, clients can only regenerate their own org
 //   3. Suggestion exists and is pending (if regenerating), or no pending suggestion exists (if generating fresh)
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
@@ -21,6 +21,8 @@ import { runIcpGenerationAgent } from '@/agents/icp-generation-agent'
 import { runPositioningGenerationAgent } from '@/agents/positioning-generation-agent'
 import { runTovGenerationAgent } from '@/agents/tov-generation-agent'
 import { runMessagingGenerationAgent } from '@/agents/messaging-generation-agent'
+
+export const maxDuration = 300
 
 function makeServiceClient() {
   return createServiceClient(
@@ -217,23 +219,31 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ── 6. Fire new agent run asynchronously ────────────────────────────────────
+  // ── 6. Fire new agent run via waitUntil (survives response) ────────────────────
   // is_refresh: true for regenerate (context from existing doc), false for generate-from-nothing
   const isRefresh = !!suggestion_id
-  void AGENT_MAP[document_type]({
-    organisation_id: client_id,
-    supabase,
-    is_refresh: isRefresh,
-  }).catch((err: unknown) => {
-    logger.error('Regenerate route: agent run failed', {
-      client_id,
-      document_type,
-      caller_role: isOperator ? 'operator' : 'client',
-      error: err instanceof Error ? err.message : String(err),
-    })
+
+  // Wrap agent execution in after() so it survives the response.
+  // Vercel freezes the function immediately after response unless work is registered
+  // via after(). This ensures agent.complete() and agent.fail() can write to the database.
+  after(async () => {
+    try {
+      await AGENT_MAP[document_type]({
+        organisation_id: client_id,
+        supabase,
+        is_refresh: isRefresh,
+      })
+    } catch (err) {
+      logger.error('Regenerate route: agent run failed', {
+        client_id,
+        document_type,
+        caller_role: isOperator ? 'operator' : 'client',
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   })
 
-  logger.info('Regenerate route: agent queued', {
+  logger.info('Regenerate route: agent started', {
     suggestion_id: suggestion_id || null,
     client_id,
     document_type,
@@ -242,9 +252,14 @@ export async function POST(request: NextRequest) {
     mode: isRefresh ? 'regenerate' : 'generate_fresh',
   })
 
-  const message = isRefresh
-    ? 'New suggestion generating'
-    : `${document_type} document is generating. You'll receive a notification when it's ready.`
-
-  return NextResponse.json({ success: true, message }, { status: 200 })
+  return NextResponse.json(
+    {
+      success: true,
+      started: true,
+      message: isRefresh
+        ? 'Regeneration started. Check the dashboard for the updated suggestion.'
+        : `${document_type} document is generating. Check the dashboard for the result.`,
+    },
+    { status: 202 }
+  )
 }

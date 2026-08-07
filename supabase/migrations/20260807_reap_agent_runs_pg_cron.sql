@@ -10,6 +10,35 @@
 -- Job registration: 'reap-agent-runs' (must match jobname in cron.job table)
 -- To verify:   SELECT jobname, schedule, command FROM cron.job WHERE jobname = 'reap-agent-runs';
 -- To remove:   SELECT cron.unschedule('reap-agent-runs');
+--
+-- SUPABASE HOBBY LIMITATION (discovered 2026-04-29):
+--   ALTER DATABASE postgres SET "app.*" requires superuser / supabase_admin role.
+--   The Supabase SQL editor runs as the postgres role — permission denied.
+--   current_setting('app.cron_secret', true) therefore returns NULL and
+--   the reaper endpoint receives Authorization: Bearer (empty), resulting in 401.
+--
+--   WORKING PATTERN ON HOBBY TIER:
+--   After applying this migration, immediately reschedule the cron job with CRON_SECRET hardcoded:
+--
+--     SELECT cron.unschedule('reap-agent-runs');
+--     SELECT cron.schedule(
+--       'reap-agent-runs', '*/10 * * * *',
+--       $cmd$
+--       SELECT net.http_post(
+--         url     := 'https://margenticos-platform.vercel.app/api/cron/reap-agent-runs',
+--         headers := '{"Content-Type":"application/json","Authorization":"Bearer <CRON_SECRET>"}'::jsonb,
+--         body    := '{}'::jsonb,
+--         timeout_milliseconds := 55000
+--       );
+--       $cmd$
+--     );
+--
+--   Replace <CRON_SECRET> with the value from Vercel → Project → Settings → Environment Variables.
+--
+--   SECURITY NOTE:
+--   CRON_SECRET lives in cron.job.command in plaintext. Acceptable for this token
+--   (low-impact trigger, gates only cron endpoints). Do NOT use this pattern for API keys
+--   or higher-value credentials.
 
 -- Unschedule any existing job (idempotent if not present)
 SELECT cron.unschedule('reap-agent-runs');
