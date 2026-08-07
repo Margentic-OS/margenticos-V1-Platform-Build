@@ -14,6 +14,7 @@ import type { SegmentTab } from '@/components/dashboard/strategy/SegmentTabStrip
 import { getDocumentLabel, DOCUMENT_META } from '@/lib/document-labels'
 import { PrintButton } from '@/components/dashboard/strategy/PrintButton'
 import { RegenerateButton } from '@/components/dashboard/strategy/RegenerateButton'
+import { NotYetGeneratedState } from '@/components/dashboard/strategy/NotYetGeneratedState'
 import { DocApprovalControls } from '@/components/dashboard/strategy/DocApprovalControls'
 import type { DocumentType } from '@/types'
 import type { Json } from '@/types/database'
@@ -202,7 +203,7 @@ export default async function StrategyDocumentPage({
           {docError ? (
             <DocFetchErrorState docLabel={docLabel} />
           ) : !doc ? (
-            <NotYetGeneratedState docLabel={docLabel} docType={docType} />
+            <NotYetGeneratedState docLabel={docLabel} docType={docType} clientId={org.id} />
           ) : (
             <>
               <div className="flex items-center justify-between mb-4 print:hidden">
@@ -251,21 +252,6 @@ function DocFetchErrorState({ docLabel }: { docLabel: string }) {
       </p>
       <p className="text-[12px] text-text-secondary max-w-xs mx-auto leading-relaxed">
         Something went wrong fetching this document. Refresh to try again.
-      </p>
-    </div>
-  )
-}
-
-function NotYetGeneratedState({ docLabel, docType }: { docLabel: string; docType: DocumentType }) {
-  const desc = DOCUMENT_META[docType]?.desc ?? ''
-  return (
-    <div className="bg-surface-card border border-border-card rounded-[10px] p-8 text-center">
-      <div className="w-10 h-10 rounded-full bg-[#F0ECE4] flex items-center justify-center mx-auto mb-4">
-        <span className="w-3 h-3 rounded-full bg-text-muted" />
-      </div>
-      <p className="text-[14px] font-medium text-text-primary mb-2">{docLabel} not yet ready</p>
-      <p className="text-[12px] text-text-secondary max-w-xs mx-auto leading-relaxed">
-        {desc ? `${desc}. ` : ''}This document will appear here once your strategy is approved.
       </p>
     </div>
   )
