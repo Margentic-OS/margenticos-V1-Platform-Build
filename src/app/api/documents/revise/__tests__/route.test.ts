@@ -77,6 +77,7 @@ function makeRateLimitChain() {
   const self = chain
   chain['select'] = () => self
   chain['eq']     = () => self
+  chain['neq']    = () => self
   chain['gte']    = () => self
   chain['then']   = (resolve: (v: unknown) => unknown) =>
     Promise.resolve({ count: 0, error: null }).then(resolve)
@@ -91,9 +92,14 @@ vi.mock('@supabase/supabase-js', () => ({
         strategyDocCallCount++
         return strategyDocCallCount === 1 ? makeDocOwnershipChain() : makeRateLimitChain()
       }
+      if (table === 'document_suggestions') {
+        return makeRateLimitChain()
+      }
       return {
         select: vi.fn().mockReturnThis(),
         eq:     vi.fn().mockReturnThis(),
+        neq:    vi.fn().mockReturnThis(),
+        gte:    vi.fn().mockReturnThis(),
         single: vi.fn().mockResolvedValue({ data: { organisation_id: 'test-org-id' } }),
       }
     },

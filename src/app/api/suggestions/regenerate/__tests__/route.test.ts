@@ -1,5 +1,6 @@
-// Verifies that /api/suggestions/regenerate is operator-only.
-// Client sessions must receive 403; operator sessions must reach the agent dispatch.
+// Verifies /api/suggestions/regenerate routes:
+// - Operators can regenerate existing pending suggestions (with suggestion_id)
+// - Clients can generate doc types with no pending suggestion (without suggestion_id)
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
@@ -19,9 +20,33 @@ vi.mock('next/headers', () => ({
   cookies: vi.fn().mockResolvedValue({ getAll: () => [], set: vi.fn() }),
 }))
 
-// Supabase service client (makeServiceClient path — used for agent execution)
+// Supabase service client (makeServiceClient path — used for data queries and agent execution)
+let userRowMockData: Record<string, unknown> | null = null
+let suggestionMockData: Record<string, unknown> | null = null
+
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({})),
+  createClient: vi.fn(() => ({
+    from: (table: string) => {
+      let singleData: Record<string, unknown> | null = null
+      if (table === 'users') {
+        singleData = userRowMockData
+      } else if (table === 'document_suggestions') {
+        singleData = suggestionMockData
+      }
+
+      const baseChain = {
+        select: vi.fn().mockReturnThis(),
+        eq:     vi.fn().mockReturnThis(),
+        in:     vi.fn().mockReturnThis(),
+        update: vi.fn().mockReturnThis(),
+        neq:    vi.fn().mockReturnThis(),
+        gte:    vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: singleData, error: singleData ? null : new Error('not found') }),
+        rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
+      }
+      return baseChain
+    },
+  })),
 }))
 
 // ── Supabase SSR client — behaviour varies per test ───────────────────────────
@@ -56,26 +81,29 @@ const VALID_BODY = { client_id: 'org-uuid', document_type: 'icp' }
 describe('POST /api/suggestions/regenerate', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    userRowMockData = null
+    suggestionMockData = null
   })
 
-  it('returns 403 for a client-role user (non-operator)', async () => {
+  it('returns 200 for a client generating fresh (no pending suggestion)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'client-user-id' } }, error: null })
-    mockUserFrom.mockResolvedValue({ data: { role: 'client' }, error: null })
+    userRowMockData = { role: 'client', organisation_id: 'org-uuid' }
 
     const { POST } = await import('../route')
     const res = await POST(makeRequest(VALID_BODY))
     const body = await res.json()
 
-    expect(res.status).toBe(403)
-    expect(body.error).toBe('Operator access required.')
+    expect(res.status).toBe(200)
+    expect(body.success).toBe(true)
   })
 
-  it('returns 200 for an operator and fires the agent', async () => {
+  it('returns 200 for an operator regenerating and fires the agent', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'operator-user-id' } }, error: null })
-    mockUserFrom.mockResolvedValue({ data: { role: 'operator' }, error: null })
+    userRowMockData = { role: 'operator', organisation_id: 'org-uuid' }
+    suggestionMockData = { id: 'suggestion-uuid', organisation_id: 'org-uuid', document_type: 'icp', status: 'pending' }
 
     const { POST } = await import('../route')
-    const res = await POST(makeRequest(VALID_BODY))
+    const res = await POST(makeRequest({ ...VALID_BODY, suggestion_id: 'suggestion-uuid' }))
     const body = await res.json()
 
     expect(res.status).toBe(200)
