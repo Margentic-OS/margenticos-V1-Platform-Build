@@ -23,6 +23,7 @@ import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 import { notifyAfterPromotion } from '@/lib/notifications/notify-after-promotion'
 import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
+import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
 
 export async function POST(
   _request: NextRequest,
@@ -104,7 +105,33 @@ export async function POST(
     )
   }
 
-  // ── 4. Atomic transaction via Postgres function ─────────────────────────────
+  // ── 4. Pre-approval gate: validate ICP filter spec (if this is an ICP suggestion) ────
+  // ICPs must have a valid filter spec before they can be approved, otherwise sourcing
+  // downstream will fail. Block approval with a clear message if validation fails.
+  if (suggestion.document_type === 'icp') {
+    const validation = await validateIcpFilterSpec(supabase, suggestion.id)
+    if (!validation.valid) {
+      const clientMessage =
+        validation.reason === 'still_generating'
+          ? 'The ICP filter specification is still being generated. Please wait a moment and try again.'
+          : validation.reason === 'invalid_industries'
+            ? 'The ICP document contains invalid or non-canonical industry names. Please regenerate or correct the industries before approving.'
+            : 'The ICP validation failed. Please regenerate and try again.'
+
+      logger.warn('Approve route: ICP validation failed', {
+        suggestion_id: id,
+        organisation_id: suggestion.organisation_id,
+        reason: validation.reason,
+      })
+
+      return NextResponse.json(
+        { error: clientMessage },
+        { status: 400 }
+      )
+    }
+  }
+
+  // ── 5. Atomic transaction via Postgres function ─────────────────────────────
   // archive active doc → insert new active doc → mark suggestion approved
   // Full rollback if any step fails — suggestion will remain 'pending'.
   const { data: newDoc, error: rpcError } = await supabase.rpc(

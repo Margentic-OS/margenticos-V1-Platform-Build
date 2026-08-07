@@ -16,6 +16,7 @@ import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 import { notifyAfterPromotion } from '@/lib/notifications/notify-after-promotion'
 import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
+import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import {
   approvalReminderTemplate,
@@ -77,6 +78,20 @@ export async function POST(request: NextRequest) {
 
   for (const suggestion of due) {
     try {
+      // Pre-approval gate: validate ICP filter spec if this is an ICP
+      if (suggestion.document_type === 'icp') {
+        const validation = await validateIcpFilterSpec(supabase, suggestion.id)
+        if (!validation.valid) {
+          logger.warn('Auto-approve cron: ICP validation failed, skipping', {
+            suggestion_id: suggestion.id,
+            organisation_id: suggestion.organisation_id,
+            reason: validation.reason,
+          })
+          // Skip this suggestion but continue processing others
+          continue
+        }
+      }
+
       const { data: newDoc, error: rpcError } = await supabase.rpc('approve_document_suggestion', {
         p_suggestion_id: suggestion.id,
         p_reviewer_id: SYSTEM_AUTO_APPROVE_ID,

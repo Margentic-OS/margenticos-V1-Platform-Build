@@ -87,8 +87,17 @@ export async function runPositioningGenerationAgent(
 
   const agentRun = await startAgentRun({ organisation_id, agent_name: 'positioning-generation' })
 
+  const AGENT_TIMEOUT_MS = 240 * 1000
+  let timeoutHandle: NodeJS.Timeout | null = null
+
   try {
-  // Step 1: Fetch intake responses for this client only.
+    timeoutHandle = setTimeout(async () => {
+      const msg = 'Positioning agent: execution exceeded 240s timeout guard — failing gracefully'
+      logger.error(msg, { organisation_id })
+      await agentRun.fail(msg)
+    }, AGENT_TIMEOUT_MS)
+
+    // Step 1: Fetch intake responses for this client only.
   // Explicit organisation_id filter + RLS enforces isolation.
   const intake = await fetchIntakeResponses(supabase, organisation_id)
 
@@ -204,6 +213,8 @@ export async function runPositioningGenerationAgent(
 
   await agentRun.complete(`suggestion_id: ${suggestionId}`)
 
+  if (timeoutHandle) clearTimeout(timeoutHandle)
+
   return {
     suggestion_id: suggestionId,
     organisation_id,
@@ -212,6 +223,7 @@ export async function runPositioningGenerationAgent(
   }
 
   } catch (err) {
+    if (timeoutHandle) clearTimeout(timeoutHandle)
     const message = err instanceof Error ? err.message : String(err)
     await agentRun.fail(message)
     throw err

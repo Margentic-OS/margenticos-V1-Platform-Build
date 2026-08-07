@@ -195,7 +195,16 @@ export async function runMessagingGenerationAgent(
     agent_name: 'messaging-generation',
   })
 
+  const AGENT_TIMEOUT_MS = 240 * 1000
+  let timeoutHandle: NodeJS.Timeout | null = null
+
   try {
+    timeoutHandle = setTimeout(async () => {
+      const msg = 'Messaging agent: execution exceeded 240s timeout guard — failing gracefully'
+      logger.error(msg, { organisation_id })
+      await agentRun.fail(msg)
+    }, AGENT_TIMEOUT_MS)
+
     const startedAt = Date.now()
 
     // Step 1: Fetch intake responses for this client only.
@@ -390,6 +399,8 @@ export async function runMessagingGenerationAgent(
       variants_failed: finalDropped,
     })
 
+    if (timeoutHandle) clearTimeout(timeoutHandle)
+
     return {
       suggestion_id: suggestionId,
       organisation_id,
@@ -399,6 +410,7 @@ export async function runMessagingGenerationAgent(
       variants_failed: finalDropped,
     }
   } catch (err) {
+    if (timeoutHandle) clearTimeout(timeoutHandle)
     if (!(err instanceof MessagingValidationError)) {
       await agentRun.fail(err instanceof Error ? err.message : String(err))
     }

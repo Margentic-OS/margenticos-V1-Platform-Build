@@ -126,6 +126,7 @@ export async function POST(request: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .eq('organisation_id', orgId)
       .eq('update_trigger', 'client_revision')
+      .eq('status', 'pending')
       .gte('created_at', todayIso),
   ])
 

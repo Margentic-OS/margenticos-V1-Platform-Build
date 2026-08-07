@@ -202,7 +202,12 @@ export async function webSearch(query: string): Promise<WebSearchResult> {
  * The limitedNote field is formatted for document_suggestions.suggestion_reason.
  */
 export async function runResearchQueries(queries: string[]): Promise<ResearchBundle> {
-  const results = await Promise.all(queries.map(q => webSearch(q)))
+  // Per-query timeout: 8 seconds. If a search times out, return limited result and continue.
+  const RESEARCH_TIMEOUT_MS = 8000
+
+  const results = await Promise.all(
+    queries.map(q => webSearchWithTimeout(q, RESEARCH_TIMEOUT_MS))
+  )
 
   const anyLimited = results.some(r => r.limited)
   const limitedQueries = results.filter(r => r.limited).map(r => r.query)
@@ -215,6 +220,31 @@ export async function runResearchQueries(queries: string[]): Promise<ResearchBun
     : ''
 
   return { results, anyLimited, limitedNote }
+}
+
+/**
+ * Wraps webSearch with a timeout. If the search takes longer than timeoutMs,
+ * returns a limited result instead of hanging. Never throws.
+ */
+async function webSearchWithTimeout(query: string, timeoutMs: number): Promise<WebSearchResult> {
+  return Promise.race([
+    webSearch(query),
+    new Promise<WebSearchResult>((_resolve, reject) =>
+      setTimeout(() => reject(new Error(`Research query timeout after ${timeoutMs}ms`)), timeoutMs)
+    ),
+  ]).catch((err) => {
+    logger.warn('webSearchWithTimeout: search timed out or failed', {
+      query,
+      error: String(err),
+    })
+    return {
+      query,
+      synthesis: '',
+      source: 'none' as const,
+      limited: true,
+      limitedReason: `Web search timed out after ${timeoutMs}ms — proceeding without results`,
+    }
+  })
 }
 
 /**

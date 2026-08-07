@@ -77,8 +77,20 @@ export async function runIcpGenerationAgent(
 
   const agentRun = await startAgentRun({ organisation_id, agent_name: 'icp-generation' })
 
+  // Overall agent guard: fail gracefully at 240s (60s before Vercel's 300s ceiling)
+  // to ensure agentRun.fail() can complete before the platform kills the function.
+  const AGENT_TIMEOUT_MS = 240 * 1000
+  let timeoutHandle: NodeJS.Timeout | null = null
+
   try {
-  // Step 1: Fetch intake responses for this client only.
+    // Set up the timeout guard.
+    timeoutHandle = setTimeout(async () => {
+      const msg = 'ICP agent: execution exceeded 240s timeout guard — failing gracefully'
+      logger.error(msg, { organisation_id })
+      await agentRun.fail(msg)
+    }, AGENT_TIMEOUT_MS)
+
+    // Step 1: Fetch intake responses for this client only.
   // Explicit organisation_id filter + RLS enforces isolation.
   const intake = await fetchIntakeResponses(supabase, organisation_id)
 
@@ -193,6 +205,8 @@ export async function runIcpGenerationAgent(
 
   await agentRun.complete(`suggestion_id: ${suggestionId}`)
 
+  if (timeoutHandle) clearTimeout(timeoutHandle)
+
   return {
     suggestion_id: suggestionId,
     organisation_id,
@@ -201,6 +215,7 @@ export async function runIcpGenerationAgent(
   }
 
   } catch (err) {
+    if (timeoutHandle) clearTimeout(timeoutHandle)
     const message = err instanceof Error ? err.message : String(err)
     await agentRun.fail(message)
     throw err
