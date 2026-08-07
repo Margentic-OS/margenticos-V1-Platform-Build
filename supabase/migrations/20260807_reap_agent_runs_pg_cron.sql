@@ -21,7 +21,7 @@ SELECT cron.schedule(
   $$
   SELECT
     net.http_post(
-      url     := 'https://margenticos-v1-platform-build.vercel.app/api/cron/reap-agent-runs',
+      url     := 'https://margenticos-platform.vercel.app/api/cron/reap-agent-runs',
       headers := jsonb_build_object(
                    'Content-Type',  'application/json',
                    'Authorization', 'Bearer ' || current_setting('app.cron_secret', true)
