@@ -1,7 +1,48 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+// Mock Resend before importing sendTransactionalEmail
+vi.mock('@/lib/email/client', () => ({
+  resendClient: {
+    emails: {
+      send: vi.fn(),
+    },
+  },
+}))
+
+vi.mock('@sentry/nextjs', () => ({
+  captureException: vi.fn(),
+  flush: vi.fn().mockResolvedValue(true),
+}))
+
+vi.mock('@/lib/logger', () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}))
+
 import { sendTransactionalEmail } from '../send'
+import { resendClient } from '@/lib/email/client'
 
 describe('sendTransactionalEmail', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Set test environment variables
+    process.env.RESEND_FROM_EMAIL = 'test@example.com'
+    // Mock Resend to return success by default
+    const mockResend = vi.mocked(resendClient)
+    ;(mockResend.emails.send as any).mockResolvedValue({
+      id: 'test-message-id-123',
+      from: 'test@resend.dev',
+      created_at: '2024-01-01T00:00:00Z',
+    })
+  })
+
+  afterEach(() => {
+    delete process.env.RESEND_FROM_EMAIL
+  })
+
   describe('content validation guard', () => {
     it('should reject email with literal "undefined" in subject', async () => {
       const result = await sendTransactionalEmail({

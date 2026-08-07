@@ -107,6 +107,10 @@ vi.mock('@supabase/supabase-js', () => ({
   })),
 }))
 
+vi.mock('@/lib/email/send', () => ({
+  sendTransactionalEmail: vi.fn().mockResolvedValue({ success: true, messageId: 'test-message-id' }),
+}))
+
 // ─── Test ─────────────────────────────────────────────────────────────────────
 
 describe('POST /api/documents/revise — 422 error mapping', () => {
