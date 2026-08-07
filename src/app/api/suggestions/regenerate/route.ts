@@ -110,28 +110,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Not authorized for this client.' }, { status: 403 })
   }
 
-  // ── 3. Idempotency check: don't start generation if one is already running ───
-  // Query running agent_runs for this org+doctype. If found and started within
-  // threshold, return 409 (conflict). Zombie runs (> 10min old) are ignored.
+  // ── 3. Idempotency check: don't start generation if one is actively running ────
+  // Must NOT block on:
+  //   - status='failed' runs (any age) — previous attempt that crashed
+  //   - status='completed' runs (any age) — successful prior run
+  //   - status='running' runs older than the threshold (zombies)
+  // ONLY block when: status='running' AND started within the past 10 minutes
+  // (This is the window for legitimate in-progress runs; older ones are assumed
+  //  to be zombies that the reaper will/does mark as failed, but we don't wait for it.)
+
   const RUNNING_THRESHOLD_MS = 10 * 60 * 1000
-  const { data: activeRuns } = await supabase
+  const { data: runningRuns } = await supabase
     .from('agent_runs')
-    .select('id, started_at')
+    .select('id, started_at, status')
     .eq('organisation_id', client_id)
     .eq('agent_name', `${document_type}-generation`)
     .eq('status', 'running')
 
   const now = Date.now()
-  const freshRun = activeRuns?.find(run => {
+  const freshRun = runningRuns?.find(run => {
     const elapsedMs = now - new Date(run.started_at).getTime()
+    // Only block if this run started within the threshold (is legitimately active)
     return elapsedMs < RUNNING_THRESHOLD_MS
   })
 
   if (freshRun) {
-    logger.info('Regenerate route: generation already running for this doc type', {
+    logger.info('Regenerate route: blocking on fresh active run', {
       client_id,
       document_type,
-      run_id: freshRun.id,
+      blocking_run_id: freshRun.id,
+      started_seconds_ago: Math.round((now - new Date(freshRun.started_at).getTime()) / 1000),
     })
     return NextResponse.json(
       { success: false, message: 'Generation already in progress for this document type. Please wait.' },

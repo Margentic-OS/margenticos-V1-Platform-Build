@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 //
-// Tests that NotYetGeneratedState renders a generate button for from-nothing recovery path
-// This is the critical test that was missing: verify the UI control exists and calls the API.
+// Tests for NotYetGeneratedState component:
+// - Button renders correctly
+// - POST /api/suggestions/regenerate called on click
+// - Error handling and reset on failure
+// - Reconnection to real state on mount (polling)
+// - Does NOT set generating state optimistically (only after successful response)
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, cleanup } from '@testing-library/react'
@@ -17,7 +21,7 @@ vi.mock('@/lib/document-labels', () => ({
   },
 }))
 
-describe('NotYetGeneratedState — Generate Button Render', () => {
+describe('NotYetGeneratedState', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     global.fetch = vi.fn()
@@ -27,204 +31,284 @@ describe('NotYetGeneratedState — Generate Button Render', () => {
     cleanup()
   })
 
-  it('renders a clickable Generate button for doc types', () => {
-    const { container } = render(
-      <NotYetGeneratedState
-        docLabel="Positioning"
-        docType="positioning"
-        clientId="test-org-uuid"
-      />
-    )
-
-    const button = screen.getByTestId('generate-button')
-    expect(button).toBeInTheDocument()
-    expect(button).toHaveTextContent('Generate Positioning')
-    expect(button).not.toBeDisabled()
-  })
-
-  it('calls POST /api/suggestions/regenerate with from-nothing args (no suggestion_id)', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    })
-
-    render(
-      <NotYetGeneratedState
-        docLabel="Positioning"
-        docType="positioning"
-        clientId="test-org-uuid"
-      />
-    )
-
-    const button = screen.getByTestId('generate-button')
-    button.click()
-
-    expect(global.fetch).toHaveBeenCalledWith(
-      '/api/suggestions/regenerate',
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client_id: 'test-org-uuid',
-          document_type: 'positioning',
-        }),
+  describe('Button Render', () => {
+    it('renders a clickable Generate button', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ isGenerating: false }),
       })
-    )
 
-    // Verify NO suggestion_id in the request body
-    const callArgs = (global.fetch as any).mock.calls[0]
-    const bodyString = callArgs[1].body
-    const bodyObj = JSON.parse(bodyString)
-    expect(bodyObj).not.toHaveProperty('suggestion_id')
-  })
-
-  it('disables button and shows loading state while generating', async () => {
-    global.fetch = vi.fn(
-      () =>
-        new Promise<Response>(resolve => {
-          setTimeout(() => {
-            resolve({
-              ok: true,
-              json: async () => ({}),
-            } as Response)
-          }, 100)
-        })
-    )
-
-    render(
-      <NotYetGeneratedState
-        docLabel="Positioning"
-        docType="positioning"
-        clientId="test-org-uuid"
-      />
-    )
-
-    const button = screen.getByTestId('generate-button')
-    button.click()
-    await new Promise(resolve => setTimeout(resolve, 10))
-
-    // Button should be disabled and show loading text immediately
-    expect(button).toBeDisabled()
-    expect(button).toHaveTextContent('Generating…')
-
-    // Wait for completion
-    await waitFor(
-      () => {
-        expect(screen.getByText(/Generating your Positioning/)).toBeInTheDocument()
-      },
-      { timeout: 500 }
-    )
-  })
-
-  it('shows error message on API failure', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      json: async () => ({ error: 'Generation failed: ICP must be approved first' }),
-    })
-
-    render(
-      <NotYetGeneratedState
-        docLabel="Positioning"
-        docType="positioning"
-        clientId="test-org-uuid"
-      />
-    )
-
-    const button = screen.getByTestId('generate-button')
-    button.click()
-    await new Promise(resolve => setTimeout(resolve, 0))
-
-    await waitFor(() => {
-      expect(screen.getByText('Generation failed: ICP must be approved first')).toBeInTheDocument()
-    })
-
-    // Button should return to idle state after error
-    expect(button).not.toBeDisabled()
-    expect(button).toHaveTextContent('Generate Positioning')
-  })
-
-  it('shows in-progress state after successful generation', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    })
-
-    render(
-      <NotYetGeneratedState
-        docLabel="Positioning"
-        docType="positioning"
-        clientId="test-org-uuid"
-      />
-    )
-
-    const button = screen.getByTestId('generate-button')
-    button.click()
-    await new Promise(resolve => setTimeout(resolve, 0))
-
-    await waitFor(() => {
-      expect(screen.getByText(/Generating your Positioning/)).toBeInTheDocument()
-    })
-  })
-
-  it('works for all document types (icp, positioning, tov, messaging)', () => {
-    const docTypes: Array<'icp' | 'positioning' | 'tov' | 'messaging'> = [
-      'icp',
-      'positioning',
-      'tov',
-      'messaging',
-    ]
-
-    docTypes.forEach(docType => {
-      const { unmount } = render(
+      render(
         <NotYetGeneratedState
-          docLabel={docType.charAt(0).toUpperCase() + docType.slice(1)}
-          docType={docType}
+          docLabel="Positioning"
+          docType="positioning"
+          clientId="test-org-uuid"
+        />
+      )
+
+      await waitFor(() => {
+        const button = screen.getByTestId('generate-button')
+        expect(button).toBeInTheDocument()
+        expect(button).toHaveTextContent('Generate Positioning')
+        expect(button).not.toBeDisabled()
+      })
+    })
+  })
+
+  describe('API Call', () => {
+    it('calls POST /api/suggestions/regenerate on button click (no suggestion_id)', async () => {
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ isGenerating: false }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+
+      render(
+        <NotYetGeneratedState
+          docLabel="Positioning"
+          docType="positioning"
+          clientId="test-org-uuid"
+        />
+      )
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalled()
+      })
+
+      const button = screen.getByTestId('generate-button')
+      button.click()
+
+      await waitFor(() => {
+        const postCall = (global.fetch as any).mock.calls.find(
+          (call: any[]) => call[1]?.method === 'POST'
+        )
+        expect(postCall).toBeDefined()
+        expect(postCall[0]).toBe('/api/suggestions/regenerate')
+      })
+
+      const postCall = (global.fetch as any).mock.calls.find(
+        (call: any[]) => call[1]?.method === 'POST'
+      )
+      const bodyObj = JSON.parse(postCall[1].body)
+      expect(bodyObj).not.toHaveProperty('suggestion_id')
+      expect(bodyObj.client_id).toBe('test-org-uuid')
+      expect(bodyObj.document_type).toBe('positioning')
+    })
+  })
+
+  describe('Error Handling', () => {
+    it('shows error message and resets button on API failure', async () => {
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ isGenerating: false }) })
+        .mockResolvedValueOnce({
+          ok: false,
+          json: async () => ({ error: 'Generation failed: ICP must be approved first' }),
+        })
+
+      render(
+        <NotYetGeneratedState
+          docLabel="Positioning"
+          docType="positioning"
           clientId="test-org-uuid"
         />
       )
 
       const button = screen.getByTestId('generate-button')
-      expect(button).toBeInTheDocument()
-      expect(button).toHaveTextContent(`Generate ${docType.charAt(0).toUpperCase() + docType.slice(1)}`)
 
-      unmount()
+      await waitFor(() => {
+        expect(button).not.toBeDisabled()
+      })
+
+      button.click()
+
+      await waitFor(() => {
+        expect(screen.getByText('Generation failed: ICP must be approved first')).toBeInTheDocument()
+      })
+
+      // Button should remain enabled after error
+      expect(button).not.toBeDisabled()
+      expect(button).toHaveTextContent('Generate Positioning')
+    })
+
+    it('does NOT set generating state optimistically', async () => {
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ isGenerating: false }) })
+        .mockResolvedValueOnce({
+          ok: false,
+          json: async () => ({ error: 'Generation failed' }),
+        })
+
+      render(
+        <NotYetGeneratedState
+          docLabel="Positioning"
+          docType="positioning"
+          clientId="test-org-uuid"
+        />
+      )
+
+      const button = screen.getByTestId('generate-button')
+
+      await waitFor(() => {
+        expect(button).not.toBeDisabled()
+      })
+
+      button.click()
+
+      // Button text should still be Generate, not optimistically Generating
+      expect(button).toHaveTextContent('Generate Positioning')
+
+      await waitFor(() => {
+        expect(screen.getByText('Generation failed')).toBeInTheDocument()
+      })
+
+      // Still shows idle button after error
+      expect(button).toHaveTextContent('Generate Positioning')
     })
   })
 
-  it('button is disabled while generation is in progress', async () => {
-    global.fetch = vi.fn(
-      () =>
-        new Promise<Response>(resolve => {
-          setTimeout(() => {
-            resolve({
-              ok: true,
-              json: async () => ({}),
-            } as Response)
-          }, 100)
+  describe('Generating State', () => {
+    it('shows generating state after successful POST response', async () => {
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ isGenerating: false }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ isGenerating: true }) })
+
+      render(
+        <NotYetGeneratedState
+          docLabel="Positioning"
+          docType="positioning"
+          clientId="test-org-uuid"
+        />
+      )
+
+      const button = screen.getByTestId('generate-button')
+
+      await waitFor(() => {
+        expect(button).not.toBeDisabled()
+      })
+
+      button.click()
+
+      await waitFor(() => {
+        expect(screen.getByText(/Generating your Positioning/)).toBeInTheDocument()
+      })
+    })
+
+    it('shows generating UI while generation is in progress', async () => {
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ isGenerating: false }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ isGenerating: true }) })
+
+      render(
+        <NotYetGeneratedState
+          docLabel="Positioning"
+          docType="positioning"
+          clientId="test-org-uuid"
+        />
+      )
+
+      const button = screen.getByTestId('generate-button')
+
+      await waitFor(() => {
+        expect(button).not.toBeDisabled()
+      })
+
+      button.click()
+
+      // After successful POST, should show generating spinner, not button
+      await waitFor(() => {
+        expect(screen.getByText(/Generating your Positioning/)).toBeInTheDocument()
+        // Button should no longer be rendered; instead the spinner view is shown
+        expect(screen.queryByTestId('generate-button')).not.toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('Reconnection on Mount', () => {
+    it('reconnects to real state on mount if generation is already in progress', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ isGenerating: true }),
+      })
+
+      render(
+        <NotYetGeneratedState
+          docLabel="Positioning"
+          docType="positioning"
+          clientId="test-org-uuid"
+        />
+      )
+
+      await waitFor(() => {
+        const calls = (global.fetch as any).mock.calls
+        const statusCall = calls.find((call: any[]) => call[0].includes('/api/generation-status?'))
+        expect(statusCall).toBeDefined()
+        expect(statusCall[0]).toContain('client_id=test-org-uuid')
+        expect(statusCall[0]).toContain('document_type=positioning')
+      })
+
+      await waitFor(() => {
+        expect(screen.getByText(/Generating your Positioning/)).toBeInTheDocument()
+      })
+
+      // When reconnected to generating state, button should not be visible
+      expect(screen.queryByTestId('generate-button')).not.toBeInTheDocument()
+    })
+
+    it('remains in idle state if no generation is in progress on mount', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ isGenerating: false }),
+      })
+
+      render(
+        <NotYetGeneratedState
+          docLabel="Positioning"
+          docType="positioning"
+          clientId="test-org-uuid"
+        />
+      )
+
+      const button = screen.getByTestId('generate-button')
+
+      await waitFor(() => {
+        expect(button).not.toBeDisabled()
+        expect(button).toHaveTextContent('Generate Positioning')
+      })
+    })
+  })
+
+  describe('All Document Types', () => {
+    it('works for all document types (icp, positioning, tov, messaging)', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ isGenerating: false }),
+      })
+
+      const docTypes: Array<'icp' | 'positioning' | 'tov' | 'messaging'> = [
+        'icp',
+        'positioning',
+        'tov',
+        'messaging',
+      ]
+
+      for (const docType of docTypes) {
+        const { unmount } = render(
+          <NotYetGeneratedState
+            docLabel={docType.charAt(0).toUpperCase() + docType.slice(1)}
+            docType={docType}
+            clientId="test-org-uuid"
+          />
+        )
+
+        const button = screen.getByTestId('generate-button')
+
+        await waitFor(() => {
+          expect(button).toBeInTheDocument()
+          expect(button).toHaveTextContent(`Generate ${docType.charAt(0).toUpperCase() + docType.slice(1)}`)
         })
-    )
 
-    render(
-      <NotYetGeneratedState
-        docLabel="Positioning"
-        docType="positioning"
-        clientId="test-org-uuid"
-      />
-    )
-
-    const button = screen.getByTestId('generate-button')
-    expect(button).not.toBeDisabled()
-
-    button.click()
-    await new Promise(resolve => setTimeout(resolve, 10))
-
-    // Button should be disabled during generation
-    expect(button).toBeDisabled()
-    expect(button).toHaveTextContent('Generating…')
-
-    // Wait for completion
-    await waitFor(() => {
-      expect(screen.getByText(/Generating your Positioning/)).toBeInTheDocument()
+        unmount()
+      }
     })
   })
 })
