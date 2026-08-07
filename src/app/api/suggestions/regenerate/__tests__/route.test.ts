@@ -24,6 +24,18 @@ vi.mock('next/headers', () => ({
 let userRowMockData: Record<string, unknown> | null = null
 let suggestionMockData: Record<string, unknown> | null = null
 
+vi.mock('next/server', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // Stub after() to immediately invoke the callback.
+    // This allows tests to verify the agent execution path without relying on
+    // Next.js runtime infrastructure. Real after() deferral semantics are proven
+    // by the live integration check (Step 3).
+    after: (fn) => fn(),
+  }
+})
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({
     from: (table: string) => {
@@ -85,29 +97,39 @@ describe('POST /api/suggestions/regenerate', () => {
     suggestionMockData = null
   })
 
-  it('returns 200 for a client generating fresh (no pending suggestion)', async () => {
+  it('returns 202 for a client generating fresh (no pending suggestion)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'client-user-id' } }, error: null })
     userRowMockData = { role: 'client', organisation_id: 'org-uuid' }
 
+    const { runIcpGenerationAgent } = await import('@/agents/icp-generation-agent')
     const { POST } = await import('../route')
     const res = await POST(makeRequest(VALID_BODY))
     const body = await res.json()
 
-    expect(res.status).toBe(200)
+    // Verify response and that agent was invoked via the stubbed after().
+    // Real after() deferral semantics (execution after response) are proven by live integration test.
+    expect(res.status).toBe(202)
     expect(body.success).toBe(true)
+    expect(body.started).toBe(true)
+    expect(runIcpGenerationAgent).toHaveBeenCalled()
   })
 
-  it('returns 200 for an operator regenerating and fires the agent', async () => {
+  it('returns 202 for an operator regenerating and queues the agent', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'operator-user-id' } }, error: null })
     userRowMockData = { role: 'operator', organisation_id: 'org-uuid' }
     suggestionMockData = { id: 'suggestion-uuid', organisation_id: 'org-uuid', document_type: 'icp', status: 'pending' }
 
+    const { runIcpGenerationAgent } = await import('@/agents/icp-generation-agent')
     const { POST } = await import('../route')
     const res = await POST(makeRequest({ ...VALID_BODY, suggestion_id: 'suggestion-uuid' }))
     const body = await res.json()
 
-    expect(res.status).toBe(200)
+    // Verify response and that agent was invoked via the stubbed after().
+    // Real after() deferral semantics (execution after response) are proven by live integration test.
+    expect(res.status).toBe(202)
     expect(body.success).toBe(true)
+    expect(body.started).toBe(true)
+    expect(runIcpGenerationAgent).toHaveBeenCalled()
   })
 
   it('returns 401 when unauthenticated', async () => {
