@@ -8,10 +8,6 @@
     {
       "path": "/api/cron/resolve-auto-held",
       "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/cron/reap-agent-runs",
-      "schedule": "*/5 * * * *"
     }
   ]
 }
