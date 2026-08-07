@@ -82,12 +82,12 @@ export async function POST(request: NextRequest) {
       if (suggestion.document_type === 'icp') {
         const validation = await validateIcpFilterSpec(supabase, suggestion.id)
         if (!validation.valid) {
-          logger.warn('Auto-approve cron: ICP validation failed, skipping', {
+          logger.info('Auto-approve cron: ICP filter spec not ready, deferring', {
             suggestion_id: suggestion.id,
             organisation_id: suggestion.organisation_id,
             reason: validation.reason,
           })
-          // Skip this suggestion but continue processing others
+          // Skip this suggestion but continue processing others — it will be retried next cron run
           continue
         }
       }

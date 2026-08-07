@@ -114,9 +114,7 @@ export async function POST(
       const clientMessage =
         validation.reason === 'still_generating'
           ? 'The ICP filter specification is still being generated. Please wait a moment and try again.'
-          : validation.reason === 'invalid_industries'
-            ? 'The ICP document contains invalid or non-canonical industry names. Please regenerate or correct the industries before approving.'
-            : 'The ICP validation failed. Please regenerate and try again.'
+          : 'The ICP filter specification is missing. Please regenerate the ICP and try again.'
 
       logger.warn('Approve route: ICP validation failed', {
         suggestion_id: id,
