@@ -134,6 +134,29 @@ export default async function StrategyDocumentPage({
     Sentry.captureException(docError, { extra: { orgId: org.id, docType, selectedSegmentId } })
   }
 
+  // Check for pending suggestions when no active document exists
+  // (client sees "being reviewed" state instead of Generate button).
+  let hasPendingSuggestion = false
+  if (!doc) {
+    let suggQuery = supabase
+      .from('document_suggestions')
+      .select('id', { count: 'exact', head: true })
+      .eq('organisation_id', org.id)
+      .eq('document_type', docType)
+      .eq('status', 'pending')
+
+    if (isSegmentScoped && selectedSegmentId) {
+      suggQuery = suggQuery.eq('segment_id', selectedSegmentId)
+    } else if (isSegmentScoped) {
+      suggQuery = suggQuery.is('segment_id', null)
+    } else {
+      suggQuery = suggQuery.is('segment_id', null)
+    }
+
+    const { count } = await suggQuery
+    hasPendingSuggestion = (count ?? 0) > 0
+  }
+
   // Check whether a client revision is already staged and awaiting operator review.
   // Only messaging revisions are staged; all other document types go live immediately.
   let hasPendingRevision = false
@@ -203,7 +226,7 @@ export default async function StrategyDocumentPage({
           {docError ? (
             <DocFetchErrorState docLabel={docLabel} />
           ) : !doc ? (
-            <NotYetGeneratedState docLabel={docLabel} docType={docType} clientId={org.id} />
+            <NotYetGeneratedState docLabel={docLabel} docType={docType} clientId={org.id} hasPendingSuggestion={hasPendingSuggestion} />
           ) : (
             <>
               <div className="flex items-center justify-between mb-4 print:hidden">

@@ -8,11 +8,12 @@ interface Props {
   docLabel: string
   docType: DocumentType
   clientId: string
+  hasPendingSuggestion?: boolean
 }
 
-type State = 'idle' | 'generating' | 'error'
+type State = 'idle' | 'pending' | 'generating' | 'error'
 
-export function NotYetGeneratedState({ docLabel, docType, clientId }: Props) {
+export function NotYetGeneratedState({ docLabel, docType, clientId, hasPendingSuggestion }: Props) {
   const [state, setState] = useState<State>('idle')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -32,13 +33,27 @@ export function NotYetGeneratedState({ docLabel, docType, clientId }: Props) {
     }
   }
 
-  // On mount, check if a generation is already in progress (reconnect to real state)
+  // On mount or when props change, determine state: pending takes precedence, then check for generating
   useEffect(() => {
     const initState = async () => {
+      // Pending suggestions take precedence over generation state
+      if (hasPendingSuggestion) {
+        setState('pending')
+        // Stop polling if we were generating
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        return
+      }
+
+      // If no longer pending, check for active generation
       const isGenerating = await checkGenerationStatus()
       if (isGenerating) {
         setState('generating')
         startPolling()
+      } else {
+        setState('idle')
       }
     }
     initState()
@@ -49,7 +64,7 @@ export function NotYetGeneratedState({ docLabel, docType, clientId }: Props) {
         clearInterval(pollIntervalRef.current)
       }
     }
-  }, [clientId, docType])
+  }, [clientId, docType, hasPendingSuggestion])
 
   // Poll every 5 seconds while generating
   function startPolling() {
@@ -89,6 +104,17 @@ export function NotYetGeneratedState({ docLabel, docType, clientId }: Props) {
     // Only set generating state AFTER successful response
     setState('generating')
     startPolling()
+  }
+
+  if (state === 'pending') {
+    return (
+      <div className="bg-surface-card border border-border-card rounded-[10px] p-8 text-center">
+        <div className="w-10 h-10 rounded-full bg-[#F0ECE4] flex items-center justify-center mx-auto mb-4">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#C8A96E] animate-pulse" />
+        </div>
+        <p className="text-[12px] text-text-secondary">Your {docLabel} is being reviewed. It will appear here once approved.</p>
+      </div>
+    )
   }
 
   if (state === 'generating') {

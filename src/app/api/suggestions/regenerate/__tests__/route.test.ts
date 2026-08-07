@@ -25,14 +25,14 @@ let userRowMockData: Record<string, unknown> | null = null
 let suggestionMockData: Record<string, unknown> | null = null
 
 vi.mock('next/server', async (importOriginal) => {
-  const actual = await importOriginal()
+  const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     // Stub after() to immediately invoke the callback.
     // This allows tests to verify the agent execution path without relying on
     // Next.js runtime infrastructure. Real after() deferral semantics are proven
     // by the live integration check (Step 3).
-    after: (fn) => fn(),
+    after: (fn: () => Promise<unknown>) => fn(),
   }
 })
 

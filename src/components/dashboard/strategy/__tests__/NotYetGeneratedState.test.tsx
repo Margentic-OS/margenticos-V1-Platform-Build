@@ -223,6 +223,89 @@ describe('NotYetGeneratedState', () => {
     })
   })
 
+  describe('Pending Suggestion State', () => {
+    it('shows pending review message when hasPendingSuggestion is true', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ isGenerating: false }),
+      })
+
+      render(
+        <NotYetGeneratedState
+          docLabel="Positioning"
+          docType="positioning"
+          clientId="test-org-uuid"
+          hasPendingSuggestion={true}
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText(/Your Positioning is being reviewed/)).toBeInTheDocument()
+      })
+
+      // Button should not be rendered when there's a pending suggestion
+      expect(screen.queryByTestId('generate-button')).not.toBeInTheDocument()
+    })
+
+    it('takes precedence over generating state', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ isGenerating: true }),
+      })
+
+      render(
+        <NotYetGeneratedState
+          docLabel="Positioning"
+          docType="positioning"
+          clientId="test-org-uuid"
+          hasPendingSuggestion={true}
+        />
+      )
+
+      await waitFor(() => {
+        // Should show pending message, not generating message
+        expect(screen.getByText(/Your Positioning is being reviewed/)).toBeInTheDocument()
+        expect(screen.queryByText(/Generating your Positioning/)).not.toBeInTheDocument()
+      })
+    })
+
+    it('transitions from pending state when suggestion is resolved', async () => {
+      const { rerender } = render(
+        <NotYetGeneratedState
+          docLabel="Positioning"
+          docType="positioning"
+          clientId="test-org-uuid"
+          hasPendingSuggestion={true}
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText(/Your Positioning is being reviewed/)).toBeInTheDocument()
+      })
+
+      // Mock generation-status check
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ isGenerating: false }),
+      })
+
+      // Re-render with hasPendingSuggestion=false (suggestion was resolved)
+      rerender(
+        <NotYetGeneratedState
+          docLabel="Positioning"
+          docType="positioning"
+          clientId="test-org-uuid"
+          hasPendingSuggestion={false}
+        />
+      )
+
+      await waitFor(() => {
+        const button = screen.getByTestId('generate-button')
+        expect(button).toBeInTheDocument()
+      })
+    })
+  })
+
   describe('Reconnection on Mount', () => {
     it('reconnects to real state on mount if generation is already in progress', async () => {
       global.fetch = vi.fn().mockResolvedValue({
