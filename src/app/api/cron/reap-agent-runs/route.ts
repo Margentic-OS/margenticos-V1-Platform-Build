@@ -106,6 +106,19 @@ export async function POST(request: NextRequest) {
       errors: errors.length,
     })
 
+    // ── Record heartbeat ─────────────────────────────────────────────────────────
+    const heartbeatOk = errors.length === 0
+    await supabase
+      .from('cron_heartbeats')
+      .insert({
+        job_name: 'reap-agent-runs',
+        ok: heartbeatOk,
+        detail: heartbeatOk
+          ? `Reaped ${reaped.length} zombie agent run(s)`
+          : `Reaped ${reaped.length} run(s), ${errors.length} error(s)`,
+      })
+      .throwOnError()
+
     if (errors.length > 0) {
       Sentry.captureMessage('Reap cron: some runs failed to reap', 'warning')
       try {

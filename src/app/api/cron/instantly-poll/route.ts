@@ -178,6 +178,19 @@ export async function POST(request: NextRequest) {
     campaign_stats: campaignStatsResult,
   })
 
+  // ── Record heartbeat ───────────────────────────────────────────────────────────
+  const heartbeatOk = totalErrors === 0
+  await supabase
+    .from('cron_heartbeats')
+    .insert({
+      job_name: 'instantly-poll',
+      ok: heartbeatOk,
+      detail: heartbeatOk
+        ? `Polled: ${totalWritten} signals written, campaign stats updated`
+        : `Errors occurred: ${totalErrors} errors across reply/bounce/unsubscribe polling`,
+    })
+    .throwOnError()
+
   Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'ok', checkInId })
   try { await Sentry.flush(2000) } catch {}
   return NextResponse.json({

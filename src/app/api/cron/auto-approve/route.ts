@@ -155,6 +155,19 @@ export async function POST(request: NextRequest) {
     failed,
   })
 
+  // ── Record heartbeat ───────────────────────────────────────────────────────────
+  const heartbeatOk = failed === 0
+  await supabase
+    .from('cron_heartbeats')
+    .insert({
+      job_name: 'auto-approve',
+      ok: heartbeatOk,
+      detail: heartbeatOk
+        ? `Processed ${due.length} suggestions: ${succeeded} approved, ${failed} failed`
+        : `${failed} suggestion(s) failed to approve`,
+    })
+    .throwOnError()
+
   // ── Send approval reminders for suggestions due within 12 hours ───────────────
   const REMINDER_WINDOW_MS = 12 * 60 * 60 * 1000
   const reminderCutoff = new Date(now + REMINDER_WINDOW_MS).getTime()

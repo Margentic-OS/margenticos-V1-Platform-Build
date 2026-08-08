@@ -74,6 +74,19 @@ export async function POST(request: NextRequest) {
 
   logger.info('process-replies: run complete', { ...result })
 
+  // ── Record heartbeat ───────────────────────────────────────────────────────────
+  const heartbeatOk = (result?.errors ?? 0) === 0
+  await supabase
+    .from('cron_heartbeats')
+    .insert({
+      job_name: 'process-replies',
+      ok: heartbeatOk,
+      detail: heartbeatOk
+        ? `Processed ${result?.processed ?? 0} replies`
+        : `${result?.errors ?? 0} error(s) processing replies`,
+    })
+    .throwOnError()
+
   Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'ok', checkInId })
   try { await Sentry.flush(2000) } catch {}
   return NextResponse.json({ ok: true, result })

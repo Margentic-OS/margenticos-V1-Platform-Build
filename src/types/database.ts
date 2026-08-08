@@ -152,6 +152,33 @@ export type Database = {
           },
         ]
       }
+      cron_heartbeats: {
+        Row: {
+          created_at: string
+          detail: string | null
+          id: number
+          job_name: string
+          ok: boolean
+          ran_at: string
+        }
+        Insert: {
+          created_at?: string
+          detail?: string | null
+          id?: number
+          job_name: string
+          ok?: boolean
+          ran_at?: string
+        }
+        Update: {
+          created_at?: string
+          detail?: string | null
+          id?: number
+          job_name?: string
+          ok?: boolean
+          ran_at?: string
+        }
+        Relationships: []
+      }
       document_suggestions: {
         Row: {
           ab_variant: string | null
@@ -861,6 +888,74 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "prospects"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      monitor_checks: {
+        Row: {
+          category: string
+          code: string
+          created_at: string
+          description: string
+          expected_interval_minutes: number | null
+          is_scheduled: boolean
+          tier: number
+          title: string
+        }
+        Insert: {
+          category: string
+          code: string
+          created_at?: string
+          description: string
+          expected_interval_minutes?: number | null
+          is_scheduled?: boolean
+          tier: number
+          title: string
+        }
+        Update: {
+          category?: string
+          code?: string
+          created_at?: string
+          description?: string
+          expected_interval_minutes?: number | null
+          is_scheduled?: boolean
+          tier?: number
+          title?: string
+        }
+        Relationships: []
+      }
+      monitor_events: {
+        Row: {
+          check_code: string
+          created_at: string
+          detail: string | null
+          id: number
+          resolved_at: string | null
+          state: string
+        }
+        Insert: {
+          check_code: string
+          created_at?: string
+          detail?: string | null
+          id?: number
+          resolved_at?: string | null
+          state: string
+        }
+        Update: {
+          check_code?: string
+          created_at?: string
+          detail?: string | null
+          id?: number
+          resolved_at?: string | null
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monitor_events_check_code_fkey"
+            columns: ["check_code"]
+            isOneToOne: false
+            referencedRelation: "monitor_checks"
+            referencedColumns: ["code"]
           },
         ]
       }
@@ -2069,6 +2164,60 @@ export type Database = {
           },
         ]
       }
+      mon_001: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_002: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_003: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_004: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_005: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_006: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          oldest_revision: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       append_faq_variant: {
@@ -2225,3 +2374,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
