@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const checkCodes = ['MON-001', 'MON-002', 'MON-003', 'MON-004', 'MON-005', 'MON-006']
-  const viewNames = ['mon_001', 'mon_002', 'mon_003', 'mon_004', 'mon_005', 'mon_006']
+  const checkCodes = ['MON-001', 'MON-002', 'MON-003', 'MON-004', 'MON-005', 'MON-006', 'MON-011', 'MON-012', 'MON-013', 'MON-014', 'MON-015']
+  const viewNames = ['mon_001', 'mon_002', 'mon_003', 'mon_004', 'mon_005', 'mon_006', 'mon_011', 'mon_012', 'mon_013', 'mon_014', 'mon_015']
 
   const results = {
     checked: 0,

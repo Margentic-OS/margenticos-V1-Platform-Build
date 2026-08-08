@@ -26,6 +26,9 @@ interface Check {
   description: string
   category: string
   is_scheduled: boolean
+  plain_meaning?: string
+  plain_impact?: string
+  plain_action?: string
 }
 
 interface Event {
@@ -55,10 +58,10 @@ export default function MonitorPage() {
   useEffect(() => {
     const loadMonitorData = async () => {
       try {
-        // Fetch all monitor checks
+        // Fetch all monitor checks with plain language columns
         const { data: checksData, error: checksError } = await supabase
           .from('monitor_checks')
-          .select('*')
+          .select('code, title, description, category, is_scheduled, plain_meaning, plain_impact, plain_action')
           .order('code')
 
         if (checksError) throw checksError
@@ -95,6 +98,9 @@ export default function MonitorPage() {
             description: check.description,
             category: check.category,
             is_scheduled: check.is_scheduled,
+            plain_meaning: check.plain_meaning,
+            plain_impact: check.plain_impact,
+            plain_action: check.plain_action,
           }
           const lastEvent = latestEventPerCheck.get(typedCheck.code)
           return {
@@ -191,15 +197,30 @@ export default function MonitorPage() {
 
       {problemChecks.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-8">
-          <h2 className="font-bold text-red-900 mb-2">Active Problems ({problemChecks.length})</h2>
-          <ul className="space-y-1">
+          <h2 className="font-bold text-red-900 mb-4">Active Problems ({problemChecks.length})</h2>
+          <div className="space-y-4">
             {problemChecks.map(c => (
-              <li key={c.check.code} className="text-red-800 text-sm">
-                <strong>{c.check.code}:</strong> {c.check.title}
-                {c.detail && <span className="ml-2 text-red-700">— {c.detail}</span>}
-              </li>
+              <div key={c.check.code} className="bg-white border border-red-200 rounded p-3">
+                <div className="font-bold text-red-900 mb-1">{c.check.code}: {c.check.title}</div>
+                {c.check.plain_meaning && (
+                  <div className="text-sm text-gray-700 mb-2">
+                    <span className="font-semibold">What it means:</span> {c.check.plain_meaning}
+                  </div>
+                )}
+                {c.check.plain_impact && (
+                  <div className="text-sm text-red-700 mb-2">
+                    <span className="font-semibold">Impact:</span> {c.check.plain_impact}
+                  </div>
+                )}
+                {c.check.plain_action && (
+                  <div className="text-sm text-red-800 mb-2">
+                    <span className="font-semibold">Action:</span> {c.check.plain_action}
+                  </div>
+                )}
+                {c.detail && <div className="text-xs text-gray-600 mt-2 italic">Detail: {c.detail}</div>}
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
