@@ -43,7 +43,9 @@ export async function POST(request: NextRequest) {
 
   // ── Fetch all pending suggestions with their org's approval window ──────────
   // Exclude client-originated revisions: they require explicit operator review per ADR.
-  // Client revisions set update_trigger='client_revision'; agent-generated suggestions have NULL.
+  // update_trigger is NOT NULL with default 'signal_suggestion'. Client revisions have
+  // update_trigger='client_revision'; agent-generated suggestions have update_trigger='signal_suggestion'.
+  // The .neq filter safely excludes client revisions and would reject NULLs if column becomes nullable.
   // Monitor check MON-006 surfaces client revisions waiting too long.
   const { data: pending, error: fetchError } = await supabase
     .from('document_suggestions')
