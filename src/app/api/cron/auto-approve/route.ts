@@ -42,10 +42,14 @@ export async function POST(request: NextRequest) {
   )
 
   // ── Fetch all pending suggestions with their org's approval window ──────────
+  // Exclude client-originated revisions: they require explicit operator review per ADR.
+  // Client revisions set update_trigger='client_revision'; agent-generated suggestions have NULL.
+  // Monitor check MON-006 surfaces client revisions waiting too long.
   const { data: pending, error: fetchError } = await supabase
     .from('document_suggestions')
     .select('id, organisation_id, document_type, created_at, update_trigger, organisations(auto_approve_window_hours)')
     .eq('status', 'pending')
+    .neq('update_trigger', 'client_revision')
 
   if (fetchError) {
     logger.error('Auto-approve cron: failed to fetch pending suggestions', {
