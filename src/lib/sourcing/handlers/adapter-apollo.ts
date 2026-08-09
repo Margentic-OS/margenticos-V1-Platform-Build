@@ -285,8 +285,13 @@ export const apolloHandler = {
         }
 
         if (response.status === 429) {
-          const msg = 'Apollo API rate limit exceeded (600/hour)'
-          logger.error('Apollo handler: rate limited', { status: 429, error: msg })
+          const retryAfter = response.headers.get('Retry-After')
+          const msg = `Apollo API rate limited (600/hour). Retry-After: ${retryAfter || 'not provided'}`
+          logger.error('Apollo handler: rate limited', {
+            status: 429,
+            error: msg,
+            retryAfterHeader: retryAfter,
+          })
           throw new Error(`Apollo sourcing failed: ${msg}`)
         }
 

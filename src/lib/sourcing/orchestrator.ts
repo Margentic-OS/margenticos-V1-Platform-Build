@@ -354,6 +354,7 @@ export async function runSourcing(
       organisation_id: client_id,
       agent_name: 'sourcing_orchestrator',
       status: 'completed',
+      completed_at: new Date().toISOString(),
       output_summary: outputSummary,
       error_message: null,
     })
@@ -388,6 +389,7 @@ export async function runSourcing(
       organisation_id: client_id,
       agent_name: 'sourcing_orchestrator',
       status: 'failed',
+      completed_at: new Date().toISOString(),
       output_summary: null,
       error_message: errorMsg,
     })
