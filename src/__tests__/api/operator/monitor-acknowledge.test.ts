@@ -26,7 +26,7 @@ describe('Monitor Acknowledge Flow', () => {
     const { data: authUser, error: signUpError } = await serviceClient.auth.admin.createUser({
       email: `monitor-test-${Date.now()}@test.local`,
       password: 'TestPassword123!',
-      email_confirmed: true,
+      email_confirm: true,
     })
     expect(signUpError).toBeNull()
     expect(authUser?.user).toBeDefined()
