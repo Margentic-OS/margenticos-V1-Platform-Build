@@ -210,12 +210,16 @@ export const apolloHandler = {
       request.organization_num_employees_ranges = [`${min},${max}`]
     }
 
-    // Keywords: spec.keywords only. Industries have no dedicated API parameter (docs-confirmed 2026-08-09).
-    // Industry fit is annotated post-enrichment when full org data is available, never silently dropped.
+    // Keywords: spec.keywords[0] only (first keyword).
+    // Apollo's q_keywords uses AND semantics: all words in the string must appear.
+    // Multi-word queries collapse results dramatically (bisection 2026-08-09: "consulting" = 28,390
+    // vs "consulting consultant advisory consultancy" = 0). Using single best keyword instead.
+    // Remaining keywords stay in spec for future multi-keyword union build (backlogged) and
+    // for post-enrichment annotation. Industries have no dedicated API parameter (docs-confirmed).
     // industries_excluded is also applied post-enrichment (previously unenforced).
     const keywords = spec.keywords as string[] | undefined
     if (keywords?.length) {
-      request.q_keywords = keywords.join(' ')
+      request.q_keywords = keywords[0]
     }
 
     // Company revenue range (optional extended fields)

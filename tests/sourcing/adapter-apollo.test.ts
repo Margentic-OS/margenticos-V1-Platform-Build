@@ -51,7 +51,8 @@ describe('apolloHandler.adapter', () => {
     expect(request.organization_num_employees_ranges).toEqual(['1,50'])
     // Industries are NOT in q_keywords (Apollo has no industry parameter).
     // Post-enrichment industry annotation provides filtering, not pre-filtering.
-    expect(request.q_keywords).toEqual('consulting advisory')
+    // q_keywords now uses only first keyword due to AND-semantics collapse (multi-word → zero results)
+    expect(request.q_keywords).toEqual('consulting')
     expect(request.contact_email_status).toEqual(['verified'])
   })
 
@@ -173,6 +174,28 @@ describe('apolloHandler.adapter', () => {
       'germany',
     ])
     expect(request.organization_locations).toEqual(['australia', 'new zealand'])
+  })
+
+  it('sends only first keyword due to Apollo AND semantics', () => {
+    const spec: Record<string, unknown> = {
+      job_titles: [],
+      job_titles_excluded: [],
+      seniority_levels: [],
+      person_countries: [],
+      company_countries: [],
+      company_headcount_min: 1,
+      company_headcount_max: 50,
+      industries: [],
+      industries_excluded: [],
+      keywords: ['consulting', 'consultant', 'advisory', 'consultancy'],
+      keywords_excluded: [],
+      notes: '',
+    }
+
+    const request = apolloHandler.adapter(spec)
+
+    // Should use only first keyword due to AND semantics collapse (28,390 → 0 with multi-word)
+    expect(request.q_keywords).toBe('consulting')
   })
 })
 
