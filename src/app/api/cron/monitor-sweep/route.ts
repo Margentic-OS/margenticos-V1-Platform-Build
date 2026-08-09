@@ -14,8 +14,9 @@
 // Transitions are recorded only on state change. Repeated states do not create duplicate events.
 //
 // Monitor check views queried:
-//   mon_001, mon_002, mon_003, mon_004, mon_005 (liveness checks)
+//   mon_001, mon_002, mon_003, mon_004, mon_005, mon_007, mon_010 (liveness checks)
 //   mon_006 (Tier 1: client revisions awaiting review)
+//   mon_011, mon_012, mon_013, mon_014, mon_015 (additional checks)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -36,8 +37,8 @@ export async function POST(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const checkCodes = ['MON-001', 'MON-002', 'MON-003', 'MON-004', 'MON-005', 'MON-006', 'MON-011', 'MON-012', 'MON-013', 'MON-014', 'MON-015']
-  const viewNames = ['mon_001', 'mon_002', 'mon_003', 'mon_004', 'mon_005', 'mon_006', 'mon_011', 'mon_012', 'mon_013', 'mon_014', 'mon_015']
+  const checkCodes = ['MON-001', 'MON-002', 'MON-003', 'MON-004', 'MON-005', 'MON-006', 'MON-007', 'MON-010', 'MON-011', 'MON-012', 'MON-013', 'MON-014', 'MON-015']
+  const viewNames = ['mon_001', 'mon_002', 'mon_003', 'mon_004', 'mon_005', 'mon_006', 'mon_007', 'mon_010', 'mon_011', 'mon_012', 'mon_013', 'mon_014', 'mon_015']
 
   const results = {
     checked: 0,
