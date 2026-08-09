@@ -109,7 +109,7 @@ interface ApolloApiSearchRequest {
 }
 
 interface ApolloApiSearchResponse {
-  data: {
+  people: {
     id: string
     first_name: string
     last_name_obfuscated: string
@@ -132,11 +132,7 @@ interface ApolloApiSearchResponse {
       has_employee_count?: boolean
     }
   }[]
-  pagination: {
-    page: number
-    per_page: number
-    total_entries: number
-  }
+  total_entries: number
 }
 
 export const apolloHandler = {
@@ -301,8 +297,8 @@ export const apolloHandler = {
 
         const data: ApolloApiSearchResponse = await response.json()
 
-        if (!data.data || !Array.isArray(data.data)) {
-          logger.warn('Apollo handler: no data in response', { page })
+        if (!data.people || !Array.isArray(data.people)) {
+          logger.warn('Apollo handler: no people in response', { page })
           break
         }
 
@@ -311,7 +307,7 @@ export const apolloHandler = {
         const keywordsExcluded = spec.keywords_excluded as string[] | undefined
 
         // Convert Apollo people to ProspectCandidate, apply post-filters
-        for (const person of data.data) {
+        for (const person of data.people) {
           // Pre-filter: only include if Apollo claims verified email
           if (person.has_email === false) {
             continue
@@ -365,8 +361,8 @@ export const apolloHandler = {
         }
 
         // Check if more pages available
-        const paginationTotal = data.pagination?.total_entries ?? 0
-        if (totalFetched >= paginationTotal || data.data.length < 100) {
+        const totalEntries = data.total_entries ?? 0
+        if (totalFetched >= totalEntries || data.people.length < 100) {
           morePages = false
         } else {
           page++
