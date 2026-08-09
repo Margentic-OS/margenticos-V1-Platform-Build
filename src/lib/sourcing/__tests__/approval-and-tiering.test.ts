@@ -81,7 +81,6 @@ describe('Tier Classification', () => {
     job_titles: ['Sales Director', 'VP Sales'],
     job_titles_excluded: ['Assistant'],
     seniority_levels: ['vp', 'c_suite'],
-    departments: [],
     person_countries: ['US'],
     company_countries: ['US'],
     company_headcount_min: 10,

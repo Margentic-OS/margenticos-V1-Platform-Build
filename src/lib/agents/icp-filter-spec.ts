@@ -127,7 +127,6 @@ export interface ICPFilterSpec {
   job_titles: string[]
   job_titles_excluded: string[]
   seniority_levels: ('c_suite' | 'vp' | 'director' | 'manager' | 'senior' | 'entry')[]
-  departments: string[]
   person_countries: string[]          // ISO-3166 alpha-2 codes
   company_countries: string[]         // ISO-3166 alpha-2 codes
   company_headcount_min: number
@@ -203,10 +202,16 @@ export function deriveFilterSpec(doc: IcpDocument): ICPFilterSpec {
 
   const industries = rawIndustries as CanonicalIndustry[]
 
-  // Headcount: Tier 1 min / Tier 2 max combined.
+  // Headcount: union of both tiers (min across both, max across both).
+  // Both tiers are sourced; tier classification happens downstream (sourced_tier).
   // The ICP headcount strings are human-readable ("1–3 people") — parse the bounds.
-  const headcountMin = parseHeadcountMin(t1.company_profile.headcount) ?? 1
-  const headcountMax = parseHeadcountMax(t2.company_profile.headcount) ?? 8
+  // Previous pairing (t1-min / t2-max) silently inverted when tier 2 was smaller, excluding valid tier 1 range.
+  const t1Min = parseHeadcountMin(t1.company_profile.headcount) ?? 1
+  const t1Max = parseHeadcountMax(t1.company_profile.headcount) ?? 20
+  const t2Min = parseHeadcountMin(t2.company_profile.headcount) ?? 1
+  const t2Max = parseHeadcountMax(t2.company_profile.headcount) ?? 8
+  const headcountMin = Math.min(t1Min, t2Min)
+  const headcountMax = Math.max(t1Max, t2Max)
 
   return {
     job_titles: [
@@ -230,7 +235,6 @@ export function deriveFilterSpec(doc: IcpDocument): ICPFilterSpec {
       'Sales Development Representative',
     ],
     seniority_levels: ['c_suite', 'vp', 'director'],
-    departments: ['executive', 'management'],
     person_countries: DEFAULT_PERSON_COUNTRIES,
     company_countries: DEFAULT_COMPANY_COUNTRIES,
     company_headcount_min: headcountMin,
