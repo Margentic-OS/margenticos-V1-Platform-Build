@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }): string {
   const now = new Date()
@@ -49,7 +48,6 @@ interface CheckState {
 }
 
 export default function MonitorPage() {
-  const supabase = createClient()
   const [checks, setChecks] = useState<CheckState[]>([])
   const [recentEvents, setRecentEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
@@ -58,21 +56,14 @@ export default function MonitorPage() {
   useEffect(() => {
     const loadMonitorData = async () => {
       try {
-        // Fetch all monitor checks with plain language columns
-        const { data: checksData, error: checksError } = await supabase
-          .from('monitor_checks')
-          .select('code, title, description, category, is_scheduled, plain_meaning, plain_impact, plain_action')
-          .order('code')
+        // Fetch via server route (uses service_role, bypasses RLS)
+        const response = await fetch('/api/operator/monitor-data')
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || `HTTP ${response.status}`)
+        }
 
-        if (checksError) throw checksError
-
-        // Fetch latest event per check
-        const { data: eventsData, error: eventsError } = await supabase
-          .from('monitor_events')
-          .select('*')
-          .order('created_at', { ascending: false })
-
-        if (eventsError) throw eventsError
+        const { checks: checksData, events: eventsData, recentEvents: recentEventsData } = await response.json()
 
         // Build map of check_code -> latest event
         const latestEventPerCheck = new Map<string, Event>()
@@ -114,15 +105,7 @@ export default function MonitorPage() {
 
         setChecks(checksWithState)
 
-        // Fetch recent events for audit trail (last 50)
-        const { data: recent, error: recentError } = await supabase
-          .from('monitor_events')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(50)
-
-        if (recentError) throw recentError
-        const typedRecent = (recent ?? []).map((e: any) => ({
+        const typedRecent = (recentEventsData ?? []).map((e: any) => ({
           id: e.id,
           check_code: e.check_code,
           state: e.state as 'PROBLEM' | 'OK' | 'UNKNOWN',
@@ -132,7 +115,7 @@ export default function MonitorPage() {
         }))
         setRecentEvents(typedRecent)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error')
+        setError(err instanceof Error ? err.message : 'Monitor data could not be loaded: Unknown error')
       } finally {
         setLoading(false)
       }
@@ -143,7 +126,7 @@ export default function MonitorPage() {
     // Refresh every 30 seconds
     const interval = setInterval(loadMonitorData, 30000)
     return () => clearInterval(interval)
-  }, [supabase])
+  }, [])
 
   if (loading) {
     return (

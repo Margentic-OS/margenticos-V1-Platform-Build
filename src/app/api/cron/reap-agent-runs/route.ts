@@ -47,6 +47,15 @@ export async function POST(request: NextRequest) {
 
     if (!running || running.length === 0) {
       logger.debug('Reap cron: no running agent_runs found')
+      // Record heartbeat for no-op run
+      await supabase
+        .from('cron_heartbeats')
+        .insert({
+          job_name: 'reap-agent-runs',
+          ok: true,
+          detail: 'No zombie agent runs to reap',
+        })
+        .throwOnError()
       return NextResponse.json({ reaped: 0 })
     }
 

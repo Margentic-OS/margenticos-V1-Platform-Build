@@ -62,6 +62,15 @@ export async function POST(request: NextRequest) {
 
   if (!pending || pending.length === 0) {
     logger.info('Auto-approve cron: no pending suggestions found')
+    // Record heartbeat for no-op run
+    await supabase
+      .from('cron_heartbeats')
+      .insert({
+        job_name: 'auto-approve',
+        ok: true,
+        detail: 'No pending suggestions to process',
+      })
+      .throwOnError()
     return NextResponse.json({ processed: 0, succeeded: 0, failed: 0 })
   }
 

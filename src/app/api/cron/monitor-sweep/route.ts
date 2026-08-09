@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import * as Sentry from '@sentry/nextjs'
 
 export async function POST(request: NextRequest) {
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -136,6 +137,11 @@ export async function POST(request: NextRequest) {
           to_state: currentState,
         })
         results.state_changes++
+
+        // Alert to Sentry when transitioning to PROBLEM
+        if (currentState === 'PROBLEM') {
+          Sentry.captureMessage(`Monitor check ${checkCode} transitioned to PROBLEM: ${currentDetail}`, 'error')
+        }
       }
     } catch (err) {
       logger.error('Monitor sweep: unexpected error', {
@@ -162,6 +168,11 @@ export async function POST(request: NextRequest) {
   logger.info('Monitor sweep: batch complete', {
     ...results,
   })
+
+  // Flush Sentry before returning
+  try {
+    await Sentry.flush(2000)
+  } catch {}
 
   return NextResponse.json({
     ok: sweepOk,
