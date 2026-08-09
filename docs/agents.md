@@ -458,9 +458,9 @@ db-update-failed-after-send-CRITICAL Sentry alert rule for manual reconciliation
 **Isolation:** Multi-tenant safe — all queries are scoped to the draft's organisation_id.
 Cross-org access is blocked at the API layer (the approve endpoint), not here.
 
-**Testing:** `npm run test-send-approved-draft` — 17 integration tests using mock Supabase stubs.
-Covers: not-found, idempotent (sent/failed), wrong status, empty body, missing founder name,
-missing calendly, missing thread context, network failure, no-double sign-off variants.
+**Testing:** Contract tests via `test-send.test.ts` verify signature and error handling.
+The standalone test script was removed (commit 37e9e1e) as part of hardening against
+accidental production calls — all Instantly API calls now route through the flag-driven URL resolver.
 
 ---
 
