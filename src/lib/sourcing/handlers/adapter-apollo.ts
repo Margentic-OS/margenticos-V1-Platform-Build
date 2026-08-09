@@ -38,6 +38,62 @@ const SUPPORTED_APOLLO_SENIORITIES = new Set([
   'director', 'manager', 'senior', 'entry', 'intern',
 ])
 
+// ─── ISO-3166-alpha-2 → Apollo location name mapping ────────────────────────
+// Apollo's location parameters expect place names (e.g. "california", "ireland"),
+// not ISO codes. This map translates canonical spec ISO codes to Apollo names.
+// Unknown codes are passed through lowercased with a warning; never dropped silently.
+const ISO_TO_APOLLO_LOCATION: Record<string, string> = {
+  // North America
+  'US': 'united states',
+  'CA': 'canada',
+  'MX': 'mexico',
+  // Europe
+  'GB': 'united kingdom',
+  'IE': 'ireland',
+  'DE': 'germany',
+  'FR': 'france',
+  'NL': 'netherlands',
+  'BE': 'belgium',
+  'CH': 'switzerland',
+  'AT': 'austria',
+  'SE': 'sweden',
+  'NO': 'norway',
+  'DK': 'denmark',
+  'FI': 'finland',
+  'PL': 'poland',
+  'CZ': 'czechia',
+  'IT': 'italy',
+  'ES': 'spain',
+  'PT': 'portugal',
+  'GR': 'greece',
+  // Asia-Pacific
+  'AU': 'australia',
+  'NZ': 'new zealand',
+  'JP': 'japan',
+  'CN': 'china',
+  'IN': 'india',
+  'SG': 'singapore',
+  'HK': 'hong kong',
+  'KR': 'south korea',
+  'TH': 'thailand',
+  // Middle East & Africa
+  'AE': 'united arab emirates',
+  'SA': 'saudi arabia',
+  'ZA': 'south africa',
+}
+
+function translateIsoToApolloLocation(isoCode: string): string {
+  const translated = ISO_TO_APOLLO_LOCATION[isoCode]
+  if (translated) {
+    return translated
+  }
+  // Unknown codes: pass through lowercased with warning
+  logger.warn('Apollo adapter: unknown ISO-3166 location code, passing through lowercased', {
+    iso_code: isoCode,
+  })
+  return isoCode.toLowerCase()
+}
+
 interface ApolloApiSearchRequest {
   person_titles?: string[]
   include_similar_titles?: boolean
@@ -140,13 +196,13 @@ export const apolloHandler = {
     // Person countries (ISO-3166 alpha-2 → Apollo locations)
     const personCountries = spec.person_countries as string[] | undefined
     if (personCountries?.length) {
-      request.person_locations = personCountries
+      request.person_locations = personCountries.map(translateIsoToApolloLocation)
     }
 
-    // Company countries
+    // Company countries (ISO-3166 alpha-2 → Apollo locations)
     const companyCountries = spec.company_countries as string[] | undefined
     if (companyCountries?.length) {
-      request.organization_locations = companyCountries
+      request.organization_locations = companyCountries.map(translateIsoToApolloLocation)
     }
 
     // Company headcount range: fold min/max into single range string "min,max"

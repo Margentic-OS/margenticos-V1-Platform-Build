@@ -353,7 +353,7 @@ export async function runSourcing(
     const { error: runError } = await supabase.from('agent_runs').insert({
       organisation_id: client_id,
       agent_name: 'sourcing_orchestrator',
-      status: 'success',
+      status: 'completed',
       output_summary: outputSummary,
       error_message: null,
     })

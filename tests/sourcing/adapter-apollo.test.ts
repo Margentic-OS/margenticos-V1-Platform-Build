@@ -46,8 +46,8 @@ describe('apolloHandler.adapter', () => {
     expect(request.person_titles).toEqual(['Founder', 'CEO'])
     expect(request.person_seniorities).toContain('director')
     expect(request.person_seniorities).toContain('head') // director maps to head
-    expect(request.person_locations).toEqual(['US', 'GB'])
-    expect(request.organization_locations).toEqual(['US'])
+    expect(request.person_locations).toEqual(['united states', 'united kingdom']) // ISO codes translated to Apollo location names
+    expect(request.organization_locations).toEqual(['united states'])
     expect(request.organization_num_employees_ranges).toEqual(['1,50'])
     // Industries are NOT in q_keywords (Apollo has no industry parameter).
     // Post-enrichment industry annotation provides filtering, not pre-filtering.
@@ -146,6 +146,33 @@ describe('apolloHandler.adapter', () => {
 
     expect(request.revenue_range?.min).toBe(1000000)
     expect(request.revenue_range?.max).toBe(10000000)
+  })
+
+  it('translates ISO-3166 alpha-2 country codes to Apollo location names', () => {
+    const spec: Record<string, unknown> = {
+      job_titles: [],
+      job_titles_excluded: [],
+      seniority_levels: [],
+      person_countries: ['GB', 'IE', 'US', 'DE'],
+      company_countries: ['AU', 'NZ'],
+      company_headcount_min: 1,
+      company_headcount_max: 50,
+      industries: [],
+      industries_excluded: [],
+      keywords: [],
+      keywords_excluded: [],
+      notes: '',
+    }
+
+    const request = apolloHandler.adapter(spec)
+
+    expect(request.person_locations).toEqual([
+      'united kingdom',
+      'ireland',
+      'united states',
+      'germany',
+    ])
+    expect(request.organization_locations).toEqual(['australia', 'new zealand'])
   })
 })
 
