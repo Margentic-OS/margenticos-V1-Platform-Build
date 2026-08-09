@@ -47,11 +47,33 @@ export async function POST(request: NextRequest) {
 
   if (fetchError) {
     logger.error('strategy-doc-auto-approve cron: fetch failed', { error: fetchError.message })
+    try {
+      await supabase
+        .from('cron_heartbeats')
+        .insert({
+          job_name: 'strategy-doc-auto-approve',
+          ok: false,
+          detail: `Fetch failed: ${fetchError.message}`,
+        })
+    } catch (e) {
+      logger.error('failed to record heartbeat', { error: e })
+    }
     return NextResponse.json({ error: 'Failed to fetch documents.' }, { status: 500 })
   }
 
   if (!due || due.length === 0) {
     logger.info('strategy-doc-auto-approve cron: no docs due for auto-approval')
+    try {
+      await supabase
+        .from('cron_heartbeats')
+        .insert({
+          job_name: 'strategy-doc-auto-approve',
+          ok: true,
+          detail: 'No documents due for approval',
+        })
+    } catch (e) {
+      logger.error('failed to record heartbeat', { error: e })
+    }
     return NextResponse.json({ processed: 0, succeeded: 0, failed: 0 })
   }
 
@@ -92,6 +114,18 @@ export async function POST(request: NextRequest) {
     succeeded,
     failed,
   })
+
+  try {
+    await supabase
+      .from('cron_heartbeats')
+      .insert({
+        job_name: 'strategy-doc-auto-approve',
+        ok: failed === 0,
+        detail: `Processed ${due.length}, succeeded ${succeeded}, failed ${failed}`,
+      })
+  } catch (e) {
+    logger.error('failed to record heartbeat', { error: e })
+  }
 
   return NextResponse.json({ processed: due.length, succeeded, failed })
 }

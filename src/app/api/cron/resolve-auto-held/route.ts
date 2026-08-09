@@ -11,6 +11,7 @@
 // This is intentional — the cron acts as a system process, not a user.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { resolveAutoHeldMeetings } from '@/lib/meetings/auto-held-resolution'
 import { logger } from '@/lib/logger'
 import * as Sentry from '@sentry/nextjs'
@@ -32,6 +33,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
   }
 
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
   const checkInId = Sentry.captureCheckIn(
     { monitorSlug: MONITOR_SLUG, status: 'in_progress' },
     MONITOR_CONFIG
@@ -49,6 +55,18 @@ export async function POST(request: NextRequest) {
     Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'ok', checkInId })
     try { await Sentry.flush(2000) } catch {}
 
+    try {
+      await supabase
+        .from('cron_heartbeats')
+        .insert({
+          job_name: 'resolve-auto-held',
+          ok: true,
+          detail: `Processed ${results.length} organisations, resolved ${results.reduce((sum, r) => sum + r.resolved_count, 0)} meetings`,
+        })
+    } catch (e) {
+      logger.error('failed to record heartbeat', { error: e })
+    }
+
     return NextResponse.json({
       ok: true,
       results: {
@@ -62,6 +80,17 @@ export async function POST(request: NextRequest) {
     logger.error('resolve-auto-held cron: threw unexpectedly', { error: msg })
     Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'error', checkInId })
     try { await Sentry.flush(2000) } catch {}
+    try {
+      await supabase
+        .from('cron_heartbeats')
+        .insert({
+          job_name: 'resolve-auto-held',
+          ok: false,
+          detail: `Error: ${msg}`,
+        })
+    } catch (e) {
+      logger.error('failed to record heartbeat', { error: e })
+    }
     return NextResponse.json({ error: 'Internal error.', detail: msg }, { status: 500 })
   }
 }

@@ -15,6 +15,18 @@ vi.mock('@sentry/nextjs', () => ({
   flush: vi.fn(() => Promise.resolve()),
 }))
 
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: vi.fn(() => ({
+    from: vi.fn(() => ({
+      insert: vi.fn(() => Promise.resolve({ error: null })),
+    })),
+  })),
+}))
+
+vi.mock('@/lib/meetings/auto-held-resolution', () => ({
+  resolveAutoHeldMeetings: vi.fn(() => Promise.resolve([])),
+}))
+
 // Import and re-export the real resolver (not mocked for window tests)
 import { resolveAutoHeldMeetings } from '@/lib/meetings/auto-held-resolution'
 
@@ -91,6 +103,8 @@ describe('POST /api/cron/resolve-auto-held', () => {
 
   beforeEach(() => {
     process.env.CRON_SECRET = CRON_SECRET
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co'
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key'
     vi.clearAllMocks()
   })
 
@@ -120,19 +134,15 @@ describe('POST /api/cron/resolve-auto-held', () => {
   })
 
   it('returns 500 if resolver throws', async () => {
+    // Mock resolveAutoHeldMeetings to throw
+    vi.mocked(resolveAutoHeldMeetings).mockRejectedValueOnce(new Error('Database error'))
+
     const request = new NextRequest('http://localhost:3000/api/cron/resolve-auto-held', {
       method: 'POST',
       headers: {
         authorization: `Bearer ${CRON_SECRET}`,
       },
     })
-
-    // Mock the server client to throw
-    vi.doMock('@/lib/supabase/server', () => ({
-      createClient: vi.fn(() => {
-        throw new Error('Database connection failed')
-      }),
-    }))
 
     const response = await POST(request)
     expect(response.status).toBe(500)
