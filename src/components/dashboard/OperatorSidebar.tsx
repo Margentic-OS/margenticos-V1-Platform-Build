@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { appendClientParam } from '@/lib/dashboard/client-param'
 
 export interface ClientOrg {
@@ -45,6 +45,26 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [badgeCount, setBadgeCount] = useState(0)
+
+  useEffect(() => {
+    const fetchBadgeCount = async () => {
+      try {
+        const response = await fetch('/api/operator/monitor-badge-count')
+        if (response.ok) {
+          const { count } = await response.json()
+          setBadgeCount(count)
+        }
+      } catch (err) {
+        // Silent fail — badge is not critical
+      }
+    }
+
+    fetchBadgeCount()
+    // Refresh badge every 30 seconds
+    const interval = setInterval(fetchBadgeCount, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   const selectedId = searchParams.get('client') ?? clients[0]?.id ?? null
   const selectedClient = clients.find(c => c.id === selectedId) ?? clients[0] ?? null
@@ -191,13 +211,18 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
               <Link
                 href={item.href}
                 className={[
-                  'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
+                  'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
                   isActive(item.href)
                     ? 'bg-[rgba(239,159,39,0.10)] border-l-2 border-brand-amber text-brand-amber font-medium'
                     : 'text-brand-amber opacity-60 hover:opacity-100 hover:bg-[rgba(239,159,39,0.07)]',
                 ].join(' ')}
               >
-                {item.label}
+                <span>{item.label}</span>
+                {item.href === '/dashboard/operator/monitor' && badgeCount > 0 && (
+                  <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-red-600 rounded-full">
+                    {badgeCount > 99 ? '99+' : badgeCount}
+                  </span>
+                )}
               </Link>
             </li>
           ))}
