@@ -122,7 +122,7 @@ export async function getDedupeVerdict(
       .select('source_person_key')
       .eq('organisation_id', organisationId)
       .eq('source_person_key', source_person_key)
-      .is('suppressed', false)
+      .not('suppressed', 'is', true)
       .maybeSingle()
 
     if (pkError) {
@@ -142,7 +142,7 @@ export async function getDedupeVerdict(
       .select('linkedin_url_normalised')
       .eq('organisation_id', organisationId)
       .eq('linkedin_url_normalised', linkedin_url_normalised)
-      .is('suppressed', false)
+      .not('suppressed', 'is', true)
       .maybeSingle()
 
     if (liError) {
@@ -163,7 +163,7 @@ export async function getDedupeVerdict(
       .select('email')
       .eq('organisation_id', organisationId)
       .eq('email', lowerEmail)
-      .is('suppressed', false)
+      .not('suppressed', 'is', true)
       .not('email', 'is', null)
       .maybeSingle()
 
