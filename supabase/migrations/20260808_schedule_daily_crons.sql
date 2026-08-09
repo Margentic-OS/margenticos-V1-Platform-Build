@@ -7,21 +7,47 @@
 -- Fix: Move both to pg_cron, which invokes via POST using net.http_post.
 -- Pattern matches existing jobs (process-replies, instantly-poll, auto-approve, reap-agent-runs).
 --
--- To apply this migration on local/Hobby tier:
+-- SUPABASE HOBBY LIMITATION (discovered 2026-08-08, matches reaper pattern):
+--   Supabase Hobby tier cannot set app.* config vars via ALTER DATABASE.
+--   The current_setting('app.cron_secret') pattern returns NULL — jobs fail with 401.
 --
---   After applying, verify both jobs were created:
---     SELECT jobname, schedule FROM cron.job WHERE jobname IN ('strategy-doc-auto-approve', 'resolve-auto-held');
+--   WORKING PATTERN ON HOBBY TIER (applied by human operator):
+--   After applying this migration, manually reschedule both jobs with hardcoded CRON_SECRET:
+--
+--     SELECT cron.unschedule('strategy-doc-auto-approve');
+--     SELECT cron.unschedule('resolve-auto-held');
+--
+--     SELECT cron.schedule('strategy-doc-auto-approve', '0 6 * * *',
+--       $cmd$ SELECT net.http_post(
+--         url     := 'https://margenticos-platform.vercel.app/api/cron/strategy-doc-auto-approve',
+--         headers := '{"Content-Type":"application/json","Authorization":"Bearer <CRON_SECRET>"}'::jsonb,
+--         body    := '{}'::jsonb,
+--         timeout_milliseconds := 55000
+--       ); $cmd$);
+--
+--     SELECT cron.schedule('resolve-auto-held', '0 9 * * *',
+--       $cmd$ SELECT net.http_post(
+--         url     := 'https://margenticos-platform.vercel.app/api/cron/resolve-auto-held',
+--         headers := '{"Content-Type":"application/json","Authorization":"Bearer <CRON_SECRET>"}'::jsonb,
+--         body    := '{}'::jsonb,
+--         timeout_milliseconds := 55000
+--       ); $cmd$);
+--
+--   Replace <CRON_SECRET> with the actual value from Vercel environment.
 --
 -- SECURITY NOTE:
--- CRON_SECRET lives in cron.job.command in plaintext. This is acceptable for a low-impact
+-- CRON_SECRET lives in cron.job.command in plaintext. Acceptable for a low-impact
 -- token that gates only cron endpoints, not user-facing APIs. Higher-value credentials
 -- should use Supabase Vault or an encrypted column.
 
--- Unschedule any existing jobs (idempotent if not present)
-SELECT cron.unschedule('strategy-doc-auto-approve');
-SELECT cron.unschedule('resolve-auto-held');
+-- Dummy schedules below will be unscheduled and rescheduled manually on Hobby tier.
+-- This migration records the intent; the actual live jobs use hardcoded Bearer tokens.
 
--- Schedule strategy-doc-auto-approve to run daily at 06:00 UTC
+-- NOTE: On Hobby tier, the current_setting pattern below DOES NOT WORK.
+-- Jobs must be rescheduled manually with hardcoded CRON_SECRET as documented above.
+-- If replaying this migration on a new tier, verify cron.job contains literal Bearer tokens,
+-- not current_setting references.
+
 SELECT cron.schedule(
   'strategy-doc-auto-approve',
   '0 6 * * *',
@@ -39,7 +65,6 @@ SELECT cron.schedule(
   $$
 );
 
--- Schedule resolve-auto-held to run daily at 09:00 UTC
 SELECT cron.schedule(
   'resolve-auto-held',
   '0 9 * * *',
