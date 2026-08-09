@@ -47,6 +47,50 @@ describe('deriveFilterSpec', () => {
     })
   })
 
+  describe('founder-led seniority inclusion', () => {
+    it('should include founder and owner when buyer profile indicates founder-led', () => {
+      const doc: IcpDocument = {
+        summary: 'test',
+        jtbd_statement: 'test',
+        tier_1: {
+          company_profile: {
+            stage: 'Post-validation',
+            headcount: '2-20 people',
+            industries: ['Management Consulting'],
+            revenue_range: '£500K-£5M',
+          },
+          buyer_profile: { title: 'Founder / Managing Director', seniority: 'Founder-led' },
+          disqualifiers: [],
+        },
+        tier_2: {
+          company_profile: {
+            stage: 'Post-first-clients',
+            headcount: '1-3 people',
+            industries: ['Management Consulting'],
+            revenue_range: '£300K-£500K',
+          },
+          buyer_profile: { title: 'Founder', seniority: 'Solo operator' },
+          disqualifiers: [],
+        },
+        tier_3: {
+          company_profile: {
+            industries: ['Business Coaching'],
+            stage: 'Idea',
+            headcount: '1 person',
+            revenue_range: 'Pre-revenue',
+          },
+        },
+      }
+
+      const spec = deriveFilterSpec(doc)
+
+      // Must include founder and owner for founder-led ICPs (Apollo filters on these distinct tags)
+      expect(spec.seniority_levels).toContain('founder')
+      expect(spec.seniority_levels).toContain('owner')
+      expect(spec.seniority_levels).toContain('c_suite')
+    })
+  })
+
   describe('departments removal', () => {
     it('should not emit departments field in derived spec', () => {
       const doc: IcpDocument = {

@@ -22,7 +22,9 @@ import type { ProspectCandidate } from '@/lib/sourcing/dedupe'
 // owner/founder is the primary decision-maker.
 
 const SENIORITY_MAP: Record<ICPFilterSpec['seniority_levels'][number], string[]> = {
-  c_suite: ['owner', 'founder', 'c_suite'],  // Decision-maker in founder-led firms
+  founder: ['founder'],
+  owner: ['owner'],
+  c_suite: ['c_suite'],
   vp: ['vp', 'partner'],                      // Partner maps to VP-level authority
   director: ['director', 'head'],             // Head = director-level
   manager: ['manager'],
@@ -156,15 +158,12 @@ export const apolloHandler = {
       request.organization_num_employees_ranges = [`${min},${max}`]
     }
 
-    // Keywords: merge industries (as keywords), keywords, excluding excluded keywords
-    const industries = spec.industries as string[] | undefined
+    // Keywords: spec.keywords only. Industries have no dedicated API parameter (docs-confirmed 2026-08-09).
+    // Industry fit is annotated post-enrichment when full org data is available, never silently dropped.
+    // industries_excluded is also applied post-enrichment (previously unenforced).
     const keywords = spec.keywords as string[] | undefined
-    const allKeywords = [
-      ...(industries?.map(ind => ind.toLowerCase()) ?? []),
-      ...(keywords ?? []),
-    ]
-    if (allKeywords.length) {
-      request.q_keywords = allKeywords.join(' ')
+    if (keywords?.length) {
+      request.q_keywords = keywords.join(' ')
     }
 
     // Company revenue range (optional extended fields)

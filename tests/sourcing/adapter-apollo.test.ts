@@ -30,7 +30,6 @@ describe('apolloHandler.adapter', () => {
       job_titles: ['Founder', 'CEO'],
       job_titles_excluded: [],
       seniority_levels: ['director'],
-      departments: [],
       person_countries: ['US', 'GB'],
       company_countries: ['US'],
       company_headcount_min: 1,
@@ -50,18 +49,17 @@ describe('apolloHandler.adapter', () => {
     expect(request.person_locations).toEqual(['US', 'GB'])
     expect(request.organization_locations).toEqual(['US'])
     expect(request.organization_num_employees_ranges).toEqual(['1,50'])
-    expect(request.q_keywords).toContain('management consulting')
-    expect(request.q_keywords).toContain('consulting')
-    expect(request.q_keywords).toContain('advisory')
+    // Industries are NOT in q_keywords (Apollo has no industry parameter).
+    // Post-enrichment industry annotation provides filtering, not pre-filtering.
+    expect(request.q_keywords).toEqual('consulting advisory')
     expect(request.contact_email_status).toEqual(['verified'])
   })
 
-  it('expands c_suite seniority to include owner and founder', () => {
+  it('maps founder and owner seniorities to Apollo directly', () => {
     const spec: ICPFilterSpec = {
       job_titles: ['Founder'],
       job_titles_excluded: [],
-      seniority_levels: ['c_suite'],
-      departments: [],
+      seniority_levels: ['founder', 'owner', 'c_suite'],
       person_countries: ['US'],
       company_countries: ['US'],
       company_headcount_min: 1,
@@ -75,7 +73,7 @@ describe('apolloHandler.adapter', () => {
 
     const request = apolloHandler.adapter(spec as unknown as Record<string, unknown>)
 
-    // c_suite must expand to owner, founder, c_suite (founder-led firms)
+    // founder and owner are now explicitly passed through when deriveFilterSpec includes them
     expect(request.person_seniorities).toContain('owner')
     expect(request.person_seniorities).toContain('founder')
     expect(request.person_seniorities).toContain('c_suite')
@@ -86,7 +84,6 @@ describe('apolloHandler.adapter', () => {
       job_titles: [],
       job_titles_excluded: [],
       seniority_levels: ['vp'],
-      departments: [],
       person_countries: [],
       company_countries: [],
       company_headcount_min: 1,
@@ -104,12 +101,11 @@ describe('apolloHandler.adapter', () => {
     expect(request.person_seniorities).toContain('partner')
   })
 
-  it('folds industries into q_keywords', () => {
+  it('sends only keywords to q_keywords (industries excluded per API limitation)', () => {
     const spec: ICPFilterSpec = {
       job_titles: [],
       job_titles_excluded: [],
       seniority_levels: [],
-      departments: [],
       person_countries: [],
       company_countries: [],
       company_headcount_min: 1,
@@ -123,9 +119,9 @@ describe('apolloHandler.adapter', () => {
 
     const request = apolloHandler.adapter(spec as unknown as Record<string, unknown>)
 
-    expect(request.q_keywords).toContain('marketing consulting')
-    expect(request.q_keywords).toContain('operations consulting')
-    expect(request.q_keywords).toContain('boutique')
+    // Industries are NOT in q_keywords. Apollo has no dedicated industry parameter.
+    // Industry fit is evaluated post-enrichment when full org data is available.
+    expect(request.q_keywords).toEqual('boutique')
   })
 
   it('sets revenue range when provided (via extended fields)', () => {
@@ -133,7 +129,6 @@ describe('apolloHandler.adapter', () => {
       job_titles: [],
       job_titles_excluded: [],
       seniority_levels: [],
-      departments: [],
       person_countries: [],
       company_countries: [],
       company_headcount_min: 1,
@@ -173,7 +168,6 @@ describe('apolloHandler.execute - post-filtering', () => {
       job_titles: ['Founder', 'CEO'],
       job_titles_excluded: ['Operations Manager', 'Director of Sales'], // Must drop apollo-003 and apollo-004
       seniority_levels: ['c_suite'],
-      departments: [],
       person_countries: ['US'],
       company_countries: ['US'],
       company_headcount_min: 1,
@@ -206,7 +200,6 @@ describe('apolloHandler.execute - post-filtering', () => {
       job_titles: ['Founder'],
       job_titles_excluded: [],
       seniority_levels: ['c_suite'],
-      departments: [],
       person_countries: ['US'],
       company_countries: ['US'],
       company_headcount_min: 1,
@@ -239,7 +232,6 @@ describe('apolloHandler.execute - post-filtering', () => {
       job_titles: ['Founder'],
       job_titles_excluded: [],
       seniority_levels: ['c_suite'],
-      departments: [],
       person_countries: ['US'],
       company_countries: ['US'],
       company_headcount_min: 1,
@@ -276,7 +268,6 @@ describe('apolloHandler.execute - ProspectCandidate format', () => {
       job_titles: ['Founder'],
       job_titles_excluded: [],
       seniority_levels: ['c_suite'],
-      departments: [],
       person_countries: ['US'],
       company_countries: ['US'],
       company_headcount_min: 1,

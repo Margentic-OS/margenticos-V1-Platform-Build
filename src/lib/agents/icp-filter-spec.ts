@@ -126,7 +126,7 @@ export function validateCanonicalIndustry(name: string): asserts name is Canonic
 export interface ICPFilterSpec {
   job_titles: string[]
   job_titles_excluded: string[]
-  seniority_levels: ('c_suite' | 'vp' | 'director' | 'manager' | 'senior' | 'entry')[]
+  seniority_levels: ('founder' | 'owner' | 'c_suite' | 'vp' | 'director' | 'manager' | 'senior' | 'entry')[]
   person_countries: string[]          // ISO-3166 alpha-2 codes
   company_countries: string[]         // ISO-3166 alpha-2 codes
   company_headcount_min: number
@@ -234,7 +234,17 @@ export function deriveFilterSpec(doc: IcpDocument): ICPFilterSpec {
       'SDR',
       'Sales Development Representative',
     ],
-    seniority_levels: ['c_suite', 'vp', 'director'],
+    seniority_levels: (() => {
+      const t1Seniority = (t1.buyer_profile?.seniority ?? '').toLowerCase()
+      const t2Seniority = (t2.buyer_profile?.seniority ?? '').toLowerCase()
+      const isFounderLed = t1Seniority.includes('founder') || t1Seniority.includes('owner') ||
+                           t2Seniority.includes('founder') || t2Seniority.includes('owner')
+
+      if (isFounderLed) {
+        return ['founder', 'owner', 'c_suite', 'vp', 'director'] as const
+      }
+      return ['c_suite', 'vp', 'director'] as const
+    })() as ICPFilterSpec['seniority_levels'],
     person_countries: DEFAULT_PERSON_COUNTRIES,
     company_countries: DEFAULT_COMPANY_COUNTRIES,
     company_headcount_min: headcountMin,
