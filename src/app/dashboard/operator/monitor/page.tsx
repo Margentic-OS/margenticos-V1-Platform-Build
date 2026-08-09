@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { blindSpots } from '@/lib/monitor/blind-spots'
 
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }): string {
   const now = new Date()
@@ -59,6 +60,7 @@ export default function MonitorPage() {
   const [acknowledgeNote, setAcknowledgeNote] = useState('')
   const [acknowledging, setAcknowledging] = useState(false)
   const [acknowledgedProblemsExpanded, setAcknowledgedProblemsExpanded] = useState(false)
+  const [blindSpotsExpanded, setBlindSpotsExpanded] = useState(false)
 
   useEffect(() => {
     const loadMonitorData = async () => {
@@ -231,7 +233,7 @@ export default function MonitorPage() {
 
   const livenessChecks = checks.filter(c => c.check.category === 'liveness')
   const tier1Checks = checks.filter(c => c.check.category === 'tier1')
-  const blindSpots = checks.filter(c => c.check.category === 'unscheduled')
+  const unscheduledChecks = checks.filter(c => c.check.category === 'unscheduled')
   const allProblems = checks.filter(c => c.current_state === 'PROBLEM' && c.resolved_at === null)
   const activeProblemChecks = allProblems.filter(c => !c.lastEvent?.acknowledged_at)
   const acknowledgedProblemChecks = allProblems.filter(c => c.lastEvent?.acknowledged_at)
@@ -387,16 +389,16 @@ export default function MonitorPage() {
           </section>
         )}
 
-        {/* Blind Spots */}
-        {blindSpots.length > 0 && (
+        {/* Unscheduled Checks */}
+        {unscheduledChecks.length > 0 && (
           <section>
-            <h2 className="text-xl font-bold mb-4">Blind Spots (Unscheduled)</h2>
+            <h2 className="text-xl font-bold mb-4">Unscheduled Checks ({unscheduledChecks.length})</h2>
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
               <p className="text-sm text-yellow-800 mb-4">
                 These checks are not yet scheduled. They are listed here as reminders for future implementation.
               </p>
               <div className="space-y-3">
-                {blindSpots.map(check => (
+                {unscheduledChecks.map(check => (
                   <div key={check.check.code} className="border border-yellow-200 rounded p-3 bg-white">
                     <div className="flex items-center gap-2 mb-1">
                       <h4 className="font-bold text-sm">{check.check.code}: {check.check.title}</h4>
@@ -409,6 +411,95 @@ export default function MonitorPage() {
             </div>
           </section>
         )}
+
+        {/* What This Monitor Cannot See */}
+        <section>
+          <button
+            onClick={() => setBlindSpotsExpanded(!blindSpotsExpanded)}
+            className="w-full text-left"
+          >
+            <h2 className="text-xl font-bold mb-4 cursor-pointer hover:text-gray-700">
+              {blindSpotsExpanded ? '▼' : '▶'} What This Monitor Cannot See
+            </h2>
+          </button>
+          {blindSpotsExpanded && (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 space-y-6">
+              {/* Silent Error Paths */}
+              <div>
+                <h3 className="font-bold text-red-900 mb-3">
+                  {blindSpots.silentErrorPaths.title}
+                </h3>
+                <p className="text-sm text-gray-700 mb-3">{blindSpots.silentErrorPaths.description}</p>
+                <div className="space-y-2">
+                  {blindSpots.silentErrorPaths.categories.map((cat, idx) => (
+                    <div key={idx} className="bg-white border border-gray-200 rounded p-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-sm text-gray-900">{cat.name}</h4>
+                          <p className="text-xs text-gray-600 mt-1">Example: {cat.example}</p>
+                        </div>
+                        <span className="text-xs font-bold text-red-600 ml-2 shrink-0">{cat.count} known</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Deliverability */}
+              <div>
+                <h3 className="font-bold text-orange-900 mb-3">
+                  {blindSpots.deliverability.title}
+                </h3>
+                <p className="text-sm text-gray-700 mb-3">{blindSpots.deliverability.description}</p>
+                <ul className="space-y-2">
+                  {blindSpots.deliverability.gaps.map((gap, idx) => (
+                    <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                      <span className="text-orange-600 font-bold">•</span>
+                      <span>{gap}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Trends */}
+              <div>
+                <h3 className="font-bold text-amber-900 mb-3">
+                  {blindSpots.trends.title}
+                </h3>
+                <p className="text-sm text-gray-700 mb-3">{blindSpots.trends.description}</p>
+                <ul className="space-y-2">
+                  {blindSpots.trends.examples.map((example, idx) => (
+                    <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                      <span className="text-amber-600 font-bold">•</span>
+                      <span>{example}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Root Cause */}
+              <div>
+                <h3 className="font-bold text-blue-900 mb-3">
+                  {blindSpots.rootCause.title}
+                </h3>
+                <p className="text-sm text-gray-700 mb-3">{blindSpots.rootCause.description}</p>
+                <ul className="space-y-2">
+                  {blindSpots.rootCause.examples.map((example, idx) => (
+                    <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                      <span className="text-blue-600 font-bold">•</span>
+                      <span>{example}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Bottom note */}
+              <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-900">
+                <span className="font-semibold">When the monitor is green but something feels wrong:</span> Check Sentry logs, email delivery reports, campaign reply trends, enrichment data quality, and upstream API rate limits.
+              </div>
+            </div>
+          )}
+        </section>
       </div>
 
       {/* Audit Trail */}
