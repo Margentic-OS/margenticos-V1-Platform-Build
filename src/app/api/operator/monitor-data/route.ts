@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
     // Fetch latest events per check
     const { data: eventsData, error: eventsError } = await serviceClient
       .from('monitor_events')
-      .select('*')
+      .select('id, check_code, state, detail, created_at, resolved_at, acknowledged_at, acknowledged_note')
       .order('created_at', { ascending: false })
 
     if (eventsError) throw eventsError
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     // Fetch recent events for audit trail
     const { data: recentEvents, error: recentError } = await serviceClient
       .from('monitor_events')
-      .select('*')
+      .select('id, check_code, state, detail, created_at, resolved_at, acknowledged_at, acknowledged_note')
       .order('created_at', { ascending: false })
       .limit(50)
 

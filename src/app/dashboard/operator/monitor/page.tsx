@@ -37,6 +37,8 @@ interface Event {
   detail: string | null
   created_at: string
   resolved_at: string | null
+  acknowledged_at: string | null
+  acknowledged_note: string | null
 }
 
 interface CheckState {
@@ -45,6 +47,7 @@ interface CheckState {
   detail: string | null
   last_event_at: string | null
   resolved_at: string | null
+  lastEvent: Event | undefined
 }
 
 export default function MonitorPage() {
@@ -52,6 +55,10 @@ export default function MonitorPage() {
   const [recentEvents, setRecentEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [acknowledgeModal, setAcknowledgeModal] = useState<{ checkCode: string; eventId: number } | null>(null)
+  const [acknowledgeNote, setAcknowledgeNote] = useState('')
+  const [acknowledging, setAcknowledging] = useState(false)
+  const [acknowledgedProblemsExpanded, setAcknowledgedProblemsExpanded] = useState(false)
 
   useEffect(() => {
     const loadMonitorData = async () => {
@@ -75,6 +82,8 @@ export default function MonitorPage() {
             detail: event.detail,
             created_at: event.created_at,
             resolved_at: event.resolved_at,
+            acknowledged_at: event.acknowledged_at,
+            acknowledged_note: event.acknowledged_note,
           }
           if (!latestEventPerCheck.has(typedEvent.check_code)) {
             latestEventPerCheck.set(typedEvent.check_code, typedEvent)
@@ -100,6 +109,7 @@ export default function MonitorPage() {
             detail: lastEvent?.detail ?? null,
             last_event_at: lastEvent?.created_at ?? null,
             resolved_at: lastEvent?.resolved_at ?? null,
+            lastEvent,
           }
         }) ?? []
 
@@ -112,6 +122,8 @@ export default function MonitorPage() {
           detail: e.detail,
           created_at: e.created_at,
           resolved_at: e.resolved_at,
+          acknowledged_at: e.acknowledged_at,
+          acknowledged_note: e.acknowledged_note,
         }))
         setRecentEvents(typedRecent)
       } catch (err) {
@@ -127,6 +139,75 @@ export default function MonitorPage() {
     const interval = setInterval(loadMonitorData, 30000)
     return () => clearInterval(interval)
   }, [])
+
+  const handleAcknowledge = async () => {
+    if (!acknowledgeModal) return
+    setAcknowledging(true)
+    try {
+      const response = await fetch('/api/operator/monitor-acknowledge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event_id: acknowledgeModal.eventId,
+          note: acknowledgeNote || null,
+        }),
+      })
+      if (response.ok) {
+        setAcknowledgeModal(null)
+        setAcknowledgeNote('')
+        // Reload data
+        const dataResponse = await fetch('/api/operator/monitor-data')
+        if (dataResponse.ok) {
+          const { checks: checksData, events: eventsData, recentEvents: recentEventsData } = await dataResponse.json()
+          const latestEventPerCheck = new Map<string, Event>()
+          eventsData?.forEach((event: any) => {
+            const typedEvent: Event = {
+              id: event.id,
+              check_code: event.check_code,
+              state: event.state as 'PROBLEM' | 'OK' | 'UNKNOWN',
+              detail: event.detail,
+              created_at: event.created_at,
+              resolved_at: event.resolved_at,
+              acknowledged_at: event.acknowledged_at,
+              acknowledged_note: event.acknowledged_note,
+            }
+            if (!latestEventPerCheck.has(typedEvent.check_code)) {
+              latestEventPerCheck.set(typedEvent.check_code, typedEvent)
+            }
+          })
+          const checksWithState: CheckState[] = checksData?.map((check: any) => {
+            const typedCheck: Check = {
+              code: check.code,
+              title: check.title,
+              description: check.description,
+              category: check.category,
+              is_scheduled: check.is_scheduled,
+              plain_meaning: check.plain_meaning,
+              plain_impact: check.plain_impact,
+              plain_action: check.plain_action,
+            }
+            const lastEvent = latestEventPerCheck.get(typedCheck.code)
+            return {
+              check: typedCheck,
+              current_state: (lastEvent?.state ?? 'UNKNOWN') as 'PROBLEM' | 'OK' | 'UNKNOWN',
+              detail: lastEvent?.detail ?? null,
+              last_event_at: lastEvent?.created_at ?? null,
+              resolved_at: lastEvent?.resolved_at ?? null,
+              lastEvent,
+            }
+          }) ?? []
+          setChecks(checksWithState)
+        }
+      } else {
+        const errorData = await response.json()
+        alert(`Failed to acknowledge: ${errorData.error}`)
+      }
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setAcknowledging(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -151,7 +232,9 @@ export default function MonitorPage() {
   const livenessChecks = checks.filter(c => c.check.category === 'liveness')
   const tier1Checks = checks.filter(c => c.check.category === 'tier1')
   const blindSpots = checks.filter(c => c.check.category === 'unscheduled')
-  const problemChecks = checks.filter(c => c.current_state === 'PROBLEM')
+  const allProblems = checks.filter(c => c.current_state === 'PROBLEM' && c.resolved_at === null)
+  const activeProblemChecks = allProblems.filter(c => !c.lastEvent?.acknowledged_at)
+  const acknowledgedProblemChecks = allProblems.filter(c => c.lastEvent?.acknowledged_at)
 
   const getStatusBadge = (state: string) => {
     if (state === 'PROBLEM')
@@ -178,13 +261,21 @@ export default function MonitorPage() {
       <h1 className="text-3xl font-bold mb-2">Monitor Dashboard</h1>
       <p className="text-gray-600 mb-8">Real-time system health monitoring</p>
 
-      {problemChecks.length > 0 && (
+      {activeProblemChecks.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-8">
-          <h2 className="font-bold text-red-900 mb-4">Active Problems ({problemChecks.length})</h2>
+          <h2 className="font-bold text-red-900 mb-4">Active Problems ({activeProblemChecks.length})</h2>
           <div className="space-y-4">
-            {problemChecks.map(c => (
+            {activeProblemChecks.map(c => (
               <div key={c.check.code} className="bg-white border border-red-200 rounded p-3">
-                <div className="font-bold text-red-900 mb-1">{c.check.code}: {c.check.title}</div>
+                <div className="flex items-start justify-between mb-2">
+                  <div className="font-bold text-red-900">{c.check.code}: {c.check.title}</div>
+                  <button
+                    onClick={() => setAcknowledgeModal({ checkCode: c.check.code, eventId: c.lastEvent?.id || 0 })}
+                    className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                  >
+                    Acknowledge
+                  </button>
+                </div>
                 {c.check.plain_meaning && (
                   <div className="text-sm text-gray-700 mb-2">
                     <span className="font-semibold">What it means:</span> {c.check.plain_meaning}
@@ -204,6 +295,36 @@ export default function MonitorPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {acknowledgedProblemChecks.length > 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8">
+          <button
+            onClick={() => setAcknowledgedProblemsExpanded(!acknowledgedProblemsExpanded)}
+            className="font-bold text-yellow-900 mb-4 cursor-pointer hover:text-yellow-800"
+          >
+            {acknowledgedProblemsExpanded ? '▼' : '▶'} Acknowledged Problems ({acknowledgedProblemChecks.length})
+          </button>
+          {acknowledgedProblemsExpanded && (
+            <div className="space-y-3 mt-4">
+              {acknowledgedProblemChecks.map(c => (
+                <div key={c.check.code} className="bg-white border border-yellow-200 rounded p-3">
+                  <div className="font-bold text-yellow-900 mb-1">{c.check.code}: {c.check.title}</div>
+                  {c.lastEvent?.acknowledged_note && (
+                    <div className="text-sm text-gray-700 mb-2">
+                      <span className="font-semibold">Note:</span> {c.lastEvent.acknowledged_note}
+                    </div>
+                  )}
+                  {c.lastEvent?.acknowledged_at && (
+                    <div className="text-xs text-gray-500">
+                      Acknowledged {formatDistanceToNow(new Date(c.lastEvent.acknowledged_at), { addSuffix: true })}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -326,6 +447,45 @@ export default function MonitorPage() {
           </table>
         </div>
       </section>
+
+      {/* Acknowledge Modal */}
+      {acknowledgeModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold mb-4">Acknowledge Problem</h3>
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">Check: <span className="font-mono font-bold">{acknowledgeModal.checkCode}</span></p>
+              <label className="block text-sm font-semibold mb-2">Note (optional)</label>
+              <textarea
+                value={acknowledgeNote}
+                onChange={(e) => setAcknowledgeNote(e.target.value)}
+                className="w-full border border-gray-300 rounded p-2 text-sm"
+                rows={3}
+                placeholder="E.g., 'pre-fix hang failures, resolved 7 Aug'"
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setAcknowledgeModal(null)
+                  setAcknowledgeNote('')
+                }}
+                disabled={acknowledging}
+                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAcknowledge}
+                disabled={acknowledging}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+              >
+                {acknowledging ? 'Acknowledging...' : 'Acknowledge'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
