@@ -71,7 +71,9 @@ export default async function ProspectTiersPage() {
     })
 
     if (!response.ok) {
-      throw new Error(`API returned ${response.status}`)
+      const responseText = await response.text()
+      const responsePreview = responseText.substring(0, 100)
+      throw new Error(`API returned ${response.status}: ${responsePreview}`)
     }
 
     const json = await response.json()
@@ -106,9 +108,10 @@ export default async function ProspectTiersPage() {
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 max-w-[1200px]">
           {fetchError ? (
-            <div className="bg-[#FDEEE8] rounded-[10px] border border-[#EFBCAA] p-6 text-center">
+            <div className="bg-[#FDEEE8] rounded-[10px] border border-[#EFBCAA] p-6">
               <p className="text-sm text-[#8B2020] font-medium mb-2">Unable to load prospects</p>
-              <p className="text-xs text-[#8B2020]">We could not load your prospects. Please refresh the page or contact support if the problem persists.</p>
+              <p className="text-xs text-[#8B2020] mb-3">We could not load your prospects. Please refresh the page or contact support if the problem persists.</p>
+              <p className="text-xs text-[#8B2020] font-mono bg-[#FFF0E8] p-2 rounded break-all">{fetchError}</p>
             </div>
           ) : nonEmptyTiers.length === 0 ? (
             <div className="bg-[#FEF7E6] rounded-[10px] border border-[#F0D080] p-6 text-center">
