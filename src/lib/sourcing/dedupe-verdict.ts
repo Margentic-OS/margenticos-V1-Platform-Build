@@ -142,15 +142,21 @@ export async function getDedupeVerdict(
     }
   }
 
-  // Check linkedin duplicate (unsuppressed, no person_key match already)
+  // Check linkedin duplicate (unsuppressed, no person_key match already, excluding self)
   if (linkedin_url_normalised) {
-    const { data: liDupe, error: liError } = await supabase
+    let query = supabase
       .from('prospects')
-      .select('linkedin_url_normalised')
+      .select('linkedin_url_normalised, id')
       .eq('organisation_id', organisationId)
       .eq('linkedin_url_normalised', linkedin_url_normalised)
       .not('suppressed', 'is', true)
-      .maybeSingle()
+
+    // For re-enrichment: don't flag self as duplicate
+    if (exclude_prospect_id) {
+      query = query.neq('id', exclude_prospect_id)
+    }
+
+    const { data: liDupe, error: liError } = await query.maybeSingle()
 
     if (liError) {
       logger.error('dedupe-verdict: linkedin duplicate query failed', {
@@ -162,17 +168,23 @@ export async function getDedupeVerdict(
     }
   }
 
-  // Check email duplicate (unsuppressed, no person_key or linkedin match already)
+  // Check email duplicate (unsuppressed, no person_key/linkedin match already, excluding self)
   if (email) {
     const lowerEmail = email.toLowerCase()
-    const { data: emailDupe, error: emailError } = await supabase
+    let query = supabase
       .from('prospects')
-      .select('email')
+      .select('email, id')
       .eq('organisation_id', organisationId)
       .eq('email', lowerEmail)
       .not('suppressed', 'is', true)
       .not('email', 'is', null)
-      .maybeSingle()
+
+    // For re-enrichment: don't flag self as duplicate
+    if (exclude_prospect_id) {
+      query = query.neq('id', exclude_prospect_id)
+    }
+
+    const { data: emailDupe, error: emailError } = await query.maybeSingle()
 
     if (emailError) {
       logger.error('dedupe-verdict: email duplicate query failed', {
