@@ -273,8 +273,9 @@ export async function enrichProspectsForOrganisation(
 
 /**
  * Generate deterministic test-mode mock response with unique, fake email addresses.
- * Each email uses format: {first_name_lower}.{apollo_id_first_8_chars}@mock.invalid
+ * Each email uses format: {first_name_lower}_{idx}_{hash}@mock.invalid
  * The .invalid TLD marks these as visibly fake and unmistakably test data.
+ * Uniqueness guaranteed by index and hash of Apollo ID.
  */
 function generateTestModeResponse(apolloIds: string[]): ApolloBulkMatchResponse {
   const firstNames = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve', 'Frank', 'Grace', 'Henry', 'Iris', 'Jack']
@@ -287,16 +288,25 @@ function generateTestModeResponse(apolloIds: string[]): ApolloBulkMatchResponse 
     const lastName = lastNames[(idx + 1) % lastNames.length]
     const industry = industries[(idx + 2) % industries.length]
     const title = titles[(idx + 3) % titles.length]
-    const idPrefix = id.substring(0, 8) // First 8 chars of Apollo ID
+
+    // Generate a simple hash from Apollo ID for uniqueness
+    let hash = 0
+    for (let i = 0; i < id.length; i++) {
+      const char = id.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    const hashStr = Math.abs(hash).toString(36).substring(0, 6)
+    const emailLocal = `${firstName.toLowerCase()}_${String(idx).padStart(3, '0')}_${hashStr}`
 
     return {
       id,
       first_name: firstName,
       last_name: lastName,
       name: `${firstName} ${lastName}`,
-      email: `${firstName.toLowerCase()}.${idPrefix}@mock.invalid`,
+      email: `${emailLocal}@mock.invalid`,
       email_status: 'verified',
-      linkedin_url: `https://mock.invalid/in/${idPrefix}`,
+      linkedin_url: `https://mock.invalid/in/${emailLocal}`,
       title,
       organisation: {
         name: `Test Company ${idx + 1}`,
