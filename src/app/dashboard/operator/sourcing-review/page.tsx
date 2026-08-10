@@ -25,10 +25,11 @@ export default async function SourcingReviewPage({
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
-  // ── 3. Fetch all organisations for the operator ────────────────────────────
+  // ── 3. Fetch all organisations for the operator (active only) ────────────
   const { data: orgs } = await supabase
     .from('organisations')
     .select('id, name')
+    .is('archived_at', null)
     .order('name')
 
   if (!orgs || orgs.length === 0) {

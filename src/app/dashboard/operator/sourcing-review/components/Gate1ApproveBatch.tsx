@@ -158,6 +158,7 @@ export function Gate1ApproveBatch({
                 <th className="px-4 py-3 text-left font-medium text-text-primary">Email</th>
                 <th className="px-4 py-3 text-left font-medium text-text-primary">Company</th>
                 <th className="px-4 py-3 text-left font-medium text-text-primary">Role</th>
+                <th className="px-4 py-3 text-left font-medium text-text-primary">LinkedIn</th>
                 <th className="px-4 py-3 text-left font-medium text-text-primary">Email status</th>
               </tr>
             </thead>
@@ -177,7 +178,16 @@ export function Gate1ApproveBatch({
                   </td>
                   <td className="px-4 py-3 text-text-secondary font-mono text-xs">{prospect.email}</td>
                   <td className="px-4 py-3 text-text-primary">{prospect.company_name}</td>
-                  <td className="px-4 py-3 text-text-secondary">{prospect.role || '—'}</td>
+                  <td className="px-4 py-3 text-text-secondary text-sm">{prospect.job_title || '—'}</td>
+                  <td className="px-4 py-3">
+                    {prospect.linkedin_url ? (
+                      <a href={prospect.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs">
+                        Profile
+                      </a>
+                    ) : (
+                      <span className="text-text-secondary text-xs">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     {prospect.email_status === 'verified' ? (
                       <span className="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-[#EBF5E6] text-[#3B6D11] border border-[#BDDAB0]">
