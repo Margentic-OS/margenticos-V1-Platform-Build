@@ -57,7 +57,7 @@ export function EnrichAndTierButton({ organisationId }: EnrichAndTierButtonProps
       const tierData = await tierRes.json()
 
       if (!tierData.ok) {
-        throw new Error(tierData.result?.error || 'Tiering failed')
+        throw new Error(tierData.error || tierData.result?.error || 'Tiering failed')
       }
 
       setStatus('success')

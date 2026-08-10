@@ -11,6 +11,7 @@ interface TieringRunResult {
   tier_3_count: number
   untiered_count: number
   timestamp: string
+  agent_run_id?: string
   error?: string
 }
 
@@ -20,12 +21,43 @@ export async function tierEnrichedBatch(
   maxBatchSize: number = 100,
 ): Promise<TieringRunResult> {
   const operationId = `tier-${organisationId.slice(0, 8)}-${Date.now()}`
+  const startedAt = new Date()
 
   logger.info('tiering-trigger: run started', {
     operation_id: operationId,
     organisation_id: organisationId,
     max_batch_size: maxBatchSize,
   })
+
+  // ── Step 0: Create agent_runs record to track this execution ─────────────────
+  let agentRunId: string = ''
+  const { data: agentRun, error: agentRunError } = await supabase
+    .from('agent_runs')
+    .insert({
+      client_id: organisationId,
+      agent_name: 'tiering-trigger',
+      status: 'running',
+      started_at: startedAt.toISOString(),
+      output_summary: null,
+      error_message: null,
+    })
+    .select('id')
+    .single()
+
+  if (agentRunError || !agentRun) {
+    logger.error('tiering-trigger: failed to create agent_runs record', {
+      operation_id: operationId,
+      organisation_id: organisationId,
+      error: agentRunError?.message ?? 'Unknown error',
+    })
+    // Continue anyway - agent_runs creation failure should not block tiering
+  } else {
+    agentRunId = agentRun.id
+    logger.info('tiering-trigger: agent_runs record created', {
+      operation_id: operationId,
+      agent_run_id: agentRunId,
+    })
+  }
 
   try {
     // ── Step 1: Read active approved ICP ──────────────────────────────────────
@@ -98,6 +130,31 @@ export async function tierEnrichedBatch(
         operation_id: operationId,
         organisation_id: organisationId,
       })
+
+      // ── Update agent_runs record to completed (no work) ──────────────────
+      const endedAt = new Date()
+      const durationMs = endedAt.getTime() - startedAt.getTime()
+
+      if (agentRunId) {
+        const { error: updateRunError } = await supabase
+          .from('agent_runs')
+          .update({
+            status: 'completed',
+            completed_at: endedAt.toISOString(),
+            duration_ms: durationMs,
+            output_summary: 'No untiered enriched prospects found',
+          })
+          .eq('id', agentRunId)
+
+        if (updateRunError) {
+          logger.error('tiering-trigger: failed to update agent_runs record', {
+            operation_id: operationId,
+            agent_run_id: agentRunId,
+            error: updateRunError.message,
+          })
+        }
+      }
+
       return {
         organisation_id: organisationId,
         prospects_classified: 0,
@@ -106,6 +163,7 @@ export async function tierEnrichedBatch(
         tier_3_count: 0,
         untiered_count: 0,
         timestamp: new Date().toISOString(),
+        agent_run_id: agentRunId,
       }
     }
 
@@ -177,7 +235,32 @@ export async function tierEnrichedBatch(
       update_count: updateCount,
     })
 
-    // ── Step 7: Return result ───────────────────────────────────────────────
+    // ── Step 7: Update agent_runs record to completed ─────────────────────
+    const endedAt = new Date()
+    const durationMs = endedAt.getTime() - startedAt.getTime()
+    const outputSummary = `Classified ${results.length} prospects: ${tier1Count} Tier 1, ${tier2Count} Tier 2, ${tier3Count} Tier 3, ${untiedCount} untiered`
+
+    if (agentRunId) {
+      const { error: updateRunError } = await supabase
+        .from('agent_runs')
+        .update({
+          status: 'completed',
+          completed_at: endedAt.toISOString(),
+          duration_ms: durationMs,
+          output_summary: outputSummary,
+        })
+        .eq('id', agentRunId)
+
+      if (updateRunError) {
+        logger.error('tiering-trigger: failed to update agent_runs record', {
+          operation_id: operationId,
+          agent_run_id: agentRunId,
+          error: updateRunError.message,
+        })
+      }
+    }
+
+    // ── Step 8: Return result ───────────────────────────────────────────────
     return {
       organisation_id: organisationId,
       prospects_classified: results.length,
@@ -186,6 +269,7 @@ export async function tierEnrichedBatch(
       tier_3_count: tier3Count,
       untiered_count: untiedCount,
       timestamp: new Date().toISOString(),
+      agent_run_id: agentRunId,
     }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
@@ -196,6 +280,30 @@ export async function tierEnrichedBatch(
       error: errorMsg,
     })
 
+    // ── Update agent_runs record to failed ─────────────────────────────────
+    const endedAt = new Date()
+    const durationMs = endedAt.getTime() - startedAt.getTime()
+
+    if (agentRunId) {
+      const { error: updateRunError } = await supabase
+        .from('agent_runs')
+        .update({
+          status: 'failed',
+          completed_at: endedAt.toISOString(),
+          duration_ms: durationMs,
+          error_message: errorMsg,
+        })
+        .eq('id', agentRunId)
+
+      if (updateRunError) {
+        logger.error('tiering-trigger: failed to update agent_runs record on error', {
+          operation_id: operationId,
+          agent_run_id: agentRunId,
+          error: updateRunError.message,
+        })
+      }
+    }
+
     return {
       organisation_id: organisationId,
       prospects_classified: 0,
@@ -204,6 +312,7 @@ export async function tierEnrichedBatch(
       tier_3_count: 0,
       untiered_count: 0,
       timestamp: new Date().toISOString(),
+      agent_run_id: agentRunId,
       error: errorMsg,
     }
   }

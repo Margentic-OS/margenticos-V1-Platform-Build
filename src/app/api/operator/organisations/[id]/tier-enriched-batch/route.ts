@@ -75,10 +75,12 @@ export async function POST(
         operator_id: user.id,
         organisation_id: organisationId,
         error: result.error,
+        agent_run_id: result.agent_run_id,
       })
 
       return NextResponse.json({
         ok: false,
+        error: `Tiering failed: ${result.error}`,
         result,
       }, { status: 500 })
     }

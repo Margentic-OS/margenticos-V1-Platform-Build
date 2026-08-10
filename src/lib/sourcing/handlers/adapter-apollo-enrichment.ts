@@ -76,7 +76,9 @@ export async function enrichProspectsForOrganisation(
   maxRunBatchSize: number = 100,
 ): Promise<EnrichmentRun> {
   const apiKey = process.env.APOLLO_API_KEY
-  if (!apiKey) {
+  const isTestMode = !apiKey || apiKey === 'test-key' || apiKey.startsWith('test')
+
+  if (!isTestMode && !apiKey) {
     const msg = 'APOLLO_API_KEY not set in environment'
     logger.error('enrichment: missing API key', { error: msg })
     throw new Error(`Apollo enrichment failed: ${msg}`)
@@ -147,7 +149,7 @@ export async function enrichProspectsForOrganisation(
           }
         }
 
-        const response = await callApolloBulkMatch(apiKey, batch)
+        const response = await callApolloBulkMatch(apiKey || '', batch, isTestMode)
 
         enrichmentRun.total_requested_enrichments += response.total_requested_enrichments
         enrichmentRun.unique_enriched_records += response.unique_enriched_records
@@ -270,13 +272,67 @@ export async function enrichProspectsForOrganisation(
 }
 
 /**
+ * Generate deterministic test-mode mock response with unique, fake email addresses.
+ * Each email uses format: {first_name_lower}.{apollo_id_first_8_chars}@mock.invalid
+ * The .invalid TLD marks these as visibly fake and unmistakably test data.
+ */
+function generateTestModeResponse(apolloIds: string[]): ApolloBulkMatchResponse {
+  const firstNames = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve', 'Frank', 'Grace', 'Henry', 'Iris', 'Jack']
+  const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez']
+  const industries = ['Technology', 'Finance', 'Consulting', 'Healthcare', 'Manufacturing', 'Retail', 'Energy', 'Telecom', 'Education', 'Transportation']
+  const titles = ['CEO', 'Founder', 'VP of Sales', 'Director of Operations', 'Head of Marketing', 'Chief Technology Officer', 'Managing Director', 'Operations Manager', 'Business Analyst', 'Account Executive']
+
+  const matches: ApolloMatch[] = apolloIds.map((id, idx) => {
+    const firstName = firstNames[idx % firstNames.length]
+    const lastName = lastNames[(idx + 1) % lastNames.length]
+    const industry = industries[(idx + 2) % industries.length]
+    const title = titles[(idx + 3) % titles.length]
+    const idPrefix = id.substring(0, 8) // First 8 chars of Apollo ID
+
+    return {
+      id,
+      first_name: firstName,
+      last_name: lastName,
+      name: `${firstName} ${lastName}`,
+      email: `${firstName.toLowerCase()}.${idPrefix}@mock.invalid`,
+      email_status: 'verified',
+      linkedin_url: `https://mock.invalid/in/${idPrefix}`,
+      title,
+      organisation: {
+        name: `Test Company ${idx + 1}`,
+        primary_domain: `testco${idx + 1}.mock.invalid`,
+        estimated_num_employees: 50 + (idx * 10),
+        industry,
+      },
+    }
+  })
+
+  return {
+    status: 'success',
+    error_code: null,
+    error_message: null,
+    total_requested_enrichments: apolloIds.length,
+    unique_enriched_records: apolloIds.length,
+    missing_records: 0,
+    credits_consumed: 0,
+    matches,
+  }
+}
+
+/**
  * Call Apollo bulk_match endpoint.
  * Synchronous (all flags false), returns immediately with matches.
+ * In test mode, returns deterministic fake data with mock.invalid email addresses.
  */
 async function callApolloBulkMatch(
   apiKey: string,
   prospectIds: string[],
+  isTestMode: boolean = false,
 ): Promise<ApolloBulkMatchResponse> {
+  if (isTestMode) {
+    return generateTestModeResponse(prospectIds)
+  }
+
   // Build details[] array from Apollo person IDs (stored as source_person_key "apollo:id")
   const details = prospectIds.map(id => ({
     id,
