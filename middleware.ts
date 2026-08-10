@@ -34,7 +34,21 @@ export async function middleware(request: NextRequest) {
 
   // Refresh the session. Must be called before any conditional logic that reads
   // the user — do not move this call or add logic before it.
-  const { data: { user } } = await supabase.auth.getUser()
+  let user = null
+  try {
+    const { data: authData } = await supabase.auth.getUser()
+    user = authData.user
+  } catch (err) {
+    // Auth check failed — return 401 for API, redirect for pages
+    if (request.nextUrl.pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if (request.nextUrl.pathname.startsWith('/dashboard/')) {
+      const loginUrl = new URL('/login', request.url)
+      loginUrl.searchParams.set('next', request.nextUrl.pathname + request.nextUrl.search)
+      return NextResponse.redirect(loginUrl)
+    }
+  }
 
   // Handle unauthenticated requests
   if (!user) {
