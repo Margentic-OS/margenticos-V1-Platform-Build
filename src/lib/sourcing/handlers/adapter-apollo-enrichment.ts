@@ -22,6 +22,7 @@ import { logger } from '@/lib/logger'
 import { normaliseLinkedInUrl } from '@/lib/sourcing/normalise-linkedin'
 import { getDedupeVerdict } from '@/lib/sourcing/dedupe-verdict'
 import { stripNonOwnedFields } from '@/lib/sourcing/field-ownership'
+import { shouldUseMockEnrichment } from '@/lib/sourcing/enrichment-mode'
 import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 
 type SupabaseServiceClient = ReturnType<typeof createClient<Database>>
@@ -79,11 +80,13 @@ export async function enrichProspectsForOrganisation(
   maxRunBatchSize: number = 100,
 ): Promise<EnrichmentRun> {
   const apiKey = process.env.APOLLO_API_KEY
-  const isTestMode = !apiKey || apiKey === 'test-key' || apiKey.startsWith('test')
+
+  // Mode is determined by explicit DB flag, not environment inference
+  const isTestMode = await shouldUseMockEnrichment(supabase, organisationId)
 
   if (!isTestMode && !apiKey) {
-    const msg = 'APOLLO_API_KEY not set in environment'
-    logger.error('enrichment: missing API key', { error: msg })
+    const msg = 'APOLLO_API_KEY not set in environment (required for live enrichment)'
+    logger.error('enrichment: missing API key for live mode', { error: msg })
     throw new Error(`Apollo enrichment failed: ${msg}`)
   }
 
