@@ -196,7 +196,10 @@ export async function tierEnrichedBatch(
         continue // Don't update untiered prospects
       }
 
-      const updatePayload: Record<string, unknown> = { sourced_tier: result.sourced_tier }
+      const updatePayload: Record<string, unknown> = {
+        sourced_tier: result.sourced_tier,
+        tiering_reason: result.classification_reason,
+      }
       if (tierPublishedAt) updatePayload.tier_published_at = tierPublishedAt
       if (clientReviewStatus) updatePayload.client_review_status = clientReviewStatus
 
