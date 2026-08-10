@@ -8,7 +8,7 @@ import {
 
 describe('field-ownership', () => {
   describe('stripNonOwnedFields', () => {
-    it('keeps only enrichment-owned fields', () => {
+    it('keeps only enrichment-owned and approved FILL-IF-NULL fields', () => {
       const payload = {
         email: 'test@example.com',
         linkedin_url: 'https://linkedin.com/in/test',
@@ -16,24 +16,24 @@ describe('field-ownership', () => {
         company_industry: 'Technology',
         job_title: 'CEO', // MUST be stripped
         first_name: 'John', // MUST be stripped
-        last_name: 'Doe', // MUST be stripped
+        last_name: 'Doe', // FILL-IF-NULL field with non-null value: ALLOWED
         company_name: 'Acme Inc', // MUST be stripped
       }
 
       const result = stripNonOwnedFields(payload)
 
-      // Verify only owned fields remain
+      // Verify owned fields AND approved FILL-IF-NULL fields remain
       expect(result).toEqual({
         email: 'test@example.com',
         linkedin_url: 'https://linkedin.com/in/test',
         company_headcount: 50,
         company_industry: 'Technology',
+        last_name: 'Doe', // FILL-IF-NULL field preserved with non-null value
       })
 
-      // Verify sourced fields are completely absent
+      // Verify non-FILL-IF-NULL sourced fields are completely absent
       expect(result).not.toHaveProperty('job_title')
       expect(result).not.toHaveProperty('first_name')
-      expect(result).not.toHaveProperty('last_name')
       expect(result).not.toHaveProperty('company_name')
     })
 
@@ -72,6 +72,20 @@ describe('field-ownership', () => {
       })
       expect(result).not.toHaveProperty('unknown_field')
       expect(result).not.toHaveProperty('job_title')
+    })
+
+    it('strips FILL-IF-NULL fields with null values', () => {
+      const payload = {
+        email: 'test@example.com',
+        last_name: null, // FILL-IF-NULL field but with null value: STRIPPED
+      }
+
+      const result = stripNonOwnedFields(payload)
+
+      expect(result).toEqual({
+        email: 'test@example.com',
+      })
+      expect(result).not.toHaveProperty('last_name')
     })
   })
 

@@ -21,7 +21,7 @@ import { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { normaliseLinkedInUrl } from '@/lib/sourcing/normalise-linkedin'
 import { getDedupeVerdict } from '@/lib/sourcing/dedupe-verdict'
-import { stripNonOwnedFields } from '@/lib/sourcing/field-ownership'
+import { stripNonOwnedFields, applyFillIfNullLogic } from '@/lib/sourcing/field-ownership'
 import { shouldUseMockEnrichment } from '@/lib/sourcing/enrichment-mode'
 import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 
@@ -36,7 +36,7 @@ interface ApolloMatch {
   email_status?: string | null
   linkedin_url?: string | null
   title?: string | null
-  organisation?: {
+  organization?: {
     name?: string | null
     primary_domain?: string | null
     estimated_num_employees?: number | null
@@ -338,7 +338,7 @@ function generateTestModeResponse(apolloIds: string[], specIndustries: string[] 
       email_status: 'verified',
       linkedin_url: `https://mock.invalid/in/${emailLocal}`,
       // CRITICALLY: no title field (enrichment does NOT write job titles)
-      organisation: {
+      organization: {
         name: `Test Company ${idx + 1}`,
         primary_domain: `testco${idx + 1}.mock.invalid`,
         estimated_num_employees: headcount, // Plausible range 2-19
@@ -422,22 +422,40 @@ async function enrichAndVerifyProspect(
   apolloMatch: ApolloMatch,
   operationId: string,
 ): Promise<void> {
-  // Step 1: Extract and normalise identity fields from Apollo response
+  // Step 1: Load current prospect to enable FILL-IF-NULL logic
+  const { data: currentProspect, error: fetchError } = await (supabase as any)
+    .from('prospects')
+    .select('last_name')
+    .eq('id', prospectId)
+    .eq('organisation_id', organisationId)
+    .single()
+
+  if (fetchError) {
+    logger.warn('enrichment: could not load current prospect for FILL-IF-NULL check', {
+      operation_id: operationId,
+      prospect_id: prospectId,
+      error: fetchError.message,
+    })
+  }
+
+  // Step 2: Extract and normalise identity fields from Apollo response
   const email = apolloMatch.email || null
   const linkedinUrl = apolloMatch.linkedin_url || null
   const linkedinUrlNormalised = linkedinUrl ? normaliseLinkedInUrl(linkedinUrl) : null
-  const companyDomain = apolloMatch.organisation?.primary_domain || null
+  const companyDomain = apolloMatch.organization?.primary_domain || null
   const emailStatus = apolloMatch.email_status || null
 
-  // Step 1b: Extract ENRICHMENT-OWNED firmographic fields (all nullable, Apollo may not return them)
+  // Step 2b: Extract ENRICHMENT-OWNED firmographic fields (all nullable, Apollo may not return them)
   // CRITICAL: Enrichment owns company_headcount and company_industry ONLY
   // Do NOT write job_title or company_name — those are sourced fields and must not be overwritten
-  const companyHeadcount = apolloMatch.organisation?.estimated_num_employees || null
-  const companyIndustry = apolloMatch.organisation?.industry || null
+  const companyHeadcount = apolloMatch.organization?.estimated_num_employees || null
+  const companyIndustry = apolloMatch.organization?.industry || null
 
-  // Step 2: Populate ONLY enrichment-owned fields on prospect row
-  // Field ownership: enrichment may write email, linkedin_url, company_industry, company_headcount
-  // Enrichment must NEVER write: first_name, last_name, job_title, company_name
+  // Step 2c: Include last_name from Apollo for FILL-IF-NULL logic
+  // last_name is a sourced field but can be populated if currently NULL
+  const lastName = apolloMatch.last_name || null
+
+  // Step 3: Build enrichment update payload including potential fill-if-null fields
   const enrichmentUpdatePayload = {
     email,
     linkedin_url: linkedinUrl,
@@ -446,10 +464,17 @@ async function enrichAndVerifyProspect(
     email_status: emailStatus,
     company_headcount: companyHeadcount,
     company_industry: companyIndustry,
+    last_name: lastName, // Include for FILL-IF-NULL logic
   }
 
-  // CRITICAL: Strip any non-owned fields from the payload (defense against handler bugs)
-  const safeUpdatePayload = stripNonOwnedFields(enrichmentUpdatePayload)
+  // Step 4: Apply FILL-IF-NULL logic (only populate last_name if currently NULL)
+  const fillIfNullApplied = applyFillIfNullLogic(
+    enrichmentUpdatePayload,
+    currentProspect || {},
+  )
+
+  // Step 5: Strip any non-owned fields from the payload (defense against handler bugs)
+  const safeUpdatePayload = stripNonOwnedFields(fillIfNullApplied)
 
   const { error: updateError } = await (supabase as any)
     .from('prospects')
@@ -466,7 +491,7 @@ async function enrichAndVerifyProspect(
     return
   }
 
-  // Step 3: Run post-enrichment dedupe recheck (Amendment 2, Amendment 3)
+  // Step 6: Run post-enrichment dedupe recheck (Amendment 2, Amendment 3)
   // Must check against NEW identity fields, not old ones
   // For re-enrichment: exclude this prospect from person_key duplicate checks (don't flag self as dup)
   let dedupeVerdict: string = 'new'
@@ -488,7 +513,7 @@ async function enrichAndVerifyProspect(
     dedupeVerdict = 'suppressed_match'
   }
 
-  // Step 4: Set enrichment_status based on dedupe verdict + email_status (Amendment 4)
+  // Step 7: Set enrichment_status based on dedupe verdict + email_status (Amendment 4)
   let enrichmentStatus: string
 
   if (dedupeVerdict === 'suppressed_match' || dedupeVerdict.startsWith('duplicate_')) {
@@ -501,7 +526,7 @@ async function enrichAndVerifyProspect(
     enrichmentStatus = 'held_unverified'
   }
 
-  // Step 5: Write enrichment_status
+  // Step 8: Write enrichment_status
   const { error: enrichError } = await (supabase as any)
     .from('prospects')
     .update({
