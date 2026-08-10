@@ -34,7 +34,7 @@ export async function tierEnrichedBatch(
   const { data: agentRun, error: agentRunError } = await supabase
     .from('agent_runs')
     .insert({
-      client_id: organisationId,
+      organisation_id: organisationId,
       agent_name: 'tiering-trigger',
       status: 'running',
       started_at: startedAt.toISOString(),
