@@ -430,12 +430,14 @@ async function enrichAndVerifyProspect(
 
   // Step 3: Run post-enrichment dedupe recheck (Amendment 2, Amendment 3)
   // Must check against NEW identity fields, not old ones
+  // For re-enrichment: exclude this prospect from person_key duplicate checks (don't flag self as dup)
   let dedupeVerdict: string = 'new'
   try {
     dedupeVerdict = await getDedupeVerdict(supabase, organisationId, {
       source_person_key: `apollo:${apolloMatch.id}`,
       email,
       linkedin_url: linkedinUrl,
+      exclude_prospect_id: prospectId,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

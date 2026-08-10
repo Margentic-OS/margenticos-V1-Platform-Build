@@ -31,6 +31,7 @@ export interface DedupeVerdictInput {
   source_person_key: string // always present
   email?: string | null     // from enrichment or sourcing
   linkedin_url?: string | null // from enrichment or sourcing
+  exclude_prospect_id?: string // for re-enrichment: don't flag self as duplicate
 }
 
 /**
@@ -43,7 +44,7 @@ export async function getDedupeVerdict(
   organisationId: string,
   input: DedupeVerdictInput,
 ): Promise<CandidateVerdict> {
-  const { source_person_key, email, linkedin_url } = input
+  const { source_person_key, email, linkedin_url, exclude_prospect_id } = input
   const linkedin_url_normalised = linkedin_url ? normaliseLinkedInUrl(linkedin_url) : null
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -115,15 +116,21 @@ export async function getDedupeVerdict(
   // 2. Duplicate checks (in order: person_key, linkedin, email)
   // ─────────────────────────────────────────────────────────────────────────────
 
-  // Check person_key duplicate (unsuppressed)
+  // Check person_key duplicate (unsuppressed, excluding self if exclude_prospect_id set)
   if (source_person_key) {
-    const { data: pkDupe, error: pkError } = await supabase
+    let query = supabase
       .from('prospects')
-      .select('source_person_key')
+      .select('source_person_key, id')
       .eq('organisation_id', organisationId)
       .eq('source_person_key', source_person_key)
       .not('suppressed', 'is', true)
-      .maybeSingle()
+
+    // For re-enrichment scenarios: don't flag the prospect being re-enriched as a duplicate of itself
+    if (exclude_prospect_id) {
+      query = query.neq('id', exclude_prospect_id)
+    }
+
+    const { data: pkDupe, error: pkError } = await query.maybeSingle()
 
     if (pkError) {
       logger.error('dedupe-verdict: person_key duplicate query failed', {
