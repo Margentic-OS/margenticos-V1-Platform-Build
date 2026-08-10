@@ -21,6 +21,8 @@ import { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { normaliseLinkedInUrl } from '@/lib/sourcing/normalise-linkedin'
 import { getDedupeVerdict } from '@/lib/sourcing/dedupe-verdict'
+import { stripNonOwnedFields } from '@/lib/sourcing/field-ownership'
+import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 
 type SupabaseServiceClient = ReturnType<typeof createClient<Database>>
 
@@ -272,22 +274,27 @@ export async function enrichProspectsForOrganisation(
 }
 
 /**
- * Generate deterministic test-mode mock response with unique, fake email addresses.
- * Each email uses format: {first_name_lower}_{idx}_{hash}@mock.invalid
- * The .invalid TLD marks these as visibly fake and unmistakably test data.
- * Uniqueness guaranteed by index and hash of Apollo ID.
+ * Generate deterministic test-mode mock response with ICP-plausible enrichment data.
+ *
+ * CRITICAL: Mock only returns enrichment-owned fields (email, company_industry, company_headcount).
+ * It must NOT include title or company_name (those are sourced fields, must never be written).
+ *
+ * Mock values are ICP-plausible:
+ * - company_headcount: 2-19 (founder-led consulting range)
+ * - company_industry: drawn from CANONICAL_INDUSTRIES
+ * - email: .mock.invalid (visibly fake, deterministic)
  */
 function generateTestModeResponse(apolloIds: string[]): ApolloBulkMatchResponse {
   const firstNames = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve', 'Frank', 'Grace', 'Henry', 'Iris', 'Jack']
   const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez']
-  const industries = ['Technology', 'Finance', 'Consulting', 'Healthcare', 'Manufacturing', 'Retail', 'Energy', 'Telecom', 'Education', 'Transportation']
-  const titles = ['CEO', 'Founder', 'VP of Sales', 'Director of Operations', 'Head of Marketing', 'Chief Technology Officer', 'Managing Director', 'Operations Manager', 'Business Analyst', 'Account Executive']
 
   const matches: ApolloMatch[] = apolloIds.map((id, idx) => {
     const firstName = firstNames[idx % firstNames.length]
     const lastName = lastNames[(idx + 1) % lastNames.length]
-    const industry = industries[(idx + 2) % industries.length]
-    const title = titles[(idx + 3) % titles.length]
+    const industry = CANONICAL_INDUSTRIES[(idx + 2) % CANONICAL_INDUSTRIES.length]
+
+    // ICP-plausible headcount: founder-led consulting is typically 2-19 employees
+    const headcount = 2 + (idx % 18)
 
     // Generate a simple hash from Apollo ID for uniqueness
     let hash = 0
@@ -307,12 +314,12 @@ function generateTestModeResponse(apolloIds: string[]): ApolloBulkMatchResponse 
       email: `${emailLocal}@mock.invalid`,
       email_status: 'verified',
       linkedin_url: `https://mock.invalid/in/${emailLocal}`,
-      title,
+      // CRITICALLY: no title field (enrichment does NOT write job titles)
       organisation: {
         name: `Test Company ${idx + 1}`,
         primary_domain: `testco${idx + 1}.mock.invalid`,
-        estimated_num_employees: 50 + (idx * 10),
-        industry,
+        estimated_num_employees: headcount, // Plausible range 2-19
+        industry, // Canonical industry
       },
     }
   })
@@ -398,24 +405,31 @@ async function enrichAndVerifyProspect(
   const companyDomain = apolloMatch.organisation?.primary_domain || null
   const emailStatus = apolloMatch.email_status || null
 
-  // Step 1b: Extract firmographic fields for tiering (all nullable, Apollo may not return them)
+  // Step 1b: Extract ENRICHMENT-OWNED firmographic fields (all nullable, Apollo may not return them)
+  // CRITICAL: Enrichment owns company_headcount and company_industry ONLY
+  // Do NOT write job_title or company_name — those are sourced fields and must not be overwritten
   const companyHeadcount = apolloMatch.organisation?.estimated_num_employees || null
   const companyIndustry = apolloMatch.organisation?.industry || null
-  const jobTitle = apolloMatch.title || null
 
-  // Step 2: Populate identity and firmographic fields on prospect row
+  // Step 2: Populate ONLY enrichment-owned fields on prospect row
+  // Field ownership: enrichment may write email, linkedin_url, company_industry, company_headcount
+  // Enrichment must NEVER write: first_name, last_name, job_title, company_name
+  const enrichmentUpdatePayload = {
+    email,
+    linkedin_url: linkedinUrl,
+    linkedin_url_normalised: linkedinUrlNormalised,
+    website_url: companyDomain,
+    email_status: emailStatus,
+    company_headcount: companyHeadcount,
+    company_industry: companyIndustry,
+  }
+
+  // CRITICAL: Strip any non-owned fields from the payload (defense against handler bugs)
+  const safeUpdatePayload = stripNonOwnedFields(enrichmentUpdatePayload)
+
   const { error: updateError } = await (supabase as any)
     .from('prospects')
-    .update({
-      email,
-      linkedin_url: linkedinUrl,
-      linkedin_url_normalised: linkedinUrlNormalised,
-      website_url: companyDomain,
-      email_status: emailStatus,
-      company_headcount: companyHeadcount,
-      company_industry: companyIndustry,
-      job_title: jobTitle,
-    })
+    .update(safeUpdatePayload)
     .eq('id', prospectId)
     .eq('organisation_id', organisationId)
 
