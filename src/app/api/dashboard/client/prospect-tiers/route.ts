@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { logger } from '@/lib/logger'
+import type { Database } from '@/types/database'
 
 const TIER_ORDER = ['tier_1', 'tier_2', 'tier_3'] as const
 const AUTO_SANCTION_DAYS = 4
@@ -27,14 +29,14 @@ interface TierData {
 }
 
 async function getTierData(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  adminClient: ReturnType<typeof createServiceClient<Database>>,
   orgId: string,
   tier: typeof TIER_ORDER[number],
 ): Promise<TierData> {
   // ── 1. Get tier published date (anchor for auto-sanction clock) ──────────
   // If tier_published_at is NULL, the tier hasn't been published yet (client can't see it)
   // Auto-sanction clock starts from tier_published_at, not tier_created_at
-  const { data: tierPublishedData, error: tierPublishedError } = await supabase
+  const { data: tierPublishedData, error: tierPublishedError } = await adminClient
     .from('prospects')
     .select('tier_published_at')
     .eq('organisation_id', orgId)
@@ -62,7 +64,7 @@ async function getTierData(
   const isAutoSanctioned = tierPublishedAt ? new Date(tierPublishedAt).getTime() < now.getTime() - AUTO_SANCTION_DAYS * 24 * 60 * 60 * 1000 : false
 
   // ── 1b. Get tier created date (first prospect in tier) ────────────────────
-  const { data: tierCreatedData, error: tierCreatedError } = await supabase
+  const { data: tierCreatedData, error: tierCreatedError } = await adminClient
     .from('prospects')
     .select('created_at')
     .eq('organisation_id', orgId)
@@ -85,7 +87,7 @@ async function getTierData(
   // ── 2. Check if tier is locked (durable: any prospect reached 'uploaded') ───
   // Lock persists across stale-lock reclaim because 'uploaded' is terminal.
   // 'uploading' is transient but also blocks during in-flight sends.
-  const { data: sendingData, error: sendingError } = await supabase
+  const { data: sendingData, error: sendingError } = await adminClient
     .from('prospects')
     .select('id')
     .eq('organisation_id', orgId)
@@ -107,7 +109,7 @@ async function getTierData(
   // ── 3. Apply lazy-write auto-sanction if needed ──────────────────────────
   // Only auto-sanction if tier has been published (tier_published_at IS NOT NULL)
   if (isAutoSanctioned && !tierIsLocked && tierPublishedAt) {
-    const { error: autoSanctionError } = await supabase
+    const { error: autoSanctionError } = await adminClient
       .from('prospects')
       .update({
         client_review_status: 'approved',
@@ -136,7 +138,7 @@ async function getTierData(
   }
 
   // ── 4. Get counts (only published tiers visible to client) ───────────────
-  const { data: countsData, error: countsError } = await supabase
+  const { data: countsData, error: countsError } = await adminClient
     .from('prospects')
     .select('client_review_status', { count: 'exact' })
     .eq('organisation_id', orgId)
@@ -173,7 +175,7 @@ async function getTierData(
   }
 
   // ── 6. Sample 5 prospects (stable order by id, published only) ───────────
-  const { data: sampleData, error: sampleError } = await supabase
+  const { data: sampleData, error: sampleError } = await adminClient
     .from('prospects')
     .select('id, first_name, last_name, company_name, role, personalisation_trigger, client_review_status')
     .eq('organisation_id', orgId)
@@ -239,9 +241,16 @@ export async function GET() {
 
     const organisationId = userRow.organisation_id
 
+    // Create admin client to bypass RLS (clients must see their own org's prospects)
+    const adminClient = createServiceClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
     // Fetch tier data in parallel
     const tierDataArray = await Promise.all(
-      TIER_ORDER.map(tier => getTierData(supabase, organisationId, tier))
+      TIER_ORDER.map(tier => getTierData(adminClient, organisationId, tier))
     )
 
     return Response.json({

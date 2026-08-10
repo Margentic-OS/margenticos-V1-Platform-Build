@@ -4,19 +4,19 @@ import { useState, useMemo, useTransition } from 'react'
 import Link from 'next/link'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
+import { normalizeUrl } from '@/lib/url/normalize'
 
 type Prospect = Database['public']['Tables']['prospects']['Row']
 
-async function publishTierForClient(organisationId: string, tier: 'tier_1' | 'tier_2' | 'tier_3') {
-  const response = await fetch(`/api/operator/organisations/${organisationId}/publish-tier`, {
+async function publishAllTiersForClient(organisationId: string) {
+  const response = await fetch(`/api/operator/organisations/${organisationId}/publish-all-tiers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tier }),
   })
 
   if (!response.ok) {
     const error = await response.json()
-    throw new Error(error.error || 'Failed to publish tier')
+    throw new Error(error.error || 'Failed to publish prospects')
   }
 
   return response.json()
@@ -124,34 +124,16 @@ function TierSection({
   tier,
   prospects,
   config,
-  organisationId,
 }: {
   tier: string
   prospects: Prospect[]
   config: (typeof tierConfig)['tier_1']
-  organisationId: string
 }) {
   const [expanded, setExpanded] = useState(tier === 'tier_1')
   const [showAll, setShowAll] = useState(false)
-  const [, startTransition] = useTransition()
-  const [publishError, setPublishError] = useState<string | null>(null)
-  const [publishSuccess, setPublishSuccess] = useState(false)
 
   const displayed = showAll ? prospects : prospects.slice(0, 20)
   const hasMore = prospects.length > 20
-
-  const handlePublish = () => {
-    setPublishError(null)
-    setPublishSuccess(false)
-    startTransition(async () => {
-      try {
-        await publishTierForClient(organisationId, tier as 'tier_1' | 'tier_2' | 'tier_3')
-        setPublishSuccess(true)
-      } catch (err) {
-        setPublishError(err instanceof Error ? err.message : 'Failed to publish tier')
-      }
-    })
-  }
 
   return (
     <div className="bg-white rounded-[10px] border border-border-card overflow-hidden">
@@ -168,25 +150,6 @@ function TierSection({
             </span>
           </div>
         </button>
-        {expanded && (
-          <div className="px-6 py-3 bg-[#F8F4EE] border-t border-[#E8E2D8] flex items-center justify-between">
-            <div>
-              {publishSuccess && (
-                <p className="text-xs text-[#3B6D11]">Published for client review</p>
-              )}
-              {publishError && (
-                <p className="text-xs text-[#C0392B]">{publishError}</p>
-              )}
-            </div>
-            <button
-              onClick={handlePublish}
-              disabled={publishSuccess}
-              className="px-3 py-1.5 text-xs font-medium bg-[#2d5a27] text-[#f5f0e8] rounded-sm hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {publishSuccess ? 'Published' : 'Publish for client review'}
-            </button>
-          </div>
-        )}
       </div>
 
       {expanded && (
@@ -248,15 +211,53 @@ export function Gate2TieredReview({
   organisationName,
   tiering,
 }: Gate2TieredReviewProps) {
+  const [, startTransition] = useTransition()
+  const [publishError, setPublishError] = useState<string | null>(null)
+  const [publishSuccess, setPublishSuccess] = useState(false)
+
   const totalEnriched = tiering.tier_1.length + tiering.tier_2.length + tiering.tier_3.length
+
+  const handlePublishAll = () => {
+    setPublishError(null)
+    setPublishSuccess(false)
+    startTransition(async () => {
+      try {
+        await publishAllTiersForClient(organisationId)
+        setPublishSuccess(true)
+      } catch (err) {
+        setPublishError(err instanceof Error ? err.message : 'Failed to publish prospects')
+      }
+    })
+  }
 
   return (
     <div className="space-y-6">
       {/* Summary */}
       <div className="bg-white rounded-[10px] border border-border-card p-6">
-        <h2 className="text-base font-medium text-text-primary mb-4">
-          Quality review: {totalEnriched} enriched prospects
-        </h2>
+        <div className="flex items-start justify-between mb-4">
+          <h2 className="text-base font-medium text-text-primary">
+            Quality review: {totalEnriched} enriched prospects
+          </h2>
+          <button
+            onClick={handlePublishAll}
+            disabled={publishSuccess || totalEnriched === 0}
+            className="px-4 py-2 text-sm font-medium bg-[#2d5a27] text-[#f5f0e8] rounded-sm hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {publishSuccess ? 'Published for client review' : 'Publish for client review'}
+          </button>
+        </div>
+
+        {publishError && (
+          <div className="mb-4 px-3 py-2 rounded-[6px] bg-[#FDEEE8] border border-[#EFBCAA]">
+            <p className="text-xs text-[#8B2020]">{publishError}</p>
+          </div>
+        )}
+
+        {publishSuccess && (
+          <div className="mb-4 px-3 py-2 rounded-[6px] bg-[#EBF5E6] border border-[#BDDAB0]">
+            <p className="text-xs text-[#3B6D11]">Published for client review. Client will receive an email.</p>
+          </div>
+        )}
 
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div>
@@ -287,13 +288,13 @@ export function Gate2TieredReview({
       {/* Tier sections */}
       <div className="space-y-4">
         {tiering.tier_1.length > 0 && (
-          <TierSection tier="tier_1" prospects={tiering.tier_1} config={tierConfig.tier_1} organisationId={organisationId} />
+          <TierSection tier="tier_1" prospects={tiering.tier_1} config={tierConfig.tier_1} />
         )}
         {tiering.tier_2.length > 0 && (
-          <TierSection tier="tier_2" prospects={tiering.tier_2} config={tierConfig.tier_2} organisationId={organisationId} />
+          <TierSection tier="tier_2" prospects={tiering.tier_2} config={tierConfig.tier_2} />
         )}
         {tiering.tier_3.length > 0 && (
-          <TierSection tier="tier_3" prospects={tiering.tier_3} config={tierConfig.tier_3} organisationId={organisationId} />
+          <TierSection tier="tier_3" prospects={tiering.tier_3} config={tierConfig.tier_3} />
         )}
       </div>
 

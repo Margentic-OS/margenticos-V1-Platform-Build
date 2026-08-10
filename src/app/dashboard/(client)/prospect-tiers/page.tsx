@@ -95,8 +95,8 @@ export default async function ProspectTiersPage() {
     <>
       <DashboardTopbar
         eyebrow="Ready to deploy"
-        title={`Review Prospects — ${organisationName}`}
-        subtitle={nonEmptyTiers.length === 0 ? 'No prospects to review' : ''}
+        title={`Review prospects`}
+        subtitle={organisationName}
         statusLabel="Waiting for approval"
         statusVariant="setup"
         orgInitials={getOrgInitials(organisationName)}
