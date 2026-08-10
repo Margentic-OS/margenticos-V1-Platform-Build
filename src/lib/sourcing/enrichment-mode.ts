@@ -35,7 +35,6 @@ export async function shouldUseMockEnrichment(
       .from('integrations_registry')
       .select('config')
       .eq('capability', 'can_enrich_contact')
-      .is('archived_at', null)
       .single()
 
     if (error) {
@@ -81,7 +80,6 @@ export async function getEnrichmentLiveFlag(
       .from('integrations_registry')
       .select('config')
       .eq('capability', 'can_enrich_contact')
-      .is('archived_at', null)
       .single()
 
     if (error) {
