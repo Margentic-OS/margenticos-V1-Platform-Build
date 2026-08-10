@@ -360,6 +360,9 @@ export const apolloHandler = {
 
           const candidate: ProspectCandidate = {
             source_person_key: `apollo:${person.id}`,
+            first_name: person.first_name || null,
+            job_title: person.title || null,
+            company_name: person.organization?.name || null,
             email: null, // Not available in api_search response; retrieved at enrichment time
             linkedin_url: null, // Not available in api_search response; retrieved at enrichment time
           }

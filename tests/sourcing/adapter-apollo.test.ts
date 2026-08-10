@@ -338,6 +338,47 @@ describe('apolloHandler.execute - ProspectCandidate format', () => {
       expect(c.linkedin_url).toBeNull() // Not available in api_search
     })
   })
+
+  it('extracts first_name, job_title, company_name from Apollo people', async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => apolloFixture,
+    })) as any
+
+    const spec: ICPFilterSpec = {
+      job_titles: ['Founder'],
+      job_titles_excluded: [],
+      seniority_levels: ['c_suite'],
+      person_countries: ['US'],
+      company_countries: ['US'],
+      company_headcount_min: 1,
+      company_headcount_max: 50,
+      industries: [],
+      industries_excluded: [],
+      keywords: [],
+      keywords_excluded: [],
+      notes: '',
+    }
+
+    const candidates = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
+
+    // apollo-001 should have name and job_title extracted from fixture
+    const apollo001 = candidates.find(c => c.source_person_key === 'apollo:apollo-001')
+    expect(apollo001).toBeDefined()
+    expect(apollo001?.first_name).toBe('Sarah')
+    expect(apollo001?.job_title).toBe('Founder')
+    expect(apollo001?.company_name).toBe('Management Consulting Advisory')
+
+    // All candidates should have source_person_key, most should have basic fields
+    candidates.forEach(c => {
+      expect(c.source_person_key).toMatch(/^apollo:/)
+      // first_name and company_name should not be NULL on all rows (guard against empty-shell regression)
+      if (c.first_name === null && c.company_name === null) {
+        throw new Error(`Candidate ${c.source_person_key} is an empty shell (both first_name and company_name are NULL)`)
+      }
+    })
+  })
 })
 
 // ─── Manifest tests ─────────────────────────────────────────────────────────

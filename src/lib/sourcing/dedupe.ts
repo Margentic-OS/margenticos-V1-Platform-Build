@@ -34,6 +34,9 @@ export interface ProspectCandidate {
   source_person_key: string // Always present: 'tool:external_id' format
   email?: string | null
   linkedin_url?: string | null
+  first_name?: string | null
+  job_title?: string | null
+  company_name?: string | null
 }
 
 interface DuplicateMatch {

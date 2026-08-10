@@ -309,12 +309,18 @@ export async function runSourcing(
         const { error: insertError } = await supabase.from('prospects').insert({
           organisation_id: client_id,
           source_person_key: candidate.source_person_key,
+          first_name: candidate.first_name || null,
+          job_title: candidate.job_title || null,
+          company_name: candidate.company_name || null,
           sourcing_review_status: 'pending_review',
           sourced_tier: null,
           email: null,
           linkedin_url: null,
           linkedin_url_normalised: null,
           website_url: null,
+          country: null, // Will be populated by enrichment agent
+          company_headcount: null, // Will be populated by enrichment agent
+          company_industry: null, // Will be populated by enrichment agent
         })
 
         if (insertError) {
@@ -353,6 +359,36 @@ export async function runSourcing(
       client_id,
       written_count: writtenCount,
     })
+
+    // ── Step 7.5: Validation guard — prevent empty-shell writes ────────────────
+    if (writtenCount > 0) {
+      const { data: writtenRows, error: checkError } = await supabase
+        .from('prospects')
+        .select('first_name, company_name')
+        .eq('organisation_id', client_id)
+        .eq('sourcing_review_status', 'pending_review')
+        .order('created_at', { ascending: false })
+        .limit(writtenCount)
+
+      if (!checkError && writtenRows?.length === writtenCount) {
+        const emptyCount = writtenRows.filter(
+          row => !row.first_name && !row.company_name
+        ).length
+
+        if (emptyCount === writtenCount) {
+          const msg = `All ${writtenCount} written prospects are empty shells (NULL first_name AND NULL company_name). This indicates a schema or mapping defect in the adapter.`
+          logger.error('Sourcing orchestrator: empty-shell write detected', {
+            operation_id: operationId,
+            client_id,
+            empty_count: emptyCount,
+            total_written: writtenCount,
+          })
+
+          // Fail the run instead of treating empty-shell write as success
+          throw new Error(`Sourcing validation failed: ${msg}`)
+        }
+      }
+    }
 
     // ── Step 8: Log run with breakdown ──────────────────────────────────────
     const droppedCount =
