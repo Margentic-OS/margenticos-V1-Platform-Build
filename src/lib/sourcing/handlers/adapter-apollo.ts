@@ -246,8 +246,9 @@ export const apolloHandler = {
   },
 
   // Execute: call Apollo api_search, paginate, return ProspectCandidate array
-  // Input: the original spec (containing all filter fields including those used for post-filtering)
-  execute: async (spec: Record<string, unknown>): Promise<ProspectCandidate[]> => {
+  // Input: spec (containing all filter fields including those used for post-filtering)
+  //        cap (optional batch size cap; if set, stops pagination once cap candidates are fetched)
+  execute: async (spec: Record<string, unknown>, cap?: number): Promise<ProspectCandidate[]> => {
     const apiKey = process.env.APOLLO_API_KEY
     if (!apiKey) {
       const msg = 'APOLLO_API_KEY not set in environment'
@@ -257,7 +258,8 @@ export const apolloHandler = {
 
     const candidates: ProspectCandidate[] = []
     const MAX_PAGES = 500
-    const MAX_RESULTS = 50000
+    const MAX_RESULTS = cap ?? 50000
+    const PAGE_SIZE = cap ? Math.min(cap, 100) : 100
 
     let page = 1
     let totalFetched = 0
@@ -265,13 +267,14 @@ export const apolloHandler = {
 
     while (morePages && page <= MAX_PAGES && totalFetched < MAX_RESULTS) {
       // Rate limit: Apollo enforces 200 calls/minute burst limit. Throttle to ~3 calls/sec (300ms between requests).
+      // Only throttle between pages (if page > 1); single page request has zero added delay.
       if (page > 1) {
         await new Promise(resolve => setTimeout(resolve, 300))
       }
 
       const request = apolloHandler.adapter(spec) as ApolloApiSearchRequest
       request.page = page
-      request.per_page = 100
+      request.per_page = PAGE_SIZE
 
       try {
         const response = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {

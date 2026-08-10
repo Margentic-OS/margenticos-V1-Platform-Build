@@ -205,7 +205,7 @@ export async function runSourcing(
 
     let candidates: ProspectCandidate[] = []
     try {
-      const result = await handler.execute(spec as unknown)
+      const result = await handler.execute(spec as unknown, target_batch_size)
       candidates = result as ProspectCandidate[]
     } catch (err) {
       const errorMsg = serializeError(err)

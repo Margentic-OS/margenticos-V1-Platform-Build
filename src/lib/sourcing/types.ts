@@ -40,7 +40,7 @@ export interface SourcingHandler {
   name: string
   supported_fields: string[]
   adapter: (spec: unknown) => unknown
-  execute: (spec: unknown) => Promise<unknown[]>
+  execute: (spec: unknown, cap?: number) => Promise<unknown[]>
 }
 
 export const FILTER_FIELDS = [
