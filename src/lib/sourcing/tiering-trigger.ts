@@ -191,8 +191,9 @@ export async function tierEnrichedBatch(
 
     let updateCount = 0
     for (const result of results) {
+      // Only update prospects that have a tier assignment
       if (result.sourced_tier === null) {
-        continue // Don't update untiered prospects (stay NULL)
+        continue // Don't update untiered prospects
       }
 
       const updatePayload: Record<string, unknown> = { sourced_tier: result.sourced_tier }

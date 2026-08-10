@@ -17,8 +17,44 @@ interface TierResult {
   classification_reason: string
 }
 
-// Decision-maker seniority levels per PRD-15 and DECISION 2
-const DECISION_MAKER_SENIORITY = ['owner', 'founder', 'c_suite', 'vp']
+// Decision-maker seniority patterns per spec
+// Matches titles containing: founder, owner, co-founder, CEO/chief executive,
+// managing partner, managing director, principal (consultant), partner
+// Must handle compound titles with separators: &, /, |, +, "and"
+const DECISION_MAKER_PATTERNS = [
+  'founder',
+  'co-founder',
+  'co founder',
+  'owner',
+  'ceo',
+  'chief executive',
+  'chief executive officer',
+  'managing partner',
+  'managing director',
+  'principal',
+  'partner',
+]
+
+/**
+ * Check if job title indicates decision-maker seniority.
+ * Handles compound titles and separator variations (&, /, |, +, "and").
+ */
+export function isDecisionMaker(jobTitle: string | null): boolean {
+  if (!jobTitle) return false
+
+  const titleLower = jobTitle.toLowerCase()
+
+  // Split on common separators to handle compound titles
+  // e.g., "Founder & CEO", "CEO/President", "Principal|Partner"
+  const titleVariants = titleLower
+    .split(/[&/|+]|and/)
+    .map(part => part.trim())
+
+  // Check if any part or the full title matches a decision-maker pattern
+  return DECISION_MAKER_PATTERNS.some(pattern =>
+    titleVariants.some(variant => variant.includes(pattern))
+  )
+}
 
 export function classifyTier(
   prospect: EnrichedProspect,
@@ -33,7 +69,7 @@ export function classifyTier(
     return {
       prospect_id: prospectId,
       sourced_tier: null,
-      classification_reason: `non_verified_email (${prospect.email_status})`,
+      classification_reason: `email_not_verified`,
     }
   }
 
@@ -42,23 +78,16 @@ export function classifyTier(
     return {
       prospect_id: prospectId,
       sourced_tier: null,
-      classification_reason: 'missing_job_title_seniority_unknown',
+      classification_reason: 'seniority_missing_job_title',
     }
   }
 
-  // Extract seniority from job title (case-insensitive check)
-  // Simplified: if job_title contains decision-maker keywords, it's a match
-  const jobTitleLower = prospect.job_title.toLowerCase()
-  const isDecisionMaker = DECISION_MAKER_SENIORITY.some(
-    level => jobTitleLower.includes(level) || jobTitleLower.includes(level.replace('_', ' '))
-  )
-
   // Gate 3: Must be decision-maker seniority (this is NEVER loosened per DECISION 2)
-  if (!isDecisionMaker) {
+  if (!isDecisionMaker(prospect.job_title)) {
     return {
       prospect_id: prospectId,
       sourced_tier: null,
-      classification_reason: 'non_decision_maker_seniority_rejected',
+      classification_reason: 'seniority_non_decision_maker',
     }
   }
 
@@ -70,6 +99,9 @@ export function classifyTier(
       classification_reason: 'tier_1_strict_match',
     }
   }
+
+  // If Tier 1 failed, identify specific reason (INDUSTRY or SIZE)
+  const tier1Reason = getTier1FailureReason(prospect, icpFilterSpec)
 
   // Tier 2: Loosened on ONE dimension (headcount OR industry), but not both
   if (matchesTier2Loosened(prospect, icpFilterSpec)) {
@@ -90,13 +122,55 @@ export function classifyTier(
     }
   }
 
-  // No tier matched
-  const tierDisqualifier = tier3Allowed ? 'no_tier_match' : 'no_tier_match_tam_blocks_tier3'
+  // No tier matched - use Tier 1 failure reason (INDUSTRY or SIZE)
   return {
     prospect_id: prospectId,
     sourced_tier: null,
-    classification_reason: tierDisqualifier,
+    classification_reason: tier1Reason,
   }
+}
+
+function getTier1FailureReason(
+  prospect: EnrichedProspect,
+  spec: ICPFilterSpec,
+): string {
+  // Determine what caused Tier 1 to fail: INDUSTRY or SIZE
+
+  // Check industry match
+  let industryMatch = true
+  if (spec.industries && spec.industries.length > 0 && prospect.company_industry) {
+    industryMatch = spec.industries.some(
+      ind => ind.toLowerCase() === prospect.company_industry!.toLowerCase()
+    )
+  } else if (spec.industries && spec.industries.length > 0 && !prospect.company_industry) {
+    industryMatch = false
+  }
+
+  // Check headcount match
+  let headcountMatch = true
+  if (prospect.company_headcount !== null) {
+    const min = spec.company_headcount_min || 0
+    const max = spec.company_headcount_max || Infinity
+    headcountMatch =
+      prospect.company_headcount >= min && prospect.company_headcount <= max
+  } else if (
+    (spec.company_headcount_min !== undefined || spec.company_headcount_max !== undefined) &&
+    prospect.company_headcount === null
+  ) {
+    headcountMatch = false
+  }
+
+  // Return specific reason for Tier 1 failure
+  if (!industryMatch && !headcountMatch) {
+    return 'industry_size_both_reject'
+  } else if (!industryMatch) {
+    return 'industry_mismatch'
+  } else if (!headcountMatch) {
+    return 'size_mismatch'
+  }
+
+  // Should not reach here if Tier 1 fails, but return generic reason
+  return 'tier_1_mismatch'
 }
 
 function matchesTier1Strict(
