@@ -15,6 +15,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { myemailverifierHandler, type VerificationResult } from '@/lib/sourcing/handlers/adapter-myemailverifier'
+import { checkSendEligibility } from '@/lib/sourcing/send-eligibility-rules'
 
 const STALE_LOCK_THRESHOLD_MINUTES = 30
 const GREY_LISTED_RETRY_WINDOW_HOURS = 6
@@ -125,7 +126,7 @@ export async function verifyEnrichedBatch(
     // Select (a) unverified, (b) Grey-listed retryable
     const { data: lockableProspects, error: lockError } = await supabase
       .from('prospects')
-      .select('id, email')
+      .select('id, email, country')
       .eq('organisation_id', organisationId)
       .eq('enrichment_status', 'enriched')
       .or(
@@ -205,7 +206,7 @@ export async function verifyEnrichedBatch(
 
       try {
         const result = await myemailverifierHandler.execute(prospect.email)
-        await recordVerificationResult(supabase, organisationId, prospect.id, result, operationId)
+        await recordVerificationResult(supabase, organisationId, prospect.id, result, operationId, prospect.country, prospect.email)
 
         if (result.send_eligible) {
           verificationRun.send_eligible_count++
@@ -268,8 +269,11 @@ export async function verifyEnrichedBatch(
 
 /**
  * Record verification result on a single prospect.
- * Updates: independent_email_status, email_send_eligible, independent_verified_at,
- *          verification_attempt_count, verification_provider, verification_locked_at
+ * Updates: independent_email_status, email_send_eligible, email_send_ineligible_reason,
+ *          independent_verified_at, verification_attempt_count, verification_provider,
+ *          verification_locked_at
+ *
+ * Also checks send eligibility rules (country exclusions) and sets reason if ineligible.
  */
 async function recordVerificationResult(
   supabase: SupabaseClient,
@@ -277,6 +281,8 @@ async function recordVerificationResult(
   prospectId: string,
   result: VerificationResult,
   operationId: string,
+  country: string | null,
+  email: string | null,
 ): Promise<void> {
   // Increment attempt count if this is a retry
   const { data: currentProspect } = await supabase
@@ -288,11 +294,15 @@ async function recordVerificationResult(
 
   const newAttemptCount = (currentProspect?.verification_attempt_count ?? 0) + 1
 
+  // Check send eligibility rules (country exclusions, etc.)
+  const eligibilityCheck = checkSendEligibility(country, email)
+
   const { error } = await supabase
     .from('prospects')
     .update({
       independent_email_status: result.status,
-      email_send_eligible: result.send_eligible,
+      email_send_eligible: eligibilityCheck.is_eligible && result.send_eligible,
+      email_send_ineligible_reason: eligibilityCheck.reason,
       independent_verified_at: result.verified_at,
       verification_attempt_count: newAttemptCount,
       verification_provider: 'myemailverifier',
