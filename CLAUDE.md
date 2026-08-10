@@ -235,6 +235,29 @@ and never tokens, passwords, or API keys under any circumstances.
 
 ---
 
+## Supabase migrations — applied via MCP, never assumed deployed
+
+**Standing rule**: Migrations are NOT automatically applied by Vercel deploy.
+Vercel deploys code; Supabase migrations must be applied explicitly via the
+Supabase MCP `apply_migration` tool.
+
+**Process**:
+1. Write migration in `/supabase/migrations/` with unique timestamp filename
+2. Commit to git
+3. After push, use Supabase MCP `apply_migration` to run the migration live
+4. Verify the change with a live read-back (Supabase MCP query or CLI)
+5. Mark the migration file with `-- Status: APPLIED (verified live YYYY-MM-DD)`
+6. Commit the status marker
+
+**Never**:
+- Assume Vercel deploy applied a migration (it doesn't)
+- Skip the live verification step
+- Leave migrations in the repo unapplied (track status in the file)
+
+This prevents silent data-layer failures where code expects a schema change that was never applied.
+
+---
+
 ## Documentation — update /docs every session, never skip
 
 All technical documentation lives in /docs at the project root.

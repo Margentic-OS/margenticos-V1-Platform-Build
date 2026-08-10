@@ -2,6 +2,8 @@
 -- Purpose: Restrict view access to authenticated users only and set SECURITY_INVOKER
 -- to ensure RLS policies are enforced on underlying prospects table
 -- Date: 2026-08-10
+-- Status: APPLIED (verified live 2026-08-10 post-deploy)
+-- Applied via: Supabase MCP apply_migration (external, not Vercel deploy)
 
 BEGIN;
 
