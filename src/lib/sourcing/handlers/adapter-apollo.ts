@@ -264,6 +264,11 @@ export const apolloHandler = {
     let morePages = true
 
     while (morePages && page <= MAX_PAGES && totalFetched < MAX_RESULTS) {
+      // Rate limit: Apollo enforces 200 calls/minute burst limit. Throttle to ~3 calls/sec (300ms between requests).
+      if (page > 1) {
+        await new Promise(resolve => setTimeout(resolve, 300))
+      }
+
       const request = apolloHandler.adapter(spec) as ApolloApiSearchRequest
       request.page = page
       request.per_page = 100
