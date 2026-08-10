@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
+import { getClientProspectTiers } from '@/lib/prospect-tiers-data'
+import type { TierData } from '@/lib/prospect-tiers-data'
 import { TierCard } from './components/TierCard'
 import { logger } from '@/lib/logger'
 
@@ -12,27 +14,6 @@ function getOrgInitials(name: string): string {
     .slice(0, 2)
     .map(w => w[0].toUpperCase())
     .join('')
-}
-
-interface TierData {
-  tier: 'tier_1' | 'tier_2' | 'tier_3'
-  tier_created_at: string | null
-  total_count: number
-  rejected_count: number
-  sample_prospects: Array<{
-    id: string
-    first_name: string | null
-    last_name: string | null
-    company_name: string | null
-    role: string | null
-    personalisation_trigger: string | null
-    client_review_status: string | null
-  }>
-  tier_sanction_status: 'pending_review' | 'sanctioned_by_client' | 'sanctioned_auto' | 'partially_rejected'
-  is_auto_sanctioned: boolean
-  is_auto_sanctioned_now: boolean
-  auto_sanction_at: string
-  tier_is_locked: boolean
 }
 
 export default async function ProspectTiersPage() {
@@ -56,28 +37,11 @@ export default async function ProspectTiersPage() {
 
   const organisationName = org?.name || 'Organisation'
 
-  // Fetch tier data from API route
+  // Fetch tier data directly (no HTTP, no fetch)
   let tierData: TierData[] = []
   let fetchError: string | null = null
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_VERCEL_URL
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-      : 'http://localhost:3000'
-
-    const response = await fetch(`${baseUrl}/api/dashboard/client/prospect-tiers`, {
-      headers: {
-        Cookie: (await import('next/headers')).cookies().toString(),
-      },
-    })
-
-    if (!response.ok) {
-      const responseText = await response.text()
-      const responsePreview = responseText.substring(0, 100)
-      throw new Error(`API returned ${response.status}: ${responsePreview}`)
-    }
-
-    const json = await response.json()
-    tierData = json.tiers ?? []
+    tierData = await getClientProspectTiers(supabase)
   } catch (err) {
     fetchError = err instanceof Error ? err.message : String(err)
     logger.error('prospect-tiers page: failed to fetch tier data', {
