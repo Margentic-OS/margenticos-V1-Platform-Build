@@ -67,7 +67,9 @@ function ProspectRow({ prospect }: { prospect: Prospect }) {
       <td className="px-4 py-3 text-text-primary font-medium">
         {prospect.first_name} {prospect.last_name}
       </td>
-      <td className="px-4 py-3 text-text-secondary font-mono text-xs">{prospect.email}</td>
+      <td className="px-4 py-3 text-text-secondary font-mono text-xs max-w-[180px] truncate" title={prospect.email || undefined}>
+        {prospect.email}
+      </td>
       <td className="px-4 py-3 text-text-primary">{prospect.company_name || '—'}</td>
       <td className="px-4 py-3 text-text-secondary">{prospect.job_title || 'Pending enrichment'}</td>
       <td className="px-4 py-3 text-text-secondary">{headcountText}</td>
@@ -75,7 +77,7 @@ function ProspectRow({ prospect }: { prospect: Prospect }) {
       <td className="px-4 py-3">
         {prospect.linkedin_url ? (
           <a
-            href={prospect.linkedin_url}
+            href={normalizeUrl(prospect.linkedin_url) || '#'}
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-600 hover:underline text-xs font-medium"
@@ -89,7 +91,7 @@ function ProspectRow({ prospect }: { prospect: Prospect }) {
       <td className="px-4 py-3">
         {prospect.website_url ? (
           <a
-            href={prospect.website_url}
+            href={normalizeUrl(prospect.website_url) || '#'}
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-600 hover:underline text-xs font-medium"
@@ -100,7 +102,7 @@ function ProspectRow({ prospect }: { prospect: Prospect }) {
           <span className="text-text-secondary text-xs italic">not enriched</span>
         )}
       </td>
-      <td className="px-4 py-3 text-xs">
+      <td className="px-4 py-3 text-xs max-w-[140px] truncate" title={prospect.tiering_reason || undefined}>
         {prospect.tiering_reason ? (
           <span className="text-text-secondary">{prospect.tiering_reason}</span>
         ) : (
