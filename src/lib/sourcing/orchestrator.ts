@@ -10,6 +10,31 @@ import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import { apolloHandler } from '@/lib/sourcing/handlers/adapter-apollo'
 import { checkCandidates, type ProspectCandidate } from '@/lib/sourcing/dedupe'
 
+// Serialize any error (Error, Supabase, or unknown) to human-readable message
+function serializeError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message
+  }
+  if (err && typeof err === 'object') {
+    const obj = err as Record<string, unknown>
+    // Supabase error: has message, code, details, hint
+    if (obj.message) {
+      let msg = String(obj.message)
+      if (obj.code) msg += ` [${obj.code}]`
+      if (obj.details) msg += ` — details: ${JSON.stringify(obj.details)}`
+      if (obj.hint) msg += ` — hint: ${obj.hint}`
+      return msg
+    }
+    // Fallback: JSON stringify
+    try {
+      return JSON.stringify(obj)
+    } catch {
+      return String(err)
+    }
+  }
+  return String(err)
+}
+
 /**
  * Prospect sourcing orchestrator - PRD-15 sourcing pipeline.
  *
@@ -183,7 +208,7 @@ export async function runSourcing(
       const result = await handler.execute(spec as unknown)
       candidates = result as ProspectCandidate[]
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err)
+      const errorMsg = serializeError(err)
       logger.error('Sourcing orchestrator: handler search failed', {
         operation_id: operationId,
         client_id,
@@ -219,7 +244,7 @@ export async function runSourcing(
     try {
       verdicts = await checkCandidates(supabase, client_id, candidates)
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err)
+      const errorMsg = serializeError(err)
       logger.error('Sourcing orchestrator: dedupe check failed', {
         operation_id: operationId,
         client_id,
@@ -303,7 +328,7 @@ export async function runSourcing(
 
         writtenCount++
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err)
+        const errorMsg = serializeError(err)
         logger.error('Sourcing orchestrator: prospect insert failed', {
           operation_id: operationId,
           client_id,
@@ -376,7 +401,7 @@ export async function runSourcing(
       run_timestamp: now,
     }
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err)
+    const errorMsg = serializeError(err)
 
     logger.error('Sourcing orchestrator: run failed', {
       operation_id: operationId,
