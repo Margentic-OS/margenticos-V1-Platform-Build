@@ -58,6 +58,10 @@ const tierConfig = {
 }
 
 function ProspectRow({ prospect }: { prospect: Prospect }) {
+  const headcountText = prospect.company_headcount
+    ? `${prospect.company_headcount} ${prospect.company_headcount === 1 ? 'person' : 'people'}`
+    : 'Pending enrichment'
+
   return (
     <tr className="hover:bg-[#FAFAF8] transition-colors">
       <td className="px-4 py-3 text-text-primary font-medium">
@@ -66,10 +70,43 @@ function ProspectRow({ prospect }: { prospect: Prospect }) {
       <td className="px-4 py-3 text-text-secondary font-mono text-xs">{prospect.email}</td>
       <td className="px-4 py-3 text-text-primary">{prospect.company_name || '—'}</td>
       <td className="px-4 py-3 text-text-secondary">{prospect.job_title || 'Pending enrichment'}</td>
-      <td className="px-4 py-3 text-text-secondary">
-        {prospect.company_headcount ? `${prospect.company_headcount} people` : 'Pending enrichment'}
-      </td>
+      <td className="px-4 py-3 text-text-secondary">{headcountText}</td>
       <td className="px-4 py-3 text-text-secondary">{prospect.company_industry || 'Pending enrichment'}</td>
+      <td className="px-4 py-3">
+        {prospect.linkedin_url ? (
+          <a
+            href={prospect.linkedin_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline text-xs font-medium"
+          >
+            Profile →
+          </a>
+        ) : (
+          <span className="text-text-secondary text-xs">Not enriched</span>
+        )}
+      </td>
+      <td className="px-4 py-3">
+        {prospect.website_url ? (
+          <a
+            href={prospect.website_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline text-xs font-medium"
+          >
+            Website →
+          </a>
+        ) : (
+          <span className="text-text-secondary text-xs italic">not enriched</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-xs">
+        {prospect.tiering_reason ? (
+          <span className="text-text-secondary">{prospect.tiering_reason}</span>
+        ) : (
+          <span className="text-text-secondary text-xs">—</span>
+        )}
+      </td>
       <td className="px-4 py-3">
         {prospect.email_status === 'verified' ? (
           <span className="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-[#EBF5E6] text-[#3B6D11] border border-[#BDDAB0]">
@@ -168,6 +205,9 @@ function TierSection({
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Job title</th>
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Headcount</th>
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Industry</th>
+                  <th className="px-4 py-3 text-left font-medium text-text-primary">LinkedIn</th>
+                  <th className="px-4 py-3 text-left font-medium text-text-primary">Website</th>
+                  <th className="px-4 py-3 text-left font-medium text-text-primary">Tier reason</th>
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Email status</th>
                 </tr>
               </thead>

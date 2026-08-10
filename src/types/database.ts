@@ -899,6 +899,9 @@ export type Database = {
           description: string
           expected_interval_minutes: number | null
           is_scheduled: boolean
+          plain_action: string
+          plain_impact: string
+          plain_meaning: string
           tier: number
           title: string
         }
@@ -909,6 +912,9 @@ export type Database = {
           description: string
           expected_interval_minutes?: number | null
           is_scheduled?: boolean
+          plain_action?: string
+          plain_impact?: string
+          plain_meaning?: string
           tier: number
           title: string
         }
@@ -919,6 +925,9 @@ export type Database = {
           description?: string
           expected_interval_minutes?: number | null
           is_scheduled?: boolean
+          plain_action?: string
+          plain_impact?: string
+          plain_meaning?: string
           tier?: number
           title?: string
         }
@@ -926,6 +935,8 @@ export type Database = {
       }
       monitor_events: {
         Row: {
+          acknowledged_at: string | null
+          acknowledged_note: string | null
           check_code: string
           created_at: string
           detail: string | null
@@ -934,6 +945,8 @@ export type Database = {
           state: string
         }
         Insert: {
+          acknowledged_at?: string | null
+          acknowledged_note?: string | null
           check_code: string
           created_at?: string
           detail?: string | null
@@ -942,6 +955,8 @@ export type Database = {
           state: string
         }
         Update: {
+          acknowledged_at?: string | null
+          acknowledged_note?: string | null
           check_code?: string
           created_at?: string
           detail?: string | null
@@ -1325,8 +1340,10 @@ export type Database = {
           current_research_result_id: string | null
           email: string | null
           email_send_eligible: boolean | null
+          email_send_ineligible_reason: string | null
           email_status: string | null
           enrichment_locked_at: string | null
+          enrichment_mode: string | null
           enrichment_run_id: string | null
           enrichment_status: string | null
           first_name: string | null
@@ -1361,6 +1378,7 @@ export type Database = {
           suppressed_at: string | null
           suppression_reason: string | null
           tier_published_at: string | null
+          tiering_reason: string | null
           trigger_confidence: string | null
           trigger_data: Json | null
           updated_at: string
@@ -1384,8 +1402,10 @@ export type Database = {
           current_research_result_id?: string | null
           email?: string | null
           email_send_eligible?: boolean | null
+          email_send_ineligible_reason?: string | null
           email_status?: string | null
           enrichment_locked_at?: string | null
+          enrichment_mode?: string | null
           enrichment_run_id?: string | null
           enrichment_status?: string | null
           first_name?: string | null
@@ -1420,6 +1440,7 @@ export type Database = {
           suppressed_at?: string | null
           suppression_reason?: string | null
           tier_published_at?: string | null
+          tiering_reason?: string | null
           trigger_confidence?: string | null
           trigger_data?: Json | null
           updated_at?: string
@@ -1443,8 +1464,10 @@ export type Database = {
           current_research_result_id?: string | null
           email?: string | null
           email_send_eligible?: boolean | null
+          email_send_ineligible_reason?: string | null
           email_status?: string | null
           enrichment_locked_at?: string | null
+          enrichment_mode?: string | null
           enrichment_run_id?: string | null
           enrichment_status?: string | null
           first_name?: string | null
@@ -1479,6 +1502,7 @@ export type Database = {
           suppressed_at?: string | null
           suppression_reason?: string | null
           tier_published_at?: string | null
+          tiering_reason?: string | null
           trigger_confidence?: string | null
           trigger_data?: Json | null
           updated_at?: string
@@ -2218,6 +2242,69 @@ export type Database = {
         }
         Relationships: []
       }
+      mon_007: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_010: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_011: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          oldest_incident: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_012: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          oldest_zombie: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_013: {
+        Row: {
+          check_code: string | null
+          check_time: string | null
+          detail: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_014: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          oldest_signal: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_015: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          newest_failure: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       append_faq_variant: {
@@ -2374,4 +2461,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-
