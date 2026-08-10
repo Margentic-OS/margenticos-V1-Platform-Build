@@ -1,4 +1,4 @@
-// Supabase SSR middleware — required for session refresh and cookie propagation.
+// Supabase SSR middleware — required for session refresh, cookie propagation, and auth redirects.
 // Without this, supabase.auth.getUser() in Server Components receives stale/null
 // sessions even immediately after a successful login.
 
@@ -34,7 +34,14 @@ export async function middleware(request: NextRequest) {
 
   // Refresh the session. Must be called before any conditional logic that reads
   // the user — do not move this call or add logic before it.
-  await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Redirect unauthenticated requests to /dashboard/* to login with returnTo
+  if (!user && request.nextUrl.pathname.startsWith('/dashboard/')) {
+    const loginUrl = new URL('/login', request.url)
+    loginUrl.searchParams.set('next', request.nextUrl.pathname + request.nextUrl.search)
+    return NextResponse.redirect(loginUrl)
+  }
 
   return response
 }

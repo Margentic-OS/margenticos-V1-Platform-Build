@@ -91,7 +91,10 @@ export async function POST(
 
     const { data: publishedProspects, error: publishError } = await adminClient
       .from('prospects')
-      .update({ tier_published_at: publishedAt })
+      .update({
+        tier_published_at: publishedAt,
+        client_review_status: 'pending_review',
+      })
       .eq('organisation_id', organisationId)
       .eq('sourced_tier', tier)
       .is('tier_published_at', null) // Only unpublished prospects
@@ -117,13 +120,14 @@ export async function POST(
     })
 
     // ── 5. Fire email 2 (LIST_READY) if this is the first publish ─────────
-    // Dedup per batch: subject_id = hash(tier + publishedAt) to allow re-sourcing
-    // Use a simple deterministic ID: tier_published_at timestamp as part of the key
-    const batchId = `${tier}_${publishedAt}`
+    // Dedup across all tiers per day: one email per day regardless of how many tiers published
+    // Use date as batch ID so tier_1, tier_2, tier_3 on same day all map to same email
+    const batchDate = publishedAt.split('T')[0] // "2026-08-10"
+    const batchId = `list_ready_${batchDate}`
 
     if (publishedCount > 0) {
       try {
-        // Check if email already sent for this batch
+        // Check if email already sent for this batch today
         const { data: existingLog } = await supabase
           .from('notifications_log')
           .select('id')

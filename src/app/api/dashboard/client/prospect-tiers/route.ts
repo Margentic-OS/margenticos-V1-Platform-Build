@@ -226,9 +226,22 @@ export async function GET() {
   }
 
   try {
+    // Fetch user's organisation_id
+    const { data: userRow, error: userError } = await supabase
+      .from('users')
+      .select('organisation_id')
+      .eq('id', user.id)
+      .single()
+
+    if (userError || !userRow?.organisation_id) {
+      return Response.json({ error: 'Organisation not found for user' }, { status: 404 })
+    }
+
+    const organisationId = userRow.organisation_id
+
     // Fetch tier data in parallel
     const tierDataArray = await Promise.all(
-      TIER_ORDER.map(tier => getTierData(supabase, user.id, tier))
+      TIER_ORDER.map(tier => getTierData(supabase, organisationId, tier))
     )
 
     return Response.json({

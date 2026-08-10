@@ -5,10 +5,12 @@ import { Sidebar } from '@/components/dashboard/Sidebar'
 import type { DashboardState } from '@/components/dashboard/Sidebar'
 import { OperatorViewingBanner } from '@/components/dashboard/OperatorViewingBanner'
 
-async function resolveDashboardState(orgId: string): Promise<DashboardState> {
+async function resolveDashboardState(
+  orgId: string
+): Promise<{ state: DashboardState; pendingProspectsCount: number }> {
   const supabase = await createClient()
 
-  const [{ count: totalCritical }, { count: filledCritical }, { count: activeDocs }] =
+  const [{ count: totalCritical }, { count: filledCritical }, { count: activeDocs }, { count: pendingCount }] =
     await Promise.all([
       supabase
         .from('intake_responses')
@@ -27,15 +29,25 @@ async function resolveDashboardState(orgId: string): Promise<DashboardState> {
         .select('*', { count: 'exact', head: true })
         .eq('organisation_id', orgId)
         .in('status', ['approved', 'active']),
+      supabase
+        .from('prospects')
+        .select('*', { count: 'exact', head: true })
+        .eq('organisation_id', orgId)
+        .in('client_review_status', ['pending_review', null])
+        .not('tier_published_at', 'is', null)
+        .eq('suppressed', false),
     ])
 
   const intakeComplete =
     (totalCritical ?? 0) > 0 && filledCritical === totalCritical
   const allDocsActive = (activeDocs ?? 0) >= 4
 
-  if (!intakeComplete) return 'intake_incomplete'
-  if (allDocsActive) return 'documents_active'
-  return 'strategy_in_review'
+  let state: DashboardState
+  if (!intakeComplete) state = 'intake_incomplete'
+  else if (allDocsActive) state = 'documents_active'
+  else state = 'strategy_in_review'
+
+  return { state, pendingProspectsCount: pendingCount ?? 0 }
 }
 
 export default async function ClientLayout({
@@ -73,9 +85,9 @@ export default async function ClientLayout({
     .eq('id', userRow?.organisation_id ?? '')
     .single()
 
-  const dashboardState = org
+  const dashboardStateResult = org
     ? await resolveDashboardState(org.id)
-    : 'intake_incomplete'
+    : { state: 'intake_incomplete' as const, pendingProspectsCount: 0 }
 
   return (
     <div className="flex min-h-screen bg-surface-shell">
@@ -85,7 +97,8 @@ export default async function ClientLayout({
         <Sidebar
           orgName={org?.name ?? ''}
           pipelineUnlocked={org?.pipeline_unlocked ?? false}
-          dashboardState={dashboardState}
+          dashboardState={dashboardStateResult.state}
+          pendingProspectsCount={dashboardStateResult.pendingProspectsCount}
           allOrgs={allOrgs}
         />
       </Suspense>

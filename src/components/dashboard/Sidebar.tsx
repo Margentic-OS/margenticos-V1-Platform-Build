@@ -11,6 +11,7 @@ interface SidebarProps {
   orgName: string
   pipelineUnlocked: boolean
   dashboardState: DashboardState
+  pendingProspectsCount: number
   // Provided only when the layout knows the user is an operator. Used to
   // resolve the correct client name from ?client= (O-3) and to preserve
   // ?client= across nav links (O-4). Real clients receive an empty array.
@@ -57,7 +58,7 @@ function getStepStatus(
   return 'pending'
 }
 
-export function Sidebar({ orgName, pipelineUnlocked, dashboardState, allOrgs }: SidebarProps) {
+export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingProspectsCount, allOrgs }: SidebarProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
@@ -154,6 +155,35 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, allOrgs }: 
             )
           })}
         </ul>
+
+        {/* Prospects section */}
+        {pendingProspectsCount > 0 && (
+          <>
+            <p className="px-2 mb-2 text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
+              Prospects
+            </p>
+            <ul className="space-y-0.5 mb-6">
+              <li>
+                <Link
+                  href={appendClientParam('/dashboard/prospect-tiers', clientId)}
+                  className={[
+                    'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
+                    pathname.startsWith('/dashboard/prospect-tiers')
+                      ? 'bg-[rgba(245,240,232,0.08)] border-l-2 border-brand-green-accent text-[#F5F0E8] font-medium'
+                      : 'text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]',
+                  ].join(' ')}
+                >
+                  <span>Review prospects</span>
+                  {pendingProspectsCount > 0 && (
+                    <span className="text-[9px] font-medium text-[#F5F0E8] bg-brand-green-accent px-1.5 py-0.5 rounded-[4px]">
+                      {pendingProspectsCount}
+                    </span>
+                  )}
+                </Link>
+              </li>
+            </ul>
+          </>
+        )}
 
         {/* Strategy section */}
         <p className="px-2 mb-2 text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">

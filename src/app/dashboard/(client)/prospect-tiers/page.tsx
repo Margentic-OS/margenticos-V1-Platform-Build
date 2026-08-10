@@ -39,7 +39,7 @@ export default async function ProspectTiersPage() {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  if (!user) redirect('/login?next=/dashboard/prospect-tiers')
 
   const { organisationId } = await resolveViewingOrg(supabase, user, undefined)
 

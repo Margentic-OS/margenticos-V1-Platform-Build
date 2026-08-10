@@ -9,7 +9,7 @@ export function docsReadyTemplate(params: {
   orgId: string
 }): string {
   const appUrl = getAppUrl()
-  const dashboardUrl = `${appUrl}/dashboard/documents`
+  const dashboardUrl = `${appUrl}/dashboard`
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -70,7 +70,7 @@ export function docsReadyTemplateText(params: {
   orgId: string
 }): string {
   const appUrl = getAppUrl()
-  const dashboardUrl = `${appUrl}/dashboard/documents`
+  const dashboardUrl = `${appUrl}/dashboard`
 
   return `Your strategy documents are ready
 
