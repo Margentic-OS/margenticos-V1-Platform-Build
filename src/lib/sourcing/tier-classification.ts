@@ -91,6 +91,16 @@ export function classifyTier(
     }
   }
 
+  // Gate 4: Industry is NEVER relaxable - must match spec industries for ANY tier
+  // If industry is outside spec, route to untiered regardless of other criteria
+  if (!matchesIndustrySpec(prospect, icpFilterSpec)) {
+    return {
+      prospect_id: prospectId,
+      sourced_tier: null,
+      classification_reason: 'industry_outside_spec',
+    }
+  }
+
   // Tier 1: Strict match on all dimensions
   if (matchesTier1Strict(prospect, icpFilterSpec)) {
     return {
@@ -173,24 +183,30 @@ function getTier1FailureReason(
   return 'tier_1_mismatch'
 }
 
+function matchesIndustrySpec(
+  prospect: EnrichedProspect,
+  spec: ICPFilterSpec,
+): boolean {
+  // Check if prospect's industry is in the spec's industry list
+  // Industry is non-relaxable: must match for ANY tier
+  if (spec.industries && spec.industries.length > 0 && prospect.company_industry) {
+    return spec.industries.some(
+      ind => ind.toLowerCase() === prospect.company_industry!.toLowerCase()
+    )
+  } else if (spec.industries && spec.industries.length > 0 && !prospect.company_industry) {
+    // ICP specifies industries but prospect has no industry data - treat as outside spec
+    return false
+  }
+  // If ICP doesn't specify industries, industry check passes
+  return true
+}
+
 function matchesTier1Strict(
   prospect: EnrichedProspect,
   spec: ICPFilterSpec,
 ): boolean {
-  // Industry: must match one of the ICP's industries exactly
-  if (
-    spec.industries &&
-    spec.industries.length > 0 &&
-    prospect.company_industry
-  ) {
-    const industryMatch = spec.industries.some(
-      ind => ind.toLowerCase() === prospect.company_industry!.toLowerCase()
-    )
-    if (!industryMatch) return false
-  } else if (spec.industries && spec.industries.length > 0 && !prospect.company_industry) {
-    // ICP specifies industries but prospect has no industry data
-    return false
-  }
+  // Industry check already handled in main classifyTier gate
+  // Here just check headcount for strict match
 
   // Headcount: must be within [min, max] range
   if (prospect.company_headcount !== null) {
@@ -216,39 +232,18 @@ function matchesTier2Loosened(
     return false
   }
 
-  // Tier 2: at least ONE of these is true:
-  // 1. Headcount within +/-50% widened range
-  // 2. Industry adjacent (in the industry list, even if not exact match)
-
-  let headcountMatches = false
-  let industryMatches = false
-
-  // Check headcount: within ±50% widened range
+  // Tier 2: Loosened on headcount only (industry is non-relaxable, checked at gate level)
+  // Headcount must be within ±50% widened range
   if (prospect.company_headcount !== null) {
     const min = spec.company_headcount_min || 0
     const max = spec.company_headcount_max || Infinity
     const wideMin = Math.max(0, min * 0.5)
     const wideMax = max * 1.5
-    if (prospect.company_headcount >= wideMin && prospect.company_headcount <= wideMax) {
-      headcountMatches = true
-    }
-  } else {
-    // No headcount data, can't match on this dimension
-    headcountMatches = false
+    return prospect.company_headcount >= wideMin && prospect.company_headcount <= wideMax
   }
 
-  // Check industry: matches ICP's industry list (adjacent = in list)
-  if (prospect.company_industry && spec.industries && spec.industries.length > 0) {
-    const industryMatch = spec.industries.some(
-      ind => ind.toLowerCase() === prospect.company_industry!.toLowerCase()
-    )
-    if (industryMatch) {
-      industryMatches = true
-    }
-  }
-
-  // Tier 2 if at least one dimension matches (but NOT Tier 1)
-  return headcountMatches || industryMatches
+  // No headcount data and doesn't match Tier 1, doesn't qualify for Tier 2
+  return false
 }
 
 function matchesTier3Loosened(

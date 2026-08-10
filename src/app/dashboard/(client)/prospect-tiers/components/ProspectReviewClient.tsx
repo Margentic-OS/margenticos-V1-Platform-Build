@@ -34,8 +34,6 @@ export function ProspectReviewClient({
   const [approvalState, setApprovalState] = useState<'idle' | 'confirming' | 'processing' | 'done'>('idle')
   const [activeReasonPicker, setActiveReasonPicker] = useState<string | null>(null)
 
-  const tier1Prospects = prospects.filter(p => p.tier === 'tier_1')
-  const tier2Prospects = prospects.filter(p => p.tier === 'tier_2')
   const remainingCount = pendingCount - Object.keys(removals).length
 
   const formatDate = (dateStr: string) => {
@@ -214,27 +212,9 @@ export function ProspectReviewClient({
         </div>
       </div>
 
-      {/* Prospects Table */}
+      {/* Prospects Table (single continuous list, no tier headers) */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        {/* Tier 1 */}
-        {tier1Prospects.length > 0 && (
-          <>
-            <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-900">Best matches</h3>
-            </div>
-            <div>{tier1Prospects.map(p => renderProspectRow(p))}</div>
-          </>
-        )}
-
-        {/* Tier 2 */}
-        {tier2Prospects.length > 0 && (
-          <>
-            <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-900">Good fits</h3>
-            </div>
-            <div>{tier2Prospects.map(p => renderProspectRow(p))}</div>
-          </>
-        )}
+        <div>{prospects.map(p => renderProspectRow(p))}</div>
       </div>
 
       {/* Approval Section */}
