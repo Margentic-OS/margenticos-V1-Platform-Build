@@ -70,6 +70,7 @@ export interface EnrichmentRun {
  * Enrich prospects using Apollo bulk_match endpoint.
  * Batches requests to max 10 per call, max 100 total per run.
  * Post-enrichment dedupe recheck before marking enriched.
+ * In test mode, draws mock industries from client's approved ICP spec.
  */
 export async function enrichProspectsForOrganisation(
   supabase: SupabaseServiceClient,
@@ -115,6 +116,23 @@ export async function enrichProspectsForOrganisation(
   }
 
   try {
+    // Fetch test-mode industries from client's approved ICP (if test mode)
+    let testModeIndustries: string[] = []
+    if (isTestMode) {
+      const { data: icpDoc } = await (supabase as any)
+        .from('strategy_documents')
+        .select('icp_filter_spec')
+        .eq('organisation_id', organisationId)
+        .eq('document_type', 'icp')
+        .eq('status', 'active')
+        .eq('client_approval_status', 'approved')
+        .single()
+
+      if (icpDoc?.icp_filter_spec?.industries && Array.isArray(icpDoc.icp_filter_spec.industries)) {
+        testModeIndustries = icpDoc.icp_filter_spec.industries
+      }
+    }
+
     // Batch prospect IDs into groups of 10
     const batches: string[][] = []
     for (let i = 0; i < cappedIds.length; i += 10) {
@@ -151,7 +169,7 @@ export async function enrichProspectsForOrganisation(
           }
         }
 
-        const response = await callApolloBulkMatch(apiKey || '', batch, isTestMode)
+        const response = await callApolloBulkMatch(apiKey || '', batch, isTestMode, testModeIndustries)
 
         enrichmentRun.total_requested_enrichments += response.total_requested_enrichments
         enrichmentRun.unique_enriched_records += response.unique_enriched_records
@@ -281,17 +299,19 @@ export async function enrichProspectsForOrganisation(
  *
  * Mock values are ICP-plausible:
  * - company_headcount: 2-19 (founder-led consulting range)
- * - company_industry: drawn from CANONICAL_INDUSTRIES
+ * - company_industry: drawn from client's approved ICP spec industries (or canonical if empty)
  * - email: .mock.invalid (visibly fake, deterministic)
  */
-function generateTestModeResponse(apolloIds: string[]): ApolloBulkMatchResponse {
+function generateTestModeResponse(apolloIds: string[], specIndustries: string[] = []): ApolloBulkMatchResponse {
   const firstNames = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve', 'Frank', 'Grace', 'Henry', 'Iris', 'Jack']
   const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez']
+  // Use spec industries if provided, fall back to canonical
+  const industries = specIndustries.length > 0 ? specIndustries : CANONICAL_INDUSTRIES
 
   const matches: ApolloMatch[] = apolloIds.map((id, idx) => {
     const firstName = firstNames[idx % firstNames.length]
     const lastName = lastNames[(idx + 1) % lastNames.length]
-    const industry = CANONICAL_INDUSTRIES[(idx + 2) % CANONICAL_INDUSTRIES.length]
+    const industry = industries[(idx + 2) % industries.length]
 
     // ICP-plausible headcount: founder-led consulting is typically 2-19 employees
     const headcount = 2 + (idx % 18)
@@ -345,9 +365,10 @@ async function callApolloBulkMatch(
   apiKey: string,
   prospectIds: string[],
   isTestMode: boolean = false,
+  testModeIndustries: string[] = [],
 ): Promise<ApolloBulkMatchResponse> {
   if (isTestMode) {
-    return generateTestModeResponse(prospectIds)
+    return generateTestModeResponse(prospectIds, testModeIndustries)
   }
 
   // Build details[] array from Apollo person IDs (stored as source_person_key "apollo:id")
