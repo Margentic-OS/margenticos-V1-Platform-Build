@@ -35,14 +35,7 @@ interface TierData {
   tier_is_locked: boolean
 }
 
-export default async function ProspectTiersPage({
-  searchParams: rawSearchParams,
-}: {
-  searchParams: Promise<{ debug?: string }>
-}) {
-  const searchParams = await rawSearchParams
-  const isDebug = searchParams.debug === '1'
-
+export default async function ProspectTiersPage() {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -112,18 +105,12 @@ export default async function ProspectTiersPage({
       />
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 max-w-[1200px]">
-          {isDebug && (
-            <div className="mb-6 p-4 bg-gray-100 border border-gray-300 rounded text-xs font-mono">
-              <div>USER_ID: {user?.id}</div>
-              <div>ORG_ID: {organisationId}</div>
-              <div>API_QUERY_FILTERS: tier=tier_1|tier_2|tier_3, tier_published_at IS NOT NULL, suppressed=false</div>
-              <div>TIERS_RETURNED: {tierData.length}</div>
-              <div>TOTAL_PROSPECTS: {tierData.reduce((sum, t) => sum + t.total_count, 0)}</div>
-              <div>NONZERO_TIERS: {nonEmptyTiers.length}</div>
-              {fetchError && <div className="text-red-600">FETCH_ERROR: {fetchError}</div>}
+          {fetchError ? (
+            <div className="bg-[#FDEEE8] rounded-[10px] border border-[#EFBCAA] p-6 text-center">
+              <p className="text-sm text-[#8B2020] font-medium mb-2">Unable to load prospects</p>
+              <p className="text-xs text-[#8B2020]">We could not load your prospects. Please refresh the page or contact support if the problem persists.</p>
             </div>
-          )}
-          {nonEmptyTiers.length === 0 ? (
+          ) : nonEmptyTiers.length === 0 ? (
             <div className="bg-[#FEF7E6] rounded-[10px] border border-[#F0D080] p-6 text-center">
               <p className="text-sm text-[#7A4800]">No prospects awaiting your review.</p>
             </div>

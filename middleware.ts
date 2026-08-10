@@ -36,11 +36,19 @@ export async function middleware(request: NextRequest) {
   // the user — do not move this call or add logic before it.
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Redirect unauthenticated requests to /dashboard/* to login with returnTo
-  if (!user && request.nextUrl.pathname.startsWith('/dashboard/')) {
-    const loginUrl = new URL('/login', request.url)
-    loginUrl.searchParams.set('next', request.nextUrl.pathname + request.nextUrl.search)
-    return NextResponse.redirect(loginUrl)
+  // Handle unauthenticated requests
+  if (!user) {
+    // For API routes: return 401 JSON
+    if (request.nextUrl.pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // For pages under /dashboard: redirect to login with returnTo
+    if (request.nextUrl.pathname.startsWith('/dashboard/')) {
+      const loginUrl = new URL('/login', request.url)
+      loginUrl.searchParams.set('next', request.nextUrl.pathname + request.nextUrl.search)
+      return NextResponse.redirect(loginUrl)
+    }
   }
 
   return response
