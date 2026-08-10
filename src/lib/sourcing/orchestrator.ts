@@ -62,6 +62,7 @@ export async function runSourcing(
   target_batch_size: number
 ): Promise<SourcingRunResult> {
   const operationId = `sourcing-${client_id.slice(0, 8)}-${trigger_type}`
+  const runStartedAt = new Date().toISOString()
 
   logger.info('Sourcing orchestrator: run started', {
     operation_id: operationId,
@@ -375,11 +376,16 @@ export async function runSourcing(
       summary: outputSummary,
     })
 
+    const runCompletedAt = new Date().toISOString()
+    const durationMs = new Date(runCompletedAt).getTime() - new Date(runStartedAt).getTime()
+
     const { error: runError } = await supabase.from('agent_runs').insert({
       organisation_id: client_id,
       agent_name: 'sourcing_orchestrator',
       status: 'completed',
-      completed_at: new Date().toISOString(),
+      started_at: runStartedAt,
+      completed_at: runCompletedAt,
+      duration_ms: durationMs,
       output_summary: outputSummary,
       error_message: null,
     })
@@ -410,11 +416,16 @@ export async function runSourcing(
     })
 
     // Log failure to agent_runs
+    const runCompletedAt = new Date().toISOString()
+    const durationMs = new Date(runCompletedAt).getTime() - new Date(runStartedAt).getTime()
+
     const { error: runError } = await supabase.from('agent_runs').insert({
       organisation_id: client_id,
       agent_name: 'sourcing_orchestrator',
       status: 'failed',
-      completed_at: new Date().toISOString(),
+      started_at: runStartedAt,
+      completed_at: runCompletedAt,
+      duration_ms: durationMs,
       output_summary: null,
       error_message: errorMsg,
     })
