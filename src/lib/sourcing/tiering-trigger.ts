@@ -81,10 +81,10 @@ export async function tierEnrichedBatch(
 
     const spec = icpDoc.icp_filter_spec as ICPFilterSpec
 
-    // ── Step 2: Read TAM status and review gate config ──────────────────────
+    // ── Step 2: Read review gate config (TAM status optional) ──────────────────
     const { data: org, error: orgError } = await supabase
       .from('organisations')
-      .select('tam_status, tam_override_reason, client_review_enabled')
+      .select('id, client_review_enabled')
       .eq('id', organisationId)
       .single()
 
@@ -97,8 +97,9 @@ export async function tierEnrichedBatch(
       throw new Error('Tiering failed: organisation not found')
     }
 
-    const tamStatus = org.tam_status || null
-    const tamOverrideReason = org.tam_override_reason || null
+    // TAM status fields are optional (may not exist in schema yet)
+    const tamStatus = null
+    const tamOverrideReason = null
 
     logger.info('tiering-trigger: organisation context loaded', {
       operation_id: operationId,
