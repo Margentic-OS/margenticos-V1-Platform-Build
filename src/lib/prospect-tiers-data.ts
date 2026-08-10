@@ -9,20 +9,24 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 const TIER_ORDER = ['tier_1', 'tier_2', 'tier_3'] as const
 const AUTO_SANCTION_DAYS = 4
 
+export interface Prospect {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  company_name: string | null
+  job_title: string | null
+  linkedin_url: string | null
+  website_url: string | null
+  client_review_status: string | null
+  client_review_reason: string | null
+}
+
 export interface TierData {
   tier: typeof TIER_ORDER[number]
   tier_created_at: string | null
   total_count: number
   rejected_count: number
-  sample_prospects: Array<{
-    id: string
-    first_name: string | null
-    last_name: string | null
-    company_name: string | null
-    role: string | null
-    personalisation_trigger: string | null
-    client_review_status: string | null
-  }>
+  prospects: Prospect[]
   tier_sanction_status: 'pending_review' | 'sanctioned_by_client' | 'sanctioned_auto' | 'partially_rejected'
   is_auto_sanctioned: boolean
   is_auto_sanctioned_now: boolean
@@ -147,11 +151,11 @@ async function getTierData(
     throw countsError
   }
 
-  const prospects = countsData ?? []
-  const totalCount = prospects.length
-  const approvedCount = prospects.filter(p => p.client_review_status === 'approved').length
-  const rejectedCount = prospects.filter(p => p.client_review_status === 'rejected').length
-  const pendingCount = prospects.filter(p => p.client_review_status === null || p.client_review_status === 'pending_review').length
+  const statusCounts = countsData ?? []
+  const totalCount = statusCounts.length
+  const approvedCount = statusCounts.filter(p => p.client_review_status === 'approved').length
+  const rejectedCount = statusCounts.filter(p => p.client_review_status === 'rejected').length
+  const pendingCount = statusCounts.filter(p => p.client_review_status === null || p.client_review_status === 'pending_review').length
 
   let tierSanctionStatus: TierData['tier_sanction_status'] = 'pending_review'
   if (pendingCount === 0) {
@@ -164,34 +168,34 @@ async function getTierData(
     tierSanctionStatus = 'partially_rejected'
   }
 
-  const { data: sampleData, error: sampleError } = await adminClient
+  const { data: prospectData, error: prospectError } = await adminClient
     .from('prospects')
-    .select('id, first_name, last_name, company_name, role, personalisation_trigger, client_review_status')
+    .select('id, first_name, last_name, company_name, job_title, linkedin_url, website_url, client_review_status, client_review_reason')
     .eq('organisation_id', orgId)
     .eq('sourced_tier', tier)
     .not('tier_published_at', 'is', null)
-    .in('client_review_status', [null, 'pending_review'])
     .eq('suppressed', false)
     .order('id', { ascending: true })
-    .limit(5)
 
-  if (sampleError) {
-    logger.error('getTierData: failed to fetch sample prospects', {
+  if (prospectError) {
+    logger.error('getTierData: failed to fetch prospects', {
       organisation_id: orgId,
       tier,
-      error: sampleError.message,
+      error: prospectError.message,
     })
-    throw sampleError
+    throw prospectError
   }
 
-  const sampleProspects = (sampleData ?? []).map(p => ({
+  const prospects = (prospectData ?? []).map(p => ({
     id: p.id,
     first_name: p.first_name,
     last_name: p.last_name,
     company_name: p.company_name,
-    role: p.role,
-    personalisation_trigger: p.personalisation_trigger,
+    job_title: p.job_title,
+    linkedin_url: p.linkedin_url,
+    website_url: p.website_url,
     client_review_status: p.client_review_status,
+    client_review_reason: p.client_review_reason,
   }))
 
   return {
@@ -199,7 +203,7 @@ async function getTierData(
     tier_created_at: tierCreatedAt,
     total_count: totalCount,
     rejected_count: rejectedCount,
-    sample_prospects: sampleProspects,
+    prospects,
     tier_sanction_status: tierSanctionStatus,
     is_auto_sanctioned: isAutoSanctioned,
     is_auto_sanctioned_now: isAutoSanctioned && !tierIsLocked,
