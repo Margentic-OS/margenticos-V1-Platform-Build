@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import React from 'react'
 import { useRouter } from 'next/navigation'
 import type { Prospect } from '@/lib/prospect-tiers-data'
 import { RemovalReasonPicker } from './RemovalReasonPicker'
@@ -35,6 +36,15 @@ export function ProspectReviewClient({
   const [removals, setRemovals] = useState<Record<string, { reason: string; collapsed: boolean }>>({})
   const [approvalState, setApprovalState] = useState<'idle' | 'confirming' | 'processing' | 'done'>('idle')
   const [activeReasonPicker, setActiveReasonPicker] = useState<string | null>(null)
+
+  const buttonRefs = useRef<Record<string, React.RefObject<HTMLButtonElement>>>({})
+
+  const getButtonRef = (prospectId: string) => {
+    if (!buttonRefs.current[prospectId]) {
+      buttonRefs.current[prospectId] = React.createRef()
+    }
+    return buttonRefs.current[prospectId]
+  }
 
   const remainingCount = pendingCount - Object.keys(removals).length
 
@@ -187,6 +197,7 @@ export function ProspectReviewClient({
                 {console.log('[TRACE] RemovalReasonPicker rendering for prospect:', prospect.id)}
                 <RemovalReasonPicker
                   reasons={REMOVAL_REASONS}
+                  triggerRef={getButtonRef(prospect.id)}
                   onSelect={(reason) => {
                     console.log('[TRACE] onSelect callback invoked:', { prospect_id: prospect.id, reason })
                     handleRemove(prospect.id, reason)
@@ -196,6 +207,7 @@ export function ProspectReviewClient({
               </>
             ) : (
               <button
+                ref={getButtonRef(prospect.id)}
                 onClick={() => setActiveReasonPicker(prospect.id)}
                 className="text-sm font-medium text-red-600 hover:text-red-700 whitespace-nowrap"
               >
