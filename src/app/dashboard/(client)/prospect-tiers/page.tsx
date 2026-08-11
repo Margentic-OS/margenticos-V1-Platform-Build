@@ -89,6 +89,11 @@ export default async function ProspectTiersPage() {
   const pendingProspects = allProspects.filter(p => p.client_review_status === null || p.client_review_status === 'pending_review')
   const autoSanctionDate = tierData.length > 0 ? tierData[0].auto_sanction_at : null
 
+  // Redirect to overview if no pending prospects (review is one-time handshake)
+  if (pendingProspects.length === 0) {
+    redirect('/dashboard')
+  }
+
   return (
     <>
       <DashboardTopbar

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import { deriveCampaignsStatus } from '@/lib/dashboard/derive-setup-status'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
+import { ProspectApprovalStatus } from '@/components/dashboard/ProspectApprovalStatus'
 import { IntakeIncompleteState } from '@/components/dashboard/empty-states/IntakeIncompleteState'
 import { StrategyInReviewState } from '@/components/dashboard/empty-states/StrategyInReviewState'
 import { DocumentsActiveState } from '@/components/dashboard/empty-states/DocumentsActiveState'
@@ -151,6 +152,22 @@ export default async function DashboardPage({
     .eq('organisation_id', org.id)
     .in('agent_name', ['icp-generation', 'positioning-generation', 'tov-generation', 'messaging-generation'])
 
+  // Fetch prospect approval counts for status display
+  const { data: prospectCounts } = await supabase
+    .from('prospects')
+    .select('client_review_status', { count: 'exact' })
+    .eq('organisation_id', org.id)
+    .not('tier_published_at', 'is', null)
+    .eq('suppressed', false)
+
+  const prospectData = prospectCounts ?? []
+  const pendingProspectsCount = prospectData.filter(p =>
+    p.client_review_status === null || p.client_review_status === 'pending_review'
+  ).length
+  const approvedProspectsCount = prospectData.filter(p =>
+    p.client_review_status === 'approved'
+  ).length
+
   // Derive campaign setup status from real signals (registered campaigns + lead uploads).
   const [campaignsRes, uploadedCountRes] = await Promise.all([
     supabase
@@ -295,15 +312,27 @@ export default async function DashboardPage({
       )}
 
       {state === 'documents_active' && (
-        <DocumentsActiveState
-          orgName={org.name}
-          documents={activeDocuments}
-          contractStartDate={org.contract_start_date}
-          warmupStartedAt={org.warmup_started_at ?? null}
-          linkedinChannelEnabled={org.linkedin_channel_enabled ?? false}
-          setupStatus={derivedSetupStatus}
-          clientParam={clientParam}
-        />
+        <>
+          <div className="flex-1 overflow-y-auto bg-surface-content">
+            <div className="px-7 py-6 max-w-[1400px]">
+              <ProspectApprovalStatus
+                pendingCount={pendingProspectsCount}
+                approvedCount={approvedProspectsCount}
+                showReviewLink={pendingProspectsCount > 0}
+                clientParam={clientParam}
+              />
+            </div>
+          </div>
+          <DocumentsActiveState
+            orgName={org.name}
+            documents={activeDocuments}
+            contractStartDate={org.contract_start_date}
+            warmupStartedAt={org.warmup_started_at ?? null}
+            linkedinChannelEnabled={org.linkedin_channel_enabled ?? false}
+            setupStatus={derivedSetupStatus}
+            clientParam={clientParam}
+          />
+        </>
       )}
     </>
   )
