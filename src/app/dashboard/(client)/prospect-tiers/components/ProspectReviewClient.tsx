@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Prospect } from '@/lib/prospect-tiers-data'
-import { RemovalReasonPicker } from './RemovalReasonPicker'
+import { RemovalReasonModal } from './RemovalReasonModal'
 import { logger } from '@/lib/logger'
 
 const REMOVAL_REASONS = [
@@ -34,7 +34,8 @@ export function ProspectReviewClient({
   const router = useRouter()
   const [removals, setRemovals] = useState<Record<string, { reason: string; collapsed: boolean }>>({})
   const [approvalState, setApprovalState] = useState<'idle' | 'confirming' | 'processing' | 'done'>('idle')
-  const [activeReasonPicker, setActiveReasonPicker] = useState<string | null>(null)
+  const [removingProspectId, setRemovingProspectId] = useState<string | null>(null)
+  const [isRemovalLoading, setIsRemovalLoading] = useState(false)
 
   const remainingCount = pendingCount - Object.keys(removals).length
 
@@ -45,6 +46,8 @@ export function ProspectReviewClient({
 
   const handleRemove = async (prospectId: string, reason: string) => {
     console.log('[TRACE] handleRemove called:', { prospectId, reason })
+    setIsRemovalLoading(true)
+
     try {
       console.log('[TRACE] Fetching reject API...')
       const response = await fetch('/api/dashboard/client/prospects/reject', {
@@ -64,14 +67,16 @@ export function ProspectReviewClient({
         ...removals,
         [prospectId]: { reason, collapsed: true },
       })
-      setActiveReasonPicker(null)
+      setRemovingProspectId(null)
+      setIsRemovalLoading(false)
       console.log('[TRACE] Removal complete')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[TRACE] handleRemove error:', msg)
       logger.error('ProspectReviewClient: remove failed', { prospect_id: prospectId, error: msg })
       alert(`Failed to remove prospect: ${msg}`)
-      setActiveReasonPicker(null)
+      setRemovingProspectId(null)
+      setIsRemovalLoading(false)
     }
   }
 
@@ -154,7 +159,7 @@ export function ProspectReviewClient({
             <p className="text-sm text-gray-700 truncate">{prospect.job_title || 'N/A'}</p>
           </div>
 
-          <div className="flex items-center gap-3 flex-shrink-0 relative">
+          <div className="flex items-center gap-3 flex-shrink-0">
             {prospect.linkedin_url && (
               <a
                 href={prospect.linkedin_url}
@@ -181,32 +186,22 @@ export function ProspectReviewClient({
                 </svg>
               </a>
             )}
-
-            {activeReasonPicker === prospect.id ? (
-              <>
-                {console.log('[TRACE] RemovalReasonPicker rendering for prospect:', prospect.id)}
-                <RemovalReasonPicker
-                  reasons={REMOVAL_REASONS}
-                  onSelect={(reason) => {
-                    console.log('[TRACE] onSelect callback invoked:', { prospect_id: prospect.id, reason })
-                    handleRemove(prospect.id, reason)
-                  }}
-                  onCancel={() => setActiveReasonPicker(null)}
-                />
-              </>
-            ) : (
-              <button
-                onClick={() => setActiveReasonPicker(prospect.id)}
-                className="text-sm font-medium text-red-600 hover:text-red-700 whitespace-nowrap"
-              >
-                Remove
-              </button>
-            )}
+            <button
+              onClick={() => setRemovingProspectId(prospect.id)}
+              className="text-sm font-medium text-red-600 hover:text-red-700 whitespace-nowrap"
+            >
+              Remove
+            </button>
           </div>
         </div>
       </div>
     )
   }
+
+  const removingProspect = prospects.find(p => p.id === removingProspectId)
+  const removingProspectName = removingProspect
+    ? `${(removingProspect.first_name || '').trim()} ${(removingProspect.last_name || '').trim()}`.trim() || 'this prospect'
+    : 'this prospect'
 
   return (
     <div className="space-y-6">
@@ -230,7 +225,7 @@ export function ProspectReviewClient({
         </div>
       </div>
 
-      {/* Prospects Table (single continuous list, no tier headers) */}
+      {/* Prospects Table */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
         <div>{prospects.map(p => renderProspectRow(p))}</div>
       </div>
@@ -263,6 +258,17 @@ export function ProspectReviewClient({
                 : `Approve remaining ${remainingCount}`}
           </button>
         </div>
+      )}
+
+      {/* Removal Reason Modal */}
+      {removingProspectId && (
+        <RemovalReasonModal
+          prospectName={removingProspectName}
+          reasons={REMOVAL_REASONS}
+          isLoading={isRemovalLoading}
+          onSelect={(reason: string) => handleRemove(removingProspectId, reason)}
+          onCancel={() => setRemovingProspectId(null)}
+        />
       )}
     </div>
   )
