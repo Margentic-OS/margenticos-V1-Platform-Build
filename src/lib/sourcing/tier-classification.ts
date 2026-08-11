@@ -1,5 +1,6 @@
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import { logger } from '@/lib/logger'
+import { mapApolloToSpecIndustry } from './industry-mapping'
 
 export interface EnrichedProspect {
   id: string
@@ -189,14 +190,26 @@ function matchesIndustrySpec(
 ): boolean {
   // Check if prospect's industry is in the spec's industry list
   // Industry is non-relaxable: must match for ANY tier
+  // Uses Apollo->Spec mapping layer to normalize vendor vocabulary
+
   if (spec.industries && spec.industries.length > 0 && prospect.company_industry) {
-    return spec.industries.some(
-      ind => ind.toLowerCase() === prospect.company_industry!.toLowerCase()
-    )
+    // Map Apollo industry to spec terminology
+    const mappedIndustry = mapApolloToSpecIndustry(prospect.company_industry)
+
+    if (mappedIndustry) {
+      // Mapped successfully - check if it's in spec
+      return spec.industries.some(
+        ind => ind.toLowerCase() === mappedIndustry.toLowerCase()
+      )
+    }
+
+    // No mapping found - fail closed (prospect is outside spec)
+    return false
   } else if (spec.industries && spec.industries.length > 0 && !prospect.company_industry) {
     // ICP specifies industries but prospect has no industry data - treat as outside spec
     return false
   }
+
   // If ICP doesn't specify industries, industry check passes
   return true
 }
