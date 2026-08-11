@@ -142,21 +142,6 @@ async function reTierProspectsWithMapping(
 
   for (const prospect of prospects) {
     try {
-      // Get the org's ICP filter spec and TAM status
-      const { data: org, error: orgError } = await supabase
-        .from('organisations')
-        .select('id, tam_status, tam_override_reason')
-        .eq('id', prospect.organisation_id)
-        .single()
-
-      if (orgError || !org) {
-        logger.warn('Failed to fetch org for prospect', {
-          prospect_id: prospect.id,
-          organisation_id: prospect.organisation_id,
-        })
-        continue
-      }
-
       // Get the org's latest ICP filter spec
       const { data: icpDoc, error: icpError } = await supabase
         .from('strategy_documents')
@@ -186,11 +171,10 @@ async function reTierProspectsWithMapping(
         company_industry: prospect.company_industry,
       } as any
 
-      const result = classifyTier(
+      const result = await classifyTier(
         enrichedProspect,
         (icpDoc.icp_filter_spec || {}) as any,
-        org.tam_status,
-        org.tam_override_reason,
+        supabase,
       )
 
       if (result.sourced_tier) {
@@ -199,7 +183,8 @@ async function reTierProspectsWithMapping(
           .from('prospects')
           .update({
             sourced_tier: result.sourced_tier,
-            tiering_reason: result.classification_reason,
+            fit_score: result.fit_score,
+            tiering_reason: result.tiering_reason,
           })
           .eq('id', prospect.id)
 

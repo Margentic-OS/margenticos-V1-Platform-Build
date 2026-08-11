@@ -97,15 +97,9 @@ export async function tierEnrichedBatch(
       throw new Error('Tiering failed: organisation not found')
     }
 
-    // TAM status fields are optional (may not exist in schema yet)
-    const tamStatus = null
-    const tamOverrideReason = null
-
     logger.info('tiering-trigger: organisation context loaded', {
       operation_id: operationId,
       organisation_id: organisationId,
-      tam_status: tamStatus,
-      tier_3_allowed: tamStatus === 'amber' || (tamStatus === 'red' && !!tamOverrideReason),
     })
 
     // ── Step 3: Fetch enriched+untiered prospects ────────────────────────────
@@ -175,12 +169,13 @@ export async function tierEnrichedBatch(
     })
 
     // ── Step 4: Classify each prospect ───────────────────────────────────────
-    const results = prospects.map(prospect =>
-      classifyTier(
-        prospect as EnrichedProspect,
-        spec,
-        tamStatus,
-        tamOverrideReason,
+    const results = await Promise.all(
+      prospects.map(prospect =>
+        classifyTier(
+          prospect as EnrichedProspect,
+          spec,
+          supabase,
+        )
       )
     )
 
@@ -191,10 +186,11 @@ export async function tierEnrichedBatch(
 
     let updateCount = 0
     for (const result of results) {
-      // Update ALL prospects with sourced_tier (may be null for flagged) and tiering_reason
+      // Update ALL prospects with sourced_tier (may be null for flagged), fit_score, and tiering_reason
       const updatePayload: Record<string, unknown> = {
         sourced_tier: result.sourced_tier,
-        tiering_reason: result.classification_reason,
+        fit_score: result.fit_score,
+        tiering_reason: result.tiering_reason,
       }
       if (tierPublishedAt && result.sourced_tier !== null) {
         updatePayload.tier_published_at = tierPublishedAt
