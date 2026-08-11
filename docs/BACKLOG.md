@@ -4171,3 +4171,15 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   authenticated client directly query reply_handling_actions and read ALL their org's replies, including
   opt_out / out_of_office / objection / unclear, which the product deliberately hides from clients.
   Current state (no client policy, default-deny for authed clients, RLS still enabled) is correct and safer.
+
+## Monitor flag-rate-per-batch spike check (2026-08-11)
+
+- [monitor] Tag-level dictionary growth built. Operator can now map unmapped Apollo tags to canonical
+  industries one at a time. Re-tiering happens immediately when tag is mapped.
+  Current state: 6 flagged prospects from 6 different unmapped Apollo tags. As tags are mapped,
+  flagged count should decline and tier_1+tier_2 count should rise.
+  Deferred action: Once batches run for a few weeks with real sourcing, add operator dashboard metric
+  to detect if flag-rate-per-batch is spiking (unmapped tags appearing faster than operators can map them).
+  Spike could indicate: (1) Apollo tag vocabulary change, (2) client ICP targeting new sector,
+  (3) new Apollo tag source in sourcing handler. Operator should know if mapping work is growing faster
+  than expected so sourcing quality can be addressed before queue backs up.
