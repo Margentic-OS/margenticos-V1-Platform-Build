@@ -514,6 +514,30 @@ export type Database = {
           },
         ]
       }
+      industry_tag_mappings: {
+        Row: {
+          apollo_tag: string
+          canonical_industry: string
+          created_at: string
+          created_by: string
+          updated_at: string
+        }
+        Insert: {
+          apollo_tag: string
+          canonical_industry: string
+          created_at?: string
+          created_by: string
+          updated_at?: string
+        }
+        Update: {
+          apollo_tag?: string
+          canonical_industry?: string
+          created_at?: string
+          created_by?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       intake_files: {
         Row: {
           created_at: string
@@ -1357,6 +1381,10 @@ export type Database = {
           last_verification_error: string | null
           linkedin_url: string | null
           linkedin_url_normalised: string | null
+          operator_override_at: string | null
+          operator_override_by: string | null
+          operator_override_reason: string | null
+          operator_override_tier: string | null
           organisation_id: string
           outbound_lead_id: string | null
           outbound_upload_attempted_at: string | null
@@ -1419,6 +1447,10 @@ export type Database = {
           last_verification_error?: string | null
           linkedin_url?: string | null
           linkedin_url_normalised?: string | null
+          operator_override_at?: string | null
+          operator_override_by?: string | null
+          operator_override_reason?: string | null
+          operator_override_tier?: string | null
           organisation_id: string
           outbound_lead_id?: string | null
           outbound_upload_attempted_at?: string | null
@@ -1481,6 +1513,10 @@ export type Database = {
           last_verification_error?: string | null
           linkedin_url?: string | null
           linkedin_url_normalised?: string | null
+          operator_override_at?: string | null
+          operator_override_by?: string | null
+          operator_override_reason?: string | null
+          operator_override_tier?: string | null
           organisation_id?: string
           outbound_lead_id?: string | null
           outbound_upload_attempted_at?: string | null
@@ -2461,3 +2497,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
