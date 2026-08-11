@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 
     // Exclude removed prospects
     if (removedIds.length > 0) {
-      query = query.not('id', 'in', `(${removedIds.join(',')})`)
+      query = query.filter('id', 'not.in', `(${removedIds.join(',')})`)
     }
 
     const { error: updateError } = await query

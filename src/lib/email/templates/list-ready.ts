@@ -10,7 +10,7 @@ export interface ListReadyParams {
 }
 
 export function listReadySubject(lockDate: string): string {
-  return `${lockDate} is your review deadline`
+  return `Your first prospect list is ready`
 }
 
 export function listReadyTemplate(params: ListReadyParams): string {
@@ -43,10 +43,10 @@ export function listReadyTemplate(params: ListReadyParams): string {
                 ${greeting}, we've sourced ${countFormatted} prospects against your Ideal Client Profile. Each one has been deduplicated, enriched, and email-verified.
               </p>
               <p style="margin:0 0 20px;font-size:14px;color:#444;line-height:1.6;">
-                Review the list and reject anyone you don't want contacted: existing clients, live deals, competitors, or anyone you already know. This matters for two reasons. First, nobody gets an email from you who shouldn't. Second, you'll never be billed for a meeting with someone you didn't approve.
+                Take a quick look and remove anyone you'd rather not contact. This might be existing clients, competitors, or people you already know. This keeps your outreach clean and focused on the right conversations.
               </p>
               <p style="margin:0 0 24px;font-size:14px;color:#444;line-height:1.6;">
-                Please review by ${params.lockDate}. After that we proceed with the list as it stands, so we stay on schedule for your send date.
+                Please review by ${params.lockDate} so we can keep your pipeline on track.
               </p>
               <table cellpadding="0" cellspacing="0">
                 <tr>
@@ -77,9 +77,9 @@ export function listReadyTemplateText(params: ListReadyParams): string {
 
   return `${greeting}, we've sourced ${countFormatted} prospects against your Ideal Client Profile. Each one has been deduplicated, enriched, and email-verified.
 
-Review the list and reject anyone you don't want contacted: existing clients, live deals, competitors, or anyone you already know. This matters for two reasons. First, nobody gets an email from you who shouldn't. Second, you'll never be billed for a meeting with someone you didn't approve.
+Take a quick look and remove anyone you'd rather not contact. This might be existing clients, competitors, or people you already know. This keeps your outreach clean and focused on the right conversations.
 
-Please review by ${params.lockDate}. After that we proceed with the list as it stands, so we stay on schedule for your send date.
+Please review by ${params.lockDate} so we can keep your pipeline on track.
 
 Review Prospects: ${params.reviewUrl}
 
