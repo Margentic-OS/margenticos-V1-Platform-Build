@@ -4,7 +4,8 @@
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
-const isDevelopment = process.env.NODE_ENV === 'development'
+const isDevelopment = typeof process !== 'undefined' && process.env.NODE_ENV === 'development'
+const isServer = typeof process !== 'undefined' && process.versions && process.versions.node
 
 function log(level: LogLevel, message: string, meta?: Record<string, unknown>) {
   // Debug logs are suppressed in production
@@ -17,13 +18,27 @@ function log(level: LogLevel, message: string, meta?: Record<string, unknown>) {
     ...(meta ?? {}),
   }
 
-  // In production, structured JSON output for log aggregation
+  // On client side, use console methods
+  if (!isServer) {
+    if (level === 'error') {
+      console.error(message, meta)
+    } else if (level === 'warn') {
+      console.warn(message, meta)
+    } else if (level === 'debug') {
+      console.debug(message, meta)
+    } else {
+      console.log(message, meta)
+    }
+    return
+  }
+
+  // In production (server), structured JSON output for log aggregation
   if (!isDevelopment) {
     process.stdout.write(JSON.stringify(entry) + '\n')
     return
   }
 
-  // In development, readable format
+  // In development (server), readable format
   const prefix = `[${entry.timestamp}] [${level.toUpperCase()}]`
   if (level === 'error') {
     process.stderr.write(`${prefix} ${message} ${meta ? JSON.stringify(meta) : ''}\n`)

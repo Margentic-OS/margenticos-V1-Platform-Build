@@ -8,7 +8,7 @@ interface RemovalReasonPickerProps {
 
 export function RemovalReasonPicker({ reasons, onSelect, onCancel }: RemovalReasonPickerProps) {
   return (
-    <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-max">
+    <div className="absolute left-1/2 top-full mt-1 -translate-x-1/2 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-max">
       {reasons.map((reason) => (
         <button
           key={reason}
