@@ -41,8 +41,8 @@ export default async function ReviewPage({
 
   if (!org) notFound()
 
-  // ── 5. Fetch tiered prospects ──────────────────────────────────────────────
-  const { data: allProspects } = await supabase
+  // ── 5. Fetch tiered prospects + flagged prospects ──────────────────────────
+  const { data: tieredProspects } = await supabase
     .from('prospects')
     .select('*')
     .eq('organisation_id', organisationId)
@@ -51,7 +51,16 @@ export default async function ReviewPage({
     .order('sourced_tier', { ascending: true })
     .order('created_at', { ascending: false })
 
-  const prospects = (allProspects || []) as Prospect[]
+  const { data: flaggedProspects } = await supabase
+    .from('prospects')
+    .select('*')
+    .eq('organisation_id', organisationId)
+    .is('sourced_tier', null)
+    .eq('tiering_reason', 'industry_outside_spec')
+    .order('created_at', { ascending: false })
+
+  const prospects = (tieredProspects || []) as Prospect[]
+  const flagged = (flaggedProspects || []) as Prospect[]
   const tier1 = prospects.filter(p => p.sourced_tier === 'tier_1')
   const tier2 = prospects.filter(p => p.sourced_tier === 'tier_2')
   const tier3 = prospects.filter(p => p.sourced_tier === 'tier_3')
@@ -67,7 +76,7 @@ export default async function ReviewPage({
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 max-w-[1200px]">
           <Gate2TieredReview
-            prospects={prospects}
+            prospects={[...prospects, ...flagged]}
             organisationId={organisationId}
             organisationName={org.name}
             tiering={{
