@@ -191,17 +191,17 @@ export async function tierEnrichedBatch(
 
     let updateCount = 0
     for (const result of results) {
-      // Only update prospects that have a tier assignment
-      if (result.sourced_tier === null) {
-        continue // Don't update untiered prospects
-      }
-
+      // Update ALL prospects with sourced_tier (may be null for flagged) and tiering_reason
       const updatePayload: Record<string, unknown> = {
         sourced_tier: result.sourced_tier,
         tiering_reason: result.classification_reason,
       }
-      if (tierPublishedAt) updatePayload.tier_published_at = tierPublishedAt
-      if (clientReviewStatus) updatePayload.client_review_status = clientReviewStatus
+      if (tierPublishedAt && result.sourced_tier !== null) {
+        updatePayload.tier_published_at = tierPublishedAt
+      }
+      if (clientReviewStatus && result.sourced_tier !== null) {
+        updatePayload.client_review_status = clientReviewStatus
+      }
 
       const { error: updateError } = await supabase
         .from('prospects')
