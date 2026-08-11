@@ -10,7 +10,7 @@ export interface ListReadyParams {
 }
 
 export function listReadySubject(lockDate: string): string {
-  return `Your first prospect list is ready`
+  return `Your first prospects are ready to review`
 }
 
 export function listReadyTemplate(params: ListReadyParams): string {
@@ -37,16 +37,22 @@ export function listReadyTemplate(params: ListReadyParams): string {
           <tr>
             <td style="padding:40px 32px 32px;">
               <p style="margin:0 0 24px;font-size:18px;font-weight:600;color:#1a1a1a;line-height:1.3;">
-                ${countFormatted} prospects ready for your review
+                ${countFormatted} prospects ready to review
               </p>
               <p style="margin:0 0 20px;font-size:14px;color:#444;line-height:1.6;">
-                ${greeting}, we've sourced ${countFormatted} prospects against your Ideal Client Profile. Each one has been deduplicated, enriched, and email-verified.
+                ${greeting},
               </p>
               <p style="margin:0 0 20px;font-size:14px;color:#444;line-height:1.6;">
-                Take a quick look and remove anyone you'd rather not contact. This might be existing clients, competitors, or people you already know. This keeps your outreach clean and focused on the right conversations.
+                This is the exciting part. We've gone out and found ${countFormatted} people who match your Ideal Client Profile, the right decision-makers at real companies, each one enriched and verified, ready for us to start conversations with on your behalf.
+              </p>
+              <p style="margin:0 0 20px;font-size:14px;color:#444;line-height:1.6;">
+                Have a quick look. If you're happy with the quality, give us your stamp of approval and we're full steam ahead: personalised outreach, replies handled, meetings landing in your diary.
+              </p>
+              <p style="margin:0 0 20px;font-size:14px;color:#444;line-height:1.6;">
+                You'll always be able to see who we're reaching out to and how conversations are going, but you won't need to lift a finger. That's our job.
               </p>
               <p style="margin:0 0 24px;font-size:14px;color:#444;line-height:1.6;">
-                Please review by ${params.lockDate} so we can keep your pipeline on track.
+                This is the only time we'll ask you to review a list. We just want to make sure we've nailed your ICP before we get going. Remove anyone you'd rather we skip, approve the rest, and we'll take it from here.
               </p>
               <table cellpadding="0" cellspacing="0">
                 <tr>
@@ -75,13 +81,17 @@ export function listReadyTemplateText(params: ListReadyParams): string {
   const greeting = params.clientFirstName ? `Hi ${params.clientFirstName}` : 'Hi'
   const countFormatted = params.prospectCount.toLocaleString('en-US')
 
-  return `${greeting}, we've sourced ${countFormatted} prospects against your Ideal Client Profile. Each one has been deduplicated, enriched, and email-verified.
+  return `${greeting},
 
-Take a quick look and remove anyone you'd rather not contact. This might be existing clients, competitors, or people you already know. This keeps your outreach clean and focused on the right conversations.
+This is the exciting part. We've gone out and found ${countFormatted} people who match your Ideal Client Profile, the right decision-makers at real companies, each one enriched and verified, ready for us to start conversations with on your behalf.
 
-Please review by ${params.lockDate} so we can keep your pipeline on track.
+Have a quick look. If you're happy with the quality, give us your stamp of approval and we're full steam ahead: personalised outreach, replies handled, meetings landing in your diary.
+
+You'll always be able to see who we're reaching out to and how conversations are going, but you won't need to lift a finger. That's our job.
+
+This is the only time we'll ask you to review a list. We just want to make sure we've nailed your ICP before we get going. Remove anyone you'd rather we skip, approve the rest, and we'll take it from here.
 
 Review Prospects: ${params.reviewUrl}
 
-Doug Pettit`
+Doug`
 }
