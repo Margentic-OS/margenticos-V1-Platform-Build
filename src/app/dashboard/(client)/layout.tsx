@@ -33,7 +33,8 @@ async function resolveDashboardState(
         .from('prospects')
         .select('*', { count: 'exact', head: true })
         .eq('organisation_id', orgId)
-        .in('client_review_status', ['pending_review', null])
+        .eq('client_review_status', 'pending_review')
+        .not('sourced_tier', 'is', null)
         .not('tier_published_at', 'is', null)
         .eq('suppressed', false),
     ])

@@ -86,7 +86,8 @@ export default async function ProspectTiersPage() {
   }))
 
   const allProspects: ProspectWithTier[] = [...tier1Prospects, ...tier2Prospects]
-  const pendingProspects = allProspects.filter(p => p.client_review_status === null || p.client_review_status === 'pending_review')
+  // Only count prospects explicitly in pending_review status (not auto-approved nulls)
+  const pendingProspects = allProspects.filter(p => p.client_review_status === 'pending_review')
   const autoSanctionDate = tierData.length > 0 ? tierData[0].auto_sanction_at : null
 
   // Redirect to overview if no pending prospects (review is one-time handshake)

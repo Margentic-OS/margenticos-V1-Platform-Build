@@ -153,16 +153,18 @@ export default async function DashboardPage({
     .in('agent_name', ['icp-generation', 'positioning-generation', 'tov-generation', 'messaging-generation'])
 
   // Fetch prospect approval counts for status display
+  // Only count prospects that have been tiered (sourced_tier IS NOT NULL)
   const { data: prospectCounts } = await supabase
     .from('prospects')
-    .select('client_review_status', { count: 'exact' })
+    .select('sourced_tier, client_review_status', { count: 'exact' })
     .eq('organisation_id', org.id)
     .not('tier_published_at', 'is', null)
+    .not('sourced_tier', 'is', null)
     .eq('suppressed', false)
 
   const prospectData = prospectCounts ?? []
   const pendingProspectsCount = prospectData.filter(p =>
-    p.client_review_status === null || p.client_review_status === 'pending_review'
+    p.client_review_status === 'pending_review'
   ).length
   const approvedProspectsCount = prospectData.filter(p =>
     p.client_review_status === 'approved'
