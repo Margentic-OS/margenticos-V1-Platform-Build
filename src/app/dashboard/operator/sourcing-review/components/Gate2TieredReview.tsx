@@ -5,7 +5,6 @@ import Link from 'next/link'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url/normalize'
-import { FlaggedIndustryTagsSection } from './FlaggedIndustryTagsSection'
 
 type Prospect = Database['public']['Tables']['prospects']['Row']
 
@@ -220,11 +219,6 @@ export function Gate2TieredReview({
 
   const totalEnriched = tiering.tier_1.length + tiering.tier_2.length + tiering.tier_3.length
 
-  // Filter for flagged prospects (unmapped industry tags)
-  const flaggedProspects = useMemo(() => {
-    return _prospects.filter((p) => !p.sourced_tier && p.tiering_reason === 'industry_outside_spec')
-  }, [_prospects])
-
   const handlePublishAll = () => {
     setPublishError(null)
     setPublishSuccess(false)
@@ -309,14 +303,6 @@ export function Gate2TieredReview({
       {totalEnriched === 0 && (
         <div className="bg-[#FEF7E6] rounded-[10px] border border-[#F0D080] p-6 text-center">
           <p className="text-sm text-[#7A4800]">No enriched prospects yet. Run the enrich-and-tier action to proceed.</p>
-        </div>
-      )}
-
-      {/* Flagged prospects section */}
-      {flaggedProspects.length > 0 && (
-        <div className="mt-8 pt-8 border-t border-[#E8E2D8]">
-          <h2 className="text-base font-medium text-text-primary mb-6">Flagged prospects</h2>
-          <FlaggedIndustryTagsSection prospects={flaggedProspects} canonicalIndustries={[]} />
         </div>
       )}
 
