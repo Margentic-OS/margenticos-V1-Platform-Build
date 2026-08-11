@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     // 2. Find all flagged prospects with this Apollo tag across all orgs
     const { data: flaggedProspects, error: fetchError } = await serviceClient
       .from('prospects')
-      .select('id, company_industry, email_status, job_title, company_headcount, sourced_tier, organisation_id, company_name, company_description')
+      .select('id, company_industry, email_status, job_title, company_headcount, sourced_tier, organisation_id, company_name')
       .eq('company_industry', apollo_tag)
       .is('sourced_tier', null)
 

@@ -16,7 +16,6 @@ export interface EnrichedProspect {
   company_headcount: number | null
   company_industry: string | null
   company_name?: string | null
-  company_description?: string | null
 }
 
 interface TierResult {
@@ -71,12 +70,11 @@ export function isDecisionMaker(jobTitle: string | null): boolean {
 
 /**
  * Check if company or person has evidence of being a consultancy/advisory/coaching business.
- * Looks for signals in company name, description, and job title.
+ * Looks for signals in company name and job title.
  */
 function hasConsultancyEvidence(prospect: EnrichedProspect): boolean {
   const signals = [
     prospect.company_name || '',
-    prospect.company_description || '',
     prospect.job_title || '',
   ]
     .join(' ')
