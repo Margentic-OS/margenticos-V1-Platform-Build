@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { Prospect } from '@/lib/prospect-tiers-data'
 import { RemovalReasonPicker } from './RemovalReasonPicker'
 import { logger } from '@/lib/logger'
@@ -30,6 +31,7 @@ export function ProspectReviewClient({
   autoSanctionDate,
   organisationId,
 }: ProspectReviewClientProps) {
+  const router = useRouter()
   const [removals, setRemovals] = useState<Record<string, { reason: string; collapsed: boolean }>>({})
   const [approvalState, setApprovalState] = useState<'idle' | 'confirming' | 'processing' | 'done'>('idle')
   const [activeReasonPicker, setActiveReasonPicker] = useState<string | null>(null)
@@ -63,6 +65,7 @@ export function ProspectReviewClient({
       const msg = err instanceof Error ? err.message : String(err)
       logger.error('ProspectReviewClient: remove failed', { prospect_id: prospectId, error: msg })
       alert(`Failed to remove prospect: ${msg}`)
+      setActiveReasonPicker(null)
     }
   }
 
@@ -92,6 +95,9 @@ export function ProspectReviewClient({
       }
 
       setApprovalState('done')
+      setTimeout(() => {
+        router.push('/dashboard')
+      }, 2000)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       logger.error('ProspectReviewClient: approve all failed', { error: msg })
@@ -142,7 +148,7 @@ export function ProspectReviewClient({
             <p className="text-sm text-gray-700 truncate">{prospect.job_title || 'N/A'}</p>
           </div>
 
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex items-center gap-3 flex-shrink-0 relative">
             {prospect.linkedin_url && (
               <a
                 href={prospect.linkedin_url}
@@ -221,6 +227,7 @@ export function ProspectReviewClient({
       {approvalState === 'done' ? (
         <div className="bg-green-50 rounded-lg border border-green-200 p-8 text-center">
           <p className="text-lg font-semibold text-green-900">Done. We will take it from here.</p>
+          <p className="text-sm text-green-800 mt-2">Redirecting to dashboard...</p>
         </div>
       ) : (
         <div className="flex justify-center">
