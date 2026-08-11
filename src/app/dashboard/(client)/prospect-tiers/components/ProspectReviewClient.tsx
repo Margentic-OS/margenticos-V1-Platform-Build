@@ -44,25 +44,31 @@ export function ProspectReviewClient({
   }
 
   const handleRemove = async (prospectId: string, reason: string) => {
+    console.log('[TRACE] handleRemove called:', { prospectId, reason })
     try {
+      console.log('[TRACE] Fetching reject API...')
       const response = await fetch('/api/dashboard/client/prospects/reject', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prospect_id: prospectId, reason: reason || null }),
       })
 
+      console.log('[TRACE] API response:', response.status, response.ok)
       if (!response.ok) {
         const json = await response.json()
         throw new Error(json.error ?? `HTTP ${response.status}`)
       }
 
+      console.log('[TRACE] Updating local state...')
       setRemovals({
         ...removals,
         [prospectId]: { reason, collapsed: true },
       })
       setActiveReasonPicker(null)
+      console.log('[TRACE] Removal complete')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
+      console.error('[TRACE] handleRemove error:', msg)
       logger.error('ProspectReviewClient: remove failed', { prospect_id: prospectId, error: msg })
       alert(`Failed to remove prospect: ${msg}`)
       setActiveReasonPicker(null)
@@ -177,11 +183,17 @@ export function ProspectReviewClient({
             )}
 
             {activeReasonPicker === prospect.id ? (
-              <RemovalReasonPicker
-                reasons={REMOVAL_REASONS}
-                onSelect={(reason) => handleRemove(prospect.id, reason)}
-                onCancel={() => setActiveReasonPicker(null)}
-              />
+              <>
+                {console.log('[TRACE] RemovalReasonPicker rendering for prospect:', prospect.id)}
+                <RemovalReasonPicker
+                  reasons={REMOVAL_REASONS}
+                  onSelect={(reason) => {
+                    console.log('[TRACE] onSelect callback invoked:', { prospect_id: prospect.id, reason })
+                    handleRemove(prospect.id, reason)
+                  }}
+                  onCancel={() => setActiveReasonPicker(null)}
+                />
+              </>
             ) : (
               <button
                 onClick={() => setActiveReasonPicker(prospect.id)}

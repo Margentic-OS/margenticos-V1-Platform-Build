@@ -12,7 +12,10 @@ export function RemovalReasonPicker({ reasons, onSelect, onCancel }: RemovalReas
       {reasons.map((reason) => (
         <button
           key={reason}
-          onClick={() => onSelect(reason)}
+          onClick={() => {
+            console.log('[TRACE] Reason button clicked:', reason, 'onSelect type:', typeof onSelect)
+            onSelect(reason)
+          }}
           className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg border-b border-gray-100 last:border-b-0"
         >
           {reason}
