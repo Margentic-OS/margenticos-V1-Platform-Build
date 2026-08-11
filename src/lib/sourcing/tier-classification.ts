@@ -70,18 +70,19 @@ export function isDecisionMaker(jobTitle: string | null): boolean {
 }
 
 /**
- * Check if company has evidence of being a consultancy/advisory/coaching business.
- * Looks for signals in company name and description.
+ * Check if company or person has evidence of being a consultancy/advisory/coaching business.
+ * Looks for signals in company name, description, and job title.
  */
 function hasConsultancyEvidence(prospect: EnrichedProspect): boolean {
-  const nameAndDesc = [
+  const signals = [
     prospect.company_name || '',
     prospect.company_description || '',
+    prospect.job_title || '',
   ]
     .join(' ')
     .toLowerCase()
 
-  return CONSULTANCY_PATTERNS.some(pattern => nameAndDesc.includes(pattern))
+  return CONSULTANCY_PATTERNS.some(pattern => signals.includes(pattern))
 }
 
 /**

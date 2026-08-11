@@ -1,5 +1,5 @@
 -- Migration: Add fit_score column for phase 1 tiering consolidation
--- Status: PENDING
+-- Status: APPLIED (verified live 2026-08-11 16:30 UTC)
 
 alter table prospects add column fit_score integer;
 

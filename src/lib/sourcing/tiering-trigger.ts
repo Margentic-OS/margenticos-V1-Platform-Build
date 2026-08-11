@@ -105,7 +105,7 @@ export async function tierEnrichedBatch(
     // ── Step 3: Fetch enriched+untiered prospects ────────────────────────────
     const { data: prospects, error: prospectError } = await supabase
       .from('prospects')
-      .select('id, organisation_id, email_status, enrichment_status, job_title, company_headcount, company_industry')
+      .select('id, organisation_id, email_status, enrichment_status, job_title, company_headcount, company_industry, company_name, company_description')
       .eq('organisation_id', organisationId)
       .eq('enrichment_status', 'enriched')
       .is('sourced_tier', null)
