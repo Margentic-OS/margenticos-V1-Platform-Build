@@ -314,16 +314,14 @@ export default async function DashboardPage({
       )}
 
       {state === 'documents_active' && (
-        <>
-          <div className="flex-1 overflow-y-auto bg-surface-content">
-            <div className="px-7 py-6 max-w-[1400px]">
-              <ProspectApprovalStatus
-                pendingCount={pendingProspectsCount}
-                approvedCount={approvedProspectsCount}
-                showReviewLink={pendingProspectsCount > 0}
-                clientParam={clientParam}
-              />
-            </div>
+        <div className="flex-1 overflow-y-auto bg-surface-content">
+          <div className="px-7 py-6 max-w-[1400px]">
+            <ProspectApprovalStatus
+              pendingCount={pendingProspectsCount}
+              approvedCount={approvedProspectsCount}
+              showReviewLink={pendingProspectsCount > 0}
+              clientParam={clientParam}
+            />
           </div>
           <DocumentsActiveState
             orgName={org.name}
@@ -334,7 +332,7 @@ export default async function DashboardPage({
             setupStatus={derivedSetupStatus}
             clientParam={clientParam}
           />
-        </>
+        </div>
       )}
     </>
   )
