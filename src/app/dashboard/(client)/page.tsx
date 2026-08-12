@@ -154,13 +154,17 @@ export default async function DashboardPage({
 
   // Fetch prospect approval counts for status display
   // Only count prospects that have been tiered (sourced_tier IS NOT NULL)
-  const { data: prospectCounts } = await supabase
+  const { data: prospectCounts, error: prospectCountsError } = await supabase
     .from('prospects')
     .select('sourced_tier, client_review_status', { count: 'exact' })
     .eq('organisation_id', org.id)
     .not('tier_published_at', 'is', null)
     .not('sourced_tier', 'is', null)
     .eq('suppressed', false)
+
+  if (prospectCountsError) {
+    console.error('[Overview] Error fetching prospect counts:', prospectCountsError)
+  }
 
   const prospectData = prospectCounts ?? []
   const pendingProspectsCount = prospectData.filter(p =>
