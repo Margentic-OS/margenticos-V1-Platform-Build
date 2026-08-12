@@ -170,13 +170,6 @@ export default async function DashboardPage({
     p.client_review_status === 'approved'
   ).length
 
-  console.log('[Overview Page] Prospect counts:', {
-    prospectDataLength: prospectData.length,
-    pendingProspectsCount,
-    approvedProspectsCount,
-    orgId: org.id,
-  })
-
   // Derive campaign setup status from real signals (registered campaigns + lead uploads).
   const [campaignsRes, uploadedCountRes] = await Promise.all([
     supabase
@@ -302,6 +295,19 @@ export default async function DashboardPage({
     <>
       <DashboardTopbar {...topbarProps} />
 
+      {approvedProspectsCount > 0 && (
+        <div className="bg-surface-content px-7 pt-4 pb-0">
+          <div className="max-w-[1400px]">
+            <ProspectApprovalStatus
+              pendingCount={pendingProspectsCount}
+              approvedCount={approvedProspectsCount}
+              showReviewLink={pendingProspectsCount > 0}
+              clientParam={clientParam}
+            />
+          </div>
+        </div>
+      )}
+
       {state === 'intake_incomplete' && (
         <IntakeIncompleteState
           orgName={org.name}
@@ -322,23 +328,17 @@ export default async function DashboardPage({
 
       {state === 'documents_active' && (
         <div className="flex-1 overflow-y-auto bg-surface-content">
-          <div className="px-7 pt-4 pb-6 max-w-[1400px]">
-            <ProspectApprovalStatus
-              pendingCount={pendingProspectsCount}
-              approvedCount={approvedProspectsCount}
-              showReviewLink={pendingProspectsCount > 0}
+          <div className="px-7 pb-6 max-w-[1400px]">
+            <DocumentsActiveState
+              orgName={org.name}
+              documents={activeDocuments}
+              contractStartDate={org.contract_start_date}
+              warmupStartedAt={org.warmup_started_at ?? null}
+              linkedinChannelEnabled={org.linkedin_channel_enabled ?? false}
+              setupStatus={derivedSetupStatus}
               clientParam={clientParam}
             />
           </div>
-          <DocumentsActiveState
-            orgName={org.name}
-            documents={activeDocuments}
-            contractStartDate={org.contract_start_date}
-            warmupStartedAt={org.warmup_started_at ?? null}
-            linkedinChannelEnabled={org.linkedin_channel_enabled ?? false}
-            setupStatus={derivedSetupStatus}
-            clientParam={clientParam}
-          />
         </div>
       )}
     </>
