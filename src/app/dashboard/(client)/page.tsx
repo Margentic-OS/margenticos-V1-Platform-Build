@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
+import type { Database } from '@/types/database'
 import { deriveCampaignsStatus } from '@/lib/dashboard/derive-setup-status'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { ProspectApprovalStatus } from '@/components/dashboard/ProspectApprovalStatus'
@@ -153,18 +155,20 @@ export default async function DashboardPage({
     .in('agent_name', ['icp-generation', 'positioning-generation', 'tov-generation', 'messaging-generation'])
 
   // Fetch prospect approval counts for status display
-  // Only count prospects that have been tiered (sourced_tier IS NOT NULL)
-  const { data: prospectCounts, error: prospectCountsError } = await supabase
+  // RLS-protected prospects require admin client to bypass row-level security
+  const adminClient = createServiceClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+
+  const { data: prospectCounts } = await adminClient
     .from('prospects')
     .select('sourced_tier, client_review_status', { count: 'exact' })
     .eq('organisation_id', org.id)
     .not('tier_published_at', 'is', null)
     .not('sourced_tier', 'is', null)
     .eq('suppressed', false)
-
-  if (prospectCountsError) {
-    console.error('[Overview] Error fetching prospect counts:', prospectCountsError)
-  }
 
   const prospectData = prospectCounts ?? []
   const pendingProspectsCount = prospectData.filter(p =>
