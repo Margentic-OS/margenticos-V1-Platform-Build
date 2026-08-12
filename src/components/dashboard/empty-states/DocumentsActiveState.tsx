@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import type { DocumentType } from '@/types'
 import { DOCUMENT_META, DOCUMENT_ORDER } from '@/lib/document-labels'
 import { appendClientParam } from '@/lib/dashboard/client-param'
@@ -24,6 +25,8 @@ interface DocumentsActiveStateProps {
   linkedinChannelEnabled: boolean
   setupStatus: SetupStatus
   clientParam?: string
+  pendingProspectsCount: number
+  approvedProspectsCount: number
 }
 
 
@@ -81,7 +84,14 @@ export function DocumentsActiveState({
   linkedinChannelEnabled,
   setupStatus,
   clientParam,
+  pendingProspectsCount,
+  approvedProspectsCount,
 }: DocumentsActiveStateProps) {
+  // Determine prospects card state
+  const hasProspectsPending = pendingProspectsCount > 0
+  const hasProspectsApproved = approvedProspectsCount > 0
+  const prospectState = hasProspectsPending ? 'pending' : (hasProspectsApproved ? 'approved' : 'none')
+
   const setupCards = [
     {
       key: 'documents',
@@ -90,6 +100,17 @@ export function DocumentsActiveState({
       done: true,
       detail: 'ICP, positioning, voice guide, and messaging',
     },
+    ...(prospectState !== 'none' ? [{
+      key: 'prospects',
+      label: 'Prospects',
+      statusLabel: prospectState === 'pending' ? 'Action needed' : 'Ready',
+      done: prospectState === 'approved',
+      detail: prospectState === 'pending'
+        ? `Your first list is ready, ${pendingProspectsCount} to review`
+        : `${approvedProspectsCount} contacts approved. Outreach is being prepared.`,
+      isPending: prospectState === 'pending',
+      clientParam,
+    }] : []),
     {
       key: 'campaigns',
       label: 'Campaign setup',
@@ -163,46 +184,61 @@ export function DocumentsActiveState({
 
             {/* Setup step cards */}
             <div className="space-y-3">
-              {setupCards.map((card) => (
-                <div
-                  key={card.key}
-                  className="bg-surface-card border border-border-card rounded-[10px] p-5 flex items-start gap-4"
-                >
-                  <span className={[
-                    'w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 mt-0.5',
-                    card.done ? 'bg-[#EBF5E6]' : 'bg-[#F0ECE4]',
-                  ].join(' ')}>
-                    {card.done ? (
-                      <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
-                        <path d="M1 3.5L3.5 6L8 1" stroke="#3B6D11" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    ) : (
-                      <span className="w-2 h-2 rounded-full bg-brand-amber" />
-                    )}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[13px] font-medium text-text-primary">{card.label}</p>
-                      <span className={[
-                        'flex items-center gap-1 px-2 py-0.5 rounded-full shrink-0',
-                        card.done ? 'bg-[#EBF5E6]' : 'bg-[#FEF7E6]',
-                      ].join(' ')}>
+              {setupCards.map((card) => {
+                const isPending = (card as any).isPending
+                const reviewUrl = isPending && (card as any).clientParam
+                  ? `/dashboard/prospect-tiers?client=${(card as any).clientParam}`
+                  : '/dashboard/prospect-tiers'
+
+                return (
+                  <div
+                    key={card.key}
+                    className="bg-surface-card border border-border-card rounded-[10px] p-5 flex items-start gap-4"
+                  >
+                    <span className={[
+                      'w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 mt-0.5',
+                      card.done ? 'bg-[#EBF5E6]' : 'bg-[#F0ECE4]',
+                    ].join(' ')}>
+                      {card.done ? (
+                        <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                          <path d="M1 3.5L3.5 6L8 1" stroke="#3B6D11" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-brand-amber" />
+                      )}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[13px] font-medium text-text-primary">{card.label}</p>
                         <span className={[
-                          'w-1 h-1 rounded-full',
-                          card.done ? 'bg-brand-green-success' : 'bg-brand-amber',
-                        ].join(' ')} />
-                        <span className={[
-                          'text-[9px] font-medium',
-                          card.done ? 'text-brand-green-success' : 'text-[#7A4800]',
+                          'flex items-center gap-1 px-2 py-0.5 rounded-full shrink-0',
+                          card.done ? 'bg-[#EBF5E6]' : 'bg-[#FEF7E6]',
                         ].join(' ')}>
-                          {card.statusLabel}
+                          <span className={[
+                            'w-1 h-1 rounded-full',
+                            card.done ? 'bg-brand-green-success' : 'bg-brand-amber',
+                          ].join(' ')} />
+                          <span className={[
+                            'text-[9px] font-medium',
+                            card.done ? 'text-brand-green-success' : 'text-[#7A4800]',
+                          ].join(' ')}>
+                            {card.statusLabel}
+                          </span>
                         </span>
-                      </span>
+                      </div>
+                      <p className="text-[11px] text-text-secondary mt-0.5">{card.detail}</p>
+                      {isPending && (
+                        <Link
+                          href={reviewUrl}
+                          className="inline-block mt-2 px-3 py-1.5 bg-brand-amber text-[#7A4800] rounded text-[11px] font-medium hover:bg-[#F0D080] transition-colors"
+                        >
+                          Review now
+                        </Link>
+                      )}
                     </div>
-                    <p className="text-[11px] text-text-secondary mt-0.5">{card.detail}</p>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
 

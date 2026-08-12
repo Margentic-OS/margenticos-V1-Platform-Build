@@ -5,7 +5,6 @@ import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import type { Database } from '@/types/database'
 import { deriveCampaignsStatus } from '@/lib/dashboard/derive-setup-status'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
-import { ProspectApprovalStatus } from '@/components/dashboard/ProspectApprovalStatus'
 import { IntakeIncompleteState } from '@/components/dashboard/empty-states/IntakeIncompleteState'
 import { StrategyInReviewState } from '@/components/dashboard/empty-states/StrategyInReviewState'
 import { DocumentsActiveState } from '@/components/dashboard/empty-states/DocumentsActiveState'
@@ -303,19 +302,6 @@ export default async function DashboardPage({
     <>
       <DashboardTopbar {...topbarProps} />
 
-      {approvedProspectsCount > 0 && (
-        <div className="bg-surface-content px-7 pt-4 pb-0">
-          <div className="max-w-[1400px]">
-            <ProspectApprovalStatus
-              pendingCount={pendingProspectsCount}
-              approvedCount={approvedProspectsCount}
-              showReviewLink={pendingProspectsCount > 0}
-              clientParam={clientParam}
-            />
-          </div>
-        </div>
-      )}
-
       {state === 'intake_incomplete' && (
         <IntakeIncompleteState
           orgName={org.name}
@@ -345,6 +331,8 @@ export default async function DashboardPage({
               linkedinChannelEnabled={org.linkedin_channel_enabled ?? false}
               setupStatus={derivedSetupStatus}
               clientParam={clientParam}
+              pendingProspectsCount={pendingProspectsCount}
+              approvedProspectsCount={approvedProspectsCount}
             />
           </div>
         </div>
