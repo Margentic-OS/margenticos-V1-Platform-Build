@@ -170,6 +170,13 @@ export default async function DashboardPage({
     p.client_review_status === 'approved'
   ).length
 
+  console.log('[Overview Page] Prospect counts:', {
+    prospectDataLength: prospectData.length,
+    pendingProspectsCount,
+    approvedProspectsCount,
+    orgId: org.id,
+  })
+
   // Derive campaign setup status from real signals (registered campaigns + lead uploads).
   const [campaignsRes, uploadedCountRes] = await Promise.all([
     supabase
@@ -315,7 +322,7 @@ export default async function DashboardPage({
 
       {state === 'documents_active' && (
         <div className="flex-1 overflow-y-auto bg-surface-content">
-          <div className="px-7 py-6 max-w-[1400px]">
+          <div className="px-7 pt-4 pb-6 max-w-[1400px]">
             <ProspectApprovalStatus
               pendingCount={pendingProspectsCount}
               approvedCount={approvedProspectsCount}

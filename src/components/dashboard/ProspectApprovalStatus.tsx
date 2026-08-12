@@ -15,10 +15,12 @@ export function ProspectApprovalStatus({
   showReviewLink = true,
   clientParam,
 }: ProspectApprovalStatusProps) {
+  console.log('[ProspectApprovalStatus] Render debug:', { pendingCount, approvedCount, showReviewLink })
   const hasApproved = approvedCount > 0 || pendingCount === 0
 
   if (pendingCount > 0) {
     // Pending review state
+    console.log('[ProspectApprovalStatus] Rendering PENDING state')
     return (
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 mb-6">
         <div className="flex items-center justify-between">
@@ -45,6 +47,7 @@ export function ProspectApprovalStatus({
 
   if (hasApproved && approvedCount > 0) {
     // Approved state
+    console.log('[ProspectApprovalStatus] Rendering APPROVED state with', approvedCount, 'contacts')
     return (
       <div className="bg-green-50 rounded-lg border border-green-200 shadow-sm p-6 mb-6">
         <div className="flex items-center gap-4">
@@ -66,5 +69,6 @@ export function ProspectApprovalStatus({
     )
   }
 
+  console.log('[ProspectApprovalStatus] Returning null - no conditions matched. hasApproved:', hasApproved)
   return null
 }
