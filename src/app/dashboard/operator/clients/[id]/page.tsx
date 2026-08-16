@@ -86,7 +86,6 @@ export default async function ClientDetailPage({
       .select('id', { count: 'exact', head: true })
       .eq('organisation_id', org.id)
       .eq('outbound_upload_status', 'pending')
-      .not('campaign_id', 'is', null)
       .not('sourced_tier', 'is', null)
       .eq('email_send_eligible', true)
       .eq('client_review_status', 'approved')

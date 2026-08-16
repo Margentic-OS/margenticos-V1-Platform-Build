@@ -44,13 +44,15 @@ import {
 import type { MessagingContent } from '@/lib/composition/compose-sequence'
 
 // ─── Default delay schedule ───────────────────────────────────────────────────
-// Used when no delay is specified. Designed for cold email: step 1 sends on day 0,
-// subsequent steps follow-up at 3-day intervals (common industry default).
+// Delays represent gaps FROM THE PREVIOUS STEP (Instantly relative-gap semantics).
+// Step 1 has no previous step (null delay, sends immediately on day 0).
+// Steps 2+ each wait 3 days from the prior step.
+// Result: emails land on days 0, 3, 6, 9 (with 3-day intervals between sends).
 // Operator can override via future per-campaign config — not in scope for this build.
 
-function defaultDelays(stepCount: number): Array<{ delay: number; delay_unit: 'days' }> {
+function defaultDelays(stepCount: number): Array<{ delay: number | null; delay_unit: 'days' }> {
   return Array.from({ length: stepCount }, (_, i) => ({
-    delay: i === 0 ? 0 : i * 3,
+    delay: i === 0 ? null : 3,
     delay_unit: 'days' as const,
   }))
 }
@@ -91,13 +93,13 @@ export function getDocStepCount(messagingDoc: MessagingContent): number {
 
 function buildShellSequences(
   stepCount: number,
-  delays: Array<{ delay: number; delay_unit: 'days' | 'hours' }>,
+  delays: Array<{ delay: number | null; delay_unit: 'days' | 'hours' }>,
 ): SequenceConfig[] {
   const steps: SequenceStep[] = Array.from({ length: stepCount }, (_, i) => {
     const n = i + 1
     return {
       type: 'email',
-      delay: delays[i]?.delay ?? i * 3,
+      delay: delays[i]?.delay ?? (i === 0 ? 0 : 3),
       delay_unit: delays[i]?.delay_unit ?? 'days',
       enabled: true,
       variants: [

@@ -264,7 +264,6 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     .update({ outbound_upload_status: 'uploading', outbound_upload_attempted_at: nowISO })
     .eq('organisation_id', orgId)
     .eq('outbound_upload_status', 'pending')
-    .not('campaign_id', 'is', null)
     .not('email', 'is', null)
     .not('sourced_tier', 'is', null)             // Only send tiered prospects
     .eq('email_send_eligible', true)              // Send eligibility gate
