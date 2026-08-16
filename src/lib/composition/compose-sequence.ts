@@ -49,6 +49,8 @@ export interface ComposedSequence {
 export interface ComposeDocs {
   /** Active + approved Messaging doc content for this segment. Required. */
   messagingDoc: MessagingContent
+  /** strategy_documents.id for the Messaging doc (required for version tracking). */
+  messagingDocId: string
   /** Pre-extracted pain point string from the active + approved ICP doc (optional enrichment). */
   icpPainPoint?: string
   /** Pre-extracted cold_outreach_hook from the active + approved Positioning doc (optional enrichment). */
@@ -128,7 +130,7 @@ export async function fetchComposeDocs(
   }
 
   // Messaging: required — throw if absent or unapproved.
-  const messagingDoc = await fetchApprovedMessagingDoc(supabase, client_id, resolvedSegmentId)
+  const { content: messagingDoc, doc_id: messagingDocId } = await fetchApprovedMessagingDoc(supabase, client_id, resolvedSegmentId)
 
   // ICP: optional enrichment — extract pain point if approved.
   const icpPainPoint = await fetchApprovedIcpPainPoint(supabase, client_id, resolvedSegmentId)
@@ -136,7 +138,7 @@ export async function fetchComposeDocs(
   // Positioning: optional enrichment — extract value hook if approved.
   const positioningValueHook = await fetchApprovedPositioningHook(supabase, client_id)
 
-  return { messagingDoc, icpPainPoint, positioningValueHook }
+  return { messagingDoc, messagingDocId, icpPainPoint, positioningValueHook }
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -157,11 +159,19 @@ export async function composeSequence({
   const prospect = await fetchProspect(supabase, prospect_id, client_id)
 
   // Step 1 — Use preloaded Messaging doc or fetch it (with approval check).
-  const messagingDoc = preloadedDocs?.messagingDoc
-    ?? await fetchApprovedMessagingDoc(supabase, client_id, prospect.segment_id)
+  let messagingDoc: MessagingContent
+  let messagingDocId: string
+  if (preloadedDocs) {
+    messagingDoc = preloadedDocs.messagingDoc
+    messagingDocId = preloadedDocs.messagingDocId
+  } else {
+    const fetched = await fetchApprovedMessagingDoc(supabase, client_id, prospect.segment_id)
+    messagingDoc = fetched.content
+    messagingDocId = fetched.doc_id
+  }
 
-  // Step 3 — Assign a variant if the prospect has none.
-  const variantId = await resolveVariant(supabase, prospect, messagingDoc, client_id)
+  // Step 3 — Assign a variant if the prospect has none, and write both variant_id and messaging_doc_id.
+  const variantId = await resolveVariant(supabase, prospect, messagingDoc, client_id, messagingDocId)
 
   // Step 4 — Fetch the personalisation trigger (with ICP fallback).
   const trigger = await resolveTrigger(supabase, prospect, client_id, preloadedDocs?.icpPainPoint)
@@ -197,7 +207,7 @@ async function fetchApprovedMessagingDoc(
   supabase: ServiceClient,
   client_id: string,
   segment_id: string | null
-): Promise<MessagingContent> {
+): Promise<{ content: MessagingContent; doc_id: string }> {
   // Resolve primary segment if null — NULL-segment prospects must never error.
   let resolvedSegmentId = segment_id
   if (!resolvedSegmentId) {
@@ -214,7 +224,7 @@ async function fetchApprovedMessagingDoc(
   const baseQuery = () =>
     supabase
       .from('strategy_documents')
-      .select('content')
+      .select('id, content')
       .eq('organisation_id', client_id)
       .eq('document_type', 'messaging')
       .eq('status', 'active')
@@ -225,7 +235,7 @@ async function fetchApprovedMessagingDoc(
   // Fetch segment-specific messaging when we have a resolved segment.
   if (resolvedSegmentId) {
     const { data: segData } = await baseQuery().eq('segment_id', resolvedSegmentId).maybeSingle()
-    if (segData) return segData.content as MessagingContent
+    if (segData) return { content: segData.content as MessagingContent, doc_id: segData.id }
   }
 
   // Fallback: any approved messaging doc for this client.
@@ -238,7 +248,7 @@ async function fetchApprovedMessagingDoc(
     )
   }
 
-  return data.content as MessagingContent
+  return { content: data.content as MessagingContent, doc_id: data.id }
 }
 
 // ─── Approved ICP pain point — optional enrichment ───────────────────────────
@@ -326,7 +336,8 @@ async function resolveVariant(
   supabase: ServiceClient,
   prospect: ProspectRow,
   messagingDoc: MessagingContent,
-  client_id: string
+  client_id: string,
+  messagingDocId: string
 ): Promise<string> {
   // If already assigned, use it — never reassign.
   if (prospect.variant_id) return prospect.variant_id
@@ -340,44 +351,26 @@ async function resolveVariant(
     throw new Error('compose-sequence: messaging document has no variants to assign.')
   }
 
-  // Round-robin: assign the variant with the fewest prospects already assigned for this client.
-  const { data: counts, error } = await supabase
-    .from('prospects')
-    .select('variant_id')
-    .eq('organisation_id', client_id) // explicit isolation filter
-    .not('variant_id', 'is', null)
-
-  if (error) {
-    logger.warn('compose-sequence: could not fetch variant counts, defaulting to A', {
-      client_id,
-      error: error.message,
-    })
-    return availableVariants[0]
+  // Deterministic assignment: stable hash of prospect.id modulo variant count.
+  // No database read. Distribution is stable across runs for same prospect.
+  let hash = 0
+  for (const char of prospect.id) {
+    hash = ((hash << 5) - hash) + char.charCodeAt(0)
+    hash = hash & hash // Convert to 32-bit integer
   }
+  const assigned = availableVariants[Math.abs(hash) % availableVariants.length]
 
-  const tally: Record<string, number> = {}
-  for (const v of availableVariants) tally[v] = 0
-  for (const row of (counts ?? [])) {
-    const key = row.variant_id as string
-    if (key in tally) tally[key]++
-  }
-
-  // Pick the variant with the lowest count (stable: first in alphabetical order on tie).
-  const assigned = availableVariants.reduce((min, v) => (tally[v] < tally[min] ? v : min))
-
-  // Write the assignment back to the prospect.
+  // Write both variant_id and messaging_doc_id together. Fail if write fails.
   const { error: updateError } = await supabase
     .from('prospects')
-    .update({ variant_id: assigned, updated_at: new Date().toISOString() })
+    .update({ variant_id: assigned, messaging_doc_id: messagingDocId, updated_at: new Date().toISOString() })
     .eq('id', prospect.id)
     .eq('organisation_id', client_id) // explicit isolation filter
 
   if (updateError) {
-    logger.warn('compose-sequence: failed to write variant_id to prospect — proceeding anyway', {
-      prospect_id: prospect.id,
-      assigned,
-      error: updateError.message,
-    })
+    throw new Error(
+      `compose-sequence: failed to assign variant to prospect ${prospect.id}: ${updateError.message}`
+    )
   }
 
   return assigned

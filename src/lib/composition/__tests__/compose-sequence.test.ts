@@ -111,6 +111,7 @@ const MESSAGING_CONTENT: MessagingContent = {
 // Pre-built snapshot that would be captured at gate-pass time via fetchComposeDocs().
 const APPROVED_DOCS: ComposeDocs = {
   messagingDoc: MESSAGING_CONTENT,
+  messagingDocId: '550e8400-e29b-41d4-a716-446655440000',
   icpPainPoint: 'founders struggling to build consistent outbound pipeline',
   positioningValueHook: 'consistent pipeline without founder involvement',
 }
