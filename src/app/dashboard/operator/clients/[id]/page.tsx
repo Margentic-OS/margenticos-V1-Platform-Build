@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { WaitingOnYouBlock } from './WaitingOnYouBlock'
 import { ClientProfileBlock } from './ClientProfileBlock'
@@ -57,6 +58,9 @@ export default async function ClientDetailPage({
 
   const setupStatus = parseSetupStatus(org.setup_status)
 
+  // Service-role client for operator queries that must bypass RLS function restrictions
+  const serviceRole = await createServiceRoleClient()
+
   // Fetch all required data in parallel
   const [
     flagResult,
@@ -77,20 +81,23 @@ export default async function ClientDetailPage({
       .eq('capability', 'instantly_api_active')
       .eq('tool_name', 'instantly')
       .maybeSingle(),
-    supabase
+    serviceRole
       .from('prospects')
       .select('id', { count: 'exact', head: true })
       .eq('organisation_id', org.id)
       .eq('outbound_upload_status', 'pending')
       .not('campaign_id', 'is', null)
-      .not('personalisation_trigger', 'is', null)
+      .not('sourced_tier', 'is', null)
+      .eq('email_send_eligible', true)
+      .eq('client_review_status', 'approved')
+      .eq('suppressed', false)
       .not('email', 'is', null),
     supabase
       .from('campaigns')
       .select('id, external_id, name, shell_synced_at, shell_step_count, status, started_at, paused_at')
       .eq('organisation_id', org.id)
       .order('created_at', { ascending: true }),
-    supabase
+    serviceRole
       .from('prospects')
       .select('id', { count: 'exact', head: true })
       .eq('organisation_id', org.id)
