@@ -51,7 +51,7 @@ export async function uploadLeads(
       ...(lead.last_name !== undefined && { last_name: lead.last_name }),
       ...(lead.company_name !== undefined && { company_name: lead.company_name }),
       ...(lead.job_title !== undefined && { job_title: lead.job_title }),
-      ...(lead.custom_variables && { ...lead.custom_variables }),
+      ...(lead.custom_variables && { custom_variables: lead.custom_variables }),
     })),
     skip_if_in_workspace: true,
     skip_if_in_campaign: true,
