@@ -46,13 +46,14 @@ import type { MessagingContent } from '@/lib/composition/compose-sequence'
 // ─── Default delay schedule ───────────────────────────────────────────────────
 // Delays represent gaps BETWEEN consecutive steps (Instantly relative-gap semantics).
 // delays[i] = gap between step i+1 and step i+2. Instantly ignores delay on step 1.
-// All gaps are 3 days (step 1 sends day 0, step 2 on day 3, step 3 on day 6, etc.).
+// Cadence: first gap 3 days, every subsequent gap 7 days
+// (step 1 sends day 0, step 2 on day 3, step 3 on day 10, step 4 on day 17, etc.).
 // Final step's delay is unused (no step after it).
 // Operator can override via future per-campaign config — not in scope for this build.
 
 function defaultDelays(stepCount: number): Array<{ delay: number; delay_unit: 'days' }> {
   return Array.from({ length: stepCount }, (_, i) => ({
-    delay: 3,
+    delay: i === 0 ? 3 : 7,
     delay_unit: 'days' as const,
   }))
 }
