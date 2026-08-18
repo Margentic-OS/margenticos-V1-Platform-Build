@@ -208,7 +208,10 @@ type ProspectRow = {
   first_name: string | null
   last_name: string | null
   company_name: string | null
-  role: string | null
+  // job_title is the column the sourcing orchestrator writes. prospects.role is only
+  // ever written by the research agent and is NULL for sourced prospects, so reading
+  // role here sent no job title at all to the outbound provider.
+  job_title: string | null
   segment_id: string | null
   campaigns: { id: string; external_id: string | null; shell_step_count: number | null; shell_segment_id: string | null } | null
 }
@@ -293,7 +296,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   // campaigns.shell_segment_id IS NULL) OR (prospect.segment_id = campaigns.shell_segment_id).
   const { data: rawRows, error: fetchErr } = await supabase
     .from('prospects')
-    .select('id, email, first_name, last_name, company_name, role, segment_id')
+    .select('id, email, first_name, last_name, company_name, job_title, segment_id')
     .eq('organisation_id', orgId)
     .in('id', Array.from(claimedIdSet))
 
@@ -557,7 +560,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
           first_name: row.first_name ?? undefined,
           last_name: row.last_name ?? undefined,
           company_name: row.company_name ?? undefined,
-          job_title: row.role ?? undefined,
+          job_title: row.job_title ?? undefined,
           custom_variables: vars,
         }
 

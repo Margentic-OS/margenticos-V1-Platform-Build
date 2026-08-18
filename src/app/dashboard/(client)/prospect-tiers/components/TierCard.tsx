@@ -13,6 +13,9 @@ interface TierData {
     first_name: string | null
     last_name: string | null
     company_name: string | null
+    // job_title is the populated column (written by sourcing). role is only written by
+    // the research agent and is NULL for sourced prospects — kept as a fallback.
+    job_title: string | null
     role: string | null
     personalisation_trigger: string | null
     client_review_status: string | null
@@ -223,7 +226,7 @@ export function TierCard({ tier, tierLabel, organisationId }: TierCardProps) {
                 <tr key={prospect.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-3 pr-4">{prospectName(prospect)}</td>
                   <td className="py-3 pr-4 text-gray-600">{prospect.company_name || '—'}</td>
-                  <td className="py-3 pr-4 text-gray-600">{prospect.role || '—'}</td>
+                  <td className="py-3 pr-4 text-gray-600">{prospect.job_title || prospect.role || '—'}</td>
                   <td className="py-3 pr-4 text-gray-600 truncate" title={prospect.personalisation_trigger || undefined}>
                     {prospect.personalisation_trigger ? prospect.personalisation_trigger.slice(0, 40) + (prospect.personalisation_trigger.length > 40 ? '…' : '') : '—'}
                   </td>
@@ -251,7 +254,7 @@ export function TierCard({ tier, tierLabel, organisationId }: TierCardProps) {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <p className="font-medium text-gray-900">{prospectName(prospect)}</p>
-                      <p className="text-sm text-gray-600">{prospect.company_name} • {prospect.role}</p>
+                      <p className="text-sm text-gray-600">{prospect.company_name} • {prospect.job_title || prospect.role}</p>
                       {prospect.personalisation_trigger && (
                         <p className="text-sm text-gray-600 mt-2">{prospect.personalisation_trigger}</p>
                       )}

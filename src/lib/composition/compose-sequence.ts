@@ -65,10 +65,23 @@ interface ProspectRow {
   personalisation_trigger: string | null
   has_dateable_signal: boolean | null
   signal_relevance: string | null
+  /** Written by the (currently orphaned) research agent. NULL for every sourced prospect. */
   role: string | null
+  /** Written by the sourcing orchestrator. The populated field in practice. */
+  job_title: string | null
   first_name: string | null
   last_name: string | null
   company_name: string | null
+}
+
+// Where email 1's opening line came from. Only 'research' represents a real, prospect-
+// specific observation; the other two are segment-level defaults that say nothing
+// individual about the prospect.
+type TriggerSource = 'research' | 'icp_pain' | 'role_proxy'
+
+interface ResolvedTrigger {
+  text: string
+  source: TriggerSource
 }
 
 interface StoredEmail {
@@ -89,16 +102,22 @@ interface MessagingContent {
   emails?: StoredEmail[]
 }
 
+// The ICP generation agent may emit push forces and pain points either as a single
+// string or as an array of strings. Both shapes are valid and both must be readable
+// here — an array-shaped four_forces.push silently fell through to the role proxy
+// for months because only the string shape was accepted.
+type PainField = string | string[]
+
 interface IcpContent {
   tier_1?: {
-    four_forces?: { push?: string }
-    pain_points?: string | string[]
-    pain_point?: string
+    four_forces?: { push?: PainField }
+    pain_points?: PainField
+    pain_point?: PainField
   }
   icp?: {
     tier_1?: {
-      four_forces?: { push?: string }
-      pain_points?: string | string[]
+      four_forces?: { push?: PainField }
+      pain_points?: PainField
     }
   }
   [key: string]: unknown
@@ -178,19 +197,46 @@ export async function composeSequence({
 
   // Step 4 — Apply the trigger to email 1 of the assigned variant.
   const variantEmails  = getVariantEmails(messagingDoc, variantId)
-  const afterTrigger   = applyTriggerToEmail1(variantEmails, trigger)
+  const afterTrigger   = applyTriggerToEmail1(variantEmails, trigger.text)
 
-  // Step 4b — Haiku bridge + personalized CTA for Email 1.
-  const clientValueHook = preloadedDocs?.positioningValueHook
-    ?? await fetchApprovedPositioningHook(supabase, client_id)
-    ?? 'consistent outbound pipeline without founder involvement'
+  // Step 4b — Haiku bridge + personalised CTA for Email 1.
+  //
+  // FAIL CLOSED: this step only runs when the trigger came from real prospect research.
+  // Without a researched trigger there is nothing prospect-specific to build from, and
+  // the machine step would overwrite client-approved template copy with something
+  // weaker. Standing principle: no machine step may overwrite human-approved copy
+  // after approval without an explicit gate. The gate is the researched trigger.
+  let composedEmails: ComposedEmail[]
 
-  const composedEmails  = await applyPersonalization(
-    afterTrigger,
-    prospect,
-    trigger,
-    clientValueHook,
-  )
+  if (trigger.source === 'research') {
+    const clientValueHook = preloadedDocs?.positioningValueHook
+      ?? await fetchApprovedPositioningHook(supabase, client_id)
+      ?? 'consistent outbound pipeline without founder involvement'
+
+    composedEmails = await applyPersonalization(
+      afterTrigger,
+      prospect,
+      trigger.text,
+      clientValueHook,
+    )
+  } else {
+    // Skipped, not failed. Logged explicitly so "skipped" is never mistaken for
+    // "succeeded" when reading logs after a send.
+    logger.info('compose-sequence: personalisation skipped — approved template copy preserved verbatim', {
+      prospect_id: prospect.id,
+      client_id,
+      variant_id: variantId,
+      trigger_source: trigger.source,
+      reason: prospect.personalisation_trigger
+        ? 'trigger is not from prospect research'
+        : 'prospects.personalisation_trigger is NULL (no research result)',
+      bridge_generated: false,
+      cta_rewritten: false,
+    })
+    // Recompute word_count: applyTriggerToEmail1 carries the stored template's count,
+    // which is stale once the opener line has been replaced.
+    composedEmails = afterTrigger.map(email => ({ ...email, word_count: countWords(email.body) }))
+  }
 
   // Step 5 — Return the composed sequence.
   return {
@@ -318,7 +364,7 @@ async function fetchProspect(
 ): Promise<ProspectRow> {
   const { data, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, has_dateable_signal, signal_relevance, role, first_name, last_name, company_name')
+    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id) // explicit isolation filter
     .single()
@@ -383,16 +429,22 @@ async function resolveTrigger(
   prospect: ProspectRow,
   client_id: string,
   preloadedIcpPainPoint?: string,
-): Promise<string> {
-  // Use the stored trigger if present.
+): Promise<ResolvedTrigger> {
+  // Use the stored trigger if present. This is the only prospect-specific source.
   const stored = prospect.personalisation_trigger?.trim()
-  if (stored && stored.length > 0) return stored
+  if (stored && stored.length > 0) return { text: stored, source: 'research' }
 
   // Use pre-fetched ICP pain point if available.
-  if (preloadedIcpPainPoint) return preloadedIcpPainPoint
+  if (preloadedIcpPainPoint) return { text: preloadedIcpPainPoint, source: 'icp_pain' }
 
   // Fallback: read tier 1 pain point from the segment's approved ICP document.
-  return fetchPainProxy(supabase, client_id, prospect.segment_id, prospect.role)
+  // role is written only by the research agent; job_title by the sourcing orchestrator.
+  return fetchPainProxy(
+    supabase,
+    client_id,
+    prospect.segment_id,
+    prospect.role ?? prospect.job_title,
+  )
 }
 
 async function fetchPainProxy(
@@ -400,7 +452,7 @@ async function fetchPainProxy(
   client_id: string,
   segment_id: string | null,
   prospectRole: string | null
-): Promise<string> {
+): Promise<ResolvedTrigger> {
   // Resolve primary segment for null — same pattern as messaging fetch.
   let resolvedSegmentId = segment_id
   if (!resolvedSegmentId) {
@@ -429,7 +481,7 @@ async function fetchPainProxy(
     const { data: segData } = await baseQuery().eq('segment_id', resolvedSegmentId).maybeSingle()
     if (segData) {
       const painPoint = extractPainFromIcp(segData.content as IcpContent)
-      if (painPoint) return painPoint
+      if (painPoint) return { text: painPoint, source: 'icp_pain' }
     }
   }
 
@@ -437,39 +489,54 @@ async function fetchPainProxy(
 
   if (!data) {
     // No approved ICP doc — fall back to role proxy (safe default, not unapproved content).
-    logger.warn('compose-sequence: no active + approved ICP document found — using role proxy', {
+    // Error level, not warn: reaching the generic proxy means every prospect in this
+    // segment gets the same opener. That is a copy-quality incident, not a nuisance.
+    logger.error('compose-sequence: no active + approved ICP document found — falling back to generic role proxy', {
       client_id,
+      segment_id: resolvedSegmentId,
     })
-    return buildRoleProxy(prospectRole)
+    return { text: buildRoleProxy(prospectRole), source: 'role_proxy' }
   }
 
   const painPoint = extractPainFromIcp(data.content as IcpContent)
-  if (painPoint) return painPoint
+  if (painPoint) return { text: painPoint, source: 'icp_pain' }
 
-  logger.warn('compose-sequence: could not extract pain point from ICP, using role proxy', {
+  // Extraction found nothing on any known path. Log the shape we actually got so the
+  // next schema drift is diagnosable from one log line instead of a database dig.
+  const icpContent = data.content as IcpContent
+  logger.error('compose-sequence: could not extract pain point from approved ICP — falling back to generic role proxy', {
     client_id,
+    segment_id: resolvedSegmentId,
+    tier_1_keys: icpContent?.tier_1 ? Object.keys(icpContent.tier_1) : null,
+    push_type: Array.isArray(icpContent?.tier_1?.four_forces?.push)
+      ? 'array'
+      : typeof icpContent?.tier_1?.four_forces?.push,
   })
-  return buildRoleProxy(prospectRole)
+  return { text: buildRoleProxy(prospectRole), source: 'role_proxy' }
+}
+
+// Reads a pain field that may be a plain string or an array of strings.
+// Arrays yield their FIRST usable element — the ICP agent orders push forces by
+// strength, so element zero is the primary pain.
+function firstPainString(field: PainField | undefined): string | undefined {
+  if (typeof field === 'string') return field
+  if (Array.isArray(field)) {
+    for (const entry of field) {
+      if (typeof entry === 'string' && entry.trim().length > 0) return entry
+    }
+  }
+  return undefined
 }
 
 // Tries several common JSON paths in the ICP content structure.
+// Each path accepts both the string and array shapes.
 function extractPainFromIcp(content: IcpContent): string | null {
   const candidates: (string | undefined)[] = [
-    typeof content?.tier_1?.four_forces?.push === 'string'
-      ? content.tier_1.four_forces.push
-      : undefined,
-    typeof content?.icp?.tier_1?.four_forces?.push === 'string'
-      ? content.icp.tier_1.four_forces.push
-      : undefined,
-    typeof content?.tier_1?.pain_points === 'string'
-      ? content.tier_1.pain_points
-      : undefined,
-    typeof content?.tier_1?.pain_point === 'string'
-      ? content.tier_1.pain_point
-      : undefined,
-    Array.isArray(content?.tier_1?.pain_points) && content.tier_1!.pain_points!.length > 0
-      ? (content.tier_1!.pain_points as string[])[0]
-      : undefined,
+    firstPainString(content?.tier_1?.four_forces?.push),
+    firstPainString(content?.icp?.tier_1?.four_forces?.push),
+    firstPainString(content?.tier_1?.pain_points),
+    firstPainString(content?.tier_1?.pain_point),
+    firstPainString(content?.icp?.tier_1?.pain_points),
   ]
 
   for (const candidate of candidates) {
@@ -480,10 +547,77 @@ function extractPainFromIcp(content: IcpContent): string | null {
   return null
 }
 
+// ─── Role proxy — last-resort opener when ICP has no extractable pain point ───
+//
+// Deterministic, no LLM (ADR-018). Callers pass role, falling back to job_title.
+//
+// This must never assume the prospect's seniority, company stage, or business model.
+// The previous version hardcoded "founders", which is wrong for any client whose
+// buyer is not a founder and violates the industry-agnosticism rule in CLAUDE.md.
+
+const TITLE_CONNECTOR_RE = /\s*(?:\band\b|&|,|\/)\s*/i
+
+// Pluralises a single word. Preserves acronyms (CEO -> CEOs), lowercases prose words
+// so the result reads naturally mid-sentence (Chief -> chief).
+function pluraliseTitleWord(word: string, isLastWord: boolean): string {
+  const isAcronym = word.length <= 5 && word === word.toUpperCase() && /[A-Z]/.test(word)
+  const base = isAcronym ? word : word.toLowerCase()
+  if (!isLastWord) return base
+
+  const lower = base.toLowerCase()
+  if (/(?:s|x|z|ch|sh)$/.test(lower)) return `${base}es`
+  if (/[^aeiou]y$/.test(lower)) return `${base.slice(0, -1)}ies`
+  return `${base}s`
+}
+
+// Pluralises every word in a segment, inflecting only the final one.
+function pluraliseSegment(segment: string): string | null {
+  const words = segment.split(/\s+/).filter(w => w.length > 0)
+  if (words.length === 0) return null
+  return words.map((w, i) => pluraliseTitleWord(w, i === words.length - 1)).join(' ')
+}
+
+// Lowercases a segment for mid-sentence use, preserving acronyms.
+function normaliseSegment(segment: string): string {
+  return segment
+    .split(/\s+/)
+    .filter(w => w.length > 0)
+    .map(w => (w.length <= 5 && w === w.toUpperCase() && /[A-Z]/.test(w) ? w : w.toLowerCase()))
+    .join(' ')
+}
+
+// Converts a raw job title into a plural noun phrase usable mid-sentence.
+// "Chief Executive Officer and Managing Partner" -> "chief executive officers"
+// "CEO"                                          -> "CEOs"
+// "VP of Operations"                             -> "VPs of operations"
+// "Head of Logistics"                            -> "heads of logistics"
+// Returns null when the title yields nothing usable.
+export function pluraliseRoleTitle(title: string | null): string | null {
+  if (!title || title.trim().length === 0) return null
+
+  // Compound titles ("X and Y", "X / Y") read badly when pluralised whole.
+  // Take the first segment only.
+  const primary = title.split(TITLE_CONNECTOR_RE)[0]?.trim()
+  if (!primary) return null
+
+  // In "<head> of <scope>" titles the noun to pluralise is the head, not the scope.
+  // "VP of Operations" pluralises to "VPs of operations", never "VP of operationses".
+  const ofMatch = primary.match(/^(.+?)\s+of\s+(.+)$/i)
+  if (ofMatch) {
+    const head = pluraliseSegment(ofMatch[1].trim())
+    const scope = normaliseSegment(ofMatch[2].trim())
+    if (head && scope) return `${head} of ${scope}`
+  }
+
+  return pluraliseSegment(primary)
+}
+
 // Last-resort fallback when ICP has no extractable pain point.
-function buildRoleProxy(role: string | null): string {
-  const roleHint = role ? ` as a ${role}` : ''
-  return `Most founders${roleHint} I speak to at this stage are dealing with the same pipeline problem.`
+// roleOrTitle: prospects.role when set, else prospects.job_title.
+function buildRoleProxy(roleOrTitle: string | null): string {
+  const plural = pluraliseRoleTitle(roleOrTitle)
+  const subject = plural ?? 'people'
+  return `Most ${subject} I speak to at this stage are dealing with the same pipeline problem.`
 }
 
 // ─── Step 4 — Apply trigger to email 1 ───────────────────────────────────────

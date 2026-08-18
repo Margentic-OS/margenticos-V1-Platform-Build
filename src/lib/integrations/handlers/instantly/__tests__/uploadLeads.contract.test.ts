@@ -137,7 +137,9 @@ describe('uploadLeads — request shape', () => {
     expect(sent.company_name).toBe(lead.company_name)
     expect(sent.job_title).toBe(lead.job_title)
     expect(sent.personalization).toBe(lead.personalization)
-    expect(sent.custom_intro).toBe('Hi')
+    // Custom variables are nested under custom_variables, not spread onto the lead root.
+    expect(sent.custom_variables).toEqual({ custom_intro: 'Hi' })
+    expect(sent.custom_intro).toBeUndefined()
   })
 
   it('omits optional fields when not provided', async () => {
@@ -150,7 +152,7 @@ describe('uploadLeads — request shape', () => {
     expect(sent.personalization).toBeUndefined()
   })
 
-  it('spreads m_subject_N and m_body_N custom variables onto lead payload root', async () => {
+  it('nests m_subject_N and m_body_N under custom_variables on the lead payload', async () => {
     const fetchSpy = makeFetchSpy(200, SUCCESS_RESPONSE)
     const htmlBody1 = '<p>Alice</p>\n<p>Trigger sentence.</p>\n<p>Value prop.</p>\n<p>Worth a call?</p>\n<p>Doug</p>'
     const htmlBody2 = '<p>Following up on my last note.</p>\n<p>Doug</p>'
@@ -168,16 +170,19 @@ describe('uploadLeads — request shape', () => {
     const [, options] = fetchSpy.mock.calls[0]
     const body = JSON.parse(options?.body as string)
     const sent = body.leads[0]
-    // Custom variables are spread onto the lead root by uploadLeads
-    expect(sent.m_subject_1).toBe('Quick question')
-    expect(sent.m_body_1).toBe(htmlBody1)
-    expect(sent.m_subject_2).toBe('')
-    expect(sent.m_body_2).toBe(htmlBody2)
-    // Standard fields still present
+    // Custom variables live under the custom_variables key (live-verified contract).
+    expect(sent.custom_variables).toEqual({
+      m_subject_1: 'Quick question',
+      m_body_1: htmlBody1,
+      m_subject_2: '',
+      m_body_2: htmlBody2,
+    })
+    // Standard fields still present at the root
     expect(sent.email).toBe('alice@example.com')
     expect(sent.first_name).toBe('Alice')
-    // custom_variables key itself should not appear on the root
-    expect(sent.custom_variables).toBeUndefined()
+    // The variables must NOT be spread onto the lead root
+    expect(sent.m_subject_1).toBeUndefined()
+    expect(sent.m_body_1).toBeUndefined()
   })
 })
 
