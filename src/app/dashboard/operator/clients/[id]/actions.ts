@@ -373,6 +373,14 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   const approvedRows = rows.filter(row => approvedResolvedIds.has(resolvedFromRaw.get(row.segment_id) ?? null))
 
+  logger.info('handleUploadLeads: pipeline stage: approval gate', {
+    organisation_id: orgId,
+    stage: 'after_approval_gate',
+    claimed_count: claimedIdSet.size,
+    approved_count: approvedRows.length,
+    blocked_by_approval: claimedIdSet.size - approvedRows.length,
+  })
+
   if (approvedRows.length === 0) {
     return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns: [], compositionFailureCount: 0 }
   }  // Note: prospects remain claimed if returned here; reclaim happens in finally block
@@ -429,21 +437,46 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   // If any prospect cannot be routed to a campaign, block them and return
   if (campaignBlockedReasons.length > 0) {
+    logger.info('handleUploadLeads: campaign resolution failed', {
+      organisation_id: orgId,
+      stage: 'campaign_resolution',
+      approved_count: approvedRows.length,
+      routable_count: prospectToCampaign.size,
+      blocked_count: campaignBlockedReasons.length,
+    })
+
     const blockedProspectIds = campaignBlockedReasons.map(r => r.prospectId)
-    await supabase
-      .from('prospects')
-      .update({
-        outbound_upload_status: 'failed',
-        outbound_upload_error: 'campaign_resolution_failed: no matching campaign for this segment',
-      })
-      .in('id', blockedProspectIds)
-      .eq('organisation_id', orgId)
+    const now = new Date().toISOString()
+
+    // Write specific blocking reason to each prospect
+    await Promise.all(campaignBlockedReasons.map(async ({ prospectId, reason }) => {
+      const { error } = await supabase
+        .from('prospects')
+        .update({
+          outbound_upload_status: 'failed',
+          outbound_upload_attempted_at: now,
+          outbound_upload_error: reason,
+        })
+        .eq('id', prospectId)
+        .eq('organisation_id', orgId)
+
+      if (error) {
+        logger.warn('handleUploadLeads: failed to write campaign_resolution_failed error', { prospectId, error: error.message })
+      }
+    }))
 
     return {
       ok: false,
-      error: `${campaignBlockedReasons.length} prospect(s) cannot be routed to campaigns. Check campaign and segment configuration.`,
+      error: `${campaignBlockedReasons.length} prospect(s) cannot be routed to campaigns: ${campaignBlockedReasons[0]?.reason || 'unknown'}`,
     }
   }
+
+  logger.info('handleUploadLeads: pipeline stage: campaign resolution', {
+    organisation_id: orgId,
+    stage: 'after_campaign_resolution',
+    approved_count: approvedRows.length,
+    routable_count: prospectToCampaign.size,
+  })
 
   // Shell coherence check per campaign external_id.
   const shellBlockedCampaigns: ShellBlockedReason[] = []
@@ -472,8 +505,17 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   }
 
   const shellApprovedRows = approvedRows.filter(row => {
-    const externalId = row.campaigns?.external_id
+    const campaign = prospectToCampaign.get(row.id)
+    const externalId = campaign?.external_id
     return externalId && !shellBlockedExternalIds.has(externalId)
+  })
+
+  logger.info('handleUploadLeads: pipeline stage: shell coherence check', {
+    organisation_id: orgId,
+    stage: 'after_shell_check',
+    routable_count: prospectToCampaign.size,
+    shell_approved_count: shellApprovedRows.length,
+    shell_blocked_count: shellBlockedExternalIds.size,
   })
 
   if (shellApprovedRows.length === 0) {
@@ -546,6 +588,15 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
       }
     }))
   }
+
+  logger.info('handleUploadLeads: pipeline stage: composition', {
+    organisation_id: orgId,
+    stage: 'after_composition',
+    shell_approved_count: shellApprovedRows.length,
+    composed_count: Array.from(byExternalId.values()).reduce((sum, leads) => sum + leads.length, 0),
+    composition_failures: compositionFailureCount,
+    campaigns_with_leads: byExternalId.size,
+  })
 
   if (byExternalId.size === 0) {
     return { ok: false, error: 'No prospects ready for composition. Check approval, shell sync, and campaign assignment.' }
