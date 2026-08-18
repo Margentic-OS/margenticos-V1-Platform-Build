@@ -228,6 +228,9 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
   return Sentry.withServerActionInstrumentation('handleUploadLeads', async (): Promise<UploadLeadsResult> => {
+  let shouldReclaim = true
+  let reclamIds = new Set<string>()
+
   try {
 
   // Resolve primary segment once.
@@ -282,12 +285,15 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   const claimedIdSet = new Set(claimedIds.map(r => r.id))
 
-  // ── Fetch claimed prospects with campaign details ───────────────────────
+  // ── Fetch claimed prospects ───────────────────────────────────────────────
   // Separate SELECT after claim guarantees we see what was actually claimed.
-  // If inner join fails, we detect the error rather than silently sending nothing.
+  // Campaigns are resolved by segment, not by join, because campaigns carry
+  // shell_segment_id and prospects carry segment_id. Both NULL in the default
+  // single-segment case; match null-safe: (prospect.segment_id IS NULL AND
+  // campaigns.shell_segment_id IS NULL) OR (prospect.segment_id = campaigns.shell_segment_id).
   const { data: rawRows, error: fetchErr } = await supabase
     .from('prospects')
-    .select('id, email, first_name, last_name, company_name, role, segment_id, campaigns(id, external_id, shell_step_count, shell_segment_id)')
+    .select('id, email, first_name, last_name, company_name, role, segment_id')
     .eq('organisation_id', orgId)
     .in('id', Array.from(claimedIdSet))
 
@@ -319,6 +325,8 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   for (const rawId of rawSegmentIds) {
     resolvedFromRaw.set(rawId, rawId ?? primarySegmentId)
   }
+
+  reclamIds = claimedIdSet
 
   // Gate check + approved doc snapshot, one per resolved segment.
   // Snapshot is taken at gate-pass time — prevents mid-batch race if client revises mid-upload.
@@ -367,6 +375,74 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   if (approvedRows.length === 0) {
     return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns: [], compositionFailureCount: 0 }
+  }  // Note: prospects remain claimed if returned here; reclaim happens in finally block
+
+  // ── Campaign resolution by segment (null-safe matching) ────────────────────
+  // Fetch all campaigns for this org. Match campaigns to prospects by segment:
+  // If prospect.segment_id = campaigns.shell_segment_id (null-safe), link them.
+  // Default case: both NULL. If prospect has no matching campaign, block it.
+  // If prospect segment matches multiple campaigns, report ambiguity and block.
+  const { data: allCampaigns, error: campaignFetchErr } = await supabase
+    .from('campaigns')
+    .select('id, external_id, shell_step_count, shell_segment_id')
+    .eq('organisation_id', orgId)
+
+  if (campaignFetchErr) {
+    return {
+      ok: false,
+      error: `Campaign fetch failed: ${campaignFetchErr.message}`,
+    }
+  }
+
+  // Build segment -> campaigns map for fast lookup
+  const segmentToCampaigns = new Map<string | null, typeof allCampaigns>()
+  for (const campaign of allCampaigns ?? []) {
+    const segKey = campaign.shell_segment_id ?? null
+    if (!segmentToCampaigns.has(segKey)) {
+      segmentToCampaigns.set(segKey, [])
+    }
+    segmentToCampaigns.get(segKey)!.push(campaign)
+  }
+
+  // Validate each approved prospect has exactly one matching campaign
+  const campaignBlockedReasons: Array<{ prospectId: string; reason: string }> = []
+  const prospectToCampaign = new Map<string, (typeof allCampaigns)[0]>() // prospect.id -> campaign
+
+  for (const row of approvedRows) {
+    const resolvedSegmentId = resolvedFromRaw.get(row.segment_id) ?? null
+    const matchingCampaigns = segmentToCampaigns.get(resolvedSegmentId) ?? []
+
+    if (matchingCampaigns.length === 0) {
+      campaignBlockedReasons.push({
+        prospectId: row.id,
+        reason: `No campaign configured for segment ${resolvedSegmentId ?? 'default'}. Register a campaign before uploading.`,
+      })
+    } else if (matchingCampaigns.length > 1) {
+      campaignBlockedReasons.push({
+        prospectId: row.id,
+        reason: `Segment ${resolvedSegmentId ?? 'default'} has ${matchingCampaigns.length} campaigns. Ambiguous routing. Fix in campaign settings.`,
+      })
+    } else {
+      prospectToCampaign.set(row.id, matchingCampaigns[0])
+    }
+  }
+
+  // If any prospect cannot be routed to a campaign, block them and return
+  if (campaignBlockedReasons.length > 0) {
+    const blockedProspectIds = campaignBlockedReasons.map(r => r.prospectId)
+    await supabase
+      .from('prospects')
+      .update({
+        outbound_upload_status: 'failed',
+        outbound_upload_error: 'campaign_resolution_failed: no matching campaign for this segment',
+      })
+      .in('id', blockedProspectIds)
+      .eq('organisation_id', orgId)
+
+    return {
+      ok: false,
+      error: `${campaignBlockedReasons.length} prospect(s) cannot be routed to campaigns. Check campaign and segment configuration.`,
+    }
   }
 
   // Shell coherence check per campaign external_id.
@@ -402,7 +478,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   if (shellApprovedRows.length === 0) {
     return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount: 0 }
-  }
+  }  // Note: prospects remain claimed if returned here; reclaim happens in finally block
 
   // Compose every approved prospect and build per-lead payloads.
   // Map: campaignExternalId → lead payloads (only fully-composed leads are added).
@@ -414,7 +490,8 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     const chunk = shellApprovedRows.slice(i, i + COMPOSE_CHUNK_SIZE)
 
     await Promise.all(chunk.map(async row => {
-      const externalId = row.campaigns?.external_id
+      const campaign = prospectToCampaign.get(row.id)
+      const externalId = campaign?.external_id
       if (!externalId || !row.email) return
 
       const resolvedId = resolvedFromRaw.get(row.segment_id) ?? null
@@ -471,8 +548,8 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   }
 
   if (byExternalId.size === 0) {
-    return { ok: true, outcomes: [], hasPartialFailure: false, blockedSegments, shellBlockedCampaigns, compositionFailureCount }
-  }
+    return { ok: false, error: 'No prospects ready for composition. Check approval, shell sync, and campaign assignment.' }
+  }  // Note: prospects remain claimed if returned here; reclaim happens in finally block
 
   // ── FINAL SAFETY CHECK: re-verify suppressed=false AND client_review_status != 'rejected' ─
   // A reject could have landed after claim but before upload. This is the last checkpoint
@@ -544,11 +621,20 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   }
 
   // Upload to outbound provider — one batch per campaign.
+  // Build external_id -> internal campaign ID map for writing after upload
+  const externalIdToCampaignId = new Map<string, string>()
+  for (const campaign of allCampaigns ?? []) {
+    if (campaign.external_id) {
+      externalIdToCampaignId.set(campaign.external_id, campaign.id)
+    }
+  }
+
   const outcomes: CampaignOutcome[] = []
 
   for (const [campaignExternalId, leads] of byExternalId) {
     try {
-      const result = await uploadLeads(orgId, campaignExternalId, leads)
+      const campaignId = externalIdToCampaignId.get(campaignExternalId)
+      const result = await uploadLeads(orgId, campaignExternalId, leads, campaignId)
       outcomes.push({
         external_id: campaignExternalId,
         ok: true,
@@ -568,6 +654,9 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     }
   }
 
+  // Mark success path: prospects will be updated to 'uploaded', no reclaim needed
+  shouldReclaim = false
+
   return {
     ok: true,
     outcomes,
@@ -580,6 +669,22 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   } catch (err) {
     Sentry.captureException(err)
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  } finally {
+    // ALWAYS reclaim prospects if the upload did not succeed
+    if (shouldReclaim && reclamIds.size > 0) {
+      const { error: reclaimErr } = await supabase
+        .from('prospects')
+        .update({ outbound_upload_status: 'pending' })
+        .in('id', Array.from(reclamIds))
+
+      if (reclaimErr) {
+        logger.warn('handleUploadLeads: failed to reclaim prospects after upload failure', {
+          organisation_id: orgId,
+          claim_count: reclamIds.size,
+          error: reclaimErr.message,
+        })
+      }
+    }
   }
   }) // end withServerActionInstrumentation
 }

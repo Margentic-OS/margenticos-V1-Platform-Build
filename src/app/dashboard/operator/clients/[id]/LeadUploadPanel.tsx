@@ -49,6 +49,15 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, prima
     startTransition(async () => {
       const result = await handleUploadLeads(orgId)
       if (result.ok) {
+        const totalAttempted = result.outcomes.reduce((n, o) => n + (o.ok ? o.attempted : 0), 0)
+        const totalBlocked = result.blockedSegments.length + result.shellBlockedCampaigns.length
+        if (totalAttempted === 0 && totalBlocked === 0 && pendingCount > 0) {
+          setUploadState({
+            phase: 'error',
+            message: 'Upload claimed prospects but none were sent. Check approval gates, shell sync status, and campaign assignments.',
+          })
+          return
+        }
         setUploadState({ phase: 'success', result })
         router.refresh()
       } else {

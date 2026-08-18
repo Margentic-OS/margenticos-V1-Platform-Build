@@ -30,6 +30,7 @@ export async function uploadLeads(
   organisationId: string,
   campaignId: string,
   leads: ProspectForUpload[],
+  campaignInternalId?: string,  // internal UUID for writing to prospects.campaign_id
 ): Promise<LeadUploadResult> {
   const apiKey = await getInstantlyApiKey(organisationId)
   const isActive = await getInstantlyApiActive()
@@ -139,6 +140,7 @@ export async function uploadLeads(
           outbound_upload_status: 'uploaded',
           outbound_upload_attempted_at: now,
           outbound_upload_error: null,
+          ...(campaignInternalId && { campaign_id: campaignInternalId }),
         })
         .eq('email', lead.email)
         .eq('organisation_id', organisationId)
