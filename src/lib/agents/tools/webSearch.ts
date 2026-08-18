@@ -77,24 +77,72 @@ async function searchViaNativeAnthropic(query: string): Promise<WebSearchResult>
     messages,
   })
 
-  // Extract the text block — the model's synthesis after running the search.
-  const textBlock = response.content.find(b => b.type === 'text')
-  if (!textBlock || textBlock.type !== 'text' || !textBlock.text.trim()) {
-    throw new Error('Anthropic native search returned no text synthesis')
+  // The response content is a sequence, not a single block. With the server-side
+  // search tool it looks like:
+  //   [ text("I'll search for..."), server_tool_use, web_search_tool_result, text(findings) ]
+  // Taking the FIRST text block captures the model's preamble instead of the findings.
+  // Take only the text blocks that come AFTER the last search result.
+  const blocks = response.content
+  const lastResultIdx = blocks.map(b => b.type).lastIndexOf('web_search_tool_result')
+
+  // No search result block at all means the model never actually searched.
+  if (lastResultIdx === -1) {
+    throw new Error('Anthropic native search: model returned no web_search_tool_result block')
   }
 
-  const synthesis = textBlock.text.trim()
+  const synthesis = blocks
+    .slice(lastResultIdx + 1)
+    .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+    .map(b => b.text.trim())
+    .filter(Boolean)
+    .join('\n\n')
+    .trim()
 
-  // Flag as limited if the model produced a very short response (likely no real results).
-  const limited = synthesis.split('\n').filter(l => l.trim().length > 0).length < 2
+  if (!synthesis) {
+    throw new Error('Anthropic native search: search ran but produced no synthesis text')
+  }
+
+  // Count the results the search actually returned, so "no results" is distinguishable
+  // from "results but a thin summary".
+  let resultCount = 0
+  for (const b of blocks) {
+    if (b.type !== 'web_search_tool_result') continue
+    const content = (b as { content?: unknown }).content
+    if (Array.isArray(content)) resultCount += content.length
+  }
+
+  const limited = resultCount === 0 || !isSubstantive(synthesis)
 
   return {
     query,
     synthesis,
     source: 'anthropic_native',
     limited,
-    limitedReason: limited ? 'Search returned minimal results for this query' : undefined,
+    limitedReason: limited
+      ? (resultCount === 0
+          ? 'Search executed but returned zero results'
+          : 'Search returned results but no substantive findings')
+      : undefined,
   }
+}
+
+// A synthesis is substantive when it carries actual findings, not a stub or a
+// "could not find anything" note. Guards against storing a bare bullet character
+// or a one-line apology as if it were research.
+function isSubstantive(text: string): boolean {
+  const stripped = text.replace(/[•\-*\s]/g, '')
+  if (stripped.length < 60) return false
+
+  const lower = text.toLowerCase()
+  const NEGATIVE_MARKERS = [
+    'unable to find', 'could not find', 'no specific', 'no verifiable',
+    'i was unable', 'limited verifiable information', 'no results',
+    "i'll search", 'i will search', 'let me search',
+  ]
+  // A negative marker only disqualifies when the text is mostly that statement.
+  if (NEGATIVE_MARKERS.some(m => lower.includes(m)) && stripped.length < 220) return false
+
+  return true
 }
 
 // ─── Brave Search fallback ────────────────────────────────────────────────────

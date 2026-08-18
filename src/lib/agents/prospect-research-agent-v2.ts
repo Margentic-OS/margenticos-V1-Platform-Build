@@ -91,6 +91,10 @@ async function storeResearchResult(
       sources_attempted,
       sources_successful,
       relevance_reason: synthesis.relevance_reason,
+      // Every candidate considered, winner included, with six-test scores and provenance.
+      // Rejected candidates are kept deliberately so selection is auditable.
+      candidates:            synthesis.candidates,
+      selected_candidate_id: synthesis.selected_candidate_id,
     })
     .select('id')
     .single()
@@ -256,6 +260,8 @@ export async function runProspectResearchAgentV2({
       synthesis_reasoning: synthesis.reasoning,
       sources_attempted,
       sources_successful,
+      candidates:            synthesis.candidates,
+      selected_candidate_id: synthesis.selected_candidate_id,
     }
 
   } catch (err) {

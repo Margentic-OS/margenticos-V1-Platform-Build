@@ -20,7 +20,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
-import { generatePersonalization, countWords } from './personalization'
+import { generateBridge, countWords } from './personalization'
 
 // Private type alias derived from getServiceClient (defined at bottom of file).
 // Using the actual inferred return type avoids generic parameter conflicts with createClient overloads.
@@ -682,7 +682,15 @@ function applyTriggerToEmail1(emails: StoredEmail[], trigger: string): ComposedE
   })
 }
 
-// ─── Step 4b — Bridge + personalized CTA ─────────────────────────────────────
+// ─── Step 4b — Bridge sentence ───────────────────────────────────────────────
+//
+// The CTA rewrite was REMOVED here. It overwrote the client-approved template CTA
+// with machine copy on every prospect, and produced worse copy than the line it
+// replaced even when a real researched trigger existed. The approved CTA now
+// survives verbatim in every case.
+//
+// What remains is the bridge: an ADDITIVE sentence inserted after the trigger,
+// gated on a genuine researched signal. It never overwrites approved copy.
 
 const EMAIL1_MAX_WORDS  = 90
 const BRIDGE_HEADROOM   = Math.floor(EMAIL1_MAX_WORDS * 0.9)  // 81 words
@@ -697,42 +705,51 @@ async function applyPersonalization(
     emails.map(async email => {
       if (email.sequence_position !== 1) return email
 
+      // word_count is always recomputed on email 1: the stored count came from the
+      // template, and applyTriggerToEmail1 has already replaced the opener by now.
+      const withCount = (body: string): ComposedEmail =>
+        ({ ...email, body, word_count: countWords(body) })
+
+      // Bridge requires a signal the research agent graded strong enough to reference.
       const useBridgePath = prospect.has_dateable_signal === true && prospect.signal_relevance === 'use_as_hook'
-      const tier = useBridgePath ? 'tier1' : 'tier3'
+      if (!useBridgePath) return withCount(email.body)
 
-      const currentWords   = countWords(email.body)
-      const canFitBridge   = tier === 'tier1' && currentWords <= BRIDGE_HEADROOM
+      const currentWords = countWords(email.body)
+      if (currentWords > BRIDGE_HEADROOM) {
+        logger.debug('compose-sequence: bridge skipped — email already at word ceiling', {
+          prospect_id: prospect.id,
+          current_words: currentWords,
+          headroom: BRIDGE_HEADROOM,
+        })
+        return withCount(email.body)
+      }
 
-      const { bridge, cta } = await generatePersonalization({
-        tier,
+      const { bridge } = await generateBridge({
         triggerText:       trigger,
         prospectRole:      prospect.role,
-        prospectCompany:   prospect.company_name,
         prospectFirstName: prospect.first_name,
-        prospectLastName:  prospect.last_name,
         clientValueHook,
       })
 
-      let body = email.body
-
-      // Insert bridge (Tier 1 only, word count gated).
-      if (canFitBridge && bridge) {
-        const bridgeWords = countWords(bridge)
-        if (currentWords + bridgeWords <= EMAIL1_MAX_WORDS) {
-          body = insertBridgeAfterTrigger(body, bridge)
-        } else {
-          logger.debug('compose-sequence: bridge skipped — would exceed word limit', {
-            prospect_id: prospect.id,
-            current_words: currentWords,
-            bridge_words: bridgeWords,
-          })
-        }
+      if (!bridge) {
+        logger.debug('compose-sequence: bridge skipped — generator returned nothing', {
+          prospect_id: prospect.id,
+        })
+        return withCount(email.body)
       }
 
-      // Replace existing CTA paragraph with personalized CTA (all tiers).
-      body = replaceCtaParagraph(body, cta)
+      const bridgeWords = countWords(bridge)
+      if (currentWords + bridgeWords > EMAIL1_MAX_WORDS) {
+        logger.debug('compose-sequence: bridge skipped — would exceed word limit', {
+          prospect_id: prospect.id,
+          current_words: currentWords,
+          bridge_words: bridgeWords,
+          limit: EMAIL1_MAX_WORDS,
+        })
+        return withCount(email.body)
+      }
 
-      return { ...email, body, word_count: countWords(body) }
+      return withCount(insertBridgeAfterTrigger(email.body, bridge))
     })
   )
 }
@@ -746,19 +763,6 @@ function insertBridgeAfterTrigger(body: string, bridge: string): string {
 
   const result = [...paragraphs]
   result.splice(triggerIdx + 1, 0, bridge)
-  return result.join('\n\n')
-}
-
-// Replace the CTA paragraph (second-to-last non-empty paragraph, before sign-off).
-function replaceCtaParagraph(body: string, cta: string): string {
-  const paragraphs = body.split('\n\n')
-  const nonEmpty   = paragraphs.map((p, i) => ({ p, i })).filter(({ p }) => p.trim().length > 0)
-
-  if (nonEmpty.length < 2) return body
-
-  const ctaEntry   = nonEmpty[nonEmpty.length - 2]
-  const result     = [...paragraphs]
-  result[ctaEntry.i] = cta
   return result.join('\n\n')
 }
 

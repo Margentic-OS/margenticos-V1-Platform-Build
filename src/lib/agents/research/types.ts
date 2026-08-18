@@ -2,7 +2,64 @@
 // All source handlers and the synthesizer use these interfaces.
 
 export type IcpFit = 'strong' | 'moderate' | 'weak'
-export type SignalRelevance = 'use_as_hook' | 'ignore'
+
+// use_as_hook  — a candidate passed all six tests; safe to reference directly in the opener
+// mention_only — passed SPECIFIC + VERIFIABLE + RELEVANT but not all six; usable as context, not as a hook
+// no_signal    — nothing cleared the bar; the ICP pain trigger is used instead
+// ignore       — legacy value, retained because it is the column default and pre-dates
+//                candidate generation. Treated identically to no_signal by every consumer.
+export type SignalRelevance = 'use_as_hook' | 'mention_only' | 'no_signal' | 'ignore'
+
+// ─── Candidate observations (FIX A) ──────────────────────────────────────────
+// The synthesis step generates MULTIPLE candidate observations from all raw material
+// and scores each against six tests, rather than evaluating a single pre-selected item.
+// Every candidate is persisted so the rejected ones are inspectable, not just the winner.
+
+export type CandidateSource = 'linkedin' | 'apollo' | 'website' | 'web_search' | 'composite'
+
+export interface CandidateScores {
+  /** Names a thing, a date, or a number, not a category. */
+  specific: boolean
+  /** Confirmable by a human in 30 seconds from the cited source. */
+  verifiable: boolean
+  /** Implies something the prospect would agree with, beyond the fact. */
+  inferential: boolean
+  /** Connects to pipeline, marketing capacity, or client acquisition. Otherwise trivia. */
+  relevant: boolean
+  /** Tells the prospect something, or frames something they had not articulated. */
+  useful: boolean
+  /** Reads as noticing, not as scoring their performance. */
+  non_judgemental: boolean
+}
+
+export const SIX_TESTS = [
+  'specific', 'verifiable', 'inferential', 'relevant', 'useful', 'non_judgemental',
+] as const
+
+export interface ObservationCandidate {
+  /** Stable id within this run: c1, c2, ... */
+  id: string
+  /** The observation itself, as it would be referenced. */
+  observation: string
+  source: CandidateSource
+  /**
+   * Where a human verifies this in 30 seconds: a URL, or an exact location
+   * ("Apollo employment_history entry 2", "LinkedIn post dated 2026-07-20").
+   * An observation without provenance fails VERIFIABLE by definition.
+   */
+  provenance: string
+  /** ISO date or approximate date string. null when the observation is undated. */
+  date: string | null
+  /** True when the candidate combines several smaller items into one pattern. */
+  is_composite: boolean
+  scores: CandidateScores
+  /** Derived in code from scores, never trusted from the model. */
+  passes_all: boolean
+  /** Count of passed tests, 0-6. Derived in code. */
+  score_total: number
+  /** Why it was not selected. null for the winner. */
+  rejection_reason: string | null
+}
 export type QualificationStatus = 'qualified' | 'flagged_for_review' | 'disqualified'
 export type SynthesisConfidence = 'high' | 'medium' | 'low'
 export type TriggerSourceType =
@@ -32,6 +89,10 @@ export interface SynthesisOutput {
   trigger_source:        TriggerSource | null  // null going forward; kept for DB compat
   relevance_reason:      string
   reasoning:             string
+  /** Every candidate considered, winner included, with its six-test scores. */
+  candidates:            ObservationCandidate[]
+  /** id of the selected candidate, or null when nothing cleared the bar. */
+  selected_candidate_id: string | null
 }
 
 // Stripped-down prospect shape passed to all source handlers and the synthesizer.
@@ -104,6 +165,8 @@ export interface ResearchResult {
   synthesis_reasoning: string
   sources_attempted: string[]
   sources_successful: string[]
+  candidates: ObservationCandidate[]
+  selected_candidate_id: string | null
 }
 
 export interface ResearchInput {

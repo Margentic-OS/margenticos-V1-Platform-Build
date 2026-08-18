@@ -17,8 +17,8 @@ export interface PromptContext {
 
 export function buildSynthesisPrompt(ctx: PromptContext): string {
   const signalBlock = ctx.signalObservation
-    ? `A dateable signal was found before you were invoked:\n  ${ctx.signalObservation}\nYou must assess whether this signal is relevant enough to use as a hook (signal_relevance: "use_as_hook") or should be ignored in favour of ICP pain framing (signal_relevance: "ignore"). See the VALUE PROP ALIGNMENT FILTER below.`
-    : `No dateable signal was found before you were invoked. Set signal_relevance to "ignore". Write an ICP pain trigger.`
+    ? `A deterministic recency check ran before you were invoked and flagged this item:\n  ${ctx.signalObservation}\nThat is ONE candidate among many. It has no priority. Generate the full candidate set below and score this item alongside every other, on the same six tests.`
+    : `The deterministic recency check found no dated item. That does NOT mean there are no candidates. Employment history, website content, and composite absence patterns are all still eligible. Generate the full candidate set below.`
 
   return `You are a prospect research synthesist working for ${ctx.clientName}.
 
@@ -62,8 +62,93 @@ SIGNAL DIMENSION
 ${signalBlock}
 
 The has_dateable_signal field is determined before you run — do not re-assess it.
-Your only job on the signal dimension is signal_relevance: does this signal pass the
-VALUE PROP ALIGNMENT FILTER below? If yes: use_as_hook. If no or no signal: ignore.
+
+─────────────────────────────────────────────────────────────────────
+CANDIDATE GENERATION — do this before anything else
+─────────────────────────────────────────────────────────────────────
+
+Do NOT evaluate a single pre-selected item. Generate EVERY candidate observation
+the research supports, then score them all. A strong observation is routinely
+buried in employment history or spread across sources, not sitting in the most
+recent post.
+
+Sweep all four sources exhaustively:
+
+  LINKEDIN — every post in the window, not just the newest. Also the profile
+  headline, the About text, and connection count if it tells you something.
+
+  EMPLOYMENT HISTORY (Apollo, and LinkedIn positions) — this is the most
+  under-used source and often the strongest. Look specifically for:
+    • Concurrent roles: running their own firm while holding a role elsewhere
+    • Recent transitions: a role that started or ended in the last 18 months
+    • Role-end announcements, including ones the prospect made themselves
+    • Long tenure with flat headcount
+    • Gaps, or a return to employment after founding
+  A concurrent or recently-ended second role is a strong inference about the
+  founder's revenue and pipeline situation. Always generate it as a candidate.
+
+  WEBSITE — services and positioning statements, but also anything DATED:
+  blog or insights posts and their dates, case study dates, copyright year,
+  "since 20XX" claims, team page size, careers page activity.
+
+  WEB SEARCH — any finding with a date or a named publication.
+
+  COMPOSITE CANDIDATES — explicitly allowed and often the STRONGEST. Several
+  small absences may combine into one observation that no single part supports:
+  blog last updated two years ago + LinkedIn quiet for months + newest case
+  study from 2019 together imply delivery has been consuming the marketing time.
+  Generate composites wherever the pattern holds. Mark is_composite: true.
+
+Aim for 3 to 8 candidates. Fewer than 3 means you have not swept properly.
+Generating a candidate is free. Only selection is strict.
+
+─────────────────────────────────────────────────────────────────────
+THE SIX TESTS — score every candidate against all six
+─────────────────────────────────────────────────────────────────────
+
+SPECIFIC: names a thing, a date, or a number, not a category.
+
+VERIFIABLE: confirmable by a human in 30 seconds from the cited source.
+
+INFERENTIAL: implies something the prospect would agree with, beyond the fact.
+
+RELEVANT: connects to pipeline, marketing capacity, or client acquisition,
+which is what the sender fixes. Otherwise it is trivia.
+
+USEFUL: tells the prospect something, or frames something they had not
+articulated.
+
+NON-JUDGEMENTAL: reads as noticing, not as scoring their performance. This
+matters most for absence-based candidates: "you stopped blogging" fails,
+"the pattern across your blog, LinkedIn and case studies suggests delivery
+has been eating the marketing time" passes.
+
+Score each test true or false. Be honest. A candidate that fails a test is
+useful information; inflating scores destroys the whole mechanism.
+
+PROVENANCE IS MANDATORY. Every candidate must carry a provenance string precise
+enough for a human to verify it in 30 seconds: a URL, or an exact location such
+as "Apollo employment_history: Director at CRC, Jul 2024 to Aug 2025" or
+"LinkedIn post dated 2026-07-20". A candidate without provenance fails
+VERIFIABLE by definition. Set verifiable: false in that case.
+
+─────────────────────────────────────────────────────────────────────
+SELECTION
+─────────────────────────────────────────────────────────────────────
+
+Name your preferred candidate in selected_candidate_id. The selection rule is
+then applied deterministically in code:
+
+  Passes ALL SIX            → signal_relevance "use_as_hook"
+  Passes SPECIFIC +
+    VERIFIABLE + RELEVANT   → signal_relevance "mention_only"
+  Neither                   → signal_relevance "no_signal"
+
+Never force a weak candidate through. The ICP pain fallback is good copy and
+failing closed is the correct outcome. An honest "no_signal" beats a stretched hook.
+
+The VALUE PROP ALIGNMENT FILTER below still governs RELEVANT. Apply it exactly as
+strictly as before. What has changed is WHAT gets evaluated, not how strictly.
 
 ─────────────────────────────────────────────────────────────────────
 VALUE PROP ALIGNMENT FILTER — run this when a signal exists
@@ -71,8 +156,8 @@ VALUE PROP ALIGNMENT FILTER — run this when a signal exists
 
 ${ctx.valuePropContext}
 
-When a signal exists, apply both tests below.
-Fail either test: signal_relevance = "ignore". Write an ICP pain trigger instead.
+Apply both tests below to every candidate. A candidate failing either test scores
+relevant: false. Where no candidate passes, write an ICP pain trigger instead.
 
 TEST 1 — RIGHT AUDIENCE: Does this signal connect to a pain this prospect
 personally experiences — not a pain they observe in others?
@@ -111,7 +196,7 @@ RELEVANCE ORDERING (when multiple signals exist)
 
 A conversation starter referencing someone's alma mater, home city, sports team, or
 personal interest is NOT relevant unless it directly connects to their business situation.
-If the only signal you found is of this type, set signal_relevance = "ignore".
+A candidate of this type scores relevant: false.
 
 ─────────────────────────────────────────────────────────────────────
 QUALIFICATION ASSESSMENT
@@ -144,7 +229,19 @@ When signal_relevance = "use_as_hook":
   ✗ Must not reference personal life (family, sports, city, hobbies)
   ✗ Must not invent or assume details not present in the research
 
-When signal_relevance = "ignore":
+When the winning candidate is a composite absence pattern:
+  Frame it as noticing a pattern, never as scoring their output.
+  ✓ "The gap between your last case study and the pace of the delivery work suggests
+     marketing has been getting whatever time is left."
+  ✗ "Your blog has not been updated since 2023." (judgemental, fails NON-JUDGEMENTAL)
+
+When the winning candidate comes from employment history:
+  Reference the fact, let the inference sit unstated. The prospect draws it themselves.
+  ✓ "Running Taffet alongside the CRC engagement through 2024 and 2025 is a particular
+     kind of balancing act."
+  ✗ "Taking a job at CRC suggests your pipeline was thin." (accusatory, fails NON-JUDGEMENTAL)
+
+When signal_relevance = "no_signal" or "mention_only":
   Use ICP-derived pain framing. Structural template:
   "Most [role/practice type from client's ICP] at this stage are dealing with the same pattern:
   [specific push force from client's ICP, expressed as observed behaviour, not assumed feeling]."
@@ -195,22 +292,42 @@ OUTPUT FORMAT
 
 First, reason through the research in a <reasoning> block. Cover:
   1. What each source returned (or didn't)
-  2. ICP fit assessment: which dimensions match, which don't, and why
-  3. Signal assessment: if a signal exists, apply the VALUE PROP ALIGNMENT FILTER
-  4. signal_relevance decision and why
-  5. trigger_text construction
-  6. Qualification assessment
+  2. The full candidate sweep: every candidate you generated and where it came from.
+     Say explicitly what you found in employment history and what composites you considered.
+  3. ICP fit assessment: which dimensions match, which don't, and why
+  4. Six-test scoring: for each candidate, which tests it passed and failed
+  5. Which candidate you selected and why the others lost
+  6. trigger_text construction
+  7. Qualification assessment
 
 Then output this exact JSON with no markdown fences:
 
 {
   "icp_fit": "strong" or "moderate" or "weak",
-  "signal_relevance": "use_as_hook" or "ignore",
+  "candidates": [
+    {
+      "id": "c1",
+      "observation": "The observation as it would be referenced, one sentence.",
+      "source": "linkedin" or "apollo" or "website" or "web_search" or "composite",
+      "provenance": "URL, or exact location a human can check in 30 seconds",
+      "date": "YYYY-MM-DD" or "approximate description" or null,
+      "is_composite": false,
+      "scores": {
+        "specific": true, "verifiable": true, "inferential": true,
+        "relevant": true, "useful": true, "non_judgemental": true
+      },
+      "rejection_reason": null or "one sentence: which test it failed and why"
+    }
+  ],
+  "selected_candidate_id": "c1" or null,
   "qualification_status": "qualified" or "flagged_for_review" or "disqualified",
   "qualification_reason": null or "one sentence: what specific evidence was found",
   "confidence": "high" or "medium" or "low",
   "trigger_text": "The one sentence personalisation hook. No leading I or We.",
   "trigger_source": null,
   "relevance_reason": "One sentence: why this trigger connects to the ICP pain or value prop"
-}`
+}
+
+Do NOT output signal_relevance. It is derived in code from the six-test scores of the
+candidate you select. Your job is honest scoring, not the final label.`
 }

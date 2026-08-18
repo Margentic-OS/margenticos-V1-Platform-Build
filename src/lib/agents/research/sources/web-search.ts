@@ -38,8 +38,11 @@ export async function fetchWebSearchSource(prospect: ProspectContext): Promise<W
       webSearch(companyQuery),
     ])
 
-    const personText = personResult.synthesis.trim() || null
-    const companyText = companyResult.synthesis.trim() || null
+    // A query that came back `limited` produced no substantive findings. Treating it
+    // as content is what let the model's own preamble ("I'll search for information
+    // about...") be stored as research and counted as a successful source.
+    const personText  = !personResult.limited  ? (personResult.synthesis.trim()  || null) : null
+    const companyText = !companyResult.limited ? (companyResult.synthesis.trim() || null) : null
 
     const available = !!(personText || companyText)
 
@@ -53,6 +56,11 @@ export async function fetchWebSearchSource(prospect: ProspectContext): Promise<W
         person: !!personText,
         company: !!companyText,
       })
+    } else {
+      logger.debug('research/web-search: no substantive findings', {
+        person_reason:  personResult.limitedReason  ?? 'none',
+        company_reason: companyResult.limitedReason ?? 'none',
+      })
     }
 
     return {
@@ -60,7 +68,9 @@ export async function fetchWebSearchSource(prospect: ProspectContext): Promise<W
       person_search: personText,
       company_search: companyText,
       combined,
-      error: available ? undefined : 'Both queries returned no results',
+      error: available
+        ? undefined
+        : `No substantive findings. person: ${personResult.limitedReason ?? 'empty'}; company: ${companyResult.limitedReason ?? 'empty'}`,
     }
   } catch (err) {
     logger.warn('research/web-search: failed', { error: String(err) })

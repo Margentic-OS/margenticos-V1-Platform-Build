@@ -15,10 +15,7 @@ import type { MessagingContent, ComposeDocs } from '../compose-sequence'
 vi.mock('@supabase/supabase-js')
 
 vi.mock('@/lib/composition/personalization', () => ({
-  generatePersonalization: vi.fn().mockResolvedValue({
-    bridge: null,
-    cta: 'Worth a quick call to see if it fits?',
-  }),
+  generateBridge: vi.fn().mockResolvedValue({ bridge: null }),
   countWords: (text: string) => text.split(/\s+/).filter(Boolean).length,
 }))
 

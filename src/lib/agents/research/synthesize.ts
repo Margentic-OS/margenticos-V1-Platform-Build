@@ -10,7 +10,11 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { buildSynthesisPrompt } from './prompts/synthesis-prompt'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
-import type { ProspectContext, RawSourceData, SynthesisOutput } from './types'
+import { SIX_TESTS } from './types'
+import type {
+  ProspectContext, RawSourceData, SynthesisOutput,
+  ObservationCandidate, CandidateScores, CandidateSource, SignalRelevance,
+} from './types'
 
 const SYNTHESIS_MODEL = 'claude-sonnet-4-6'
 
@@ -280,6 +284,93 @@ function extractJson(text: string): string {
   return stripped.slice(start, end + 1)
 }
 
+// ─── Candidate parsing and deterministic selection (FIX A) ───────────────────
+//
+// The model scores each candidate against the six tests. The SELECTION RULE is
+// applied here in code, not by the model (ADR-018): given honest boolean scores,
+// choosing the winner is arithmetic, not judgement. passes_all and score_total are
+// always derived here and never read from the model's output.
+
+const CANDIDATE_SOURCES: readonly CandidateSource[] =
+  ['linkedin', 'apollo', 'website', 'web_search', 'composite'] as const
+
+function asBool(v: unknown): boolean {
+  return v === true
+}
+
+function parseCandidate(raw: unknown, index: number): ObservationCandidate | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const o = raw as Record<string, unknown>
+
+  const observation = typeof o.observation === 'string' ? o.observation.trim() : ''
+  if (!observation) return null
+
+  const provenance = typeof o.provenance === 'string' ? o.provenance.trim() : ''
+  const rawScores  = (typeof o.scores === 'object' && o.scores !== null)
+    ? o.scores as Record<string, unknown>
+    : {}
+
+  const scores: CandidateScores = {
+    specific:        asBool(rawScores.specific),
+    // No provenance means a human cannot confirm it in 30 seconds. Enforced here
+    // rather than trusted from the model.
+    verifiable:      asBool(rawScores.verifiable) && provenance.length > 0,
+    inferential:     asBool(rawScores.inferential),
+    relevant:        asBool(rawScores.relevant),
+    useful:          asBool(rawScores.useful),
+    non_judgemental: asBool(rawScores.non_judgemental),
+  }
+
+  const score_total = SIX_TESTS.filter(t => scores[t]).length
+  const passes_all  = score_total === SIX_TESTS.length
+
+  const source = CANDIDATE_SOURCES.find(s => s === o.source) ?? 'website'
+
+  return {
+    id: typeof o.id === 'string' && o.id.trim() ? o.id.trim() : `c${index + 1}`,
+    observation,
+    source,
+    provenance,
+    date: typeof o.date === 'string' && o.date.trim() ? o.date.trim() : null,
+    is_composite: asBool(o.is_composite) || source === 'composite',
+    scores,
+    passes_all,
+    score_total,
+    rejection_reason: typeof o.rejection_reason === 'string' && o.rejection_reason.trim()
+      ? o.rejection_reason.trim()
+      : null,
+  }
+}
+
+// Selection rule, per FIX A3. Returns the winner and the relevance grade it earns.
+function selectCandidate(
+  candidates: ObservationCandidate[],
+  modelPreferredId: string | null,
+): { winner: ObservationCandidate | null; relevance: SignalRelevance } {
+  if (candidates.length === 0) return { winner: null, relevance: 'no_signal' }
+
+  // Tier 1 — passes all six.
+  const allPass = candidates.filter(c => c.passes_all)
+  if (allPass.length > 0) {
+    const preferred = allPass.find(c => c.id === modelPreferredId)
+    return { winner: preferred ?? allPass[0], relevance: 'use_as_hook' }
+  }
+
+  // Tier 2 — passes SPECIFIC + VERIFIABLE + RELEVANT.
+  const partial = candidates
+    .filter(c => c.scores.specific && c.scores.verifiable && c.scores.relevant)
+    .sort((a, b) => b.score_total - a.score_total)
+  if (partial.length > 0) {
+    const preferred = partial.find(c => c.id === modelPreferredId)
+    // Prefer the model's pick only when it is at least as strong as the best partial.
+    const best = preferred && preferred.score_total === partial[0].score_total ? preferred : partial[0]
+    return { winner: best, relevance: 'mention_only' }
+  }
+
+  // Nothing cleared the bar. Failing closed is correct.
+  return { winner: null, relevance: 'no_signal' }
+}
+
 function parseSynthesisResponse(
   raw: string,
   prospect: ProspectContext,
@@ -299,8 +390,21 @@ function parseSynthesisResponse(
 
   const icp_fit = (['strong', 'moderate', 'weak'] as const)
     .find(f => f === parsed.icp_fit) ?? 'moderate'
-  const signal_relevance = (['use_as_hook', 'ignore'] as const)
-    .find(r => r === parsed.signal_relevance) ?? 'ignore'
+
+  // Candidates + deterministic selection. signal_relevance is DERIVED here, never
+  // read from the model output.
+  const candidates = Array.isArray(parsed.candidates)
+    ? parsed.candidates
+        .map((c, i) => parseCandidate(c, i))
+        .filter((c): c is ObservationCandidate => c !== null)
+    : []
+
+  const modelPreferredId = typeof parsed.selected_candidate_id === 'string'
+    ? parsed.selected_candidate_id.trim()
+    : null
+
+  const { winner, relevance: signal_relevance } = selectCandidate(candidates, modelPreferredId)
+
   const qualification_status = (['qualified', 'flagged_for_review', 'disqualified'] as const)
     .find(s => s === parsed.qualification_status) ?? 'qualified'
   const confidence = (['high', 'medium', 'low'] as const)
@@ -313,7 +417,9 @@ function parseSynthesisResponse(
   return {
     icp_fit,
     has_dateable_signal: detectedSignal.has_dateable_signal,
-    signal_observation:  detectedSignal.signal_observation,
+    // The winning candidate is the observation of record. Fall back to the
+    // deterministic recency check only when nothing was selected.
+    signal_observation:  winner ? winner.observation : detectedSignal.signal_observation,
     signal_relevance,
     qualification_status,
     qualification_reason: typeof parsed.qualification_reason === 'string'
@@ -324,25 +430,33 @@ function parseSynthesisResponse(
     trigger_source: null,
     relevance_reason: typeof parsed.relevance_reason === 'string' ? parsed.relevance_reason : '',
     reasoning,
+    candidates,
+    selected_candidate_id: winner?.id ?? null,
   }
 }
 
 function buildIcpPainTrigger(prospect: ProspectContext, icpSummary: string): string {
   const pushMatch = icpSummary.match(/- (.+)/)
-  const role = prospect.role ?? 'practitioners'
+  // Already-plural defaults must not be pluralised again ("practitionerss").
+  const rawRole = prospect.role ?? 'practitioners'
+  const role = rawRole.endsWith('s') ? rawRole : `${rawRole}s`
 
-  if (!pushMatch) return `Most ${role}s at this stage face the same pipeline challenges.`
+  if (!pushMatch) return `Most ${role} at this stage face the same pipeline challenges.`
 
-  const rawPain = pushMatch[1].trim()
+  // ICP push forces often end with their own full stop; appending another produces "..".
+  const rawPain = pushMatch[1].trim().replace(/\.+$/, '')
   // ICP push forces may be gerund phrases ("Struggling to...") or modal-negative phrases
   // ("Can't convert...") or noun phrases ("Inconsistent revenue"). Each needs a different
   // sentence frame to produce grammatical output.
   const isModalNegative = /^(can'?t|cannot|don'?t|doesn'?t)/i.test(rawPain)
   const isGerund = /^(struggling|failing|having|lacking|trying|working|relying|running|finding|spending)/i.test(rawPain)
 
-  if (isModalNegative) return `Most ${role}s at this stage find they ${rawPain.toLowerCase()}.`
-  if (isGerund)        return `Most ${role}s at this stage are ${rawPain.toLowerCase()}.`
-  return `Most ${role}s at this stage are dealing with ${rawPain.toLowerCase()}.`
+  // Lowercasing only the first character preserves proper nouns inside the pain text.
+  const pain = rawPain.charAt(0).toLowerCase() + rawPain.slice(1)
+
+  if (isModalNegative) return `Most ${role} at this stage find they ${pain}.`
+  if (isGerund)        return `Most ${role} at this stage are ${pain}.`
+  return `Most ${role} at this stage are dealing with ${pain}.`
 }
 
 function buildFallbackSynthesis(
@@ -356,7 +470,7 @@ function buildFallbackSynthesis(
     icp_fit: 'moderate',
     has_dateable_signal: detectedSignal.has_dateable_signal,
     signal_observation:  detectedSignal.signal_observation,
-    signal_relevance: 'ignore',
+    signal_relevance: 'no_signal',
     qualification_status: 'qualified',
     qualification_reason: null,
     confidence: 'low',
@@ -364,6 +478,8 @@ function buildFallbackSynthesis(
     trigger_source: null,
     relevance_reason: `Synthesis fallback: ICP pain proxy used. ${errorNote}`,
     reasoning,
+    candidates: [],
+    selected_candidate_id: null,
   }
 }
 
@@ -425,7 +541,9 @@ export async function synthesizeResearch(
   try {
     const response = await callWithRetry(
       client,
-      { model: SYNTHESIS_MODEL, max_tokens: 3000, system: systemPrompt, messages: [{ role: 'user', content: userMessage }] } satisfies MessageCreateParamsNonStreaming,
+      // 8000, not 3000: the candidate array plus its reasoning does not fit in 3000,
+      // and a truncated response fails JSON parse and silently drops to the ICP fallback.
+      { model: SYNTHESIS_MODEL, max_tokens: 8000, system: systemPrompt, messages: [{ role: 'user', content: userMessage }] } satisfies MessageCreateParamsNonStreaming,
       prospect.id,
     )
 
@@ -433,6 +551,15 @@ export async function synthesizeResearch(
     if (!textBlock || textBlock.type !== 'text') {
       logger.warn('research/synthesize: no text block in response')
       return buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', 'No text block in response', detectedSignal)
+    }
+
+    // A truncated response is the most likely cause of a JSON parse failure, and it
+    // looks identical to a model error unless stop_reason is checked.
+    if (response.stop_reason === 'max_tokens') {
+      logger.error('research/synthesize: response truncated at max_tokens — candidates will be lost', {
+        prospect_id: prospect.id,
+        output_tokens: response.usage?.output_tokens,
+      })
     }
 
     const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal)
@@ -446,7 +573,18 @@ export async function synthesizeResearch(
       signal_relevance:    scrubbedResult.signal_relevance,
       qualification:       scrubbedResult.qualification_status,
       confidence:          scrubbedResult.confidence,
+      candidate_count:     scrubbedResult.candidates.length,
+      selected_candidate:  scrubbedResult.selected_candidate_id,
     })
+
+    // Fewer than three candidates means the sweep did not run properly. Visible,
+    // not silent, so a prompt regression shows up in logs rather than in the copy.
+    if (scrubbedResult.candidates.length < 3) {
+      logger.warn('research/synthesize: thin candidate set', {
+        prospect_id: prospect.id,
+        candidate_count: scrubbedResult.candidates.length,
+      })
+    }
     return scrubbedResult
 
   } catch (err) {
