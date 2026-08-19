@@ -1198,14 +1198,27 @@ class MessagingValidationError extends Error {
 // Runs the full post-processor on one variant's emails.
 // Applies em-dash auto-fix, sign-off fix, then the 10-rule validation gate.
 // Returns { passed } if clean, { failure } if violations remain.
-async function processOneVariant(
-  variantKey: string,
-  emails: EmailRecord[],
-  senderFirstName: string,
-  senderCompanyName: string,
-  organisation_id: string,
+// Named parameters, deliberately. Five of the six arguments were positional strings, so
+// omitting one type-checked cleanly while shifting every later argument left. That is
+// exactly what happened on the retry path: senderCompanyName received the organisation
+// UUID and organisation_id received "retry-1". Named fields make it unrepresentable.
+interface ProcessVariantParams {
+  variantKey: string
+  emails: EmailRecord[]
+  senderFirstName: string
+  senderCompanyName: string
+  organisation_id: string
   attemptLabel?: string
-): Promise<{ passed: EmailRecord[] } | { failure: VariantFailure }> {
+}
+
+async function processOneVariant({
+  variantKey,
+  emails,
+  senderFirstName,
+  senderCompanyName,
+  organisation_id,
+  attemptLabel,
+}: ProcessVariantParams): Promise<{ passed: EmailRecord[] } | { failure: VariantFailure }> {
   const label = attemptLabel ? ` (${attemptLabel})` : ''
 
   if (emails.length !== 4) {
@@ -1300,7 +1313,7 @@ async function processAllVariants(
   const variantFailures: VariantFailure[] = []
 
   for (const [variantKey, emails] of Object.entries(rawVariants)) {
-    const result = await processOneVariant(variantKey, emails, senderFirstName, senderCompanyName, organisation_id)
+    const result = await processOneVariant({ variantKey, emails, senderFirstName, senderCompanyName, organisation_id })
     if ('passed' in result) {
       passedVariants[variantKey] = result.passed
     } else {
@@ -1703,9 +1716,16 @@ async function retryVariantSlot(
       const userMessage = buildSingleVariantUserMessage(context, originalAngle, taken)
       const raw = await callClaude(userMessage)
       const emails = parseSingleVariantFromClaude(raw)
-      const result = await processOneVariant(
-        variantKey, emails, senderFirstName, organisation_id, `retry-${attempt}`
-      )
+      // senderCompanyName must be passed explicitly. Omitting it shifted every later
+      // argument left: the sign-off fixer received the organisation UUID as the company
+      // name, decided the model's correct sign-off was wrong, and appended a second
+      // sign-off block ending in the UUID. organisation_id then received "retry-N",
+      // which is why failure logs carried a nonsense organisation_id.
+      // Latent until the stricter copy gates made a retry happen for the first time.
+      const result = await processOneVariant({
+        variantKey, emails, senderFirstName, senderCompanyName, organisation_id,
+        attemptLabel: `retry-${attempt}`,
+      })
       if ('passed' in result) {
         logger.info(
           `Messaging agent: Variant ${variantKey} passed on retry attempt ${attempt}`,
@@ -1744,10 +1764,10 @@ async function retryVariantSlot(
         const userMessage = buildSingleVariantUserMessage(context, fallback.instruction, taken)
         const raw = await callClaude(userMessage)
         const emails = parseSingleVariantFromClaude(raw)
-        const result = await processOneVariant(
+        const result = await processOneVariant({
           variantKey, emails, senderFirstName, senderCompanyName, organisation_id,
-          `fallback-${fallback.name}-attempt-${attempt}`
-        )
+          attemptLabel: `fallback-${fallback.name}-attempt-${attempt}`,
+        })
         if ('passed' in result) {
           logger.info(
             `Messaging agent: Variant ${variantKey} shipped on fallback angle "${fallback.name}", attempt ${attempt}. Slot label ${variantKey} no longer describes its angle.`,
