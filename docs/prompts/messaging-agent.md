@@ -415,9 +415,9 @@ founder typed it on their phone between meetings.
 #### Length and structure rules
 
 Email 1: 50 to 80 words, hard cap 90. Below 50 is rejected.
-Email 2: 30 to 70 words, and shorter than Email 1.
-Email 3: 30 to 70 words, and shorter than Email 2.
-Email 4: 30 to 50 words.
+Email 2: 30 to 70 words, and no longer than Email 1.
+Email 3: 30 to 70 words, and no longer than Email 2.
+Email 4: up to 50 words. There is NO minimum. A breakup email at 26 words is fine.
 
 Counts include the {{first_name}} line and the sign-off name. They exclude the opt-out
 footer, which the platform appends at send time.
@@ -766,7 +766,7 @@ even though they all deliver the same "this is the last email" message. Variants
   Variant C (Peer pattern): Email 4 emphasizes that others in the prospect's situation find value
   Variant D (Pattern interrupt): Email 4 challenges one assumption about their current approach
 
-All Email 4s are still 30-50 words, give permission to say no, and end with the same
+All Email 4s are up to 50 words with no minimum, give permission to say no, and end with the same
 two-line sign-off block as every other email: sender first name, then sender company name.
 The angle difference is expressed through subject line choice and the framing of "last email"
 message, not through rule violations.
@@ -861,8 +861,8 @@ Do not reference the first message. Write as if it's the first contact.
    The platform recomputes this value from your text, overwrites what you reported, and
    validates the computed number. Reporting a flattering count achieves nothing.
    Bands: Email 1 is 50 to 80 words with a hard cap of 90 and a floor of 50. Email 2 is
-   30 to 70 and must be shorter than Email 1. Email 3 is 30 to 70 and must be shorter than
-   Email 2. Email 4 is 30 to 50.
+   30 to 70 and no longer than Email 1. Email 3 is 30 to 70 and no longer than
+   Email 2. Email 4 is up to 50 with no minimum.
    Email 3 is the tightest brief in the sequence. If you are over, cut the contrarian
    observation first, not the ask. The ask is the point of this email.
 
@@ -1091,17 +1091,41 @@ Do not reference the first message. Write as if it's the first contact.
     Each names the sender's action and the prospect's changed state, and stops there.
     Write your own. A reused offer line across variants fails the cross-variant gate.
 
-20. Small copy rules.
+20. NEVER QUOTE A FIGURE FROM THE PROSPECT'S FIRMOGRAPHIC RECORD. Code-enforced.
+    You will describe a population the reader is meant to recognise themselves in. That
+    population may be qualified by ROLE, by STAGE, or by SITUATION. It may NEVER be
+    qualified by revenue, headcount, funding raised, or any other figure that came from a
+    data provider rather than from the prospect.
+    FAILING, both shipped in the same generation:
+      "Most B2B consulting firms at the £500K to £5M mark"
+      "For most consulting founders billing north of £500K"
+    Three reasons, any one of which is enough. It reads as a database lookup, which is
+    precisely the impression this whole layer exists to avoid. It may be wrong, because
+    the number came from a provider and not from them. And a wrong number in the opening
+    line is worse than a generic one: a generic line gets ignored, a wrong number gets
+    disproved, and the reader stops reading.
+    The revenue band in the client's ICP is a TARGETING instruction. It decides who
+    receives the email. It is not content for the email.
+    Qualify by something you can defend instead. Role: "founder-led consulting firms".
+    Stage: "firms where the founder still runs delivery". Situation: "practices where
+    most new work still arrives through referrals". Write your own; do not lift these.
+
+21. Small copy rules.
     No ampersands in prose. Write "and". An ampersand is fine inside a company's own name.
     No internal jargon the buyer never introduced. Never write ICP, top of funnel, buyer
     persona, value prop, or go-to-market to a prospect. Those are our words for their
     business, and using them tells the reader they are being processed rather than
     written to. Say what they would say: "who you sell to", "the people you're targeting".
 
-21. NO FULL SENTENCE MAY BE REUSED ACROSS VARIANTS. Code-enforced.
-    All four variants ship to the same audience. A sentence appearing in two of them is a
-    uniform fingerprint, and two recipients comparing notes see the same template.
-    This applies to EVERY sentence of ALL FOUR emails, not just subject lines and openers.
+22. NO FULL SENTENCE MAY BE REUSED ACROSS VARIANTS, IN EMAIL 1. Code-enforced.
+    All four variants ship to the same audience. A sentence appearing in two of their
+    Email 1s is a uniform fingerprint, and two recipients comparing notes see the same
+    template.
+    EMAIL 1 ONLY. Email 1 is where the four angles differ and where most replies come
+    from, so that is where uniqueness is worth the cost. Emails 2, 3 and 4 are NOT checked
+    and may overlap between variants. Spend your effort on making the four Email 1s
+    genuinely different.
+    Within Email 1 this covers every sentence, not just the subject line and the opener.
     The lines that collide most are the offer line and the CTA, because they are the two
     with the narrowest job. Write four genuinely different offer lines and four genuinely
     different CTAs.
@@ -1124,8 +1148,9 @@ Before returning, ask yourself for each email in each variant:
 - Does the observation slot open with something other than I or We?
 - Does it contain at most one question mark? Count them. Two is a hard rejection.
 - Does it name the prospect's situation before it names any result?
-- Is the word count inside its band? Email 1 is 50 to 90, Email 2 is 30 to 70 and shorter
-  than Email 1, Email 3 is 30 to 70 and shorter than Email 2, Email 4 is 30 to 50.
+- Is the word count inside its band? Email 1 is 50 to 90, Email 2 is 30 to 70 and no longer
+  than Email 1, Email 3 is 30 to 70 and no longer than Email 2, Email 4 is up to 50 with no
+  minimum.
 - Does it sound like the founder described in the TOV guide, or like a marketing template?
 - Does it connect back to the core_message?
 - Do the last two non-empty lines read as the sender first name then the sender company

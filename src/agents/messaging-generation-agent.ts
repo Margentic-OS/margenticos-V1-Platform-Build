@@ -915,11 +915,22 @@ ${renderWordCountReminder()}
   persona, value prop, or go-to-market to a prospect. Those are our words for their
   business. Say what they would say: "who you sell to", "the people you're targeting".
 - Never assert exclusivity about the prospect's situation. See PATTERNS, NOT VERDICTS.
-- NO FULL SENTENCE MAY APPEAR IN TWO VARIANTS. Code-enforced across every sentence of all
-  four emails, not just subjects and openers. The offer line and the CTA collide most
-  often, so write four genuinely different offer lines and four genuinely different CTAs.
-  Swapping one noun does not clear it: proper nouns and numbers are normalised before
-  comparing. The two-line sign-off is exempt.
+- NEVER QUOTE A FIGURE FROM THE PROSPECT'S FIRMOGRAPHIC RECORD. Code-enforced. The
+  population you describe may be qualified by ROLE, STAGE or SITUATION, never by revenue,
+  headcount or funding. These both shipped and both must not recur:
+    "Most B2B consulting firms at the £500K to £5M mark"
+    "For most consulting founders billing north of £500K"
+  It reads as a database lookup, it may be wrong, and a wrong number in the opening line
+  gets disproved where a generic one is merely ignored. The client's revenue band is a
+  targeting instruction that decides who receives this, not content that goes inside it.
+  Qualify by something defensible: who they are, what stage they are at, or what is
+  happening to them.
+- NO FULL SENTENCE MAY APPEAR IN TWO VARIANTS' EMAIL 1. Code-enforced, Email 1 only:
+  emails 2, 3 and 4 may overlap between variants and are not checked. Within Email 1 it
+  covers every sentence, not just subjects and openers. The offer line and the CTA collide
+  most often, so write four genuinely different offer lines and four genuinely different
+  CTAs. Swapping one noun does not clear it: proper nouns and numbers are normalised
+  before comparing. The two-line sign-off is exempt.
 - The offer line names what the sender does and what changes for the prospect. It must not
   describe work the prospect still has to do, and must not explain their own job to them.
 - The sign-off block is mandatory on EVERY email and is TWO lines: the sender's first name
@@ -956,10 +967,11 @@ interface TakenCopy {
   subjects: string[]
   openers: string[]
   /**
-   * Every comparable sentence from every accepted variant, across all four emails.
+   * Every comparable sentence from the EMAIL 1 of each accepted variant.
    * Subjects and openers alone were not enough: variants A, B and C all shipped
    * "You take the calls and close them." as Email 1 P3, which is neither a subject
-   * nor an opener, so nothing saw it.
+   * nor an opener, so nothing saw it. Scoped to Email 1 to match the gate, which no
+   * longer polices emails 2 to 4.
    */
   sentences: string[]
 }
@@ -978,6 +990,8 @@ function collectTakenCopy(
   for (const emails of Object.values(passed)) {
     for (const email of emails) {
       if (email.subject_line) subjects.push(email.subject_line)
+      // Email 1 only: the retry context should list exactly what the gate will reject.
+      if (email.sequence_position !== CROSS_VARIANT_UNIQUE_POSITION) continue
       for (const sentence of comparableSentences(email.body, signOffLines)) {
         if (seenSentences.has(sentence)) continue
         seenSentences.add(sentence)
@@ -1021,10 +1035,11 @@ function buildAvoidBlock(taken: TakenCopy): string {
   }
   if (taken.sentences.length > 0) {
     parts.push('')
-    parts.push('SENTENCES ALREADY USED, across all four emails of the accepted variants.')
-    parts.push('Reusing any of these verbatim fails the gate and the variant is regenerated.')
+    parts.push('EMAIL 1 SENTENCES ALREADY USED by the accepted variants.')
+    parts.push('Reusing any of these in YOUR Email 1 fails the gate and the variant is regenerated.')
     parts.push('Swapping one noun is not enough either: write a different sentence.')
     parts.push('This includes the offer line and the CTA, which are the two that collide most.')
+    parts.push('Emails 2, 3 and 4 are not checked for reuse, so spend your effort on Email 1.')
     parts.push(...taken.sentences.map(s => `  - ${s}`))
   }
 
@@ -1036,9 +1051,9 @@ function renderWordCountReminder(): string {
   const L = EMAIL_WORD_LIMITS
   return [
     `- Email 1: ${L.email1MinWords} to ${L.email1TargetMaxWords} words, hard cap ${L.email1MaxWords}. Under ${L.email1MinWords} is rejected.`,
-    `- Email 2: ${L.email2MinWords} to ${L.email2MaxWords} words, and shorter than Email 1.`,
-    `- Email 3: ${L.email3MinWords} to ${L.email3MaxWords} words, and shorter than Email 2.`,
-    `- Email 4: ${L.email4MinWords} to ${L.email4MaxWords} words.`,
+    `- Email 2: ${L.email2MinWords} to ${L.email2MaxWords} words, and no longer than Email 1.`,
+    `- Email 3: ${L.email3MinWords} to ${L.email3MaxWords} words, and no longer than Email 2.`,
+    `- Email 4: up to ${L.email4MaxWords} words. No minimum: a short breakup is fine.`,
     '- Counts include the {{first_name}} line and the sign-off name. They exclude the opt-out footer, which the platform adds later.',
   ].join('\n')
 }
@@ -1082,8 +1097,11 @@ ${renderWordCountReminder()}
 - The offer line (Email 1 P3) names what the sender does and what changes for the prospect.
   It must not describe work the prospect still has to do, and must not explain their own
   job back to them. "You take the calls and close them" fails on both counts.
-- Every sentence you write must be new. Any sentence listed under ALREADY USED below is
-  taken, and reusing one fails the gate and sends this variant back for regeneration.
+- No revenue, headcount or funding figures anywhere. Qualify the population by role, stage
+  or situation. "at the £500K to £5M mark" and "billing north of £500K" both fail.
+- Every sentence in YOUR EMAIL 1 must be new. Any sentence listed under ALREADY USED
+  below is taken, and reusing one in Email 1 fails the gate and sends this variant back
+  for regeneration. Emails 2, 3 and 4 are not checked for reuse.
 - No I/We openers on the observation slot. One question per message. No em dashes.
 - The sign-off block is mandatory on EVERY email and is TWO lines: "${context.preflight.sender_first_name}" then
   "${context.preflight.org_name}" directly beneath it. Both count toward the word count.
@@ -1377,6 +1395,16 @@ async function processOneVariant({
 // First writer wins: variants are checked in sorted key order, so the earliest variant
 // keeps a sentence and every later variant that repeats it fails and is regenerated.
 // Deterministic, so the same four raw variants always produce the same outcome.
+// EMAIL 1 ONLY. Email 1 is where the four angles actually differ and where most replies
+// originate, so that is where uniqueness earns its cost. Convergence in emails 2 to 4 is
+// accepted deliberately.
+//
+// Applying it across all sixteen emails compounded: variant D had to avoid every sentence
+// A, B and C had written anywhere, which made the last slot progressively harder to fill
+// and drove retries and fallbacks. Narrowing it keeps the signal that matters and drops
+// the failure rate.
+const CROSS_VARIANT_UNIQUE_POSITION = 1
+
 function findCrossVariantReuse(
   emails: EmailRecord[],
   registry: SentenceRegistry,
@@ -1386,10 +1414,11 @@ function findCrossVariantReuse(
   const violations: ValidationViolation[] = []
 
   for (const email of emails) {
+    if (email.sequence_position !== CROSS_VARIANT_UNIQUE_POSITION) continue
     for (const reuse of registry.findReuse(variantKey, email.body, signOffLines)) {
       violations.push({
         email: email.sequence_position,
-        issue: `sentence already used by variant ${reuse.firstSeenId}: "${reuse.sentence}". All four variants ship to the same audience, so a shared sentence is a uniform fingerprint. Write a different one.`,
+        issue: `Email 1 sentence already used by variant ${reuse.firstSeenId}: "${reuse.sentence}". Email 1 is where the four angles differ, so a shared sentence there is a uniform fingerprint. Write a different one.`,
       })
     }
   }
@@ -1429,7 +1458,10 @@ async function processAllVariants(
     }
 
     passedVariants[variantKey] = result.passed
-    for (const email of result.passed) registry.register(variantKey, email.body, signOffLines)
+    for (const email of result.passed) {
+      if (email.sequence_position !== CROSS_VARIANT_UNIQUE_POSITION) continue
+      registry.register(variantKey, email.body, signOffLines)
+    }
   }
 
   return { passedVariants, variantFailures }
@@ -1535,7 +1567,11 @@ export const EMAIL_WORD_LIMITS = {
   email2MaxWords: 70,
   email3MinWords: 30,
   email3MaxWords: 70,
-  email4MinWords: 30,
+  // NO FLOOR ON EMAIL 4. A breakup email is allowed to be very short: brevity is the
+  // register. The old floor of 30 rejected variants at 26 and 29 words, which were not
+  // defects, and each rejection cost a full regeneration call. Zero rather than deleting
+  // the field so WORD_BANDS keeps one shape for all four positions.
+  email4MinWords: 0,
   email4MaxWords: 50,
 } as const
 
@@ -1554,6 +1590,32 @@ export const EMAIL_SUBJECT_LIMITS = {
 
 // One question per email. The CTA is the question. Rhetorical questions count.
 export const MAX_QUESTIONS_PER_EMAIL = 1
+
+// Figures drawn from the prospect's firmographic record. HARD FAIL.
+//
+// The last generation shipped "Most B2B consulting firms at the £500K to £5M mark" and
+// "For most consulting founders billing north of £500K". Both quote the ICP's revenue
+// band back at the reader in the opening line.
+//
+// Three reasons this is banned rather than discouraged. It reads as a database lookup,
+// which is the exact impression the personalisation layer exists to avoid. It may simply
+// be wrong, since the figure comes from a data provider and not from the prospect. And
+// being wrong about someone's revenue in the first sentence is worse than being generic,
+// because a generic line is merely ignored while a wrong number is disproved.
+//
+// The population may still be qualified by ROLE, STAGE or SITUATION. The revenue band
+// belongs in TARGETING, which decides who receives the email, never in the email itself.
+//
+// Deliberately narrow so ordinary numbers survive: "your last 30 reviews", "4 of the most
+// recent 10", "13 months", "August 2025" and "six or eight weeks" all pass untouched.
+const BANNED_FIRMOGRAPHIC: ReadonlyArray<{ pattern: RegExp; label: string }> = [
+  { pattern: /[£$€]\s?\d/,                                    label: 'a currency amount' },
+  { pattern: /\b\d+(?:\.\d+)?\s*[km]\b/i,                     label: 'a figure like 500K or 5M' },
+  { pattern: /\b\d+(?:\.\d+)?\s*(?:bn|billion|million)\b/i,   label: 'a figure in millions or billions' },
+  { pattern: /\b\d+\s*(?:employees|staff|headcount)\b/i,      label: 'a headcount' },
+  { pattern: /\bteam of \d+/i,                                label: 'a team size' },
+  { pattern: /\b\d+[- ]person\b/i,                            label: 'a team size' },
+]
 
 // Internal vocabulary that must never reach a prospect. These are the words we use to
 // describe the work to each other, not words the buyer introduced. "ICP" shipped in a
@@ -1679,6 +1741,16 @@ export function validateEmails(
       })
     }
 
+    // Revenue, headcount and funding figures lifted from the prospect's record.
+    for (const term of BANNED_FIRMOGRAPHIC) {
+      if (term.pattern.test(body)) {
+        violations.push({
+          email: pos,
+          issue: `body quotes ${term.label} from the prospect's firmographic record. Qualify the population by role, stage or situation instead. The revenue band belongs in targeting, not in the email.`,
+        })
+      }
+    }
+
     // Internal jargon the buyer never introduced. "ICP" is our word for their customers.
     for (const term of BANNED_JARGON) {
       if (term.pattern.test(body)) {
@@ -1703,12 +1775,15 @@ export function validateEmails(
     // Each follow-up must be shorter than the email before it. Deterministic, so it is
     // enforced here rather than left to the prompt. Email 4 is exempt: it is a breakup
     // with its own 30 to 50 band, and chaining it to Email 3 leaves too little room.
+    // NOT LONGER THAN, not strictly shorter. The sequence still tapers, but two adjacent
+    // emails of equal length is not a defect and the strict version rejected variants for
+    // being one word over. Equal-length pairs now pass.
     if (pos === 2 || pos === 3) {
       const prev = emails.find(e => e.sequence_position === pos - 1)
-      if (prev && wc >= prev.word_count) {
+      if (prev && wc > prev.word_count) {
         violations.push({
           email: pos,
-          issue: `word count ${wc} is not shorter than email ${pos - 1} at ${prev.word_count} words`,
+          issue: `word count ${wc} is longer than email ${pos - 1} at ${prev.word_count} words`,
         })
       }
     }

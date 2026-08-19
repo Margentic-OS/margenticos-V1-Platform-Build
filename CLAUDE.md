@@ -449,9 +449,10 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
                      existed only to make a separate Email 4 subject workable, and the
                      separate subject was the mistake. Do not reinstate either.
   Email 1 body:      50 to 80 words, hard cap 90, floor 50
-  Email 2 body:      30 to 70 words, must be shorter than Email 1
-  Email 3 body:      30 to 70 words, must be shorter than Email 2
-  Email 4 body:      30 to 50 words
+  Email 2 body:      30 to 70 words, must be NO LONGER THAN Email 1 (equal passes)
+  Email 3 body:      30 to 70 words, must be NO LONGER THAN Email 2 (equal passes)
+  Email 4 body:      up to 50 words. NO FLOOR. A breakup at 26 words is not a defect,
+                     and the old floor of 30 cost a full regeneration call each time
   Sign-off:          TWO mandatory lines at the end of every email body, consecutive,
                      nothing after them:
                        [sender first name]     <- organisations.founder_first_name
@@ -478,9 +479,13 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
                      Definite articles are REPORT ONLY and must never gate: "without you
                      touching the outreach" is good copy and no pattern can tell it from
                      "so the gap between projects isn't a panic".
-  Sentence reuse:    HARD FAIL. No full sentence (4+ words) may appear in more than one
-                     variant, across every sentence of all four emails, not just subjects
-                     and openers. Enforced by SentenceRegistry in
+  Sentence reuse:    HARD FAIL, EMAIL 1 ONLY. No full sentence (4+ words) may appear in
+                     more than one variant's Email 1. Emails 2 to 4 may overlap and are
+                     not checked: Email 1 is where the four angles differ and where most
+                     replies originate, and policing all sixteen emails compounded so
+                     badly that the last variant could not be filled.
+                     Within Email 1 it covers every sentence, not just subjects and
+                     openers. Enforced by SentenceRegistry in
                      src/lib/style/sentence-frames.ts, which normalises proper nouns and
                      numbers first, so swapping one name does not clear it. The two-line
                      sign-off is exempt. First writer wins, in sorted variant order.
@@ -488,6 +493,15 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
                      not describe work the prospect still has to do, and must not explain
                      their own job back to them. "You take the calls and close them" fails
                      on both counts and shipped in three variants at once.
+  Firmographics:     HARD FAIL on any figure from the prospect's record: revenue,
+                     headcount, funding, currency amounts, "500K", "5M", "team of 12".
+                     The population may be qualified by ROLE, STAGE or SITUATION only.
+                     "Most B2B consulting firms at the £500K to £5M mark" and "billing
+                     north of £500K" both shipped and both are banned. It reads as a
+                     database lookup, it may be wrong, and a wrong number in the opening
+                     line is worse than a generic one. The ICP revenue band is a TARGETING
+                     instruction, never email content. Enforced via BANNED_FIRMOGRAPHIC.
+                     Ordinary numbers are untouched: "your last 30 reviews", "13 months".
   Ampersands:        none in prose; write "and". Fine inside a company's own name.
   Internal jargon:   never send ICP, top of funnel, buyer persona, value prop, or
                      go-to-market to a prospect. Enforced in code via BANNED_JARGON.
