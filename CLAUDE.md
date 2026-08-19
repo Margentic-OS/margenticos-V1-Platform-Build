@@ -563,8 +563,22 @@ Out-of-office:
   System manages timing and instructs Instantly to resume via API.
 
 Opt-out footer in all outbound emails:
-  "Not the right fit? Just reply 'stop' and I'll leave you alone."
+  "Not for you? Just reply stop."
   Never use the word "unsubscribe."
+
+  Applied at COMPOSITION time, never at document generation time.
+  Single source of truth: src/lib/composition/opt-out-footer.ts
+  Appended by appendOptOutFooter() in src/lib/composition/compose-sequence.ts,
+  which runs after word_count and after the BRIDGE_HEADROOM check so the footer
+  never consumes an email's word budget. Rendered with extra top margin by
+  plainTextToHtml() in src/lib/composition/custom-variables.ts.
+
+  Do not reinstate a generation-time footer in the messaging agent. One existed,
+  it was validated and then discarded by a return-value bug, and every stored
+  document was shipped without a footer as a result. Applying it at composition
+  means every send is compliant regardless of which document version the copy
+  came from, and no document needs a new version to become compliant.
+  A generation-time footer would now double up with the composition one.
 
 ---
 

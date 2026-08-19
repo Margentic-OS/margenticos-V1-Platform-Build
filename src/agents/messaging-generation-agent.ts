@@ -1039,14 +1039,7 @@ async function processOneVariant(
     )
   }
 
-  const { emails: footeredEmails, fixed: footerFixes } = applyOptOutFooter(signedEmails)
-  if (footerFixes > 0) {
-    logger.info(
-      `Messaging agent: Variant ${variantKey}${label} — appended opt-out footer on ${footerFixes} email(s)`
-    )
-  }
-
-  const violations = validateEmails(footeredEmails, senderFirstName)
+  const violations = validateEmails(signedEmails, senderFirstName)
   if (violations.length > 0) {
     const failure: VariantFailure = { variant: variantKey, violations }
     logger.warn(`Messaging agent: Variant ${variantKey}${label} failed validation`, {
@@ -1104,27 +1097,11 @@ function applySignOffFix(
   return { emails: result, fixed }
 }
 
-// Category C (opt-out footer): append mandatory CAN-SPAM/GDPR-compliant opt-out invitation
-// to every email, positioned before the sign-off name. The footer is not counted in word_count.
-const OPT_OUT_FOOTER = "Not the right fit? Just reply 'stop' and I'll leave you alone."
-
-function applyOptOutFooter(emails: EmailRecord[]): { emails: EmailRecord[]; fixed: number } {
-  let fixed = 0
-  const result = emails.map(email => {
-    if (email.body.includes(OPT_OUT_FOOTER)) {
-      return email
-    }
-
-    const lines = email.body.split('\n')
-    const lastNonEmptyIdx = lines.length - 1 - [...lines].reverse().findIndex(l => l.trim().length > 0)
-
-    lines.splice(lastNonEmptyIdx, 0, '', OPT_OUT_FOOTER)
-
-    fixed++
-    return { ...email, body: lines.join('\n') }
-  })
-  return { emails: result, fixed }
-}
+// The opt-out footer is NOT applied here. It is appended at composition time by
+// appendOptOutFooter in src/lib/composition/compose-sequence.ts, so every send carries it
+// regardless of which messaging document version the copy came from. Documents therefore
+// store footer-free bodies and no document needs a new version to become compliant.
+// Do not reinstate a generation-time footer: it would double up with the composition one.
 
 // Paragraph-position structural patterns: pronoun-dependent openers (reference back to the
 // preceding paragraph, which gets replaced by a trigger sentence at composition time) and
@@ -1240,13 +1217,6 @@ export function validateEmails(
       violations.push({
         email: pos,
         issue: `missing or incorrect sign-off — last line is "${lastLine}", expected "${senderFirstName}"`,
-      })
-    }
-
-    if (!body.includes(OPT_OUT_FOOTER)) {
-      violations.push({
-        email: pos,
-        issue: `missing opt-out footer — all emails must include: "${OPT_OUT_FOOTER}"`,
       })
     }
 

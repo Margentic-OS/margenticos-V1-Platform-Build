@@ -13,6 +13,7 @@
 // a partial set that would cause a blank/broken email.
 
 import type { ComposedEmail } from './compose-sequence'
+import { OPT_OUT_FOOTER, OPT_OUT_FOOTER_MARGIN_PX } from './opt-out-footer'
 
 // Convert composed emails to flat Instantly custom variable map.
 // firstName: substituted into {{first_name}} placeholders before HTML conversion.
@@ -59,17 +60,27 @@ export function assertCompleteVariables(
 // Single \n within a paragraph becomes <br>.
 // HTML-special characters are escaped; {{...}} markers are not present in composed
 // bodies (first_name is substituted before this call; no other markers remain).
+//
+// The opt-out footer is rendered with extra top margin so it separates visibly from the
+// sign-off and reads as a notice. Blank paragraphs are filtered out by the line below,
+// so that separation cannot be expressed as extra newlines in the body text: it has to
+// be carried on the footer paragraph itself.
 export function plainTextToHtml(text: string): string {
   return text
     .split('\n\n')
     .filter(p => p.trim().length > 0)
     .map(para => {
-      const escaped = para
-        .trim()
+      const trimmed = para.trim()
+      const escaped = trimmed
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
+
+      if (trimmed === OPT_OUT_FOOTER) {
+        return `<p style="margin-top:${OPT_OUT_FOOTER_MARGIN_PX}px">${escaped}</p>`
+      }
+
       return `<p>${escaped.replace(/\n/g, '<br>')}</p>`
     })
     .join('\n')

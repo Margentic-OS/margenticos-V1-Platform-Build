@@ -21,6 +21,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { generateBridge, countWords } from './personalization'
+import { OPT_OUT_FOOTER } from './opt-out-footer'
 
 // Private type alias derived from getServiceClient (defined at bottom of file).
 // Using the actual inferred return type avoids generic parameter conflicts with createClient overloads.
@@ -238,13 +239,38 @@ export async function composeSequence({
     composedEmails = afterTrigger.map(email => ({ ...email, word_count: countWords(email.body) }))
   }
 
-  // Step 5 — Return the composed sequence.
+  // Step 5. Append the opt-out footer to every email, last.
+  // Runs after word_count and after the bridge headroom check so neither ever sees it.
+  const emailsWithFooter = appendOptOutFooter(composedEmails)
+
+  // Step 6. Return the composed sequence.
   return {
     prospect_id,
     client_id,
     variant_id: variantId,
-    emails: composedEmails,
+    emails: emailsWithFooter,
   }
+}
+
+// ─── Opt-out footer ───────────────────────────────────────────────────────────
+//
+// Applied here rather than in the messaging document so that every send is compliant
+// regardless of the document version the copy came from. Appended to all four sequence
+// positions, after the sender sign-off, as its own paragraph.
+//
+// Word budgets are measured on footer-free bodies: this runs after applyPersonalization
+// has computed word_count and after the BRIDGE_HEADROOM check, and the spread below
+// carries the pre-footer word_count through unchanged. If the footer were counted, a
+// near-limit Email 1 would silently lose its bridge.
+
+function appendOptOutFooter(emails: ComposedEmail[]): ComposedEmail[] {
+  return emails.map(email => {
+    if (email.body.includes(OPT_OUT_FOOTER)) return email
+
+    // word_count is intentionally NOT recomputed: the footer is a legal notice, not copy,
+    // and must never consume the email's word budget.
+    return { ...email, body: `${email.body.trimEnd()}\n\n${OPT_OUT_FOOTER}` }
+  })
 }
 
 // ─── Step 1 — Fetch approved messaging document ───────────────────────────────
