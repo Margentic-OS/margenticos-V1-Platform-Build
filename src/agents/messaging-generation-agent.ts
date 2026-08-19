@@ -60,8 +60,11 @@ const FALLBACK_ANGLES = [
     instruction: "Email 1 opens by directly challenging one assumption the prospect likely holds about their current approach to the problem the client solves. The assumption is drawn from the ICP Four Forces anxiety or habit force. One sentence challenge, one sentence implication, one CTA question.",
   },
   {
+    // "Under 40 words total" was unreachable: the Email 1 floor is 50 words, so this
+    // fallback failed the word gate on every attempt by construction and could never
+    // rescue a slot. It now asks for the shortest email the band actually allows.
     name: 'direct_ask' as const,
-    instruction: "Email 1 is the shortest possible email. One sentence stating the prospect's core problem as identified in the ICP document. One direct question asking if it is relevant. Nothing else. Under 40 words total.",
+    instruction: "Email 1 is the shortest email the word band allows: aim for the low 50s, and never below 50 words including the {{first_name}} line and both sign-off lines. State the prospect's core problem as a pattern most buyers at their stage recognise, in one or two short sentences. Then one direct question asking whether it is relevant. Nothing else.",
   },
 ] as const
 
