@@ -190,3 +190,90 @@ describe('compose-sequence — approval gating', () => {
     expect(result.variant_id).toBe('A')
   })
 })
+
+// ─── P2 is replaced only by research ──────────────────────────────────────────
+//
+// Composition used to replace P2 unconditionally, falling back to a segment-level ICP
+// pain line. That made a four-variant document behave as a one-variant document for
+// every unresearched prospect: all four authored openers were overwritten with the same
+// sentence. The variant's own opener must now survive untouched.
+
+const UNRESEARCHED_PROSPECT = {
+  ...PROSPECT_ROW,
+  personalisation_trigger: null,
+}
+
+// The authored P2 that must survive when there is no research. Deliberately distinct
+// from PROSPECT_ROW.personalisation_trigger and from icpPainPoint, so each of the three
+// possible openers is distinguishable in an assertion.
+const AUTHORED_OPENER = 'Most founders at your stage lean on referrals for the bulk of new work.'
+
+const VARIANT_DOCS: ComposeDocs = {
+  ...APPROVED_DOCS,
+  messagingDoc: {
+    variants: {
+      A: {
+        emails: [
+          {
+            sequence_position: 1,
+            subject_line: 'Quick question',
+            subject_char_count: 13,
+            body: `{{first_name}}\n\n${AUTHORED_OPENER}\n\nWe get meetings into your diary without you running the outreach.\n\nWorth a call?\n\nDoug\nMargenticOS`,
+            word_count: 32,
+          },
+        ],
+      },
+    },
+  },
+}
+
+describe('compose-sequence: P2 replacement is gated on researched triggers', () => {
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co'
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key'
+  })
+
+  afterEach(() => {
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY
+    vi.clearAllMocks()
+  })
+
+  it('ships the variant opener unchanged when the prospect has no researched trigger', async () => {
+    setupSupabaseMock({ prospects: { data: UNRESEARCHED_PROSPECT, error: null } })
+
+    const result = await composeSequence({
+      prospect_id: PROSPECT_ID,
+      client_id: CLIENT_ID,
+      preloadedDocs: VARIANT_DOCS,
+    })
+
+    expect(result.emails[0].body).toContain(AUTHORED_OPENER)
+  })
+
+  it('never injects the ICP pain fallback into email 1', async () => {
+    setupSupabaseMock({ prospects: { data: UNRESEARCHED_PROSPECT, error: null } })
+
+    const result = await composeSequence({
+      prospect_id: PROSPECT_ID,
+      client_id: CLIENT_ID,
+      preloadedDocs: VARIANT_DOCS,
+    })
+
+    // APPROVED_DOCS.icpPainPoint is populated; it must not reach the email.
+    expect(result.emails[0].body).not.toContain('founders struggling to build consistent outbound pipeline')
+  })
+
+  it('still replaces P2 when a researched trigger exists', async () => {
+    setupSupabaseMock({ prospects: { data: PROSPECT_ROW, error: null } })
+
+    const result = await composeSequence({
+      prospect_id: PROSPECT_ID,
+      client_id: CLIENT_ID,
+      preloadedDocs: VARIANT_DOCS,
+    })
+
+    expect(result.emails[0].body).toContain('Just saw your recent funding announcement.')
+    expect(result.emails[0].body).not.toContain(AUTHORED_OPENER)
+  })
+})

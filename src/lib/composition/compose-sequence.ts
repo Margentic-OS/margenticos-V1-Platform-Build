@@ -78,7 +78,10 @@ interface ProspectRow {
 // Where email 1's opening line came from. Only 'research' represents a real, prospect-
 // specific observation; the other two are segment-level defaults that say nothing
 // individual about the prospect.
-type TriggerSource = 'research' | 'icp_pain' | 'role_proxy'
+//
+// 'none' means no researched observation exists and the variant's own authored opener
+// ships unchanged. It is the normal case for an unresearched prospect, not an error.
+type TriggerSource = 'research' | 'icp_pain' | 'role_proxy' | 'none'
 
 interface ResolvedTrigger {
   text: string
@@ -193,12 +196,24 @@ export async function composeSequence({
   // Step 3 — Assign a variant if the prospect has none, and write both variant_id and messaging_doc_id.
   const variantId = await resolveVariant(supabase, prospect, messagingDoc, client_id, messagingDocId)
 
-  // Step 4 — Fetch the personalisation trigger (with ICP fallback).
+  // Step 4. Fetch the personalisation trigger.
   const trigger = await resolveTrigger(supabase, prospect, client_id, preloadedDocs?.icpPainPoint)
 
   // Step 4 — Apply the trigger to email 1 of the assigned variant.
-  const variantEmails  = getVariantEmails(messagingDoc, variantId)
-  const afterTrigger   = applyTriggerToEmail1(variantEmails, trigger.text)
+  //
+  // P2 IS REPLACED ONLY BY RESEARCH. Replacing it unconditionally meant the four
+  // variants' authored openers never shipped: every prospect without a researched
+  // observation received the same segment-level ICP pain line, so a four-variant
+  // document behaved as a one-variant document across the whole send list. The variants
+  // differ in emails 2, 3 and 4, but email 1 is the one that decides whether the rest
+  // gets read.
+  //
+  // With no research, the variant's own P2 ships unchanged. Four different openings
+  // instead of one.
+  const variantEmails = getVariantEmails(messagingDoc, variantId)
+  const afterTrigger: ComposedEmail[] = trigger.source === 'research'
+    ? applyTriggerToEmail1(variantEmails, trigger.text)
+    : variantEmails.map(email => ({ ...email }))
 
   // Step 4b — Haiku bridge + personalised CTA for Email 1.
   //
@@ -231,11 +246,13 @@ export async function composeSequence({
       reason: prospect.personalisation_trigger
         ? 'trigger is not from prospect research'
         : 'prospects.personalisation_trigger is NULL (no research result)',
+      p2_replaced: false,
       bridge_generated: false,
       cta_rewritten: false,
     })
-    // Recompute word_count: applyTriggerToEmail1 carries the stored template's count,
-    // which is stale once the opener line has been replaced.
+    // Recompute word_count from the body rather than trusting the stored count. On this
+    // path P2 was not replaced, so the stored count should already agree; recomputing
+    // keeps one source of truth and costs nothing.
     composedEmails = afterTrigger.map(email => ({ ...email, word_count: countWords(email.body) }))
   }
 
@@ -449,6 +466,19 @@ async function resolveVariant(
 
 // ─── Step 3 — Resolve personalisation trigger ─────────────────────────────────
 
+// TRIGGER FALLBACKS ARE DISABLED, by the same rule that disabled the bridge and the CTA
+// rewrite: no machine step may overwrite client-approved copy without an explicit gate.
+//
+// The ICP-pain and role-proxy fallbacks existed to fill P2 when research was missing.
+// Now that P2 is only ever replaced by a researched observation, their output has nowhere
+// to go: the variant's own authored opener ships instead, and it is better copy, because
+// a human approved it and it differs across the four variants.
+//
+// Left in place rather than deleted so the path is recoverable if a future caller needs a
+// segment-level pain string for something other than the P2 slot. Everything below the
+// flag is unreachable at runtime. See the dead-code note in docs/BACKLOG.md.
+const TRIGGER_FALLBACKS_ENABLED = false
+
 async function resolveTrigger(
   supabase: ServiceClient,
   prospect: ProspectRow,
@@ -458,6 +488,9 @@ async function resolveTrigger(
   // Use the stored trigger if present. This is the only prospect-specific source.
   const stored = prospect.personalisation_trigger?.trim()
   if (stored && stored.length > 0) return { text: stored, source: 'research' }
+
+  // No research. The variant's authored opener ships unchanged.
+  if (!TRIGGER_FALLBACKS_ENABLED) return { text: '', source: 'none' }
 
   // Use pre-fetched ICP pain point if available.
   if (preloadedIcpPainPoint) return { text: preloadedIcpPainPoint, source: 'icp_pain' }

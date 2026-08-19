@@ -440,11 +440,14 @@ THE SOURCE OF TRUTH IS EMAIL_WORD_LIMITS and EMAIL_SUBJECT_LIMITS in
 src/agents/messaging-generation-agent.ts. The figures below mirror it. If you change one,
 change both in the same commit, and check docs/prompts/messaging-agent.md too.
 
-  Email 1 subject:   maximum 40 characters (target < 25)
-  Emails 2 and 3:    subject_line must be null; subject_char_count must be 0
-  Email 4 subject:   maximum 24 characters, and DIFFERENT in each variant
-                     (was 9, which left "last note" as the only option and made all four
-                      variants ship an identical Email 4 subject)
+  Email 1 subject:   maximum 40 characters (target < 25). The ONLY email with a subject.
+  Emails 2, 3 and 4: subject_line must be null; subject_char_count must be 0.
+                     All three thread under Email 1 so a reader who ignored the first
+                     three can scroll up from the breakup and see who the sender is.
+                     Email 4 previously had its own subject with a 24-character cap and a
+                     four-distinct-subjects rule. Both are DELETED, not relaxed: they
+                     existed only to make a separate Email 4 subject workable, and the
+                     separate subject was the mistake. Do not reinstate either.
   Email 1 body:      50 to 80 words, hard cap 90, floor 50
   Email 2 body:      30 to 70 words, must be shorter than Email 1
   Email 3 body:      30 to 70 words, must be shorter than Email 2
@@ -464,6 +467,21 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
   Opening word:      must not be I or We, applied to the observation slot only.
                      Email 1 paragraph 3 ("what changes") MAY begin with We.
   Em dashes:         zero tolerance; any instance causes the entire variant to be flagged
+  Back-references:   HARD FAIL on a demonstrative binding a noun anywhere in paragraph 2
+                     onward: "that ceiling", "this pattern", "those meetings", "such
+                     firms". P2 is replaced at composition, so a later paragraph pointing
+                     at it breaks exactly when personalisation succeeds. Enforced by
+                     findBackReferences in src/lib/style/back-reference.ts.
+                     Definite articles are REPORT ONLY and must never gate: "without you
+                     touching the outreach" is good copy and no pattern can tell it from
+                     "so the gap between projects isn't a panic".
+  Ampersands:        none in prose; write "and". Fine inside a company's own name.
+  Internal jargon:   never send ICP, top of funnel, buyer persona, value prop, or
+                     go-to-market to a prospect. Enforced in code via BANNED_JARGON.
+  Exclusivity:       never assert what the prospect does NOT have. "Most of the pipeline
+                     comes from referrals" survives being wrong; "no outreach running"
+                     does not. The problem is framed as a pattern they can recognise
+                     themselves in, never as a verdict about them.
 
 Word counts include the {{first_name}} line and BOTH sign-off lines, and exclude the
 opt-out footer. word_count and subject_char_count are RECOMPUTED by the agent from the body

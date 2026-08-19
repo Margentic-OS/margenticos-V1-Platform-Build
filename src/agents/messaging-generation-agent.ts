@@ -26,6 +26,7 @@ import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { scrubAITells, scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
 import { nominalisationDensity, NOMINALISATION_THRESHOLD } from '@/lib/style/nominalisation'
+import { findBackReferences } from '@/lib/style/back-reference'
 // countWords is imported from the composition layer on purpose: the agent and composition
 // must measure word counts identically or the stored count and the sent count disagree.
 import { countWords } from '@/lib/composition/personalization'
@@ -794,6 +795,64 @@ has failed and must be rewritten.
 PARAGRAPH INDEPENDENCE STILL APPLIES. P2 is unknown at authoring time, so no paragraph
 may refer back to the one above it. Each paragraph names its own subject.
 
+NO DEMONSTRATIVES POINTING BACKWARDS. From P3 onward, do not write "that X", "this X",
+"those X", "these X" or "such X" where X is a noun. A demonstrative binding a noun has to
+point at something, and the only thing it can point at is a paragraph that may not
+survive composition. This is checked in code and rejects the whole variant.
+
+  Rejected: "We break that ceiling by running outbound that puts conversations in your diary."
+            P2 mentioned a ceiling. Once a researched observation replaces P2, no ceiling
+            was ever named and the sentence points at nothing.
+  Accepted: "We run the outbound so the diary fills without you writing anything."
+            Names its own subject. Reads correctly after any P2.
+
+Watch the softer version too. A definite article can lean on P2 just as hard: "so the gap
+between projects stops being a panic" introduces "the gap" as though it were already
+established. If a noun phrase would puzzle someone who read only that paragraph, name it
+properly or cut it. Ordinary definite articles are fine: "without you touching the
+outreach" needs no antecedent and is good copy.
+
+## PATTERNS, NOT VERDICTS
+
+The prospect knows their own business and you do not. P2 names a problem you have not
+verified, so it must be offered as a pattern they can recognise themselves in, never as a
+finding about them. The difference is whether a wrong guess costs you the reply.
+
+GOOD, from a variant that framed it correctly. Note that this is a pattern statement about
+a group, which the reader either joins or does not:
+
+  "Most B2B consulting founders at your stage are in the same spot: delivery is solid,
+   close rate is fine, but conversations are rare and almost all of them come from
+   referrals they can't control. One warm intro every few weeks keeps the lights on and
+   removes the urgency to build anything else."
+
+FAILING, from a variant that asserted it. Every clause is a claim about this specific
+reader's business, stated flat:
+
+  "A project ends and the diary empties. No referrals lined up, no outreach running,
+   nothing queued. The business that looked healthy last month is suddenly exposed."
+
+Write like the first. Do not copy either one: they are here to show the difference between
+describing a group and pronouncing on a person, and both will be recognisable if reused.
+Reach for your own framing. "Most founders we speak to find...", "The pattern with firms
+at this size tends to be...", "Where this usually shows up is..." are all openings into
+pattern framing, and there are many more.
+
+NEVER ASSERT EXCLUSIVITY. "Most of the pipeline comes from referrals" survives being
+wrong. "No outreach running" does not. The prospect may well have three channels with two
+of them broken, and an email that denies those channels exist reads as not having looked
+before writing. Words like no, none, nothing, never, only and zero, applied to what the
+prospect does or has, are the ones to watch. Say most, usually, or the bulk of, and the
+sentence still lands if you guessed wrong about the details.
+
+WORD PRESSURE, READ THIS. Pattern framing costs more words than assertion, and Email 1 is
+${EMAIL_WORD_LIMITS.email1MinWords} to ${EMAIL_WORD_LIMITS.email1TargetMaxWords} words
+with a hard cap of ${EMAIL_WORD_LIMITS.email1MaxWords}. Do not solve that by compressing
+P2 back into a verdict. Take the words from elsewhere: P3 can be one sentence rather than
+two, the CTA can be shorter, and any clause that merely restates something is already
+failing the non-redundancy rule and should go. If the email will not fit, cut content, not
+the framing.
+
 Angle assignments determine how the P2 observation slot opens:
 - Variant A: Pain-led. The implied cost or consequence of the current situation.
 - Variant B: Outcome-led. Reflect the current situation. Never project the post-purchase state.
@@ -802,7 +861,8 @@ Angle assignments determine how the P2 observation slot opens:
 
 All four variants must:
 - Follow every rule in the system prompt without exception
-- Use different subject lines. No subject line is reused across variants, including Email 4
+- Use a different Email 1 subject line. Email 1 is the only email with a subject, so this
+  is the only subject each variant has
 - Use a meaningfully different P2 observation in email 1
 - Use a meaningfully different P3 in email 1
 - Differ meaningfully in emails 2, 3 AND 4, not only email 1. Four near-identical
@@ -814,6 +874,14 @@ ${renderWordCountReminder()}
 - Do not count the words yourself. The platform recomputes word_count and subject_char_count from the text you return and validates the computed values. Write to the band, not to a number you report.
 - Every sentence must mean something concrete on one reading. See the understandability tests in the system prompt.
 - No I/We opener on the observation slot. One question per message. No em dashes.
+- ALL FOUR EMAILS THREAD. Only Email 1 has a subject line. Emails 2, 3 and 4 must set
+  subject_line to null and subject_char_count to 0, so the whole sequence lands in one
+  thread and a reader opening the last email can scroll up to see who is writing.
+- No ampersands in prose. Write "and". An ampersand is fine inside a company's own name.
+- No internal jargon the buyer did not introduce. Never write ICP, top of funnel, buyer
+  persona, value prop, or go-to-market to a prospect. Those are our words for their
+  business. Say what they would say: "who you sell to", "the people you're targeting".
+- Never assert exclusivity about the prospect's situation. See PATTERNS, NOT VERDICTS.
 - The sign-off block is mandatory on EVERY email and is TWO lines: the sender's first name
   ("${params.preflight.sender_first_name}") then the company name ("${params.preflight.org_name}") directly beneath it.
   For emails 1, 2, and 3 the CTA question is NOT the last line. The block goes after it.
@@ -835,8 +903,8 @@ Return raw JSON with this exact structure:
 
 Each email object must contain exactly these fields:
   sequence_position: integer 1-4
-  subject_line: string for emails 1 and 4, null for emails 2 and 3
-  subject_char_count: integer, 0 for emails 2 and 3
+  subject_line: string for email 1 ONLY. null for emails 2, 3 and 4
+  subject_char_count: integer for email 1, 0 for emails 2, 3 and 4
   body: full email body from {{first_name}} through the sign-off name
   word_count: integer (count the whole body, including the {{first_name}} line and the sign-off name)
   suggestion_reason: per-email notes (deliberate imperfection, unpopulated tokens, pronoun ratio shortfall)`
@@ -959,8 +1027,8 @@ Return ONLY the following JSON. No preamble. No markdown fencing. No explanation
 
 Each email object must contain exactly these fields:
   sequence_position: integer 1-4
-  subject_line: string for emails 1 and 4, null for emails 2 and 3
-  subject_char_count: integer, 0 for emails 2 and 3
+  subject_line: string for email 1 ONLY. null for emails 2, 3 and 4
+  subject_char_count: integer for email 1, 0 for emails 2, 3 and 4
   body: full email body from {{first_name}} through the sign-off name
   word_count: integer (count the whole body, including the {{first_name}} line and the sign-off name)
   suggestion_reason: per-email notes (deliberate imperfection, unpopulated tokens, pronoun ratio shortfall)`
@@ -1344,19 +1412,36 @@ export const EMAIL_WORD_LIMITS = {
   email4MaxWords: 50,
 } as const
 
-// Email 4 needs a fresh subject and, per the cross-variant uniqueness rule, a DIFFERENT
-// one in each variant. At the old 9-character cap "last note" was the only string that
-// fitted, so all four variants shipped an identical Email 4 subject: a uniform
-// fingerprint across every send, and a direct contradiction of the uniqueness rule.
-// Raised to 24 so four distinct short breakup subjects are possible. Still far below
-// the 40-character Email 1 cap, so Email 4 stays visibly terse.
+// ALL FOUR EMAILS THREAD. Only Email 1 carries a subject. Emails 2, 3 and 4 send with a
+// null subject so the whole sequence sits in one thread, which means a reader who ignored
+// the first three can scroll up from the breakup and see who is writing and why.
+//
+// email4MaxChars is GONE, and so is the rule requiring four distinct Email 4 subjects.
+// Both existed only to make a separate Email 4 subject workable: the cap was 9 characters,
+// which left "last note" as the only string that fitted and shipped an identical subject
+// across all four variants. Raising it to 24 fixed the collision but kept the underlying
+// mistake, which was giving Email 4 a subject at all and breaking the thread.
 export const EMAIL_SUBJECT_LIMITS = {
   email1MaxChars: 40,
-  email4MaxChars: 24,
 } as const
 
 // One question per email. The CTA is the question. Rhetorical questions count.
 export const MAX_QUESTIONS_PER_EMAIL = 1
+
+// Internal vocabulary that must never reach a prospect. These are the words we use to
+// describe the work to each other, not words the buyer introduced. "ICP" shipped in a
+// variant B email 3 ("they fix their outreach before they fix their ICP"), which tells
+// the reader they are being processed by a system rather than written to.
+// Word-boundary matched so "positioning" inside ordinary prose is untouched.
+const BANNED_JARGON: ReadonlyArray<{ pattern: RegExp; label: string }> = [
+  { pattern: /\bICPs?\b/,                    label: 'ICP' },
+  { pattern: /\btop[- ]of[- ]funnel\b/i,     label: 'top of funnel' },
+  { pattern: /\bTOFU\b/,                     label: 'TOFU' },
+  { pattern: /\bbuyer persona\b/i,           label: 'buyer persona' },
+  { pattern: /\bvalue prop(osition)?\b/i,    label: 'value prop' },
+  { pattern: /\bgo[- ]to[- ]market\b/i,      label: 'go-to-market' },
+  { pattern: /\bfunnel metrics\b/i,          label: 'funnel metrics' },
+]
 
 // Per-position word bands, derived from EMAIL_WORD_LIMITS so there is one place to edit.
 const WORD_BANDS: Record<number, { min: number; max: number }> = {
@@ -1430,6 +1515,39 @@ export function validateEmails(
       }
     }
 
+    // Mid-sentence back-references. BANNED_PARAGRAPH_OPENERS above only matches patterns
+    // at a paragraph's START, which is why "We break that ceiling by..." shipped: the
+    // demonstrative sits four words in. P2 is replaced at composition whenever research
+    // exists, so a later paragraph pointing at it breaks precisely when personalisation
+    // works. Hard fail. Definite articles are collected too but never gate, because
+    // "without you touching the outreach" is good copy and indistinguishable by pattern.
+    const backRefs = findBackReferences(body)
+    for (const hit of backRefs.demonstratives) {
+      violations.push({
+        email: pos,
+        issue: `paragraph ${hit.paragraph} contains back-reference "${hit.phrase}". A demonstrative binding a noun points at the paragraph above, which is replaced at composition. Name the subject instead.`,
+      })
+    }
+
+    // Ampersands belong in company names, not in prose. Variant D email 2 shipped
+    // "targeting & messaging", which reads as note-taking rather than writing.
+    if (/\s&\s/.test(body)) {
+      violations.push({
+        email: pos,
+        issue: 'body uses an ampersand in prose. Write "and"',
+      })
+    }
+
+    // Internal jargon the buyer never introduced. "ICP" is our word for their customers.
+    for (const term of BANNED_JARGON) {
+      if (term.pattern.test(body)) {
+        violations.push({
+          email: pos,
+          issue: `body uses internal jargon "${term.label}". The buyer did not introduce this word. Say it in their language.`,
+        })
+      }
+    }
+
     // word_count is recomputed from the body by recomputeCounts before validation, so
     // this gate measures the actual text rather than the model's own claim about it.
     const wc = email.word_count
@@ -1461,17 +1579,11 @@ export function validateEmails(
       })
     }
 
-    if ((pos === 2 || pos === 3) && email.subject_line !== null) {
+    // Emails 2, 3 AND 4 thread under Email 1. Only Email 1 carries a subject.
+    if ((pos === 2 || pos === 3 || pos === 4) && email.subject_line !== null) {
       violations.push({
         email: pos,
         issue: `subject line must be null for threading, got "${email.subject_line}"`,
-      })
-    }
-
-    if (pos === 4 && email.subject_line !== null && email.subject_line.length > EMAIL_SUBJECT_LIMITS.email4MaxChars) {
-      violations.push({
-        email: pos,
-        issue: `subject line "${email.subject_line}" is ${email.subject_line.length} chars, limit is ${EMAIL_SUBJECT_LIMITS.email4MaxChars}`,
       })
     }
 
