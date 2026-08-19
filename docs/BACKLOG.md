@@ -4377,3 +4377,50 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   template is prescribed by the prompt's no_signal path, so at 500 prospects it is a strong
   candidate for the next uniformity signal. The frame registry will now catch it, but the
   prompt should probably stop offering a fixed frame at all.
+
+## P2 gating, back-reference enforcement and threading (2026-08-19, later session)
+
+- [post-build] DEAD CODE INVENTORY. P2 is now replaced only by a researched observation,
+  so the trigger fallbacks have no consumer. `TRIGGER_FALLBACKS_ENABLED = false` in
+  src/lib/composition/compose-sequence.ts gates the path; everything below it is
+  unreachable at runtime and kept only so the code is recoverable:
+    fetchPainProxy          (only caller: resolveTrigger, now behind the flag)
+    extractPainFromIcp      (callers: fetchPainProxy, fetchApprovedIcpPainPoint)
+    firstPainString         (only caller: extractPainFromIcp)
+    buildRoleProxy          (only caller: fetchPainProxy)
+    fetchApprovedIcpPainPoint  (only caller: fetchComposeDocs)
+    ComposeDocs.icpPainPoint   (still populated by fetchComposeDocs, now read by nothing)
+    TriggerSource values 'icp_pain' and 'role_proxy' (never returned while the flag is off)
+  The functions stay statically referenced through the flag branch, so tsc does not flag
+  them and no separate suppression is needed. Decide at the next composition pass whether
+  to delete them outright or keep the flag.
+
+- [post-build] `ComposeDocs.icpPainPoint` is still fetched on every batch snapshot by
+  fetchComposeDocs, which costs one ICP document read per segment for a value nothing
+  consumes. Harmless but wasteful. Remove it when the dead-code decision above is made.
+
+- [post-build] P3 IS CONVERGING ACROSS VARIANTS. In suggestion 79e78ff8, variants A, B and
+  C all end Email 1 P3 with the identical sentence "You take the calls and close them."
+  The prompt says P3 must flex per variant and that a fixed reused line is a spam
+  fingerprint, but nothing enforces it: cross-variant uniqueness is only checked for
+  subject lines and Email 1 openers, via collectTakenCopy. Extend collectTakenCopy to
+  carry P3 as well, or add a cross-variant duplicate-sentence check. This is the same
+  class of problem as the research agent's repeated sentence frames.
+
+- [post-build] Email 4 nominalisation runs hot. In 79e78ff8 the breakup email exceeded the
+  4 percent threshold in variants A (5.00 percent) and C (6.06 percent), both on
+  "consistency" and "priority", which are the natural words for that email's job. The
+  check is report-only so nothing was blocked, but if breakup copy always trips it the
+  warning becomes noise. Consider a per-position threshold.
+
+- [post-build] The messaging agent's 240s timeout guard calls agentRun.fail() but does NOT
+  abort execution. During the failed regeneration the run was marked failed at 240s while
+  the process kept running for another 8 minutes and 48 API calls. The database said
+  "failed" while work continued and money was being spent. Either abort properly with an
+  AbortController on the Anthropic calls, or stop marking the run failed on a timer that
+  cannot stop it.
+
+- [post-build] Retry and fallback cost is now material. With the stricter copy gates a
+  generation went from 1 API call to 11, and a fully failing run burned 48. Every attempt
+  is a full Sonnet call with the complete document context. Worth capping total attempts
+  per run, or reporting cumulative cost in the run summary.
