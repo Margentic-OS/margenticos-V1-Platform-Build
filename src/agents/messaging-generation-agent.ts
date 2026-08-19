@@ -1644,15 +1644,29 @@ export function validateEmails(
 
     // Mid-sentence back-references. BANNED_PARAGRAPH_OPENERS above only matches patterns
     // at a paragraph's START, which is why "We break that ceiling by..." shipped: the
-    // demonstrative sits four words in. P2 is replaced at composition whenever research
-    // exists, so a later paragraph pointing at it breaks precisely when personalisation
-    // works. Hard fail. Definite articles are collected too but never gate, because
-    // "without you touching the outreach" is good copy and indistinguishable by pattern.
+    // demonstrative sits four words in.
+    //
+    // EMAIL 1 ONLY. The whole justification is that P2 is replaced at composition, and
+    // applyTriggerToEmail1 touches nothing but Email 1. In emails 2, 3 and 4 every
+    // paragraph ships exactly as written, so a demonstrative pointing at the paragraph
+    // above is ordinary English and rejecting it is wrong. Gating all four positions
+    // cost a whole variant: several regeneration attempts failed only on an Email 2
+    // back-reference, and variant C was dropped after exhausting its retries.
+    //
+    // Still reported for emails 2 to 4, because a pile of them is a readability smell
+    // worth seeing in the logs, just never a reason to reject copy.
     const backRefs = findBackReferences(body)
-    for (const hit of backRefs.demonstratives) {
-      violations.push({
+    if (pos === 1) {
+      for (const hit of backRefs.demonstratives) {
+        violations.push({
+          email: pos,
+          issue: `paragraph ${hit.paragraph} contains back-reference "${hit.phrase}". A demonstrative binding a noun points at the paragraph above, which is replaced at composition. Name the subject instead.`,
+        })
+      }
+    } else if (backRefs.demonstratives.length > 0) {
+      logger.debug('Messaging agent: back-references in a follow-up email (not gated)', {
         email: pos,
-        issue: `paragraph ${hit.paragraph} contains back-reference "${hit.phrase}". A demonstrative binding a noun points at the paragraph above, which is replaced at composition. Name the subject instead.`,
+        phrases: backRefs.demonstratives.map(h => h.phrase),
       })
     }
 

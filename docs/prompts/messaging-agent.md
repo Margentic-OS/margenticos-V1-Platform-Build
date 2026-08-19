@@ -1052,9 +1052,12 @@ Do not reference the first message. Write as if it's the first contact.
     Pattern framing costs words. Email 1 is 50 to 80 with a hard cap of 90. Do not solve
     that by compressing P2 back into a verdict. Cut from P3 or the CTA instead.
 
-18. NO BACKWARD DEMONSTRATIVES. Code-enforced, rejects the whole variant.
-    From Email 1 P3 onward, and in paragraph 2 onward of every other email, never write
-    "that X", "this X", "those X", "these X" or "such X" where X is a noun.
+18. NO BACKWARD DEMONSTRATIVES IN EMAIL 1. Code-enforced, rejects the whole variant.
+    From Email 1 P3 onward, never write "that X", "this X", "those X", "these X" or
+    "such X" where X is a noun.
+    This applies to EMAIL 1 ONLY. Email 1 P2 is replaced at send time; emails 2, 3 and 4
+    ship exactly as written, so a demonstrative pointing at the paragraph above is
+    ordinary English there and is not penalised.
     P2 is replaced at send time whenever prospect research exists. A demonstrative binding
     a noun points at something, and the only thing it can point at is a paragraph that may
     not survive composition.

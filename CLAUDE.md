@@ -467,11 +467,14 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
   Opening word:      must not be I or We, applied to the observation slot only.
                      Email 1 paragraph 3 ("what changes") MAY begin with We.
   Em dashes:         zero tolerance; any instance causes the entire variant to be flagged
-  Back-references:   HARD FAIL on a demonstrative binding a noun anywhere in paragraph 2
+  Back-references:   HARD FAIL on a demonstrative binding a noun in EMAIL 1, paragraph 3
                      onward: "that ceiling", "this pattern", "those meetings", "such
                      firms". P2 is replaced at composition, so a later paragraph pointing
                      at it breaks exactly when personalisation succeeds. Enforced by
                      findBackReferences in src/lib/style/back-reference.ts.
+                     EMAIL 1 ONLY: composition replaces nothing in emails 2 to 4, so a
+                     back-reference there is ordinary English. Reported, never gated.
+                     Gating all four positions dropped a whole variant.
                      Definite articles are REPORT ONLY and must never gate: "without you
                      touching the outreach" is good copy and no pattern can tell it from
                      "so the gap between projects isn't a panic".
