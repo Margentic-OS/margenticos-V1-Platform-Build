@@ -136,3 +136,97 @@ describe('definite articles are report only', () => {
     expect(r.definiteArticles).toEqual([])
   })
 })
+
+// ─── Bare pronouns whose antecedent can only be in the replaced slot ──────────
+
+describe('unanchored pronouns in P3', () => {
+  it('hard-fails the sentence that shipped and broke', () => {
+    const body = withFrame(
+      'Most consulting founders assume outbound does not work for their kind of business.',
+      'We run it differently: hyper-specific targeting, conversations that land with the right people.',
+      'Worth a look at whether it fits what you do?',
+      'Doug\nMargenticOS',
+    )
+    const r = findBackReferences(body)
+    expect(r.unanchoredPronouns.map(h => h.pronoun)).toContain('it')
+    expect(r.unanchoredPronouns[0].paragraph).toBe(3)
+  })
+
+  it('passes once the noun is restored', () => {
+    const body = withFrame(
+      'Most consulting founders assume outbound does not work for their kind of business.',
+      'We run outbound differently: hyper-specific targeting, conversations that land with the right people.',
+      'Worth a look at whether it fits what you do?',
+      'Doug\nMargenticOS',
+    )
+    expect(findBackReferences(body).unanchoredPronouns).toEqual([])
+  })
+
+  it.each(['it', 'they', 'them'])('gates the bare pronoun "%s"', pronoun => {
+    const body = withFrame('An opener sentence here.', `We handle ${pronoun} for you.`, 'Doug\nMargenticOS')
+    expect(findBackReferences(body).unanchoredPronouns.map(h => h.pronoun)).toContain(pronoun)
+  })
+
+  it('documents the known false negative: an unlisted verb reads as an antecedent', () => {
+    // "sprinkle" is not in the not-a-noun list, so it is treated as a noun and anchors
+    // the pronoun. This is the deliberate bias: a missed hit costs a prompt-level catch,
+    // a false hit costs a wrongly rejected variant. Recorded so the tradeoff is explicit
+    // rather than discovered later.
+    const body = withFrame('An opener sentence here.', 'We sprinkle it across the week.', 'Doug\nMargenticOS')
+    expect(findBackReferences(body).unanchoredPronouns).toEqual([])
+  })
+})
+
+describe('unanchored pronouns: false positives that must not fire', () => {
+  it('allows a pronoun anchored by a noun earlier in the same paragraph', () => {
+    const body = withFrame(
+      'An opener sentence here.',
+      'The outreach runs every week and it never stops when a project lands.',
+      'Doug\nMargenticOS',
+    )
+    expect(findBackReferences(body).unanchoredPronouns).toEqual([])
+  })
+
+  it('allows expletive "it", which points at nothing by design', () => {
+    const body = withFrame('An opener sentence here.', 'It takes about a week to set up.', 'Doug\nMargenticOS')
+    expect(findBackReferences(body).unanchoredPronouns).toEqual([])
+  })
+
+  it('allows "if it becomes one" where the referent is named in the same paragraph', () => {
+    const body = withFrame(
+      'An opener sentence here.',
+      'Most founders find the gap widens. If it becomes one worth fixing, we can help.',
+      'Doug\nMargenticOS',
+    )
+    expect(findBackReferences(body).unanchoredPronouns).toEqual([])
+  })
+
+  it('does not gate P4, where P3 may legitimately supply the antecedent', () => {
+    const body = withFrame(
+      'An opener sentence here.',
+      'We run the outbound for you.',
+      'Is that something you are trying to fix?',
+      'Doug\nMargenticOS',
+    )
+    const r = findBackReferences(body)
+    expect(r.unanchoredPronouns).toEqual([])
+  })
+
+  it('does not gate a relative "that", which is not a back-reference', () => {
+    const body = withFrame(
+      'An opener sentence here.',
+      'We book conversations that land with the right people.',
+      'Doug\nMargenticOS',
+    )
+    expect(findBackReferences(body).unanchoredPronouns).toEqual([])
+  })
+
+  it('leaves emails 2 to 4 alone entirely, since only Email 1 P2 is replaced', () => {
+    // "It runs, they show up to calls" is good copy in Email 3 and the caller only
+    // applies the gate to Email 1, but the detector must not mark it hard either.
+    const body = '{{first_name}}\n\nAn opener.\n\nIt runs, they show up to calls.\n\nDoug\nMargenticOS'
+    const r = findBackReferences(body)
+    // Reported, so a human can see it, but the caller gates Email 1 only.
+    expect(r.unanchoredPronouns.length + r.ambiguousPronouns.length).toBeGreaterThan(0)
+  })
+})

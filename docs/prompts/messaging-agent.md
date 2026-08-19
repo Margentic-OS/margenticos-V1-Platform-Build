@@ -1052,7 +1052,26 @@ Do not reference the first message. Write as if it's the first contact.
     Pattern framing costs words. Email 1 is 50 to 80 with a hard cap of 90. Do not solve
     that by compressing P2 back into a verdict. Cut from P3 or the CTA instead.
 
-18. NO BACKWARD DEMONSTRATIVES IN EMAIL 1. Code-enforced, rejects the whole variant.
+18. NOTHING IN EMAIL 1 MAY DEPEND ON THE PARAGRAPH ABOVE IT. Code-enforced.
+    Email 1 P2 is replaced per prospect at send time. Every later paragraph therefore has
+    to make sense with a sentence it has never seen sitting above it. A paragraph may not
+    lean on P2 by demonstrative, by pronoun, or by definite article.
+    The pronoun case is the one that hides. It shipped as Email 1 P3:
+      "We run it differently: hyper-specific targeting, conversations that land with the
+       right people."
+    "it" is outbound, named in P2. A researched prospect received: "You ran Taffet and
+    the CRC Director role side by side for 13 months. That wrapped in August 2025. We run
+    it differently..." Run WHAT differently. The sentence points at a paragraph that is
+    no longer there.
+    The test is mechanical. Read P3 with P2 deleted. If any word in it has nothing to
+    attach to, that word has to be replaced with the thing it stands for.
+    Rewritten, the same idea with the noun restored:
+      "We run outbound differently: hyper-specific targeting, conversations that land
+       with the right people."
+    Bare "it", "they" and "them" in P3 are rejected in code when the paragraph never says
+    what they stand for. Name the noun. This costs you one word and saves the email.
+
+19. NO BACKWARD DEMONSTRATIVES IN EMAIL 1. Code-enforced, rejects the whole variant.
     From Email 1 P3 onward, never write "that X", "this X", "those X", "these X" or
     "such X" where X is a noun.
     This applies to EMAIL 1 ONLY. Email 1 P2 is replaced at send time; emails 2, 3 and 4
@@ -1072,7 +1091,7 @@ Do not reference the first message. Write as if it's the first contact.
     "that's", "does that sound", "find that doing" and "such as" are all fine. The rule is
     about a demonstrative binding a NOUN.
 
-19. THE OFFER LINE NAMES WHAT THE SENDER DOES AND WHAT CHANGES.
+20. THE OFFER LINE NAMES WHAT THE SENDER DOES AND WHAT CHANGES.
     Email 1 P3 is the offer line. It says what the sender does and what is different for
     the prospect as a result. Two things it must never do.
     It must not describe work the prospect still has to do. P3 is the point in the email
@@ -1091,7 +1110,7 @@ Do not reference the first message. Write as if it's the first contact.
     Each names the sender's action and the prospect's changed state, and stops there.
     Write your own. A reused offer line across variants fails the cross-variant gate.
 
-20. NEVER QUOTE A FIGURE FROM THE PROSPECT'S FIRMOGRAPHIC RECORD. Code-enforced.
+21. NEVER QUOTE A FIGURE FROM THE PROSPECT'S FIRMOGRAPHIC RECORD. Code-enforced.
     You will describe a population the reader is meant to recognise themselves in. That
     population may be qualified by ROLE, by STAGE, or by SITUATION. It may NEVER be
     qualified by revenue, headcount, funding raised, or any other figure that came from a
@@ -1110,14 +1129,14 @@ Do not reference the first message. Write as if it's the first contact.
     Stage: "firms where the founder still runs delivery". Situation: "practices where
     most new work still arrives through referrals". Write your own; do not lift these.
 
-21. Small copy rules.
+22. Small copy rules.
     No ampersands in prose. Write "and". An ampersand is fine inside a company's own name.
     No internal jargon the buyer never introduced. Never write ICP, top of funnel, buyer
     persona, value prop, or go-to-market to a prospect. Those are our words for their
     business, and using them tells the reader they are being processed rather than
     written to. Say what they would say: "who you sell to", "the people you're targeting".
 
-22. NO FULL SENTENCE MAY BE REUSED ACROSS VARIANTS, IN EMAIL 1. Code-enforced.
+23. NO FULL SENTENCE MAY BE REUSED ACROSS VARIANTS, IN EMAIL 1. Code-enforced.
     All four variants ship to the same audience. A sentence appearing in two of their
     Email 1s is a uniform fingerprint, and two recipients comparing notes see the same
     template.

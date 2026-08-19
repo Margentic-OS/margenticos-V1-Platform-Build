@@ -69,6 +69,16 @@ const NON_NOUN_FOLLOWERS = new Set([
   'put', 'puts', 'give', 'gives', 'gave', 'bring', 'brings', 'brought',
   'start', 'starts', 'started', 'end', 'ends', 'ended', 'cost', 'costs',
   'tend', 'tends', 'need', 'needs', 'want', 'wants',
+  // Transitive verbs common in this copy. Added because a verb missing from this list is
+  // read as a noun and silently ANCHORS a following pronoun, suppressing the gate: "We
+  // handle them for you" went undetected until "handle" was listed. Only words that are
+  // essentially never nouns in this register are added, because listing a real noun as a
+  // verb has the opposite failure and would flag a properly anchored pronoun.
+  'handle', 'handles', 'handled', 'deliver', 'delivers', 'delivered',
+  'manage', 'manages', 'managed', 'generate', 'generates', 'generated',
+  'solve', 'solves', 'solved', 'replace', 'replaces', 'replaced',
+  'sustain', 'sustains', 'sustained', 'outsource', 'outsourced',
+  'delegate', 'delegates', 'delegated', 'prioritise', 'prioritize',
   // Gerunds after a complementiser "that"
   'doing', 'being', 'having', 'getting', 'making', 'running', 'sending', 'writing',
   'working', 'fixing', 'building',
@@ -118,11 +128,89 @@ export interface DefiniteArticleHit {
   phrase: string
 }
 
+export interface PronounHit {
+  paragraph: number
+  /** The pronoun, lowercased. */
+  pronoun: string
+  /** The clause it sits in, trimmed, for the violation message. */
+  context: string
+}
+
 export interface BackReferenceReport {
   /** Demonstrative-plus-noun back-references. HARD FAIL: any hit rejects the variant. */
   demonstratives: BackReferenceHit[]
   /** Definite-article phrases. REPORT ONLY: never gates, surfaced for a human. */
   definiteArticles: DefiniteArticleHit[]
+  /**
+   * Bare pronouns in P3 with no antecedent inside P3. HARD FAIL in Email 1: P3's only
+   * predecessor is the replaced slot, so the referent can only be in P2.
+   */
+  unanchoredPronouns: PronounHit[]
+  /**
+   * The same shape in P4 onward, and the ambiguous demonstrative pronouns anywhere.
+   * REPORT ONLY: P3 survives composition and may legitimately supply the antecedent.
+   */
+  ambiguousPronouns: PronounHit[]
+}
+
+// ─── Bare pronouns whose antecedent can only be in the replaced slot ─────────
+//
+// THE FAILURE THIS CATCHES. Variant D shipped this as Email 1 P3:
+//
+//   "We run it differently: hyper-specific targeting, conversations that land with the
+//    right people."
+//
+// "it" is outbound, named in P2. Composition replaces P2 per prospect, so a researched
+// D prospect received: "You ran Taffet and the CRC Director role side by side for 13
+// months. That wrapped in August 2025. We run it differently..." Run WHAT differently.
+//
+// The demonstrative gate missed it because that gate matches DEMONSTRATIVE + NOUN
+// ("that ceiling"). A bare pronoun binds nothing visible, so nothing matched.
+//
+// WHY THE HARD GATE IS P3 ONLY, and this is the whole precision argument.
+// P3 is the paragraph directly after the slot. Its only antecedent-bearing predecessor
+// is P2. So a backward pronoun in P3 with no antecedent inside P3 itself can ONLY
+// resolve into the paragraph that gets replaced. That inference is airtight and needs no
+// coreference resolution.
+// From P4 onward it stops being airtight: P3 survives composition, so a pronoun there
+// may legitimately bind to P3. Distinguishing "binds to P3" from "binds to P2" needs
+// real coreference, so P4 onward is REPORT ONLY rather than a gate that would reject
+// good copy.
+//
+// WHY ONLY it / they / them ARE GATED.
+// These three have no non-referential grammatical role, so finding one is unambiguous.
+// "that", "this", "these" and "those" also work as relative pronouns ("conversations
+// THAT land with the right people") and as complementisers ("founders find THAT doing
+// more never helps"), both of which are perfectly good copy and neither of which points
+// backwards. No reliable rule separates those uses from the pronominal one without a
+// parser, so bare demonstratives are reported, never gated.
+const GATED_PRONOUNS = new Set(['it', 'they', 'them'])
+const AMBIGUOUS_PRONOUNS = new Set(['this', 'that', 'these', 'those'])
+
+// Expletive "it" points at nothing: "it takes two weeks", "it's straightforward". The
+// pronoun is a grammatical placeholder, not a reference, so it must not be flagged.
+// Detected by the verb that follows, which is the reliable half of the construction.
+const EXPLETIVE_IT_FOLLOWERS = new Set([
+  'is', "isn't", 'was', "wasn't", 'will', 'would', 'can', "can't", 'could', 'may', 'might',
+  'takes', 'took', 'take', 'seems', 'seemed', 'looks', 'looked', 'feels', 'felt',
+  'turns', 'turned', 'makes', 'made', 'helps', 'helped', 'matters', 'mattered',
+  'depends', 'depended', 'happens', 'happened', 'costs', 'cost', 'means', 'meant',
+  'gets', 'got', 'becomes', 'became', 'stays', 'stayed', 'remains', 'remained',
+])
+
+// True when the paragraph names something before `index` that a pronoun could bind to.
+// Reuses NON_NOUN_FOLLOWERS as the not-a-noun test: any token that is not a verb,
+// auxiliary, preposition, article, adverb or pronoun is treated as a candidate noun.
+function hasAntecedentBefore(tokens: string[], index: number): boolean {
+  for (let i = 0; i < index; i++) {
+    const t = tokens[i]
+    if (!t) continue
+    if (NON_NOUN_FOLLOWERS.has(t)) continue
+    if (GATED_PRONOUNS.has(t) || AMBIGUOUS_PRONOUNS.has(t)) continue
+    if (IDIOMATIC_NOUNS.has(t)) continue
+    return true
+  }
+  return false
 }
 
 // Splits a body into content paragraphs, dropping the {{first_name}} greeting chunk so
@@ -146,6 +234,8 @@ export function findBackReferences(body: string): BackReferenceReport {
   const paras = contentParagraphs(body)
   const demonstratives: BackReferenceHit[] = []
   const definiteArticles: DefiniteArticleHit[] = []
+  const unanchoredPronouns: PronounHit[] = []
+  const ambiguousPronouns: PronounHit[] = []
 
   // Normalise curly apostrophes so "that's" is recognised and skipped consistently.
   const normalise = (s: string) => s.replace(/[''ʼ‘’]/g, "'")
@@ -178,7 +268,44 @@ export function findBackReferences(body: string): BackReferenceReport {
     while ((m = theRe.exec(para)) !== null) {
       definiteArticles.push({ paragraph: paragraphNumber, phrase: `the ${m[1]}` })
     }
+
+    // Bare pronouns with no antecedent in this paragraph.
+    const tokens = para.toLowerCase().split(/[^a-z']+/).filter(Boolean)
+    const isP3 = i === 1
+
+    for (let t = 0; t < tokens.length; t++) {
+      const word = tokens[t]
+      const gated = GATED_PRONOUNS.has(word)
+      const ambiguous = AMBIGUOUS_PRONOUNS.has(word)
+      if (!gated && !ambiguous) continue
+
+      // Expletive "it" is a placeholder, not a reference: "it takes two weeks".
+      if (word === 'it' && EXPLETIVE_IT_FOLLOWERS.has(tokens[t + 1] ?? '')) continue
+
+      // A demonstrative binding a noun is the other gate's business, not this one.
+      if (ambiguous) {
+        const next = tokens[t + 1] ?? ''
+        const bindsNoun =
+          next.length > 0 &&
+          !NON_NOUN_FOLLOWERS.has(next) &&
+          !GATED_PRONOUNS.has(next) &&
+          !AMBIGUOUS_PRONOUNS.has(next)
+        if (bindsNoun) continue
+      }
+
+      if (hasAntecedentBefore(tokens, t)) continue
+
+      const hit: PronounHit = {
+        paragraph: paragraphNumber,
+        pronoun: word,
+        context: para.split(/(?<=[.!?])\s+/).find(sent => new RegExp(`\\b${word}\\b`, 'i').test(sent))?.trim() ?? para,
+      }
+
+      // Gated only for it/they/them sitting in P3, where P2 is the sole possible referent.
+      if (gated && isP3) unanchoredPronouns.push(hit)
+      else ambiguousPronouns.push(hit)
+    }
   }
 
-  return { demonstratives, definiteArticles }
+  return { demonstratives, definiteArticles, unanchoredPronouns, ambiguousPronouns }
 }

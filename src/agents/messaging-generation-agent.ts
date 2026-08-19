@@ -828,6 +828,24 @@ has failed and must be rewritten.
 PARAGRAPH INDEPENDENCE STILL APPLIES. P2 is unknown at authoring time, so no paragraph
 may refer back to the one above it. Each paragraph names its own subject.
 
+NOTHING MAY DEPEND ON THE PARAGRAPH ABOVE IT. P2 is replaced per prospect at send time,
+so every later paragraph must read correctly with a sentence it has never seen sitting
+above it. No paragraph may lean on P2 by demonstrative, by pronoun, or by definite
+article.
+
+The pronoun case is the one that hides, and it shipped:
+  "We run it differently: hyper-specific targeting, conversations that land with the
+   right people."
+"it" is outbound, which P2 named. A researched prospect got: "You ran Taffet and the CRC
+Director role side by side for 13 months. That wrapped in August 2025. We run it
+differently..." Run WHAT differently.
+Restore the noun and the sentence survives any P2:
+  "We run outbound differently: hyper-specific targeting, conversations that land with
+   the right people."
+Bare "it", "they" and "them" in P3 are rejected in code whenever that paragraph never
+says what they stand for. The check is mechanical, so apply it yourself: read P3 with P2
+deleted, and replace any word left pointing at nothing.
+
 NO DEMONSTRATIVES POINTING BACKWARDS. From P3 onward, do not write "that X", "this X",
 "those X", "these X" or "such X" where X is a noun. A demonstrative binding a noun has to
 point at something, and the only thing it can point at is a paragraph that may not
@@ -1094,6 +1112,13 @@ Critical reminders:
 ${renderWordCountReminder()}
 - Do not count the words yourself. The platform recomputes word_count and subject_char_count from the text you return and validates the computed values. Write to the band, not to a number you report.
 - Email 1 follows the paragraph frame: {{first_name}}, then the observation slot, then what changes, then the CTA question, then the sign-off. Each paragraph does its own job and none restates another.
+- Nothing in Email 1 may depend on the paragraph above it. The observation slot is replaced
+  per prospect, so read your P3 with P2 deleted and name anything left pointing at nothing.
+  "We run it differently" fails. "We run outbound differently" passes.
+- Nothing in Email 1 may depend on the paragraph above it, by demonstrative, pronoun or
+  definite article. P2 is replaced per prospect. "We run it differently" fails: read with
+  P2 gone, "it" points at nothing. Write "We run outbound differently". Bare it/they/them
+  in P3 are rejected in code when the paragraph never names what they stand for.
 - The offer line (Email 1 P3) names what the sender does and what changes for the prospect.
   It must not describe work the prospect still has to do, and must not explain their own
   job back to them. "You take the calls and close them" fails on both counts.
@@ -1723,6 +1748,22 @@ export function validateEmails(
         violations.push({
           email: pos,
           issue: `paragraph ${hit.paragraph} contains back-reference "${hit.phrase}". A demonstrative binding a noun points at the paragraph above, which is replaced at composition. Name the subject instead.`,
+        })
+      }
+      // Bare pronouns in P3 whose antecedent can only be in the replaced slot.
+      // "We run it differently" reads as "run WHAT differently" once a researched
+      // observation takes P2's place. Gated at P3 only, where P2 is the sole possible
+      // referent; measured at 1 hit across 27 real Email 1s, and that hit was the bug.
+      for (const hit of backRefs.unanchoredPronouns) {
+        violations.push({
+          email: pos,
+          issue: `paragraph ${hit.paragraph} uses the bare pronoun "${hit.pronoun}" with nothing in that paragraph for it to refer to, so it can only point at the observation slot, which is replaced per prospect. Name the thing instead. Offending sentence: "${hit.context}"`,
+        })
+      }
+      if (backRefs.ambiguousPronouns.length > 0) {
+        logger.debug('Messaging agent: pronouns that may lean on an earlier paragraph (not gated)', {
+          email: pos,
+          pronouns: backRefs.ambiguousPronouns.map(h => `P${h.paragraph} ${h.pronoun}`),
         })
       }
     } else if (backRefs.demonstratives.length > 0) {

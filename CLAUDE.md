@@ -468,6 +468,16 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
   Opening word:      must not be I or We, applied to the observation slot only.
                      Email 1 paragraph 3 ("what changes") MAY begin with We.
   Em dashes:         zero tolerance; any instance causes the entire variant to be flagged
+  Bare pronouns:     HARD FAIL on it/they/them in EMAIL 1 P3 when that paragraph never
+                     names what they stand for. P3's only predecessor is the replaced
+                     slot, so the referent can only be P2. "We run it differently" shipped
+                     and broke: with a researched P2 it reads "run WHAT differently".
+                     Write "We run outbound differently". P4 onward is REPORT ONLY,
+                     because P3 survives composition and may supply the antecedent, and
+                     bare demonstratives are report-only everywhere because "that" is also
+                     a relative pronoun and a complementiser. Measured across 27 real
+                     Email 1s: 1 hard hit, which was the bug, and 12 report-only hits that
+                     a wider gate would have rejected as false positives.
   Back-references:   HARD FAIL on a demonstrative binding a noun in EMAIL 1, paragraph 3
                      onward: "that ceiling", "this pattern", "those meetings", "such
                      firms". P2 is replaced at composition, so a later paragraph pointing
