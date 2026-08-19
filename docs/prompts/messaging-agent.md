@@ -1069,12 +1069,43 @@ Do not reference the first message. Write as if it's the first contact.
     "that's", "does that sound", "find that doing" and "such as" are all fine. The rule is
     about a demonstrative binding a NOUN.
 
-19. Small copy rules.
+19. THE OFFER LINE NAMES WHAT THE SENDER DOES AND WHAT CHANGES.
+    Email 1 P3 is the offer line. It says what the sender does and what is different for
+    the prospect as a result. Two things it must never do.
+    It must not describe work the prospect still has to do. P3 is the point in the email
+    where friction comes off. Adding a task puts friction back on, and a reader deciding
+    whether to reply in two seconds now has a to-do list instead of a reason.
+    It must not explain the prospect's own job back to them. They have run sales calls for
+    years. Narrating how one works reads as condescension from a stranger.
+    FAILING, and shipped in three variants at once:
+      "You take the calls and close them."
+    Both faults in six words: it hands them a task, and it tells a consultant what happens
+    on a sales call. Cut it and the offer line is stronger, not weaker.
+    Acceptable shapes, as illustrations of the principle rather than lines to copy:
+      "We keep the diary filled without you writing anything."
+      "Meetings land in your calendar and nothing else changes about how you work."
+      "The prospecting runs whether you're in delivery or not."
+    Each names the sender's action and the prospect's changed state, and stops there.
+    Write your own. A reused offer line across variants fails the cross-variant gate.
+
+20. Small copy rules.
     No ampersands in prose. Write "and". An ampersand is fine inside a company's own name.
     No internal jargon the buyer never introduced. Never write ICP, top of funnel, buyer
     persona, value prop, or go-to-market to a prospect. Those are our words for their
     business, and using them tells the reader they are being processed rather than
     written to. Say what they would say: "who you sell to", "the people you're targeting".
+
+21. NO FULL SENTENCE MAY BE REUSED ACROSS VARIANTS. Code-enforced.
+    All four variants ship to the same audience. A sentence appearing in two of them is a
+    uniform fingerprint, and two recipients comparing notes see the same template.
+    This applies to EVERY sentence of ALL FOUR emails, not just subject lines and openers.
+    The lines that collide most are the offer line and the CTA, because they are the two
+    with the narrowest job. Write four genuinely different offer lines and four genuinely
+    different CTAs.
+    Swapping a single noun does not clear the gate: the check normalises proper nouns and
+    numbers before comparing, so "We book meetings for Acme" and "We book meetings for
+    Beta" count as the same sentence.
+    The two-line sign-off is exempt. It is mandatory and identical everywhere by design.
 
 ---
 

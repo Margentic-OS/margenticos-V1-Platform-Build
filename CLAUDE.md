@@ -475,6 +475,16 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
                      Definite articles are REPORT ONLY and must never gate: "without you
                      touching the outreach" is good copy and no pattern can tell it from
                      "so the gap between projects isn't a panic".
+  Sentence reuse:    HARD FAIL. No full sentence (4+ words) may appear in more than one
+                     variant, across every sentence of all four emails, not just subjects
+                     and openers. Enforced by SentenceRegistry in
+                     src/lib/style/sentence-frames.ts, which normalises proper nouns and
+                     numbers first, so swapping one name does not clear it. The two-line
+                     sign-off is exempt. First writer wins, in sorted variant order.
+  Offer line (P3):   names what the SENDER does and what changes for the prospect. Must
+                     not describe work the prospect still has to do, and must not explain
+                     their own job back to them. "You take the calls and close them" fails
+                     on both counts and shipped in three variants at once.
   Ampersands:        none in prose; write "and". Fine inside a company's own name.
   Internal jargon:   never send ICP, top of funnel, buyer persona, value prop, or
                      go-to-market to a prospect. Enforced in code via BANNED_JARGON.

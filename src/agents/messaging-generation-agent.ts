@@ -27,6 +27,7 @@ import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { scrubAITells, scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
 import { nominalisationDensity, NOMINALISATION_THRESHOLD } from '@/lib/style/nominalisation'
 import { findBackReferences } from '@/lib/style/back-reference'
+import { SentenceRegistry, comparableSentences } from '@/lib/style/sentence-frames'
 // countWords is imported from the composition layer on purpose: the agent and composition
 // must measure word counts identically or the stored count and the sent count disagree.
 import { countWords } from '@/lib/composition/personalization'
@@ -181,10 +182,15 @@ interface SlotOutcome {
   dropReason?: string
   /**
    * The angle whose copy actually shipped in this slot. Equals the variant key when the
-   * slot kept its assigned angle. Equals the fallback angle name when a fallback was
-   * used, in which case the slot key alone would misdescribe the content.
+   * slot kept its assigned angle, the fallback angle name when a fallback was used, and
+   * null when the slot was dropped and nothing shipped.
+   *
+   * REQUIRED, not optional. It used to be optional and set only inside retryVariantSlot,
+   * so a first-pass variant recorded nothing and the storage step fell back to the slot
+   * key. The stored value was therefore ambiguous: "A" could mean "shipped on angle A" or
+   * "never recorded". Making it required forces every construction site to state which.
    */
-  shippedAngle?: string
+  shippedAngle: string | null
 }
 
 // Accumulated stats for the full run — written to agent_runs and suggestion_reason.
@@ -303,11 +309,16 @@ export async function runMessagingGenerationAgent(
 
     // Step 11: Post-process each variant independently.
     // Em-dash auto-fix + sign-off fix + 10-rule validation gate runs per variant.
+    // One registry per document. Holds every sentence the accepted variants have used, so
+    // a later variant repeating one is caught and regenerated.
+    const sentenceRegistry = new SentenceRegistry()
+
     const { passedVariants, variantFailures } = await processAllVariants(
       rawVariants,
       preflight.sender_first_name,
       preflight.org_name,   // sender's company name, from organisations.name
-      organisation_id
+      organisation_id,
+      sentenceRegistry,
     )
 
     // Step 12: Initialise run stats. The initial four-variant call counts as 1 API call.
@@ -324,6 +335,9 @@ export async function runMessagingGenerationAgent(
           result: 'first_pass',
           retryAttempts: 0,
           apiCallsUsed: 0,
+          // First pass means the slot kept its assigned angle. Recorded explicitly rather
+          // than left to a downstream default, so the stored value always means what it says.
+          shippedAngle: key,
         })
       }
     }
@@ -344,13 +358,14 @@ export async function runMessagingGenerationAgent(
       for (const failure of variantFailures) {
         // Recollected on every iteration so each retry sees the variants that have
         // survived up to this point, including ones repaired earlier in this same loop.
-        const taken = collectTakenCopy(passedVariants)
+        const taken = collectTakenCopy(passedVariants, [preflight.sender_first_name, preflight.org_name])
 
         const { emails, outcome } = await retryVariantSlot(
           failure.variant,
           retryContext,
           organisation_id,
           taken,
+          sentenceRegistry,
         )
         runStats.slotOutcomes.push(outcome)
         runStats.totalApiCalls += outcome.apiCallsUsed
@@ -777,14 +792,29 @@ that specific prospect exists. Write the default that ships when it does not.
   P2  THE OBSERVATION SLOT. Observe the prospect's situation and name the problem it
       implies. This is the ONLY paragraph that may describe the problem. It must stand
       alone, because it gets replaced. Do not pitch here. Do not name the service here.
-  P3  WHAT CHANGES. Signal that the sender does something about that problem. Name a
-      RESULT in the prospect's own terms. Do NOT name the service, do NOT explain the
-      mechanism, do NOT list features. One or two short sentences. This paragraph MAY
-      begin with We: the I/We ban applies only to the observation slot.
+  P3  WHAT CHANGES. The offer line. Signal that the sender does something about that
+      problem and name a RESULT in the prospect's own terms. Do NOT name the service, do
+      NOT explain the mechanism, do NOT list features. One or two short sentences. This
+      paragraph MAY begin with We: the I/We ban applies only to the observation slot.
       Register to match: "We get more conversations into your diary."
                          "We bring qualified prospects to you."
+
+      TWO THINGS P3 MUST NEVER DO.
+      It must not describe work the prospect still has to do. P3 is where friction comes
+      off. Adding a task puts it back on.
+      It must not explain the prospect's own job back to them. They have run sales calls
+      for years and do not need one narrated by a stranger.
+      FAILING, and shipped in three variants at once:
+        "You take the calls and close them."
+      Six words, both faults: it hands them a task, and it tells a consultant what happens
+      on a sales call. Deleting it makes the offer line stronger.
+      Shapes that work, as illustrations rather than lines to copy:
+        "We keep the diary filled without you writing anything."
+        "The prospecting runs whether you're in delivery or not."
+      Each names the sender's action and the prospect's changed state, then stops.
+
       P3 must FLEX to the pain P2 opened on, and must differ across all four variants.
-      A fixed line reused across variants is a spam fingerprint.
+      A fixed line reused across variants is a spam fingerprint, and is code-enforced.
   P4  The CTA question. One question. Low commitment.
   P5  THE SIGN-OFF BLOCK. Two lines, in this order, nothing after them:
         ${params.preflight.sender_first_name}
@@ -885,6 +915,13 @@ ${renderWordCountReminder()}
   persona, value prop, or go-to-market to a prospect. Those are our words for their
   business. Say what they would say: "who you sell to", "the people you're targeting".
 - Never assert exclusivity about the prospect's situation. See PATTERNS, NOT VERDICTS.
+- NO FULL SENTENCE MAY APPEAR IN TWO VARIANTS. Code-enforced across every sentence of all
+  four emails, not just subjects and openers. The offer line and the CTA collide most
+  often, so write four genuinely different offer lines and four genuinely different CTAs.
+  Swapping one noun does not clear it: proper nouns and numbers are normalised before
+  comparing. The two-line sign-off is exempt.
+- The offer line names what the sender does and what changes for the prospect. It must not
+  describe work the prospect still has to do, and must not explain their own job to them.
 - The sign-off block is mandatory on EVERY email and is TWO lines: the sender's first name
   ("${params.preflight.sender_first_name}") then the company name ("${params.preflight.org_name}") directly beneath it.
   For emails 1, 2, and 3 the CTA question is NOT the last line. The block goes after it.
@@ -918,16 +955,34 @@ Each email object must contain exactly these fields:
 interface TakenCopy {
   subjects: string[]
   openers: string[]
+  /**
+   * Every comparable sentence from every accepted variant, across all four emails.
+   * Subjects and openers alone were not enough: variants A, B and C all shipped
+   * "You take the calls and close them." as Email 1 P3, which is neither a subject
+   * nor an opener, so nothing saw it.
+   */
+  sentences: string[]
 }
 
-// Collects the subjects and Email 1 openers from every variant that has passed so far.
-function collectTakenCopy(passed: Record<string, EmailRecord[]>): TakenCopy {
+// Collects the subjects, Email 1 openers and full sentence inventory from every variant
+// that has passed so far.
+function collectTakenCopy(
+  passed: Record<string, EmailRecord[]>,
+  signOffLines: string[] = [],
+): TakenCopy {
   const subjects: string[] = []
   const openers: string[] = []
+  const sentences: string[] = []
+  const seenSentences = new Set<string>()
 
   for (const emails of Object.values(passed)) {
     for (const email of emails) {
       if (email.subject_line) subjects.push(email.subject_line)
+      for (const sentence of comparableSentences(email.body, signOffLines)) {
+        if (seenSentences.has(sentence)) continue
+        seenSentences.add(sentence)
+        sentences.push(sentence)
+      }
     }
     const first = emails.find(e => e.sequence_position === 1)
     if (first) {
@@ -936,7 +991,7 @@ function collectTakenCopy(passed: Record<string, EmailRecord[]>): TakenCopy {
     }
   }
 
-  return { subjects, openers }
+  return { subjects, openers, sentences }
 }
 
 // The observation slot line: the first non-empty line after the {{first_name}} greeting.
@@ -947,7 +1002,7 @@ function firstBodyLineAfterGreeting(body: string): string | null {
 }
 
 function buildAvoidBlock(taken: TakenCopy): string {
-  if (taken.subjects.length === 0 && taken.openers.length === 0) return ''
+  if (taken.subjects.length === 0 && taken.openers.length === 0 && taken.sentences.length === 0) return ''
 
   const parts: string[] = [
     '\n## ALREADY USED BY OTHER VARIANTS IN THIS SEQUENCE SET\n',
@@ -963,6 +1018,14 @@ function buildAvoidBlock(taken: TakenCopy): string {
   if (taken.openers.length > 0) {
     parts.push('\nEmail 1 observation lines already taken:')
     parts.push(...taken.openers.map(o => `  - ${o}`))
+  }
+  if (taken.sentences.length > 0) {
+    parts.push('')
+    parts.push('SENTENCES ALREADY USED, across all four emails of the accepted variants.')
+    parts.push('Reusing any of these verbatim fails the gate and the variant is regenerated.')
+    parts.push('Swapping one noun is not enough either: write a different sentence.')
+    parts.push('This includes the offer line and the CTA, which are the two that collide most.')
+    parts.push(...taken.sentences.map(s => `  - ${s}`))
   }
 
   return parts.join('\n') + '\n'
@@ -1016,6 +1079,11 @@ Critical reminders:
 ${renderWordCountReminder()}
 - Do not count the words yourself. The platform recomputes word_count and subject_char_count from the text you return and validates the computed values. Write to the band, not to a number you report.
 - Email 1 follows the paragraph frame: {{first_name}}, then the observation slot, then what changes, then the CTA question, then the sign-off. Each paragraph does its own job and none restates another.
+- The offer line (Email 1 P3) names what the sender does and what changes for the prospect.
+  It must not describe work the prospect still has to do, and must not explain their own
+  job back to them. "You take the calls and close them" fails on both counts.
+- Every sentence you write must be new. Any sentence listed under ALREADY USED below is
+  taken, and reusing one fails the gate and sends this variant back for regeneration.
 - No I/We openers on the observation slot. One question per message. No em dashes.
 - The sign-off block is mandatory on EVERY email and is TWO lines: "${context.preflight.sender_first_name}" then
   "${context.preflight.org_name}" directly beneath it. Both count toward the word count.
@@ -1303,22 +1371,65 @@ async function processOneVariant({
 }
 
 // Processes all four variants from the initial Claude call.
+// Cross-variant sentence reuse. This CANNOT live in validateEmails, which sees one
+// variant at a time and by construction cannot know what the other three said.
+//
+// First writer wins: variants are checked in sorted key order, so the earliest variant
+// keeps a sentence and every later variant that repeats it fails and is regenerated.
+// Deterministic, so the same four raw variants always produce the same outcome.
+function findCrossVariantReuse(
+  emails: EmailRecord[],
+  registry: SentenceRegistry,
+  variantKey: string,
+  signOffLines: string[],
+): ValidationViolation[] {
+  const violations: ValidationViolation[] = []
+
+  for (const email of emails) {
+    for (const reuse of registry.findReuse(variantKey, email.body, signOffLines)) {
+      violations.push({
+        email: email.sequence_position,
+        issue: `sentence already used by variant ${reuse.firstSeenId}: "${reuse.sentence}". All four variants ship to the same audience, so a shared sentence is a uniform fingerprint. Write a different one.`,
+      })
+    }
+  }
+
+  return violations
+}
+
 async function processAllVariants(
   rawVariants: Record<string, EmailRecord[]>,
   senderFirstName: string,
   senderCompanyName: string,
-  organisation_id: string
+  organisation_id: string,
+  registry: SentenceRegistry,
 ): Promise<{ passedVariants: Record<string, EmailRecord[]>; variantFailures: VariantFailure[] }> {
   const passedVariants: Record<string, EmailRecord[]> = {}
   const variantFailures: VariantFailure[] = []
+  const signOffLines = [senderFirstName, senderCompanyName]
 
-  for (const [variantKey, emails] of Object.entries(rawVariants)) {
+  // Sorted so "first writer wins" is stable rather than dependent on object key order.
+  for (const variantKey of Object.keys(rawVariants).sort()) {
+    const emails = rawVariants[variantKey]
     const result = await processOneVariant({ variantKey, emails, senderFirstName, senderCompanyName, organisation_id })
-    if ('passed' in result) {
-      passedVariants[variantKey] = result.passed
-    } else {
+    if (!('passed' in result)) {
       variantFailures.push(result.failure)
+      continue
     }
+
+    const reuse = findCrossVariantReuse(result.passed, registry, variantKey, signOffLines)
+    if (reuse.length > 0) {
+      logger.warn(`Messaging agent: Variant ${variantKey} reuses sentences from an earlier variant`, {
+        organisation_id,
+        variantKey,
+        violations: reuse.map(v => `Email ${v.email}: ${v.issue}`),
+      })
+      variantFailures.push({ variant: variantKey, violations: reuse })
+      continue
+    }
+
+    passedVariants[variantKey] = result.passed
+    for (const email of result.passed) registry.register(variantKey, email.body, signOffLines)
   }
 
   return { passedVariants, variantFailures }
@@ -1685,10 +1796,18 @@ async function retryVariantSlot(
   context: VariantGenerationContext,
   organisation_id: string,
   taken: TakenCopy,
+  registry: SentenceRegistry,
 ): Promise<{ emails: EmailRecord[] | null; outcome: SlotOutcome }> {
   const senderFirstName = context.preflight.sender_first_name
   const senderCompanyName = context.preflight.org_name
+  const signOffLines = [senderFirstName, senderCompanyName]
   let apiCallsUsed = 0
+
+  // A retry that passes its own validation can still collide with an already-accepted
+  // variant, so the cross-variant check runs on the retry path too. Without it a slot
+  // could be "rescued" into the exact duplicate the gate just rejected.
+  const collides = (emails: EmailRecord[]): ValidationViolation[] =>
+    findCrossVariantReuse(emails, registry, variantKey, signOffLines)
 
   const originalAngle = VARIANT_ANGLE_INSTRUCTIONS[variantKey]
   if (!originalAngle) {
@@ -1699,6 +1818,8 @@ async function retryVariantSlot(
         result: 'dropped',
         retryAttempts: 0,
         apiCallsUsed: 0,
+        // Nothing shipped, so there is no angle to record.
+        shippedAngle: null,
         dropReason: `No angle instruction defined for variant key "${variantKey}"`,
       },
     }
@@ -1727,6 +1848,14 @@ async function retryVariantSlot(
         attemptLabel: `retry-${attempt}`,
       })
       if ('passed' in result) {
+        const reuse = collides(result.passed)
+        if (reuse.length > 0) {
+          logger.warn(
+            `Messaging agent: Variant ${variantKey} retry ${attempt} passed validation but reuses an accepted variant's sentence`,
+            { organisation_id, variantKey, attempt, violations: reuse.map(v => `Email ${v.email}: ${v.issue}`) }
+          )
+          continue
+        }
         logger.info(
           `Messaging agent: Variant ${variantKey} passed on retry attempt ${attempt}`,
           { organisation_id, variantKey, attempt }
@@ -1769,6 +1898,14 @@ async function retryVariantSlot(
           attemptLabel: `fallback-${fallback.name}-attempt-${attempt}`,
         })
         if ('passed' in result) {
+          const reuse = collides(result.passed)
+          if (reuse.length > 0) {
+            logger.warn(
+              `Messaging agent: Variant ${variantKey} fallback "${fallback.name}" attempt ${attempt} passed validation but reuses an accepted variant's sentence`,
+              { organisation_id, variantKey, fallbackName: fallback.name, attempt, violations: reuse.map(v => `Email ${v.email}: ${v.issue}`) }
+            )
+            continue
+          }
           logger.info(
             `Messaging agent: Variant ${variantKey} shipped on fallback angle "${fallback.name}", attempt ${attempt}. Slot label ${variantKey} no longer describes its angle.`,
             { organisation_id, variantKey, fallbackName: fallback.name, attempt }
@@ -1813,6 +1950,8 @@ async function retryVariantSlot(
       result: 'dropped',
       retryAttempts: MAX_RETRY_ATTEMPTS,
       apiCallsUsed,
+      // Nothing shipped, so there is no angle to record.
+      shippedAngle: null,
       dropReason,
     },
   }
@@ -1842,6 +1981,20 @@ function buildRetryNote(stats: RunStats): string {
   parts.push(`Total API calls: ${stats.totalApiCalls}. Duration: ${Math.round(stats.durationMs / 1000)}s.`)
 
   return ' ' + parts.join(' ')
+}
+
+// Reads the recorded shipped angle for a stored variant. Falling back to the slot key is
+// retained only as a last resort and is logged as an error, because a silent fallback is
+// exactly what made the stored value ambiguous before: "A" could mean "shipped on angle A"
+// or "nobody recorded anything". A fallback now means a construction site was missed.
+function resolveShippedAngle(key: string, recorded: Map<string, string>): string {
+  const angle = recorded.get(key)
+  if (angle) return angle
+  logger.error('Messaging agent: no shipped angle recorded for a stored variant', {
+    variantKey: key,
+    recorded: [...recorded.keys()],
+  })
+  return key
 }
 
 // ─── Write to document_suggestions ───────────────────────────────────────────
@@ -1925,10 +2078,13 @@ async function writeDocumentSuggestion(
   // fallback angle is used the slot key alone misdescribes the copy, so the key is kept
   // for assignment stability and the true angle is stored alongside it. Every consumer
   // reads variants[key].emails and is unaffected by the extra key.
+  // Every passing slot now records its shipped angle explicitly, so this map has an entry
+  // for each stored variant. A miss means a slot outcome was constructed without one,
+  // which is a bug rather than a first-pass default.
   const shippedAngleByVariant = new Map(
     (runStats?.slotOutcomes ?? [])
-      .filter(o => o.shippedAngle)
-      .map(o => [o.variant, o.shippedAngle as string])
+      .filter((o): o is SlotOutcome & { shippedAngle: string } => typeof o.shippedAngle === 'string')
+      .map(o => [o.variant, o.shippedAngle])
   )
 
   const variantKeys = Object.keys(variants).sort()
@@ -1937,7 +2093,7 @@ async function writeDocumentSuggestion(
       key,
       {
         emails: variants[key].map(({ suggestion_reason: _unused, ...email }) => email),
-        angle: shippedAngleByVariant.get(key) ?? key,
+        angle: resolveShippedAngle(key, shippedAngleByVariant),
       },
     ])
   )
