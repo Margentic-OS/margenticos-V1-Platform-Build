@@ -36,6 +36,43 @@ export const SIX_TESTS = [
   'specific', 'verifiable', 'inferential', 'relevant', 'useful', 'non_judgemental',
 ] as const
 
+// ─── Inference direction (FIX 4) ─────────────────────────────────────────────
+// A candidate can pass all six tests while the CONCLUSION drawn from its evidence is
+// backwards. "Robert's CRC role ended, so he needs pipeline" reads the same facts as
+// "Robert left CRC because Taffet got busy". VERIFIABLE only ever checked the underlying
+// FACT, never the direction of the inference, so this is a distinct failure with a
+// distinct field rather than a tightening of an existing test.
+//
+// only_reading:         the evidence genuinely supports one reading. The opposite is
+//                        implausible and the model said why.
+// compatible_with_both: both readings are plausible AND the observation is phrased so
+//                        the email works either way. Safe to use as a hook.
+// ambiguous_unhandled:  both readings are plausible and the observation commits to one.
+//                        Demoted: never used as a hook.
+export type InferenceDirection = 'only_reading' | 'compatible_with_both' | 'ambiguous_unhandled'
+
+export const INFERENCE_DIRECTIONS = [
+  'only_reading', 'compatible_with_both', 'ambiguous_unhandled',
+] as const
+
+/** Deterministic readability verdict attached to a candidate. Mirrors ReadabilityScore. */
+export interface CandidateReadability {
+  /** Unambiguous rule broken: sentence over the word cap, or a hedge phrase. Gates selection. */
+  hard_fail: boolean
+  /** Demerits, lower is better. Ranks candidates that all clear the hard gate. */
+  penalty: number
+  /** Word count of the longest sentence. */
+  max_sentence_words: number
+  /** Hedge phrases found. */
+  hedges: string[]
+  /** Nominalisation density, 0-1. Penalty only, never a hard fail. */
+  nominalisation_density: number
+  /** True when density exceeded the threshold. Contributes demerits only. */
+  nominalisation_over_threshold: boolean
+  /** Plain-English reasons, one per problem. */
+  reasons: string[]
+}
+
 export interface ObservationCandidate {
   /** Stable id within this run: c1, c2, ... */
   id: string
@@ -57,7 +94,26 @@ export interface ObservationCandidate {
   passes_all: boolean
   /** Count of passed tests, 0-6. Derived in code. */
   score_total: number
-  /** Why it was not selected. null for the winner. */
+  /**
+   * The model's own readable verdict. ADVISORY ONLY, kept so a disagreement between the
+   * model and the measurement is inspectable. `readability` below is what gates.
+   */
+  model_readable_claim: boolean
+  /**
+   * The opposite reading of this candidate's own evidence, stated by the model.
+   * null when the model failed to supply one, which is itself a demotion reason.
+   */
+  opposite_reading: string | null
+  /** How the opposite reading was handled. Derived in code from the model's claim. */
+  inference_direction: InferenceDirection
+  /** Deterministic readability verdict. Computed in code, never read from the model. */
+  readability: CandidateReadability
+  /**
+   * True when the candidate cleared all six tests but was blocked from hook use by a
+   * readability hard fail or an unhandled inference ambiguity.
+   */
+  demoted: boolean
+  /** Why it was demoted or not selected. null for the winner. */
   rejection_reason: string | null
 }
 export type QualificationStatus = 'qualified' | 'flagged_for_review' | 'disqualified'
@@ -93,6 +149,14 @@ export interface SynthesisOutput {
   candidates:            ObservationCandidate[]
   /** id of the selected candidate, or null when nothing cleared the bar. */
   selected_candidate_id: string | null
+  /** Deterministic readability verdict on trigger_text, the string that reaches the email. */
+  trigger_readability:   CandidateReadability
+  /**
+   * Set when signal_relevance was downgraded after the model produced it: an unreadable
+   * trigger, or a winner whose inference direction was unhandled. null when nothing was
+   * downgraded.
+   */
+  demotion_reason:       string | null
 }
 
 // Stripped-down prospect shape passed to all source handlers and the synthesizer.
@@ -167,6 +231,8 @@ export interface ResearchResult {
   sources_successful: string[]
   candidates: ObservationCandidate[]
   selected_candidate_id: string | null
+  trigger_readability: CandidateReadability
+  demotion_reason: string | null
 }
 
 export interface ResearchInput {
@@ -187,6 +253,17 @@ export interface ResearchBatchFailure {
   error: string
 }
 
+/** One prospect's trigger reusing a sentence frame already used by an earlier prospect. */
+export interface ResearchFrameCollision {
+  prospect_id: string
+  /** The prospect that used this frame first. */
+  first_seen_prospect_id: string
+  /** The repeated skeleton, e.g. "is a particular kind of". */
+  frame: string
+  /** The repeating trigger text, verbatim. */
+  trigger_text: string
+}
+
 export interface ResearchBatchSummary {
   total: number
   completed: number
@@ -194,4 +271,6 @@ export interface ResearchBatchSummary {
   failed: number
   failures: ResearchBatchFailure[]
   failed_log_path: string | null
+  /** Repeated sentence frames detected across this batch. Empty when the copy varied. */
+  frame_collisions: ResearchFrameCollision[]
 }

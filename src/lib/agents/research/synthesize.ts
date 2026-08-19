@@ -10,10 +10,12 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { buildSynthesisPrompt } from './prompts/synthesis-prompt'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
-import { SIX_TESTS } from './types'
+import { readabilityScore, type ReadabilityScore } from '@/lib/style/readability'
+import { SIX_TESTS, INFERENCE_DIRECTIONS } from './types'
 import type {
   ProspectContext, RawSourceData, SynthesisOutput,
   ObservationCandidate, CandidateScores, CandidateSource, SignalRelevance,
+  CandidateReadability, InferenceDirection,
 } from './types'
 
 const SYNTHESIS_MODEL = 'claude-sonnet-4-6'
@@ -298,6 +300,39 @@ function asBool(v: unknown): boolean {
   return v === true
 }
 
+// Flattens a ReadabilityScore into the shape stored on the candidate. The full score
+// object carries the matched sentences too, which are not worth persisting per candidate.
+function toCandidateReadability(score: ReadabilityScore): CandidateReadability {
+  return {
+    hard_fail:                     score.hardFail,
+    penalty:                       score.penalty,
+    max_sentence_words:            score.maxSentenceWords,
+    hedges:                        score.hedges,
+    nominalisation_density:        score.nominalisation.density,
+    nominalisation_over_threshold: score.nominalisation.exceedsThreshold,
+    reasons:                       score.reasons,
+  }
+}
+
+// An opposite reading has to be a real sentence. A one-word or empty answer is the model
+// going through the motions, and the prompt says as much, so it is treated as unhandled.
+const MIN_OPPOSITE_READING_CHARS = 15
+
+function parseInferenceDirection(o: Record<string, unknown>): {
+  opposite_reading: string | null
+  inference_direction: InferenceDirection
+} {
+  const rawOpposite = typeof o.opposite_reading === 'string' ? o.opposite_reading.trim() : ''
+  const opposite_reading = rawOpposite.length >= MIN_OPPOSITE_READING_CHARS ? rawOpposite : null
+
+  // No usable opposite reading means the direction check did not happen, whatever the
+  // model claimed. Fail closed.
+  if (!opposite_reading) return { opposite_reading: null, inference_direction: 'ambiguous_unhandled' }
+
+  const claimed = INFERENCE_DIRECTIONS.find(d => d === o.inference_direction)
+  return { opposite_reading, inference_direction: claimed ?? 'ambiguous_unhandled' }
+}
+
 function parseCandidate(raw: unknown, index: number): ObservationCandidate | null {
   if (typeof raw !== 'object' || raw === null) return null
   const o = raw as Record<string, unknown>
@@ -326,6 +361,31 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
 
   const source = CANDIDATE_SOURCES.find(s => s === o.source) ?? 'website'
 
+  // Readability is MEASURED here, never read from the model. The model's own claim is
+  // kept alongside so a disagreement is visible rather than silent.
+  const readability = toCandidateReadability(readabilityScore(observation))
+  const { opposite_reading, inference_direction } = parseInferenceDirection(o)
+
+  // A candidate is demoted when it clears the six tests but fails one of the two gates
+  // added on top of them. Recorded per candidate so the reason is auditable.
+  const blockedByReadability = readability.hard_fail
+  const blockedByInference   = inference_direction === 'ambiguous_unhandled'
+  const demoted = passes_all && (blockedByReadability || blockedByInference)
+
+  const demotionNotes: string[] = []
+  if (blockedByReadability) demotionNotes.push(`Readability: ${readability.reasons.join(' ')}`)
+  if (blockedByInference) {
+    demotionNotes.push(
+      opposite_reading
+        ? 'Inference direction: both readings plausible and the observation commits to one.'
+        : 'Inference direction: no opposite reading supplied.',
+    )
+  }
+
+  const modelRejection = typeof o.rejection_reason === 'string' && o.rejection_reason.trim()
+    ? o.rejection_reason.trim()
+    : null
+
   return {
     id: typeof o.id === 'string' && o.id.trim() ? o.id.trim() : `c${index + 1}`,
     observation,
@@ -336,25 +396,54 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
     scores,
     passes_all,
     score_total,
-    rejection_reason: typeof o.rejection_reason === 'string' && o.rejection_reason.trim()
-      ? o.rejection_reason.trim()
-      : null,
+    model_readable_claim: asBool(rawScores.readable),
+    opposite_reading,
+    inference_direction,
+    readability,
+    demoted,
+    rejection_reason: demotionNotes.length > 0
+      ? demotionNotes.join(' ')
+      : modelRejection,
   }
 }
 
-// Selection rule, per FIX A3. Returns the winner and the relevance grade it earns.
+// Selection rule, per FIX A3, extended with the readability and inference-direction
+// gates. Returns the winner, the relevance grade it earns, and why anything was demoted.
+//
+// Tier 1 now requires three things, not one: all six tests, a clean readability
+// measurement, and a handled inference direction. A candidate that passes the six but
+// fails a gate does not vanish. It falls through to Tier 2, where it still surfaces as
+// context but never fills the P2 slot in the email. That is the point of the exercise:
+// the CRC fact should still be FOUND, it just may not be used as written.
 function selectCandidate(
   candidates: ObservationCandidate[],
   modelPreferredId: string | null,
-): { winner: ObservationCandidate | null; relevance: SignalRelevance } {
-  if (candidates.length === 0) return { winner: null, relevance: 'no_signal' }
-
-  // Tier 1 — passes all six.
-  const allPass = candidates.filter(c => c.passes_all)
-  if (allPass.length > 0) {
-    const preferred = allPass.find(c => c.id === modelPreferredId)
-    return { winner: preferred ?? allPass[0], relevance: 'use_as_hook' }
+): { winner: ObservationCandidate | null; relevance: SignalRelevance; demotionReason: string | null } {
+  if (candidates.length === 0) {
+    return { winner: null, relevance: 'no_signal', demotionReason: null }
   }
+
+  const allPass = candidates.filter(c => c.passes_all)
+  // Among the six-out-of-six candidates, only those clearing both gates are hook-eligible.
+  const hookEligible = allPass
+    .filter(c => !c.readability.hard_fail && c.inference_direction !== 'ambiguous_unhandled')
+    // Lower readability penalty first: of two legal sentences, the plainer one wins.
+    .sort((a, b) => a.readability.penalty - b.readability.penalty)
+
+  if (hookEligible.length > 0) {
+    const preferred = hookEligible.find(c => c.id === modelPreferredId)
+    // Honour the model's pick only when it is no less readable than the best alternative.
+    const winner = preferred && preferred.readability.penalty === hookEligible[0].readability.penalty
+      ? preferred
+      : hookEligible[0]
+    return { winner, relevance: 'use_as_hook', demotionReason: null }
+  }
+
+  // Every six-out-of-six candidate was blocked by a gate. Record why before falling through.
+  const demotionReason = allPass.length > 0
+    ? `${allPass.length} candidate(s) passed all six tests but were blocked from hook use. ` +
+      allPass.map(c => `${c.id}: ${c.rejection_reason ?? 'gate failure'}`).join(' | ')
+    : null
 
   // Tier 2 — passes SPECIFIC + VERIFIABLE + RELEVANT.
   const partial = candidates
@@ -364,11 +453,49 @@ function selectCandidate(
     const preferred = partial.find(c => c.id === modelPreferredId)
     // Prefer the model's pick only when it is at least as strong as the best partial.
     const best = preferred && preferred.score_total === partial[0].score_total ? preferred : partial[0]
-    return { winner: best, relevance: 'mention_only' }
+    return { winner: best, relevance: 'mention_only', demotionReason }
   }
 
   // Nothing cleared the bar. Failing closed is correct.
-  return { winner: null, relevance: 'no_signal' }
+  return { winner: null, relevance: 'no_signal', demotionReason }
+}
+
+// trigger_text is the string that actually reaches the prospect: compose-sequence reads
+// personalisation_trigger and drops it into the P2 slot whenever signal_relevance is
+// use_as_hook. A candidate can clear every gate and the model can still write an
+// unreadable trigger out of it, so the trigger is measured on its own terms.
+//
+// An unreadable trigger loses hook status. The observation still rides along as context
+// and composition falls back to ICP pain framing, which is good copy. Failing closed
+// beats shipping a 37-word hedged sentence.
+//
+// Runs twice per synthesis, once on the parsed trigger and again after scrubAITells,
+// because scrubbing rewrites the text and the verdict has to describe what actually ships.
+function applyTriggerReadabilityGate(
+  triggerText: string,
+  relevance: SignalRelevance,
+  existingDemotionReason: string | null,
+): {
+  signal_relevance: SignalRelevance
+  demotion_reason: string | null
+  trigger_readability: CandidateReadability
+} {
+  const score = readabilityScore(triggerText)
+
+  if (relevance !== 'use_as_hook' || !score.hardFail) {
+    return {
+      signal_relevance: relevance,
+      demotion_reason: existingDemotionReason,
+      trigger_readability: toCandidateReadability(score),
+    }
+  }
+
+  const triggerNote = `trigger_text failed readability: ${score.reasons.join(' ')}`
+  return {
+    signal_relevance: 'mention_only',
+    demotion_reason: existingDemotionReason ? `${existingDemotionReason} | ${triggerNote}` : triggerNote,
+    trigger_readability: toCandidateReadability(score),
+  }
 }
 
 function parseSynthesisResponse(
@@ -403,7 +530,8 @@ function parseSynthesisResponse(
     ? parsed.selected_candidate_id.trim()
     : null
 
-  const { winner, relevance: signal_relevance } = selectCandidate(candidates, modelPreferredId)
+  const { winner, relevance: selectedRelevance, demotionReason } =
+    selectCandidate(candidates, modelPreferredId)
 
   const qualification_status = (['qualified', 'flagged_for_review', 'disqualified'] as const)
     .find(s => s === parsed.qualification_status) ?? 'qualified'
@@ -413,6 +541,9 @@ function parseSynthesisResponse(
   const trigger_text = typeof parsed.trigger_text === 'string' && parsed.trigger_text.trim()
     ? parsed.trigger_text.trim()
     : buildIcpPainTrigger(prospect, icpSummary)
+
+  const { signal_relevance, demotion_reason, trigger_readability } =
+    applyTriggerReadabilityGate(trigger_text, selectedRelevance, demotionReason)
 
   return {
     icp_fit,
@@ -432,6 +563,8 @@ function parseSynthesisResponse(
     reasoning,
     candidates,
     selected_candidate_id: winner?.id ?? null,
+    trigger_readability,
+    demotion_reason,
   }
 }
 
@@ -466,6 +599,7 @@ function buildFallbackSynthesis(
   errorNote: string,
   detectedSignal: { has_dateable_signal: boolean; signal_observation: string | null },
 ): SynthesisOutput {
+  const trigger_text = buildIcpPainTrigger(prospect, icpSummary)
   return {
     icp_fit: 'moderate',
     has_dateable_signal: detectedSignal.has_dateable_signal,
@@ -474,12 +608,16 @@ function buildFallbackSynthesis(
     qualification_status: 'qualified',
     qualification_reason: null,
     confidence: 'low',
-    trigger_text: buildIcpPainTrigger(prospect, icpSummary),
+    trigger_text,
     trigger_source: null,
     relevance_reason: `Synthesis fallback: ICP pain proxy used. ${errorNote}`,
     reasoning,
     candidates: [],
     selected_candidate_id: null,
+    // Measured on the fallback too: the ICP pain template is customer-facing copy and
+    // is held to the same bar as generated triggers.
+    trigger_readability: toCandidateReadability(readabilityScore(trigger_text)),
+    demotion_reason: null,
   }
 }
 
@@ -563,10 +701,32 @@ export async function synthesizeResearch(
     }
 
     const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal)
+
+    // Scrubbing rewrites the trigger (em dashes become full stops, AI tells are replaced),
+    // so the readability verdict is recomputed on the text that actually ships.
+    const scrubbedTrigger = scrubAITells(result.trigger_text, `research/prospect/${prospect.id}`)
+    const rescored = applyTriggerReadabilityGate(
+      scrubbedTrigger,
+      result.signal_relevance,
+      result.demotion_reason,
+    )
+
     const scrubbedResult = {
       ...result,
-      trigger_text: scrubAITells(result.trigger_text, `research/prospect/${prospect.id}`),
+      trigger_text:        scrubbedTrigger,
+      signal_relevance:    rescored.signal_relevance,
+      demotion_reason:     rescored.demotion_reason,
+      trigger_readability: rescored.trigger_readability,
     }
+
+    if (scrubbedResult.demotion_reason) {
+      logger.warn('research/synthesize: signal demoted below hook use', {
+        prospect_id:      prospect.id,
+        signal_relevance: scrubbedResult.signal_relevance,
+        reason:           scrubbedResult.demotion_reason,
+      })
+    }
+
     logger.debug('research/synthesize: complete', {
       icp_fit:             scrubbedResult.icp_fit,
       has_dateable_signal: scrubbedResult.has_dateable_signal,
@@ -575,6 +735,9 @@ export async function synthesizeResearch(
       confidence:          scrubbedResult.confidence,
       candidate_count:     scrubbedResult.candidates.length,
       selected_candidate:  scrubbedResult.selected_candidate_id,
+      trigger_max_sentence_words: scrubbedResult.trigger_readability.max_sentence_words,
+      trigger_hedges:             scrubbedResult.trigger_readability.hedges,
+      trigger_nominalisation:     scrubbedResult.trigger_readability.nominalisation_density.toFixed(3),
     })
 
     // Fewer than three candidates means the sweep did not run properly. Visible,

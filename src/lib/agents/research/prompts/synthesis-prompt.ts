@@ -126,11 +126,108 @@ has been eating the marketing time" passes.
 Score each test true or false. Be honest. A candidate that fails a test is
 useful information; inflating scores destroys the whole mechanism.
 
+─────────────────────────────────────────────────────────────────────
+READABLE. The seventh test, scored alongside the six
+─────────────────────────────────────────────────────────────────────
+
+The six tests above all ask whether an observation is TRUE and RELEVANT.
+None of them asks whether it is READABLE. An observation that is accurate,
+verifiable and perfectly on-target is still worthless if the reader has to
+go back over it. Score readable true or false for every candidate, and hold
+the trigger_text to the same standard.
+
+Four questions. A candidate must pass all four to score readable: true.
+
+  SAY IT ALOUD: would a person say this sentence to another person, in a
+  room? Not write it. Say it. If it only works on a page, rewrite it.
+
+  PICTURE TEST: can the reader see it? Concrete beats categorical.
+  "4 of the most recent 10 reviews" is visible. "engagement patterns" is not.
+
+  BUYER VOCABULARY: would the prospect use this phrase unprompted, in their
+  own words? If the phrase belongs to marketing rather than to them, cut it.
+
+  ANY OTHER EMAIL: could this sentence appear verbatim in any other cold
+  email in this industry? If yes it is filler, however well written. The whole
+  point of this layer is that it could only have been written to this person.
+
+Hard rules, enforced in code after you answer. Breaking one is not a style
+preference, it removes the candidate from hook use:
+
+  • No sentence over 25 words. Count them.
+  • Two short sentences beat one long one. Prefer the full stop to the comma.
+  • No hedging. "tends to", "can be", "often", "usually", "typically",
+    "somewhat", "seems to", "a particular kind of" and their relatives all
+    commit to nothing, which leaves the reader nothing to react to.
+  • Never end on an abstraction. The last thing the reader sees should be a
+    concrete noun or a plain verb, not a categorical idea.
+  • Target: a thirteen-year-old follows it on first read.
+
+FAILING EXAMPLE. This scored 6 out of 6 on the tests above and shipped:
+
+  "Running Taffet alongside the CRC Director engagement from mid-2024 through
+   mid-2025 is a particular kind of balancing act, and with that role now
+   wrapped, the pipeline question for Taffet tends to land differently."
+
+Why it fails: 37 words in one sentence. "is a particular kind of balancing
+act" is a stock frame that says nothing. "tends to land differently" hedges,
+then ends on an abstraction that means nothing on one reading. Nobody would
+say this out loud.
+
+BENCHMARK EXAMPLE. From a real campaign that replied at 7 percent:
+
+  "Read through your last 30 reviews on Google. Front desk hold times keep
+   coming up, 4 of the most recent 10."
+
+Why it works: two short sentences. Every noun is concrete and countable. No
+hedging. The reader can picture the thing being described, and it could not
+have been written to anyone else.
+
+Write to the benchmark, not to the failing example.
+
 PROVENANCE IS MANDATORY. Every candidate must carry a provenance string precise
 enough for a human to verify it in 30 seconds: a URL, or an exact location such
 as "Apollo employment_history: Director at CRC, Jul 2024 to Aug 2025" or
 "LinkedIn post dated 2026-07-20". A candidate without provenance fails
 VERIFIABLE by definition. Set verifiable: false in that case.
+
+─────────────────────────────────────────────────────────────────────
+INFERENCE DIRECTION. State the opposite reading of your own evidence
+─────────────────────────────────────────────────────────────────────
+
+VERIFIABLE checks the underlying FACT. It never checks the CONCLUSION you drew
+from that fact. A candidate can pass all seven tests while its inference runs
+backwards, and nothing above would catch it.
+
+Worked case. The fact: a founder ran their own firm alongside a second role
+that has now ended. One reading is that the second role ending leaves a
+pipeline gap to fill. The opposite reading is that they left the second role
+BECAUSE their own firm got busy enough to need them full time. Same fact,
+opposite conclusion, and the second one makes the email look ignorant.
+
+For EVERY candidate you must fill opposite_reading with the strongest opposite
+conclusion the same evidence supports. Write it as a real sentence, not a
+formality. Then set inference_direction to one of:
+
+  "only_reading":         the evidence genuinely supports one conclusion and the
+                           opposite is implausible. Say why in opposite_reading.
+
+  "compatible_with_both": both readings are plausible AND you have phrased the
+                           observation so the email works either way. Name the
+                           fact, leave the conclusion to the prospect. This is
+                           usually the right answer for employment history.
+
+  "ambiguous_unhandled":  both readings are plausible and your observation
+                           commits to one of them. Honest answer when you cannot
+                           phrase around it.
+
+Candidates marked "ambiguous_unhandled", and candidates with no opposite_reading,
+are blocked from hook use in code. Do not game this by writing a token opposite
+reading: an empty or evasive one is treated as unhandled.
+
+Preferred fix is almost always to rephrase rather than to demote. State the
+observable fact and stop. The prospect supplies the conclusion, and they know
+which one is true.
 
 ─────────────────────────────────────────────────────────────────────
 SELECTION
@@ -143,6 +240,21 @@ then applied deterministically in code:
   Passes SPECIFIC +
     VERIFIABLE + RELEVANT   → signal_relevance "mention_only"
   Neither                   → signal_relevance "no_signal"
+
+Two further gates run in code on top of that, and both can take a six-out-of-six
+candidate out of hook use:
+
+  READABILITY: sentence length and hedge phrases are measured, not judged. A
+  candidate with a sentence over 25 words, or with any hedge phrase in it, cannot
+  be used as a hook no matter how well it scores on the six. Among candidates that
+  clear the gate, the more readable one wins.
+
+  INFERENCE DIRECTION: a candidate marked "ambiguous_unhandled", or one with no
+  opposite_reading, cannot be used as a hook.
+
+Your self-reported readable score is advisory. The code measures it independently
+and the measurement wins, so scoring readable: true on a 37-word hedged sentence
+gains nothing and costs you the candidate.
 
 Never force a weak candidate through. The ICP pain fallback is good copy and
 failing closed is the correct outcome. An honest "no_signal" beats a stretched hook.
@@ -237,9 +349,28 @@ When the winning candidate is a composite absence pattern:
 
 When the winning candidate comes from employment history:
   Reference the fact, let the inference sit unstated. The prospect draws it themselves.
-  ✓ "Running Taffet alongside the CRC engagement through 2024 and 2025 is a particular
-     kind of balancing act."
+  This is also how you satisfy "compatible_with_both": name the dates, stop before the
+  conclusion, and both readings stay available to the reader.
+  ✓ "You ran the firm and the Director role side by side for 14 months. That finished
+     in August."
   ✗ "Taking a job at CRC suggests your pipeline was thin." (accusatory, fails NON-JUDGEMENTAL)
+  ✗ "Running the firm alongside that engagement is a particular kind of balancing act."
+     (stock frame, hedged, says nothing the prospect did not already know)
+
+NO STOCK FRAMES. Every trigger_text you write is one of hundreds going out in the same
+batch. A sentence frame reused across prospects is a uniformity signal: two recipients
+comparing notes see the same template with the nouns swapped. The layer exists to be
+bespoke, so the sentence shape must be bespoke too, not only the facts inside it.
+
+  Banned outright, and any close relative of them:
+    "is a particular kind of X"      "is a specific kind of X"
+    "there is a particular rhythm"   "is its own kind of X"
+    "tends to land differently"      "hits differently"
+    "X alongside Y is a particular ..."
+
+  Do not reach for a frame that would still parse if you swapped in a different
+  prospect's facts. If the shape survives the swap, it is a template, not an observation.
+  Build the sentence out of THIS prospect's nouns, dates and numbers.
 
 When signal_relevance = "no_signal" or "mention_only":
   Use ICP-derived pain framing. Structural template:
@@ -295,10 +426,15 @@ First, reason through the research in a <reasoning> block. Cover:
   2. The full candidate sweep: every candidate you generated and where it came from.
      Say explicitly what you found in employment history and what composites you considered.
   3. ICP fit assessment: which dimensions match, which don't, and why
-  4. Six-test scoring: for each candidate, which tests it passed and failed
-  5. Which candidate you selected and why the others lost
-  6. trigger_text construction
-  7. Qualification assessment
+  4. Seven-test scoring: for each candidate, which tests it passed and failed.
+     For READABLE, say the longest sentence's word count and name any hedge you removed.
+  5. Inference direction: for each candidate, the opposite reading and how you handled it
+  6. Which candidate you selected and why the others lost
+  7. trigger_text construction. Before you finalise it, read it aloud in your head and
+     check it against the benchmark example, not the failing one. Confirm no sentence
+     runs over 25 words and no sentence frame would survive swapping in another
+     prospect's facts.
+  8. Qualification assessment
 
 Then output this exact JSON with no markdown fences:
 
@@ -314,8 +450,11 @@ Then output this exact JSON with no markdown fences:
       "is_composite": false,
       "scores": {
         "specific": true, "verifiable": true, "inferential": true,
-        "relevant": true, "useful": true, "non_judgemental": true
+        "relevant": true, "useful": true, "non_judgemental": true,
+        "readable": true
       },
+      "opposite_reading": "The strongest opposite conclusion the same evidence supports.",
+      "inference_direction": "only_reading" or "compatible_with_both" or "ambiguous_unhandled",
       "rejection_reason": null or "one sentence: which test it failed and why"
     }
   ],
@@ -323,7 +462,7 @@ Then output this exact JSON with no markdown fences:
   "qualification_status": "qualified" or "flagged_for_review" or "disqualified",
   "qualification_reason": null or "one sentence: what specific evidence was found",
   "confidence": "high" or "medium" or "low",
-  "trigger_text": "The one sentence personalisation hook. No leading I or We.",
+  "trigger_text": "The personalisation hook. One or two short sentences, no sentence over 25 words, no hedging, no leading I or We.",
   "trigger_source": null,
   "relevance_reason": "One sentence: why this trigger connects to the ICP pain or value prop"
 }

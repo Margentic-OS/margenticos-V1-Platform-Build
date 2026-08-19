@@ -19,6 +19,7 @@ import { fetchApolloSource }   from './research/sources/apollo'
 import { fetchWebsiteSource }  from './research/sources/website'
 import { fetchWebSearchSource } from './research/sources/web-search'
 import { synthesizeResearch }  from './research/synthesize'
+import { FrameRegistry } from '@/lib/style/sentence-frames'
 import type {
   ProspectContext,
   RawSourceData,
@@ -27,6 +28,7 @@ import type {
   ResearchBatchInput,
   ResearchBatchSummary,
   ResearchBatchFailure,
+  ResearchFrameCollision,
 } from './research/types'
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
@@ -154,7 +156,8 @@ async function updateProspect(
 export async function runProspectResearchAgentV2({
   prospect_id,
   client_id,
-}: ResearchInput): Promise<ResearchResult> {
+  frameRegistry,
+}: ResearchInput & { frameRegistry?: FrameRegistry }): Promise<ResearchResult> {
   const agentRun = await startAgentRun({ organisation_id: client_id, agent_name: 'prospect-research-v2' })
 
   try {
@@ -229,6 +232,26 @@ export async function runProspectResearchAgentV2({
     // Synthesize.
     const synthesis = await synthesizeResearch(ctx, rawData, client_id)
 
+    // Cross-prospect sentence-frame check. A repeated frame is invisible to any per-prospect
+    // check because each sentence is individually fine, so it can only be caught against the
+    // rest of the batch. Detection is deterministic and free: no API call, no LLM.
+    //
+    // On a hit the batch logs it and reports it in the summary. It deliberately does NOT
+    // auto-regenerate: that would cost another Sonnet call per collision and make the batch
+    // non-reproducible. The real fix is upstream, in the prompt that was handing the model a
+    // stock frame as a worked example.
+    if (frameRegistry) {
+      const collisions = frameRegistry.register(prospect.id, synthesis.trigger_text)
+      for (const collision of collisions) {
+        logger.warn('prospect-research-v2: repeated sentence frame across batch', {
+          prospect_id:            prospect.id,
+          first_seen_prospect_id: collision.firstSeenId,
+          frame:                  collision.frame,
+          trigger_text:           synthesis.trigger_text,
+        })
+      }
+    }
+
     // Store research result.
     const resultId = await storeResearchResult(ctx, rawData, synthesis, agentRun.run_id)
 
@@ -262,6 +285,8 @@ export async function runProspectResearchAgentV2({
       sources_successful,
       candidates:            synthesis.candidates,
       selected_candidate_id: synthesis.selected_candidate_id,
+      trigger_readability:   synthesis.trigger_readability,
+      demotion_reason:       synthesis.demotion_reason,
     }
 
   } catch (err) {
@@ -337,6 +362,7 @@ export async function runProspectResearchAgentV2Batch({
   concurrency = 5,
 }: ResearchBatchInput): Promise<ResearchBatchSummary> {
   const failures: ResearchBatchFailure[] = []
+  const frame_collisions: ResearchFrameCollision[] = []
   const summary: ResearchBatchSummary = {
     total:          prospect_ids.length,
     completed:      0,
@@ -344,7 +370,13 @@ export async function runProspectResearchAgentV2Batch({
     failed:         0,
     failures,
     failed_log_path: null,
+    frame_collisions,
   }
+
+  // One registry per batch. Sentence-frame repetition only exists across prospects, so
+  // the state has to live at batch scope. Single-threaded JS means the p-limit workers
+  // below cannot interleave a register() call, so no locking is needed.
+  const frameRegistry = new FrameRegistry()
 
   // Show cost estimate and require confirmation for batches of 10+ prospects.
   if (confirm_before_run && prospect_ids.length >= 10) {
@@ -395,7 +427,7 @@ export async function runProspectResearchAgentV2Batch({
   const tasks = idsToProcess.map(prospect_id =>
     limit(async () => {
       try {
-        await runProspectResearchAgentV2({ prospect_id, client_id })
+        await runProspectResearchAgentV2({ prospect_id, client_id, frameRegistry })
         summary.completed++
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
@@ -422,6 +454,24 @@ export async function runProspectResearchAgentV2Batch({
   )
 
   await Promise.all(tasks)
+
+  // Roll the registry's collisions into the summary so the caller sees uniformity in the
+  // copy without reading the logs. Empty means every trigger had its own sentence shape.
+  for (const collision of frameRegistry.allCollisions()) {
+    frame_collisions.push({
+      prospect_id:            collision.repeatedById,
+      first_seen_prospect_id: collision.firstSeenId,
+      frame:                  collision.frame,
+      trigger_text:           collision.repeatedText,
+    })
+  }
+
+  if (frame_collisions.length > 0) {
+    logger.warn('prospect-research-v2 batch: repeated sentence frames detected', {
+      collision_count: frame_collisions.length,
+      frames: [...new Set(frame_collisions.map(c => c.frame))],
+    })
+  }
 
   if (failures.length > 0) {
     const timestamp  = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
