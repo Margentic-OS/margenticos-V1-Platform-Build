@@ -449,15 +449,35 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
   Email 2 body:      30 to 70 words, must be shorter than Email 1
   Email 3 body:      30 to 70 words, must be shorter than Email 2
   Email 4 body:      30 to 50 words
-  Sign-off:          last non-empty line of every email body must be the sender's first name only
+  Sign-off:          TWO mandatory lines at the end of every email body, consecutive,
+                     nothing after them:
+                       [sender first name]     <- organisations.founder_first_name
+                       [sender company name]   <- organisations.name
+                     An email ending with only the first name FAILS validation.
+                     The company name is required, never optional: optionality means it
+                     does not get populated. It gives the prospect something searchable
+                     without putting a link in the body. Never hardcoded, always read
+                     per client from the organisation record. If organisations.name is
+                     empty the run fails loudly at preflight rather than omitting the line.
+  Questions:         maximum ONE question mark per email body, enforced in code.
+                     The CTA is the question. Rhetorical questions count.
   Opening word:      must not be I or We, applied to the observation slot only.
                      Email 1 paragraph 3 ("what changes") MAY begin with We.
   Em dashes:         zero tolerance; any instance causes the entire variant to be flagged
 
-Word counts include the {{first_name}} line and the sign-off name, and exclude the opt-out
-footer. word_count and subject_char_count are RECOMPUTED by the agent from the body text
-before validation and before storage. The model's self-reported values are discarded.
+Word counts include the {{first_name}} line and BOTH sign-off lines, and exclude the
+opt-out footer. word_count and subject_char_count are RECOMPUTED by the agent from the body
+text before validation and before storage. The model's self-reported values are discarded.
 countWords is imported from the composition layer so both measure identically.
+
+Rendered end of every sent email, in order:
+  [CTA question]
+  (blank line)
+  [sender first name]
+  [sender company name]
+  (larger gap, added by plainTextToHtml)
+  Not for you? Just reply stop.
+The footer is appended at composition, after the sign-off block, and is not word-counted.
 
 Email 1 is authored as a FRAME WITH A SLOT, not as finished copy:
   P1 {{first_name}}

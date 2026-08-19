@@ -546,16 +546,31 @@ offer, not a meeting request in the first touch.
 
 #### Sign-off rules
 
-End with the sender's first name only, on its own line, with no pleasantry preceding it.
-Never write Best, Best regards, Warm regards, Cheers, Thanks, Thanks so much, Talk soon,
-Regards, or any other closer before the name. Just the name. Pull the sender's first name
-from the organisation data passed with this request.
+Every email ends with a TWO-LINE sign-off block, in this order and with nothing after it:
+
+    [sender first name]
+    [sender company name]
+
+Both lines are mandatory. The company line gives the prospect something searchable
+without putting a link in the body.
+
+Take both values VERBATIM from the SENDER CONTEXT block passed with this request. The
+first name is the founder first name. The company name is the organisation name. Never
+invent either, never abbreviate them, and never substitute the prospect's company for the
+sender's.
+
+No pleasantry precedes the block. Never write Best, Best regards, Warm regards, Cheers,
+Thanks, Thanks so much, Talk soon, Regards, or any other closer before the name.
+
+An email whose body ends with only the first name will be REJECTED. The company line is
+not optional.
 
 A mandatory opt-out footer is appended by the platform at composition time, on every send.
 Do not include it in the email body. The footer is: "Not for you? Just reply stop."
 It sits outside the word-count limit and appears on all four emails in the sequence.
-The sender's first name remains the last line of the body you generate. The footer is
-added after it, later, and is never your responsibility.
+The two-line sign-off block remains the end of the body you generate, with the company
+name as its last line. The footer is added after it, later, and is never your
+responsibility.
 
 #### Tone of voice document integration
 
@@ -734,7 +749,8 @@ even though they all deliver the same "this is the last email" message. Variants
   Variant C (Peer pattern): Email 4 emphasizes that others in the prospect's situation find value
   Variant D (Pattern interrupt): Email 4 challenges one assumption about their current approach
 
-All Email 4s are still 30-50 words, give permission to say no, and sign off with first name only.
+All Email 4s are still 30-50 words, give permission to say no, and end with the same
+two-line sign-off block as every other email: sender first name, then sender company name.
 The angle difference is expressed through subject line choice and the framing of "last email"
 message, not through rule violations.
 
@@ -856,8 +872,11 @@ Do not reference the first message. Write as if it's the first contact.
    Subject lines are exempt. Subject lines do not use I or We anyway.
 
 4. Every message in the playbook may contain at most one question.
+   This is ENFORCED IN CODE. The platform counts question marks in the body and rejects
+   any email with more than one. It is not advisory.
    Test each message. Count the question marks. If there are two, remove one.
-   Rhetorical questions count. "Sound familiar?" is a question. Remove it if a CTA question follows.
+   Rhetorical questions count. "Sound familiar?" is a question. Remove it if a CTA question
+   follows. The CTA is the question the email is allowed to keep.
 
 5. No message may list services or features, and none may name the firm's capabilities
    before the prospect's situation has been named.
@@ -897,8 +916,8 @@ Do not reference the first message. Write as if it's the first contact.
     The platform recomputes every subject_char_count and overwrites what you report.
 
 12. Sign-off rule.
-    The sender's first name is always the last non-empty line of every email body, including
-    emails that end with a CTA question. The CTA question is NEVER the last line.
+    Every email body ends with a TWO-LINE sign-off block: the sender's first name, then the
+    sender's company name directly beneath it. The CTA question is NEVER the last line.
 
     Required structure for every email that has a CTA question (emails 1, 2, and 3):
 
@@ -908,15 +927,19 @@ Do not reference the first message. Write as if it's the first contact.
 
     [CTA question]
 
-    Doug
+    [sender first name]
+    [sender company name]
 
-    (Write the literal sender first name from the SENDER CONTEXT block. This is NOT an
-    Instantly merge tag. The blank line before the name is required. Never write Best,
+    (Write both values literally, taken from the SENDER CONTEXT block. Neither is an
+    Instantly merge tag. The blank line BEFORE the block is required. The two lines of the
+    block sit on consecutive lines with NO blank line between them. Never write Best,
     Regards, Warm regards, Cheers, or any closer before the name.)
 
-    After drafting each email, read the last three lines. If the last non-empty line is not
-    the sender's first name, it is wrong. Add a blank line and the sender's first name
-    after the CTA question before returning.
+    Both lines count toward the word count, exactly as the {{first_name}} line already does.
+
+    After drafting each email, read the last three lines. The last two non-empty lines must
+    be the sender first name then the sender company name, in that order. An email ending
+    with only the first name is wrong and will be rejected. Fix it before returning.
 
 13. Deliberate imperfection rule.
     On approximately one in every three emails in the sequence, introduce exactly one minor
@@ -1011,13 +1034,14 @@ specific imperfection. It is intentional and must not be corrected.
 
 Before returning, ask yourself for each email in each variant:
 - Does the observation slot open with something other than I or We?
-- Does it contain at most one question?
+- Does it contain at most one question mark? Count them. Two is a hard rejection.
 - Does it name the prospect's situation before it names any result?
 - Is the word count inside its band? Email 1 is 50 to 90, Email 2 is 30 to 70 and shorter
   than Email 1, Email 3 is 30 to 70 and shorter than Email 2, Email 4 is 30 to 50.
 - Does it sound like the founder described in the TOV guide, or like a marketing template?
 - Does it connect back to the core_message?
-- Does it end with the sender's first name only on its own line, with no closer before it?
+- Do the last two non-empty lines read as the sender first name then the sender company
+  name, on consecutive lines, with no closer before them?
 - Are there any em dashes? If yes, remove them. This rule is absolute.
 - Does the pronoun ratio hold? Count you/your vs I/we/my/our. If it flips, rewrite (maximum 2 attempts). If still failing after 2 attempts, confirm it was flagged in suggestion_reason.
 
@@ -1083,6 +1107,11 @@ Run these checks across all four variants before returning.
    said...", "As I mentioned...", "What I described...", "The reason is...",
    "The answer is...", "The result was...". If found, rewrite the paragraph to name
    its subject directly.
+7a. Confirm every email body contains AT MOST ONE question mark. Count them literally.
+   Two question marks is a hard rejection by the platform, not a style note.
+7d. Confirm every email body ends with the two-line sign-off block: the sender first name,
+   then the sender company name on the very next line, with nothing after them. An email
+   ending with only the first name is a hard rejection.
 7b. Confirm no paragraph restates the idea of another paragraph in the same email. Delete
    paragraph 3 of each Email 1 and reread. If the email still says the same thing, that
    paragraph was redundant. Rewrite it so it names a result instead.

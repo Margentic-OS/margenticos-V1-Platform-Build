@@ -302,6 +302,7 @@ export async function runMessagingGenerationAgent(
     const { passedVariants, variantFailures } = await processAllVariants(
       rawVariants,
       preflight.sender_first_name,
+      preflight.org_name,   // sender's company name, from organisations.name
       organisation_id
     )
 
@@ -467,9 +468,16 @@ async function runPreflightChecks(
     .eq('id', organisation_id)
     .single()
 
+  // organisations.name is the sender's company name and is MANDATORY: it is rendered on
+  // the second line of the sign-off block of every email, so a prospect has something
+  // searchable without a link in the body. There is deliberately no fallback. A missing
+  // company name is a provisioning gap to fix, not something to paper over silently.
   const orgName = orgRow?.name?.trim() ?? ''
   if (!orgName) {
-    missing.push('Organisation name is missing. Add it under Settings → Organisation.')
+    missing.push(
+      'Organisation name is missing. It is required because it appears on the sign-off ' +
+      'line of every email, below the sender first name. Add it under Settings → Organisation.'
+    )
   }
 
   const senderFirstName = orgRow?.founder_first_name?.trim() ?? ''
@@ -703,7 +711,8 @@ function buildBaseContext(params: VariantGenerationContext): {
 
   const senderContext =
     `\n\n---\n\n## SENDER CONTEXT\n\n` +
-    `Organisation name: ${preflight.org_name}\n` +
+    `Organisation name (this is the sender's company. Write it VERBATIM as the second line ` +
+    `of the sign-off block on every email, directly beneath the first name): ${preflight.org_name}\n` +
     `Sender first name (use this on the sign-off line of every email — never leave it blank): ${preflight.sender_first_name}\n` +
     `Client company name (use for context in copy — write as plain text, never as a merge tag): ${preflight.company_name}`
 
@@ -773,7 +782,10 @@ that specific prospect exists. Write the default that ships when it does not.
       P3 must FLEX to the pain P2 opened on, and must differ across all four variants.
       A fixed line reused across variants is a spam fingerprint.
   P4  The CTA question. One question. Low commitment.
-  P5  The sign-off: "${params.preflight.sender_first_name}" alone on the last line.
+  P5  THE SIGN-OFF BLOCK. Two lines, in this order, nothing after them:
+        ${params.preflight.sender_first_name}
+        ${params.preflight.org_name}
+      Both lines are mandatory on every email. No closer before the name.
 
 NON-REDUNDANCY. No paragraph may restate the idea of another. P3 advances the email, it
 does not rephrase P2. If P3 could be deleted and the email still says the same thing, P3
@@ -802,10 +814,12 @@ ${renderWordCountReminder()}
 - Do not count the words yourself. The platform recomputes word_count and subject_char_count from the text you return and validates the computed values. Write to the band, not to a number you report.
 - Every sentence must mean something concrete on one reading. See the understandability tests in the system prompt.
 - No I/We opener on the observation slot. One question per message. No em dashes.
-- Sign-off is mandatory on EVERY email: the sender's first name ("${params.preflight.sender_first_name}") must be the last non-empty line.
-  For emails 1, 2, and 3 the CTA question is NOT the last line. The name goes after it.
-  Structure: [CTA question], blank line, ${params.preflight.sender_first_name}
-  If the last non-empty line is not "${params.preflight.sender_first_name}", the email will be rejected.
+- The sign-off block is mandatory on EVERY email and is TWO lines: the sender's first name
+  ("${params.preflight.sender_first_name}") then the company name ("${params.preflight.org_name}") directly beneath it.
+  For emails 1, 2, and 3 the CTA question is NOT the last line. The block goes after it.
+  Structure: [CTA question], blank line, ${params.preflight.sender_first_name}, newline, ${params.preflight.org_name}
+  Both lines count toward the word count, exactly as the {{first_name}} line already does.
+  An email that ends with only "${params.preflight.sender_first_name}" will be rejected.
 
 Return ONLY the four-variant JSON below. No subject line libraries. No CTA libraries. No objection responses. No explanation. No markdown fencing.
 
@@ -932,8 +946,9 @@ ${renderWordCountReminder()}
 - Do not count the words yourself. The platform recomputes word_count and subject_char_count from the text you return and validates the computed values. Write to the band, not to a number you report.
 - Email 1 follows the paragraph frame: {{first_name}}, then the observation slot, then what changes, then the CTA question, then the sign-off. Each paragraph does its own job and none restates another.
 - No I/We openers on the observation slot. One question per message. No em dashes.
-- Sign-off is mandatory on EVERY email: "${context.preflight.sender_first_name}" must be the last non-empty line.
-  Structure: [CTA question], blank line, ${context.preflight.sender_first_name}
+- The sign-off block is mandatory on EVERY email and is TWO lines: "${context.preflight.sender_first_name}" then
+  "${context.preflight.org_name}" directly beneath it. Both count toward the word count.
+  Structure: [CTA question], blank line, ${context.preflight.sender_first_name}, newline, ${context.preflight.org_name}
 
 Return ONLY the following JSON. No preamble. No markdown fencing. No explanation.
 {
@@ -1116,6 +1131,7 @@ async function processOneVariant(
   variantKey: string,
   emails: EmailRecord[],
   senderFirstName: string,
+  senderCompanyName: string,
   organisation_id: string,
   attemptLabel?: string
 ): Promise<{ passed: EmailRecord[] } | { failure: VariantFailure }> {
@@ -1152,7 +1168,7 @@ async function processOneVariant(
     )
   }
 
-  const { emails: signedEmails, fixed: signOffFixes } = applySignOffFix(fixedEmails, senderFirstName)
+  const { emails: signedEmails, fixed: signOffFixes } = applySignOffFix(fixedEmails, senderFirstName, senderCompanyName)
   if (signOffFixes > 0) {
     logger.info(
       `Messaging agent: Variant ${variantKey}${label} — auto-injected sign-off on ${signOffFixes} email(s)`
@@ -1180,7 +1196,7 @@ async function processOneVariant(
     }
   }
 
-  const violations = validateEmails(countedEmails, senderFirstName)
+  const violations = validateEmails(countedEmails, senderFirstName, senderCompanyName)
   if (violations.length > 0) {
     const failure: VariantFailure = { variant: variantKey, violations }
     logger.warn(`Messaging agent: Variant ${variantKey}${label} failed validation`, {
@@ -1206,13 +1222,14 @@ async function processOneVariant(
 async function processAllVariants(
   rawVariants: Record<string, EmailRecord[]>,
   senderFirstName: string,
+  senderCompanyName: string,
   organisation_id: string
 ): Promise<{ passedVariants: Record<string, EmailRecord[]>; variantFailures: VariantFailure[] }> {
   const passedVariants: Record<string, EmailRecord[]> = {}
   const variantFailures: VariantFailure[] = []
 
   for (const [variantKey, emails] of Object.entries(rawVariants)) {
-    const result = await processOneVariant(variantKey, emails, senderFirstName, organisation_id)
+    const result = await processOneVariant(variantKey, emails, senderFirstName, senderCompanyName, organisation_id)
     if ('passed' in result) {
       passedVariants[variantKey] = result.passed
     } else {
@@ -1223,22 +1240,57 @@ async function processAllVariants(
   return { passedVariants, variantFailures }
 }
 
-// Category A (sign-off): append sender name if missing from the last non-empty line.
-// The model consistently omits the sign-off on emails that end with a CTA question.
-// Deterministic fix — the correct value is always senderFirstName from preflight.
-function applySignOffFix(
+// Category A (sign-off): the sign-off is a TWO-LINE block, sender first name then the
+// sender's company name, on consecutive lines:
+//
+//     Doug
+//     MargenticOS
+//
+// The company line gives the prospect something searchable without putting a link in the
+// body. Both values come from the organisation record via preflight. Neither is ever
+// hardcoded and neither is optional.
+//
+// The model consistently omits the sign-off on emails that end with a CTA question, so
+// this repairs it deterministically rather than failing the variant for a fixable defect.
+// Both values are known, so both can be appended.
+export function applySignOffFix(
   emails: EmailRecord[],
-  senderFirstName: string
+  senderFirstName: string,
+  senderCompanyName: string,
 ): { emails: EmailRecord[]; fixed: number } {
   let fixed = 0
   const result = emails.map(email => {
+    if (hasSignOffBlock(email.body, senderFirstName, senderCompanyName)) return email
+
+    fixed++
+
+    // If the name is already the last line, the company line alone is missing. Append it
+    // directly under the name rather than starting a second sign-off block.
     const nonEmptyLines = email.body.split('\n').map(l => l.trim()).filter(l => l.length > 0)
     const lastLine = nonEmptyLines[nonEmptyLines.length - 1] ?? ''
-    if (lastLine.toLowerCase() === senderFirstName.toLowerCase()) return email
-    fixed++
-    return { ...email, body: email.body.trimEnd() + `\n\n${senderFirstName}` }
+    if (lastLine.toLowerCase() === senderFirstName.toLowerCase()) {
+      return { ...email, body: `${email.body.trimEnd()}\n${senderCompanyName}` }
+    }
+
+    return { ...email, body: `${email.body.trimEnd()}\n\n${senderFirstName}\n${senderCompanyName}` }
   })
   return { emails: result, fixed }
+}
+
+// True when the last two non-empty lines are the sender first name then the company name.
+function hasSignOffBlock(
+  body: string,
+  senderFirstName: string,
+  senderCompanyName: string,
+): boolean {
+  const lines = body.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+  if (lines.length < 2) return false
+  const last = lines[lines.length - 1] ?? ''
+  const penultimate = lines[lines.length - 2] ?? ''
+  return (
+    penultimate.toLowerCase() === senderFirstName.toLowerCase() &&
+    last.toLowerCase() === senderCompanyName.toLowerCase()
+  )
 }
 
 // The opt-out footer is NOT applied here. It is appended at composition time by
@@ -1303,6 +1355,9 @@ export const EMAIL_SUBJECT_LIMITS = {
   email4MaxChars: 24,
 } as const
 
+// One question per email. The CTA is the question. Rhetorical questions count.
+export const MAX_QUESTIONS_PER_EMAIL = 1
+
 // Per-position word bands, derived from EMAIL_WORD_LIMITS so there is one place to edit.
 const WORD_BANDS: Record<number, { min: number; max: number }> = {
   1: { min: EMAIL_WORD_LIMITS.email1MinWords, max: EMAIL_WORD_LIMITS.email1MaxWords },
@@ -1330,7 +1385,8 @@ export function recomputeCounts(emails: EmailRecord[]): EmailRecord[] {
 // Exported for direct unit testing.
 export function validateEmails(
   emails: EmailRecord[],
-  senderFirstName: string
+  senderFirstName: string,
+  senderCompanyName: string,
 ): ValidationViolation[] {
   const violations: ValidationViolation[] = []
 
@@ -1419,11 +1475,34 @@ export function validateEmails(
       })
     }
 
-    const lastLine = nonEmptyLines[nonEmptyLines.length - 1] ?? ''
-    if (lastLine.toLowerCase() !== senderFirstName.toLowerCase()) {
+    // One question maximum per email. The rule has always been in the prompt and was
+    // never enforced, so a variant shipped with two questions in Email 1.
+    //
+    // Counted on the DOCUMENT body, which has no opt-out footer: the footer is appended
+    // later at composition and itself contains a question mark. If the footer is ever
+    // moved back to generation time, this check has to start excluding it.
+    const questionMarks = (body.match(/\?/g) ?? []).length
+    if (questionMarks > MAX_QUESTIONS_PER_EMAIL) {
       violations.push({
         email: pos,
-        issue: `missing or incorrect sign-off — last line is "${lastLine}", expected "${senderFirstName}"`,
+        issue: `contains ${questionMarks} questions, limit is ${MAX_QUESTIONS_PER_EMAIL}. The CTA is the only question. Rhetorical questions count.`,
+      })
+    }
+
+    // The sign-off is a two-line block: sender first name, then the sender's company name.
+    // The company line is mandatory. An email ending with only the first name fails.
+    const lastLine = nonEmptyLines[nonEmptyLines.length - 1] ?? ''
+    const penultimateLine = nonEmptyLines[nonEmptyLines.length - 2] ?? ''
+    if (penultimateLine.toLowerCase() !== senderFirstName.toLowerCase()) {
+      violations.push({
+        email: pos,
+        issue: `missing or incorrect sign-off name. Second-to-last line is "${penultimateLine}", expected "${senderFirstName}"`,
+      })
+    }
+    if (lastLine.toLowerCase() !== senderCompanyName.toLowerCase()) {
+      violations.push({
+        email: pos,
+        issue: `missing or incorrect sign-off company line. Last line is "${lastLine}", expected "${senderCompanyName}". The company name is mandatory on every email.`,
       })
     }
 
@@ -1480,6 +1559,7 @@ async function retryVariantSlot(
   taken: TakenCopy,
 ): Promise<{ emails: EmailRecord[] | null; outcome: SlotOutcome }> {
   const senderFirstName = context.preflight.sender_first_name
+  const senderCompanyName = context.preflight.org_name
   let apiCallsUsed = 0
 
   const originalAngle = VARIANT_ANGLE_INSTRUCTIONS[variantKey]
@@ -1550,7 +1630,7 @@ async function retryVariantSlot(
         const raw = await callClaude(userMessage)
         const emails = parseSingleVariantFromClaude(raw)
         const result = await processOneVariant(
-          variantKey, emails, senderFirstName, organisation_id,
+          variantKey, emails, senderFirstName, senderCompanyName, organisation_id,
           `fallback-${fallback.name}-attempt-${attempt}`
         )
         if ('passed' in result) {

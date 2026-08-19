@@ -200,7 +200,12 @@ async function runOnce(
   let finalContent = scrubbed
   if (document_type === 'messaging') {
     finalContent = normaliseMessagingCounts(scrubbed)
-    const violations = validateMessagingContent(finalContent, orgContext.founder_first_name)
+    // org_name is the sender's company name, the mandatory second sign-off line.
+    const violations = validateMessagingContent(
+      finalContent,
+      orgContext.founder_first_name,
+      orgContext.org_name,
+    )
     if (violations.length > 0) {
       const messages = violations.map(v => `Email ${v.email}: ${v.issue}`)
       logger.warn('revision agent: messaging validation gate failure', {
@@ -241,6 +246,7 @@ function normaliseMessagingCounts(content: Json): Json {
 function validateMessagingContent(
   content: Json,
   senderFirstName: string | null,
+  senderCompanyName: string,
 ): ValidationViolation[] {
   if (!senderFirstName) {
     logger.warn('revision agent: founder_first_name not found, skipping sign-off validation')
@@ -254,7 +260,7 @@ function validateMessagingContent(
 
   const allViolations: ValidationViolation[] = []
   for (const [variantKey, emails] of Object.entries(variants)) {
-    const violations = validateEmails(emails, senderFirstName ?? '')
+    const violations = validateEmails(emails, senderFirstName ?? '', senderCompanyName)
     for (const v of violations) {
       allViolations.push({
         email: v.email,
