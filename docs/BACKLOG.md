@@ -4183,3 +4183,157 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   Spike could indicate: (1) Apollo tag vocabulary change, (2) client ICP targeting new sector,
   (3) new Apollo tag source in sourcing handler. Operator should know if mapping work is growing faster
   than expected so sourcing quality can be addressed before queue backs up.
+
+---
+
+# Session 2026-08-18: personalisation discovery, composition fixes, research candidate generation
+# Note: the rest of this session's items live in the Notion Backlog, which is the fuller record.
+# Only items with a code or decision hook are duplicated here. See the divergence item at the end.
+
+## ICP floor: enforce at tiering, on concurrent employment, NOT on headcount (decided 2026-08-18)
+
+- [pre-c1] DECISION RECORDED, NOT BUILT. Do not implement until explicitly scheduled.
+  Location when built: src/lib/sourcing/tier-classification.ts, alongside the existing
+  ceiling disqualifier at line ~221 (company_headcount > 100 → company_too_large).
+
+  The problem: the tier ceiling works, the floor does not exist. Live evidence 2026-08-18:
+    Dustin, Stack'd Consulting Inc., headcount 4100 → sourced_tier NULL,
+      tiering_reason 'company_too_large'. Correctly blocked; the claim query requires
+      sourced_tier IS NOT NULL.
+    Alma, Full Bloom Consulting, headcount 1 → tier_1 (score 100): industry 45,
+      seniority 35, headcount 20. Fully eligible, uploaded, and sent.
+  The research agent independently graded Alma icp_fit 'weak' and its reasoning said she is
+  "almost certainly" below the £500K floor. That grade changed nothing (see the icp_fit item below).
+
+  Why NOT headcount: a solo consultant can legitimately bill inside the ICP. Dropping Alma's
+  headcount score from 20 to 5 still leaves her at 85, which still tiers. Headcount does not
+  separate the case.
+
+  The separating signal is CONCURRENT FULL-TIME EMPLOYMENT ELSEWHERE. Alma has held a
+  full-time Stanford GSB role since 2024 alongside founding Full Bloom in 2023, so the
+  consulting firm is not her primary occupation and there is no pipeline to generate for.
+
+  The asymmetry that makes this safe: Robert Taffet ALSO held a concurrent role (Director at
+  CRC, Jul 2024 to Aug 2025) but it ENDED, and Taffet Consulting is twelve years old. A rule
+  keyed on a CURRENT concurrent full-time role plus a young firm excludes Alma and keeps Robert.
+  Any rule written must preserve that distinction; test it against both before shipping.
+
+  Feasibility: Apollo enrichment already returns employment_history with start_date, end_date
+  and current flags (see src/lib/agents/research/sources/apollo.ts). No new data source needed.
+  Deliberately NOT enforced at Apollo query filters (too blunt, headcount-based) or at
+  research-agent suppression (pays for full research before rejecting, and hands an LLM grade
+  a suppression switch).
+
+## icp_fit is written and read by nothing (2026-08-18)
+
+- [pre-c1] prospects.icp_fit is written by prospect-research-agent-v2 (strong/moderate/weak)
+  and consumed by NO gate anywhere: not the upload claim query, not tiering, not send
+  eligibility, not the client review flow. Alma is graded 'weak' and fully eligible to send.
+  Either wire it to something or stop writing it. Related to the ICP floor decision above,
+  though that decision deliberately enforces at tiering rather than on this field.
+
+## Pluralisation: extract ONE shared helper, do not fix it a third time (2026-08-18)
+
+- [post-build] Two separate pluralisation bugs of the same class have now been fixed in two
+  different files:
+    1. buildRoleProxy in src/lib/composition/compose-sequence.ts produced "VP of operationses"
+       (fixed 2026-08-18 with pluraliseRoleTitle, which handles compound titles and
+       "<head> of <scope>" forms).
+    2. buildIcpPainTrigger in src/lib/agents/research/synthesize.ts produced "practitionerss"
+       (fixed 2026-08-18 by not re-pluralising an already-plural default).
+  Next time this appears, extract a single shared title/role pluralisation helper rather than
+  patching a third site. compose-sequence.ts already exports pluraliseRoleTitle and is the
+  natural thing to lift into a shared module.
+
+## Observation inference direction can be backwards (2026-08-18)
+
+- [research] The six-test scoring introduced in the research agent (SPECIFIC, VERIFIABLE,
+  INFERENTIAL, RELEVANT, USEFUL, NON-JUDGEMENTAL) validates the FACT but not the CONCLUSION
+  drawn from it. VERIFIABLE only checks that a human can confirm the fact from the cited
+  source in 30 seconds. Nothing checks whether the inference points the right way.
+
+  Live example 2026-08-18: Robert Taffet's winning candidate (6/6) was the concurrent CRC
+  Director role, Jul 2024 to Aug 2025, and the trigger implies he needs pipeline. The
+  opposite reading is equally consistent with the same fact: he may have LEFT CRC because
+  Taffet Consulting got busy enough to need him full time. Same verified fact, inverted
+  conclusion, and the copy would land badly on the second reading.
+
+  This is a real ceiling on the candidate-generation approach, not a prompt tweak. Options to
+  weigh when this is picked up: a seventh test for inference direction, an explicit
+  "state the opposite reading and say why it is less likely" step, or hedged phrasing that
+  survives both readings. Do not paper over it with a stricter existing test.
+
+## CTA rewrite: removed, may return only behind a quality gate (2026-08-18)
+
+- [phase2] replaceCtaParagraph and the generatePersonalization CTA branch were deleted from the
+  composition path (commit 3977eb6). The approved template CTA now survives verbatim in all cases.
+  It produced worse copy than the line it overwrote even WITH a real researched trigger:
+  "How does Taffet help capital markets consultants break the referral dependency cycle?"
+  asks the prospect what his own company does.
+  Standing principle established this session: no machine step may overwrite human-approved copy
+  after approval without an explicit gate. If a CTA layer returns, it needs a quality gate that
+  compares the generated line against the line it would replace, and it must fail closed.
+  The bridge path survives because it is ADDITIVE and gated on signal_relevance = 'use_as_hook'.
+
+## buildRoleProxy still hardcodes "the same pipeline problem" (2026-08-18)
+
+- [pre-c1] src/lib/composition/compose-sequence.ts buildRoleProxy() no longer assumes the
+  prospect is a founder (fixed 2026-08-18), but the sentence still ends
+  "...are dealing with the same pipeline problem." That assumes the SENDER solves pipeline
+  problems, which is true for MargenticOS as client zero and false for any client whose offer
+  is different. Violates the industry-agnosticism rule in CLAUDE.md.
+  Low urgency: this is the last-resort fallback and should now rarely fire, because ICP pain
+  extraction was fixed the same day (array-shaped four_forces.push is now read correctly).
+  Fix properly by deriving the pain clause from the client's own ICP/positioning rather than
+  hardcoding it.
+
+## TierCard.tsx is dead code (2026-08-18)
+
+- [post-build] src/app/dashboard/(client)/prospect-tiers/components/TierCard.tsx is exported but
+  imported nowhere. ProspectReviewClient.tsx superseded it and is what the prospect-tiers page
+  actually renders. TierCard also declares its own local TierData interface with a
+  sample_prospects field that does not match what src/lib/prospect-tiers-data.ts produces
+  (prospects, not sample_prospects).
+  It was still updated on 2026-08-18 for the role/job_title fix, so it is not stale, just unused.
+  Decide: delete it, or mount it. Do not leave a second divergent prospect table indefinitely.
+
+## Migration 20260427191247 exists only on the remote (2026-08-18)
+
+- [pre-c1] supabase_migrations.schema_migrations contains
+  20260427191247_add_signal_relevance_to_research_and_prospects, applied via MCP on 2026-04-27,
+  with NO corresponding file in /supabase/migrations/. It created prospects.signal_relevance
+  (NOT NULL, default 'ignore') and its CHECK constraint. The schema cannot be rebuilt from source.
+  Fold into the existing migration-history repair item already tracked in this file.
+
+## ADR-017 signal_relevance values still do not match the database (2026-08-18)
+
+- [post-build] ADR-017 documents four permitted values: use_as_hook, mention_only, too_weak,
+  no_signal. After migration 20260818T230000 the live CHECK on both prospects and
+  prospect_research_results allows: use_as_hook, mention_only, no_signal, ignore.
+  Still divergent in two ways: 'too_weak' is documented but not permitted, and 'ignore' is
+  permitted but undocumented ('ignore' is retained because it is the column default on both
+  tables and pre-dates candidate generation; consumers treat it identically to no_signal).
+  Update ADR-017 to match, or migrate 'ignore' to 'no_signal' and drop it from the constraint.
+
+## Six pre-existing failing tests (2026-08-18)
+
+- [post-build] `npx vitest run` reports 440 passed, 6 failed, 11 skipped. All six predate the
+  2026-08-18 work and were failing at baseline before any change that day.
+  Most fail with "Cannot read properties of undefined (reading 'from')" because they are
+  integration tests needing live Supabase credentials that are absent locally:
+    src/app/dashboard/operator/clients/[id]/__tests__/handleUploadLeads.compliance.test.ts (4)
+    src/lib/integrations/handlers/instantly/__tests__/syncSequenceShell.contract.test.ts (1)
+    src/lib/sourcing/enrichment-field-ownership.test.ts (1)
+  Either provide test credentials, mark them as integration and exclude them from the default
+  run, or fix them. As-is, a genuinely broken build is hard to distinguish from the usual noise.
+
+## BACKLOG.md and the Notion Backlog are diverging (2026-08-18)
+
+- [pre-c1] Two backlogs now exist and neither is complete. The Notion Backlog holds the full
+  record of the 2026-08-18 session; this file holds only the items with a code or decision hook.
+  Earlier items exist here and not in Notion.
+  Pick ONE as canonical before the next session that has to trust either. CLAUDE.md currently
+  instructs every session to read /docs/BACKLOG.md at start, so if Notion becomes canonical then
+  CLAUDE.md must be updated in the same commit, and this file should carry a pointer at the top
+  rather than content. Splitting the source of truth is exactly the failure mode this file was
+  created to prevent.
