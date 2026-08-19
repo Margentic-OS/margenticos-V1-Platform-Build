@@ -30,6 +30,7 @@ import {
 } from '@/lib/style/customer-facing-style-rules'
 import {
   validateEmails,
+  recomputeCounts,
   EMAIL_WORD_LIMITS,
   EMAIL_SUBJECT_LIMITS,
   type EmailRecord,
@@ -192,8 +193,14 @@ async function runOnce(
   }
 
   // Gate 3 (messaging only): validate email structure and word counts.
+  //
+  // Counts are recomputed from the body first, exactly as the generation agent does, so
+  // the revision path and the generation path measure the same thing and neither gates on
+  // a number the model made up. The normalised content is what gets stored.
+  let finalContent = scrubbed
   if (document_type === 'messaging') {
-    const violations = validateMessagingContent(scrubbed, orgContext.founder_first_name)
+    finalContent = normaliseMessagingCounts(scrubbed)
+    const violations = validateMessagingContent(finalContent, orgContext.founder_first_name)
     if (violations.length > 0) {
       const messages = violations.map(v => `Email ${v.email}: ${v.issue}`)
       logger.warn('revision agent: messaging validation gate failure', {
@@ -205,9 +212,28 @@ async function runOnce(
   }
 
   return {
-    revised_content: scrubbed,
+    revised_content: finalContent,
     change_summary: scrubbed_summary,
   }
+}
+
+// Rewrites word_count and subject_char_count on every email from the body text, leaving
+// all other fields untouched. Returns the input unchanged when the content is not in the
+// variants shape, so a malformed document still reaches validateMessagingContent and
+// fails there with a clear message rather than silently here.
+function normaliseMessagingCounts(content: Json): Json {
+  const variants = extractVariantsFromMessaging(content)
+  if (!variants) return content
+
+  const source = content as Record<string, unknown>
+  const sourceVariants = source['variants'] as Record<string, Record<string, unknown>>
+
+  const rebuilt: Record<string, unknown> = {}
+  for (const [key, emails] of Object.entries(variants)) {
+    rebuilt[key] = { ...sourceVariants[key], emails: recomputeCounts(emails) }
+  }
+
+  return { ...source, variants: rebuilt } as Json
 }
 
 // ─── Messaging content validator ──────────────────────────────────────────────
@@ -277,7 +303,7 @@ function buildRevisionPrompt(
     : ''
 
   const messagingRules = document_type === 'messaging'
-    ? `\n## Outbound Email Rules (Messaging Only)\n\nThese are hard limits enforced by an automated gate. The gate will reject your output if any rule is broken.\n\nEmail 1 body: maximum ${EMAIL_WORD_LIMITS.email1MaxWords} words (count body words, not including the {{first_name}} greeting or the sender first-name sign-off)\nEmail 2 body: maximum ${EMAIL_WORD_LIMITS.email2MaxWords} words\nEmail 3 body: maximum ${EMAIL_WORD_LIMITS.email3MaxWords} words\nEmail 4 body: ${EMAIL_WORD_LIMITS.email4MinWords} to ${EMAIL_WORD_LIMITS.email4MaxWords} words\n\nEmail 2 and 3 subject_line must be null (they thread under Email 1)\nEmail 4 subject_line: maximum ${EMAIL_SUBJECT_LIMITS.email4MaxChars} characters if present\n\nEvery email body must end with the sender's first name on its own line (${orgContext.founder_first_name ?? 'the name already in the document'}), nothing after it\n\nOpening sentence of every email must not start with "I" or "We"\n\nNo em dashes (—), en dashes (–), or double hyphens (--) anywhere\n\nNo merge tags other than {{first_name}}\n\n## Where to Relocate Content That Does Not Fit\n\nIf the client's note asks for more content than Email 1 can hold at ${EMAIL_WORD_LIMITS.email1MaxWords} words:\n- Move the overflow to Email 2 or Email 3 where the word budget allows\n- If the content belongs in a proof point or credentials position: place in Email 4 if it fits within ${EMAIL_WORD_LIMITS.email4MinWords} to ${EMAIL_WORD_LIMITS.email4MaxWords} words, or note it as a "website or signature suggestion" in change_summary\n\nIf the note asks for a credentials paragraph:\n- That belongs in Email 4 (the "one last note" position), not Email 1\n- If it makes Email 4 too long: condense the strongest single credential and place it there\n- Note in change_summary what was condensed and why\n`
+    ? `\n## Outbound Email Rules (Messaging Only)\n\nThese are hard limits enforced by an automated gate. The gate will reject your output if any rule is broken.\n\nWORD COUNTS. Counts include the {{first_name}} line and the sign-off name. They exclude the opt-out footer, which the platform adds at send time. The platform recomputes every count from the text you return, so reporting a flattering number achieves nothing.\nEmail 1 body: ${EMAIL_WORD_LIMITS.email1MinWords} to ${EMAIL_WORD_LIMITS.email1TargetMaxWords} words, hard cap ${EMAIL_WORD_LIMITS.email1MaxWords}. Below ${EMAIL_WORD_LIMITS.email1MinWords} is rejected.\nEmail 2 body: ${EMAIL_WORD_LIMITS.email2MinWords} to ${EMAIL_WORD_LIMITS.email2MaxWords} words, AND strictly shorter than Email 1.\nEmail 3 body: ${EMAIL_WORD_LIMITS.email3MinWords} to ${EMAIL_WORD_LIMITS.email3MaxWords} words, AND strictly shorter than Email 2.\nEmail 4 body: ${EMAIL_WORD_LIMITS.email4MinWords} to ${EMAIL_WORD_LIMITS.email4MaxWords} words.\n\nIf an email in the CURRENT document already breaks one of these bands, bring it inside the band as part of this revision even if the client's note did not mention that email. The gate validates the whole document, not only the part you changed. Note any such correction in change_summary.\n\nEmail 1 subject_line: maximum ${EMAIL_SUBJECT_LIMITS.email1MaxChars} characters\nEmail 2 and 3 subject_line must be null (they thread under Email 1)\nEmail 4 subject_line: maximum ${EMAIL_SUBJECT_LIMITS.email4MaxChars} characters if present\n\nEvery email body must end with the sender's first name on its own line (${orgContext.founder_first_name ?? 'the name already in the document'}), nothing after it\n\nThe OPENING line of every email (the first paragraph after {{first_name}}) must not start with "I" or "We". Email 1's third paragraph, which names what changes for the prospect, MAY begin with "We".\n\nNo em dashes, en dashes, or double hyphens anywhere\n\nNo merge tags other than {{first_name}}\n\n## The Email 1 Frame\n\nEmail 1 is a frame of five paragraphs, each with one job. Preserve it.\n  P1 {{first_name}} on its own line\n  P2 the observation slot: observes the situation and names the problem. Replaced at send time when prospect research exists, so it must stand alone. The only paragraph that describes the problem.\n  P3 what changes: names a RESULT in the prospect's terms. Never names the service, the mechanism, or features.\n  P4 the CTA question\n  P5 the sign-off\nNo paragraph may restate another. No paragraph may refer back to the paragraph above it.\n\n## Where to Relocate Content That Does Not Fit\n\nIf the client's note asks for more content than Email 1 can hold at ${EMAIL_WORD_LIMITS.email1MaxWords} words:\n- Move the overflow to Email 2 or Email 3 where the word budget allows\n- If the content belongs in a proof point or credentials position: place in Email 4 if it fits within ${EMAIL_WORD_LIMITS.email4MinWords} to ${EMAIL_WORD_LIMITS.email4MaxWords} words, or note it as a "website or signature suggestion" in change_summary\n\nIf the note asks for a credentials paragraph:\n- That belongs in Email 4 (the breakup position), not Email 1\n- If it makes Email 4 too long: condense the strongest single credential and place it there\n- Note in change_summary what was condensed and why\n`
     : ''
 
   return `You are revising a ${document_type.toUpperCase()} strategy document based on a client's note.

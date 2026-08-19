@@ -25,6 +25,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { scrubAITells, scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
+import { nominalisationDensity, NOMINALISATION_THRESHOLD } from '@/lib/style/nominalisation'
+// countWords is imported from the composition layer on purpose: the agent and composition
+// must measure word counts identically or the stored count and the sent count disagree.
+import { countWords } from '@/lib/composition/personalization'
 
 const MESSAGING_MODEL = 'claude-sonnet-4-6' // TEST ONLY — revert to claude-opus-4-6 for production (ADR-013)
 
@@ -171,6 +175,12 @@ interface SlotOutcome {
   fallbackAttempt?: number
   apiCallsUsed: number
   dropReason?: string
+  /**
+   * The angle whose copy actually shipped in this slot. Equals the variant key when the
+   * slot kept its assigned angle. Equals the fallback angle name when a fallback was
+   * used, in which case the slot key alone would misdescribe the content.
+   */
+  shippedAngle?: string
 }
 
 // Accumulated stats for the full run — written to agent_runs and suggestion_reason.
@@ -327,10 +337,15 @@ export async function runMessagingGenerationAgent(
       }
 
       for (const failure of variantFailures) {
+        // Recollected on every iteration so each retry sees the variants that have
+        // survived up to this point, including ones repaired earlier in this same loop.
+        const taken = collectTakenCopy(passedVariants)
+
         const { emails, outcome } = await retryVariantSlot(
           failure.variant,
           retryContext,
           organisation_id,
+          taken,
         )
         runStats.slotOutcomes.push(outcome)
         runStats.totalApiCalls += outcome.apiCallsUsed
@@ -739,26 +754,57 @@ Generate four distinct email sequence variants: A, B, C, and D.
 Each variant is a complete 4-email sequence targeting the same ICP, offer, and positioning.
 The primary angle changes across variants. The TOV voice, rules, and offer framing do not change.
 
-Angle assignments — these determine how Email 1 opens:
-- Variant A: Pain-led — email 1 opens with the implied cost or consequence of the current situation
-- Variant B: Outcome-led — email 1 opens with what their world looks like after the problem is resolved
-- Variant C: Peer pattern — email 1 opens with what similar buyers at this stage are experiencing, as defined by the Tier 1 profile in the ICP document
-- Variant D: Pattern interrupt — email 1 opens with a direct observation that challenges a common assumption
+## EMAIL 1 IS A FRAME WITH A SLOT
+
+Email 1 is not finished prose. It is a frame of five paragraphs, each with one job.
+Paragraph 2 is a SLOT: the platform replaces it at send time whenever real research on
+that specific prospect exists. Write the default that ships when it does not.
+
+  P1  {{first_name}} on its own line. Nothing else.
+  P2  THE OBSERVATION SLOT. Observe the prospect's situation and name the problem it
+      implies. This is the ONLY paragraph that may describe the problem. It must stand
+      alone, because it gets replaced. Do not pitch here. Do not name the service here.
+  P3  WHAT CHANGES. Signal that the sender does something about that problem. Name a
+      RESULT in the prospect's own terms. Do NOT name the service, do NOT explain the
+      mechanism, do NOT list features. One or two short sentences. This paragraph MAY
+      begin with We: the I/We ban applies only to the observation slot.
+      Register to match: "We get more conversations into your diary."
+                         "We bring qualified prospects to you."
+      P3 must FLEX to the pain P2 opened on, and must differ across all four variants.
+      A fixed line reused across variants is a spam fingerprint.
+  P4  The CTA question. One question. Low commitment.
+  P5  The sign-off: "${params.preflight.sender_first_name}" alone on the last line.
+
+NON-REDUNDANCY. No paragraph may restate the idea of another. P3 advances the email, it
+does not rephrase P2. If P3 could be deleted and the email still says the same thing, P3
+has failed and must be rewritten.
+
+PARAGRAPH INDEPENDENCE STILL APPLIES. P2 is unknown at authoring time, so no paragraph
+may refer back to the one above it. Each paragraph names its own subject.
+
+Angle assignments determine how the P2 observation slot opens:
+- Variant A: Pain-led. The implied cost or consequence of the current situation.
+- Variant B: Outcome-led. Reflect the current situation. Never project the post-purchase state.
+- Variant C: Peer pattern. What similar buyers at this stage are experiencing, as defined by the Tier 1 profile in the ICP document.
+- Variant D: Pattern interrupt. A direct observation that challenges a common assumption.
 
 All four variants must:
 - Follow every rule in the system prompt without exception
-- Use different subject lines — no subject line is reused across variants
-- Use a meaningfully different opening sentence in email 1 (the angle changes the first line after {{first_name}})
-- Keep the sequence structure: Email 1 problem/CTA, Email 2 pattern proof, Email 3 insight/meeting ask, Email 4 breakup
-- Apply every word count limit, TOV rule, banned structure rule, and sign-off rule from the system prompt
+- Use different subject lines. No subject line is reused across variants, including Email 4
+- Use a meaningfully different P2 observation in email 1
+- Use a meaningfully different P3 in email 1
+- Differ meaningfully in emails 2, 3 AND 4, not only email 1. Four near-identical
+  follow-ups across a send list is a larger fingerprint than a shared opener
+- Keep the sequence structure: Email 1 observation and what changes, Email 2 pattern proof, Email 3 insight and meeting ask, Email 4 breakup
 
 Critical reminders:
-- Word counts are hard caps: Email 1 ≤90 words, Email 2 ≤70 words, Email 3 ≤75 words, Email 4 30-50 words
-- Count every word. Include the accurate word_count in each email object.
-- No I/We openers. One question per message. No service-led language. No em dashes.
+${renderWordCountReminder()}
+- Do not count the words yourself. The platform recomputes word_count and subject_char_count from the text you return and validates the computed values. Write to the band, not to a number you report.
+- Every sentence must mean something concrete on one reading. See the understandability tests in the system prompt.
+- No I/We opener on the observation slot. One question per message. No em dashes.
 - Sign-off is mandatory on EVERY email: the sender's first name ("${params.preflight.sender_first_name}") must be the last non-empty line.
-  For emails 1, 2, and 3 the CTA question is NOT the last line — the name goes after it.
-  Structure: [CTA question] → blank line → ${params.preflight.sender_first_name}
+  For emails 1, 2, and 3 the CTA question is NOT the last line. The name goes after it.
+  Structure: [CTA question], blank line, ${params.preflight.sender_first_name}
   If the last non-empty line is not "${params.preflight.sender_first_name}", the email will be rejected.
 
 Return ONLY the four-variant JSON below. No subject line libraries. No CTA libraries. No objection responses. No explanation. No markdown fencing.
@@ -778,8 +824,75 @@ Each email object must contain exactly these fields:
   subject_line: string for emails 1 and 4, null for emails 2 and 3
   subject_char_count: integer, 0 for emails 2 and 3
   body: full email body from {{first_name}} through the sign-off name
-  word_count: integer (count body words excluding the first-name line and sign-off name)
+  word_count: integer (count the whole body, including the {{first_name}} line and the sign-off name)
   suggestion_reason: per-email notes (deliberate imperfection, unpopulated tokens, pronoun ratio shortfall)`
+}
+
+// Subject lines and Email 1 openers already used by variants that have passed the gate.
+// Threaded into retry calls so a regenerated variant does not collide with them.
+interface TakenCopy {
+  subjects: string[]
+  openers: string[]
+}
+
+// Collects the subjects and Email 1 openers from every variant that has passed so far.
+function collectTakenCopy(passed: Record<string, EmailRecord[]>): TakenCopy {
+  const subjects: string[] = []
+  const openers: string[] = []
+
+  for (const emails of Object.values(passed)) {
+    for (const email of emails) {
+      if (email.subject_line) subjects.push(email.subject_line)
+    }
+    const first = emails.find(e => e.sequence_position === 1)
+    if (first) {
+      const opener = firstBodyLineAfterGreeting(first.body)
+      if (opener) openers.push(opener)
+    }
+  }
+
+  return { subjects, openers }
+}
+
+// The observation slot line: the first non-empty line after the {{first_name}} greeting.
+function firstBodyLineAfterGreeting(body: string): string | null {
+  const lines = body.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+  const greetingIdx = lines.findIndex(l => /^\{\{first_name\}\},?$/.test(l))
+  return lines.slice(greetingIdx + 1).find(l => l.length > 0) ?? null
+}
+
+function buildAvoidBlock(taken: TakenCopy): string {
+  if (taken.subjects.length === 0 && taken.openers.length === 0) return ''
+
+  const parts: string[] = [
+    '\n## ALREADY USED BY OTHER VARIANTS IN THIS SEQUENCE SET\n',
+    'These variants have already been accepted. Your variant ships alongside them to the',
+    'same audience, so anything you repeat becomes a uniform fingerprint across sends.',
+    'Do not reuse any of the following, and do not produce a near-paraphrase of one.\n',
+  ]
+
+  if (taken.subjects.length > 0) {
+    parts.push('Subject lines already taken:')
+    parts.push(...taken.subjects.map(s => `  - ${s}`))
+  }
+  if (taken.openers.length > 0) {
+    parts.push('\nEmail 1 observation lines already taken:')
+    parts.push(...taken.openers.map(o => `  - ${o}`))
+  }
+
+  return parts.join('\n') + '\n'
+}
+
+// Renders the word bands from EMAIL_WORD_LIMITS so the prompt and the gate cannot drift.
+function renderWordCountReminder(): string {
+  const L = EMAIL_WORD_LIMITS
+  return [
+    `- Email 1: ${L.email1MinWords} to ${L.email1TargetMaxWords} words, hard cap ${L.email1MaxWords}. Under ${L.email1MinWords} is rejected.`,
+    `- Email 2: ${L.email2MinWords} to ${L.email2MaxWords} words, and shorter than Email 1.`,
+    `- Email 3: ${L.email3MinWords} to ${L.email3MaxWords} words, and shorter than Email 2.`,
+    `- Email 4: ${L.email4MinWords} to ${L.email4MaxWords} words.`,
+    '- Counts include the {{first_name}} line and the sign-off name. They exclude the opt-out footer, which the platform adds later.',
+  ].join('\n')
 }
 
 // Builds the user message for a single-variant retry or fallback call.
@@ -787,8 +900,14 @@ Each email object must contain exactly these fields:
 function buildSingleVariantUserMessage(
   context: VariantGenerationContext,
   angleInstruction: string,
+  taken: TakenCopy,
 ): string {
   const { completenessNote, contextBlocks } = buildBaseContext(context)
+
+  // Cross-variant uniqueness is unenforceable on the retry path unless the retry can see
+  // what the surviving variants already used. Without this block a retried variant
+  // collides with them by construction, because it is generated in isolation.
+  const avoidBlock = buildAvoidBlock(taken)
 
   return `You are generating a single email sequence variant for the client described in the ICP document provided.
 ${completenessNote}
@@ -806,14 +925,15 @@ Generate ONE email sequence variant. The angle assignment for Email 1 is:
 
 ${angleInstruction}
 
-Apply all rules from the system prompt without exception — word counts, TOV rules, banned structures, sign-off rules, and the four-email sequence structure (Email 1 problem/CTA, Email 2 pattern proof, Email 3 insight/meeting ask, Email 4 breakup).
-
+Apply all rules from the system prompt without exception: the Email 1 paragraph frame, word counts, TOV rules, banned structures, sign-off rules, and the four-email sequence structure (Email 1 observation and what changes, Email 2 pattern proof, Email 3 insight and meeting ask, Email 4 breakup).
+${avoidBlock}
 Critical reminders:
-- Word counts are hard caps: Email 1 ≤90 words, Email 2 ≤70 words, Email 3 ≤75 words, Email 4 30-50 words
-- Count every word. Include the accurate word_count in each email object.
-- No I/We openers. One question per message. No service-led language. No em dashes.
+${renderWordCountReminder()}
+- Do not count the words yourself. The platform recomputes word_count and subject_char_count from the text you return and validates the computed values. Write to the band, not to a number you report.
+- Email 1 follows the paragraph frame: {{first_name}}, then the observation slot, then what changes, then the CTA question, then the sign-off. Each paragraph does its own job and none restates another.
+- No I/We openers on the observation slot. One question per message. No em dashes.
 - Sign-off is mandatory on EVERY email: "${context.preflight.sender_first_name}" must be the last non-empty line.
-  Structure: [CTA question] → blank line → ${context.preflight.sender_first_name}
+  Structure: [CTA question], blank line, ${context.preflight.sender_first_name}
 
 Return ONLY the following JSON. No preamble. No markdown fencing. No explanation.
 {
@@ -827,7 +947,7 @@ Each email object must contain exactly these fields:
   subject_line: string for emails 1 and 4, null for emails 2 and 3
   subject_char_count: integer, 0 for emails 2 and 3
   body: full email body from {{first_name}} through the sign-off name
-  word_count: integer (count body words excluding the first-name line and sign-off name)
+  word_count: integer (count the whole body, including the {{first_name}} line and the sign-off name)
   suggestion_reason: per-email notes (deliberate imperfection, unpopulated tokens, pronoun ratio shortfall)`
 }
 
@@ -1039,7 +1159,28 @@ async function processOneVariant(
     )
   }
 
-  const violations = validateEmails(signedEmails, senderFirstName)
+  // Overwrite the model's self-reported counts with computed ones. Must run after the
+  // dash scrub and the sign-off fix, both of which change the body, and before
+  // validateEmails, which gates on word_count.
+  const countedEmails = recomputeCounts(signedEmails)
+
+  // Report-only readability signal. Never gates: an over-threshold score is surfaced for
+  // a human to judge, not used to reject a variant. See ADR note in nominalisation.ts.
+  for (const email of countedEmails) {
+    const score = nominalisationDensity(email.body)
+    if (score.exceedsThreshold) {
+      logger.warn('Messaging agent: abstract nominalisation density above threshold', {
+        organisation_id,
+        variant: variantKey,
+        email: email.sequence_position,
+        density: score.density,
+        threshold: NOMINALISATION_THRESHOLD,
+        matches: score.matches,
+      })
+    }
+  }
+
+  const violations = validateEmails(countedEmails, senderFirstName)
   if (violations.length > 0) {
     const failure: VariantFailure = { variant: variantKey, violations }
     logger.warn(`Messaging agent: Variant ${variantKey}${label} failed validation`, {
@@ -1047,7 +1188,7 @@ async function processOneVariant(
       violations: violations.map(v => `Email ${v.email}: ${v.issue}`),
     })
     await saveFailedGeneration(
-      signedEmails,
+      countedEmails,
       violations,
       organisation_id,
       `${variantKey}${attemptLabel ? `-${attemptLabel}` : ''}`
@@ -1055,7 +1196,10 @@ async function processOneVariant(
     return { failure }
   }
 
-  return { passed: signedEmails }
+  // Return the array that was validated. Returning any earlier array would ship content
+  // that differs from what the gate approved, which is how the opt-out footer went
+  // missing from every stored document for months.
+  return { passed: countedEmails }
 }
 
 // Processes all four variants from the initial Claude call.
@@ -1128,19 +1272,59 @@ const BANNED_PARAGRAPH_OPENERS: ReadonlyArray<{ pattern: RegExp; label: string }
   { pattern: /^The result was\b/,             label: 'The result was' },
 ]
 
-// Hard gate limits enforced by validateEmails.
-// Exported so agent prompts can render the same numbers — no drift possible.
+// Hard gate limits enforced by validateEmails. THE single source of truth.
+// Exported so the agent prompt, the revision agent prompt and CLAUDE.md all render the
+// same numbers. Do not restate these figures anywhere without importing them.
+//
+// Counting basis: the WHOLE body, including the {{first_name}} line and the sign-off
+// name, measured with countWords from the composition layer. Agent and composition
+// therefore agree exactly. Roughly 2 words of that total are structural rather than
+// copy. The opt-out footer is appended after composition and is never counted.
 export const EMAIL_WORD_LIMITS = {
-  email1MaxWords: 100,
-  email2MaxWords: 75,
-  email3MaxWords: 75,
+  email1MinWords: 50,
+  email1TargetMaxWords: 80,   // advisory target rendered into the prompt
+  email1MaxWords: 90,         // hard cap
+  email2MinWords: 30,
+  email2MaxWords: 70,
+  email3MinWords: 30,
+  email3MaxWords: 70,
   email4MinWords: 30,
   email4MaxWords: 50,
 } as const
 
+// Email 4 needs a fresh subject and, per the cross-variant uniqueness rule, a DIFFERENT
+// one in each variant. At the old 9-character cap "last note" was the only string that
+// fitted, so all four variants shipped an identical Email 4 subject: a uniform
+// fingerprint across every send, and a direct contradiction of the uniqueness rule.
+// Raised to 24 so four distinct short breakup subjects are possible. Still far below
+// the 40-character Email 1 cap, so Email 4 stays visibly terse.
 export const EMAIL_SUBJECT_LIMITS = {
-  email4MaxChars: 9,
+  email1MaxChars: 40,
+  email4MaxChars: 24,
 } as const
+
+// Per-position word bands, derived from EMAIL_WORD_LIMITS so there is one place to edit.
+const WORD_BANDS: Record<number, { min: number; max: number }> = {
+  1: { min: EMAIL_WORD_LIMITS.email1MinWords, max: EMAIL_WORD_LIMITS.email1MaxWords },
+  2: { min: EMAIL_WORD_LIMITS.email2MinWords, max: EMAIL_WORD_LIMITS.email2MaxWords },
+  3: { min: EMAIL_WORD_LIMITS.email3MinWords, max: EMAIL_WORD_LIMITS.email3MaxWords },
+  4: { min: EMAIL_WORD_LIMITS.email4MinWords, max: EMAIL_WORD_LIMITS.email4MaxWords },
+}
+
+// Replaces the model's self-reported word_count and subject_char_count with computed
+// values, before validation and before storage.
+//
+// Both fields used to be whatever the model claimed. Nothing checked them, so a model
+// that undercounted passed the word gate with an over-long email, and subject_char_count
+// was displayed to the client without ever being verified. countWords is imported from
+// the composition layer so the agent and composition measure identically.
+export function recomputeCounts(emails: EmailRecord[]): EmailRecord[] {
+  return emails.map(email => ({
+    ...email,
+    word_count: countWords(email.body),
+    subject_char_count: email.subject_line ? email.subject_line.length : 0,
+  }))
+}
 
 // Category B: collect all violations across all four emails. Returns empty array if clean.
 // Exported for direct unit testing.
@@ -1190,12 +1374,35 @@ export function validateEmails(
       }
     }
 
+    // word_count is recomputed from the body by recomputeCounts before validation, so
+    // this gate measures the actual text rather than the model's own claim about it.
     const wc = email.word_count
-    if (pos === 1 && wc > EMAIL_WORD_LIMITS.email1MaxWords) violations.push({ email: pos, issue: `word count ${wc} exceeds ${EMAIL_WORD_LIMITS.email1MaxWords}-word limit` })
-    if (pos === 2 && wc > EMAIL_WORD_LIMITS.email2MaxWords) violations.push({ email: pos, issue: `word count ${wc} exceeds ${EMAIL_WORD_LIMITS.email2MaxWords}-word limit` })
-    if (pos === 3 && wc > EMAIL_WORD_LIMITS.email3MaxWords) violations.push({ email: pos, issue: `word count ${wc} exceeds ${EMAIL_WORD_LIMITS.email3MaxWords}-word limit` })
-    if (pos === 4 && (wc < EMAIL_WORD_LIMITS.email4MinWords || wc > EMAIL_WORD_LIMITS.email4MaxWords)) {
-      violations.push({ email: pos, issue: `word count ${wc} is outside the ${EMAIL_WORD_LIMITS.email4MinWords}–${EMAIL_WORD_LIMITS.email4MaxWords} word range` })
+    const band = WORD_BANDS[pos]
+    if (band && (wc < band.min || wc > band.max)) {
+      violations.push({
+        email: pos,
+        issue: `word count ${wc} is outside the ${band.min} to ${band.max} word range`,
+      })
+    }
+
+    // Each follow-up must be shorter than the email before it. Deterministic, so it is
+    // enforced here rather than left to the prompt. Email 4 is exempt: it is a breakup
+    // with its own 30 to 50 band, and chaining it to Email 3 leaves too little room.
+    if (pos === 2 || pos === 3) {
+      const prev = emails.find(e => e.sequence_position === pos - 1)
+      if (prev && wc >= prev.word_count) {
+        violations.push({
+          email: pos,
+          issue: `word count ${wc} is not shorter than email ${pos - 1} at ${prev.word_count} words`,
+        })
+      }
+    }
+
+    if (pos === 1 && email.subject_line !== null && email.subject_line.length > EMAIL_SUBJECT_LIMITS.email1MaxChars) {
+      violations.push({
+        email: pos,
+        issue: `subject line "${email.subject_line}" is ${email.subject_line.length} chars, limit is ${EMAIL_SUBJECT_LIMITS.email1MaxChars}`,
+      })
     }
 
     if ((pos === 2 || pos === 3) && email.subject_line !== null) {
@@ -1270,6 +1477,7 @@ async function retryVariantSlot(
   variantKey: string,
   context: VariantGenerationContext,
   organisation_id: string,
+  taken: TakenCopy,
 ): Promise<{ emails: EmailRecord[] | null; outcome: SlotOutcome }> {
   const senderFirstName = context.preflight.sender_first_name
   let apiCallsUsed = 0
@@ -1297,7 +1505,7 @@ async function retryVariantSlot(
 
     apiCallsUsed++
     try {
-      const userMessage = buildSingleVariantUserMessage(context, originalAngle)
+      const userMessage = buildSingleVariantUserMessage(context, originalAngle, taken)
       const raw = await callClaude(userMessage)
       const emails = parseSingleVariantFromClaude(raw)
       const result = await processOneVariant(
@@ -1310,7 +1518,14 @@ async function retryVariantSlot(
         )
         return {
           emails: result.passed,
-          outcome: { variant: variantKey, result: 'retry', retryAttempts: attempt, apiCallsUsed },
+          outcome: {
+            variant: variantKey,
+            result: 'retry',
+            retryAttempts: attempt,
+            apiCallsUsed,
+            // Retry stayed on the slot's assigned angle, so the label is still accurate.
+            shippedAngle: variantKey,
+          },
         }
       }
     } catch (err) {
@@ -1331,7 +1546,7 @@ async function retryVariantSlot(
 
       apiCallsUsed++
       try {
-        const userMessage = buildSingleVariantUserMessage(context, fallback.instruction)
+        const userMessage = buildSingleVariantUserMessage(context, fallback.instruction, taken)
         const raw = await callClaude(userMessage)
         const emails = parseSingleVariantFromClaude(raw)
         const result = await processOneVariant(
@@ -1340,7 +1555,7 @@ async function retryVariantSlot(
         )
         if ('passed' in result) {
           logger.info(
-            `Messaging agent: Variant ${variantKey} passed on fallback "${fallback.name}" attempt ${attempt}`,
+            `Messaging agent: Variant ${variantKey} shipped on fallback angle "${fallback.name}", attempt ${attempt}. Slot label ${variantKey} no longer describes its angle.`,
             { organisation_id, variantKey, fallbackName: fallback.name, attempt }
           )
           return {
@@ -1352,6 +1567,10 @@ async function retryVariantSlot(
               fallbackName: fallback.name,
               fallbackAttempt: attempt,
               apiCallsUsed,
+              // The slot keeps its key for assignment purposes, but the angle that
+              // actually shipped is the fallback, not the slot's original angle.
+              // Recorded here and stored on the variant so the label is never a lie.
+              shippedAngle: fallback.name,
             },
           }
         }
@@ -1486,11 +1705,25 @@ async function writeDocumentSuggestion(
     sourceVersions
 
   // Strip per-email suggestion_reason before storing — it's agent metadata, not document content.
+  //
+  // `angle` is additive and records which angle actually shipped in each slot. When a
+  // fallback angle is used the slot key alone misdescribes the copy, so the key is kept
+  // for assignment stability and the true angle is stored alongside it. Every consumer
+  // reads variants[key].emails and is unaffected by the extra key.
+  const shippedAngleByVariant = new Map(
+    (runStats?.slotOutcomes ?? [])
+      .filter(o => o.shippedAngle)
+      .map(o => [o.variant, o.shippedAngle as string])
+  )
+
   const variantKeys = Object.keys(variants).sort()
   const variantsForStorage = Object.fromEntries(
     variantKeys.map(key => [
       key,
-      { emails: variants[key].map(({ suggestion_reason: _unused, ...email }) => email) },
+      {
+        emails: variants[key].map(({ suggestion_reason: _unused, ...email }) => email),
+        angle: shippedAngleByVariant.get(key) ?? key,
+      },
     ])
   )
 

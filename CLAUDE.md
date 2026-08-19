@@ -435,17 +435,40 @@ directly.
 When a prompt and a validator enforce the same rule, they must agree exactly.
 If one is updated, the other must be checked and updated in the same session.
 
-Known validator thresholds — these are code-enforced and cannot be overridden by the prompt:
+Known validator thresholds. Code-enforced, cannot be overridden by the prompt.
+THE SOURCE OF TRUTH IS EMAIL_WORD_LIMITS and EMAIL_SUBJECT_LIMITS in
+src/agents/messaging-generation-agent.ts. The figures below mirror it. If you change one,
+change both in the same commit, and check docs/prompts/messaging-agent.md too.
+
   Email 1 subject:   maximum 40 characters (target < 25)
   Emails 2 and 3:    subject_line must be null; subject_char_count must be 0
-  Email 4 subject:   maximum 9 characters ("last note" = 9 chars; "one more thing" = 14, rejected)
-  Email 1 body:      40–90 words
-  Email 2 body:      30–70 words, must be shorter than Email 1
-  Email 3 body:      maximum 75 words (hardest limit — cut observation before ask)
-  Email 4 body:      30–50 words
+  Email 4 subject:   maximum 24 characters, and DIFFERENT in each variant
+                     (was 9, which left "last note" as the only option and made all four
+                      variants ship an identical Email 4 subject)
+  Email 1 body:      50 to 80 words, hard cap 90, floor 50
+  Email 2 body:      30 to 70 words, must be shorter than Email 1
+  Email 3 body:      30 to 70 words, must be shorter than Email 2
+  Email 4 body:      30 to 50 words
   Sign-off:          last non-empty line of every email body must be the sender's first name only
-  Opening word:      must not be I or We (applied to body after first-name line)
+  Opening word:      must not be I or We, applied to the observation slot only.
+                     Email 1 paragraph 3 ("what changes") MAY begin with We.
   Em dashes:         zero tolerance; any instance causes the entire variant to be flagged
+
+Word counts include the {{first_name}} line and the sign-off name, and exclude the opt-out
+footer. word_count and subject_char_count are RECOMPUTED by the agent from the body text
+before validation and before storage. The model's self-reported values are discarded.
+countWords is imported from the composition layer so both measure identically.
+
+Email 1 is authored as a FRAME WITH A SLOT, not as finished copy:
+  P1 {{first_name}}
+  P2 observation slot, replaced at composition when research exists. Names the problem.
+     The only paragraph that may describe the problem. Never pitches.
+  P3 what changes. Names a RESULT in the prospect's terms. Never names the service,
+     the mechanism, or features. Flexes per variant, never a fixed reused line.
+  P4 the CTA question
+  P5 the sign-off
+No paragraph may restate another (non-redundancy), and no paragraph may refer back to the
+one above it (paragraph independence, because P2 is unknown at authoring time).
 
 When writing or editing an agent prompt, check the corresponding validator before committing.
 When writing or editing a validator, check the corresponding prompt before committing.

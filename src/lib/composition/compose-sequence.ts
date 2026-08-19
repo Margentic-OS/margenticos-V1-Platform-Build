@@ -259,9 +259,8 @@ export async function composeSequence({
 // positions, after the sender sign-off, as its own paragraph.
 //
 // Word budgets are measured on footer-free bodies: this runs after applyPersonalization
-// has computed word_count and after the BRIDGE_HEADROOM check, and the spread below
-// carries the pre-footer word_count through unchanged. If the footer were counted, a
-// near-limit Email 1 would silently lose its bridge.
+// has computed word_count, and the spread below carries that count through unchanged.
+// The footer is a legal notice, not copy, so it must never eat an email's word budget.
 
 function appendOptOutFooter(emails: ComposedEmail[]): ComposedEmail[] {
   return emails.map(email => {
@@ -715,8 +714,25 @@ function applyTriggerToEmail1(emails: StoredEmail[], trigger: string): ComposedE
 // replaced even when a real researched trigger existed. The approved CTA now
 // survives verbatim in every case.
 //
-// What remains is the bridge: an ADDITIVE sentence inserted after the trigger,
-// gated on a genuine researched signal. It never overwrites approved copy.
+// The BRIDGE is now DISABLED, for the same reason and by the same rule.
+//
+// The bridge inserted a generated sentence between the observation and the rest of the
+// email. Under the old design that filled a gap. Under the frame rewrite it does not:
+// Email 1 is now authored as P2 observation slot, P3 what changes, P4 CTA, and every
+// paragraph has a distinct job. The bridge has no job left, and in practice it was
+// producing the weakest line in the email. Robert's live send read "Wrapping a major role
+// while managing another creates visibility gaps around what's actually in your
+// pipeline", which restates P2 in vaguer words and fails the picture test.
+//
+// Disabled behind a flag rather than deleted, exactly as the CTA rewrite was handled, so
+// the decision is visible and reversible. To re-enable, set BRIDGE_ENABLED to true. Do
+// that only after deciding which paragraph's job the bridge is taking over, because with
+// the frame in place it would otherwise duplicate P3.
+//
+// While BRIDGE_ENABLED is false, BRIDGE_HEADROOM and EMAIL1_MAX_WORDS govern NOTHING.
+// They are reachable only inside the disabled branch. The live Email 1 word ceiling is
+// EMAIL_WORD_LIMITS.email1MaxWords in the messaging agent, enforced at generation.
+const BRIDGE_ENABLED    = false
 
 const EMAIL1_MAX_WORDS  = 90
 const BRIDGE_HEADROOM   = Math.floor(EMAIL1_MAX_WORDS * 0.9)  // 81 words
@@ -738,7 +754,7 @@ async function applyPersonalization(
 
       // Bridge requires a signal the research agent graded strong enough to reference.
       const useBridgePath = prospect.has_dateable_signal === true && prospect.signal_relevance === 'use_as_hook'
-      if (!useBridgePath) return withCount(email.body)
+      if (!BRIDGE_ENABLED || !useBridgePath) return withCount(email.body)
 
       const currentWords = countWords(email.body)
       if (currentWords > BRIDGE_HEADROOM) {
