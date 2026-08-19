@@ -4337,3 +4337,43 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   CLAUDE.md must be updated in the same commit, and this file should carry a pointer at the top
   rather than content. Splitting the source of truth is exactly the failure mode this file was
   created to prevent.
+
+## Copy-quality rubric on research synthesis: deferred items (2026-08-19)
+
+- [post-build] Repeated sentence frames are DETECTED but not auto-corrected. When a frame
+  collides across a batch, `runProspectResearchAgentV2Batch` logs a warning and reports the
+  collision in `ResearchBatchSummary.frame_collisions`. It deliberately does NOT regenerate the
+  trigger: that costs another Sonnet call per collision and makes a batch non-reproducible.
+  Decide after the first real 100+ prospect batch whether the collision rate justifies an
+  automatic single-retry rewrite. Detection itself is free and linear, so the cost question is
+  only about the rewrite.
+
+- [post-build] The frame registry is per-batch, not per-campaign. Two batches run on different
+  days can produce the same frame and nothing notices, because the registry is constructed
+  inside the batch function and discarded when it returns. If a campaign is filled over several
+  batches, persist the frames (a small table, or a jsonb column on the run) and seed the
+  registry from prior runs for the same campaign.
+
+- [post-build] `FRAME_LENGTH = 5` and the readability penalty weights were chosen from three
+  real examples, not calibrated against a corpus. Revisit once 100+ approved triggers exist.
+  A shorter frame catches more templates but starts flagging ordinary grammar; the current
+  value was picked because 4-grams matched incidental phrasing in testing.
+
+- [post-build] `NOMINALISATION_THRESHOLD` (4 percent) fires on ordinary nouns. In the 2026-08-19
+  re-run it flagged "attention", "employment", "department", "university" and "production",
+  none of which are the vague abstractions the check exists to catch. This is exactly why the
+  check penalises rather than rejects, but the false-positive rate makes the penalty noisy.
+  Either extend the EXCLUSIONS set in src/lib/style/nominalisation.ts or lower the weight.
+
+- [post-build] The synthesis prompt still contains roughly 20 pre-existing em dashes in its own
+  instruction text (section headers, the ICP FIT and CANDIDATE GENERATION blocks). They predate
+  this session and were left alone under the surgical-changes rule. They are a real risk anyway:
+  CUSTOMER_FACING_STYLE_RULES forbids em dashes in output while the surrounding prompt models
+  them on nearly every line, and models imitate the prompt they are given. Strip them in a
+  dedicated pass across all prompt files, not piecemeal.
+
+- [post-build] Udo's winning trigger used the ICP-pain structural template ("Most founders at
+  that stage find ...") as its second sentence even though the signal scored use_as_hook. That
+  template is prescribed by the prompt's no_signal path, so at 500 prospects it is a strong
+  candidate for the next uniformity signal. The frame registry will now catch it, but the
+  prompt should probably stop offering a fixed frame at all.

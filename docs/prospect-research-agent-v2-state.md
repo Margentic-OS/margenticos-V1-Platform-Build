@@ -46,3 +46,70 @@ Phase 1 complete. Production-ready for client zero scale (50–500 prospects per
 
 - 11 real founder-led consulting firm prospects compiled in `dogfood-prospects-batch-1.csv` (project root)
 - Pending Doug review and DB seeding
+
+---
+
+## Copy-quality rubric added (2026-08-19)
+
+### What changed and why
+
+The six tests (SPECIFIC, VERIFIABLE, INFERENTIAL, RELEVANT, USEFUL, NON_JUDGEMENTAL) all ask
+whether an observation is TRUE and RELEVANT. None asked whether it was READABLE. This trigger
+scored 6 out of 6 and shipped:
+
+> "Running Taffet alongside the CRC Director engagement from mid-2024 through mid-2025 is a
+> particular kind of balancing act, and with that role now wrapped, the pipeline question for
+> Taffet tends to land differently."
+
+37 words in one sentence, two hedges, ending on an abstraction. The messaging document was NOT
+the source: it scores 1.4 percent nominalisation across all 716 words. Every bad line traced
+back to this agent, which writes the observation that fills the Email 1 P2 slot.
+
+### Four changes
+
+1. READABLE is now a seventh scored test in the prompt, with four questions (say it aloud,
+   picture test, buyer vocabulary, any other email), a 25-word sentence cap, a no-hedging rule,
+   and both real examples included verbatim and labelled: the failing one above and the
+   benchmark from a campaign that replied at 7 percent.
+
+2. `src/lib/style/readability.ts` measures it deterministically. Sentence length and hedge
+   phrases HARD-GATE hook selection because both are unambiguous. Nominalisation density
+   (reusing `src/lib/style/nominalisation.ts`) only ever adds demerits, because suffix matching
+   cannot tell "attention" from "question" and a hard gate on a check with known false
+   positives would reject good copy.
+
+3. `src/lib/style/sentence-frames.ts` detects repeated sentence frames ACROSS a batch. The tic
+   ("is a particular kind of balancing act" / "juggle") came from the prompt itself, which
+   handed the model that exact frame as a worked GOOD example. That example is deleted and
+   stock frames are banned outright. Detection masks names and numbers, then compares 5-gram
+   skeletons, so a template is caught even when every noun is swapped.
+
+4. Inference direction is a distinct gate, not a tightened test. Every candidate must state the
+   opposite reading of its own evidence. Where both readings are plausible, the observation must
+   be phrased compatibly with both, or it is demoted out of hook use.
+
+### What happens on a failure
+
+A demoted candidate does not vanish. It falls from Tier 1 to `mention_only`, so the fact still
+surfaces and is still stored, it just does not fill the P2 slot. Composition falls back to ICP
+pain framing, which is good copy. `compose-sequence.ts:756` gates the bridge path on
+`signal_relevance === 'use_as_hook'`, so demotion is the lever that stops bad copy shipping.
+
+Frame collisions are logged and reported in `ResearchBatchSummary.frame_collisions`. They do
+not trigger an automatic rewrite: see BACKLOG.md.
+
+### Verification, 2026-08-19
+
+Re-ran all three dogfood prospects (org 0ed34697-0fa9-4f08-ac15-d3504ac45caf) on commit be1bcb6.
+
+| Prospect | Winning trigger | Max sentence | Hedges | Frame collision |
+|---|---|---|---|---|
+| Robert | "You ran Taffet and the CRC Director role side by side for 13 months. That wrapped in August 2025." | 14 words | none | none |
+| Udo | "Bröskamp, Schumpeter Ventures, and FineVest have all been running under your name at the same time since 2023. Most founders at that stage find Bröskamp's pipeline gets whatever bandwidth is left." | 18 words | none | none |
+| Alma | "Full Bloom has been running since September 2023. You've held a full-time Stanford GSB role alongside it since January 2024." | 12 words | none | none |
+
+The CRC concurrent-role fact still surfaces as Robert's c1 winner, as required: what changed is
+how it is written, not what is found. The readability gate visibly fired on three candidates
+(Robert c4 at 29 words, Udo c4 at 30 words, Alma c5 at 34 words), all demoted out of hook use.
+
+Re-run harness: `src/lib/agents/rerun-three-prospects.ts`. It costs real API spend per run.
