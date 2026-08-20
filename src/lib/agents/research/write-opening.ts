@@ -21,8 +21,16 @@ import type { ObservationCandidate } from './types'
 const WRITER_MODEL = 'claude-sonnet-4-6'
 const JUDGE_MODEL = 'claude-sonnet-4-6'
 
-/** Hard cap on the opening. Two sentences at most, and short ones. */
-export const OPENING_MAX_WORDS = 35
+/**
+ * Hard cap on the opening block, which is now the observation AND the bridge that
+ * follows from it. Raised from 35 to make room for the bridge sentence.
+ *
+ * Safe against composition's 90-word Email 1 ceiling: measured against the live document,
+ * the fixed remainder (greeting, P3, CTA, two-line sign-off) is 24 to 31 words depending
+ * on variant, so the tightest variant leaves 59 words of headroom and the most generous
+ * leaves 66. A 50-word cap clears all four.
+ */
+export const OPENING_MAX_WORDS = 50
 
 export interface OpeningResult {
   /** The opening that shipped, or null when the template won both comparisons. */
@@ -69,15 +77,42 @@ you noticed that makes this person worth writing to, and you let it do the work.
 The email is already written apart from its opening. Here is the rest of it, exactly as it
 will send:
 
-  [YOUR OPENING GOES HERE]
+  [YOUR TEXT GOES HERE]
 
   ${params.p3}
 
   ${params.cta}
 
-Your opening replaces the bracketed line. Everything else is fixed and approved. Write the
-opening that makes the whole thing read as one message from one person, and that makes the
-line after yours land as the natural next thing to say.
+YOUR JOB IS TWO THINGS, NOT ONE.
+
+First, the observation: the thing you noticed about this specific person.
+
+Second, and this is the part that is usually missing, the sentence that says what the
+observation MEANS for how they win work today. Name the gap the observation implies. Do
+not solve it. The approved line after yours does that, and it should land as the obvious
+next thing to say rather than as a pivot the reader has to bridge themselves.
+
+An observation on its own leaves the offer answering a question nobody asked. Here is
+exactly that failure, from real output:
+
+INCOMPLETE:
+  "Heard your episode on Founders Future from January, building Electro after redundancy,
+   then positioning it directly against what you called consulting's replication problem."
+True, specific, well observed, and it stops dead. The next line about filling the diary
+arrives from nowhere, because nothing has said what the observation implies.
+
+COMPLETE:
+  "Heard your episode on Founders Future from January, building Electro after redundancy
+   and pointing it straight at consulting's replication problem. A position that sharp only
+   pays when the right conversations keep arriving, and that flow is the one thing that
+   does not build itself."
+Same observation. The second sentence names what it implies about winning work, and now
+the offer line answers something that was actually asked.
+
+THE BRIDGE MUST COME FROM THIS OBSERVATION. If the sentence you write would sit just as
+comfortably under a different prospect's observation, it is filler and it has failed.
+Test it: swap in another founder's facts. If it still reads fine, throw it away and write
+one that only makes sense after what you just said.
 
 NEVER OPEN BY NAMING WHAT THEY LACK. No "there is no", no "nothing about", no "with no
 case studies", no lists of what is missing from their site or their feed. A senior seller
@@ -100,21 +135,25 @@ Second person this time, and still wrong. It recites his own CV back at him. He 
 of it. Nothing is implied and he has no reason to keep reading.
 
 GOOD:
-  "Saw your post asking your network for restaurant chains in the 5-15 location range."
-Something he actually did, recent and specific. It implies how he finds work without ever
-saying so, and the offer line lands straight on top of that implication.
+  "Saw your post asking your network for restaurant chains in the 5-15 location range.
+   That is a fast way to find the good ones, and it only reaches as far as the people who
+   already know you."
+Something he actually did, then what it implies about the limits of how he finds work. The
+offer line lands straight on top of that.
 
 GOOD:
-  "Heard your episode on Founders Future from January. electro: started because one
-   LinkedIn post caught fire."
-This proves real attention rather than claiming it, and it sets up an obvious question
-about what happens when that one channel goes quiet, without asking the question.
+  "Thirteen months carrying CRC alongside the firm says you can hold a serious delivery
+   load. With that finished, the capacity is back before the pipeline is."
+An observation, then the consequence that follows only from it. Nothing here would fit
+another founder's situation.
 
 The difference between the failing and the good pair is not tone and it is not accuracy.
-All four are accurate. The good ones notice something. The failing ones report something.
+All four are accurate. The good ones notice something and say what it means. The failing
+ones report something and stop.
 
 CONSTRAINTS, and there are only four:
-  At most two sentences, at most ${OPENING_MAX_WORDS} words.
+  At most three sentences, at most ${OPENING_MAX_WORDS} words, for the observation and the
+  bridge together.
   Write to them, as "you" or by naming their company. Never write their first name in the
   text: the email already greets them by name on the line above.
   Use only what is in the findings below. Invent nothing, and do not soften a fact into
@@ -122,7 +161,7 @@ CONSTRAINTS, and there are only four:
   Do not pitch, do not name the service, do not ask a question. The lines after yours do
   all three.
 
-Return ONLY the opening. No preamble, no quotes, no explanation.`
+Return ONLY your text. No preamble, no quotes, no explanation.`
 }
 
 // ─── The judge prompt ────────────────────────────────────────────────────────
@@ -143,7 +182,8 @@ export function buildJudgePrompt(): string {
   return `You are the head of sales. Two drafts of the same cold email are in front of you,
 both written by your team, both ready to send. They differ only in how they open.
 
-Both of these go out under your name. Which one gets a reply?
+Both go out under your name. Which one reads as a single message where every line follows
+from the one before, and gets a reply?
 
 Answer A or B, then one sentence on why.
 

@@ -133,9 +133,15 @@ describe('prompt shape', () => {
     expect((p.match(/\?/g) ?? []).length).toBe(1)
   })
 
+  it('the judge now asks about coherence across the whole message', () => {
+    // The phrase wraps across a line in the template literal, so normalise whitespace.
+    const flat = buildJudgePrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('reads as a single message where every line follows from the one before')
+  })
+
   it('the judge prompt frames a choice between two sendable drafts, with no free rejection', () => {
     const p = buildJudgePrompt()
-    expect(p).toContain('Which one gets a reply?')
+    expect(p).toContain('gets a reply?')
     expect(p).toContain('both ready to send')
     // The costless-rejection framing is gone: it is what produced 0 of 13.
     expect(p).not.toContain('HOLD')
@@ -151,10 +157,29 @@ describe('prompt shape', () => {
   it('the writer GOOD examples notice something present, not something absent', () => {
     const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
     expect(p).toContain('Saw your post asking your network for restaurant chains')
-    expect(p).toContain('Heard your episode on Founders Future from January')
     // The old absence-pattern GOOD examples are what taught the writer to list absences.
     expect(p).not.toContain('There is no blog, no case studies')
-    expect(p).not.toContain('Your recent LinkedIn posts are all client work')
+  })
+
+  it('the writer prompt asks for the observation AND the bridge, with the worked pair', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    expect(p).toContain('YOUR JOB IS TWO THINGS, NOT ONE')
+    expect(p).toContain('INCOMPLETE:')
+    expect(p).toContain('COMPLETE:')
+    // The bridge must be prospect-specific, not reusable filler.
+    expect(p).toContain('THE BRIDGE MUST COME FROM THIS OBSERVATION')
+  })
+
+  it('the writer prompt states the loosened limits and nothing wider', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    expect(p).toContain('At most three sentences')
+    expect(p).toContain('50 words')
+  })
+
+  it('the opening cap fits composition\'s 90-word ceiling on the tightest variant', () => {
+    // Measured against the live document: the fixed remainder (greeting, P3, CTA,
+    // two-line sign-off) is at most 31 words, so 90 - 31 = 59 words of headroom.
+    expect(OPENING_MAX_WORDS).toBeLessThanOrEqual(59)
   })
 
   it('both FAILING examples are retained', () => {
