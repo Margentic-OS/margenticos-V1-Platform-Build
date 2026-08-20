@@ -3,7 +3,7 @@
 // Both are the prospect's headcount restated, and both were reported as clean.
 
 import { describe, it, expect } from 'vitest'
-import { findFirmographicFigures } from '../firmographic'
+import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '../firmographic'
 
 describe('numerals and currency, the original coverage', () => {
   it.each([
@@ -74,5 +74,58 @@ describe('known over-reach, recorded rather than hidden', () => {
     // Accepted: in this copy "one-person" almost always describes the prospect's firm,
     // and the cost of a false positive is one rewrite attempt, not a bad send.
     expect(findFirmographicFigures('A one-person job is still a job.').length).toBeGreaterThan(0)
+  })
+})
+
+
+// ─── A headcount of one ──────────────────────────────────────────────────────
+//
+// "running it solo since" shipped in Jason's email. The list already caught "a two-person
+// firm" and "a team of five" and had no spelling for one, which is the headcount most
+// likely to be observed and most likely to go stale.
+
+describe('a headcount of one is still a headcount', () => {
+  const banned = [
+    ['have been running it solo since',        'solo'],
+    ['a solopreneur three years in',           'solopreneur'],
+    ['built single-handed since 2022',         'single-handed'],
+    ['built single-handedly since 2022',       'single-handedly'],
+    ['still a one-man band',                   'one-man'],
+    ['a one man operation',                    'one man'],
+    ['the sole practitioner on every project', 'sole practitioner'],
+    ['the sole operator there',                'sole operator'],
+    ['right now it is just you',               'just you'],
+    ['doing all of it on your own',            'on your own'],
+    ['running the whole thing by yourself',    'by yourself'],
+    ['you are the only one selling',           'the only one'],
+    ["right now it's just you",                "it's just you"],
+    ['with no employees to hand it to',        'no employees'],
+  ] as const
+
+  for (const [text, label] of banned) {
+    it(`flags "${label}"`, () => {
+      expect(findFirmographicFigures(text).length).toBeGreaterThan(0)
+    })
+  }
+
+  it('reports it as a headcount, so the writer feedback names the real problem', () => {
+    expect(findFirmographicFigures('running it solo since')[0]).toContain('headcount of one')
+  })
+
+  it('still passes ordinary copy that merely sounds similar', () => {
+    // The ban is on stating their headcount, not on every nearby word.
+    expect(findFirmographicFigures('You spoke solely about regulation.')).toEqual([])
+    expect(findFirmographicFigures('the only post in the last two months')).toEqual([])
+    expect(findFirmographicFigures('your own words, from the launch post')).toEqual([])
+    expect(findFirmographicFigures('thirteen months of running both')).toEqual([])
+    expect(findFirmographicFigures('your last three posts')).toEqual([])
+    // A pattern statement about a population, not a claim about their headcount.
+    expect(findFirmographicFigures("this isn't just you, it is most founders")).toEqual([])
+  })
+
+  it('the prompt text tells the writer the same thing the patterns enforce', () => {
+    expect(FIRMOGRAPHIC_RULE_TEXT).toContain('A headcount of ONE counts')
+    expect(FIRMOGRAPHIC_RULE_TEXT).toContain('running it solo')
+    expect(FIRMOGRAPHIC_RULE_TEXT).toContain('wrong the day they make a first hire')
   })
 })

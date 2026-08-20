@@ -19,7 +19,8 @@ import { fetchApolloSource }   from './research/sources/apollo'
 import { fetchWebsiteSource }  from './research/sources/website'
 import { fetchWebSearchSource } from './research/sources/web-search'
 import { synthesizeResearch }  from './research/synthesize'
-import { FrameRegistry } from '@/lib/style/sentence-frames'
+import { FrameRegistry, frameShingles, sentenceKey } from '@/lib/style/sentence-frames'
+import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
 import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
 import {
   fetchApprovedMessagingDoc,
@@ -266,7 +267,11 @@ export async function runProspectResearchAgentV2({
   client_id,
   use_stored_findings = false,
   frameRegistry,
-}: ResearchInput & { frameRegistry?: FrameRegistry }): Promise<ResearchResult> {
+  uniqueness,
+}: ResearchInput & {
+  frameRegistry?: FrameRegistry
+  uniqueness?: BatchUniquenessRegistry
+}): Promise<ResearchResult> {
   const agentRun = await startAgentRun({ organisation_id: client_id, agent_name: 'prospect-research-v2' })
 
   try {
@@ -398,6 +403,8 @@ export async function runProspectResearchAgentV2({
       composeEmail1: (text: string, question?: string | null) =>
         composeEmail1WithOpening(messaging.content, variantId, text, question ?? null, ctx.first_name).body,
       prospectId: ctx.id,
+      // Batch-scoped. Absent on a single-prospect run, where there is nothing to collide with.
+      uniqueness,
     })
 
     logger.info('prospect-research-v2: judge verdict', {
@@ -424,14 +431,17 @@ export async function runProspectResearchAgentV2({
     // Only real triggers participate. A null trigger has no sentence to compare, and the
     // proxy is not sent to anyone, so registering it would manufacture collisions between
     // prospects that all correctly received nothing.
-    if (frameRegistry && opening.opening) {
-      const collisions = frameRegistry.register(prospect.id, opening.opening)
+    // The BRIDGE half is gated during the run by BatchUniquenessRegistry, so registering
+    // the whole opening here would re-report frames the gate has already guaranteed are
+    // unique and drown the half that is genuinely report-only.
+    if (frameRegistry && opening.observation) {
+      const collisions = frameRegistry.register(prospect.id, opening.observation)
       for (const collision of collisions) {
         logger.warn('prospect-research-v2: repeated sentence frame across batch', {
           prospect_id:            prospect.id,
           first_seen_prospect_id: collision.firstSeenId,
           frame:                  collision.frame,
-          trigger_text:           opening.opening,
+          trigger_text:           opening.observation,
         })
       }
     }
@@ -461,6 +471,8 @@ export async function runProspectResearchAgentV2({
       qualification_status: synthesis.qualification_status,
       qualification_reason: synthesis.qualification_reason,
       trigger_text:        opening.written_won ? opening.opening : null,
+      bridge_text:         opening.written_won ? opening.bridge : null,
+      question_text:       opening.written_won ? opening.question : null,
       trigger_source:      synthesis.trigger_source,
       relevance_reason:    synthesis.relevance_reason,
       synthesis_confidence: synthesis.confidence,
@@ -548,6 +560,8 @@ export async function runProspectResearchAgentV2Batch({
 }: ResearchBatchInput): Promise<ResearchBatchSummary> {
   const failures: ResearchBatchFailure[] = []
   const frame_collisions: ResearchFrameCollision[] = []
+  const bridge_frame_collisions: ResearchFrameCollision[] = []
+  const question_collisions: ResearchFrameCollision[] = []
   const summary: ResearchBatchSummary = {
     total:          prospect_ids.length,
     completed:      0,
@@ -556,12 +570,24 @@ export async function runProspectResearchAgentV2Batch({
     failures,
     failed_log_path: null,
     frame_collisions,
+    bridge_frame_collisions,
+    question_collisions,
+    distinct_questions: 0,
   }
+
+  // What actually shipped, for the post-run verification below. Only winners: a prospect
+  // that fell back to template contributes no bridge and no written question.
+  const shipped: { prospect_id: string; bridge: string; question: string }[] = []
 
   // One registry per batch. Sentence-frame repetition only exists across prospects, so
   // the state has to live at batch scope. Single-threaded JS means the p-limit workers
   // below cannot interleave a register() call, so no locking is needed.
   const frameRegistry = new FrameRegistry()
+
+  // Batch-scoped uniqueness for the bridge and the closing question. Unlike frameRegistry
+  // this one GATES: a colliding bridge is refused and the writer retries. See
+  // batch-uniqueness.ts for why the bridge is gated and the observation is not.
+  const uniqueness = new BatchUniquenessRegistry()
 
   // Show cost estimate and require confirmation for batches of 10+ prospects.
   if (use_stored_findings) {
@@ -628,7 +654,16 @@ export async function runProspectResearchAgentV2Batch({
         return
       }
       try {
-        await runProspectResearchAgentV2({ prospect_id, client_id, frameRegistry, use_stored_findings })
+        const result = await runProspectResearchAgentV2({
+          prospect_id, client_id, frameRegistry, uniqueness, use_stored_findings,
+        })
+        if (result.bridge_text && result.question_text) {
+          shipped.push({
+            prospect_id,
+            bridge: result.bridge_text,
+            question: result.question_text,
+          })
+        }
         summary.completed++
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
@@ -690,6 +725,58 @@ export async function runProspectResearchAgentV2Batch({
     logger.warn('prospect-research-v2 batch: repeated sentence frames detected', {
       collision_count: frame_collisions.length,
       frames: [...new Set(frame_collisions.map(c => c.frame))],
+    })
+  }
+
+  // POST-RUN VERIFICATION OF THE GATE, recomputed from what shipped rather than trusted
+  // from the registry that enforced it. If the gate works these are both empty; a non-empty
+  // array is a defect in the gate, not a warning about the copy. Recomputing independently
+  // is the point: a gate that reports on itself cannot catch its own bug.
+  const shippedBridgeFrames = new Map<string, string>()
+  const shippedQuestions = new Map<string, string>()
+
+  for (const s of shipped) {
+    for (const frame of new Set(frameShingles(s.bridge))) {
+      const firstSeen = shippedBridgeFrames.get(frame)
+      if (firstSeen !== undefined && firstSeen !== s.prospect_id) {
+        bridge_frame_collisions.push({
+          prospect_id:            s.prospect_id,
+          first_seen_prospect_id: firstSeen,
+          frame,
+          trigger_text:           s.bridge,
+        })
+      } else if (firstSeen === undefined) {
+        shippedBridgeFrames.set(frame, s.prospect_id)
+      }
+    }
+
+    const qKey = sentenceKey(s.question)
+    if (!qKey) continue
+    const firstSeenQ = shippedQuestions.get(qKey)
+    if (firstSeenQ !== undefined && firstSeenQ !== s.prospect_id) {
+      question_collisions.push({
+        prospect_id:            s.prospect_id,
+        first_seen_prospect_id: firstSeenQ,
+        frame:                  qKey,
+        trigger_text:           s.question,
+      })
+    } else if (firstSeenQ === undefined) {
+      shippedQuestions.set(qKey, s.prospect_id)
+    }
+  }
+
+  summary.distinct_questions = shippedQuestions.size
+
+  if (bridge_frame_collisions.length > 0 || question_collisions.length > 0) {
+    logger.error('prospect-research-v2 batch: uniqueness gate let a collision through', {
+      bridge_collisions:   bridge_frame_collisions.length,
+      question_collisions: question_collisions.length,
+    })
+  } else {
+    logger.info('prospect-research-v2 batch: bridges and closing questions all distinct', {
+      shipped:            shipped.length,
+      distinct_questions: summary.distinct_questions,
+      reserved_frames:    uniqueness.bridgeFrameCount,
     })
   }
 

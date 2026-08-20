@@ -12,8 +12,10 @@ import {
   buildFindingsBlock,
   buildWriterPrompt,
   buildJudgePrompt,
+  joinOpening,
   OPENING_MAX_WORDS,
 } from '../write-opening'
+import { BatchUniquenessRegistry, uniquenessFeedback } from '../batch-uniqueness'
 import type { ObservationCandidate } from '../types'
 
 const FINDINGS = [
@@ -192,11 +194,19 @@ describe('prompt shape', () => {
     expect(flat).toContain('What a Chamber event and a strong network cannot do')
     // Robert: invented outright.
     expect(flat).toContain('a firm that size fills its diary through relationships')
-    // The two Doug accepted, as the pattern-framed models.
-    expect(flat).toContain('tends to be exactly where new client conversations get quietly deprioritised')
-    expect(flat).toContain('tends to be when the next engagement goes uncontested')
-    // And the corrected Richard.
-    expect(flat).toContain('often find the network fills the first months and not the ones after that')
+    // And the corrected Richard, rewritten out of the "Firms that X often find Y" frame.
+    expect(flat).toContain('A network fills the first months after a hire like that')
+  })
+
+  it('no longer offers the model that seeded the batch collapse', () => {
+    // "That kind of operational weight tends to be exactly where new client conversations
+    // get quietly deprioritised" shipped in this prompt as an accepted model. Three of
+    // twelve prospects then came back with "new client conversations are the first thing
+    // that quietly gets deprioritised". The example was the cause, so it is deleted rather
+    // than reworded, and this test stops it being reinstated.
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    expect(flat).not.toContain('quietly deprioritised')
+    expect(flat).not.toContain('tends to be exactly where new client conversations')
   })
 
   it('the writer prompt blocks generic patterns with the standalone test', () => {
@@ -240,14 +250,16 @@ describe('prompt shape', () => {
 
   it('the writer prompt asks for the observation AND the bridge, with the worked pair', () => {
     const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
-    expect(p).toContain('YOUR JOB IS TWO THINGS')
+    expect(p).toContain('YOUR JOB IS THREE THINGS')
     // The bridge must be prospect-specific, not reusable filler.
     expect(p).toContain('PATTERN FRAMING IS NOT PERMISSION TO GO GENERIC')
   })
 
   it('the writer prompt states the loosened limits and nothing wider', () => {
     const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
-    expect(p).toContain('At most four sentences')
+    // Five, not four: one fact per sentence necessarily splits sentences, and the cap that
+    // actually bounds length is the word count, which is gated and did not move.
+    expect(p).toContain('At most five sentences')
     expect(p).toContain('62 words')
   })
 
@@ -383,9 +395,12 @@ describe('the writer prompt enforces one fact per sentence', () => {
 })
 
 describe('the judge tests the first read, still as one question', () => {
-  it('asks about reading once at speed without re-reading', () => {
+  it('asks about reading once at speed without re-reading ANY sentence', () => {
     const flat = buildJudgePrompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('read once, at speed, without going back over the first paragraph')
+    // Widened from "the first paragraph": the observation and the bridge are now two
+    // paragraphs, so a test scoped to the first one would miss the bridge entirely.
+    expect(flat).toContain('read once, at speed, without going back over any sentence')
+    expect(flat).not.toContain('the first paragraph')
   })
 
   it('is still exactly one question and still not a checklist', () => {
@@ -398,5 +413,311 @@ describe('the judge tests the first read, still as one question', () => {
   it('still keeps the closing-question test in the same sentence', () => {
     const flat = buildJudgePrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('the obvious thing to ask them')
+  })
+})
+
+
+// ─── Digestibility, varied bridge shapes, and batch uniqueness ───────────────
+
+describe('the writer prompt targets load before resolution, not length', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('names the real problem and refuses to restate it as a word cap', () => {
+    const p = prompt()
+    const flat = p.replace(/\s+/g, ' ')
+    expect(p).toContain('DIGESTIBILITY')
+    expect(flat).toContain('LOAD BEFORE RESOLUTION')
+    expect(flat).toContain('A short sentence can be heavy and a longer one can be effortless')
+  })
+
+  it('caps relative clauses at one and bans nesting', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('ONE RELATIVE CLAUSE PER SENTENCE')
+    expect(flat).toContain('Count your "that", "which", "who" and "where"')
+    expect(flat).toContain('One nested inside another is never acceptable')
+  })
+
+  it('asks for the verb early, with a concrete subject length', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('GET TO THE VERB EARLY')
+    expect(flat).toContain('roughly four words before the main verb')
+  })
+
+  it('carries the hard and easy pair verbatim, plus a rewrite of the hard one', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    // The real hard sentence, with its diagnosis.
+    expect(flat).toContain('Consulting firms that rely on conference appearances for new conversations')
+    expect(flat).toContain('Ten words before the verb')
+    expect(flat).toContain('Three relative clauses, one nested inside another')
+    // The real easy sentence, to show the fix is not "make it shorter".
+    expect(flat).toContain('Founders who move that fast often find the first clients come quickly')
+    expect(flat).toContain('Barely shorter')
+    // And the rewrite of the hard one, same facts.
+    expect(flat).toContain('Conferences deliver in bursts')
+    expect(flat).toContain('The pipeline tends to follow the event calendar')
+    expect(flat).toContain('Nothing was dropped and nothing was softened')
+  })
+})
+
+describe('the writer prompt varies the bridge construction', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('names the frame that collapsed and says why it matters', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME')
+    expect(flat).toContain('"Firms that X often find Y" is one construction')
+    expect(flat).toContain('eleven bridges built on that frame')
+  })
+
+  it('offers four genuinely different shapes, each labelled', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('A CONDITIONAL')
+    expect(flat).toContain('WHAT USUALLY HAPPENS NEXT')
+    expect(flat).toContain('A CONTRAST')
+    expect(flat).toContain('A CONSEQUENCE')
+    expect(flat).toContain('When the calendar fills that fast, prospecting is usually what gives')
+    expect(flat).toContain('A move like that runs on existing relationships for the first few months')
+    expect(flat).toContain('Delivery has a deadline. Business development never does, so it waits')
+    expect(flat).toContain('That leaves one person deciding, every week, whether to sell or to deliver')
+  })
+
+  it('the four worked shapes do not collide with each other', () => {
+    // A worked example that shares a skeleton with another worked example teaches the
+    // opposite of what this section is for.
+    const examples = [
+      'When the calendar fills that fast, prospecting is usually what gives.',
+      'A move like that runs on existing relationships for the first few months. After that it gets harder.',
+      'Delivery has a deadline. Business development never does, so it waits.',
+      'That leaves one person deciding, every week, whether to sell or to deliver.',
+    ]
+    // Deliberately distinct questions: this test is about the bridges, and "question 1?"
+    // versus "question 2?" would normalise to the same key and fail for the wrong reason.
+    const questions = [
+      'Is that a gap you are looking to close?',
+      'Worth a look to see if it fits?',
+      'Is protecting that time something you are working on?',
+      'Is any of this on your list for the quarter?',
+    ]
+    const reg = new BatchUniquenessRegistry()
+    examples.forEach((ex, i) => {
+      expect(reg.reserve(`example-${i}`, ex, questions[i])).toEqual([])
+    })
+  })
+
+  it('states the batch rule, not just the preference', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('must not share a sentence shape with another prospect in this batch')
+    expect(flat).toContain('Vary the CONSTRUCTION, not just the nouns')
+  })
+})
+
+describe('the writer prompt treats the approved questions as register, not a menu', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'Worth a look?' })
+
+  it('says write, do not pick', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('WRITE THE CLOSING QUESTION. DO NOT PICK ONE')
+    expect(flat).toContain('They are not a menu')
+    expect(flat).toContain('Your default is to WRITE a question for this prospect')
+    expect(flat).toContain('which will be rare')
+  })
+
+  it('cites the actual collapse so the instruction has a reason attached', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('six of them carried the same approved question word for word')
+  })
+
+  it('extends the register-only framing to the variant CTA it is handed', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('The approved question for this particular variant is "Worth a look?"')
+    expect(flat).toContain('the same applies to it')
+  })
+
+  it('states the batch-uniqueness rule for questions too', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('no two prospects in this batch may get the same closing question')
+    expect(flat).toContain('do not reword it slightly')
+  })
+})
+
+describe('the writer prompt asks for three paragraphs, returned as three blocks', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'OFFER LINE', cta: 'y' })
+
+  it('shows the observation and the bridge as separate slots in the skeleton', () => {
+    const p = prompt()
+    expect(p).toContain('[YOUR OBSERVATION GOES HERE]')
+    expect(p).toContain('[YOUR BRIDGE GOES HERE]')
+    // Order matters: observation, bridge, offer line, question.
+    expect(p.indexOf('[YOUR OBSERVATION GOES HERE]')).toBeLessThan(p.indexOf('[YOUR BRIDGE GOES HERE]'))
+    expect(p.indexOf('[YOUR BRIDGE GOES HERE]')).toBeLessThan(p.indexOf('OFFER LINE'))
+    expect(p.indexOf('OFFER LINE')).toBeLessThan(p.indexOf('[YOUR CLOSING QUESTION GOES HERE]'))
+  })
+
+  it('says explicitly that they are separate paragraphs', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('SEPARATE PARAGRAPHS with a blank line between them')
+    expect(flat).toContain('never run together')
+  })
+
+  it('asks for exactly three labelled blocks', () => {
+    const p = prompt()
+    expect(p).toContain('exactly three labelled blocks')
+    expect(p).toContain('OBSERVATION:')
+    expect(p).toContain('BRIDGE:')
+    expect(p).toContain('QUESTION:')
+  })
+})
+
+describe('parseWriterOutput reads three blocks', () => {
+  it('splits observation, bridge and question, and joins the first two as paragraphs', () => {
+    const raw = [
+      'OBSERVATION: You spoke at the 2026 conference about industry pressure.',
+      'BRIDGE: Delivery has a deadline. Prospecting never does, so it waits.',
+      'QUESTION: Is protecting that time something you are working on?',
+    ].join('\n')
+    const out = parseWriterOutput(raw)
+    expect(out.observation).toBe('You spoke at the 2026 conference about industry pressure.')
+    expect(out.bridge).toBe('Delivery has a deadline. Prospecting never does, so it waits.')
+    expect(out.question).toBe('Is protecting that time something you are working on?')
+    expect(out.opening).toBe(`${out.observation}\n\n${out.bridge}`)
+    expect(out.opening.split(/\n{2,}/)).toHaveLength(2)
+  })
+
+  it('collapses a soft-wrapped block onto one line, so a wrap is not a paragraph', () => {
+    const raw = 'OBSERVATION: You spoke at the 2026\nconference about pressure.\nBRIDGE: It waits.\nQUESTION: Yes?'
+    const out = parseWriterOutput(raw)
+    expect(out.observation).toBe('You spoke at the 2026 conference about pressure.')
+    expect(out.opening.split(/\n{2,}/)).toHaveLength(2)
+  })
+
+  it('falls back to the old OPENING block rather than dropping the observation', () => {
+    // A writer that ignores the new labels used to lose its whole observation to the
+    // OPENING regex and ship a bridge alone, which reads as generic with no anchor.
+    const raw = 'OPENING: You hired a delivery lead.\n\nThe first months run on the network.\nQUESTION: Is that a gap?'
+    const out = parseWriterOutput(raw)
+    expect(out.observation).toBe('You hired a delivery lead.')
+    expect(out.bridge).toBe('The first months run on the network.')
+    expect(out.question).toBe('Is that a gap?')
+  })
+
+  it('leaves the bridge empty when nothing separable was returned, so the gate rejects', () => {
+    const out = parseWriterOutput('OPENING: One line only.\nQUESTION: Is that a gap?')
+    expect(out.observation).toBe('One line only.')
+    expect(out.bridge).toBe('')
+  })
+})
+
+describe('joinOpening', () => {
+  it('separates the two halves with a blank line', () => {
+    expect(joinOpening('A.', 'B.')).toBe('A.\n\nB.')
+  })
+
+  it('drops an empty half rather than emitting a leading or trailing blank line', () => {
+    expect(joinOpening('A.', '')).toBe('A.')
+    expect(joinOpening('', 'B.')).toBe('B.')
+  })
+})
+
+describe('BatchUniquenessRegistry gates the bridge and the closing question', () => {
+  const BRIDGE_A = 'Firms that hire delivery leads often find the pipeline is the first thing that slips.'
+  // Same skeleton, different nouns: exactly the failure the gate exists to catch.
+  const BRIDGE_A_NOUNS_SWAPPED = 'Firms that hire account leads often find the diary is the first thing that slips.'
+  const BRIDGE_B = 'Delivery has a deadline. Business development never does, so it waits.'
+
+  it('accepts the first bridge and refuses the same shape with different nouns', () => {
+    const reg = new BatchUniquenessRegistry()
+    expect(reg.reserve('p1', BRIDGE_A, 'Is that a gap?')).toEqual([])
+    const collisions = reg.reserve('p2', BRIDGE_A_NOUNS_SWAPPED, 'Something else entirely?')
+    expect(collisions.length).toBeGreaterThan(0)
+    expect(collisions.every(c => c.kind === 'bridge')).toBe(true)
+    expect(collisions[0].firstSeenId).toBe('p1')
+  })
+
+  it('accepts a genuinely different construction', () => {
+    const reg = new BatchUniquenessRegistry()
+    expect(reg.reserve('p1', BRIDGE_A, 'Is that a gap?')).toEqual([])
+    expect(reg.reserve('p2', BRIDGE_B, 'Is protecting that time the problem?')).toEqual([])
+  })
+
+  it('refuses a repeated closing question even when the bridge is fine', () => {
+    const reg = new BatchUniquenessRegistry()
+    reg.reserve('p1', BRIDGE_A, 'Is pipeline consistency something you are trying to fix?')
+    const collisions = reg.reserve('p2', BRIDGE_B, 'Is pipeline consistency something you are trying to fix?')
+    expect(collisions).toHaveLength(1)
+    expect(collisions[0].kind).toBe('question')
+  })
+
+  it('catches a question reworded only by swapping the company name', () => {
+    // sentenceKey masks proper nouns, so "vary the nouns" does not clear this either.
+    const reg = new BatchUniquenessRegistry()
+    reg.reserve('p1', BRIDGE_A, 'Is keeping Acme pipeline moving something you are working on?')
+    const collisions = reg.reserve('p2', BRIDGE_B, 'Is keeping Globex pipeline moving something you are working on?')
+    expect(collisions.map(c => c.kind)).toContain('question')
+  })
+
+  it('records NOTHING when it refuses, so a rejected attempt cannot block a third prospect', () => {
+    const reg = new BatchUniquenessRegistry()
+    reg.reserve('p1', BRIDGE_A, 'Is that a gap?')
+    const before = reg.bridgeFrameCount
+    reg.reserve('p2', BRIDGE_A_NOUNS_SWAPPED, 'Is that a gap?')
+    expect(reg.bridgeFrameCount).toBe(before)
+    expect(reg.holds('p2')).toBe(false)
+  })
+
+  it('lets a prospect retry against itself without colliding with its own last attempt', () => {
+    const reg = new BatchUniquenessRegistry()
+    expect(reg.reserve('p1', BRIDGE_A, 'Is that a gap?')).toEqual([])
+    expect(reg.reserve('p1', BRIDGE_A, 'Is that a gap?')).toEqual([])
+    expect(reg.holds('p1')).toBe(true)
+  })
+
+  it('frees the shape for a later prospect when the attempt is released', () => {
+    // A bridge that lost to its template never shipped, so it must not block anyone.
+    const reg = new BatchUniquenessRegistry()
+    reg.reserve('p1', BRIDGE_A, 'Is that a gap?')
+    reg.release('p1')
+    expect(reg.holds('p1')).toBe(false)
+    expect(reg.reserve('p2', BRIDGE_A, 'Is that a gap?')).toEqual([])
+  })
+
+  it('release is safe on an id holding nothing', () => {
+    const reg = new BatchUniquenessRegistry()
+    expect(() => reg.release('never-seen')).not.toThrow()
+  })
+
+  it('reserves atomically, so no await can interleave a check and a commit', async () => {
+    // The gate runs synchronously before the floor and judge calls. This pins that: two
+    // prospects resolving concurrently cannot both pass.
+    const reg = new BatchUniquenessRegistry()
+    const results = await Promise.all([
+      Promise.resolve().then(() => reg.reserve('p1', BRIDGE_A, 'Q one?')),
+      Promise.resolve().then(() => reg.reserve('p2', BRIDGE_A_NOUNS_SWAPPED, 'Q two?')),
+    ])
+    const accepted = results.filter(r => r.length === 0)
+    expect(accepted).toHaveLength(1)
+  })
+})
+
+describe('uniquenessFeedback tells the writer what to change', () => {
+  it('asks for a different construction on a bridge collision', () => {
+    const text = uniquenessFeedback([{ kind: 'bridge', key: 'often find the pipeline', firstSeenId: 'p1' }])
+    expect(text).toContain('already uses that sentence shape for the bridge')
+    expect(text).toContain('genuinely different CONSTRUCTION')
+    expect(text).toContain('conditional')
+  })
+
+  it('forbids a slight reword on a question collision', () => {
+    const text = uniquenessFeedback([{ kind: 'question', key: 'is that a gap', firstSeenId: 'p1' }])
+    expect(text).toContain('already uses that closing question')
+    expect(text).toContain('Do not reword it slightly')
+  })
+
+  it('reports both when both collided', () => {
+    const text = uniquenessFeedback([
+      { kind: 'bridge', key: 'often find the pipeline', firstSeenId: 'p1' },
+      { kind: 'question', key: 'is that a gap', firstSeenId: 'p1' },
+    ])
+    expect(text).toContain('sentence shape for the bridge')
+    expect(text).toContain('closing question')
   })
 })

@@ -38,6 +38,24 @@ export const BANNED_FIRMOGRAPHIC: ReadonlyArray<{ pattern: RegExp; label: string
   // Oblique references to size, which say the same thing without a number at all.
   { pattern: /\b(?:a|the)\s+(?:firm|company|business|team|shop|practice)\s+(?:that|this)\s+size\b/i, label: 'an oblique reference to their size' },
   { pattern: /\bof\s+(?:that|this)\s+size\b/i,                                      label: 'an oblique reference to their size' },
+
+  // A headcount of one, which is the same claim as "a two-person firm" and was the one
+  // spelling the list did not have. "You launched HydrospherIQ within three months of
+  // leaving Pani and have been running it solo since" shipped: solo IS the headcount, it
+  // came from the same data provider as any other headcount, and it is wrong the moment a
+  // first hire lands. A false positive here costs one retry, which is the cheap side.
+  { pattern: /\bsolo\b/i,                                          label: 'a headcount of one ("solo")' },
+  { pattern: /\bsolopreneur\b/i,                                   label: 'a headcount of one ("solopreneur")' },
+  { pattern: /\bsingle[- ]handed(?:ly)?\b/i,                        label: 'a headcount of one ("single-handed")' },
+  { pattern: /\bone[- ](?:man|woman)\b/i,                          label: 'a headcount of one ("one-man")' },
+  { pattern: /\bsole\s+(?:employee|operator|practitioner|trader)\b/i, label: 'a headcount of one ("sole practitioner")' },
+  // Copula required, so the negated "this isn't just you" survives: that is a pattern
+  // statement about a population, not a claim about their headcount.
+  { pattern: /\b(?:is|are|was|were|it'?s|its)\s+just\s+you\b/i,     label: 'a headcount of one ("just you")' },
+  { pattern: /\bon\s+your\s+own\b/i,                              label: 'a headcount of one ("on your own")' },
+  { pattern: /\bby\s+yourself\b/i,                                 label: 'a headcount of one ("by yourself")' },
+  { pattern: /\bthe\s+only\s+(?:one|person|employee)\b/i,          label: 'a headcount of one ("the only one")' },
+  { pattern: /\bno\s+(?:employees|staff|team)\b/i,                  label: 'a headcount of one ("no employees")' },
 ]
 
 /** Labels of every banned figure type found in the text. Empty when clean. */
@@ -58,7 +76,10 @@ export function findFirmographicFigures(text: string): string[] {
 export const FIRMOGRAPHIC_RULE_TEXT = `NEVER QUOTE A FIGURE FROM THEIR FIRMOGRAPHIC RECORD.
 No revenue, no headcount, no funding raised, no currency amounts, no "5M", no "team of 12",
 and none of those spelled out either: "a two-person firm", "a team of five", "a firm that
-size" are all the same thing said differently.
+size" are all the same thing said differently. A headcount of ONE counts, however it is
+phrased: "running it solo", "single-handed", "a one-man band", "it's just you", "on your
+own", "by yourself". Solo is a headcount, it came from the same data provider as any other
+headcount, and it is wrong the day they make a first hire.
 Those numbers came from a data provider, not from them. Quoting one reads as a database
 lookup, it may simply be wrong, and being wrong about someone's revenue in your first line
 is worse than being generic: a generic line gets ignored, a wrong number gets disproved and

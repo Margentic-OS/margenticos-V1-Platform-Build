@@ -234,6 +234,13 @@ export interface ResearchResult {
   qualification_status: QualificationStatus
   qualification_reason: string | null
   trigger_text: string | null
+  /**
+   * The two halves of trigger_text, which is now two paragraphs. Kept apart so the batch
+   * can verify after the run that no two shipped bridges share a sentence shape, without
+   * re-splitting stored prose to find the boundary.
+   */
+  bridge_text: string | null
+  question_text: string | null
   trigger_source: TriggerSource | null
   relevance_reason: string
   synthesis_confidence: SynthesisConfidence
@@ -301,6 +308,20 @@ export interface ResearchBatchSummary {
   failed: number
   failures: ResearchBatchFailure[]
   failed_log_path: string | null
-  /** Repeated sentence frames detected across this batch. Empty when the copy varied. */
+  /**
+   * Repeated sentence frames across the OBSERVATION half of shipped triggers. Report only:
+   * an observation is anchored to a named fact about one person, so it varies naturally and
+   * gating it would reject legitimate copy.
+   */
   frame_collisions: ResearchFrameCollision[]
+  /**
+   * Repeated sentence frames across the BRIDGE half. This is GATED during the run, so a
+   * non-empty array means the gate failed and is a defect, not a warning. Recomputed after
+   * the run from what actually shipped rather than trusted from the gate that enforced it.
+   */
+  bridge_frame_collisions: ResearchFrameCollision[]
+  /** Shipped closing questions used by more than one prospect. Also gated, so also zero. */
+  question_collisions: ResearchFrameCollision[]
+  /** Distinct closing questions across everything that shipped in this batch. */
+  distinct_questions: number
 }
