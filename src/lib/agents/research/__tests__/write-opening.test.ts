@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   checkOpeningGates,
-  parseVerdict,
+  parseChoice,
   buildFindingsBlock,
   buildWriterPrompt,
   buildJudgePrompt,
@@ -71,23 +71,32 @@ describe('gate: factual traceability', () => {
   })
 })
 
-describe('judge verdict parsing fails closed', () => {
-  it('reads a clean SEND', () => {
-    const v = parseVerdict('VERDICT: SEND\nREASON: Specific and it leads into the offer.')
-    expect(v.verdict).toBe('SEND')
-    expect(v.reason).toContain('leads into the offer')
+describe('judge choice parsing falls back to the template, never to the written opening', () => {
+  it('reads a clean pick of A', () => {
+    const r = parseChoice('CHOICE: A\nREASON: The opening earns the offer line.', 'A')
+    expect(r.chosen).toBe('A')
+    expect(r.written_won).toBe(true)
   })
 
-  it('reads a clean HOLD', () => {
-    expect(parseVerdict('VERDICT: HOLD\nREASON: Reads like a dossier.').verdict).toBe('HOLD')
+  it('reads a clean pick of B', () => {
+    const r = parseChoice('CHOICE: B\nREASON: Template is sharper.', 'A')
+    expect(r.chosen).toBe('B')
+    expect(r.written_won).toBe(false)
   })
 
-  it('treats an unparseable reply as HOLD, never as SEND', () => {
-    expect(parseVerdict('I think this is probably fine to send honestly').verdict).toBe('HOLD')
+  it('tracks written_won against the randomised label, not the letter', () => {
+    // Same reply, opposite mapping: the written version was labelled B this time.
+    const r = parseChoice('CHOICE: B\nREASON: Sharper opening.', 'B')
+    expect(r.written_won).toBe(true)
   })
 
-  it('treats an empty reply as HOLD', () => {
-    expect(parseVerdict('').verdict).toBe('HOLD')
+  it('resolves an unparseable reply to the template', () => {
+    expect(parseChoice('honestly both are fine', 'A').written_won).toBe(false)
+    expect(parseChoice('honestly both are fine', 'B').written_won).toBe(false)
+  })
+
+  it('resolves an empty reply to the template', () => {
+    expect(parseChoice('', 'A').written_won).toBe(false)
   })
 })
 
@@ -119,18 +128,39 @@ describe('prompt shape', () => {
     expect(p).toContain('THE_CTA_LINE')
   })
 
-  it('the writer prompt carries all four labelled examples', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
-    expect(p).toContain('Jason left Pani as Director of Product')
-    expect(p).toContain('You left Visteon at SVP level')
-    expect(p).toContain('Blue Sky is hiring delivery consultants')
-    expect(p).toContain('Your recent LinkedIn posts are all client work')
-  })
-
   it('the judge prompt asks exactly one question and no checklist', () => {
     const p = buildJudgePrompt()
     expect((p.match(/\?/g) ?? []).length).toBe(1)
-    expect(p).toContain('HOLD costs nothing')
+  })
+
+  it('the judge prompt frames a choice between two sendable drafts, with no free rejection', () => {
+    const p = buildJudgePrompt()
+    expect(p).toContain('Which one gets a reply?')
+    expect(p).toContain('both ready to send')
+    // The costless-rejection framing is gone: it is what produced 0 of 13.
+    expect(p).not.toContain('HOLD')
+    expect(p).not.toContain('costs nothing')
+  })
+
+  it('the writer prompt establishes the senior persona and bans absence openers', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    expect(p).toContain('senior BDR with fifteen years')
+    expect(p).toContain('NEVER OPEN BY NAMING WHAT THEY LACK')
+  })
+
+  it('the writer GOOD examples notice something present, not something absent', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    expect(p).toContain('Saw your post asking your network for restaurant chains')
+    expect(p).toContain('Heard your episode on Founders Future from January')
+    // The old absence-pattern GOOD examples are what taught the writer to list absences.
+    expect(p).not.toContain('There is no blog, no case studies')
+    expect(p).not.toContain('Your recent LinkedIn posts are all client work')
+  })
+
+  it('both FAILING examples are retained', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    expect(p).toContain('Jason left Pani as Director of Product')
+    expect(p).toContain('You left Visteon at SVP level')
   })
 })
 

@@ -24,21 +24,23 @@ const JUDGE_MODEL = 'claude-sonnet-4-6'
 /** Hard cap on the opening. Two sentences at most, and short ones. */
 export const OPENING_MAX_WORDS = 35
 
-export type JudgeVerdict = 'SEND' | 'HOLD'
-
 export interface OpeningResult {
-  /** The opening that shipped, or null when the judge held it after the retry. */
+  /** The opening that shipped, or null when the template won both comparisons. */
   opening: string | null
-  verdict: JudgeVerdict
-  /** The judge's one sentence of reasoning, from its final read. */
-  judge_reasoning: string
-  /** True when the writer was given the judge's feedback and tried again. */
+  /** True when the written opening beat the approved template on the final comparison. */
+  written_won: boolean
+  /** True when the writer was given the judge's sentence and tried again. */
   retry_used: boolean
-  /** The first attempt, kept even when it was held, so the pair is inspectable. */
-  first_attempt: string | null
-  /** The judge's sentence on the first read, when a retry happened. */
-  first_judge_reasoning: string | null
-  /** Deterministic gate failures, if any, on the attempt that was finally used. */
+  /**
+   * Every comparison run, in order. One entry normally, two when a retry happened.
+   * Both attempts and both verdicts are kept: the second attempt used to be discarded on
+   * a losing verdict, which left the audit trail showing a rewrite with no record of what
+   * the rewrite said.
+   */
+  comparisons: JudgeComparison[]
+  /** The judge's sentence from the final comparison. */
+  judge_reasoning: string
+  /** Deterministic gate failures on the attempt that was finally used, if any. */
   gate_failures: string[]
 }
 
@@ -54,7 +56,15 @@ export function buildWriterPrompt(params: {
   p3: string
   cta: string
 }): string {
-  return `You write the opening line of a cold email for ${params.clientName}.
+  return `You are a senior BDR with fifteen years behind you, writing for ${params.clientName}.
+
+You are writing to a founder you respect, who runs a real business and gets a lot of these.
+Your only goal is a reply. Not to demonstrate that you did the research. Not to prove you
+looked them up. A reply.
+
+That distinction decides everything about how you open. A junior opens by showing their
+work, because they are being marked on effort. You are not. You open with the one thing
+you noticed that makes this person worth writing to, and you let it do the work.
 
 The email is already written apart from its opening. Here is the rest of it, exactly as it
 will send:
@@ -68,6 +78,12 @@ will send:
 Your opening replaces the bracketed line. Everything else is fixed and approved. Write the
 opening that makes the whole thing read as one message from one person, and that makes the
 line after yours land as the natural next thing to say.
+
+NEVER OPEN BY NAMING WHAT THEY LACK. No "there is no", no "nothing about", no "with no
+case studies", no lists of what is missing from their site or their feed. A senior seller
+does not tell a founder their website is thin. It reads as a stranger auditing them, it
+puts them on the defensive, and defensive people do not reply. Notice something that IS
+there instead.
 
 WHAT GOOD LOOKS LIKE, and what does not. These are real openings from this system.
 
@@ -84,16 +100,15 @@ Second person this time, and still wrong. It recites his own CV back at him. He 
 of it. Nothing is implied and he has no reason to keep reading.
 
 GOOD:
-  "Blue Sky is hiring delivery consultants. There is no blog, no case studies, and no
-   content on the site."
-Two facts from two different places, put side by side. The problem is implied and never
-stated, so the reader draws the conclusion instead of being handed it.
+  "Saw your post asking your network for restaurant chains in the 5-15 location range."
+Something he actually did, recent and specific. It implies how he finds work without ever
+saying so, and the offer line lands straight on top of that implication.
 
 GOOD:
-  "Your recent LinkedIn posts are all client work: intern questions, performance reviews.
-   UpLevel has been solo since 2018."
-An observed pattern next to a plain fact. It sets up an offer about pipeline without
-reaching for it, and it could only have been written to this person.
+  "Heard your episode on Founders Future from January. electro: started because one
+   LinkedIn post caught fire."
+This proves real attention rather than claiming it, and it sets up an obvious question
+about what happens when that one channel goes quiet, without asking the question.
 
 The difference between the failing and the good pair is not tone and it is not accuracy.
 All four are accurate. The good ones notice something. The failing ones report something.
@@ -112,30 +127,42 @@ Return ONLY the opening. No preamble, no quotes, no explanation.`
 
 // ─── The judge prompt ────────────────────────────────────────────────────────
 //
-// ONE QUESTION. No checklist, no sub-scores, no criteria. The whole design is that taste
-// lives in a single holistic judgement, so if the judge misfires the question gets
-// sharpened rather than decomposed.
+// A CHOICE, NOT A GATE. The first version framed this as a gatekeeper with a free
+// rejection: "HOLD costs nothing, when in doubt HOLD". An absolute bar plus a costless
+// no means nothing ever passes, and nothing did, 0 of 13. It also started rejecting the
+// client's own approved P3 as generic, which proved it was grading cold email as a
+// category rather than doing the job in front of it.
 //
-// The bar is asymmetric on purpose and the prompt says so: a HOLD costs nothing, because
-// the client's own approved opener ships instead, and that opener is good copy.
+// Now it compares two real, sendable drafts of the SAME email that differ only in their
+// opening, and picks the one that gets a reply. Both are defensible, so it cannot opt
+// out, and the approved P3 is common to both, so it cannot be the deciding factor.
+//
+// ONE QUESTION still. No checklist, no sub-scores.
 
 export function buildJudgePrompt(): string {
-  return `You are a senior BDR. A junior on your team drafted this cold email to a real
-prospect. Would you send it exactly as written?
+  return `You are the head of sales. Two drafts of the same cold email are in front of you,
+both written by your team, both ready to send. They differ only in how they open.
 
-Answer SEND or HOLD, then one sentence of reasoning.
+Both of these go out under your name. Which one gets a reply?
 
-Before you answer, know what each answer costs. HOLD costs nothing: the prospect receives
-a strong opener the client wrote and approved, so holding is never the expensive choice.
-SEND costs a real first impression with a real person, and there is only one.
-
-So when in doubt, HOLD. You are not grading effort and you are not rewarding a draft for
-being competent. An email that is technically fine and that a busy founder would skim and
-delete is a HOLD. Only SEND what you would put your own name on.
+Answer A or B, then one sentence on why.
 
 Reply in exactly this format:
-VERDICT: SEND
+CHOICE: A
 REASON: one sentence.`
+}
+
+/** The two drafts, labelled and ordered for one comparison. */
+export interface JudgeComparison {
+  /** The opening the writer produced for this round. */
+  opening: string
+  /** Which label the WRITTEN version was given. Randomised per comparison. */
+  written_label: 'A' | 'B'
+  /** The label the judge picked. */
+  chosen_label: 'A' | 'B'
+  /** True when the judge picked the written opening over the approved template. */
+  written_won: boolean
+  reason: string
 }
 
 // ─── Deterministic gates on the writer's output ──────────────────────────────
@@ -233,13 +260,25 @@ async function callModel(
   }
 }
 
-export function parseVerdict(raw: string): { verdict: JudgeVerdict; reason: string } {
-  const verdictMatch = raw.match(/VERDICT:\s*(SEND|HOLD)/i)
+/**
+ * Reads the judge's pick. An unreadable reply resolves to the TEMPLATE, never to the
+ * written opening, so an ambiguous answer can only ever fall back to approved copy.
+ */
+export function parseChoice(raw: string, writtenLabel: 'A' | 'B'): {
+  chosen: 'A' | 'B'
+  written_won: boolean
+  reason: string
+} {
+  const match = raw.match(/CHOICE:\s*([AB])\b/i)
   const reasonMatch = raw.match(/REASON:\s*([\s\S]+)/i)
-  // Unparseable means the judge did not clearly say SEND. Fail closed.
-  const verdict: JudgeVerdict = verdictMatch && /send/i.test(verdictMatch[1]) ? 'SEND' : 'HOLD'
+  const templateLabel: 'A' | 'B' = writtenLabel === 'A' ? 'B' : 'A'
+  const chosen: 'A' | 'B' = match ? (match[1].toUpperCase() as 'A' | 'B') : templateLabel
   const reason = (reasonMatch?.[1] ?? raw).trim().split('\n')[0].trim()
-  return { verdict, reason: reason || 'No reasoning returned.' }
+  return {
+    chosen,
+    written_won: chosen === writtenLabel,
+    reason: reason || 'No reasoning returned.',
+  }
 }
 
 /** Strips quotes or a stray preamble the writer may wrap around the opening. */
@@ -259,6 +298,8 @@ export interface WriteAndJudgeParams {
   cta: string
   /** Builds the complete Email 1 from an opening, using the real composition path. */
   composeEmail1: (opening: string) => string
+  /** The variant's own approved opening, the version the written one has to beat. */
+  templateOpening: string
   prospectId: string
 }
 
@@ -268,67 +309,86 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   const writerSystem = buildWriterPrompt({ clientName: params.clientName, p3: params.p3, cta: params.cta })
   const judgeSystem = buildJudgePrompt()
 
+  // Both drafts go through the real composition path, so the only difference the judge
+  // can see is the opening. Same P3, same CTA, same sign-off, same footer.
+  const templateEmail = params.composeEmail1(params.templateOpening)
+
   const writeOnce = async (feedback: string | null): Promise<{ opening: string; gates: string[] }> => {
     const user = feedback
-      ? `## Findings\n\n${findings}\n\n## Your previous attempt was held\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reviewer said:\n${feedback.split('|||')[1]}\n\nWrite a different opening that answers that. Return ONLY the opening.`
+      ? `## Findings\n\n${findings}\n\n## Your previous opening lost to the approved template\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe head of sales preferred the template, and said:\n${feedback.split('|||')[1]}\n\nWrite a different opening that beats it. Return ONLY the opening.`
       : `## Findings\n\n${findings}\n\nWrite the opening. Return ONLY the opening.`
     const raw = await callModel(client, WRITER_MODEL, writerSystem, user, 500, `writer for prospect ${params.prospectId}`)
     const opening = scrubAITells(cleanOpening(raw), `research/writer/${params.prospectId}`)
     return { opening, gates: checkOpeningGates(opening, params.prospectFirstName, findings) }
   }
 
-  const judgeOnce = async (opening: string) => {
-    const email = params.composeEmail1(opening)
-    const raw = await callModel(client, JUDGE_MODEL, judgeSystem, email, 300, `judge for prospect ${params.prospectId}`)
-    return parseVerdict(raw)
+  // Randomised per comparison so a positional preference cannot masquerade as a judgement.
+  // The mapping is recorded on every comparison, so any lean is measurable after the fact.
+  const compare = async (opening: string): Promise<JudgeComparison> => {
+    const writtenEmail = params.composeEmail1(opening)
+    const writtenLabel: 'A' | 'B' = Math.random() < 0.5 ? 'A' : 'B'
+    const emailA = writtenLabel === 'A' ? writtenEmail : templateEmail
+    const emailB = writtenLabel === 'A' ? templateEmail : writtenEmail
+
+    const user = `VERSION A\n\n${emailA}\n\n${'='.repeat(60)}\n\nVERSION B\n\n${emailB}`
+    const raw = await callModel(client, JUDGE_MODEL, judgeSystem, user, 300, `judge for prospect ${params.prospectId}`)
+    const { chosen, written_won, reason } = parseChoice(raw, writtenLabel)
+    return { opening, written_label: writtenLabel, chosen_label: chosen, written_won, reason }
   }
+
+  const comparisons: JudgeComparison[] = []
 
   // Attempt 1.
   const first = await writeOnce(null)
-  if (first.gates.length === 0) {
-    const v1 = await judgeOnce(first.opening)
-    if (v1.verdict === 'SEND') {
+  if (first.gates.length > 0) {
+    // The gate failure spends the one rewrite. No comparison happened yet.
+    logger.warn('research/write-opening: first attempt failed deterministic gates', {
+      prospect_id: params.prospectId, gates: first.gates,
+    })
+    const retry = await writeOnce(`${first.opening}|||${first.gates.join('; ')}`)
+    if (retry.gates.length > 0) {
       return {
-        opening: first.opening, verdict: 'SEND', judge_reasoning: v1.reason,
-        retry_used: false, first_attempt: first.opening, first_judge_reasoning: null, gate_failures: [],
+        opening: null, written_won: false, retry_used: true, comparisons,
+        judge_reasoning: `Failed deterministic gates twice: ${retry.gates.join('; ')}`,
+        gate_failures: retry.gates,
       }
     }
-    // Attempt 2, with the judge's sentence as the feedback.
-    const second = await writeOnce(`${first.opening}|||${v1.reason}`)
-    if (second.gates.length > 0) {
-      logger.warn('research/write-opening: retry failed deterministic gates', {
-        prospect_id: params.prospectId, gates: second.gates,
-      })
-      return {
-        opening: null, verdict: 'HOLD',
-        judge_reasoning: `Retry failed deterministic gates: ${second.gates.join('; ')}`,
-        retry_used: true, first_attempt: first.opening, first_judge_reasoning: v1.reason, gate_failures: second.gates,
-      }
-    }
-    const v2 = await judgeOnce(second.opening)
+    const only = await compare(retry.opening)
+    comparisons.push(only)
     return {
-      opening: v2.verdict === 'SEND' ? second.opening : null,
-      verdict: v2.verdict, judge_reasoning: v2.reason,
-      retry_used: true, first_attempt: first.opening, first_judge_reasoning: v1.reason, gate_failures: [],
+      opening: only.written_won ? retry.opening : null,
+      written_won: only.written_won, retry_used: true, comparisons,
+      judge_reasoning: only.reason, gate_failures: [],
     }
   }
 
-  // First attempt failed a gate: that is the one rewrite attempt, spent on the gate.
-  logger.warn('research/write-opening: first attempt failed deterministic gates', {
-    prospect_id: params.prospectId, gates: first.gates,
-  })
-  const retry = await writeOnce(`${first.opening}|||${first.gates.join('; ')}`)
-  if (retry.gates.length > 0) {
+  const c1 = await compare(first.opening)
+  comparisons.push(c1)
+  if (c1.written_won) {
     return {
-      opening: null, verdict: 'HOLD',
-      judge_reasoning: `Failed deterministic gates twice: ${retry.gates.join('; ')}`,
-      retry_used: true, first_attempt: first.opening, first_judge_reasoning: null, gate_failures: retry.gates,
+      opening: first.opening, written_won: true, retry_used: false, comparisons,
+      judge_reasoning: c1.reason, gate_failures: [],
     }
   }
-  const v = await judgeOnce(retry.opening)
+
+  // The template won. One rewrite with the judge's sentence, then one more comparison.
+  const second = await writeOnce(`${first.opening}|||${c1.reason}`)
+  if (second.gates.length > 0) {
+    logger.warn('research/write-opening: retry failed deterministic gates', {
+      prospect_id: params.prospectId, gates: second.gates,
+    })
+    return {
+      opening: null, written_won: false, retry_used: true, comparisons,
+      judge_reasoning: `Retry failed deterministic gates: ${second.gates.join('; ')}`,
+      gate_failures: second.gates,
+    }
+  }
+
+  const c2 = await compare(second.opening)
+  comparisons.push(c2)
   return {
-    opening: v.verdict === 'SEND' ? retry.opening : null,
-    verdict: v.verdict, judge_reasoning: v.reason,
-    retry_used: true, first_attempt: first.opening, first_judge_reasoning: null, gate_failures: [],
+    opening: c2.written_won ? second.opening : null,
+    written_won: c2.written_won, retry_used: true, comparisons,
+    judge_reasoning: c2.reason, gate_failures: [],
   }
 }

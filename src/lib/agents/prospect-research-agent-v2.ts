@@ -88,7 +88,7 @@ async function storeResearchResult(
       icp_fit:              synthesis.icp_fit,
       has_dateable_signal:  synthesis.has_dateable_signal,
       signal_observation:   synthesis.signal_observation,
-      signal_relevance:     opening.verdict === 'SEND' ? 'use_as_hook' : 'no_signal',
+      signal_relevance:     opening.written_won ? 'use_as_hook' : 'no_signal',
       qualification_status: synthesis.qualification_status,
       qualification_reason: synthesis.qualification_reason,
       // The audit row keeps the proxy when no trigger was written, so what the agent WOULD
@@ -141,8 +141,8 @@ async function updateProspect(
     // opening.opening is non-null if and only if the judge returned SEND on its final
     // read. On HOLD this is NULL, composition resolves source 'none', and the variant's
     // authored opener ships, which is approved copy and a perfectly good outcome.
-    personalisation_trigger:    opening.verdict === 'SEND' ? opening.opening : null,
-    signal_relevance:           opening.verdict === 'SEND' ? 'use_as_hook' : 'no_signal',
+    personalisation_trigger:    opening.written_won ? opening.opening : null,
+    signal_relevance:           opening.written_won ? 'use_as_hook' : 'no_signal',
     trigger_confidence:         synthesis.confidence,
     // The judge audit trail, per prospect, for sampled review later. Stored in the
     // existing trigger_data jsonb rather than behind a migration: the requirement is per
@@ -280,6 +280,8 @@ export async function runProspectResearchAgentV2({
       candidates: synthesis.candidates,
       p3: frame.p3,
       cta: frame.cta,
+      // The version the written opening has to beat: the variant's own approved opener.
+      templateOpening: frame.authoredOpening,
       // The judge must read the real artifact, so this calls the exact production path.
       // first_name resolved so the judge reads exactly what the prospect receives.
       composeEmail1: (text: string) =>
@@ -290,7 +292,7 @@ export async function runProspectResearchAgentV2({
     logger.info('prospect-research-v2: judge verdict', {
       prospect_id: ctx.id,
       variant_id: variantId,
-      verdict: opening.verdict,
+      written_won: opening.written_won,
       retry_used: opening.retry_used,
       reason: opening.judge_reasoning,
     })
@@ -342,7 +344,7 @@ export async function runProspectResearchAgentV2({
       signal_relevance:     synthesis.signal_relevance,
       qualification_status: synthesis.qualification_status,
       qualification_reason: synthesis.qualification_reason,
-      trigger_text:        opening.verdict === 'SEND' ? opening.opening : null,
+      trigger_text:        opening.written_won ? opening.opening : null,
       trigger_source:      synthesis.trigger_source,
       relevance_reason:    synthesis.relevance_reason,
       synthesis_confidence: synthesis.confidence,
