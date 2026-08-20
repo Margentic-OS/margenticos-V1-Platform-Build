@@ -13,7 +13,10 @@ import {
   buildWriterPrompt,
   buildJudgePrompt,
   joinOpening,
+  findClientBaseClaims,
   OPENING_MAX_WORDS,
+  OPENING_BUDGET,
+  OPENING_TARGET_WORDS,
 } from '../write-opening'
 import { BatchUniquenessRegistry, uniquenessFeedback } from '../batch-uniqueness'
 import { ABSTRACT_NOUNS, countAbstractNouns } from '@/lib/style/abstract-nouns'
@@ -940,5 +943,181 @@ describe('the writer prompt bans abstract nouns and metaphors', () => {
   it('the concrete rewrites in the prompt score zero on the report-only check', () => {
     expect(countAbstractNouns('A day job and delivery both come first. Outreach gets the hours that are left, and there are fewer of those every week.')).toBe(0)
     expect(countAbstractNouns('The first two markets were built on people you already knew. In the UK you do not know anyone yet, and the introductions have to start from nothing.')).toBe(0)
+  })
+})
+
+
+// ─── The per-part budget, and attribution ───────────────────────────────────
+
+describe('the budget is per part and sits below the gate', () => {
+  it('sums to the stated target', () => {
+    expect(OPENING_BUDGET.observation + OPENING_BUDGET.bridge + OPENING_BUDGET.question)
+      .toBe(OPENING_TARGET_WORDS)
+    expect(OPENING_TARGET_WORDS).toBe(58)
+  })
+
+  it('leaves real slack under the hard cap', () => {
+    // The point of aiming low: a measured overshoot of roughly ten words has to land
+    // inside the cap rather than outside it. Nine words of slack is what does that.
+    expect(OPENING_TARGET_WORDS).toBeLessThan(OPENING_MAX_WORDS)
+    expect(OPENING_MAX_WORDS - OPENING_TARGET_WORDS).toBeGreaterThanOrEqual(9)
+  })
+
+  it('the target is a target, not a second gate', () => {
+    // A block over the target but inside the cap must pass. Tightening the gate to the
+    // target would reject copy the email can hold and undo the headroom re-measurement.
+    const words = (n: number) => Array.from({ length: n }, () => 'word').join(' ')
+    expect(checkOpeningGates(words(OPENING_TARGET_WORDS + 5), null, words(OPENING_TARGET_WORDS + 5))).toEqual([])
+  })
+
+  it('the prompt states each part separately, not just a total', () => {
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    expect(flat).toContain('A BUDGET PER PART, NOT ONE TOTAL')
+    expect(flat).toContain(`observation about ${OPENING_BUDGET.observation} words`)
+    expect(flat).toContain(`bridge about ${OPENING_BUDGET.bridge} words`)
+    expect(flat).toContain(`closing question about ${OPENING_BUDGET.question} words`)
+    expect(flat).toContain(`${OPENING_TARGET_WORDS} words in total`)
+  })
+
+  it('the prompt says which number is the target and which is the limit', () => {
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    expect(flat).toContain('These are TARGETS')
+    expect(flat).toContain(`The HARD LIMIT is ${OPENING_MAX_WORDS} words`)
+    expect(flat).toContain('Aim below the limit deliberately')
+  })
+
+  it('the prompt forbids borrowing between parts', () => {
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    expect(flat).toContain('CANNOT BORROW FROM ANOTHER')
+    expect(flat).toContain('the worst possible place to economise')
+  })
+})
+
+describe('a length failure names the part that is over', () => {
+  const long = (n: number) => Array.from({ length: n }, () => 'word').join(' ')
+
+  it('reports every part with its own count and target', () => {
+    const observation = long(31)
+    const bridge = long(32)
+    const question = long(15)
+    const combined = `${observation} ${bridge} ${question}`
+    const msg = checkOpeningGates(combined, null, combined, undefined, { observation, bridge, question }).join(' ')
+    expect(msg).toContain('observation 31 (target 22, OVER by 9)')
+    expect(msg).toContain('bridge 32 (target 22, OVER by 10)')
+    expect(msg).toContain('question 15 (target 14, OVER by 1)')
+  })
+
+  it('states both the hard cap and the target', () => {
+    const observation = long(40), bridge = long(30), question = long(10)
+    const combined = `${observation} ${bridge} ${question}`
+    const msg = checkOpeningGates(combined, null, combined, undefined, { observation, bridge, question }).join(' ')
+    expect(msg).toContain(`hard cap of ${OPENING_MAX_WORDS}`)
+    expect(msg).toContain(`target of ${OPENING_TARGET_WORDS}`)
+  })
+
+  it('names only the parts actually over, and says not to rob another', () => {
+    const observation = long(50), bridge = long(10), question = long(10)
+    const combined = `${observation} ${bridge} ${question}`
+    const msg = checkOpeningGates(combined, null, combined, undefined, { observation, bridge, question }).join(' ')
+    expect(msg).toContain('Cut the observation.')
+    expect(msg).not.toContain('Cut the observation and the bridge')
+    expect(msg).toContain('Do not pay for it out of another part')
+  })
+
+  it('handles a block over the cap with every part inside its target', () => {
+    // Possible because 22 + 22 + 14 leaves slack: three parts can each sit at target and
+    // still clear 67 only if the targets are met. This covers the boundary rather than
+    // leaving the message to say "cut the " with nothing after it.
+    const observation = long(22), bridge = long(22), question = long(14)
+    const padded = `${observation} ${bridge} ${question} ${long(20)}`
+    const msg = checkOpeningGates(padded, null, padded, undefined, { observation, bridge, question }).join(' ')
+    expect(msg).toContain('Every part is inside its target')
+  })
+
+  it('falls back to the plain total when no parts are supplied', () => {
+    const combined = long(80)
+    const msg = checkOpeningGates(combined, null, combined).join(' ')
+    expect(msg).toBe(`opening is 80 words, cap is ${OPENING_MAX_WORDS}`)
+  })
+})
+
+describe('the bridge may attribute, but only to the sender', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('allows the sender own experience and says why', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('YOU MAY ATTRIBUTE THE PATTERN, BUT ONLY TO YOURSELF')
+    expect(flat).toContain('a claim about your own experience')
+  })
+
+  it('rules out the peer group as fact, and says it is not the softer option', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('attributing to THEIR peer group as fact')
+    expect(flat).toContain('are not softer versions of the same thing')
+    expect(flat).toContain('a verdict wearing a larger number')
+    // Both real offenders, quoted so they cannot come back as "acceptable hedging".
+    expect(flat).toContain("Here's the assumption most consulting founders make")
+    expect(flat).toContain('Most firms at this stage find')
+  })
+
+  it('forbids implying a client base', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('NEVER IMPLY AN EXISTING CLIENT BASE')
+    expect(flat).toContain('There are no clients yet')
+  })
+
+  it('keeps attribution optional and subject to the batch gate', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('ATTRIBUTION IS OPTIONAL AND NEVER A FIXED OPENER')
+    expect(flat).toContain('There is no house phrase for this')
+  })
+
+  it('carries the Daedra pair, asserted beside attributed', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('Governance work has fixed dates and shows up on a calendar')
+    expect(flat).toContain('The founders I speak to describe the same split. Board dates are fixed. Selling is what moves.')
+    expect(flat).toContain('is not a phrase to reuse')
+  })
+
+  it('the attributed rewrite obeys the rules it sits under', () => {
+    const rewrite = 'The founders I speak to describe the same split. Board dates are fixed. Selling is what moves.'
+    expect(countAbstractNouns(rewrite)).toBe(0)
+    expect(rewrite.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
+    expect(findClientBaseClaims(rewrite)).toEqual([])
+  })
+})
+
+describe('an existing client base cannot be claimed', () => {
+  const claims = [
+    'This is what our clients tell us.',
+    'The firms we work with see the same thing.',
+    'Companies we serve describe it that way.',
+    "We've helped founders in exactly this spot.",
+    'We have seen this with founders like you.',
+    'That is true of clients of ours.',
+    'Every client we onboard says it.',
+  ]
+
+  for (const claim of claims) {
+    it(`rejects: ${claim}`, () => {
+      expect(findClientBaseClaims(claim).length).toBeGreaterThan(0)
+    })
+  }
+
+  it('gates it, with feedback pointing at the allowed alternative', () => {
+    const text = 'You hired a delivery lead.\n\nThe firms we work with see the same thing. Is that a gap?'
+    const msg = checkOpeningGates(text, null, 'Blue Sky hired a delivery lead.').join(' ')
+    expect(msg).toContain('claims an existing client base')
+    expect(msg).toContain('attribute the pattern to what you have seen')
+  })
+
+  it('leaves the approved offer line alone, which says we without claiming anyone', () => {
+    expect(findClientBaseClaims('We get qualified conversations into the diary without pulling you out of delivery.')).toEqual([])
+    expect(findClientBaseClaims('We run outbound for consulting firms so qualified meetings land in the diary.')).toEqual([])
+  })
+
+  it('leaves sender-attributed patterns alone, which is the whole allowed form', () => {
+    expect(findClientBaseClaims('The founders I speak to describe the same split.')).toEqual([])
+    expect(findClientBaseClaims('The pattern I keep running into is the opposite.')).toEqual([])
   })
 })

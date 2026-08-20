@@ -42,6 +42,10 @@ export class BatchUniquenessRegistry {
   private readonly bridgeFrames = new Map<string, string>()   // frame  → owner id
   private readonly questions    = new Map<string, string>()   // key    → owner id
   private readonly owned        = new Map<string, { frames: string[]; questions: string[] }>()
+  // key → the question as written. Kept so retry feedback can LIST what is already taken
+  // rather than saying "that one is taken" and leaving the writer to guess. Udo burned all
+  // three attempts re-offering questions that were already gone.
+  private readonly questionText = new Map<string, string>()
 
   /**
    * Atomic check-and-record. Returns every collision found; records NOTHING when the
@@ -76,7 +80,10 @@ export class BatchUniquenessRegistry {
 
     const uniqueFrames = [...new Set(frames)]
     for (const frame of uniqueFrames) this.bridgeFrames.set(frame, id)
-    if (qKey) this.questions.set(qKey, id)
+    if (qKey) {
+      this.questions.set(qKey, id)
+      this.questionText.set(qKey, question.trim())
+    }
     this.owned.set(id, { frames: uniqueFrames, questions: qKey ? [qKey] : [] })
 
     return []
@@ -90,9 +97,30 @@ export class BatchUniquenessRegistry {
       if (this.bridgeFrames.get(frame) === id) this.bridgeFrames.delete(frame)
     }
     for (const key of held.questions) {
-      if (this.questions.get(key) === id) this.questions.delete(key)
+      if (this.questions.get(key) === id) {
+        this.questions.delete(key)
+        this.questionText.delete(key)
+      }
     }
     this.owned.delete(id)
+  }
+
+  /**
+   * Every closing question currently reserved by someone OTHER than `id`, as written.
+   *
+   * For retry feedback. A writer told only that its question is taken has to guess its way
+   * around an invisible set, and guessing cost a prospect three attempts and a fallback.
+   * Excluding `id` matters because a retrying prospect must not be shown its own reserved
+   * question as an obstacle.
+   */
+  takenQuestions(excludeId?: string): string[] {
+    const taken: string[] = []
+    for (const [key, owner] of this.questions) {
+      if (owner === excludeId) continue
+      const text = this.questionText.get(key)
+      if (text) taken.push(text)
+    }
+    return taken
   }
 
   /** True when `id` currently holds a reservation. Used by tests and diagnostics. */

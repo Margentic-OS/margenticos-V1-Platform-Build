@@ -50,6 +50,33 @@ const JUDGE_MODEL = 'claude-sonnet-4-6'
  */
 export const OPENING_MAX_WORDS = 67
 
+/**
+ * PER-PART TARGETS, and the reason they exist is measured rather than guessed.
+ *
+ * The writer expands to fill whatever single total it is handed and then overshoots by
+ * roughly ten words. At a 62-word cap the overruns were 70 and 75. The cap was raised to
+ * 67, which is the real headroom, and the overruns became 74, 75, 77 and 78. Four of five
+ * fallbacks in that batch were length alone, and every one of them had already been told
+ * its exact word count in retry feedback, twice.
+ *
+ * A single total also lets the writer borrow: a 35-word observation is paid for by a
+ * 15-word bridge, and the bridge is the part that carries the reason to reply. Naming a
+ * budget per part removes the borrowing and gives the retry something specific to cut.
+ *
+ * These are TARGETS, not the gate. The hard limit stays OPENING_MAX_WORDS and nothing here
+ * rejects anything. 22 + 22 + 14 = 58, which leaves nine words of slack under 67, chosen so
+ * that the observed overshoot still lands inside the cap instead of outside it.
+ */
+export const OPENING_BUDGET = {
+  observation: 22,
+  bridge:      22,
+  question:    14,
+} as const
+
+/** The sum of the per-part targets. What the prompt aims at, not what the gate enforces. */
+export const OPENING_TARGET_WORDS =
+  OPENING_BUDGET.observation + OPENING_BUDGET.bridge + OPENING_BUDGET.question
+
 export interface OpeningResult {
   /** The opening that shipped, or null when the template won or the floor disqualified it. */
   opening: string | null
@@ -219,6 +246,46 @@ VERDICT again, invented outright:
   "Eleven years in, a firm that size fills its diary through relationships, and
    relationships only reach so far."
 We have no idea how Taffet fills its diary. We made it up and then built on it.
+
+YOU MAY ATTRIBUTE THE PATTERN, BUT ONLY TO YOURSELF.
+
+A bridge stated flatly as how the world works is the bluntness that reads presumptuous.
+"Governance work has fixed dates and shows up on a calendar. Business development does not."
+is delivered as fact about their category, and the reader either agrees or has been told
+they are wrong about their own week.
+
+ALLOWED: attributing the pattern to what YOU have seen or heard. That is a claim about your
+own experience. It is true, it is checkable against nothing, and the reader can disagree
+with it without being contradicted about their own business.
+
+NOT ALLOWED, and this is the trap: attributing to THEIR peer group as fact. "Here's the
+assumption most consulting founders make" and "Most firms at this stage find" are not softer
+versions of the same thing. They still tell the reader what he thinks, and they claim a
+bigger sample while doing it. The question is always whose experience is being reported.
+Yours is honest. Theirs is a verdict wearing a larger number.
+
+NEVER IMPLY AN EXISTING CLIENT BASE. No "the firms we work with", no "our clients", no "we
+have seen this with", no case studies, no results from previous engagements. There are no
+clients yet. A false claim there is the one thing that cannot be walked back, and it is
+rejected in code before anyone reads it.
+
+ATTRIBUTION IS OPTIONAL AND NEVER A FIXED OPENER. An unattributed pattern is still fine
+where it reads as something noticed rather than something pronounced. If every bridge in the
+batch opens the same way, that is the sentence-shape problem returning in a new costume, and
+the batch gate treats an attributed opening exactly like any other: the second prospect to
+use that shape is rejected. There is no house phrase for this. Build the attribution out of
+your own words the same way you build the rest of the sentence.
+
+ASSERTED, and this shipped:
+  "Governance work has fixed dates and shows up on a calendar. Business development does
+   not, so it gets the hours that are left."
+
+ATTRIBUTED, same claim, inside the bridge budget:
+  "The founders I speak to describe the same split. Board dates are fixed. Selling is what
+   moves."
+Seventeen words. Nothing is hedged and nothing is softened: the observation is just as
+pointed, and it is now offered as something heard rather than handed down. The wording above
+is not a phrase to reuse. It goes through the batch gate like everything else.
 
 NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME.
 
@@ -440,11 +507,29 @@ FAILING:
    since July 2023."
 Second person and still wrong. It recites his own CV back at him. He knows all of it.
 
+LENGTH. A BUDGET PER PART, NOT ONE TOTAL.
+
+  observation   about ${OPENING_BUDGET.observation} words
+  bridge        about ${OPENING_BUDGET.bridge} words
+  closing question  about ${OPENING_BUDGET.question} words
+                    ${OPENING_TARGET_WORDS} words in total
+
+These are TARGETS. The HARD LIMIT is ${OPENING_MAX_WORDS} words for all three together, and
+anything over it is rejected before a human sees it. Aim at ${OPENING_TARGET_WORDS} and you
+will never meet the limit.
+
+EACH PART HAS ITS OWN BUDGET AND CANNOT BORROW FROM ANOTHER. A 35-word observation paid for
+by a 15-word bridge is not within budget, it is two parts wrong. The bridge is the part
+carrying the reason to reply, so it is the worst possible place to economise.
+
+Aim below the limit deliberately. Given one number to hit, the last four batches wrote past
+it every time: told 62, they returned 70 and 75; told ${OPENING_MAX_WORDS}, they returned
+74, 75, 77 and 78. Four prospects lost their personalised email to length alone, and each
+had already been shown its exact word count and rewritten anyway. Write short first. It is
+far easier to add a word than to find ten to cut.
+
 CONSTRAINTS, and there are only four:
-  At most five sentences, at most ${OPENING_MAX_WORDS} words, for the observation, the
-  bridge and the question together. The sentence allowance is higher than the old four
-  because one fact per sentence necessarily splits sentences. The word cap is unchanged,
-  so nothing here gets longer.
+  At most five sentences across all three parts, inside the budget above.
   Write to them, as "you" or by naming their company. Never write their first name in the
   text: the email already greets them by name on the line above.
   Use only what is in the findings below. Invent nothing, and do not soften a fact into
@@ -587,6 +672,65 @@ function untraceableClaims(opening: string, findingsText: string): string[] {
   return [...new Set(untraceable)]
 }
 
+/**
+ * Claims of an existing client base. There are no clients yet.
+ *
+ * A GATE RATHER THAN A PROMPT LINE, for the reason every other gate here exists: the prompt
+ * has told the writer not to pitch since the day it was written, and the writer has echoed
+ * the approved offer line, quoted a headcount and asked a second question anyway (ADR-028).
+ * This one is worse than those. A recipient who asks which firms we work with, and finds
+ * out the answer is none, is not a lost email. It is a lost reputation, and it cannot be
+ * walked back.
+ *
+ * Narrow on purpose. It looks for a claimed RELATIONSHIP with other companies, not for the
+ * word "we": the approved offer line says "We get qualified conversations into the diary",
+ * which promises what the sender does and claims nothing about who it has done it for.
+ */
+const CLIENT_BASE_CLAIMS: ReadonlyArray<{ pattern: RegExp; label: string }> = [
+  { pattern: /\bour (?:clients|customers)\b/i,                                        label: '"our clients"' },
+  { pattern: /\bclients of ours\b/i,                                                  label: '"clients of ours"' },
+  { pattern: /\b(?:firms|companies|founders|businesses|teams|clients) we (?:work with|serve|help|support)\b/i, label: 'a claimed client relationship' },
+  { pattern: /\bwe(?:'ve|\s+have)\s+(?:helped|worked with|seen this with|seen it with)\b/i, label: 'a claimed track record' },
+  { pattern: /\bevery (?:client|customer) (?:we|of ours)\b/i,                          label: 'a claimed client base' },
+]
+
+/** Labels of every client-base claim found. Empty when the copy claims nothing. */
+export function findClientBaseClaims(text: string): string[] {
+  return [...new Set(CLIENT_BASE_CLAIMS.filter(c => c.pattern.test(text)).map(c => c.label))]
+}
+
+/** Words in one part. Same counting rule as the gate and the composition layer. */
+function wordsIn(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length
+}
+
+/**
+ * A length failure that names the part. Marks every part over its target so the rewrite
+ * has somewhere specific to cut, and states both numbers so the writer can see that the
+ * target and the hard cap are different things.
+ */
+function lengthFailureByPart(
+  total: number,
+  parts: { observation: string; bridge: string; question: string },
+): string {
+  const rows = [
+    { name: 'observation', words: wordsIn(parts.observation), target: OPENING_BUDGET.observation },
+    { name: 'bridge',      words: wordsIn(parts.bridge),      target: OPENING_BUDGET.bridge },
+    { name: 'question',    words: wordsIn(parts.question),    target: OPENING_BUDGET.question },
+  ]
+
+  const detail = rows
+    .map(r => `${r.name} ${r.words} (target ${r.target}${r.words > r.target ? `, OVER by ${r.words - r.target}` : ''})`)
+    .join(', ')
+
+  const over = rows.filter(r => r.words > r.target).map(r => r.name)
+  const instruction = over.length > 0
+    ? `Cut the ${over.join(' and the ')}. Do not pay for it out of another part.`
+    : 'Every part is inside its target, so shorten whichever reads longest.'
+
+  return `the whole block is ${total} words against a hard cap of ${OPENING_MAX_WORDS} and a target of ${OPENING_TARGET_WORDS}: ${detail}. ${instruction}`
+}
+
 /** Lowercased, punctuation-stripped, single-spaced. For comparing prose to prose. */
 function normaliseForEcho(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim()
@@ -602,12 +746,25 @@ export function checkOpeningGates(
    * not thread it through; production always passes it.
    */
   approvedP3?: string,
+  /**
+   * The three parts, for the length message only. Optional so single-purpose callers and
+   * tests can pass the combined block alone; production always supplies them, because the
+   * whole point of the per-part budget is that a length failure names the part.
+   */
+  params?: { observation: string; bridge: string; question: string },
 ): string[] {
   const failures: string[] = []
 
   const wordCount = opening.trim().split(/\s+/).filter(Boolean).length
   if (wordCount > OPENING_MAX_WORDS) {
-    failures.push(`opening is ${wordCount} words, cap is ${OPENING_MAX_WORDS}`)
+    // WITH THE PARTS, SAY WHICH ONE IS OVER. "78 words, cap is 67" was the whole message
+    // for two rounds, it was delivered twice to the same prospect, and the rewrite came
+    // back over both times. A total tells the writer to cut something without saying what.
+    failures.push(
+      params?.observation !== undefined
+        ? lengthFailureByPart(wordCount, params)
+        : `opening is ${wordCount} words, cap is ${OPENING_MAX_WORDS}`,
+    )
   }
 
   if (prospectFirstName && prospectFirstName.trim().length > 1) {
@@ -667,6 +824,11 @@ export function checkOpeningGates(
   // caught too: "We get qualified conversations into the diary." stops one word short of an
   // eight-word needle and would have slipped through. Six consecutive words of the client's
   // own offer line is not something a bridge arrives at by chance.
+  const clientClaims = findClientBaseClaims(opening)
+  if (clientClaims.length > 0) {
+    failures.push(`claims an existing client base (${clientClaims.join(', ')}): there are no clients yet, so attribute the pattern to what you have seen, never to work you have done`)
+  }
+
   if (approvedP3) {
     const p3Words = normaliseForEcho(approvedP3).split(' ').filter(Boolean)
     const needle = p3Words.slice(0, 6).join(' ')
@@ -832,8 +994,16 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   const writeOnce = async (
     feedback: string | null,
   ): Promise<{ observation: string; bridge: string; opening: string; question: string; gates: string[] }> => {
+    // The questions already gone in this batch, listed rather than implied. Shown on every
+    // retry, not just a collision retry: the writer that is rewriting for length is equally
+    // capable of walking into a taken question on the way past.
+    const taken = params.uniqueness?.takenQuestions(params.prospectId) ?? []
+    const takenBlock = taken.length > 0
+      ? `\n\n## Closing questions already taken in this batch\n\nDo not use any of these, and do not reword one slightly:\n${taken.map(q => `- ${q}`).join('\n')}`
+      : ''
+
     const user = feedback
-      ? `## Findings\n\n${findings}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the three labelled blocks.`
+      ? `## Findings\n\n${findings}${takenBlock}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the three labelled blocks.`
       : `## Findings\n\n${findings}\n\nWrite the observation, the bridge and the closing question. Return ONLY the three labelled blocks.`
     const raw = await callModel(client, WRITER_MODEL, writerSystem, user, 700, `writer for prospect ${params.prospectId}`)
     const parsed = parseWriterOutput(raw)
@@ -845,7 +1015,10 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     const opening = joinOpening(observation, bridge)
 
     // The cap covers the whole written block, so gate the combined text.
-    const gates = checkOpeningGates(`${opening} ${question}`.trim(), params.prospectFirstName, findings, params.p3)
+    const gates = checkOpeningGates(
+      `${opening} ${question}`.trim(), params.prospectFirstName, findings, params.p3,
+      { observation, bridge, question },
+    )
     if (!question) gates.push('writer returned no closing question')
     // A missing half means the reply was malformed. Failing here rather than shipping is
     // deliberate: a bridge with no observation reads as a generic line with no anchor, and
