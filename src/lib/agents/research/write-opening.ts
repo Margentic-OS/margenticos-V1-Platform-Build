@@ -234,18 +234,70 @@ VERDICT, and this one is not just presumptuous but wrong:
 A chamber event and a strong network is exactly how a great many consultancies fill
 capacity. We told him the thing that works does not work.
 
-PATTERN, same observation, corrected:
-  observation: "The hiring post for a Manager of Delivery and Operations says the client
-   load is real and growing."
-  bridge: "A network fills the first months after a hire like that. The months after it
-   are the harder ones."
-Nothing here claims his network has failed. It names what tends to happen next, and leaves
-him to decide whether it is happening to him.
+PATTERN, corrected, and deliberately about a PRINT SHOP:
+  observation: "You added a second large-format press in March."
+  bridge: "Your existing customers filled the first press. The second one needs work that
+   has not been quoted yet."
+Nothing here claims anyone's network has failed. It states what is true and stops, and it
+leaves the reader to decide whether it is happening to them.
+
+The corrected version used to be about a hire and a network, written from a real prospect's
+observation. A prospect in the next batch returned it almost word for word, which is the
+seventh time an example in this prompt has been copied. Presses and quotes belong to nobody
+in your batch, so the words cannot travel. Take the move.
 
 VERDICT again, invented outright:
   "Eleven years in, a firm that size fills its diary through relationships, and
    relationships only reach so far."
 We have no idea how Taffet fills its diary. We made it up and then built on it.
+
+THE BRIDGE STATES ONE TRUE THING. IT NEVER EXPLAINS WHY.
+
+The observations are finished. Every remaining problem in these emails is in the bridge, and
+they all have one cause: the bridge EXPLAINS when it should STATE.
+
+WORKS, and both of these say one true thing and then stop:
+  "The founders who need you next are not reading your feed yet."
+  "The next qualified sales conversation tends to wait for the next event."
+
+FAILS, and all three are causal constructions the reader has to assemble before they can
+agree with anything:
+  "When delivery runs first for 13 months, that tends to be what stays visible."
+  "The weeks after the last one, before the next event is on the calendar, are where the
+   pipeline has to run on something else."
+  "the follow-up after a moment like that rarely gets its own slot."
+
+NO CAUSAL CONSTRUCTIONS. No "when X, that tends to be Y". No "because". No condition the
+reader has to hold in their head while they resolve the consequence. Say the consequence
+flat, in a sentence of its own.
+
+TWO SHORT SENTENCES BEAT ONE CONDITIONAL. State the fact. Then state what follows. Each one
+stands on its own and neither needs the other to be understood.
+
+DO NOT BUILD A CAUSAL CHAIN BACK TO THE OBSERVATION. The observation is sitting directly
+above the bridge, and the reader joins them without any help from you. Explaining the join
+is what produces the sentences nobody can parse.
+
+READ THE OBSERVATION AND THE BRIDGE TOGETHER BEFORE YOU RETURN THEM. THEY MUST NOT
+CONTRADICT EACH OTHER. This shipped:
+  observation: his LinkedIn posts for the last 60 days are all external regulatory news.
+  bridge: "When delivery runs first for 13 months, that tends to be what stays visible."
+The observation says his feed is regulatory news. The bridge says what stays visible is
+delivery. Both cannot be true, and the reader is the one who notices.
+
+DO NOT ASSUME THEY HAVE NOBODY.
+This shipped: "With three active CEO roles, the follow-up after a moment like that rarely
+gets its own slot." It assumes that because he holds three roles, nobody is doing the
+follow-up. He probably has people. Claiming to know their CAPACITY, or what their team is
+and is not getting to, is the same error as claiming to know their pipeline. Say what tends
+to happen. Never say who is or is not doing it.
+
+THE ABSENCE BAN COVERS IMPLIED CHOICE.
+This shipped: "When your feed points elsewhere, the people who might hire you do not know
+HydrospherIQ exists."
+That is not "you have no posts". It is "your posts are for somebody else's company", which
+is worse, because it implies he chose that. Never tell a founder what he has decided to
+put first.
 
 YOU MAY ATTRIBUTE THE PATTERN, BUT ONLY TO YOURSELF.
 

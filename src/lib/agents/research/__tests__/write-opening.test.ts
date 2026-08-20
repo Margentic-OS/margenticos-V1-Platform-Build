@@ -198,8 +198,9 @@ describe('prompt shape', () => {
     expect(flat).toContain('What a Chamber event and a strong network cannot do')
     // Robert: invented outright.
     expect(flat).toContain('a firm that size fills its diary through relationships')
-    // And the corrected Richard, rewritten out of the "Firms that X often find Y" frame.
-    expect(flat).toContain('A network fills the first months after a hire like that')
+    // The corrected half is no longer Richard's. He reproduced it almost verbatim, so it
+    // was re-welded to a print shop, whose facts belong to nobody in the batch.
+    expect(flat).toContain('Your existing customers filled the first press')
   })
 
   it('no longer offers the model that seeded the batch collapse', () => {
@@ -1194,5 +1195,140 @@ describe('the writer prompt runs a camera test, not a reading age', () => {
       expect(r.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
       expect(findClientBaseClaims(r)).toEqual([])
     }
+  })
+})
+
+
+// ─── The bridge states, it does not explain ─────────────────────────────────
+//
+// The observations came good: all ten inside the word target, seven of ten using "your",
+// none abstract or accusatory. Every remaining fault was in the bridge and they shared one
+// cause, so this section addresses that cause and nothing else.
+
+describe('the bridge states one true thing', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('names the cause rather than listing symptoms', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('THE BRIDGE STATES ONE TRUE THING. IT NEVER EXPLAINS WHY')
+    expect(flat).toContain('the bridge EXPLAINS when it should STATE')
+  })
+
+  it('carries both working bridges verbatim as the standard', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('The founders who need you next are not reading your feed yet.')
+    expect(flat).toContain('The next qualified sales conversation tends to wait for the next event.')
+  })
+
+  it('carries all three causal failures verbatim', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('When delivery runs first for 13 months, that tends to be what stays visible.')
+    expect(flat).toContain('before the next event is on the calendar, are where the pipeline has to run on something else')
+    expect(flat).toContain('the follow-up after a moment like that rarely gets its own slot')
+  })
+
+  it('bans the causal constructions by name', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('NO CAUSAL CONSTRUCTIONS')
+    expect(flat).toContain('No "when X, that tends to be Y"')
+    expect(flat).toContain('No "because"')
+    expect(flat).toContain('Say the consequence flat, in a sentence of its own')
+  })
+
+  it('prefers two short sentences to one conditional', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('TWO SHORT SENTENCES BEAT ONE CONDITIONAL')
+    expect(flat).toContain('State the fact. Then state what follows')
+  })
+
+  it('forbids chaining back to the observation, and says why', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('DO NOT BUILD A CAUSAL CHAIN BACK TO THE OBSERVATION')
+    expect(flat).toContain('the reader joins them without any help from you')
+  })
+
+  it('requires the observation and bridge to be read together, with the real contradiction', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('THEY MUST NOT CONTRADICT EACH OTHER')
+    expect(flat).toContain('The observation says his feed is regulatory news')
+    expect(flat).toContain('Both cannot be true')
+  })
+})
+
+describe('two more things the bridge may not assume', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('bans assuming they have nobody, and ties it to the pipeline ban', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('DO NOT ASSUME THEY HAVE NOBODY')
+    expect(flat).toContain('With three active CEO roles, the follow-up after a moment like that rarely gets its own slot')
+    expect(flat).toContain('He probably has people')
+    expect(flat).toContain('same error as claiming to know their pipeline')
+    expect(flat).toContain('Never say who is or is not doing it')
+  })
+
+  it('extends the absence ban to implied choice, with Jason verbatim', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('THE ABSENCE BAN COVERS IMPLIED CHOICE')
+    expect(flat).toContain('When your feed points elsewhere, the people who might hire you do not know HydrospherIQ exists.')
+    expect(flat).toContain('it implies he chose that')
+    expect(flat).toContain('Never tell a founder what he has decided to put first')
+  })
+})
+
+describe('the corrected pattern example is welded to facts nobody in the batch has', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('is about a print shop, not a hire and a network', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('PATTERN, corrected, and deliberately about a PRINT SHOP')
+    expect(flat).toContain('You added a second large-format press in March.')
+    expect(flat).toContain('Your existing customers filled the first press. The second one needs work that has not been quoted yet.')
+  })
+
+  it('no longer carries the phrasing that was reproduced almost verbatim', () => {
+    // Richard returned "A network fills the first months after a hire like that. The months
+    // after it are the harder ones." That was the seventh instance of example copying.
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).not.toContain('A network fills the first months after a hire like that')
+    expect(flat).not.toContain('The months after it are the harder ones')
+  })
+
+  it('records why it was re-welded, so it is not quietly reverted', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('seventh time an example in this prompt has been copied')
+    expect(flat).toContain('Presses and quotes belong to nobody in your batch')
+  })
+
+  it('the corrected bridge obeys every rule it now sits under', () => {
+    const bridge = 'Your existing customers filled the first press. The second one needs work that has not been quoted yet.'
+    expect(countFigurativeVerbs(bridge)).toBe(0)
+    expect(countAbstractNouns(bridge)).toBe(0)
+    expect(findClientBaseClaims(bridge)).toEqual([])
+    expect(bridge.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
+    // Two sentences, no conditional, no "because".
+    expect(bridge).not.toMatch(/\bbecause\b|\bwhen\b/i)
+    expect(bridge.split(/(?<=\.)\s+/).filter(Boolean)).toHaveLength(2)
+  })
+
+  it('does not collide with the other worked examples under the batch gate', () => {
+    const examples = [
+      'Your existing customers filled the first press. The second one needs work that has not been quoted yet.',
+      'When the chairs are full six weeks out, nobody is phoning the patients who missed a check-up.',
+      'A big site keeps the crews busy for a year. The tenders for the next one get written in the last month, if at all.',
+      'Peak season fills the trucks without a single sales call. February does not, and by then nobody has spoken to a new shipper since October.',
+      "That books out the summer. It also means every enquiry for next spring arrives while you are editing somebody else's album.",
+    ]
+    const questions = [
+      'Is that a gap you are looking to close?',
+      'Worth a look to see if it fits?',
+      'Is protecting that time something you are working on?',
+      'Is any of this on your list for the quarter?',
+      'Has that come up for you this year?',
+    ]
+    const reg = new BatchUniquenessRegistry()
+    examples.forEach((ex, i) => {
+      expect(reg.reserve(`example-${i}`, ex, questions[i])).toEqual([])
+    })
   })
 })
