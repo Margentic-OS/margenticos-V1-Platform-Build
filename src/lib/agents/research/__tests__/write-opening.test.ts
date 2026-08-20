@@ -1332,3 +1332,104 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
     })
   })
 })
+
+
+// ─── The gap points at strangers, and the bridge follows its own observation ──
+
+describe('the gap is about people who have not met them yet', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('derives the rule from the offer line rather than naming a service', () => {
+    // Stated as a principle so it holds for any client whose offer line generates rather
+    // than follows up. Naming the product would make it one client's rule.
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('THE GAP IS ABOUT PEOPLE WHO HAVE NOT MET THEM YET')
+    expect(flat).toContain('Go back to the offer line')
+    expect(flat).toContain('whether it promises to GENERATE new conversations or to follow up on ones that already exist')
+    expect(flat).toContain('It is not a fact about one product')
+  })
+
+  it('bans the three ways of naming an audience they already have', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('Never name a gap about converting, following up with, or re-engaging an audience they already have')
+  })
+
+  it('carries all three failing bridges verbatim, each with what is wrong', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    // Udo.
+    expect(flat).toContain('The right buyers hear it on the day. Then the event ends, and most of them do not follow up first.')
+    expect(flat).toContain('the room that already saw him speak')
+    // Shevonne, which fails twice over.
+    expect(flat).toContain('A product shop builds an audience of people who browse.')
+    expect(flat).toContain('tells her the thing she just built is not working, which is banned above')
+    // Robert.
+    expect(flat).toContain('The founders who need you next are reading that feed.')
+    expect(flat).toContain('There is no gap in that sentence at all')
+  })
+
+  it('carries the working example and says why it works', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('The first clients in a new market usually come through people you already know.')
+    expect(flat).toContain('The gap is people who do not know her')
+  })
+})
+
+describe('the bridge follows from its own observation', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('states the rule and carries the Daedra mismatch', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('THE BRIDGE MUST FOLLOW FROM ITS OWN OBSERVATION')
+    expect(flat).toContain('Board seats and LinkedIn posts are two different subjects')
+    expect(flat).toContain('wondering when the subject changed')
+  })
+
+  it('gives a check the writer can actually run', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('ask whether the bridge could sit under ANY other observation')
+    expect(flat).toContain('Rewrite it so it could only sit under the one you wrote')
+  })
+})
+
+describe('two smaller bridge faults', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('carries the empty change-of-state construction verbatim', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('Outreach for the consulting side sits until it does not.')
+    expect(flat).toContain('"Until it does not" is a shape where a fact should be')
+  })
+
+  it('carries the longest and still-explaining bridge, with the fix', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('the advisory work fills the diary, and the question of who to go after next stays unresolved long after the call ends')
+    expect(flat).toContain('Two sentences, each standing on its own, and inside the bridge budget')
+  })
+})
+
+describe('the new failing examples do not become the next thing copied', () => {
+  it('every quoted FAILING bridge is labelled as failing, not as a model', () => {
+    // Seven instances of example-copying so far, all from examples labelled as good. These
+    // are all labelled FAILING, which is the only reason it is safe to quote them verbatim.
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    for (const quote of [
+      'The right buyers hear it on the day.',
+      'A product shop builds an audience of people who browse.',
+      'The founders who need you next are reading that feed.',
+      'Outreach for the consulting side sits until it does not.',
+    ]) {
+      const idx = p.indexOf(quote)
+      expect(idx).toBeGreaterThan(-1)
+      // The nearest label above the quote must be FAILING.
+      const before = p.slice(0, idx)
+      expect(before.lastIndexOf('FAILING')).toBeGreaterThan(before.lastIndexOf('WORKING'))
+    }
+  })
+
+  it('the one WORKING bridge quoted here is Makesha own, already shipped and hers', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const idx = p.indexOf('The first clients in a new market usually come through people you already know.')
+    const before = p.slice(0, idx)
+    expect(before.lastIndexOf('WORKING')).toBeGreaterThan(before.lastIndexOf('FAILING'))
+  })
+})

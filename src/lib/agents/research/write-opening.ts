@@ -299,6 +299,66 @@ That is not "you have no posts". It is "your posts are for somebody else's compa
 is worse, because it implies he chose that. Never tell a founder what he has decided to
 put first.
 
+THE GAP IS ABOUT PEOPLE WHO HAVE NOT MET THEM YET.
+
+Go back to the offer line. Work out whether it promises to GENERATE new conversations or to
+follow up on ones that already exist. If it generates, then the gap you name has to be about
+buyers who have never encountered this prospect. Naming a gap about an audience they already
+have turns the offer line into an offer to chase their own followers, which is a different
+job and not the one on the page.
+
+This holds for any client whose offer line generates rather than follows up. It is not a
+fact about one product, it is a fact about what the paragraph underneath your bridge says.
+
+Never name a gap about converting, following up with, or re-engaging an audience they
+already have.
+
+FAILING: "The right buyers hear it on the day. Then the event ends, and most of them do not
+ follow up first."
+The gap is the room that already saw him speak. Those people have met him.
+
+FAILING: "A product shop builds an audience of people who browse. The founders ready to hire
+ a consultant rarely find you through the same door."
+The gap is the audience she has already built. Worse, she probably launched the shop in
+order to bring consulting work in, so this also tells her the thing she just built is not
+working, which is banned above.
+
+FAILING: "The founders who need you next are reading that feed."
+They are already reading it. There is no gap in that sentence at all.
+
+WORKING: "The first clients in a new market usually come through people you already know. In
+ London, those relationships have not had time to form yet."
+The gap is people who do not know her. Nobody has to be re-engaged for that to be true.
+
+THE BRIDGE MUST FOLLOW FROM ITS OWN OBSERVATION.
+
+The bridge is about the same thing the observation named. Not a second, unrelated point that
+happens to be true of the same person.
+
+FAILING, and both halves are fine on their own:
+  observation: two board seats in early 2026, on top of running the firm full time.
+  bridge: "Your LinkedIn posts reach people who already respect the work."
+Board seats and LinkedIn posts are two different subjects. The second paragraph does not
+follow from the first, so the reader arrives at it wondering when the subject changed. If
+the observation is board seats, the bridge is about what board commitments do to the week.
+
+THE CHECK: read your two paragraphs in order and ask whether the bridge could sit under ANY
+other observation. If it could, it is not following from yours. Rewrite it so it could only
+sit under the one you wrote.
+
+A SENTENCE STATES WHAT HAPPENS. IT DOES NOT GESTURE AT A CHANGE OF STATE.
+
+FAILING: "Outreach for the consulting side sits until it does not."
+"Until it does not" is a shape where a fact should be. Nothing is named: not when, not what
+changes it, not what happens in the meantime. Say the thing that happens.
+
+AND KEEP IT INSIDE THE BUDGET. The longest bridge in the last batch was 32 words and it was
+also the one still explaining:
+FAILING: "the advisory work fills the diary, and the question of who to go after next stays
+ unresolved long after the call ends."
+One sentence carrying a clause, a second clause and a trailing qualifier. Two sentences, each
+standing on its own, and inside the bridge budget.
+
 YOU MAY ATTRIBUTE THE PATTERN, BUT ONLY TO YOURSELF.
 
 A bridge stated flatly as how the world works is the bluntness that reads presumptuous.
