@@ -451,7 +451,7 @@ export async function runProspectResearchAgentV2({
     // Abstract-noun count on what shipped. REPORT ONLY: logged and rolled into the batch
     // summary, never acted on. See src/lib/style/abstract-nouns.ts for why it does not gate.
     if (opening.written_won && opening.opening) {
-      const abstract = findAbstractNouns(opening.opening)
+      const abstract = findAbstractNouns(`${opening.opening} ${opening.question ?? ''}`)
       if (abstract.length > 0) {
         logger.info('prospect-research-v2: abstract nouns in shipped opening', {
           prospect_id: ctx.id,
@@ -683,13 +683,17 @@ export async function runProspectResearchAgentV2Batch({
           })
         }
         if (result.trigger_text) {
-          const abstract = findAbstractNouns(result.trigger_text)
+          // The QUESTION is copy too, and counting the opening alone under-reported. The
+          // first batch under this check scored 0 while Makesha's closing question carried
+          // "a reliable flow of the right conversations". A report that misses a hit is
+          // worse than no report, because it reads as evidence the rule held.
+          const abstract = findAbstractNouns(`${result.trigger_text} ${result.question_text ?? ''}`)
           if (abstract.length > 0) {
             abstract_noun_hits.push({
               prospect_id,
               nouns: abstract.map(h => h.noun),
               count: abstract.reduce((t, h) => t + h.count, 0),
-              opening: result.trigger_text,
+              opening: `${result.trigger_text}\n\n${result.question_text ?? ''}`.trim(),
             })
           }
         }

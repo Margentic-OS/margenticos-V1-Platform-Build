@@ -73,3 +73,19 @@ describe('matching is narrow enough to be worth reading', () => {
     expect(countAbstractNouns('')).toBe(0)
   })
 })
+
+
+describe('the closing question is copy and must be counted', () => {
+  it('catches the flow that shipped in Makesha closing question', () => {
+    // The batch report scored this run 0 while this question was live, because the check
+    // was pointed at the opening only.
+    const q = 'Is building a reliable flow of the right conversations in the UK something you are working through?'
+    expect(findAbstractNouns(q)).toEqual([{ noun: 'flow', count: 1 }])
+  })
+
+  it('counts opening and question together', () => {
+    const opening = 'You registered a UK entity in March.'
+    const question = 'Is building a reliable flow of conversations something you are working on?'
+    expect(countAbstractNouns(`${opening} ${question}`)).toBe(1)
+  })
+})
