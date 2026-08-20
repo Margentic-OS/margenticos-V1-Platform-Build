@@ -777,3 +777,36 @@ describe('the writer is asked for the same number of blocks in both turns', () =
     expect(flat).toContain('Take the STRUCTURE and write your own words into it')
   })
 })
+
+
+describe('the writer may not hand back the approved offer line', () => {
+  const P3 = 'We get qualified conversations into the diary without pulling you out of delivery.'
+  const FINDINGS_TEXT = 'Bob took on Publisher and CEO at Fitch Media alongside Fitch Consulting.'
+
+  it('rejects the exact echo that shipped in Bob Email 1', () => {
+    const opening = 'You took on Publisher and CEO at Fitch Media.\n\nTwo leadership positions running in parallel means prospecting is usually the first thing that waits. We get qualified conversations into the diary without pulling you out of delivery. Is this a gap you are looking to close?'
+    expect(checkOpeningGates(opening, null, FINDINGS_TEXT, P3).join(' ')).toContain('repeats the approved offer line')
+  })
+
+  it('rejects a truncated echo, not just a verbatim one', () => {
+    const opening = 'You took on a second role.\n\nWe get qualified conversations into the diary. Is this a gap?'
+    expect(checkOpeningGates(opening, null, FINDINGS_TEXT, P3).join(' ')).toContain('repeats the approved offer line')
+  })
+
+  it('leaves a normal opening alone', () => {
+    const opening = 'You took on Publisher and CEO at Fitch Media.\n\nTwo leadership roles at once means prospecting waits. Is this a gap you are looking to close?'
+    expect(checkOpeningGates(opening, null, FINDINGS_TEXT, P3)).toEqual([])
+  })
+
+  it('does not fire on incidental shared words', () => {
+    // "conversations" and "delivery" are ordinary vocabulary for this offer. Only an
+    // eight-word run of the offer line itself counts.
+    const opening = 'You hired a delivery lead.\n\nThe right conversations get harder to find. Is that a gap?'
+    expect(checkOpeningGates(opening, null, 'Blue Sky hired a delivery lead.', P3)).toEqual([])
+  })
+
+  it('is inert when no approved P3 is supplied', () => {
+    const opening = 'You took on a second role.\n\nProspecting waits. Is this a gap?'
+    expect(checkOpeningGates(opening, null, FINDINGS_TEXT)).toEqual([])
+  })
+})

@@ -530,10 +530,21 @@ function untraceableClaims(opening: string, findingsText: string): string[] {
   return [...new Set(untraceable)]
 }
 
+/** Lowercased, punctuation-stripped, single-spaced. For comparing prose to prose. */
+function normaliseForEcho(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim()
+}
+
 export function checkOpeningGates(
   opening: string,
   prospectFirstName: string | null,
   findingsText: string,
+  /**
+   * The variant's approved P3. Supplied so the writer cannot hand back a block that
+   * already contains it. Optional only so existing single-purpose callers and tests need
+   * not thread it through; production always passes it.
+   */
+  approvedP3?: string,
 ): string[] {
   const failures: string[] = []
 
@@ -580,6 +591,31 @@ export function checkOpeningGates(
   const questionMarks = (opening.match(/\?/g) ?? []).length
   if (questionMarks > 1) {
     failures.push(`contains ${questionMarks} question marks: the closing question is the only question, and the observation and bridge must not ask one`)
+  }
+
+  // A SIXTH GATE, and it shipped before it was caught. Bob's Email 1 read:
+  //
+  //   "Two leadership positions running in parallel means prospecting is usually the first
+  //    thing that waits. We get qualified conversations into the diary without pulling you
+  //    out of delivery.
+  //
+  //    We get qualified conversations into the diary without pulling you out of delivery."
+  //
+  // The writer put the approved offer line inside its own BRIDGE block, and composition
+  // then added the real one underneath, so the same sentence appeared twice in a row. The
+  // prompt has always said the offer line is fixed and not the writer's to touch, which is
+  // exactly why this needs a gate: the instruction was already there and was ignored.
+  //
+  // Matched on the first six words rather than the whole line, so a truncated echo is
+  // caught too: "We get qualified conversations into the diary." stops one word short of an
+  // eight-word needle and would have slipped through. Six consecutive words of the client's
+  // own offer line is not something a bridge arrives at by chance.
+  if (approvedP3) {
+    const p3Words = normaliseForEcho(approvedP3).split(' ').filter(Boolean)
+    const needle = p3Words.slice(0, 6).join(' ')
+    if (p3Words.length >= 6 && normaliseForEcho(opening).includes(needle)) {
+      failures.push('repeats the approved offer line, which is already in the email: write only the observation, the bridge and the closing question')
+    }
   }
 
   return failures
@@ -752,7 +788,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     const opening = joinOpening(observation, bridge)
 
     // The cap covers the whole written block, so gate the combined text.
-    const gates = checkOpeningGates(`${opening} ${question}`.trim(), params.prospectFirstName, findings)
+    const gates = checkOpeningGates(`${opening} ${question}`.trim(), params.prospectFirstName, findings, params.p3)
     if (!question) gates.push('writer returned no closing question')
     // A missing half means the reply was malformed. Failing here rather than shipping is
     // deliberate: a bridge with no observation reads as a generic line with no anchor, and
