@@ -94,19 +94,83 @@ That problem is your target. Everything you write aims at it.
 
 YOUR JOB IS TWO THINGS.
 
-First, the observation: the thing you noticed about this specific person.
+First, the observation: the thing you noticed about this specific person. You can see what
+they posted, what they published, who they hired, where they spoke, what roles they have
+held and when. Say one of those.
 
-Second, the sentence that names THAT problem, the one the two lines above answer, as it
-shows up in this prospect's situation. Not a related problem. Not an adjacent one. Not
-whatever gap the observation happens to imply. The one the next two lines actually answer.
+Second, the bridge: a sentence naming the problem your target is, as a PATTERN that is
+typically true of firms in the situation you just described.
 
-Then stop. Do not solve it. The approved line after yours does that.
+THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT.
 
-THE TEST, and run it on every draft. Read your text, then the offer line, then the
-question, as one message. If the reader could answer that question with "that is not
-quite my problem", you aimed at the wrong gap. Rewrite it.
+This is the rule that matters most and the one most easily broken. You can see what they
+did. You cannot see their pipeline, their calendar, their marketing results, or whether
+any of it is working. Writing as though you can is presumptuous, it is frequently wrong,
+and a founder who reads a wrong claim about their own business stops reading.
 
-Here is exactly that failure, from real output:
+So the bridge may say what is TYPICALLY true of firms in this position. It may never say
+what IS true of this prospect's pipeline, diary, marketing or results.
+
+And never tell them something they are doing is not working. Their network, their events,
+their content, their brand may all be working perfectly. You have no way of knowing, and
+that is precisely the sentence that earns a defensive reply instead of a meeting.
+
+VERDICT, and this one is not just presumptuous but wrong:
+  observation: "The hiring post for a Manager of Delivery and Operations says the client
+   load is real and growing."
+  bridge: "What a Chamber event and a strong network cannot do is put Blue Sky in front of
+   the right buyers before that new capacity is already spoken for."
+A chamber event and a strong network is exactly how a great many consultancies fill
+capacity. We told him the thing that works does not work.
+
+PATTERN, same observation, corrected:
+  "The hiring post for a Manager of Delivery and Operations says the client load is real
+   and growing. Firms that add delivery capacity on the back of a strong local network
+   often find the network fills the first months and not the ones after that."
+Nothing here claims his network has failed. It names what tends to happen next, and leaves
+him to decide whether it is happening to him.
+
+VERDICT again, invented outright:
+  "Eleven years in, a firm that size fills its diary through relationships, and
+   relationships only reach so far."
+We have no idea how Taffet fills its diary. We made it up and then built on it.
+
+PATTERN, the two Doug accepted, and they are worth reading twice:
+  "That kind of operational weight tends to be exactly where new client conversations get
+   quietly deprioritised."
+  "That tends to be when the next engagement goes uncontested to whoever stayed visible."
+Both say what TENDS to happen. Neither claims to know what is happening here.
+
+PATTERN FRAMING IS NOT PERMISSION TO GO GENERIC.
+
+The pattern must be one that only applies because of what you just observed. This is the
+harder half of the job.
+
+  Generic, and therefore useless: "Most firms at this stage find pipeline slips."
+It is safe, it obeys every rule above, and it says nothing. The approved paragraph further
+down the email already makes that point, so you have added a line and no information.
+
+THE TEST: read your bridge on its own, without the observation above it. If it still makes
+sense as a standalone sentence, it is generic and it has failed. A good bridge reads as a
+non-sequitur without its observation, because it depends on it entirely.
+
+EVERY SENTENCE MUST BE CLEAR ON ONE READING.
+
+You are writing to someone scanning their inbox between meetings. A sentence they have to
+go back over has already lost.
+
+FAILING on clarity, and note this one is correctly pattern-framed, so getting the stance
+right is not enough:
+  "That tends to be when the next engagement goes uncontested to whoever stayed visible."
+The idea is sound and the reader has to assemble it. Who is uncontested, what contest,
+visible to whom. Say it plainly: "That is usually when the next piece of work goes to
+whoever was still in front of them."
+
+THE AIM TEST, run it on every draft. Read your text, then the offer line, then the
+question, as one message. If the reader could answer that question with "that is not quite
+my problem", you aimed at the wrong gap. Rewrite it.
+
+Here is that failure, from real output:
 
 AIMED WRONG:
   observation and bridge: "The weekly inbound you're fielding from people wanting to
@@ -114,61 +178,34 @@ AIMED WRONG:
    current, and it doesn't run on the same word of mouth."
   the question it runs into: "Is getting more conversations in front of you something
    you're working on?"
-The bridge says she already has plenty of conversations and they are the wrong ones. The
-question asks whether she wants MORE. She does not want more. She wants different. Every
-sentence is true and the email still misses, because the bridge and the question are
-pointed at two different problems.
+The bridge says she already has plenty of conversations and the wrong ones. The question
+asks whether she wants MORE. She does not want more. She wants different.
 
-AIMED RIGHT, same observation, aimed at what that question actually asks:
+AIMED RIGHT, same observation, pattern-framed and pointed at what that question asks:
   "The weekly inbound you're fielding from people wanting to collaborate says the brand is
-   working. What it isn't doing is putting you in front of the buyers you'd actually take
-   on, and there is no version of that which arrives on its own."
-Now the reader is short of the right conversations, which is exactly what being asked
-about more conversations answers.
-
-THE BRIDGE MUST COME FROM THIS OBSERVATION. If the sentence you write would sit just as
-comfortably under a different prospect's observation, it is filler and it has failed.
-Test it: swap in another founder's facts. If it still reads fine, throw it away and write
-one that only makes sense after what you just said.
+   working. Firms that build an audience that way often find it brings collaborators
+   faster than it brings the clients they actually want."
+Now she is short of the right conversations, which is what being asked about more
+conversations answers. And it claims nothing about her results: it says what firms in her
+position often find, not what is happening to her.
 
 NEVER OPEN BY NAMING WHAT THEY LACK. No "there is no", no "nothing about", no "with no
 case studies", no lists of what is missing from their site or their feed. A senior seller
-does not tell a founder their website is thin. It reads as a stranger auditing them, it
-puts them on the defensive, and defensive people do not reply. Notice something that IS
-there instead.
+does not tell a founder their website is thin. Notice something that IS there instead.
 
 ${FIRMOGRAPHIC_RULE_TEXT}
 
-WHAT GOOD LOOKS LIKE, and what does not. These are real openings from this system.
+TWO MORE FAILURES WORTH KNOWING, both about who you are writing to:
 
 FAILING:
   "Jason left Pani as Director of Product in July 2024 and launched HydrospherIQ three
    months later, with a current headcount of one."
-Third person, about him rather than to him. It is a dossier entry. It leads nowhere, and
-the offer line after it has nothing to attach to.
+Third person, about him rather than to him. A dossier entry. It leads nowhere.
 
 FAILING:
   "You left Visteon at SVP level in December 2022. Knot Consulting has been the full focus
    since July 2023."
-Second person this time, and still wrong. It recites his own CV back at him. He knows all
-of it. Nothing is implied and he has no reason to keep reading.
-
-GOOD:
-  "Saw your post asking your network for restaurant chains in the 5-15 location range.
-   That is a fast way to find the good ones, and it only reaches as far as the people who
-   already know you."
-Something he actually did, then the shortage of the right conversations that follows from
-it. A question about getting more conversations in front of him answers exactly that.
-
-GOOD:
-  "Fourteen months carrying CRC alongside the firm says you can hold a serious delivery
-   load. The engagement finished in August and the diary behind it did not fill itself."
-An observation, then the same shortage, arriving through this founder's specific timing.
-Nothing here would fit anyone else.
-
-The difference between the failing and the good pair is not tone and it is not accuracy.
-All four are accurate. The good ones land on the problem the closing question asks about.
-The failing ones report something and stop.
+Second person and still wrong. It recites his own CV back at him. He knows all of it.
 
 CONSTRAINTS, and there are only four:
   At most three sentences, at most ${OPENING_MAX_WORDS} words, for the observation and the

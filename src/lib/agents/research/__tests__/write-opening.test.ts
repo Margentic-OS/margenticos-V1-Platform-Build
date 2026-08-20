@@ -171,11 +171,45 @@ describe('prompt shape', () => {
     expect(p).toContain('NEVER OPEN BY NAMING WHAT THEY LACK')
   })
 
-  it('the writer GOOD examples notice something present, not something absent', () => {
+  it('the writer prompt still bans absence openers and names what IS observable', () => {
     const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
-    expect(p).toContain('Saw your post asking your network for restaurant chains')
-    // The old absence-pattern GOOD examples are what taught the writer to list absences.
+    const flat = p.replace(/\s+/g, ' ')
+    expect(p).toContain('NEVER OPEN BY NAMING WHAT THEY LACK')
+    expect(flat).toContain('Notice something that IS there instead')
+    // Says explicitly what is visible, so the writer is not guessing at the boundary.
+    expect(flat).toContain('what they posted, what they published, who they hired')
     expect(p).not.toContain('There is no blog, no case studies')
+  })
+
+  it('the writer prompt bans verdicts and carries the Richard and Robert failures verbatim', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const flat = p.replace(/\s+/g, ' ')
+    expect(p).toContain('THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT')
+    // Richard: the bridge that was actually wrong, not merely presumptuous.
+    expect(flat).toContain('What a Chamber event and a strong network cannot do')
+    // Robert: invented outright.
+    expect(flat).toContain('a firm that size fills its diary through relationships')
+    // The two Doug accepted, as the pattern-framed models.
+    expect(flat).toContain('tends to be exactly where new client conversations get quietly deprioritised')
+    expect(flat).toContain('tends to be when the next engagement goes uncontested')
+    // And the corrected Richard.
+    expect(flat).toContain('often find the network fills the first months and not the ones after that')
+  })
+
+  it('the writer prompt blocks generic patterns with the standalone test', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const flat = p.replace(/\s+/g, ' ')
+    expect(p).toContain('PATTERN FRAMING IS NOT PERMISSION TO GO GENERIC')
+    expect(flat).toContain('Most firms at this stage find pipeline slips')
+    expect(flat).toContain('reads as a non-sequitur without its observation')
+  })
+
+  it('the writer prompt requires clarity on one reading, with the Stephen riddle', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const flat = p.replace(/\s+/g, ' ')
+    expect(p).toContain('EVERY SENTENCE MUST BE CLEAR ON ONE READING')
+    // Correctly pattern-framed and still a riddle: stance alone is not enough.
+    expect(flat).toContain('goes uncontested to whoever stayed visible')
   })
 
   it('the writer prompt aims the bridge at the offer, with the Shevonne failure verbatim', () => {
@@ -205,7 +239,7 @@ describe('prompt shape', () => {
     const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
     expect(p).toContain('YOUR JOB IS TWO THINGS')
     // The bridge must be prospect-specific, not reusable filler.
-    expect(p).toContain('THE BRIDGE MUST COME FROM THIS OBSERVATION')
+    expect(p).toContain('PATTERN FRAMING IS NOT PERMISSION TO GO GENERIC')
   })
 
   it('the writer prompt states the loosened limits and nothing wider', () => {
