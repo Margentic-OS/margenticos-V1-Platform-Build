@@ -42,6 +42,9 @@ import type {
   ResearchAbstractNounHit,
   ObservationCandidate,
   SynthesisOutput,
+  IcpFit,
+  QualificationStatus,
+  SynthesisConfidence,
 } from './research/types'
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
@@ -132,6 +135,13 @@ async function updateProspect(
   synthesis: Awaited<ReturnType<typeof synthesizeResearch>>,
   resultId: string,
   opening: OpeningResult,
+  /**
+   * When the classification being written was actually reached. NULL means this run
+   * produced it, so now is correct. A stored-findings run passes the source row's
+   * timestamp: it carried that verdict forward rather than reaching one, and stamping it
+   * with now would make an untouched classification look freshly confirmed on every rerun.
+   */
+  classifiedAt: string | null = null,
 ): Promise<void> {
   const supabase = getServiceClient()
 
@@ -139,7 +149,7 @@ async function updateProspect(
     icp_fit:                    synthesis.icp_fit,
     has_dateable_signal:        synthesis.has_dateable_signal,
     signal_observation:         synthesis.signal_observation,
-    classified_at:              new Date().toISOString(),
+    classified_at:              classifiedAt ?? new Date().toISOString(),
     qualification_status:       synthesis.qualification_status,
     current_research_result_id: resultId,
     // THE ONLY WRITE SITE FOR personalisation_trigger, and it fires ONLY on SEND.
@@ -183,22 +193,68 @@ async function updateProspect(
 
 // ─── Stored findings, the no-fetch path ──────────────────────────────────────
 //
+/**
+ * How old stored findings may be before a reuse run refuses them and fetches instead.
+ * Research triggers reference things that were recently true, so reusing an observation
+ * indefinitely would eventually put a stale fact in a live email. Falling outside the
+ * window is not an error: it falls back to a normal fetching run, which is correct and
+ * merely costs money.
+ */
+export const STORED_FINDINGS_MAX_AGE_DAYS = 30
+
+/**
+ * Hard ceiling on rows examined per prospect. Every reuse run INSERTs another result row,
+ * so an unbounded scan grows with usage. Deliberately not smaller: a single degraded batch
+ * can occupy the whole recent history, and picking the best row out of one is the entire
+ * reason this function does not simply take the most recent.
+ */
+const STORED_FINDINGS_SCAN_LIMIT = 50
+
+/**
+ * A stored result plus the classification it reached. The classification is carried rather
+ * than recomputed: a reuse run performs no new analysis, so it has no verdict of its own.
+ */
+interface StoredFindings {
+  result_id:            string
+  candidates:           ObservationCandidate[]
+  had_linkedin:         boolean
+  created_at:           string
+  synthesized_at:       string | null
+  icp_fit:              IcpFit | null
+  qualification_status: QualificationStatus | null
+  qualification_reason: string | null
+  confidence:           SynthesisConfidence | null
+  has_dateable_signal:  boolean | null
+  signal_observation:   string | null
+  relevance_reason:     string | null
+}
+
 // Loads the BEST research result already on file for a prospect. "Best" is deliberately
 // not "most recent": on 2026-08-20 an empty Apify balance produced a full batch of rows
 // where LinkedIn silently failed, and most-recent would select exactly those. Ordering by
 // LinkedIn-present, then candidate count, then recency, picks the last run that actually
-// saw everything.
+// saw everything. The age window and the row cap bound WHICH rows are considered; they do
+// not change that ordering.
 async function loadStoredFindings(
   supabase: ReturnType<typeof getServiceClient>,
   prospect_id: string,
   client_id: string,
-): Promise<{ result_id: string; candidates: ObservationCandidate[]; had_linkedin: boolean; created_at: string } | null> {
+): Promise<StoredFindings | null> {
+  const cutoff = new Date(
+    Date.now() - STORED_FINDINGS_MAX_AGE_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString()
+
   const { data, error } = await supabase
     .from('prospect_research_results')
-    .select('id, candidates, sources_successful, created_at')
+    // One string literal, deliberately. Supabase infers the row type from the select as a
+    // literal type, and splitting this across concatenated strings collapses every column
+    // to GenericStringError.
+    .select('id, candidates, sources_successful, created_at, synthesized_at, icp_fit, qualification_status, qualification_reason, synthesis_confidence, has_dateable_signal, signal_observation, relevance_reason')
     .eq('prospect_id', prospect_id)
     .eq('organisation_id', client_id)
+    .gte('created_at', cutoff)
     .order('created_at', { ascending: false })
+    .limit(STORED_FINDINGS_SCAN_LIMIT)
 
   if (error || !data || data.length === 0) return null
 
@@ -208,6 +264,14 @@ async function loadStoredFindings(
       candidates: (row.candidates ?? []) as ObservationCandidate[],
       had_linkedin: ((row.sources_successful ?? []) as string[]).includes('linkedin'),
       created_at: row.created_at as string,
+      synthesized_at: (row.synthesized_at ?? null) as string | null,
+      icp_fit: (row.icp_fit ?? null) as IcpFit | null,
+      qualification_status: (row.qualification_status ?? null) as QualificationStatus | null,
+      qualification_reason: (row.qualification_reason ?? null) as string | null,
+      confidence: (row.synthesis_confidence ?? null) as SynthesisConfidence | null,
+      has_dateable_signal: (row.has_dateable_signal ?? null) as boolean | null,
+      signal_observation: (row.signal_observation ?? null) as string | null,
+      relevance_reason: (row.relevance_reason ?? null) as string | null,
     }))
     .filter(r => r.candidates.length > 0)
 
@@ -224,10 +288,18 @@ async function loadStoredFindings(
 // Rebuilds a SynthesisOutput from stored candidates without calling the model. The six
 // tests already ran when these candidates were generated, and their only remaining job is
 // to RANK the material handed to the writer, so re-scoring them would change nothing.
-// Fields the writer and judge never read are set to honest placeholders rather than
-// invented values.
+//
+// THE CLASSIFICATION IS CARRIED FORWARD, NOT RESTATED. This function used to return flat
+// placeholders ('moderate', 'qualified', 'medium'), and updateProspect writes whatever it
+// returns straight back onto the prospect. That was harmless only while the reuse path was
+// unreachable. Once use_stored_findings became the default, any rerun would have flattened
+// a strong prospect to moderate and re-qualified a disqualified one, silently, with no
+// analysis behind the change. A reuse run did no new analysis, so it has no verdict to
+// offer: it reports the one the source row reached. Where the source row has no value the
+// old placeholder still applies, so a row predating those columns degrades no worse than
+// it did before.
 async function synthesisFromStored(
-  stored: { result_id: string; candidates: ObservationCandidate[]; had_linkedin: boolean; created_at: string },
+  stored: StoredFindings,
   ctx: ProspectContext,
   client_id: string,
 ): Promise<SynthesisOutput> {
@@ -237,20 +309,23 @@ async function synthesisFromStored(
     candidate_count: stored.candidates.length,
     had_linkedin: stored.had_linkedin,
     findings_from: stored.created_at,
+    carried_icp_fit: stored.icp_fit,
+    carried_qualification_status: stored.qualification_status,
   })
 
   return {
-    icp_fit: 'moderate',
-    has_dateable_signal: stored.candidates.some(c => c.date !== null),
-    signal_observation: stored.candidates[0]?.observation ?? null,
+    icp_fit: stored.icp_fit ?? 'moderate',
+    has_dateable_signal: stored.has_dateable_signal ?? stored.candidates.some(c => c.date !== null),
+    signal_observation: stored.signal_observation ?? stored.candidates[0]?.observation ?? null,
     signal_relevance: 'no_signal',   // overwritten by the judge verdict downstream
-    qualification_status: 'qualified',
-    qualification_reason: null,
-    confidence: 'medium',
+    qualification_status: stored.qualification_status ?? 'qualified',
+    qualification_reason: stored.qualification_reason,
+    confidence: stored.confidence ?? 'medium',
     trigger_text: null,              // the writer produces this, not synthesis
     icp_pain_proxy: null,
     trigger_source: null,
-    relevance_reason: `Findings reused from research result ${stored.result_id} (${stored.created_at}). No sources fetched.`,
+    relevance_reason: stored.relevance_reason
+      ?? `Findings reused from research result ${stored.result_id} (${stored.created_at}). No sources fetched.`,
     reasoning: `Stored-findings run. Candidates carried over from ${stored.result_id}.`,
     candidates: stored.candidates,
     selected_candidate_id: null,
@@ -465,7 +540,12 @@ export async function runProspectResearchAgentV2({
     const resultId = await storeResearchResult(ctx, rawData, synthesis, agentRun.run_id, opening)
 
     // Update prospect row.
-    await updateProspect(ctx, synthesis, resultId, opening)
+    // On a reuse run the classification came from the source row, so its timestamp goes
+    // with it. On a fetching run this is null and updateProspect stamps now.
+    await updateProspect(
+      ctx, synthesis, resultId, opening,
+      stored ? (stored.synthesized_at ?? stored.created_at) : null,
+    )
 
     const summaryLine =
       `${fullName} at ${ctx.company_name ?? 'unknown'}. ` +

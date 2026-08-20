@@ -1,14 +1,22 @@
 // Dogfood batch 2 — re-run after tier model redesign (2026-04-27)
 // Run with: npx tsx --env-file=.env.local src/lib/agents/run-dogfood-batch-2.ts
 //
-// Forces re-run of all 11 dogfood prospects (skip_existing=false) to validate
-// the new icp_fit / has_dateable_signal / signal_observation / signal_relevance schema.
+// Re-runs all 11 dogfood prospects (skip_existing=false) to validate the
+// icp_fit / has_dateable_signal / signal_observation / signal_relevance schema.
 // Exports CSV to logs/batches/ after completion.
+//
+// This is NOT a full source re-fetch by default. use_stored_findings is true in
+// BATCH_OPTIONS below, so any prospect holding findings inside the age window reuses them
+// and fetches nothing. Set it to false when the point of the run is to exercise the four
+// source handlers rather than the writer and judge.
 
 import fs from 'fs'
 import path from 'path'
 import { createClient } from '@supabase/supabase-js'
-import { runProspectResearchAgentV2Batch } from '@/lib/agents/prospect-research-agent-v2'
+import {
+  runProspectResearchAgentV2Batch,
+  STORED_FINDINGS_MAX_AGE_DAYS,
+} from '@/lib/agents/prospect-research-agent-v2'
 
 const ORG_ID = '74243c62-f42d-4f3f-b93e-bd5e51f0b6c0'
 
@@ -124,26 +132,45 @@ async function exportBatchCsv(batchStartedAt: string, outputPath: string): Promi
   return rows?.length ?? 0
 }
 
+// Every flag this run depends on, stated here so the banner below can print the values
+// actually passed. use_stored_findings is spelled out rather than inherited: it defaults to
+// true, and while it was implicit this script advertised "force re-run" with all four
+// sources active while silently reusing stored findings and skipping every source for any
+// prospect that had them. An implicit flag is what let the banner and the behaviour drift.
+const BATCH_OPTIONS = {
+  prospect_ids:         PROSPECT_IDS,
+  client_id:            ORG_ID,
+  skip_existing:        false,
+  confirm_before_run:   false,
+  concurrency:          5,
+  use_stored_findings:  true,
+} as const
+
 async function main() {
+  const reusing = BATCH_OPTIONS.use_stored_findings
+  const linkedIn = process.env.APIFY_API_KEY ? '✓ LinkedIn' : '✗ LinkedIn'
+
   console.log('')
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
   console.log('  Dogfood Batch 2 — tier model redesign validation')
   console.log(`  Prospects : ${PROSPECT_IDS.length}`)
   console.log(`  Org       : ${ORG_ID}`)
-  console.log(`  Mode      : force re-run (skip_existing=false)`)
-  console.log(`  Sources   : ${process.env.APIFY_API_KEY ? '✓ LinkedIn' : '✗ LinkedIn'} | Apollo | Website | Web Search`)
+  console.log(`  Mode      : skip_existing=${BATCH_OPTIONS.skip_existing}, use_stored_findings=${reusing}`)
+  console.log(
+    reusing
+      ? `  Sources   : SKIPPED for any prospect with stored findings under ${STORED_FINDINGS_MAX_AGE_DAYS} days old.`
+      : `  Sources   : ${linkedIn} | Apollo | Website | Web Search`,
+  )
+  if (reusing) {
+    console.log(`              Otherwise ${linkedIn} | Apollo | Website | Web Search`)
+    console.log('              Set use_stored_findings: false to force every source to fetch.')
+  }
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
   console.log('')
 
   const batchStartedAt = new Date().toISOString()
 
-  const summary = await runProspectResearchAgentV2Batch({
-    prospect_ids:       PROSPECT_IDS,
-    client_id:          ORG_ID,
-    skip_existing:      false,
-    confirm_before_run: false,
-    concurrency:        5,
-  })
+  const summary = await runProspectResearchAgentV2Batch({ ...BATCH_OPTIONS, prospect_ids: [...PROSPECT_IDS] })
 
   console.log('')
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
