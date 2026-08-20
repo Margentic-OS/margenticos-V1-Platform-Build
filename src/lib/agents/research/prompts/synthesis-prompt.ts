@@ -256,6 +256,29 @@ Your self-reported readable score is advisory. The code measures it independentl
 and the measurement wins, so scoring readable: true on a 37-word hedged sentence
 gains nothing and costs you the candidate.
 
+TRIGGER_TEXT MUST BE THE WINNER, REPHRASED. This is checked in code.
+trigger_text is not a free field. It is the candidate you named in
+selected_candidate_id, turned from a note about the prospect into a sentence
+addressed to them. Keep its nouns, its dates and its numbers.
+
+  Winner:  "All of her recent LinkedIn posts are client work: intern questions,
+            performance review coaching, HR policy for founders. UpLevel has been a
+            solo operation since 2018."
+  Trigger: "Your recent LinkedIn posts are all client work: intern questions,
+            performance reviews. UpLevel has been solo since 2018."
+
+Writing generic ICP framing instead is a silent failure, and it happened twice in
+fifteen: a candidate scored six out of six, was selected, and the prospect received
+"Most founders of boutique DEI consultancies at this stage hit the same wall"
+instead of the observation that had just been verified. Code now compares the two
+and substitutes the raw observation when they do not match, which reads worse than
+your rephrasing would have. Rephrase the winner.
+
+When you select NO candidate, leave trigger_text as an empty string. Do NOT write
+ICP pain framing into it. A prospect with no observation receives the client's own
+approved opening paragraph, which is better copy than a generic line, and the
+platform handles that automatically.
+
 Never force a weak candidate through. The ICP pain fallback is good copy and
 failing closed is the correct outcome. An honest "no_signal" beats a stretched hook.
 
@@ -462,7 +485,7 @@ Then output this exact JSON with no markdown fences:
   "qualification_status": "qualified" or "flagged_for_review" or "disqualified",
   "qualification_reason": null or "one sentence: what specific evidence was found",
   "confidence": "high" or "medium" or "low",
-  "trigger_text": "The personalisation hook. One or two short sentences, no sentence over 25 words, no hedging, no leading I or We.",
+  "trigger_text": "The personalisation hook, REPHRASED FROM THE CANDIDATE YOU NAMED in selected_candidate_id. One or two short sentences, no sentence over 25 words, no hedging, no leading I or We.",
   "trigger_source": null,
   "relevance_reason": "One sentence: why this trigger connects to the ICP pain or value prop"
 }

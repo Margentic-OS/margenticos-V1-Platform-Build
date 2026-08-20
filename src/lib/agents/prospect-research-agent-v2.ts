@@ -82,7 +82,10 @@ async function storeResearchResult(
       signal_relevance:     synthesis.signal_relevance,
       qualification_status: synthesis.qualification_status,
       qualification_reason: synthesis.qualification_reason,
-      trigger_text:         synthesis.trigger_text,
+      // The audit row keeps the proxy when no trigger was written, so what the agent WOULD
+      // have said stays inspectable. signal_relevance on this same row disambiguates:
+      // no_signal means this column holds a proxy, not a researched observation.
+      trigger_text:         synthesis.trigger_text ?? synthesis.icp_pain_proxy,
       trigger_source:       synthesis.trigger_source,
       synthesis_reasoning:  synthesis.reasoning,
       synthesis_confidence: synthesis.confidence,
@@ -123,7 +126,9 @@ async function updateProspect(
     classified_at:              new Date().toISOString(),
     qualification_status:       synthesis.qualification_status,
     current_research_result_id: resultId,
-    // Keep personalisation_trigger in sync — compose-sequence.ts reads it directly.
+    // Keep personalisation_trigger in sync: compose-sequence.ts reads it directly and
+    // treats ANY non-null value as a researched observation. NULL when no candidate was
+    // selected, so composition resolves source 'none' and ships the variant's own opener.
     personalisation_trigger:    synthesis.trigger_text,
     trigger_confidence:         synthesis.confidence,
     trigger_data:               synthesis,
@@ -240,7 +245,10 @@ export async function runProspectResearchAgentV2({
     // auto-regenerate: that would cost another Sonnet call per collision and make the batch
     // non-reproducible. The real fix is upstream, in the prompt that was handing the model a
     // stock frame as a worked example.
-    if (frameRegistry) {
+    // Only real triggers participate. A null trigger has no sentence to compare, and the
+    // proxy is not sent to anyone, so registering it would manufacture collisions between
+    // prospects that all correctly received nothing.
+    if (frameRegistry && synthesis.trigger_text) {
       const collisions = frameRegistry.register(prospect.id, synthesis.trigger_text)
       for (const collision of collisions) {
         logger.warn('prospect-research-v2: repeated sentence frame across batch', {

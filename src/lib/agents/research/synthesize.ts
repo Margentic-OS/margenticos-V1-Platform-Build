@@ -498,6 +498,47 @@ function applyTriggerReadabilityGate(
   }
 }
 
+// ─── Trigger must derive from the winning candidate ──────────────────────────
+//
+// Content-word overlap between the model's trigger_text and the winner's observation.
+// Not a similarity score in any principled sense: it answers one question, did the model
+// write about the thing the selection rule actually chose.
+//
+// Threshold calibrated against the fifteen live prospects rather than guessed. Triggers
+// correctly derived from their winner scored 0.36 to 0.92. The two that ignored their
+// winner scored 0.00 and 0.20. 0.25 sits in the gap.
+export const TRIGGER_WINNER_MIN_OVERLAP = 0.25
+
+const OVERLAP_STOPWORDS = new Set([
+  'the','a','an','and','or','but','of','to','in','on','for','with','from','at','by','as',
+  'is','are','was','were','be','been','has','have','had','that','this','these','those',
+  'it','its','they','them','their','he','she','his','her','you','your','we','our','i',
+  'most','all','some','any','no','not','still','now','than','then','when','while',
+  'because','so','if','which','who','what','where','how','why','since','about','into',
+  'over','under','more','less','very','just','only','out','up','down','one','two','three',
+  'years','year',
+])
+
+function contentWords(text: string): Set<string> {
+  return new Set(
+    (text ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s']/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !OVERLAP_STOPWORDS.has(w)),
+  )
+}
+
+/** Shared content words as a fraction of the smaller set. 0 when either side is empty. */
+export function contentOverlap(a: string, b: string): number {
+  const A = contentWords(a)
+  const B = contentWords(b)
+  if (A.size === 0 || B.size === 0) return 0
+  let shared = 0
+  for (const w of A) if (B.has(w)) shared++
+  return shared / Math.min(A.size, B.size)
+}
+
 function parseSynthesisResponse(
   raw: string,
   prospect: ProspectContext,
@@ -538,12 +579,45 @@ function parseSynthesisResponse(
   const confidence = (['high', 'medium', 'low'] as const)
     .find(c => c === parsed.confidence) ?? 'low'
 
-  const trigger_text = typeof parsed.trigger_text === 'string' && parsed.trigger_text.trim()
+  const modelTrigger = typeof parsed.trigger_text === 'string' && parsed.trigger_text.trim()
     ? parsed.trigger_text.trim()
-    : buildIcpPainTrigger(prospect, icpSummary)
+    : null
 
-  const { signal_relevance, demotion_reason, trigger_readability } =
-    applyTriggerReadabilityGate(trigger_text, selectedRelevance, demotionReason)
+  // The ICP pain proxy. Kept for the audit row, never propagated to the prospect.
+  const icp_pain_proxy = modelTrigger ?? buildIcpPainTrigger(prospect, icpSummary)
+
+  // NO WINNER MEANS NO TRIGGER. Writing the proxy into prospects.personalisation_trigger
+  // silently defeated the composition gate: resolveTrigger treats any non-null value as
+  // source 'research', so three prospects on three different variants received the same
+  // generic opening paragraph in place of their variant's authored one. Null here means
+  // composition resolves source 'none' and ships the authored opener.
+  let trigger_text: string | null = null
+  let winnerOverride: string | null = null
+
+  if (winner) {
+    // THE WINNER IS THE TRIGGER. The model chooses trigger_text freely and can ignore the
+    // candidate the selection rule actually picked: two of fifteen prospects had a 6/6
+    // winner on file and a generic ICP sentence written to the prospect. Measured overlap
+    // separated the two cases cleanly, mismatches at 0.00 and 0.20 against 0.36 and above
+    // for every trigger correctly derived from its winner.
+    const overlap = contentOverlap(modelTrigger ?? '', winner.observation)
+    if (modelTrigger && overlap >= TRIGGER_WINNER_MIN_OVERLAP) {
+      trigger_text = modelTrigger
+    } else {
+      // Safety net, not the intended path. The observation is written in the third person
+      // and reads like a dossier line, so the prompt carries the rule too and this should
+      // fire rarely. Firing at all is worth a warning.
+      trigger_text = winner.observation
+      winnerOverride = `trigger_text did not derive from winner ${winner.id} (overlap ${overlap.toFixed(2)}). Winner observation used instead.`
+    }
+  }
+
+  const { signal_relevance, demotion_reason: readabilityDemotion, trigger_readability } =
+    applyTriggerReadabilityGate(trigger_text ?? '', selectedRelevance, demotionReason)
+
+  const demotion_reason = winnerOverride
+    ? (readabilityDemotion ? `${readabilityDemotion} | ${winnerOverride}` : winnerOverride)
+    : readabilityDemotion
 
   return {
     icp_fit,
@@ -558,6 +632,7 @@ function parseSynthesisResponse(
       : null,
     confidence,
     trigger_text,
+    icp_pain_proxy,
     trigger_source: null,
     relevance_reason: typeof parsed.relevance_reason === 'string' ? parsed.relevance_reason : '',
     reasoning,
@@ -599,7 +674,10 @@ function buildFallbackSynthesis(
   errorNote: string,
   detectedSignal: { has_dateable_signal: boolean; signal_observation: string | null },
 ): SynthesisOutput {
-  const trigger_text = buildIcpPainTrigger(prospect, icpSummary)
+  // A fallback means the run did not produce a usable candidate, so the prospect gets no
+  // trigger at all and composition ships the variant's authored opener. The proxy is
+  // retained on the audit row only.
+  const icp_pain_proxy = buildIcpPainTrigger(prospect, icpSummary)
   return {
     icp_fit: 'moderate',
     has_dateable_signal: detectedSignal.has_dateable_signal,
@@ -608,15 +686,15 @@ function buildFallbackSynthesis(
     qualification_status: 'qualified',
     qualification_reason: null,
     confidence: 'low',
-    trigger_text,
+    trigger_text: null,
+    icp_pain_proxy,
     trigger_source: null,
-    relevance_reason: `Synthesis fallback: ICP pain proxy used. ${errorNote}`,
+    relevance_reason: `Synthesis fallback: no trigger written, ICP pain proxy recorded on the research row only. ${errorNote}`,
     reasoning,
     candidates: [],
     selected_candidate_id: null,
-    // Measured on the fallback too: the ICP pain template is customer-facing copy and
-    // is held to the same bar as generated triggers.
-    trigger_readability: toCandidateReadability(readabilityScore(trigger_text)),
+    // Measured on the proxy so the audit row still records its readability.
+    trigger_readability: toCandidateReadability(readabilityScore(icp_pain_proxy)),
     demotion_reason: null,
   }
 }
@@ -679,9 +757,12 @@ export async function synthesizeResearch(
   try {
     const response = await callWithRetry(
       client,
-      // 8000, not 3000: the candidate array plus its reasoning does not fit in 3000,
-      // and a truncated response fails JSON parse and silently drops to the ICP fallback.
-      { model: SYNTHESIS_MODEL, max_tokens: 8000, system: systemPrompt, messages: [{ role: 'user', content: userMessage }] } satisfies MessageCreateParamsNonStreaming,
+      // 16000, not 8000. Truncation is not a theoretical risk: three of twelve prospects
+      // in the 2026-08-19 batch hit exactly 8000 output tokens, lost their JSON, fell
+      // through to the ICP proxy and were recorded as "no_signal" when the run had in
+      // fact failed. Each candidate now carries an opposite_reading and a seventh test,
+      // so the array outgrew the old ceiling.
+      { model: SYNTHESIS_MODEL, max_tokens: 16000, system: systemPrompt, messages: [{ role: 'user', content: userMessage }] } satisfies MessageCreateParamsNonStreaming,
       prospect.id,
     )
 
@@ -704,9 +785,11 @@ export async function synthesizeResearch(
 
     // Scrubbing rewrites the trigger (em dashes become full stops, AI tells are replaced),
     // so the readability verdict is recomputed on the text that actually ships.
-    const scrubbedTrigger = scrubAITells(result.trigger_text, `research/prospect/${prospect.id}`)
+    const scrubbedTrigger = result.trigger_text === null
+      ? null
+      : scrubAITells(result.trigger_text, `research/prospect/${prospect.id}`)
     const rescored = applyTriggerReadabilityGate(
-      scrubbedTrigger,
+      scrubbedTrigger ?? '',
       result.signal_relevance,
       result.demotion_reason,
     )

@@ -141,7 +141,18 @@ export interface SynthesisOutput {
   qualification_status:  QualificationStatus
   qualification_reason:  string | null
   confidence:            SynthesisConfidence
-  trigger_text:          string
+  /**
+   * The personalisation hook, or NULL when no candidate was selected.
+   * NULL is meaningful: composition treats any non-null personalisation_trigger as a
+   * researched observation, so writing a proxy here replaces the variant's authored
+   * opener with generic text. Only a real observation belongs in this field.
+   */
+  trigger_text:          string | null
+  /**
+   * The ICP pain proxy that WOULD have been used. Recorded on the research result row
+   * for audit, never written to prospects.personalisation_trigger.
+   */
+  icp_pain_proxy:        string | null
   trigger_source:        TriggerSource | null  // null going forward; kept for DB compat
   relevance_reason:      string
   reasoning:             string
@@ -222,7 +233,7 @@ export interface ResearchResult {
   signal_relevance: SignalRelevance
   qualification_status: QualificationStatus
   qualification_reason: string | null
-  trigger_text: string
+  trigger_text: string | null
   trigger_source: TriggerSource | null
   relevance_reason: string
   synthesis_confidence: SynthesisConfidence

@@ -61,21 +61,23 @@ async function main() {
     console.log(`  ${result.signal_observation ?? '(none)'}`)
 
     console.log(`\n--- TRIGGER TEXT (this is what reaches the email) ---`)
-    console.log(`  ${result.trigger_text}`)
-    const ts = readabilityScore(result.trigger_text)
+    // NULL when no candidate was selected: the prospect correctly gets no trigger and
+    // composition ships the variant's authored opener.
+    console.log(`  ${result.trigger_text ?? '(null, no candidate selected)'}`)
+    const ts = readabilityScore(result.trigger_text ?? '')
     console.log(`  sentences: ${ts.sentences.length}`)
     ts.sentences.forEach((s, i) => console.log(`    ${i + 1}. (${s.trim().split(/\s+/).length} words) ${s}`))
     console.log(`  hardFail=${ts.hardFail} penalty=${ts.penalty} maxSentenceWords=${ts.maxSentenceWords} hedges=[${ts.hedges.join(', ') || 'none'}]`)
     console.log(`  nominalisation=${(ts.nominalisation.density * 100).toFixed(1)}% over=${ts.nominalisation.exceedsThreshold} matches=[${ts.nominalisation.matches.join(', ') || 'none'}]`)
 
-    const collisions = registry.register(p.name, result.trigger_text)
+    const collisions = registry.register(p.name, result.trigger_text ?? '')
     if (collisions.length > 0) {
       for (const c of collisions) console.log(`  FRAME COLLISION: "${c.frame}" (first used by ${c.firstSeenId})`)
     } else {
       console.log(`  frame check: no repeated frame against earlier prospects`)
     }
 
-    triggers.push({ name: p.name, text: result.trigger_text })
+    triggers.push({ name: p.name, text: result.trigger_text ?? '' })
   }
 
   console.log(`\n${'='.repeat(78)}`)
