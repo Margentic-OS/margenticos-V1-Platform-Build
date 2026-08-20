@@ -21,6 +21,7 @@ import { fetchWebSearchSource } from './research/sources/web-search'
 import { synthesizeResearch }  from './research/synthesize'
 import { FrameRegistry, frameShingles, sentenceKey } from '@/lib/style/sentence-frames'
 import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
+import { findAbstractNouns } from '@/lib/style/abstract-nouns'
 import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
 import {
   fetchApprovedMessagingDoc,
@@ -38,6 +39,7 @@ import type {
   ResearchBatchSummary,
   ResearchBatchFailure,
   ResearchFrameCollision,
+  ResearchAbstractNounHit,
   ObservationCandidate,
   SynthesisOutput,
 } from './research/types'
@@ -265,7 +267,7 @@ async function synthesisFromStored(
 export async function runProspectResearchAgentV2({
   prospect_id,
   client_id,
-  use_stored_findings = false,
+  use_stored_findings = true,
   frameRegistry,
   uniqueness,
 }: ResearchInput & {
@@ -446,6 +448,19 @@ export async function runProspectResearchAgentV2({
       }
     }
 
+    // Abstract-noun count on what shipped. REPORT ONLY: logged and rolled into the batch
+    // summary, never acted on. See src/lib/style/abstract-nouns.ts for why it does not gate.
+    if (opening.written_won && opening.opening) {
+      const abstract = findAbstractNouns(opening.opening)
+      if (abstract.length > 0) {
+        logger.info('prospect-research-v2: abstract nouns in shipped opening', {
+          prospect_id: ctx.id,
+          nouns: abstract.map(h => h.noun),
+          count: abstract.reduce((t, h) => t + h.count, 0),
+        })
+      }
+    }
+
     // Store research result.
     const resultId = await storeResearchResult(ctx, rawData, synthesis, agentRun.run_id, opening)
 
@@ -556,12 +571,13 @@ export async function runProspectResearchAgentV2Batch({
   skip_existing = true,
   confirm_before_run = true,
   concurrency = 5,
-  use_stored_findings = false,
+  use_stored_findings = true,
 }: ResearchBatchInput): Promise<ResearchBatchSummary> {
   const failures: ResearchBatchFailure[] = []
   const frame_collisions: ResearchFrameCollision[] = []
   const bridge_frame_collisions: ResearchFrameCollision[] = []
   const question_collisions: ResearchFrameCollision[] = []
+  const abstract_noun_hits: ResearchAbstractNounHit[] = []
   const summary: ResearchBatchSummary = {
     total:          prospect_ids.length,
     completed:      0,
@@ -573,6 +589,8 @@ export async function runProspectResearchAgentV2Batch({
     bridge_frame_collisions,
     question_collisions,
     distinct_questions: 0,
+    abstract_noun_hits,
+    abstract_noun_total: 0,
   }
 
   // What actually shipped, for the post-run verification below. Only winners: a prospect
@@ -663,6 +681,17 @@ export async function runProspectResearchAgentV2Batch({
             bridge: result.bridge_text,
             question: result.question_text,
           })
+        }
+        if (result.trigger_text) {
+          const abstract = findAbstractNouns(result.trigger_text)
+          if (abstract.length > 0) {
+            abstract_noun_hits.push({
+              prospect_id,
+              nouns: abstract.map(h => h.noun),
+              count: abstract.reduce((t, h) => t + h.count, 0),
+              opening: result.trigger_text,
+            })
+          }
         }
         summary.completed++
       } catch (err) {
@@ -766,6 +795,14 @@ export async function runProspectResearchAgentV2Batch({
   }
 
   summary.distinct_questions = shippedQuestions.size
+  summary.abstract_noun_total = abstract_noun_hits.reduce((t, h) => t + h.count, 0)
+
+  // Report only. A non-zero total is worth reading and is never a failure.
+  logger.info('prospect-research-v2 batch: abstract nouns in shipped copy', {
+    prospects_with_hits: abstract_noun_hits.length,
+    total:               summary.abstract_noun_total,
+    nouns:               [...new Set(abstract_noun_hits.flatMap(h => h.nouns))],
+  })
 
   if (bridge_frame_collisions.length > 0 || question_collisions.length > 0) {
     logger.error('prospect-research-v2 batch: uniqueness gate let a collision through', {

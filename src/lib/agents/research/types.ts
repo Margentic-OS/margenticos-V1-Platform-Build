@@ -271,6 +271,11 @@ export interface ResearchInput {
    *
    * Falls back to a normal fetching run when nothing usable is stored, so a prospect that
    * has never been researched still works.
+   *
+   * DEFAULTS TO TRUE. The default was false until 2026-08-20, and because no caller in the
+   * repo ever opted in, every run re-fetched every source and paid for a fresh synthesis.
+   * That default turned 13 prospects into 176 research runs in one day. Reuse is now the
+   * safe path and a caller that genuinely needs fresh sources opts out with false.
    */
   use_stored_findings?: boolean
 }
@@ -278,7 +283,7 @@ export interface ResearchInput {
 export interface ResearchBatchInput {
   prospect_ids: string[]
   client_id: string
-  /** See ResearchInput.use_stored_findings. Applies to every prospect in the batch. */
+  /** See ResearchInput.use_stored_findings. Applies to every prospect in the batch. Defaults to true. */
   use_stored_findings?: boolean
   skip_existing?: boolean
   confirm_before_run?: boolean  // default true; set false for programmatic/test use under 10 prospects
@@ -324,4 +329,22 @@ export interface ResearchBatchSummary {
   question_collisions: ResearchFrameCollision[]
   /** Distinct closing questions across everything that shipped in this batch. */
   distinct_questions: number
+  /**
+   * Abstract nouns found in shipped openings, REPORT ONLY. Nothing acts on this. It exists
+   * so the concrete-nouns rule can be checked against real output instead of assumed to
+   * have worked, and a word list is the wrong instrument for gating copy.
+   */
+  abstract_noun_hits: ResearchAbstractNounHit[]
+  /** Total across the batch. Zero is the target and is not enforced. */
+  abstract_noun_total: number
+}
+
+/** One prospect's abstract-noun count, for the batch report. */
+export interface ResearchAbstractNounHit {
+  prospect_id: string
+  /** Which listed nouns appeared, e.g. ["remainder", "engine"]. */
+  nouns: string[]
+  count: number
+  /** The opening they appeared in, verbatim, so the report is actionable. */
+  opening: string
 }

@@ -16,6 +16,7 @@ import {
   OPENING_MAX_WORDS,
 } from '../write-opening'
 import { BatchUniquenessRegistry, uniquenessFeedback } from '../batch-uniqueness'
+import { ABSTRACT_NOUNS, countAbstractNouns } from '@/lib/style/abstract-nouns'
 import type { ObservationCandidate } from '../types'
 
 const FINDINGS = [
@@ -260,13 +261,20 @@ describe('prompt shape', () => {
     // Five, not four: one fact per sentence necessarily splits sentences, and the cap that
     // actually bounds length is the word count, which is gated and did not move.
     expect(p).toContain('At most five sentences')
-    expect(p).toContain('62 words')
+    expect(p).toContain('67 words')
   })
 
   it('the cap fits the 90-word ceiling now the writer owns the CTA too', () => {
     // Measured live: the approved CTA no longer consumes budget, so what stays fixed is
     // the greeting, P3 and the two sign-off lines. Tightest variant (D) leaves 70 words.
     expect(OPENING_MAX_WORDS).toBeLessThanOrEqual(70)
+  })
+
+  it('the cap is set to the measured headroom, not below it', () => {
+    // It was 62 against 70 of headroom, and rejected Jason at 70 words against a limit the
+    // email did not have. Pinned from BOTH sides so a future tightening is as visible as a
+    // future raise: too low silently costs prospects, too high silently breaches 90.
+    expect(OPENING_MAX_WORDS).toBe(67)
   })
 
   it('both FAILING examples are retained', () => {
@@ -358,7 +366,9 @@ describe('the writer prompt carries the question job and the Shevonne failure', 
 
   it('the cap fits the tightest variant with room to spare', () => {
     // Measured live: greeting + P3 + two sign-off lines leaves 70 words on variant D.
-    expect(OPENING_MAX_WORDS).toBeLessThanOrEqual(70 - 8)
+    // Three words of margin, down from eight. Eight was not caution, it was 8 words of
+    // copy thrown away on every prospect, and two prospects lost to it outright.
+    expect(OPENING_MAX_WORDS).toBeLessThanOrEqual(70 - 3)
   })
 })
 
@@ -475,10 +485,12 @@ describe('the writer prompt varies the bridge construction', () => {
     expect(flat).toContain('WHAT USUALLY HAPPENS NEXT')
     expect(flat).toContain('A CONTRAST')
     expect(flat).toContain('A CONSEQUENCE')
-    expect(flat).toContain('When the calendar fills that fast, prospecting is usually what gives')
-    expect(flat).toContain('A move like that runs on existing relationships for the first few months')
-    expect(flat).toContain('Delivery has a deadline. Business development never does, so it waits')
-    expect(flat).toContain('That leaves one person deciding, every week, whether to sell or to deliver')
+    // The illustrations moved out of consulting entirely, because two batches lifted the
+    // in-industry ones almost verbatim and the batch gate then threw the attempts away.
+    expect(flat).toContain('When the chairs are full six weeks out')
+    expect(flat).toContain('A big site keeps the crews busy for a year')
+    expect(flat).toContain('Peak season fills the trucks without a single sales call')
+    expect(flat).toContain('That books out the summer')
   })
 
   it('the four worked shapes do not collide with each other', () => {
@@ -767,14 +779,14 @@ describe('the opening may not carry its own question mark', () => {
 
 
 describe('the writer is asked for the same number of blocks in both turns', () => {
-  it('the shapes section warns against lifting the wording, not just the frame', () => {
+  it('stops the lifting by making the words unusable rather than by warning harder', () => {
     const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
-    // Observed: the first batch under this section returned "development is usually what
-    // gives", one noun off the worked "prospecting is usually what gives", and the batch
-    // gate threw it away. Examples get copied; this one now says so.
-    expect(flat).toContain('Those four are SHAPES, not phrases')
-    expect(flat).toContain('development is usually what gives')
-    expect(flat).toContain('Take the STRUCTURE and write your own words into it')
+    // Warning was tried twice and failed twice: "development is usually what gives" off
+    // "prospecting is usually what gives", then "Delivery has a deadline" verbatim. The
+    // examples are now from other industries, so a lift is wrong on sight.
+    expect(flat).toContain('EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY')
+    expect(flat).toContain('EVERY WORD IN THEM IS UNUSABLE HERE')
+    expect(flat).toContain('write your own sentence out of your own prospect\'s facts')
   })
 })
 
@@ -808,5 +820,125 @@ describe('the writer may not hand back the approved offer line', () => {
   it('is inert when no approved P3 is supplied', () => {
     const opening = 'You took on a second role.\n\nProspecting waits. Is this a gap?'
     expect(checkOpeningGates(opening, null, FINDINGS_TEXT)).toEqual([])
+  })
+})
+
+
+// ─── Cross-industry bridge examples, and concrete nouns ─────────────────────
+
+describe('the bridge examples come from outside the client industry', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('uses four industries that are not consulting, agencies or outbound', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('A dentist:')
+    expect(flat).toContain('A commercial builder:')
+    expect(flat).toContain('A freight broker:')
+    expect(flat).toContain('A wedding photographer:')
+  })
+
+  it('keeps the four constructions and labels none as preferred', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('A CONDITIONAL')
+    expect(flat).toContain('WHAT USUALLY HAPPENS NEXT')
+    expect(flat).toContain('A CONTRAST')
+    expect(flat).toContain('A CONSEQUENCE')
+    expect(flat).not.toContain('preferred answer')
+  })
+
+  it('says the words are unusable, not merely that copying is discouraged', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('THE SHAPE IS WHAT TRANSFERS')
+    expect(flat).toContain('EVERY WORD IN THEM IS UNUSABLE HERE')
+  })
+
+  it('no longer carries the two phrases that were lifted and then rejected', () => {
+    // Udo returned "development is usually what gives" off "prospecting is usually what
+    // gives"; Debra lifted "Delivery has a deadline" verbatim into her bridge. Both
+    // collided and cost the prospect. The bridge examples are gone, so they cannot recur.
+    const p = prompt()
+    const examplesSection = p.slice(
+      p.indexOf('EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY'),
+      p.indexOf('There are more shapes than these four'),
+    )
+    expect(examplesSection).not.toContain('prospecting is usually what gives')
+    expect(examplesSection).not.toContain('Delivery has a deadline')
+  })
+
+  it('the four examples do not collide with each other under the batch gate', () => {
+    const examples = [
+      'When the chairs are full six weeks out, nobody is phoning the patients who missed a check-up.',
+      'A big site keeps the crews busy for a year. The tenders for the next one get written in the last month, if at all.',
+      'Peak season fills the trucks without a single sales call. February does not, and by then nobody has spoken to a new shipper since October.',
+      'That books out the summer. It also means every enquiry for next spring arrives while you are editing somebody else\'s album.',
+    ]
+    const questions = [
+      'Is that a gap you are looking to close?',
+      'Worth a look to see if it fits?',
+      'Is protecting that time something you are working on?',
+      'Is any of this on your list for the quarter?',
+    ]
+    const reg = new BatchUniquenessRegistry()
+    examples.forEach((ex, i) => {
+      expect(reg.reserve(`example-${i}`, ex, questions[i])).toEqual([])
+    })
+  })
+
+  it('the examples themselves are concrete', () => {
+    // An example carrying a banned noun would teach the opposite of the section below it.
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const examplesSection = flat.slice(
+      flat.indexOf('A CONDITIONAL'),
+      flat.indexOf('There are more shapes than these four'),
+    )
+    expect(countAbstractNouns(examplesSection)).toBe(0)
+  })
+})
+
+describe('the writer prompt bans abstract nouns and metaphors', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('names the reader cost, not just the rule', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('CONCRETE NOUNS ONLY')
+    expect(flat).toContain('translate your sentence into their own week')
+  })
+
+  it('lists every banned noun', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    for (const noun of ABSTRACT_NOUNS) expect(flat).toContain(noun)
+  })
+
+  it('keeps load and output as judgement calls with both readings shown', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('Load and output are judgement calls, not bans')
+    expect(flat).toContain('a real operational load')
+    expect(flat).toContain('that output shows')
+  })
+
+  it('bans metaphors outright', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('NO METAPHORS')
+    expect(flat).toContain('a picture the reader has to unpack')
+  })
+
+  it('carries both real abstract failures verbatim, each with a concrete rewrite', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('That remainder tends to shrink before it grows')
+    expect(flat).toContain('Nobody can picture a remainder')
+    expect(flat).toContain('Outreach gets the hours that are left')
+    expect(flat).toContain('The regions that come after tend to need a different engine')
+    expect(flat).toContain('The first two markets were built on people you already knew')
+  })
+
+  it('keeps the working bridge as the standard to aim at', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('CONCRETE, already working, and this is the standard')
+    expect(flat).toContain('Delivery has a deadline. Business development never does, so it waits')
+  })
+
+  it('the concrete rewrites in the prompt score zero on the report-only check', () => {
+    expect(countAbstractNouns('A day job and delivery both come first. Outreach gets the hours that are left, and there are fewer of those every week.')).toBe(0)
+    expect(countAbstractNouns('The first two markets were built on people you already knew. In the UK you do not know anyone yet, and the introductions have to start from nothing.')).toBe(0)
   })
 })

@@ -26,14 +26,29 @@ const JUDGE_MODEL = 'claude-sonnet-4-6'
 /**
  * Hard cap on the whole written block: observation, bridge AND closing question.
  *
- * The writer now owns the CTA as well, so the approved CTA no longer consumes budget.
- * Measured against the live document, what remains fixed is the greeting line, the P3
- * offer line and the two sign-off lines: 70 words of headroom on the tightest variant (D)
- * and 74 on the most generous (C). A 62-word cap clears all four with at least 8 words to
- * spare, and a test pins the cap below the measured minimum so a future raise cannot
- * silently breach the 90-word ceiling.
+ * SET BELOW THE AVAILABLE SPACE UNTIL 2026-08-20, and it cost two prospects. The cap was
+ * 62 while the email could hold 70. Jason came in at 70 and Shevonne at 75, and both were
+ * rejected against a limit lower than the email actually has. Jason's would have shipped.
+ *
+ * RE-MEASURED against the current shape, where the writer owns the closing question and
+ * the fixed parts are the greeting line, the approved P3 and the two sign-off lines. The
+ * footer is excluded because it is appended after word_count and never consumes budget.
+ *
+ *   variant | greeting | P3 | sign-off | fixed | headroom against the 90-word ceiling
+ *      A    |    1     | 16 |    2     |  19   |  71
+ *      B    |    1     | 14 |    2     |  17   |  73
+ *      C    |    1     | 13 |    2     |  16   |  74
+ *      D    |    1     | 17 |    2     |  20   |  70   <- tightest
+ *
+ * ONE GLOBAL FIGURE, NOT PER-VARIANT. The spread is four words, so per-variant caps would
+ * buy at most four words on one variant and add a parameter to every call site, every test
+ * and every gate message. A single number is also what the prompt states, and a prompt that
+ * has to say "at most 67 words, or 71 if this is variant A" is a worse prompt.
+ *
+ * Tightest headroom minus 3 = 67. The margin absorbs a contraction counted as one word
+ * where the reader sees two, and leaves the ceiling unbreachable rather than nearly so.
  */
-export const OPENING_MAX_WORDS = 62
+export const OPENING_MAX_WORDS = 67
 
 export interface OpeningResult {
   /** The opening that shipped, or null when the template won or the floor disqualified it. */
@@ -214,28 +229,30 @@ bridge in a batch has the same skeleton the personalisation is decorative: two r
 comparing notes see one template with the nouns swapped.
 
 So your bridge must not share a sentence shape with another prospect in this batch. Vary
-the CONSTRUCTION, not just the nouns. Four shapes that are genuinely different from each
-other, none of them a preferred answer, and copying one verbatim recreates the problem:
+the CONSTRUCTION, not just the nouns.
+
+EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY, DELIBERATELY. None of them is about
+consulting, agencies or outbound. THE SHAPE IS WHAT TRANSFERS. EVERY WORD IN THEM IS
+UNUSABLE HERE, because a sentence about scaffolding or wedding albums pasted into this
+email is obviously wrong on sight. That is the point: the last two batches lifted the
+examples almost verbatim and the batch gate threw the attempts away. Read them for
+structure and then write your own sentence out of your own prospect's facts.
 
   A CONDITIONAL. Puts their own situation on the left of the sentence.
-    "When the calendar fills that fast, prospecting is usually what gives."
+    A dentist: "When the chairs are full six weeks out, nobody is phoning the patients who
+     missed a check-up."
 
   WHAT USUALLY HAPPENS NEXT. Plain sequence, no hedging verb at all.
-    "A move like that runs on existing relationships for the first few months. After that
-     it gets harder."
+    A commercial builder: "A big site keeps the crews busy for a year. The tenders for the
+     next one get written in the last month, if at all."
 
   A CONTRAST. Two short clauses, the second overturning the first.
-    "Delivery has a deadline. Business development never does, so it waits."
+    A freight broker: "Peak season fills the trucks without a single sales call. February
+     does not, and by then nobody has spoken to a new shipper since October."
 
   A CONSEQUENCE. States the position their situation puts them in.
-    "That leaves one person deciding, every week, whether to sell or to deliver."
-
-Those four are SHAPES, not phrases. The first batch run under this section produced
-"development is usually what gives", lifted straight off "prospecting is usually what
-gives" above. Borrowing the wording is the same failure as borrowing the frame, and it is
-caught the same way: the batch gate compares skeletons, so a worked example with one noun
-changed collides and the attempt is thrown away. Take the STRUCTURE and write your own
-words into it.
+    A wedding photographer: "That books out the summer. It also means every enquiry for
+     next spring arrives while you are editing somebody else's album."
 
 There are more shapes than these four: a short concession, a plain statement of what the
 situation costs, a comparison between the two halves of the same week. The point is that
@@ -340,6 +357,46 @@ The hard one again, same facts, written to be read once:
    months in between run quieter."
 Nothing was dropped and nothing was softened. The reader is simply never asked to hold
 more than one idea at a time.
+
+CONCRETE NOUNS ONLY. THIS IS THE ONE THAT DECIDES WHETHER THEY RECOGNISE THEMSELVES.
+
+Structure is fixed and the bridges still read as abstract, which means the reader has to
+translate your sentence into their own week before they can tell whether it is about them.
+Most people will not do that work in an inbox. They will skim it and move on.
+
+NEVER USE THESE NOUNS: remainder, engine, momentum, capacity, bandwidth, cadence, motion,
+flow. Every one of them is a placeholder standing where a real thing belongs.
+
+Load and output are judgement calls, not bans. Attached to something concrete they are
+fine: "a real operational load" works. As a bare subject they are not: "that output shows
+where your thinking is" leaves the reader wondering what output.
+
+NO METAPHORS. A metaphor is a picture the reader has to unpack before they get the point.
+Say the thing instead. If you find yourself reaching for a machine, a current, an engine or
+a runway, you have stopped describing their week and started decorating it.
+
+ABSTRACT, and this shipped:
+  "A day job and active delivery leave the consulting pipeline running on whatever is
+   left. That remainder tends to shrink before it grows."
+Nobody can picture a remainder.
+
+CONCRETE, same idea:
+  "A day job and delivery both come first. Outreach gets the hours that are left, and
+   there are fewer of those every week."
+Hours. A reader knows exactly how many of those they had last week.
+
+ABSTRACT, also shipped:
+  "The regions that come after tend to need a different engine."
+A metaphor doing work a plain sentence should do. Which regions, and what engine.
+
+CONCRETE, same idea:
+  "The first two markets were built on people you already knew. In the UK you do not know
+   anyone yet, and the introductions have to start from nothing."
+Same claim, and now it names the country, the people and what is missing.
+
+CONCRETE, already working, and this is the standard:
+  "Delivery has a deadline. Business development never does, so it waits."
+Deadline. Waits. Two things anyone can see happening in their own calendar.
 
 THE AIM TEST, run it on every draft. Read your observation, your bridge, the offer line
 and your question as one message. If the reader could answer that question with "that is
