@@ -286,6 +286,14 @@ export function composeEmail1WithOpening(
   messagingDoc: MessagingContent,
   variantId: string,
   opening: string,
+  /**
+   * Resolves {{first_name}}, exactly as composedToVariables does at send time. Required
+   * for anything that READS the email as a human would: the judge held all thirteen
+   * prospects on the first run because it was handed a body still containing the raw
+   * merge tag and correctly called it unsendable. Omit only when the caller wants the
+   * unresolved template.
+   */
+  firstName?: string | null,
 ): ComposedEmail {
   const variantEmails = getVariantEmails(messagingDoc, variantId)
   const withOpening = applyTriggerToEmail1(variantEmails, opening)
@@ -296,7 +304,10 @@ export function composeEmail1WithOpening(
   if (!email1) {
     throw new Error(`composeEmail1WithOpening: variant "${variantId}" has no email at position 1`)
   }
-  return email1
+
+  if (firstName === undefined) return email1
+  // Same substitution as composedToVariables, including the empty-string fallback.
+  return { ...email1, body: email1.body.replace(/\{\{first_name\}\}/g, firstName ?? '') }
 }
 
 /** The authored P3 and CTA of a variant's Email 1, verbatim. Fed to the writer so the

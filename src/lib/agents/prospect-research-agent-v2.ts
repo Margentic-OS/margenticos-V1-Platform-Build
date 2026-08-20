@@ -281,7 +281,9 @@ export async function runProspectResearchAgentV2({
       p3: frame.p3,
       cta: frame.cta,
       // The judge must read the real artifact, so this calls the exact production path.
-      composeEmail1: (text: string) => composeEmail1WithOpening(messaging.content, variantId, text).body,
+      // first_name resolved so the judge reads exactly what the prospect receives.
+      composeEmail1: (text: string) =>
+        composeEmail1WithOpening(messaging.content, variantId, text, ctx.first_name).body,
       prospectId: ctx.id,
     })
 

@@ -158,7 +158,9 @@ function untraceableClaims(opening: string, findingsText: string): string[] {
   // Capitalised words that are not sentence-initial read as names of things.
   const words = opening.split(/\s+/)
   words.forEach((word, i) => {
-    const clean = word.replace(/[^\p{L}\p{N}'-]/gu, '')
+    // Strip the possessive before comparing: "SCG's" is the same claim as "SCG", and the
+    // findings will only ever contain the bare form. This fired as a false positive.
+    const clean = word.replace(/[^\p{L}\p{N}'-]/gu, '').replace(/'s$/i, '')
     if (clean.length < 3) return
     if (i === 0) return
     if (!/^\p{Lu}/u.test(clean)) return

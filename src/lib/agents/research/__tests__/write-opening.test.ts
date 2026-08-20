@@ -133,3 +133,10 @@ describe('prompt shape', () => {
     expect(p).toContain('HOLD costs nothing')
   })
 })
+
+describe('possessive forms are traceable', () => {
+  it('does not flag "SCG\'s" when the findings contain "SCG"', () => {
+    const findings = 'Daedra left GP Strategies in June 2024, making SCG her sole focus.'
+    expect(checkOpeningGates("You left GP Strategies in June 2024. SCG's been the focus since.", null, findings)).toEqual([])
+  })
+})
