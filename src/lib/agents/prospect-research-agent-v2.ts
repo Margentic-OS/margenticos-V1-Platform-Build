@@ -58,7 +58,16 @@ function getServiceClient() {
 
 // ─── Source tracking helpers ─────────────────────────────────────────────────
 
-function buildSourceTracking(rawData: RawSourceData): {
+/**
+ * The error a reuse run puts on all four source stubs in place of fetching them.
+ *
+ * Shared by the code that WRITES the stubs and the code that READS them, because the two
+ * have to agree on the exact string and stating it twice is how they stop agreeing.
+ */
+export const SOURCE_SKIPPED_REUSE = 'skipped: stored findings reused'
+
+// Exported for its test. Nothing outside this module should need it.
+export function buildSourceTracking(rawData: RawSourceData): {
   sources_attempted: string[]
   sources_successful: string[]
 } {
@@ -67,7 +76,16 @@ function buildSourceTracking(rawData: RawSourceData): {
 
   for (const [name, result] of Object.entries(rawData) as [string, { available: boolean; error?: string }][]) {
     // 'not set' errors mean the source was intentionally skipped — don't count as attempted.
-    const skipped = result.error?.includes('not set') || result.error?.includes('No LinkedIn URL')
+    //
+    // A reuse run is the same kind of skip and was NOT counted as one, so its rows recorded
+    // all four sources attempted and none successful. That is byte-for-byte the shape of the
+    // 2026-08-20 Apify incident, where the sources really were attempted and really did all
+    // fail. A source-failure alarm reading this column could not have told the two apart,
+    // and the reuse rows outnumber the real failures.
+    const skipped =
+      result.error?.includes('not set')
+      || result.error?.includes('No LinkedIn URL')
+      || result.error?.includes(SOURCE_SKIPPED_REUSE)
     if (!skipped) attempted.push(name)
     if (result.available) successful.push(name)
   }
@@ -434,10 +452,10 @@ export async function runProspectResearchAgentV2({
     // Run all four sources in parallel — failures are isolated per source.
     const [linkedIn, apollo, website, webSearch] = stored
       ? [
-          { available: false, profile_data: null, recent_posts: null, formatted: null, error: 'skipped: stored findings reused' },
-          { available: false, formatted: null, raw: null, error: 'skipped: stored findings reused' },
-          { available: false, url: null, content: null, fetch_method: null, error: 'skipped: stored findings reused' },
-          { available: false, person_search: null, company_search: null, combined: null, error: 'skipped: stored findings reused' },
+          { available: false, profile_data: null, recent_posts: null, formatted: null, error: SOURCE_SKIPPED_REUSE },
+          { available: false, formatted: null, raw: null, error: SOURCE_SKIPPED_REUSE },
+          { available: false, url: null, content: null, fetch_method: null, error: SOURCE_SKIPPED_REUSE },
+          { available: false, person_search: null, company_search: null, combined: null, error: SOURCE_SKIPPED_REUSE },
         ] as const
       : await Promise.all([
           fetchLinkedInSource(ctx),

@@ -24,6 +24,8 @@ vi.mock('@/lib/logger', () => ({
 import { logger } from '@/lib/logger'
 import {
   loadStoredFindings,
+  buildSourceTracking,
+  SOURCE_SKIPPED_REUSE,
   runProspectResearchAgentV2,
   runProspectResearchAgentV2Batch,
   STORED_FINDINGS_MAX_AGE_DAYS,
@@ -284,5 +286,64 @@ describe('use_stored_findings default', () => {
   it('is not silently false anywhere in either signature', () => {
     expect(runProspectResearchAgentV2.toString()).not.toMatch(/use_stored_findings\s*=\s*false/)
     expect(runProspectResearchAgentV2Batch.toString()).not.toMatch(/use_stored_findings\s*=\s*false/)
+  })
+})
+
+// ─── A reuse run must not look like four failed sources ──────────────────────
+
+describe('buildSourceTracking: a skip is not an attempt', () => {
+  // Only `available` and `error` are read, so these stand in for the full source shapes.
+  const raw = (over: Record<string, { available: boolean; error?: string }>) => ({
+    linkedin:   { available: false, error: 'x' },
+    apollo:     { available: false, error: 'x' },
+    website:    { available: false, error: 'x' },
+    web_search: { available: false, error: 'x' },
+    ...over,
+  }) as never
+
+  const reused = { available: false, error: SOURCE_SKIPPED_REUSE }
+
+  it('records nothing attempted when all four were skipped for reuse', () => {
+    const t = buildSourceTracking(raw({
+      linkedin: reused, apollo: reused, website: reused, web_search: reused,
+    }))
+    expect(t.sources_attempted).toEqual([])
+    expect(t.sources_successful).toEqual([])
+  })
+
+  it('still records all four attempted when they were tried and genuinely failed', () => {
+    // THE DISCRIMINATING CASE. This is the 2026-08-20 Apify shape: sources really ran and
+    // really failed. It must stay distinguishable from the reuse row above, because a
+    // source-failure alarm reading this column has nothing else to go on.
+    const t = buildSourceTracking(raw({
+      linkedin:   { available: false, error: 'Apify run failed: insufficient balance' },
+      apollo:     { available: false, error: 'timeout' },
+      website:    { available: false, error: 'fetch failed' },
+      web_search: { available: false, error: 'rate limited' },
+    }))
+    expect(t.sources_attempted).toEqual(['linkedin', 'apollo', 'website', 'web_search'])
+    expect(t.sources_successful).toEqual([])
+  })
+
+  it('leaves the pre-existing not-set and no-URL skips alone', () => {
+    const t = buildSourceTracking(raw({
+      linkedin:   { available: false, error: 'No LinkedIn URL on prospect' },
+      apollo:     { available: false, error: 'APOLLO_API_KEY not set' },
+      website:    { available: true },
+      web_search: { available: true },
+    }))
+    expect(t.sources_attempted).toEqual(['website', 'web_search'])
+    expect(t.sources_successful).toEqual(['website', 'web_search'])
+  })
+
+  it('wires all four source stubs through the constant, so they cannot drift apart', () => {
+    // buildSourceTracking is unit-tested above with stubs this test file builds, which means
+    // nothing above exercises the four literals the agent itself substitutes on the reuse
+    // path. A hardcoded copy in any one of them stops matching the reader and that source
+    // silently reappears in sources_attempted. Verified by mutation: hardcoding one stub
+    // passes every other test in this file.
+    const src = runProspectResearchAgentV2.toString()
+    expect(src).not.toMatch(/error:\s*['"`]skipped:/)
+    expect(src.match(/error:\s*SOURCE_SKIPPED_REUSE/g) ?? []).toHaveLength(4)
   })
 })
