@@ -41,8 +41,15 @@ export interface OpeningResult {
   question: string | null
   /** True when the written opening beat the approved template on the final comparison. */
   written_won: boolean
-  /** True when the writer was given the judge's sentence and tried again. */
+  /** True when the writer was given feedback and tried again at least once. */
   retry_used: boolean
+  /** How many rewrite attempts ran after the first. 0, 1 or 2. */
+  retries_used: number
+  /**
+   * True when the prospect had at least one candidate passing all six tests, which is
+   * what buys the second retry. Weak material keeps one and falls back as before.
+   */
+  strong_material: boolean
   /**
    * Every comparison run, in order. One entry normally, two when a retry happened.
    * Both attempts and both verdicts are kept: the second attempt used to be discarded on
@@ -192,6 +199,42 @@ THE TEST: read your bridge on its own, without the observation above it. If it s
 sense as a standalone sentence, it is generic and it has failed. A good bridge reads as a
 non-sequitur without its observation, because it depends on it entirely.
 
+ONE FACT PER SENTENCE.
+
+This is the last thing standing between these emails and being good, and it is about
+STRUCTURE, not length. A short sentence carrying three facts is still a second read.
+
+If you are naming two things, use two sentences. Do not join facts with appositives. Do
+not bury a list mid-sentence. Never separate a subject from its verb with clauses. Someone
+reading at eleven years old should follow it the first time through, because your reader
+is scanning between meetings and a sentence they go back over has already lost.
+
+CRAMPED, and both of these shipped:
+  "The regulatory commentary. DTCC tokenization, Treasury clearing, SEC crypto posture,
+   shows where the thinking is."
+A fragment, then a list, then a verb whose subject is three clauses back. By the time you
+reach "shows" you have forgotten what is doing the showing.
+
+CLEAN, same facts, nothing lost:
+  "Taffet publishes regulatory commentary regularly. Recent pieces covered DTCC
+   tokenization, Treasury clearing and the SEC's crypto posture. That output shows where
+   your thinking is."
+Three sentences. Each one carries a single idea and every subject sits next to its verb.
+
+CRAMPED:
+  "Two new board seats in early 2026. Hollywood Food Coalition and Sovern LA, on top of
+   running SCG full-time is a real load."
+The same fault. An appositive list swallows the subject, so "is a real load" arrives with
+nothing attached to it.
+
+CLEAN:
+  "You took two board seats in early 2026, at Hollywood Food Coalition and Sovern LA. That
+   is on top of running SCG full time."
+Two sentences. The naming sits inside a clean subject and verb rather than replacing one.
+
+Note what did NOT change in either rewrite. Same facts, same specificity, same length
+roughly. Only the joins moved.
+
 EVERY SENTENCE MUST BE CLEAR ON ONE READING.
 
 You are writing to someone scanning their inbox between meetings. A sentence they have to
@@ -325,8 +368,9 @@ export function buildJudgePrompt(): string {
   return `You are the head of sales. Two drafts of the same cold email are in front of you,
 both written by your team, both ready to send. They differ only in how they open.
 
-Both go out under your name. Which one reads as a single message where the closing
-question is the obvious thing to ask this person after everything above it?
+Both go out under your name. Which one could a busy founder read once, at speed, without
+going back over the first paragraph, and still find the closing question the obvious thing
+to ask them?
 
 Answer A or B, then one sentence on why.
 
@@ -562,11 +606,21 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
 
   const comparisons: JudgeComparison[] = []
 
-  const attempt = async (feedback: string | null): Promise<
+  // A SECOND RETRY, BUT ONLY WHERE THE MATERIAL DESERVES IT.
+  //
+  // Debra and Udo both had findings that scored well and lost on execution, then fell back
+  // to template with good material unused. Retrying a prospect whose findings are thin
+  // just spends calls to arrive at the same place, so the extra attempt is bought by the
+  // evidence: at least one candidate that passed all six tests.
+  const strongMaterial = params.candidates.some(c => c.passes_all)
+  const maxAttempts = strongMaterial ? 3 : 2
+
+  type Attempt =
     | { kind: 'gated'; gates: string[]; opening: string; question: string }
     | { kind: 'floored'; floor: FloorCheck; opening: string; question: string }
     | { kind: 'compared'; c: JudgeComparison }
-  > => {
+
+  const attempt = async (feedback: string | null): Promise<Attempt> => {
     const w = await writeOnce(feedback)
     if (w.gates.length > 0) return { kind: 'gated', gates: w.gates, opening: w.opening, question: w.question }
 
@@ -580,44 +634,48 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     return { kind: 'compared', c: await compare(w.opening, w.question, floor) }
   }
 
-  const held = (reason: string, gates: string[] = []): OpeningResult => ({
-    // held() is only ever reached after the retry, so retry_used is unconditionally true.
-    opening: null, question: null, written_won: false, retry_used: true,
-    comparisons, judge_reasoning: reason, gate_failures: gates,
-  })
+  const feedbackFrom = (a: Attempt): string =>
+    a.kind === 'gated'
+      ? `${a.opening} ${a.question}|||${a.gates.join('; ')}`
+      : a.kind === 'floored'
+        ? `${a.opening} ${a.question}|||A reviewer said this claims private knowledge about the prospect: ${a.floor.reason}. Say only what can be seen from outside.`
+        : `${a.c.opening} ${a.c.question}|||${a.c.reason}`
 
-  const first = await attempt(null)
+  let feedback: string | null = null
+  let last: Attempt | null = null
 
-  if (first.kind === 'compared') {
-    comparisons.push(first.c)
-    if (first.c.written_won) {
-      return {
-        opening: first.c.opening, question: first.c.question, written_won: true,
-        retry_used: false, comparisons, judge_reasoning: first.c.reason, gate_failures: [],
+  for (let i = 0; i < maxAttempts; i++) {
+    const a = await attempt(feedback)
+    last = a
+
+    if (a.kind === 'compared') {
+      comparisons.push(a.c)
+      if (a.c.written_won) {
+        return {
+          opening: a.c.opening, question: a.c.question, written_won: true,
+          retry_used: i > 0, retries_used: i, strong_material: strongMaterial,
+          comparisons, judge_reasoning: a.c.reason, gate_failures: [],
+        }
       }
     }
+    feedback = feedbackFrom(a)
   }
 
-  // One retry, whatever the first attempt failed on.
-  const feedback =
-    first.kind === 'gated'    ? `${first.opening} ${first.question}|||${first.gates.join('; ')}`
-    : first.kind === 'floored' ? `${first.opening} ${first.question}|||A reviewer said this claims private knowledge about the prospect: ${first.floor.reason}. Say only what can be seen from outside.`
-    : `${first.c.opening} ${first.c.question}|||${first.c.reason}`
+  // Every attempt used. The approved template ships, which is the correct outcome.
+  const retries = maxAttempts - 1
+  const reason =
+    last?.kind === 'gated'
+      ? `Failed deterministic gates on the final attempt: ${last.gates.join('; ')}`
+      : last?.kind === 'floored'
+        ? `Disqualified by the floor on the final attempt: ${last.floor.reason}`
+        : last?.kind === 'compared'
+          ? last.c.reason
+          : 'No attempt completed.'
 
-  const second = await attempt(feedback)
-
-  if (second.kind === 'gated') {
-    return held(`Retry failed deterministic gates: ${second.gates.join('; ')}`, second.gates)
-  }
-  if (second.kind === 'floored') {
-    return held(`Retry disqualified by the floor: ${second.floor.reason}`)
-  }
-
-  comparisons.push(second.c)
   return {
-    opening: second.c.written_won ? second.c.opening : null,
-    question: second.c.written_won ? second.c.question : null,
-    written_won: second.c.written_won,
-    retry_used: true, comparisons, judge_reasoning: second.c.reason, gate_failures: [],
+    opening: null, question: null, written_won: false,
+    retry_used: retries > 0, retries_used: retries, strong_material: strongMaterial,
+    comparisons, judge_reasoning: reason,
+    gate_failures: last?.kind === 'gated' ? last.gates : [],
   }
 }

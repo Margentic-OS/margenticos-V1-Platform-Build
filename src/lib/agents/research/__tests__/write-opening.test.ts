@@ -235,7 +235,7 @@ describe('prompt shape', () => {
 
   it('the judge now tests the closing question, not general flow', () => {
     const flat = buildJudgePrompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('the closing question is the obvious thing to ask this person')
+    expect(flat).toContain('still find the closing question the obvious thing to ask them')
   })
 
   it('the writer prompt asks for the observation AND the bridge, with the worked pair', () => {
@@ -347,5 +347,56 @@ describe('the writer prompt carries the question job and the Shevonne failure', 
   it('the cap fits the tightest variant with room to spare', () => {
     // Measured live: greeting + P3 + two sign-off lines leaves 70 words on variant D.
     expect(OPENING_MAX_WORDS).toBeLessThanOrEqual(70 - 8)
+  })
+})
+
+
+// ─── One fact per sentence, the first-read test, and the conditional second retry ───
+
+describe('the writer prompt enforces one fact per sentence', () => {
+  it('states the structural rule rather than a length rule', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const flat = p.replace(/\s+/g, ' ')
+    expect(p).toContain('ONE FACT PER SENTENCE')
+    expect(flat).toContain('about STRUCTURE, not length')
+    expect(flat).toContain('If you are naming two things, use two sentences')
+    expect(flat).toContain('reading at eleven years old')
+  })
+
+  it('carries both real cramped examples verbatim', () => {
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    // Robert's, and the diagnosis of why it fails.
+    expect(flat).toContain('DTCC tokenization, Treasury clearing, SEC crypto posture, shows where the thinking is')
+    expect(flat).toContain('a verb whose subject is three clauses back')
+    // Daedra's.
+    expect(flat).toContain('Hollywood Food Coalition and Sovern LA, on top of running SCG full-time is a real load')
+    expect(flat).toContain('An appositive list swallows the subject')
+  })
+
+  it('pairs each cramped example with a clean rewrite of the same facts', () => {
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    expect(flat).toContain('Taffet publishes regulatory commentary regularly')
+    expect(flat).toContain('You took two board seats in early 2026, at Hollywood Food Coalition and Sovern LA')
+    // And says explicitly that only the joins moved, so it is not read as "make it shorter".
+    expect(flat).toContain('Only the joins moved')
+  })
+})
+
+describe('the judge tests the first read, still as one question', () => {
+  it('asks about reading once at speed without re-reading', () => {
+    const flat = buildJudgePrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('read once, at speed, without going back over the first paragraph')
+  })
+
+  it('is still exactly one question and still not a checklist', () => {
+    const p = buildJudgePrompt()
+    expect((p.match(/\?/g) ?? []).length).toBe(1)
+    expect(p).not.toContain('1.')
+    expect(p).not.toContain('- ')
+  })
+
+  it('still keeps the closing-question test in the same sentence', () => {
+    const flat = buildJudgePrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('the obvious thing to ask them')
   })
 })
