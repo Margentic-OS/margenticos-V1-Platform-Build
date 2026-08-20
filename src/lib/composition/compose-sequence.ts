@@ -22,6 +22,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { generateBridge, countWords } from './personalization'
 import { OPT_OUT_FOOTER } from './opt-out-footer'
+import { assignVariantDeterministically } from './variant-assignment'
 
 // Private type alias derived from getServiceClient (defined at bottom of file).
 // Using the actual inferred return type avoids generic parameter conflicts with createClient overloads.
@@ -128,7 +129,7 @@ interface IcpContent {
 }
 
 // Re-export MessagingContent so callers can type ComposeDocs correctly.
-export type { MessagingContent }
+export type { MessagingContent, StoredEmail }
 
 // ─── Snapshot fetch — call once at gate-pass per segment ─────────────────────
 
@@ -269,6 +270,60 @@ export async function composeSequence({
   }
 }
 
+// ─── Email 1 preview for the research judge ──────────────────────────────────
+//
+// Builds the COMPLETE Email 1 exactly as production builds it for a researched prospect,
+// so the judge reads the real artifact rather than an approximation of it. It calls the
+// same three functions in the same order that composeSequence calls: the opening replaces
+// the P2 slot, word_count is recomputed from the new body, and the opt-out footer is
+// appended last so it never consumes the word budget.
+//
+// The bridge and the CTA rewrite are not invoked here for the same reason composeSequence
+// no longer invokes them: both are disabled, so the approved CTA and sign-off survive
+// verbatim. Anything that changes in composeSequence's researched path must change here
+// too, which is why this lives beside it rather than in the research module.
+export function composeEmail1WithOpening(
+  messagingDoc: MessagingContent,
+  variantId: string,
+  opening: string,
+): ComposedEmail {
+  const variantEmails = getVariantEmails(messagingDoc, variantId)
+  const withOpening = applyTriggerToEmail1(variantEmails, opening)
+  const counted = withOpening.map(email => ({ ...email, word_count: countWords(email.body) }))
+  const withFooter = appendOptOutFooter(counted)
+
+  const email1 = withFooter.find(e => e.sequence_position === 1)
+  if (!email1) {
+    throw new Error(`composeEmail1WithOpening: variant "${variantId}" has no email at position 1`)
+  }
+  return email1
+}
+
+/** The authored P3 and CTA of a variant's Email 1, verbatim. Fed to the writer so the
+ *  opening it writes leads into the copy that actually follows it. */
+export function getVariantEmail1Frame(
+  messagingDoc: MessagingContent,
+  variantId: string,
+): { subject: string | null; p3: string; cta: string; authoredOpening: string } {
+  const emails = getVariantEmails(messagingDoc, variantId)
+  const email1 = emails.find(e => e.sequence_position === 1)
+  if (!email1) throw new Error(`getVariantEmail1Frame: variant "${variantId}" has no email at position 1`)
+
+  // P1 greeting, P2 slot, P3 what changes, P4 CTA, P5 sign-off.
+  const paras = email1.body
+    .split(/\n{2,}/)
+    .map(p => p.trim())
+    .filter(p => p.length > 0)
+    .filter(p => !/^\{\{first_name\}\},?\s*$/.test(p))
+
+  return {
+    subject: email1.subject_line,
+    authoredOpening: paras[0] ?? '',
+    p3: paras[1] ?? '',
+    cta: paras[2] ?? '',
+  }
+}
+
 // ─── Opt-out footer ───────────────────────────────────────────────────────────
 //
 // Applied here rather than in the messaging document so that every send is compliant
@@ -291,7 +346,7 @@ function appendOptOutFooter(emails: ComposedEmail[]): ComposedEmail[] {
 
 // ─── Step 1 — Fetch approved messaging document ───────────────────────────────
 
-async function fetchApprovedMessagingDoc(
+export async function fetchApprovedMessagingDoc(
   supabase: ServiceClient,
   client_id: string,
   segment_id: string | null
@@ -439,14 +494,9 @@ async function resolveVariant(
     throw new Error('compose-sequence: messaging document has no variants to assign.')
   }
 
-  // Deterministic assignment: stable hash of prospect.id modulo variant count.
-  // No database read. Distribution is stable across runs for same prospect.
-  let hash = 0
-  for (const char of prospect.id) {
-    hash = ((hash << 5) - hash) + char.charCodeAt(0)
-    hash = hash & hash // Convert to 32-bit integer
-  }
-  const assigned = availableVariants[Math.abs(hash) % availableVariants.length]
+  // Deterministic assignment, shared with the research writer so both target the same
+  // variant. No database read. Stable across runs for the same prospect.
+  const assigned = assignVariantDeterministically(prospect.id, availableVariants)
 
   // Write both variant_id and messaging_doc_id together. Fail if write fails.
   const { error: updateError } = await supabase

@@ -21,6 +21,13 @@ import { fetchWebSearchSource } from './research/sources/web-search'
 import { synthesizeResearch }  from './research/synthesize'
 import { FrameRegistry } from '@/lib/style/sentence-frames'
 import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
+import {
+  fetchApprovedMessagingDoc,
+  composeEmail1WithOpening,
+  getVariantEmail1Frame,
+} from '@/lib/composition/compose-sequence'
+import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
+import { writeAndJudgeOpening, type OpeningResult } from './research/write-opening'
 import type {
   ProspectContext,
   RawSourceData,
@@ -67,6 +74,7 @@ async function storeResearchResult(
   rawData: RawSourceData,
   synthesis: Awaited<ReturnType<typeof synthesizeResearch>>,
   runId: string | null,
+  opening: OpeningResult,
 ): Promise<string> {
   const supabase = getServiceClient()
   const { sources_attempted, sources_successful } = buildSourceTracking(rawData)
@@ -80,13 +88,15 @@ async function storeResearchResult(
       icp_fit:              synthesis.icp_fit,
       has_dateable_signal:  synthesis.has_dateable_signal,
       signal_observation:   synthesis.signal_observation,
-      signal_relevance:     synthesis.signal_relevance,
+      signal_relevance:     opening.verdict === 'SEND' ? 'use_as_hook' : 'no_signal',
       qualification_status: synthesis.qualification_status,
       qualification_reason: synthesis.qualification_reason,
       // The audit row keeps the proxy when no trigger was written, so what the agent WOULD
       // have said stays inspectable. signal_relevance on this same row disambiguates:
       // no_signal means this column holds a proxy, not a researched observation.
-      trigger_text:         synthesis.trigger_text ?? synthesis.icp_pain_proxy,
+      // THE OPENING THAT SHIPPED, or the proxy when the judge held it. Only a SEND
+      // verdict yields an opening; see updateProspect for the prospects-side rule.
+      trigger_text:         opening.opening ?? synthesis.icp_pain_proxy,
       trigger_source:       synthesis.trigger_source,
       synthesis_reasoning:  synthesis.reasoning,
       synthesis_confidence: synthesis.confidence,
@@ -116,6 +126,7 @@ async function updateProspect(
   prospect: ProspectContext,
   synthesis: Awaited<ReturnType<typeof synthesizeResearch>>,
   resultId: string,
+  opening: OpeningResult,
 ): Promise<void> {
   const supabase = getServiceClient()
 
@@ -123,16 +134,21 @@ async function updateProspect(
     icp_fit:                    synthesis.icp_fit,
     has_dateable_signal:        synthesis.has_dateable_signal,
     signal_observation:         synthesis.signal_observation,
-    signal_relevance:           synthesis.signal_relevance,
     classified_at:              new Date().toISOString(),
     qualification_status:       synthesis.qualification_status,
     current_research_result_id: resultId,
-    // Keep personalisation_trigger in sync: compose-sequence.ts reads it directly and
-    // treats ANY non-null value as a researched observation. NULL when no candidate was
-    // selected, so composition resolves source 'none' and ships the variant's own opener.
-    personalisation_trigger:    synthesis.trigger_text,
+    // THE ONLY WRITE SITE FOR personalisation_trigger, and it fires ONLY on SEND.
+    // opening.opening is non-null if and only if the judge returned SEND on its final
+    // read. On HOLD this is NULL, composition resolves source 'none', and the variant's
+    // authored opener ships, which is approved copy and a perfectly good outcome.
+    personalisation_trigger:    opening.verdict === 'SEND' ? opening.opening : null,
+    signal_relevance:           opening.verdict === 'SEND' ? 'use_as_hook' : 'no_signal',
     trigger_confidence:         synthesis.confidence,
-    trigger_data:               synthesis,
+    // The judge audit trail, per prospect, for sampled review later. Stored in the
+    // existing trigger_data jsonb rather than behind a migration: the requirement is per
+    // prospect, this column already carries the whole synthesis payload, and the shape of
+    // a verdict record may still move.
+    trigger_data:               { ...synthesis, judge: opening },
     research_ran_at:            new Date().toISOString(),
   }
 
@@ -171,7 +187,7 @@ export async function runProspectResearchAgentV2({
     const supabase = getServiceClient()
     const { data: prospect, error: fetchError } = await supabase
       .from('prospects')
-      .select('id, first_name, last_name, company_name, role, email, linkedin_url, website_url, organisation_id, segment_id')
+      .select('id, first_name, last_name, company_name, role, email, linkedin_url, website_url, organisation_id, segment_id, variant_id')
       .eq('id', prospect_id)
       .eq('organisation_id', client_id)
       .single()
@@ -235,8 +251,47 @@ export async function runProspectResearchAgentV2({
     const { sources_attempted, sources_successful } = buildSourceTracking(rawData)
     logger.debug('prospect-research-v2: sources complete', { sources_attempted, sources_successful })
 
-    // Synthesize.
+    // Synthesize. The six tests now RANK the raw material; they no longer choose what
+    // ships. The writer below decides that, and the judge decides whether it ships at all.
     const synthesis = await synthesizeResearch(ctx, rawData, client_id)
+
+    // ── Write the opening FOR the email it lands in, then judge the finished artifact ──
+    //
+    // The variant matters because the opening has to lead into THAT variant's P3 and CTA.
+    // Read the assigned variant when there is one, otherwise resolve it with the same
+    // deterministic hash composition uses, so the writer targets the variant that will
+    // actually ship. Nothing is written back here: assignment stays composition's job.
+    const messaging = await fetchApprovedMessagingDoc(supabase, client_id, ctx.segment_id)
+    const availableVariants = messaging.content.variants
+      ? Object.keys(messaging.content.variants).sort()
+      : ['A', 'B', 'C', 'D']
+    const variantId = prospect.variant_id ?? assignVariantDeterministically(ctx.id, availableVariants)
+    const frame = getVariantEmail1Frame(messaging.content, variantId)
+
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    if (!apiKey) throw new Error('prospect-research-v2: ANTHROPIC_API_KEY not set')
+
+    const { data: org } = await supabase.from('organisations').select('name').eq('id', client_id).single()
+
+    const opening = await writeAndJudgeOpening({
+      apiKey,
+      clientName: (org?.name as string | null) ?? 'the client',
+      prospectFirstName: ctx.first_name,
+      candidates: synthesis.candidates,
+      p3: frame.p3,
+      cta: frame.cta,
+      // The judge must read the real artifact, so this calls the exact production path.
+      composeEmail1: (text: string) => composeEmail1WithOpening(messaging.content, variantId, text).body,
+      prospectId: ctx.id,
+    })
+
+    logger.info('prospect-research-v2: judge verdict', {
+      prospect_id: ctx.id,
+      variant_id: variantId,
+      verdict: opening.verdict,
+      retry_used: opening.retry_used,
+      reason: opening.judge_reasoning,
+    })
 
     // Cross-prospect sentence-frame check. A repeated frame is invisible to any per-prospect
     // check because each sentence is individually fine, so it can only be caught against the
@@ -249,23 +304,23 @@ export async function runProspectResearchAgentV2({
     // Only real triggers participate. A null trigger has no sentence to compare, and the
     // proxy is not sent to anyone, so registering it would manufacture collisions between
     // prospects that all correctly received nothing.
-    if (frameRegistry && synthesis.trigger_text) {
-      const collisions = frameRegistry.register(prospect.id, synthesis.trigger_text)
+    if (frameRegistry && opening.opening) {
+      const collisions = frameRegistry.register(prospect.id, opening.opening)
       for (const collision of collisions) {
         logger.warn('prospect-research-v2: repeated sentence frame across batch', {
           prospect_id:            prospect.id,
           first_seen_prospect_id: collision.firstSeenId,
           frame:                  collision.frame,
-          trigger_text:           synthesis.trigger_text,
+          trigger_text:           opening.opening,
         })
       }
     }
 
     // Store research result.
-    const resultId = await storeResearchResult(ctx, rawData, synthesis, agentRun.run_id)
+    const resultId = await storeResearchResult(ctx, rawData, synthesis, agentRun.run_id, opening)
 
     // Update prospect row.
-    await updateProspect(ctx, synthesis, resultId)
+    await updateProspect(ctx, synthesis, resultId, opening)
 
     const summaryLine =
       `${fullName} at ${ctx.company_name ?? 'unknown'}. ` +
@@ -285,7 +340,7 @@ export async function runProspectResearchAgentV2({
       signal_relevance:     synthesis.signal_relevance,
       qualification_status: synthesis.qualification_status,
       qualification_reason: synthesis.qualification_reason,
-      trigger_text:        synthesis.trigger_text,
+      trigger_text:        opening.verdict === 'SEND' ? opening.opening : null,
       trigger_source:      synthesis.trigger_source,
       relevance_reason:    synthesis.relevance_reason,
       synthesis_confidence: synthesis.confidence,

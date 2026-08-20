@@ -4424,3 +4424,30 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   generation went from 1 API call to 11, and a fully failing run burned 48. Every attempt
   is a full Sonnet call with the complete document context. Worth capping total attempts
   per run, or reporting cumulative cost in the run summary.
+
+## Write-in-context plus judge (2026-08-20)
+
+- [post-build] TRIGGER STALENESS AGAINST THE MESSAGING DOCUMENT. Openings are now written
+  FOR a specific variant's Email 1 P3 and CTA, and judged as part of that finished email.
+  That coupling is the whole point of the redesign, and it creates a dependency that did
+  not exist before: if the messaging document is revised, every stored
+  personalisation_trigger was tuned to copy that no longer ships. The opening may still be
+  factually fine and still read as a non-sequitur into a new P3.
+  Nothing detects this today. Options when it matters: stamp the messaging_doc_id and
+  variant onto the research result at write time and invalidate or re-judge when the
+  active document changes, or re-judge on demand before a send. Prefer re-judge over
+  re-write: the findings are still good, only the fit to the new copy is in question.
+  Not built now, per instruction.
+
+- [post-build] JUDGE AUDIT IS PER PROSPECT, NOT PER RUN. The verdict, reasoning, retry
+  flag and both attempts are stored in prospects.trigger_data (jsonb), which is overwritten
+  on each run. Chosen over a migration because the requirement was per prospect and that
+  column already carries the whole synthesis payload. If sampled review later needs the
+  history of verdicts across runs, that needs real columns on
+  prospect_research_results and a migration.
+
+- [post-build] v1 prospect-research-agent.ts still contains a personalisation_trigger write
+  at line 484. It is orphaned: nothing outside the file imports runProspectResearchAgent,
+  so it cannot fire. Left in place per the "do not delete pre-existing dead code" rule, but
+  it is a second write path to the column that the SEND-only rule does not govern. Delete
+  it with the rest of the v1 agent once v2 is fully dogfooded.
