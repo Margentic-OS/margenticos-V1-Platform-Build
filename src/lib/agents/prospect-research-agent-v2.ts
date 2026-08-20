@@ -405,6 +405,11 @@ export async function runProspectResearchAgentV2({
       variant_id: variantId,
       written_won: opening.written_won,
       retry_used: opening.retry_used,
+      // retries_used is the count, not the boolean. A second retry only exists for prospects
+      // with strong material, so both are needed to tell whether the extra attempt was
+      // available and whether it was what rescued the opening.
+      retries_used: opening.retries_used,
+      strong_material: opening.strong_material,
       reason: opening.judge_reasoning,
     })
 
