@@ -764,3 +764,16 @@ describe('the opening may not carry its own question mark', () => {
     expect(flat).not.toContain('There are more shapes than these four: a question')
   })
 })
+
+
+describe('the writer is asked for the same number of blocks in both turns', () => {
+  it('the shapes section warns against lifting the wording, not just the frame', () => {
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    // Observed: the first batch under this section returned "development is usually what
+    // gives", one noun off the worked "prospecting is usually what gives", and the batch
+    // gate threw it away. Examples get copied; this one now says so.
+    expect(flat).toContain('Those four are SHAPES, not phrases')
+    expect(flat).toContain('development is usually what gives')
+    expect(flat).toContain('Take the STRUCTURE and write your own words into it')
+  })
+})

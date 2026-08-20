@@ -230,6 +230,13 @@ other, none of them a preferred answer, and copying one verbatim recreates the p
   A CONSEQUENCE. States the position their situation puts them in.
     "That leaves one person deciding, every week, whether to sell or to deliver."
 
+Those four are SHAPES, not phrases. The first batch run under this section produced
+"development is usually what gives", lifted straight off "prospecting is usually what
+gives" above. Borrowing the wording is the same failure as borrowing the frame, and it is
+caught the same way: the batch gate compares skeletons, so a worked example with one noun
+changed collides and the attempt is thrown away. Take the STRUCTURE and write your own
+words into it.
+
 There are more shapes than these four: a short concession, a plain statement of what the
 situation costs, a comparison between the two halves of the same week. The point is that
 you choose the shape AFTER you know the observation, instead of reaching for the same one
@@ -733,8 +740,8 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     feedback: string | null,
   ): Promise<{ observation: string; bridge: string; opening: string; question: string; gates: string[] }> => {
     const user = feedback
-      ? `## Findings\n\n${findings}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the two labelled blocks.`
-      : `## Findings\n\n${findings}\n\nWrite the observation, the bridge and the closing question. Return ONLY the two labelled blocks.`
+      ? `## Findings\n\n${findings}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the three labelled blocks.`
+      : `## Findings\n\n${findings}\n\nWrite the observation, the bridge and the closing question. Return ONLY the three labelled blocks.`
     const raw = await callModel(client, WRITER_MODEL, writerSystem, user, 700, `writer for prospect ${params.prospectId}`)
     const parsed = parseWriterOutput(raw)
     // Scrub each half separately, then rejoin. Scrubbing the joined text risks a
