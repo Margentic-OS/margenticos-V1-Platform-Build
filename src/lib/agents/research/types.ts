@@ -249,11 +249,30 @@ export interface ResearchResult {
 export interface ResearchInput {
   prospect_id: string
   client_id: string
+  /**
+   * Skip source gathering and reuse the findings already stored for this prospect.
+   *
+   * First half of the caching work in BACKLOG. Sources are the expensive and fragile part
+   * of a run: LinkedIn costs real money per call and degrades SILENTLY when the Apify
+   * balance is empty, which on 2026-08-20 produced thirteen openings written without any
+   * LinkedIn data while every log line still read as success. Re-running the writer and
+   * judge does not need fresh sources at all when good findings are already on file.
+   *
+   * The row chosen is the BEST stored result, not the most recent: LinkedIn present
+   * first, then most candidates, then newest. Most-recent would have selected the
+   * degraded rows from that same incident.
+   *
+   * Falls back to a normal fetching run when nothing usable is stored, so a prospect that
+   * has never been researched still works.
+   */
+  use_stored_findings?: boolean
 }
 
 export interface ResearchBatchInput {
   prospect_ids: string[]
   client_id: string
+  /** See ResearchInput.use_stored_findings. Applies to every prospect in the batch. */
+  use_stored_findings?: boolean
   skip_existing?: boolean
   confirm_before_run?: boolean  // default true; set false for programmatic/test use under 10 prospects
   concurrency?: number          // max simultaneous prospect calls; default 5 (Apollo/Brave rate limit ceiling)

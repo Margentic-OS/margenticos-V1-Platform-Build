@@ -37,6 +37,8 @@ import type {
   ResearchBatchSummary,
   ResearchBatchFailure,
   ResearchFrameCollision,
+  ObservationCandidate,
+  SynthesisOutput,
 } from './research/types'
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
@@ -173,11 +175,93 @@ async function updateProspect(
   }
 }
 
+// ─── Stored findings, the no-fetch path ──────────────────────────────────────
+//
+// Loads the BEST research result already on file for a prospect. "Best" is deliberately
+// not "most recent": on 2026-08-20 an empty Apify balance produced a full batch of rows
+// where LinkedIn silently failed, and most-recent would select exactly those. Ordering by
+// LinkedIn-present, then candidate count, then recency, picks the last run that actually
+// saw everything.
+async function loadStoredFindings(
+  supabase: ReturnType<typeof getServiceClient>,
+  prospect_id: string,
+  client_id: string,
+): Promise<{ result_id: string; candidates: ObservationCandidate[]; had_linkedin: boolean; created_at: string } | null> {
+  const { data, error } = await supabase
+    .from('prospect_research_results')
+    .select('id, candidates, sources_successful, created_at')
+    .eq('prospect_id', prospect_id)
+    .eq('organisation_id', client_id)
+    .order('created_at', { ascending: false })
+
+  if (error || !data || data.length === 0) return null
+
+  const scored = data
+    .map(row => ({
+      result_id: row.id as string,
+      candidates: (row.candidates ?? []) as ObservationCandidate[],
+      had_linkedin: ((row.sources_successful ?? []) as string[]).includes('linkedin'),
+      created_at: row.created_at as string,
+    }))
+    .filter(r => r.candidates.length > 0)
+
+  if (scored.length === 0) return null
+
+  scored.sort((a, b) =>
+    (Number(b.had_linkedin) - Number(a.had_linkedin))
+    || (b.candidates.length - a.candidates.length)
+    || b.created_at.localeCompare(a.created_at),
+  )
+  return scored[0]
+}
+
+// Rebuilds a SynthesisOutput from stored candidates without calling the model. The six
+// tests already ran when these candidates were generated, and their only remaining job is
+// to RANK the material handed to the writer, so re-scoring them would change nothing.
+// Fields the writer and judge never read are set to honest placeholders rather than
+// invented values.
+async function synthesisFromStored(
+  stored: { result_id: string; candidates: ObservationCandidate[]; had_linkedin: boolean; created_at: string },
+  ctx: ProspectContext,
+  client_id: string,
+): Promise<SynthesisOutput> {
+  logger.info('prospect-research-v2: reusing stored findings, no sources fetched', {
+    prospect_id: ctx.id,
+    source_result_id: stored.result_id,
+    candidate_count: stored.candidates.length,
+    had_linkedin: stored.had_linkedin,
+    findings_from: stored.created_at,
+  })
+
+  return {
+    icp_fit: 'moderate',
+    has_dateable_signal: stored.candidates.some(c => c.date !== null),
+    signal_observation: stored.candidates[0]?.observation ?? null,
+    signal_relevance: 'no_signal',   // overwritten by the judge verdict downstream
+    qualification_status: 'qualified',
+    qualification_reason: null,
+    confidence: 'medium',
+    trigger_text: null,              // the writer produces this, not synthesis
+    icp_pain_proxy: null,
+    trigger_source: null,
+    relevance_reason: `Findings reused from research result ${stored.result_id} (${stored.created_at}). No sources fetched.`,
+    reasoning: `Stored-findings run. Candidates carried over from ${stored.result_id}.`,
+    candidates: stored.candidates,
+    selected_candidate_id: null,
+    trigger_readability: {
+      hard_fail: false, penalty: 0, max_sentence_words: 0, hedges: [],
+      nominalisation_density: 0, nominalisation_over_threshold: false, reasons: [],
+    },
+    demotion_reason: null,
+  }
+}
+
 // ─── Main function ────────────────────────────────────────────────────────────
 
 export async function runProspectResearchAgentV2({
   prospect_id,
   client_id,
+  use_stored_findings = false,
   frameRegistry,
 }: ResearchInput & { frameRegistry?: FrameRegistry }): Promise<ResearchResult> {
   const agentRun = await startAgentRun({ organisation_id: client_id, agent_name: 'prospect-research-v2' })
@@ -233,13 +317,33 @@ export async function runProspectResearchAgentV2({
     const fullName = [ctx.first_name, ctx.last_name].filter(Boolean).join(' ') || 'Unknown'
     logger.debug('prospect-research-v2: starting', { prospect_id, name: fullName })
 
+    // Stored-findings path: skip every source and every synthesis call, and reuse the
+    // candidates already on file. Nothing here touches Apify, Apollo, Brave or the
+    // prospect's website.
+    const stored = use_stored_findings
+      ? await loadStoredFindings(supabase, prospect_id, client_id)
+      : null
+
+    if (use_stored_findings && !stored) {
+      logger.warn('prospect-research-v2: no usable stored findings, falling back to a fetching run', {
+        prospect_id,
+      })
+    }
+
     // Run all four sources in parallel — failures are isolated per source.
-    const [linkedIn, apollo, website, webSearch] = await Promise.all([
-      fetchLinkedInSource(ctx),
-      fetchApolloSource(ctx),
-      fetchWebsiteSource(ctx),
-      fetchWebSearchSource(ctx),
-    ])
+    const [linkedIn, apollo, website, webSearch] = stored
+      ? [
+          { available: false, profile_data: null, recent_posts: null, formatted: null, error: 'skipped: stored findings reused' },
+          { available: false, formatted: null, raw: null, error: 'skipped: stored findings reused' },
+          { available: false, url: null, content: null, fetch_method: null, error: 'skipped: stored findings reused' },
+          { available: false, person_search: null, company_search: null, combined: null, error: 'skipped: stored findings reused' },
+        ] as const
+      : await Promise.all([
+          fetchLinkedInSource(ctx),
+          fetchApolloSource(ctx),
+          fetchWebsiteSource(ctx),
+          fetchWebSearchSource(ctx),
+        ])
 
     const rawData: RawSourceData = {
       linkedin:   linkedIn,
@@ -253,7 +357,9 @@ export async function runProspectResearchAgentV2({
 
     // Synthesize. The six tests now RANK the raw material; they no longer choose what
     // ships. The writer below decides that, and the judge decides whether it ships at all.
-    const synthesis = await synthesizeResearch(ctx, rawData, client_id)
+    const synthesis = stored
+      ? await synthesisFromStored(stored, ctx, client_id)
+      : await synthesizeResearch(ctx, rawData, client_id)
 
     // ── Write the opening FOR the email it lands in, then judge the finished artifact ──
     //
@@ -428,6 +534,7 @@ export async function runProspectResearchAgentV2Batch({
   skip_existing = true,
   confirm_before_run = true,
   concurrency = 5,
+  use_stored_findings = false,
 }: ResearchBatchInput): Promise<ResearchBatchSummary> {
   const failures: ResearchBatchFailure[] = []
   const frame_collisions: ResearchFrameCollision[] = []
@@ -447,6 +554,12 @@ export async function runProspectResearchAgentV2Batch({
   const frameRegistry = new FrameRegistry()
 
   // Show cost estimate and require confirmation for batches of 10+ prospects.
+  if (use_stored_findings) {
+    logger.info('prospect-research-v2 batch: stored-findings mode, no sources will be fetched', {
+      prospect_count: prospect_ids.length,
+    })
+  }
+
   if (confirm_before_run && prospect_ids.length >= 10) {
     printCostEstimate(prospect_ids.length)
     const confirmed = await promptConfirm('  Continue? [y/N]: ')
@@ -505,7 +618,7 @@ export async function runProspectResearchAgentV2Batch({
         return
       }
       try {
-        await runProspectResearchAgentV2({ prospect_id, client_id, frameRegistry })
+        await runProspectResearchAgentV2({ prospect_id, client_id, frameRegistry, use_stored_findings })
         summary.completed++
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)

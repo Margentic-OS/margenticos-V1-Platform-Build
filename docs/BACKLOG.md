@@ -4451,3 +4451,31 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   so it cannot fire. Left in place per the "do not delete pre-existing dead code" rule, but
   it is a second write path to the column that the SEND-only rule does not govern. Delete
   it with the rest of the v1 agent once v2 is fully dogfooded.
+
+## Stored-findings reuse and the silent Apify degrade (2026-08-20)
+
+- [DONE, first half of caching] `use_stored_findings` on ResearchInput and
+  ResearchBatchInput skips all four sources and reuses the candidates already on file.
+  Selection is BEST, not most recent: LinkedIn present, then candidate count, then
+  recency. Falls back to a fetching run when nothing usable is stored.
+
+- [post-build] SOURCE FAILURE IS INVISIBLE AT THE RUN LEVEL. When the Apify balance
+  emptied, fetchLinkedInSource returned available:false, the row simply lost 'linkedin'
+  from sources_successful, and the batch reported 13/13 completed with no warning. The
+  openings were written from Apollo and website text only, which is exactly the
+  CV-fact material the writer work spent the day eliminating. Nothing compares
+  sources_successful against sources_attempted and escalates. A run that loses a paid
+  source should be loud, and arguably should abort like the credit handler does.
+
+- [post-build] APIFY COST ESTIMATE IS WRONG BY ROUGHLY AN ORDER OF MAGNITUDE. COST_APIFY
+  is 0.006 per prospect, but each research run fires TWO actors
+  (harvestapi~linkedin-profile-scraper and harvestapi~linkedin-profile-posts), so the
+  constant understates by 2x before pricing is even considered. 99 research runs for this
+  org means 198 actor runs. Reconcile the real per-actor price against the Apify console
+  and correct the constant, and make printCostEstimate multiply by the actor count rather
+  than the prospect count.
+
+- [post-build] RE-RUNNING RESEARCH RE-FETCHES EVERYTHING. Every writer or judge iteration
+  today ran a full four-source fetch because skip_existing was false. That is what turned
+  15 prospects into 99 research runs. With use_stored_findings now available, prompt
+  iteration should never touch a paid source again.
