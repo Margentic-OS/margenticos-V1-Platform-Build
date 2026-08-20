@@ -235,7 +235,9 @@ interface StoredFindings {
 // LinkedIn-present, then candidate count, then recency, picks the last run that actually
 // saw everything. The age window and the row cap bound WHICH rows are considered; they do
 // not change that ordering.
-async function loadStoredFindings(
+// Exported for its test. The previous test mirrored this ordering in a local copy, which
+// by construction could not fail when the real function drifted away from it.
+export async function loadStoredFindings(
   supabase: ReturnType<typeof getServiceClient>,
   prospect_id: string,
   client_id: string,
@@ -256,7 +258,21 @@ async function loadStoredFindings(
     .order('created_at', { ascending: false })
     .limit(STORED_FINDINGS_SCAN_LIMIT)
 
-  if (error || !data || data.length === 0) return null
+  // A query fault and an empty history are different events and only one of them is
+  // routine. Collapsing both into a bare null meant a transient database failure looked
+  // exactly like "this prospect has never been researched": the run fell through to the
+  // paid four-source path and nothing in the log said why. The fallback is the same and is
+  // safe either way, so this changes what gets recorded, not what happens next.
+  if (error) {
+    logger.error('prospect-research-v2: stored-findings lookup failed, falling back to a fetching run', {
+      prospect_id,
+      client_id,
+      error: error.message,
+    })
+    return null
+  }
+
+  if (!data || data.length === 0) return null
 
   const scored = data
     .map(row => ({
