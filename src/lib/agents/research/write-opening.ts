@@ -16,6 +16,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { logger } from '@/lib/logger'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
+import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/firmographic'
 import type { ObservationCandidate } from './types'
 
 const WRITER_MODEL = 'claude-sonnet-4-6'
@@ -83,31 +84,47 @@ will send:
 
   ${params.cta}
 
-YOUR JOB IS TWO THINGS, NOT ONE.
+START BY READING THOSE TWO LINES, BEFORE YOU LOOK AT THE FINDINGS.
+
+Work out precisely which problem they answer. Not the general area they sit in. The
+specific problem, the one a person would have to be feeling for that question to be the
+natural thing to ask them.
+
+That problem is your target. Everything you write aims at it.
+
+YOUR JOB IS TWO THINGS.
 
 First, the observation: the thing you noticed about this specific person.
 
-Second, and this is the part that is usually missing, the sentence that says what the
-observation MEANS for how they win work today. Name the gap the observation implies. Do
-not solve it. The approved line after yours does that, and it should land as the obvious
-next thing to say rather than as a pivot the reader has to bridge themselves.
+Second, the sentence that names THAT problem, the one the two lines above answer, as it
+shows up in this prospect's situation. Not a related problem. Not an adjacent one. Not
+whatever gap the observation happens to imply. The one the next two lines actually answer.
 
-An observation on its own leaves the offer answering a question nobody asked. Here is
-exactly that failure, from real output:
+Then stop. Do not solve it. The approved line after yours does that.
 
-INCOMPLETE:
-  "Heard your episode on Founders Future from January, building Electro after redundancy,
-   then positioning it directly against what you called consulting's replication problem."
-True, specific, well observed, and it stops dead. The next line about filling the diary
-arrives from nowhere, because nothing has said what the observation implies.
+THE TEST, and run it on every draft. Read your text, then the offer line, then the
+question, as one message. If the reader could answer that question with "that is not
+quite my problem", you aimed at the wrong gap. Rewrite it.
 
-COMPLETE:
-  "Heard your episode on Founders Future from January, building Electro after redundancy
-   and pointing it straight at consulting's replication problem. A position that sharp only
-   pays when the right conversations keep arriving, and that flow is the one thing that
-   does not build itself."
-Same observation. The second sentence names what it implies about winning work, and now
-the offer line answers something that was actually asked.
+Here is exactly that failure, from real output:
+
+AIMED WRONG:
+  observation and bridge: "The weekly inbound you're fielding from people wanting to
+   collaborate says the brand is working. The clients you actually want are a different
+   current, and it doesn't run on the same word of mouth."
+  the question it runs into: "Is getting more conversations in front of you something
+   you're working on?"
+The bridge says she already has plenty of conversations and they are the wrong ones. The
+question asks whether she wants MORE. She does not want more. She wants different. Every
+sentence is true and the email still misses, because the bridge and the question are
+pointed at two different problems.
+
+AIMED RIGHT, same observation, aimed at what that question actually asks:
+  "The weekly inbound you're fielding from people wanting to collaborate says the brand is
+   working. What it isn't doing is putting you in front of the buyers you'd actually take
+   on, and there is no version of that which arrives on its own."
+Now the reader is short of the right conversations, which is exactly what being asked
+about more conversations answers.
 
 THE BRIDGE MUST COME FROM THIS OBSERVATION. If the sentence you write would sit just as
 comfortably under a different prospect's observation, it is filler and it has failed.
@@ -119,6 +136,8 @@ case studies", no lists of what is missing from their site or their feed. A seni
 does not tell a founder their website is thin. It reads as a stranger auditing them, it
 puts them on the defensive, and defensive people do not reply. Notice something that IS
 there instead.
+
+${FIRMOGRAPHIC_RULE_TEXT}
 
 WHAT GOOD LOOKS LIKE, and what does not. These are real openings from this system.
 
@@ -138,18 +157,18 @@ GOOD:
   "Saw your post asking your network for restaurant chains in the 5-15 location range.
    That is a fast way to find the good ones, and it only reaches as far as the people who
    already know you."
-Something he actually did, then what it implies about the limits of how he finds work. The
-offer line lands straight on top of that.
+Something he actually did, then the shortage of the right conversations that follows from
+it. A question about getting more conversations in front of him answers exactly that.
 
 GOOD:
-  "Thirteen months carrying CRC alongside the firm says you can hold a serious delivery
-   load. With that finished, the capacity is back before the pipeline is."
-An observation, then the consequence that follows only from it. Nothing here would fit
-another founder's situation.
+  "Fourteen months carrying CRC alongside the firm says you can hold a serious delivery
+   load. The engagement finished in August and the diary behind it did not fill itself."
+An observation, then the same shortage, arriving through this founder's specific timing.
+Nothing here would fit anyone else.
 
 The difference between the failing and the good pair is not tone and it is not accuracy.
-All four are accurate. The good ones notice something and say what it means. The failing
-ones report something and stop.
+All four are accurate. The good ones land on the problem the closing question asks about.
+The failing ones report something and stop.
 
 CONSTRAINTS, and there are only four:
   At most three sentences, at most ${OPENING_MAX_WORDS} words, for the observation and the
@@ -182,8 +201,8 @@ export function buildJudgePrompt(): string {
   return `You are the head of sales. Two drafts of the same cold email are in front of you,
 both written by your team, both ready to send. They differ only in how they open.
 
-Both go out under your name. Which one reads as a single message where every line follows
-from the one before, and gets a reply?
+Both go out under your name. Which one reads as a single message where the closing
+question is the obvious thing to ask this person after everything above it?
 
 Answer A or B, then one sentence on why.
 
@@ -261,6 +280,17 @@ export function checkOpeningGates(
   const untraceable = untraceableClaims(opening, findingsText)
   if (untraceable.length > 0) {
     failures.push(`claims not traceable to any finding: ${untraceable.join(', ')}`)
+  }
+
+  // A DELIBERATE FOURTH GATE. The brief said to keep the deterministic gates unchanged,
+  // and this adds one, so the reasoning should be on the record. A prompt rule alone is
+  // advisory (ADR-028), the messaging agent enforces this same ban in code, and the
+  // failure it prevents has already shipped once: "a $5M consulting firm" in Bob's
+  // opening. Traceability would not have caught it, because the figure was genuinely in
+  // the findings. Being in the findings is exactly what makes it dangerous.
+  const figures = findFirmographicFigures(opening)
+  if (figures.length > 0) {
+    failures.push(`quotes ${figures.join(' and ')} from the prospect's record: qualify by role, stage or situation instead`)
   }
 
   return failures

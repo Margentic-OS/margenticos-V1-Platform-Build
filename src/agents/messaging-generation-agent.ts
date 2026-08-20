@@ -27,6 +27,7 @@ import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { scrubAITells, scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
 import { nominalisationDensity, NOMINALISATION_THRESHOLD } from '@/lib/style/nominalisation'
 import { findBackReferences } from '@/lib/style/back-reference'
+import { BANNED_FIRMOGRAPHIC } from '@/lib/style/firmographic'
 import { SentenceRegistry, comparableSentences } from '@/lib/style/sentence-frames'
 // countWords is imported from the composition layer on purpose: the agent and composition
 // must measure word counts identically or the stored count and the sent count disagree.
@@ -1616,31 +1617,9 @@ export const EMAIL_SUBJECT_LIMITS = {
 // One question per email. The CTA is the question. Rhetorical questions count.
 export const MAX_QUESTIONS_PER_EMAIL = 1
 
-// Figures drawn from the prospect's firmographic record. HARD FAIL.
-//
-// The last generation shipped "Most B2B consulting firms at the £500K to £5M mark" and
-// "For most consulting founders billing north of £500K". Both quote the ICP's revenue
-// band back at the reader in the opening line.
-//
-// Three reasons this is banned rather than discouraged. It reads as a database lookup,
-// which is the exact impression the personalisation layer exists to avoid. It may simply
-// be wrong, since the figure comes from a data provider and not from the prospect. And
-// being wrong about someone's revenue in the first sentence is worse than being generic,
-// because a generic line is merely ignored while a wrong number is disproved.
-//
-// The population may still be qualified by ROLE, STAGE or SITUATION. The revenue band
-// belongs in TARGETING, which decides who receives the email, never in the email itself.
-//
-// Deliberately narrow so ordinary numbers survive: "your last 30 reviews", "4 of the most
-// recent 10", "13 months", "August 2025" and "six or eight weeks" all pass untouched.
-const BANNED_FIRMOGRAPHIC: ReadonlyArray<{ pattern: RegExp; label: string }> = [
-  { pattern: /[£$€]\s?\d/,                                    label: 'a currency amount' },
-  { pattern: /\b\d+(?:\.\d+)?\s*[km]\b/i,                     label: 'a figure like 500K or 5M' },
-  { pattern: /\b\d+(?:\.\d+)?\s*(?:bn|billion|million)\b/i,   label: 'a figure in millions or billions' },
-  { pattern: /\b\d+\s*(?:employees|staff|headcount)\b/i,      label: 'a headcount' },
-  { pattern: /\bteam of \d+/i,                                label: 'a team size' },
-  { pattern: /\b\d+[- ]person\b/i,                            label: 'a team size' },
-]
+// Firmographic figures are banned in both the messaging agent and the research writer,
+// so the patterns live in one shared module. See src/lib/style/firmographic.ts for the
+// full reasoning and the false-positive boundaries.
 
 // Internal vocabulary that must never reach a prospect. These are the words we use to
 // describe the work to each other, not words the buyer introduced. "ICP" shipped in a

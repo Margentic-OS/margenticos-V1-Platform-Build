@@ -2,6 +2,7 @@
 // not tested here; these cover the three gates and the fail-closed verdict parse.
 
 import { describe, it, expect } from 'vitest'
+import { FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/firmographic'
 import {
   checkOpeningGates,
   parseChoice,
@@ -44,6 +45,25 @@ describe('gate: second person', () => {
 
   it('does not fire when the first name is absent from prospects', () => {
     expect(checkOpeningGates('You left Pani in July 2024.', null, 'left Pani in July 2024')).toEqual([])
+  })
+})
+
+describe('gate: firmographic figures', () => {
+  it('fails the real "$5M consulting firm" that shipped in Bob\'s opening', () => {
+    const findings = 'Fitch Consulting is a $5M consulting firm launching Fitch Media.'
+    const failures = checkOpeningGates('Launching Fitch Media while running a $5M consulting firm is a real plate to spin.', null, findings)
+    expect(failures.some(f => f.includes('firmographic') || f.includes("prospect's record"))).toBe(true)
+  })
+
+  it('fails even though the figure IS in the findings, which is the point', () => {
+    // Traceability passes it. Being sourced is what makes a revenue figure dangerous.
+    const findings = 'Apollo reports 12 employees.'
+    expect(checkOpeningGates('You have 12 employees now.', null, findings).length).toBeGreaterThan(0)
+  })
+
+  it('leaves dates, tenures and post counts alone', () => {
+    const findings = 'Fourteen months running CRC. Three posts since 2016. Last 30 reviews.'
+    expect(checkOpeningGates('Fourteen months running CRC says a lot, and your last 30 reviews show it.', null, findings)).toEqual([])
   })
 })
 
@@ -133,15 +153,12 @@ describe('prompt shape', () => {
     expect((p.match(/\?/g) ?? []).length).toBe(1)
   })
 
-  it('the judge now asks about coherence across the whole message', () => {
-    // The phrase wraps across a line in the template literal, so normalise whitespace.
-    const flat = buildJudgePrompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('reads as a single message where every line follows from the one before')
-  })
+
 
   it('the judge prompt frames a choice between two sendable drafts, with no free rejection', () => {
     const p = buildJudgePrompt()
-    expect(p).toContain('gets a reply?')
+    expect(p).toContain('both ready to send')
+    expect(p).toContain('Both go out under your name')
     expect(p).toContain('both ready to send')
     // The costless-rejection framing is gone: it is what produced 0 of 13.
     expect(p).not.toContain('HOLD')
@@ -161,11 +178,32 @@ describe('prompt shape', () => {
     expect(p).not.toContain('There is no blog, no case studies')
   })
 
+  it('the writer prompt aims the bridge at the offer, with the Shevonne failure verbatim', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const flat = p.replace(/\s+/g, ' ')
+    expect(p).toContain('START BY READING THOSE TWO LINES')
+    expect(p).toContain('AIMED WRONG:')
+    expect(p).toContain('AIMED RIGHT')
+    // The real failure, verbatim.
+    expect(flat).toContain('The clients you actually want are a different current')
+    expect(flat).toContain('Is getting more conversations in front of you something')
+    // And the explicit test for aiming.
+    expect(flat).toContain('that is not quite my problem')
+  })
+
+  it('the writer prompt carries the shared firmographic ban', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    expect(p).toContain(FIRMOGRAPHIC_RULE_TEXT)
+  })
+
+  it('the judge now tests the closing question, not general flow', () => {
+    const flat = buildJudgePrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('the closing question is the obvious thing to ask this person')
+  })
+
   it('the writer prompt asks for the observation AND the bridge, with the worked pair', () => {
     const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
-    expect(p).toContain('YOUR JOB IS TWO THINGS, NOT ONE')
-    expect(p).toContain('INCOMPLETE:')
-    expect(p).toContain('COMPLETE:')
+    expect(p).toContain('YOUR JOB IS TWO THINGS')
     // The bridge must be prospect-specific, not reusable filler.
     expect(p).toContain('THE BRIDGE MUST COME FROM THIS OBSERVATION')
   })
