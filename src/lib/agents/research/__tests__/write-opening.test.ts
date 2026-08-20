@@ -4,6 +4,9 @@
 import { describe, it, expect } from 'vitest'
 import { FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/firmographic'
 import {
+  buildFloorPrompt,
+  parseFloor,
+  parseWriterOutput,
   checkOpeningGates,
   parseChoice,
   buildFindingsBlock,
@@ -215,7 +218,7 @@ describe('prompt shape', () => {
   it('the writer prompt aims the bridge at the offer, with the Shevonne failure verbatim', () => {
     const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
     const flat = p.replace(/\s+/g, ' ')
-    expect(p).toContain('START BY READING THOSE TWO LINES')
+    expect(p).toContain('START BY READING THE OFFER LINE')
     expect(p).toContain('AIMED WRONG:')
     expect(p).toContain('AIMED RIGHT')
     // The real failure, verbatim.
@@ -244,14 +247,14 @@ describe('prompt shape', () => {
 
   it('the writer prompt states the loosened limits and nothing wider', () => {
     const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
-    expect(p).toContain('At most three sentences')
-    expect(p).toContain('50 words')
+    expect(p).toContain('At most four sentences')
+    expect(p).toContain('62 words')
   })
 
-  it('the opening cap fits composition\'s 90-word ceiling on the tightest variant', () => {
-    // Measured against the live document: the fixed remainder (greeting, P3, CTA,
-    // two-line sign-off) is at most 31 words, so 90 - 31 = 59 words of headroom.
-    expect(OPENING_MAX_WORDS).toBeLessThanOrEqual(59)
+  it('the cap fits the 90-word ceiling now the writer owns the CTA too', () => {
+    // Measured live: the approved CTA no longer consumes budget, so what stays fixed is
+    // the greeting, P3 and the two sign-off lines. Tightest variant (D) leaves 70 words.
+    expect(OPENING_MAX_WORDS).toBeLessThanOrEqual(70)
   })
 
   it('both FAILING examples are retained', () => {
@@ -265,5 +268,84 @@ describe('possessive forms are traceable', () => {
   it('does not flag "SCG\'s" when the findings contain "SCG"', () => {
     const findings = 'Daedra left GP Strategies in June 2024, making SCG her sole focus.'
     expect(checkOpeningGates("You left GP Strategies in June 2024. SCG's been the focus since.", null, findings)).toEqual([])
+  })
+})
+
+
+// ─── The floor, and the writer's two-block output ────────────────────────────
+
+describe('the floor disqualifies claims of private knowledge', () => {
+  it('asks one question about knowability and nothing about quality', () => {
+    const p = buildFloorPrompt()
+    expect((p.match(/\?/g) ?? []).length).toBe(1)
+    expect(p.replace(/\s+/g, ' ')).toContain('could not be known from public information')
+    // It is not a comparison: no A, no B, no "which".
+    expect(p).not.toContain('VERSION A')
+    expect(p).not.toContain('Which one')
+  })
+
+  it('reads a clean pass', () => {
+    const f = parseFloor('CLAIMS_PRIVATE: NO\nREASON: Everything asserted is visible publicly.')
+    expect(f.claims_private).toBe(false)
+  })
+
+  it('reads a clean disqualification', () => {
+    const f = parseFloor('CLAIMS_PRIVATE: YES\nREASON: It claims their pipeline runs warm.')
+    expect(f.claims_private).toBe(true)
+    expect(f.reason).toContain('pipeline runs warm')
+  })
+
+  it('treats an unreadable reply as disqualified, never as a pass', () => {
+    // Ambiguity can only ever fall back to the approved template.
+    expect(parseFloor('hard to say really').claims_private).toBe(true)
+    expect(parseFloor('').claims_private).toBe(true)
+  })
+})
+
+describe('writer output parsing', () => {
+  it('splits the two labelled blocks', () => {
+    const r = parseWriterOutput('OPENING: An observation and a bridge.\nQUESTION: Is that something you are working on?')
+    expect(r.opening).toBe('An observation and a bridge.')
+    expect(r.question).toBe('Is that something you are working on?')
+  })
+
+  it('handles a multi-sentence opening across lines', () => {
+    const r = parseWriterOutput('OPENING: First sentence here. Second sentence here.\n\nQUESTION: Is this the gap?')
+    expect(r.opening).toContain('Second sentence here.')
+    expect(r.question).toBe('Is this the gap?')
+  })
+
+  it('returns an empty question when the writer omits it, so the gate can catch it', () => {
+    expect(parseWriterOutput('OPENING: Just an observation.').question).toBe('')
+  })
+})
+
+describe('the writer prompt carries the question job and the Shevonne failure', () => {
+  it('names the three parts and pins the offer line as fixed', () => {
+    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'THE_P3', cta: 'THE_CTA' })
+    const flat = p.replace(/\s+/g, ' ')
+    expect(p).toContain('[YOUR CLOSING QUESTION GOES HERE]')
+    expect(flat).toContain('The offer line in the middle is FIXED')
+    expect(p).toContain('THE_P3')
+  })
+
+  it('passes the four approved CTAs as register anchors', () => {
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    expect(flat).toContain('Is pipeline consistency something you\'re actively trying to fix?')
+    expect(flat).toContain('Is getting more conversations in front of you something you\'re working on?')
+    expect(flat).toContain('Is this a gap you\'re looking to close?')
+    expect(flat).toContain('Worth a look to see if it fits where you are?')
+  })
+
+  it('carries the Shevonne browsers-versus-buyers failure verbatim, with a correction', () => {
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    expect(flat).toContain('builds an audience of browsers before it builds a pipeline of buyers')
+    expect(flat).toContain('She does not want more. She wants different ones.')
+    expect(flat).toContain('Is turning that audience into the right kind of buyer something you\'re working on?')
+  })
+
+  it('the cap fits the tightest variant with room to spare', () => {
+    // Measured live: greeting + P3 + two sign-off lines leaves 70 words on variant D.
+    expect(OPENING_MAX_WORDS).toBeLessThanOrEqual(70 - 8)
   })
 })

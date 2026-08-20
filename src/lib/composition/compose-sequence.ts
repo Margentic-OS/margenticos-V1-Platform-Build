@@ -65,6 +65,12 @@ interface ProspectRow {
   segment_id: string | null
   variant_id: string | null
   personalisation_trigger: string | null
+  /**
+   * The written closing question, replacing the variant's approved CTA. NULL keeps the
+   * approved one. Written only when the personalised version wins the judge, alongside
+   * personalisation_trigger, so the two are always set or cleared together.
+   */
+  personalisation_question: string | null
   has_dateable_signal: boolean | null
   signal_relevance: string | null
   /** Written by the (currently orphaned) research agent. NULL for every sourced prospect. */
@@ -216,6 +222,15 @@ export async function composeSequence({
     ? applyTriggerToEmail1(variantEmails, trigger.text)
     : variantEmails.map(email => ({ ...email }))
 
+  // The written closing question, when research produced one. It replaces the approved
+  // CTA and nothing else: the P3 offer line is the client's positioning and stays fixed.
+  // Gated on the researched path for the same reason the opener is: without research
+  // there is no prospect-specific question to ask, and the approved CTA is good copy.
+  const afterQuestion: ComposedEmail[] =
+    trigger.source === 'research' && prospect.personalisation_question
+      ? applyQuestionToEmail1(afterTrigger, prospect.personalisation_question)
+      : afterTrigger
+
   // Step 4b — Haiku bridge + personalised CTA for Email 1.
   //
   // FAIL CLOSED: this step only runs when the trigger came from real prospect research.
@@ -231,7 +246,7 @@ export async function composeSequence({
       ?? 'consistent outbound pipeline without founder involvement'
 
     composedEmails = await applyPersonalization(
-      afterTrigger,
+      afterQuestion,
       prospect,
       trigger.text,
       clientValueHook,
@@ -254,7 +269,7 @@ export async function composeSequence({
     // Recompute word_count from the body rather than trusting the stored count. On this
     // path P2 was not replaced, so the stored count should already agree; recomputing
     // keeps one source of truth and costs nothing.
-    composedEmails = afterTrigger.map(email => ({ ...email, word_count: countWords(email.body) }))
+    composedEmails = afterQuestion.map(email => ({ ...email, word_count: countWords(email.body) }))
   }
 
   // Step 5. Append the opt-out footer to every email, last.
@@ -268,6 +283,31 @@ export async function composeSequence({
     variant_id: variantId,
     emails: emailsWithFooter,
   }
+}
+
+// Replaces Email 1's CTA paragraph with a written question.
+//
+// The CTA is the paragraph immediately before the sign-off block, and the sign-off is
+// always last with nothing after it (the opt-out footer is appended later, downstream of
+// this). So the CTA is the second-to-last paragraph, which is a structural fact rather
+// than a guess about content.
+//
+// The approved P3 offer line is never touched: it is the client's positioning and what
+// they approved. Only the closing question moves.
+function applyQuestionToEmail1(emails: ComposedEmail[], question: string): ComposedEmail[] {
+  return emails.map(email => {
+    if (email.sequence_position !== 1) return email
+
+    const paras = email.body.split(/\n{2,}/)
+    if (paras.length < 3) return email   // nothing that looks like a CTA to replace
+
+    const ctaIdx = paras.length - 2
+    const formatted = question.trim().endsWith('?') ? question.trim() : `${question.trim()}?`
+
+    const next = [...paras]
+    next[ctaIdx] = formatted
+    return { ...email, body: next.join('\n\n') }
+  })
 }
 
 // ─── Email 1 preview for the research judge ──────────────────────────────────
@@ -287,6 +327,12 @@ export function composeEmail1WithOpening(
   variantId: string,
   opening: string,
   /**
+   * The written closing question, replacing the variant's approved CTA. Omit to keep the
+   * approved one, which is what the template side of the judge's comparison does: both
+   * emails must be complete and genuinely sendable, so the template keeps its own CTA.
+   */
+  question?: string | null,
+  /**
    * Resolves {{first_name}}, exactly as composedToVariables does at send time. Required
    * for anything that READS the email as a human would: the judge held all thirteen
    * prospects on the first run because it was handed a body still containing the raw
@@ -297,7 +343,8 @@ export function composeEmail1WithOpening(
 ): ComposedEmail {
   const variantEmails = getVariantEmails(messagingDoc, variantId)
   const withOpening = applyTriggerToEmail1(variantEmails, opening)
-  const counted = withOpening.map(email => ({ ...email, word_count: countWords(email.body) }))
+  const withQuestion = question ? applyQuestionToEmail1(withOpening, question) : withOpening
+  const counted = withQuestion.map(email => ({ ...email, word_count: countWords(email.body) }))
   const withFooter = appendOptOutFooter(counted)
 
   const email1 = withFooter.find(e => e.sequence_position === 1)
@@ -472,7 +519,7 @@ async function fetchProspect(
 ): Promise<ProspectRow> {
   const { data, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name')
+    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, personalisation_question, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id) // explicit isolation filter
     .single()

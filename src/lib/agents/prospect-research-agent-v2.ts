@@ -144,6 +144,9 @@ async function updateProspect(
     // read. On HOLD this is NULL, composition resolves source 'none', and the variant's
     // authored opener ships, which is approved copy and a perfectly good outcome.
     personalisation_trigger:    opening.written_won ? opening.opening : null,
+    // Set and cleared together with the trigger: a written question without its opening
+    // would put a bespoke CTA under an approved opener neither was written for.
+    personalisation_question:   opening.written_won ? opening.question : null,
     signal_relevance:           opening.written_won ? 'use_as_hook' : 'no_signal',
     trigger_confidence:         synthesis.confidence,
     // The judge audit trail, per prospect, for sampled review later. Stored in the
@@ -390,8 +393,10 @@ export async function runProspectResearchAgentV2({
       templateOpening: frame.authoredOpening,
       // The judge must read the real artifact, so this calls the exact production path.
       // first_name resolved so the judge reads exactly what the prospect receives.
-      composeEmail1: (text: string) =>
-        composeEmail1WithOpening(messaging.content, variantId, text, ctx.first_name).body,
+      // question omitted keeps the variant's approved CTA, which is how the template side
+      // of the comparison stays a complete, genuinely sendable email.
+      composeEmail1: (text: string, question?: string | null) =>
+        composeEmail1WithOpening(messaging.content, variantId, text, question ?? null, ctx.first_name).body,
       prospectId: ctx.id,
     })
 

@@ -23,19 +23,22 @@ const WRITER_MODEL = 'claude-sonnet-4-6'
 const JUDGE_MODEL = 'claude-sonnet-4-6'
 
 /**
- * Hard cap on the opening block, which is now the observation AND the bridge that
- * follows from it. Raised from 35 to make room for the bridge sentence.
+ * Hard cap on the whole written block: observation, bridge AND closing question.
  *
- * Safe against composition's 90-word Email 1 ceiling: measured against the live document,
- * the fixed remainder (greeting, P3, CTA, two-line sign-off) is 24 to 31 words depending
- * on variant, so the tightest variant leaves 59 words of headroom and the most generous
- * leaves 66. A 50-word cap clears all four.
+ * The writer now owns the CTA as well, so the approved CTA no longer consumes budget.
+ * Measured against the live document, what remains fixed is the greeting line, the P3
+ * offer line and the two sign-off lines: 70 words of headroom on the tightest variant (D)
+ * and 74 on the most generous (C). A 62-word cap clears all four with at least 8 words to
+ * spare, and a test pins the cap below the measured minimum so a future raise cannot
+ * silently breach the 90-word ceiling.
  */
-export const OPENING_MAX_WORDS = 50
+export const OPENING_MAX_WORDS = 62
 
 export interface OpeningResult {
-  /** The opening that shipped, or null when the template won both comparisons. */
+  /** The opening that shipped, or null when the template won or the floor disqualified it. */
   opening: string | null
+  /** The closing question that shipped, set and cleared together with `opening`. */
+  question: string | null
   /** True when the written opening beat the approved template on the final comparison. */
   written_won: boolean
   /** True when the writer was given the judge's sentence and tried again. */
@@ -75,20 +78,26 @@ That distinction decides everything about how you open. A junior opens by showin
 work, because they are being marked on effort. You are not. You open with the one thing
 you noticed that makes this person worth writing to, and you let it do the work.
 
-The email is already written apart from its opening. Here is the rest of it, exactly as it
-will send:
+Here is the email, exactly as it will send. You write the two bracketed parts:
 
-  [YOUR TEXT GOES HERE]
+  [YOUR OBSERVATION AND BRIDGE GO HERE]
 
   ${params.p3}
 
-  ${params.cta}
+  [YOUR CLOSING QUESTION GOES HERE]
 
-START BY READING THOSE TWO LINES, BEFORE YOU LOOK AT THE FINDINGS.
+The offer line in the middle is FIXED. It is the client's positioning and what they
+approved. Do not alter it, do not paraphrase it, do not work around it.
 
-Work out precisely which problem they answer. Not the general area they sit in. The
-specific problem, the one a person would have to be feeling for that question to be the
-natural thing to ask them.
+For reference, the approved closing question for this variant is:
+  "${params.cta}"
+Use it only if it is genuinely the right question for this prospect. Otherwise write one
+that fits them better, in the same register.
+
+START BY READING THE OFFER LINE, BEFORE YOU LOOK AT THE FINDINGS.
+
+Work out precisely which problem it answers. Not the general area it sits in. The specific
+problem, the one a person would have to be feeling for that offer to be worth reading.
 
 That problem is your target. Everything you write aims at it.
 
@@ -100,6 +109,35 @@ held and when. Say one of those.
 
 Second, the bridge: a sentence naming the problem your target is, as a PATTERN that is
 typically true of firms in the situation you just described.
+
+Third, the closing question. It goes where [YOUR CLOSING QUESTION GOES HERE] sits, after the offer
+line. It is the obvious thing to ask THIS person once they have read the observation, the
+bridge and the offer line above it. One question, ending in a question mark. Low
+commitment and easy to answer. No meeting request, no calendar link, no "worth a call".
+
+These four are the client's own approved closing questions. Match their register and their
+length. Do not copy one verbatim unless it genuinely is the right question for this
+prospect:
+  "Is pipeline consistency something you're actively trying to fix?"
+  "Is getting more conversations in front of you something you're working on?"
+  "Is this a gap you're looking to close?"
+  "Worth a look to see if it fits where you are?"
+
+THE QUESTION MUST ASK ABOUT THE PROBLEM YOU JUST NAMED. This is where a fixed question
+used to go wrong, and the failure is worth reading:
+
+FAILING, three rewrites running:
+  bridge: "Firms that make that shift often find the product side builds an audience of
+   browsers before it builds a pipeline of buyers."
+  question it ran into: "Is getting more conversations in front of you something you're
+   working on?"
+The bridge diagnoses her correctly: she has an audience, and the wrong kind. Then the
+question asks whether she wants MORE conversations. She does not want more. She wants
+different ones. The email diagnoses her and then asks about somebody else's problem.
+
+CORRECTED, same bridge, asking about what was actually named:
+  "Is turning that audience into the right kind of buyer something you're working on?"
+Same register, same length, and now it asks about the problem the email just described.
 
 THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT.
 
@@ -166,9 +204,10 @@ The idea is sound and the reader has to assemble it. Who is uncontested, what co
 visible to whom. Say it plainly: "That is usually when the next piece of work goes to
 whoever was still in front of them."
 
-THE AIM TEST, run it on every draft. Read your text, then the offer line, then the
-question, as one message. If the reader could answer that question with "that is not quite
-my problem", you aimed at the wrong gap. Rewrite it.
+THE AIM TEST, run it on every draft. Read your observation, your bridge, the offer line
+and your question as one message. If the reader could answer that question with "that is
+not quite my problem", either the bridge aimed at the wrong gap or the question asks about
+something the bridge never raised. Rewrite whichever is wrong.
 
 Here is that failure, from real output:
 
@@ -208,16 +247,18 @@ FAILING:
 Second person and still wrong. It recites his own CV back at him. He knows all of it.
 
 CONSTRAINTS, and there are only four:
-  At most three sentences, at most ${OPENING_MAX_WORDS} words, for the observation and the
-  bridge together.
+  At most four sentences, at most ${OPENING_MAX_WORDS} words, for the observation, the
+  bridge and the question together.
   Write to them, as "you" or by naming their company. Never write their first name in the
   text: the email already greets them by name on the line above.
   Use only what is in the findings below. Invent nothing, and do not soften a fact into
   something the findings do not support.
-  Do not pitch, do not name the service, do not ask a question. The lines after yours do
-  all three.
+  Do not pitch and do not name the service. The offer line does that.
 
-Return ONLY your text. No preamble, no quotes, no explanation.`
+Return your answer as exactly two labelled blocks and nothing else:
+
+OPENING: <the observation and the bridge>
+QUESTION: <the closing question, ending in a question mark>`
 }
 
 // ─── The judge prompt ────────────────────────────────────────────────────────
@@ -233,6 +274,52 @@ Return ONLY your text. No preamble, no quotes, no explanation.`
 // out, and the approved P3 is common to both, so it cannot be the deciding factor.
 //
 // ONE QUESTION still. No checklist, no sub-scores.
+
+// THE FLOOR, run on the personalised version ALONE, before any comparison.
+//
+// The comparison picks a winner, which means a flawed personalised email still ships
+// whenever its template happens to be worse. Makesha's shipped claiming "the pipeline runs
+// warm until the UK entity needs to feed it cold", asserting two things about her business
+// nobody outside it could know. It beat its template and went out.
+//
+// So this runs first and can only disqualify. It is not a comparison and it has no
+// opinion about quality: one question, about knowability.
+export function buildFloorPrompt(): string {
+  return `You are reviewing a cold email before it goes to a real person.
+
+Does this email state something about the prospect's business that could not be known from
+public information? Their pipeline, their diary, their results, whether their marketing
+works.
+
+Answer YES or NO, then one sentence.
+
+YES means it claims private knowledge. NO means everything it asserts could be seen from
+outside.
+
+Reply in exactly this format:
+CLAIMS_PRIVATE: NO
+REASON: one sentence.`
+}
+
+/** The floor verdict on one attempt. Disqualifying, never comparative. */
+export interface FloorCheck {
+  claims_private: boolean
+  reason: string
+}
+
+/**
+ * Reads the floor verdict. An unreadable reply resolves to DISQUALIFIED, so ambiguity can
+ * only ever fall back to the approved template.
+ */
+export function parseFloor(raw: string): FloorCheck {
+  const m = raw.match(/CLAIMS_PRIVATE:\s*(YES|NO)/i)
+  const r = raw.match(/REASON:\s*([\s\S]+)/i)
+  const claims_private = m ? /yes/i.test(m[1]) : true
+  return {
+    claims_private,
+    reason: (r?.[1] ?? raw).trim().split('\n')[0].trim() || 'No reasoning returned.',
+  }
+}
 
 export function buildJudgePrompt(): string {
   return `You are the head of sales. Two drafts of the same cold email are in front of you,
@@ -252,6 +339,10 @@ REASON: one sentence.`
 export interface JudgeComparison {
   /** The opening the writer produced for this round. */
   opening: string
+  /** The closing question the writer produced for this round. */
+  question: string
+  /** The floor verdict on this attempt, run before the comparison. */
+  floor: FloorCheck
   /** Which label the WRITTEN version was given. Randomised per comparison. */
   written_label: 'A' | 'B'
   /** The label the judge picked. */
@@ -403,11 +494,24 @@ export interface WriteAndJudgeParams {
   candidates: ObservationCandidate[]
   p3: string
   cta: string
-  /** Builds the complete Email 1 from an opening, using the real composition path. */
-  composeEmail1: (opening: string) => string
+  /**
+   * Builds the complete Email 1. `question` is optional so the TEMPLATE side of the
+   * comparison keeps its own approved CTA: both emails must be complete and genuinely
+   * sendable, or the comparison is not honest.
+   */
+  composeEmail1: (opening: string, question?: string | null) => string
   /** The variant's own approved opening, the version the written one has to beat. */
   templateOpening: string
   prospectId: string
+}
+
+/** Splits the writer's two labelled blocks. */
+export function parseWriterOutput(raw: string): { opening: string; question: string } {
+  const openMatch = raw.match(/OPENING:\s*([\s\S]*?)(?=\n\s*QUESTION:|$)/i)
+  const qMatch = raw.match(/QUESTION:\s*([\s\S]+)/i)
+  const opening = cleanOpening(openMatch?.[1] ?? raw)
+  const question = cleanOpening(qMatch?.[1] ?? '').split('\n')[0].trim()
+  return { opening, question }
 }
 
 export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise<OpeningResult> {
@@ -415,24 +519,37 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   const findings = buildFindingsBlock(params.candidates)
   const writerSystem = buildWriterPrompt({ clientName: params.clientName, p3: params.p3, cta: params.cta })
   const judgeSystem = buildJudgePrompt()
+  const floorSystem = buildFloorPrompt()
 
-  // Both drafts go through the real composition path, so the only difference the judge
-  // can see is the opening. Same P3, same CTA, same sign-off, same footer.
-  const templateEmail = params.composeEmail1(params.templateOpening)
+  // The template keeps its OWN approved CTA. Passing no question is what makes that true.
+  const templateEmail = params.composeEmail1(params.templateOpening, null)
 
-  const writeOnce = async (feedback: string | null): Promise<{ opening: string; gates: string[] }> => {
+  const writeOnce = async (feedback: string | null): Promise<{ opening: string; question: string; gates: string[] }> => {
     const user = feedback
-      ? `## Findings\n\n${findings}\n\n## Your previous opening lost to the approved template\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe head of sales preferred the template, and said:\n${feedback.split('|||')[1]}\n\nWrite a different opening that beats it. Return ONLY the opening.`
-      : `## Findings\n\n${findings}\n\nWrite the opening. Return ONLY the opening.`
-    const raw = await callModel(client, WRITER_MODEL, writerSystem, user, 500, `writer for prospect ${params.prospectId}`)
-    const opening = scrubAITells(cleanOpening(raw), `research/writer/${params.prospectId}`)
-    return { opening, gates: checkOpeningGates(opening, params.prospectFirstName, findings) }
+      ? `## Findings\n\n${findings}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the two labelled blocks.`
+      : `## Findings\n\n${findings}\n\nWrite the observation, the bridge and the closing question. Return ONLY the two labelled blocks.`
+    const raw = await callModel(client, WRITER_MODEL, writerSystem, user, 700, `writer for prospect ${params.prospectId}`)
+    const parsed = parseWriterOutput(raw)
+    const opening = scrubAITells(parsed.opening, `research/writer/${params.prospectId}`)
+    const question = scrubAITells(parsed.question, `research/writer/${params.prospectId}`)
+
+    // The cap covers the whole written block, so gate the combined text.
+    const gates = checkOpeningGates(`${opening} ${question}`.trim(), params.prospectFirstName, findings)
+    if (!question) gates.push('writer returned no closing question')
+    return { opening, question, gates }
   }
 
-  // Randomised per comparison so a positional preference cannot masquerade as a judgement.
-  // The mapping is recorded on every comparison, so any lean is measurable after the fact.
-  const compare = async (opening: string): Promise<JudgeComparison> => {
-    const writtenEmail = params.composeEmail1(opening)
+  // THE FLOOR. Runs on the personalised email alone, before any comparison, and can only
+  // disqualify. A comparison picks a winner, so without this a flawed personalised email
+  // ships whenever its template happens to be worse.
+  const floorCheck = async (opening: string, question: string): Promise<FloorCheck> => {
+    const email = params.composeEmail1(opening, question)
+    const raw = await callModel(client, JUDGE_MODEL, floorSystem, email, 300, `floor for prospect ${params.prospectId}`)
+    return parseFloor(raw)
+  }
+
+  const compare = async (opening: string, question: string, floor: FloorCheck): Promise<JudgeComparison> => {
+    const writtenEmail = params.composeEmail1(opening, question)
     const writtenLabel: 'A' | 'B' = Math.random() < 0.5 ? 'A' : 'B'
     const emailA = writtenLabel === 'A' ? writtenEmail : templateEmail
     const emailB = writtenLabel === 'A' ? templateEmail : writtenEmail
@@ -440,62 +557,67 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     const user = `VERSION A\n\n${emailA}\n\n${'='.repeat(60)}\n\nVERSION B\n\n${emailB}`
     const raw = await callModel(client, JUDGE_MODEL, judgeSystem, user, 300, `judge for prospect ${params.prospectId}`)
     const { chosen, written_won, reason } = parseChoice(raw, writtenLabel)
-    return { opening, written_label: writtenLabel, chosen_label: chosen, written_won, reason }
+    return { opening, question, floor, written_label: writtenLabel, chosen_label: chosen, written_won, reason }
   }
 
   const comparisons: JudgeComparison[] = []
 
-  // Attempt 1.
-  const first = await writeOnce(null)
-  if (first.gates.length > 0) {
-    // The gate failure spends the one rewrite. No comparison happened yet.
-    logger.warn('research/write-opening: first attempt failed deterministic gates', {
-      prospect_id: params.prospectId, gates: first.gates,
-    })
-    const retry = await writeOnce(`${first.opening}|||${first.gates.join('; ')}`)
-    if (retry.gates.length > 0) {
+  const attempt = async (feedback: string | null): Promise<
+    | { kind: 'gated'; gates: string[]; opening: string; question: string }
+    | { kind: 'floored'; floor: FloorCheck; opening: string; question: string }
+    | { kind: 'compared'; c: JudgeComparison }
+  > => {
+    const w = await writeOnce(feedback)
+    if (w.gates.length > 0) return { kind: 'gated', gates: w.gates, opening: w.opening, question: w.question }
+
+    const floor = await floorCheck(w.opening, w.question)
+    if (floor.claims_private) {
+      logger.warn('research/write-opening: floor disqualified the personalised version', {
+        prospect_id: params.prospectId, reason: floor.reason,
+      })
+      return { kind: 'floored', floor, opening: w.opening, question: w.question }
+    }
+    return { kind: 'compared', c: await compare(w.opening, w.question, floor) }
+  }
+
+  const held = (reason: string, gates: string[] = []): OpeningResult => ({
+    // held() is only ever reached after the retry, so retry_used is unconditionally true.
+    opening: null, question: null, written_won: false, retry_used: true,
+    comparisons, judge_reasoning: reason, gate_failures: gates,
+  })
+
+  const first = await attempt(null)
+
+  if (first.kind === 'compared') {
+    comparisons.push(first.c)
+    if (first.c.written_won) {
       return {
-        opening: null, written_won: false, retry_used: true, comparisons,
-        judge_reasoning: `Failed deterministic gates twice: ${retry.gates.join('; ')}`,
-        gate_failures: retry.gates,
+        opening: first.c.opening, question: first.c.question, written_won: true,
+        retry_used: false, comparisons, judge_reasoning: first.c.reason, gate_failures: [],
       }
     }
-    const only = await compare(retry.opening)
-    comparisons.push(only)
-    return {
-      opening: only.written_won ? retry.opening : null,
-      written_won: only.written_won, retry_used: true, comparisons,
-      judge_reasoning: only.reason, gate_failures: [],
-    }
   }
 
-  const c1 = await compare(first.opening)
-  comparisons.push(c1)
-  if (c1.written_won) {
-    return {
-      opening: first.opening, written_won: true, retry_used: false, comparisons,
-      judge_reasoning: c1.reason, gate_failures: [],
-    }
+  // One retry, whatever the first attempt failed on.
+  const feedback =
+    first.kind === 'gated'    ? `${first.opening} ${first.question}|||${first.gates.join('; ')}`
+    : first.kind === 'floored' ? `${first.opening} ${first.question}|||A reviewer said this claims private knowledge about the prospect: ${first.floor.reason}. Say only what can be seen from outside.`
+    : `${first.c.opening} ${first.c.question}|||${first.c.reason}`
+
+  const second = await attempt(feedback)
+
+  if (second.kind === 'gated') {
+    return held(`Retry failed deterministic gates: ${second.gates.join('; ')}`, second.gates)
+  }
+  if (second.kind === 'floored') {
+    return held(`Retry disqualified by the floor: ${second.floor.reason}`)
   }
 
-  // The template won. One rewrite with the judge's sentence, then one more comparison.
-  const second = await writeOnce(`${first.opening}|||${c1.reason}`)
-  if (second.gates.length > 0) {
-    logger.warn('research/write-opening: retry failed deterministic gates', {
-      prospect_id: params.prospectId, gates: second.gates,
-    })
-    return {
-      opening: null, written_won: false, retry_used: true, comparisons,
-      judge_reasoning: `Retry failed deterministic gates: ${second.gates.join('; ')}`,
-      gate_failures: second.gates,
-    }
-  }
-
-  const c2 = await compare(second.opening)
-  comparisons.push(c2)
+  comparisons.push(second.c)
   return {
-    opening: c2.written_won ? second.opening : null,
-    written_won: c2.written_won, retry_used: true, comparisons,
-    judge_reasoning: c2.reason, gate_failures: [],
+    opening: second.c.written_won ? second.c.opening : null,
+    question: second.c.written_won ? second.c.question : null,
+    written_won: second.c.written_won,
+    retry_used: true, comparisons, judge_reasoning: second.c.reason, gate_failures: [],
   }
 }
