@@ -14,7 +14,12 @@
 -- NULL means "use the variant's approved CTA", which is the correct default and the state
 -- of every existing row.
 --
--- Status: PENDING (not yet applied)
+-- Status: APPLIED (verified live 2026-08-20)
+--
+-- Verified by live schema read: personalisation_question, text, nullable, comment attached.
+-- Also verified behaviourally: composeSequence failed with "prospect not found" before the
+-- migration, because the select named a column the database did not have and Supabase
+-- surfaced that as a missing row. It returned 4 emails immediately after.
 
 alter table public.prospects
   add column if not exists personalisation_question text;
