@@ -350,9 +350,13 @@ This is about STRUCTURE, not length. A short sentence carrying three facts is st
 second read.
 
 If you are naming two things, use two sentences. Do not join facts with appositives. Do
-not bury a list mid-sentence. Never separate a subject from its verb with clauses. Someone
-reading at eleven years old should follow it the first time through, because your reader
-is scanning between meetings and a sentence they go back over has already lost.
+not bury a list mid-sentence. Never separate a subject from its verb with clauses. Your
+reader is scanning between meetings, and a sentence they go back over has already lost.
+
+The old version of this line asked for something an eleven year old could read. It was here
+for two batches and it stopped nothing, because a reading age measures how hard the WORDS
+are and the problem is figurative language. "Hours shrink before they grow" is eight easy
+words and it describes nothing. The test that catches that is the camera test, below.
 
 CRAMPED, and both of these shipped:
   "The regulatory commentary. DTCC tokenization, Treasury clearing, SEC crypto posture,
@@ -464,6 +468,44 @@ Same claim, and now it names the country, the people and what is missing.
 CONCRETE, already working, and this is the standard:
   "Delivery has a deadline. Business development never does, so it waits."
 Deadline. Waits. Two things anyone can see happening in their own calendar.
+
+THE CAMERA TEST. RUN IT ON EVERY SENTENCE, AND TWICE ON THE LAST FEW WORDS OF THE BRIDGE.
+
+Point a camera at their week. Would you see the thing you just described happening?
+
+  "Hours shrink before they grow" is unfilmable. Nobody can photograph an hour shrinking.
+  "Delivery has a deadline. Business development never does, so it waits" is filmable: a
+  calendar with a date on it, and something pushed to next week.
+
+Every noun is concrete now and the abstraction moved into the verbs and the endings. That is
+where it hides, because a sentence can be built entirely out of real things and still
+describe nothing that happens.
+
+PLAIN VERBS. The verb must be something a PERSON DOES or something that PLAINLY HAPPENS.
+  Use: waits. stops. gets skipped. goes to someone else. never gets made. sits there.
+       nobody calls. you find out later.
+  Not: moves. shrinks. becomes. converts. translates. materialises.
+A person cannot become a conversation and an hour cannot shrink. If your subject is not
+capable of doing the verb in the physical world, the sentence is a picture, not a fact.
+
+FINISH ON A CONCRETE THING, NOT A CATEGORY. The last few words are what the reader is left
+holding, and a category leaves them holding nothing.
+  "goes to whoever was in the room last" beats "rather than from anything systematic".
+
+Two of these shipped last week. Both have concrete nouns throughout and both fail:
+
+FAILING: "Outreach for the consulting side gets whatever hours remain, and those tend to
+ shrink before they grow."
+Hours do not grow. Point the camera and there is nothing to film.
+PLAIN: "Outreach gets whatever hours are left at the end of the day. Most weeks nobody gets
+ to it."
+Now you can film it: a day ending, and a person not making the call.
+
+FAILING: "The founders who hear it and are ready to buy tend to need a nudge before they
+ become a conversation."
+People do not become conversations. "Need a nudge" is not something anyone does either.
+PLAIN: "Some of the people who heard it are ready to buy. They will not email you first."
+An inbox with nothing in it. That is a thing you can point a camera at.
 
 THE AIM TEST, run it on every draft. Read your observation, your bridge, the offer line
 and your question as one message. If the reader could answer that question with "that is

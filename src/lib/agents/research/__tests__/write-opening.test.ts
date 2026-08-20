@@ -19,7 +19,7 @@ import {
   OPENING_TARGET_WORDS,
 } from '../write-opening'
 import { BatchUniquenessRegistry, uniquenessFeedback } from '../batch-uniqueness'
-import { ABSTRACT_NOUNS, countAbstractNouns } from '@/lib/style/abstract-nouns'
+import { ABSTRACT_NOUNS, countAbstractNouns, countFigurativeVerbs } from '@/lib/style/abstract-nouns'
 import type { ObservationCandidate } from '../types'
 
 const FINDINGS = [
@@ -385,7 +385,10 @@ describe('the writer prompt enforces one fact per sentence', () => {
     expect(p).toContain('ONE FACT PER SENTENCE')
     expect(flat).toContain('about STRUCTURE, not length')
     expect(flat).toContain('If you are naming two things, use two sentences')
-    expect(flat).toContain('reading at eleven years old')
+    // The reading-age line was removed deliberately: it measured word difficulty while the
+    // real failures were figurative. What replaces it is the camera test.
+    expect(flat).not.toContain('reading at eleven years old')
+    expect(flat).toContain('a sentence they go back over has already lost')
   })
 
   it('carries both real cramped examples verbatim', () => {
@@ -1119,5 +1122,77 @@ describe('an existing client base cannot be claimed', () => {
   it('leaves sender-attributed patterns alone, which is the whole allowed form', () => {
     expect(findClientBaseClaims('The founders I speak to describe the same split.')).toEqual([])
     expect(findClientBaseClaims('The pattern I keep running into is the opposite.')).toEqual([])
+  })
+})
+
+
+// ─── The camera test and plain verbs ────────────────────────────────────────
+
+describe('the writer prompt runs a camera test, not a reading age', () => {
+  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+
+  it('drops the reading-age line and says why it failed', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    // It was in the prompt for two batches and stopped neither "hours shrink before they
+    // grow" nor "become a conversation", because it measures word difficulty and the
+    // problem is figurative language.
+    expect(flat).not.toContain('Someone reading at eleven years old should follow it')
+    expect(flat).toContain('a reading age measures how hard the WORDS are')
+    expect(flat).toContain('eight easy words and it describes nothing')
+  })
+
+  it('states the camera test and where the abstraction now hides', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('THE CAMERA TEST')
+    expect(flat).toContain('Point a camera at their week')
+    expect(flat).toContain('TWICE ON THE LAST FEW WORDS OF THE BRIDGE')
+    expect(flat).toContain('the abstraction moved into the verbs and the endings')
+  })
+
+  it('carries the filmable and unfilmable pair', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('"Hours shrink before they grow" is unfilmable')
+    expect(flat).toContain('a calendar with a date on it, and something pushed to next week')
+  })
+
+  it('gives the verb rule as a do and a do-not list', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('PLAIN VERBS')
+    expect(flat).toContain('something a PERSON DOES or something that PLAINLY HAPPENS')
+    for (const good of ['waits', 'gets skipped', 'goes to someone else', 'never gets made']) {
+      expect(flat).toContain(good)
+    }
+    for (const bad of ['moves', 'shrinks', 'becomes', 'converts', 'translates', 'materialises']) {
+      expect(flat).toContain(bad)
+    }
+  })
+
+  it('requires a concrete ending, with the contrast the brief gave', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('FINISH ON A CONCRETE THING, NOT A CATEGORY')
+    expect(flat).toContain('"goes to whoever was in the room last" beats "rather than from anything systematic"')
+  })
+
+  it('carries two real failures verbatim, each with a plain rewrite', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    // Alma.
+    expect(flat).toContain('those tend to shrink before they grow')
+    expect(flat).toContain('Outreach gets whatever hours are left at the end of the day. Most weeks nobody gets to it.')
+    // Shevonne.
+    expect(flat).toContain('before they become a conversation')
+    expect(flat).toContain('Some of the people who heard it are ready to buy. They will not email you first.')
+  })
+
+  it('the plain rewrites obey every rule they sit under', () => {
+    const rewrites = [
+      'Outreach gets whatever hours are left at the end of the day. Most weeks nobody gets to it.',
+      'Some of the people who heard it are ready to buy. They will not email you first.',
+    ]
+    for (const r of rewrites) {
+      expect(countFigurativeVerbs(r)).toBe(0)
+      expect(countAbstractNouns(r)).toBe(0)
+      expect(r.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
+      expect(findClientBaseClaims(r)).toEqual([])
+    }
   })
 })

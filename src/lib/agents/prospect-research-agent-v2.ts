@@ -21,7 +21,7 @@ import { fetchWebSearchSource } from './research/sources/web-search'
 import { synthesizeResearch }  from './research/synthesize'
 import { FrameRegistry, frameShingles, sentenceKey } from '@/lib/style/sentence-frames'
 import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
-import { findAbstractNouns } from '@/lib/style/abstract-nouns'
+import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nouns'
 import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
 import {
   fetchApprovedMessagingDoc,
@@ -542,12 +542,15 @@ export async function runProspectResearchAgentV2({
     // Abstract-noun count on what shipped. REPORT ONLY: logged and rolled into the batch
     // summary, never acted on. See src/lib/style/abstract-nouns.ts for why it does not gate.
     if (opening.written_won && opening.opening) {
-      const abstract = findAbstractNouns(`${opening.opening} ${opening.question ?? ''}`)
-      if (abstract.length > 0) {
-        logger.info('prospect-research-v2: abstract nouns in shipped opening', {
+      const copy = `${opening.opening} ${opening.question ?? ''}`
+      const nouns = findAbstractNouns(copy)
+      const verbs = findFigurativeVerbs(copy)
+      if (nouns.length > 0 || verbs.length > 0) {
+        logger.info('prospect-research-v2: unfilmable language in shipped opening', {
           prospect_id: ctx.id,
-          nouns: abstract.map(h => h.noun),
-          count: abstract.reduce((t, h) => t + h.count, 0),
+          nouns: nouns.map(h => h.noun),
+          verbs: verbs.map(h => h.verb),
+          count: [...nouns, ...verbs].reduce((t, h) => t + h.count, 0),
         })
       }
     }
@@ -783,11 +786,18 @@ export async function runProspectResearchAgentV2Batch({
           // first batch under this check scored 0 while Makesha's closing question carried
           // "a reliable flow of the right conversations". A report that misses a hit is
           // worse than no report, because it reads as evidence the rule held.
-          const abstract = findAbstractNouns(`${result.trigger_text} ${result.question_text ?? ''}`)
+          const copy = `${result.trigger_text} ${result.question_text ?? ''}`
+          // Nouns and verbs are two halves of one rule: say a thing you could point a
+          // camera at. Reported together so a batch that fixes one and not the other is
+          // visible as such rather than as a win.
+          const abstract = [
+            ...findAbstractNouns(copy).map(h => ({ word: h.noun, count: h.count })),
+            ...findFigurativeVerbs(copy).map(h => ({ word: h.verb, count: h.count })),
+          ]
           if (abstract.length > 0) {
             abstract_noun_hits.push({
               prospect_id,
-              nouns: abstract.map(h => h.noun),
+              nouns: abstract.map(h => h.word),
               count: abstract.reduce((t, h) => t + h.count, 0),
               opening: `${result.trigger_text}\n\n${result.question_text ?? ''}`.trim(),
             })

@@ -63,3 +63,64 @@ export function findAbstractNouns(text: string): AbstractNounHit[] {
 export function countAbstractNouns(text: string): number {
   return findAbstractNouns(text).reduce((total, hit) => total + hit.count, 0)
 }
+
+
+// ─── Figurative verbs ────────────────────────────────────────────────────────
+//
+// The noun rule worked. Every noun in the 2026-08-20 batch was concrete and the abstraction
+// simply moved into the verbs and the sentence endings: "those tend to shrink before they
+// grow", "business development is the thing that moves when something has to", "tend to need
+// a nudge before they become a conversation". Concrete nouns, unfilmable sentences.
+//
+// The rule is in the prompt as the camera test: point a camera at their week and ask whether
+// you would see the thing described happening. An hour cannot shrink and a person cannot
+// become a conversation. This counts the named offenders so the rule can be checked against
+// real output instead of assumed to have worked.
+//
+// REPORT ONLY, for the same reasons as the nouns above, and more so. "The deadline moves" is
+// literal and fine. "Business development moves" is not. No regex can separate those, and
+// gating on the verb would reject correct copy.
+
+/** The named list, from the copy review. Exactly the verbs called out, nothing invented. */
+export const FIGURATIVE_VERBS: readonly string[] = [
+  'move',
+  'shrink',
+  'become',
+  'convert',
+  'translate',
+  'materialise',
+  'materialize',
+]
+
+export interface FigurativeVerbHit {
+  verb: string
+  count: number
+}
+
+/**
+ * Every listed verb found, with its count. Matches the ordinary inflections (-s, -ing, -ed,
+ * and the irregular "became"), case-insensitively.
+ *
+ * Deliberately does NOT match nouns built from the same stem: "the move", "a convert".
+ * Those are things rather than actions and are not what this measures.
+ */
+export function findFigurativeVerbs(text: string): FigurativeVerbHit[] {
+  if (!text) return []
+  const hits: FigurativeVerbHit[] = []
+
+  for (const verb of FIGURATIVE_VERBS) {
+    const stem = verb.replace(/e$/, '')
+    const forms = [verb, `${verb}s`, `${stem}ing`, `${stem}ed`, `${verb}d`]
+    if (verb === 'become') forms.push('became', 'becoming')
+    const pattern = new RegExp(`\\b(?:${[...new Set(forms)].join('|')})\\b`, 'gi')
+    const count = (text.match(pattern) ?? []).length
+    if (count > 0) hits.push({ verb, count })
+  }
+
+  return hits
+}
+
+/** Total listed figurative verbs in the text. */
+export function countFigurativeVerbs(text: string): number {
+  return findFigurativeVerbs(text).reduce((total, hit) => total + hit.count, 0)
+}

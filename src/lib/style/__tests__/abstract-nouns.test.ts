@@ -3,7 +3,10 @@
 // real output rather than assumed to have worked. It never gates.
 
 import { describe, it, expect } from 'vitest'
-import { ABSTRACT_NOUNS, findAbstractNouns, countAbstractNouns } from '../abstract-nouns'
+import {
+  ABSTRACT_NOUNS, findAbstractNouns, countAbstractNouns,
+  FIGURATIVE_VERBS, findFigurativeVerbs, countFigurativeVerbs,
+} from '../abstract-nouns'
 
 describe('the named list', () => {
   it('is exactly the eight from the copy review', () => {
@@ -87,5 +90,84 @@ describe('the closing question is copy and must be counted', () => {
     const opening = 'You registered a UK entity in March.'
     const question = 'Is building a reliable flow of conversations something you are working on?'
     expect(countAbstractNouns(`${opening} ${question}`)).toBe(1)
+  })
+})
+
+
+// ─── Figurative verbs ────────────────────────────────────────────────────────
+//
+// The noun rule held: every noun in the 2026-08-20 batch was concrete. The abstraction moved
+// into the verbs and the sentence endings instead.
+
+describe('the named verb list', () => {
+  it('is exactly the verbs called out in the copy review', () => {
+    expect([...FIGURATIVE_VERBS].sort()).toEqual(
+      ['become', 'convert', 'materialise', 'materialize', 'move', 'shrink', 'translate'].sort(),
+    )
+  })
+})
+
+describe('counting the verb failures that shipped', () => {
+  it('catches "those tend to shrink before they grow" from Alma', () => {
+    expect(findFigurativeVerbs('and those tend to shrink before they grow')).toEqual([
+      { verb: 'shrink', count: 1 },
+    ])
+  })
+
+  it('catches "the thing that moves when something has to" from Bob', () => {
+    expect(findFigurativeVerbs('business development is the thing that moves when something has to')).toEqual([
+      { verb: 'move', count: 1 },
+    ])
+  })
+
+  it('catches "before they become a conversation" from Shevonne', () => {
+    expect(findFigurativeVerbs('tend to need a nudge before they become a conversation')).toEqual([
+      { verb: 'become', count: 1 },
+    ])
+  })
+
+  it('scores the plain rewrites at zero', () => {
+    expect(countFigurativeVerbs('Outreach gets whatever hours are left at the end of the day. Most weeks nobody gets to it.')).toBe(0)
+    expect(countFigurativeVerbs('Some of the people who heard it are ready to buy. They will not email you first.')).toBe(0)
+  })
+
+  it('scores the filmable standard at zero on both halves of the rule', () => {
+    const standard = 'Delivery has a deadline. Business development never does, so it waits.'
+    expect(countFigurativeVerbs(standard)).toBe(0)
+    expect(countAbstractNouns(standard)).toBe(0)
+  })
+})
+
+describe('verb matching covers the inflections and nothing else', () => {
+  it('catches -s, -ing and -ed', () => {
+    expect(countFigurativeVerbs('it moves')).toBe(1)
+    expect(countFigurativeVerbs('it is moving')).toBe(1)
+    expect(countFigurativeVerbs('it moved')).toBe(1)
+    expect(countFigurativeVerbs('it converted')).toBe(1)
+  })
+
+  it('catches the irregular became', () => {
+    expect(findFigurativeVerbs('it became a conversation')).toEqual([{ verb: 'become', count: 1 }])
+  })
+
+  it('does not match a longer unrelated word', () => {
+    // "movement" and "shrinkage" are nouns; "conversion" is not in the list at all.
+    expect(findFigurativeVerbs('the movement of the market')).toEqual([])
+    expect(findFigurativeVerbs('shrinkage in the warehouse')).toEqual([])
+  })
+
+  it('is case-insensitive and counts repeats', () => {
+    expect(countFigurativeVerbs('Moves and moves again')).toBe(2)
+  })
+
+  it('returns nothing for empty input', () => {
+    expect(findFigurativeVerbs('')).toEqual([])
+    expect(countFigurativeVerbs('')).toBe(0)
+  })
+
+  it('reports honestly on a literal use, which is why this never gates', () => {
+    // "the deadline moves" is literal and correct copy. The check counts it anyway, and
+    // that is the reason nothing acts on the number.
+    expect(countFigurativeVerbs('The deadline moves to Friday.')).toBe(1)
   })
 })
