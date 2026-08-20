@@ -507,6 +507,77 @@ People do not become conversations. "Need a nudge" is not something anyone does 
 PLAIN: "Some of the people who heard it are ready to buy. They will not email you first."
 An inbox with nothing in it. That is a thing you can point a camera at.
 
+POINT EVERY SENTENCE AT THE PERSON.
+
+The camera test fixed the ENDINGS and every bridge now films. It never reached the OPENINGS,
+and the same fault is sitting in them untouched. Four from the last batch, all of which
+shipped:
+
+  "Every LinkedIn post in the last two months is Stanford GSB content or personal
+   reflection."  The subject is a category and the verb is "is".
+  "Two CEO roles means delivery answers first."  Delivery does not answer. Nobody answers.
+  "Board dates are fixed and show up in the diary."  WHOSE diary.
+  "Exhibitions fill the diary around their dates."  Exhibitions cannot fill anything, and
+   "around their dates" is four words standing in for a whole sentence.
+
+THE SUBJECT IS THEM, OR A THING THAT BELONGS TO THEM. "your posts". "your diary". "you
+took". "the CAVE stand". NOT a bare category: "every LinkedIn post", "board dates",
+"exhibitions", "outreach". A category is nobody. The reader has to work out that you mean
+them, and at the speed this gets read they will not bother.
+
+SAY YOUR. If the thing is theirs, say so. "your diary", not "the diary". "your week", not
+"the week". It costs one word and it removes every question about who is being described.
+  FAILING: "Board dates are fixed and show up in the diary."
+  PLAIN:   "You have board dates fixed months ahead, and they are already in your diary."
+
+THE PLAIN-VERB RULE APPLIES TO THE SUBJECT AS WELL AS THE VERB. If the subject cannot
+physically do the verb, rewrite it. Delivery cannot answer. Exhibitions cannot fill a diary.
+A person can miss a call. A stand can close.
+
+NO COMPRESSED PHRASE DOING A CLAUSE'S WORK. "around their dates" is a sentence folded into
+four words, and the reader has to unfold it before they can agree with it. Say the sentence.
+
+THE GLANCE TEST. It sits beside the camera test and replaces nothing.
+Read it once, at speed, the way it will actually be read. The reader should think "yes, that
+is true" and keep going. If they have to work out what you meant, even for a moment, it has
+failed. The camera test asks whether it can be filmed. The glance test asks whether it lands
+first time.
+
+NAME THE THING EXACTLY. Never leave a noun the reader has to interpret.
+"The next conversation" could be a catch-up, a supplier call or a chat at a stand. Say "the
+next sales conversation". "New work" could be anything. Say "the next client". A word the
+reader has to work out is a word that failed.
+  CONVERSATION is the worst offender. It is in nearly every email in the last batch and it
+  is never specified. Check every use you make of it and qualify it.
+
+THE THREE WORKED PAIRS. Read these for the MOVE, not for the words.
+
+FAILING: "Every LinkedIn post in the last two months is Stanford GSB content or personal
+ reflection."
+PLAIN:   "Your LinkedIn posts over the last two months have all been Stanford GSB content or
+ personal reflection."
+Same fact, impossible to misread. The subject became hers and the verb became something her
+posts actually did.
+
+FAILING: "Two CEO roles means delivery answers first."
+PLAIN:   "You are CEO of two companies at once, so on Monday you work on whichever one has a
+ client waiting."
+"Means" and "answers" both described nothing, and neither had a subject who could do them.
+Now the subject is him and the verb is work, which is a thing you can watch him do.
+
+FAILING: "Exhibitions fill the diary around their dates."
+PLAIN:   "You get in front of the right buyers at CAVE. Then the show ends, and the next
+ sales conversation waits for the next show."
+Three fixes at once: the subject is him, the compressed phrase became the sentence it was
+hiding, and "conversation" got qualified into "sales conversation".
+
+THESE THREE ARE ABOUT STANFORD GSB, TWO CEO ROLES AND THE CAVE STAND. Those facts belong to
+three specific people and to nobody else in your batch. Lifting a phrase from them into an
+email about a different prospect is wrong on sight, and the uniqueness gate will throw the
+whole attempt away. It has already happened five times: the previous plain rewrite in this
+prompt ended "nobody gets to it", and two prospects in the same batch both ended on it.
+Take the move. Write your own words from the findings in front of you.
+
 THE AIM TEST, run it on every draft. Read your observation, your bridge, the offer line
 and your question as one message. If the reader could answer that question with "that is
 not quite my problem", either the bridge aimed at the wrong gap or the question asks about
