@@ -230,9 +230,15 @@ other, none of them a preferred answer, and copying one verbatim recreates the p
   A CONSEQUENCE. States the position their situation puts them in.
     "That leaves one person deciding, every week, whether to sell or to deliver."
 
-There are more shapes than these four: a question, a short concession, a plain statement of
-what the situation costs. The point is that you choose the shape AFTER you know the
-observation, instead of reaching for the same one every time.
+There are more shapes than these four: a short concession, a plain statement of what the
+situation costs, a comparison between the two halves of the same week. The point is that
+you choose the shape AFTER you know the observation, instead of reaching for the same one
+every time.
+
+The bridge is NEVER a question. The email gets exactly one question mark and it is the
+closing question, because the CTA is the question and a second one splits the ask. This is
+a house rule, enforced in code, and an opening carrying its own question mark is rejected
+before anyone reads it.
 
 PATTERN FRAMING IS NOT PERMISSION TO GO GENERIC.
 
@@ -550,6 +556,23 @@ export function checkOpeningGates(
   const figures = findFirmographicFigures(opening)
   if (figures.length > 0) {
     failures.push(`quotes ${figures.join(' and ')} from the prospect's record: qualify by role, stage or situation instead`)
+  }
+
+  // A FIFTH GATE, and it exists because this change set created the hole it closes.
+  //
+  // The standing house rule is one question mark per email body: the CTA is the question,
+  // and a second one splits the ask. The messaging agent enforces it at generation, but
+  // nothing enforced it on the research writer, which was fine while the writer produced a
+  // statement and a question. Then the bridge got its own paragraph and the prompt started
+  // listing sentence shapes to vary, one of which was a question. A question-shaped bridge
+  // gives the email two, and composition then appends a full stop after the '?' because it
+  // tests for a terminal period, so the prospect reads "...after that hire?.".
+  //
+  // Gated at MORE THAN ONE rather than EXACTLY ONE: this runs on the combined block, and a
+  // missing question is already reported by its own check with a clearer message.
+  const questionMarks = (opening.match(/\?/g) ?? []).length
+  if (questionMarks > 1) {
+    failures.push(`contains ${questionMarks} question marks: the closing question is the only question, and the observation and bridge must not ask one`)
   }
 
   return failures

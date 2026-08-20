@@ -106,3 +106,28 @@ describe('a two-paragraph opening survives composition', () => {
     expect(paras[2]).toBe('We fill the diary with qualified meetings.')
   })
 })
+
+
+describe('the trigger keeps whatever terminal punctuation it arrived with', () => {
+  it('does not append a full stop after a question mark', () => {
+    // The writer is gated against this now, but composition must not mangle it if one ever
+    // reaches here: a stray "?." in paragraph three is exactly the sloppiness the
+    // personalisation layer exists to avoid.
+    const opening = 'You hired a delivery lead in March.\n\nSo what fills the months after that hire?'
+    const email = composeEmail1WithOpening(DOC, 'A', opening, QUESTION, 'Richard')
+    expect(email.body).toContain('after that hire?')
+    expect(email.body).not.toContain('hire?.')
+  })
+
+  it('does not append a full stop after an exclamation mark', () => {
+    const opening = 'You hired a delivery lead in March.\n\nWhat a month that must have been!'
+    const email = composeEmail1WithOpening(DOC, 'A', opening, QUESTION, 'Richard')
+    expect(email.body).not.toContain('been!.')
+  })
+
+  it('still appends a full stop when the trigger has no terminal punctuation', () => {
+    const opening = 'You hired a delivery lead in March.\n\nThe first months run on the network'
+    const email = composeEmail1WithOpening(DOC, 'A', opening, QUESTION, 'Richard')
+    expect(email.body).toContain('run on the network.')
+  })
+})

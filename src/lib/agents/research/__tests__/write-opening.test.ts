@@ -721,3 +721,46 @@ describe('uniquenessFeedback tells the writer what to change', () => {
     expect(text).toContain('closing question')
   })
 })
+
+
+// ─── One question mark, and the punctuation it must not be mangled by ────────
+//
+// This whole block exists because splitting the bridge into its own paragraph and then
+// listing sentence shapes to vary created a hole that did not exist before: a
+// question-shaped bridge. It gives Email 1 two question marks against a standing house rule
+// of one, and composition then appended a full stop after the '?', so a real prospect would
+// have read "...after that hire?.".
+
+describe('the opening may not carry its own question mark', () => {
+  const FINDINGS_TEXT = 'Blue Sky hired a Manager of Delivery and Operations in March.'
+
+  it('rejects a question-shaped bridge', () => {
+    const opening = 'You hired a delivery lead in March.\n\nSo what fills the months after that hire? Is that a gap you are looking to close?'
+    const failures = checkOpeningGates(opening, null, FINDINGS_TEXT)
+    expect(failures.join(' ')).toContain('question marks')
+  })
+
+  it('passes the normal case: one question mark, the closing question', () => {
+    const opening = 'You hired a delivery lead in March. A network fills the first months. Is that a gap you are looking to close?'
+    expect(checkOpeningGates(opening, null, FINDINGS_TEXT)).toEqual([])
+  })
+
+  it('does not fire on zero question marks, which has its own clearer check', () => {
+    // writeOnce reports a missing question separately. Two messages for one problem would
+    // send the retry after the wrong thing.
+    const opening = 'You hired a delivery lead in March. A network fills the first months.'
+    expect(checkOpeningGates(opening, null, FINDINGS_TEXT).join(' ')).not.toContain('question marks')
+  })
+
+  it('the prompt states the same rule the gate enforces', () => {
+    // CLAUDE.md: when a prompt and a validator enforce the same rule they must agree.
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    expect(flat).toContain('The bridge is NEVER a question')
+    expect(flat).toContain('exactly one question mark and it is the closing question')
+  })
+
+  it('the prompt no longer offers a question as a bridge shape', () => {
+    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    expect(flat).not.toContain('There are more shapes than these four: a question')
+  })
+})

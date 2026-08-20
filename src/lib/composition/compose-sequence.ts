@@ -819,8 +819,15 @@ function applyTriggerToEmail1(emails: StoredEmail[], trigger: string): ComposedE
   return emails.map(email => {
     if (email.sequence_position !== 1) return email
 
-    // Ensure trigger ends with a full stop.
-    const formattedTrigger = trigger.trimEnd().endsWith('.')
+    // Ensure the trigger ends with terminal punctuation.
+    //
+    // Tested for a full stop ONLY until 2026-08-20, which appended one after any other
+    // ending. The trigger is now the observation and the bridge, and the bridge is last, so
+    // a bridge closing on '?' or '!' shipped as "...after that hire?.". The writer is now
+    // gated against a question mark in the opening, which stops it at the source; this is
+    // the second line of defence and mirrors applyQuestionToEmail1, which has always
+    // accepted the punctuation it was looking for.
+    const formattedTrigger = /[.!?]$/.test(trigger.trimEnd())
       ? trigger.trimEnd()
       : trigger.trimEnd() + '.'
 
