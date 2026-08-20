@@ -33,6 +33,14 @@ interface TierCardProps {
   organisationId: string
 }
 
+// The trigger is now two paragraphs, the observation and the bridge. In a one-line
+// truncated cell the blank line would render as a gap of collapsed whitespace, so it is
+// flattened for the preview only. The expanded review below shows the real layout.
+function triggerPreview(trigger: string): string {
+  const flat = trigger.replace(/\s+/g, ' ').trim()
+  return flat.length > 40 ? `${flat.slice(0, 40)}…` : flat
+}
+
 export function TierCard({ tier, tierLabel, organisationId }: TierCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -228,7 +236,7 @@ export function TierCard({ tier, tierLabel, organisationId }: TierCardProps) {
                   <td className="py-3 pr-4 text-gray-600">{prospect.company_name || '—'}</td>
                   <td className="py-3 pr-4 text-gray-600">{prospect.job_title || prospect.role || '—'}</td>
                   <td className="py-3 pr-4 text-gray-600 truncate" title={prospect.personalisation_trigger || undefined}>
-                    {prospect.personalisation_trigger ? prospect.personalisation_trigger.slice(0, 40) + (prospect.personalisation_trigger.length > 40 ? '…' : '') : '—'}
+                    {prospect.personalisation_trigger ? triggerPreview(prospect.personalisation_trigger) : '—'}
                   </td>
                 </tr>
               ))}
@@ -256,7 +264,11 @@ export function TierCard({ tier, tierLabel, organisationId }: TierCardProps) {
                       <p className="font-medium text-gray-900">{prospectName(prospect)}</p>
                       <p className="text-sm text-gray-600">{prospect.company_name} • {prospect.job_title || prospect.role}</p>
                       {prospect.personalisation_trigger && (
-                        <p className="text-sm text-gray-600 mt-2">{prospect.personalisation_trigger}</p>
+                        /* whitespace-pre-line, because the trigger is now the observation and
+                           the bridge as two paragraphs. A plain <p> collapses the blank line,
+                           so the operator would review copy laid out differently from the copy
+                           that actually sends. */
+                        <p className="text-sm text-gray-600 mt-2 whitespace-pre-line">{prospect.personalisation_trigger}</p>
                       )}
                     </div>
                   </div>
