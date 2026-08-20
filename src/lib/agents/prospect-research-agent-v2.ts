@@ -20,6 +20,7 @@ import { fetchWebsiteSource }  from './research/sources/website'
 import { fetchWebSearchSource } from './research/sources/web-search'
 import { synthesizeResearch }  from './research/synthesize'
 import { FrameRegistry } from '@/lib/style/sentence-frames'
+import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
 import type {
   ProspectContext,
   RawSourceData,
@@ -432,14 +433,34 @@ export async function runProspectResearchAgentV2Batch({
   const limit      = pLimit(concurrency)
   let processed    = 0
 
+  // Set on the first fatal API failure. Every queued worker checks it before spending a
+  // call, so a spent credit balance stops the batch instead of burning the remainder and
+  // writing a proxy over good data on each one.
+  let fatal: FatalApiError | null = null
+
   const tasks = idsToProcess.map(prospect_id =>
     limit(async () => {
+      if (fatal) {
+        summary.failed++
+        failures.push({ prospect_id, error: `Skipped: run aborted after ${fatal.reason}` })
+        return
+      }
       try {
         await runProspectResearchAgentV2({ prospect_id, client_id, frameRegistry })
         summary.completed++
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
-        logger.error('prospect-research-v2 batch: prospect failed', { prospect_id, error: errorMsg })
+        if (fatalApiReason(err)) {
+          fatal = err instanceof FatalApiError
+            ? err
+            : new FatalApiError(fatalApiReason(err) as string, err)
+          logger.error('prospect-research-v2 batch: FATAL, aborting remaining prospects', {
+            prospect_id,
+            reason: fatal.reason,
+          })
+        } else {
+          logger.error('prospect-research-v2 batch: prospect failed', { prospect_id, error: errorMsg })
+        }
         summary.failed++
         failures.push({ prospect_id, error: errorMsg })
       }
@@ -462,6 +483,15 @@ export async function runProspectResearchAgentV2Batch({
   )
 
   await Promise.all(tasks)
+
+  // Loudly, and after the failure log is written so the partial run stays diagnosable.
+  // The caller must not be able to read this as a completed batch.
+  if (fatal) {
+    throw new FatalApiError(
+      `${(fatal as FatalApiError).reason}. ${summary.completed} of ${summary.total} prospects completed before the abort`,
+      fatal,
+    )
+  }
 
   // Roll the registry's collisions into the summary so the caller sees uniformity in the
   // copy without reading the logs. Empty means every trigger had its own sentence shape.

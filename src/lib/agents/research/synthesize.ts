@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { buildSynthesisPrompt } from './prompts/synthesis-prompt'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
+import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { readabilityScore, type ReadabilityScore } from '@/lib/style/readability'
 import { SIX_TESTS, INFERENCE_DIRECTIONS } from './types'
 import type {
@@ -834,6 +835,11 @@ export async function synthesizeResearch(
     return scrubbedResult
 
   } catch (err) {
+    // A spent credit balance or a rejected key is not a per-prospect condition. Falling
+    // through to the proxy here is what made a billing failure look like a clean run:
+    // seven credit errors, batch reported completed 6 failed 0, two verified 6/6
+    // observations quietly replaced with nothing. Abort instead.
+    throwIfFatal(err, `synthesis for prospect ${prospect.id}`)
     logger.error('research/synthesize: Claude call failed', { error: String(err) })
     return buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', `Claude error: ${String(err)}`, detectedSignal)
   }

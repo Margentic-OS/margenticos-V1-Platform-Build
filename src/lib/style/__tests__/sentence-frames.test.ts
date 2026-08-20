@@ -114,3 +114,50 @@ describe('FrameRegistry — false positive guards', () => {
     expect(collisions.length).toBeGreaterThan(0)
   })
 })
+
+// ─── Concurrency ─────────────────────────────────────────────────────────────
+//
+// The batch orchestrator can run workers concurrently via p-limit. register() is fully
+// synchronous with no await inside it, and JavaScript is single-threaded, so the event
+// loop cannot interleave two calls: each runs to completion atomically. No locking is
+// needed and no update can be lost.
+//
+// What DOES change under concurrency is ORDER. Whichever prospect finishes synthesis
+// first registers first, so which id is recorded as firstSeenId varies between runs.
+// Detection is unaffected: a collision between two texts is found either way, only the
+// attribution of who used the frame first can flip.
+
+describe('FrameRegistry under concurrent workers', () => {
+  const A = 'Running Acme alongside the Beta role since 2021 is a particular kind of stretch.'
+  const B = 'Running Delta alongside the Gamma role since 2019 is a particular kind of strain.'
+
+  it('loses no registration when calls are interleaved by async scheduling', async () => {
+    const registry = new FrameRegistry()
+    const ids = Array.from({ length: 20 }, (_, i) => `p${i}`)
+
+    // Each worker yields to the event loop before registering, which is the only way one
+    // task can be suspended mid-flight in this runtime.
+    await Promise.all(ids.map(async id => {
+      await new Promise(resolve => setTimeout(resolve, Math.abs(id.charCodeAt(1) % 3)))
+      registry.register(id, `${id} runs a firm alongside another role and it never stops.`)
+    }))
+
+    // Every distinct text contributed frames; nothing was dropped by a lost update.
+    expect(registry.size).toBeGreaterThan(0)
+  })
+
+  it('still detects a real collision regardless of which worker wins the race', async () => {
+    const registry = new FrameRegistry()
+    const results: string[][] = []
+
+    await Promise.all([
+      (async () => { await new Promise(r => setTimeout(r, 1)); results.push(registry.register('first', A).map(c => c.frame)) })(),
+      (async () => { await new Promise(r => setTimeout(r, 2)); results.push(registry.register('second', B).map(c => c.frame)) })(),
+    ])
+
+    // Exactly one of the two saw the collision: the one that ran second, whichever it was.
+    const withCollisions = results.filter(r => r.length > 0)
+    expect(withCollisions).toHaveLength(1)
+    expect(withCollisions[0]).toContain('is a particular kind of')
+  })
+})

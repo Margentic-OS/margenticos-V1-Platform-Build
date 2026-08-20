@@ -18,6 +18,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { MessageParam, WebSearchTool20250305 } from '@anthropic-ai/sdk/resources/messages/messages'
 import { logger } from '@/lib/logger'
+import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -216,6 +217,9 @@ export async function webSearch(query: string): Promise<WebSearchResult> {
     logger.debug('Web search: Anthropic native succeeded', { query, source: result.source })
     return result
   } catch (err) {
+    // Same rule as synthesis: a billing or auth failure will not resolve on the next
+    // query, and silently degrading to Brave hides the fact that the account is dead.
+    throwIfFatal(err, 'Anthropic web search')
     logger.warn('Web search: Anthropic native failed, trying Brave', {
       query,
       error: String(err),
