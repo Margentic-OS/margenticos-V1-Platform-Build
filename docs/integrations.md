@@ -67,6 +67,46 @@ ask" looked identical. `last_polled_at` is what tells them apart now.
 - `error_count` climbing across runs → failures are persistent, not a blip. The
   count only resets on a fully clean run.
 
+**Paging within a run is a different thing from resuming across runs. Do not mix
+them up.** These two both use the word "cursor" and they are not the same set.
+
+| | Pages through every result inside one run? | Remembers where it stopped, for the next run? |
+|---|---|---|
+| `replies` | Yes | Yes — `last_cursor` |
+| `leads_bounced` | Yes | No, deliberately |
+| `leads_unsubscribed` | Yes | No, deliberately |
+
+All three page. Only one persists. Fixed 2026-08-21: the code read the "next page"
+token from `json.pagination.next_starting_after`, but Instantly returns
+`next_starting_after` at the top level of the response, next to `items`, with no
+`pagination` object at all. The path did not exist, so the token was always missing and
+all three resources stopped after their first page of 100 rows. At 15 leads that
+changed nothing, which is why it went unnoticed. At 500 prospects it would have quietly
+capped reply collection at 100 per run.
+
+**Two safety limits on the paging loop, and how to spot them firing.** Both write to
+`last_error` and increment `error_count`, so a truncated scan shows up as a failed run
+rather than as a clean one over partial data.
+
+- *Page cap.* 20 pages per scan, 100 rows a page, so 2,000 rows. The whole cron
+  function has 300 seconds before Vercel kills it, and it polls all three resources in
+  that one window, so the cap keeps the pagination itself to roughly 10% of the budget
+  and leaves the rest for the work done per row. If you see `page cap reached` in
+  `last_error`, there was genuinely more data on the other side of it.
+- *Cursor that stops moving.* If Instantly hands back the same "next page" token twice,
+  the scan stops and records `the cursor is not advancing`. Without this, an API that
+  echoed its token would loop until Vercel killed the function with nothing written
+  anywhere to explain why.
+
+**What happens to `replies`'s stored cursor when a run goes wrong.** Three different
+answers, on purpose:
+
+| What went wrong | Stored cursor | Why |
+|---|---|---|
+| A page request failed (500, 401, network) | Stays put | That page was never read. It must be re-fetched next run. |
+| The page cap was hit | **Moves forward** | The 20 pages before the cap were read and their rows written, so the cursor points at finished work. Freezing it would make every future run re-read the same 20 pages and never reach page 21. The failure is still recorded; the alarm and the progress are both wanted. |
+| The cursor stopped advancing | Stays put | The cursor is the thing that misbehaved. Saving a value Instantly keeps echoing would pin every future run to one page. |
+
 **Why `last_cursor` is always NULL for `leads_bounced` and `leads_unsubscribed`.**
 This is deliberate, not a bug and not an oversight. Those two resources re-scan
 every matching lead on every run, because a bounce is a status change on a lead
@@ -76,7 +116,9 @@ be looked at again. Duplicate signals are prevented by a unique index instead, s
 re-scanning is free. If you ever see a value in that column for those two rows,
 something has gone wrong.
 
-`replies` does keep a cursor, because replies genuinely arrive in order.
+`replies` does keep a cursor, because replies genuinely arrive in order. Note that this
+is about resuming across runs only. Both lead resources still page through every result
+within a single run — they just start from the beginning again next time.
 
 **A note on `last_polled_at`.** The original migration
 (`20260428_instantly_polling.sql`) reserved this column as a timestamp cursor for

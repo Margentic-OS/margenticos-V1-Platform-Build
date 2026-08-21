@@ -25,6 +25,38 @@
 
 ---
 
+## Instantly pagination — follow-ups after fixing the cursor (2026-08-21)
+
+- [monitor] Pagination is proven by tests, NOT yet by a live multi-page run
+  Fixed 2026-08-21 in commit 7532c51: parseInstantlyResponse read
+  json.pagination.next_starting_after; Instantly returns next_starting_after at the top
+  level with no pagination object, so every scan stopped after page one.
+  The 19:30 tick on the new deploy is clean and shows total_pages: 1 and
+  cursor_returned: false on all three resources. That is CORRECT at current volume and
+  proves nothing about the fix: returned was 0 on every page, so there was no second
+  page to ask for. A live tick cannot tell fixed code from broken code until there is
+  more than 100 of something.
+  What DOES prove the deploy is live: the "replies polled" log line now carries
+  total_pages and cursor_advanced, keys that did not exist in the old code.
+  Next action: after the first run that pushes any resource past 100 rows, read the run
+  log and confirm page 2 was fetched and cursor_returned was true on page 1. Until then
+  the evidence is the test suite (16 of 19 new tests fail against the old source).
+  Trigger: first campaign with more than 100 leads, or more than 100 replies between
+  ticks. At 500 prospects this is certain.
+
+- [monitor] The page cap of 20 has never been hit, so its failure path is test-only
+  MAX_PAGES_PER_SCAN is 20 pages of 100, which is 2,000 rows per scan, chosen against
+  the 300s Vercel ceiling shared by all three resources in one tick. Justification is in
+  the code comment and in docs/integrations.md.
+  The cap records a failure through writePollState rather than stopping silently, and
+  for replies it still advances the stored cursor so a backlog drains across ticks. Both
+  behaviours are covered by tests and neither has run in production.
+  Next action: if 'page cap reached' ever appears in polling_cursors.last_error, do not
+  simply raise the number. The per-row work (an outbound-body fetch and a signal insert
+  per reply; a signal insert and a suppression write per lead) is what actually consumes
+  the 300s, so past a certain backlog the answer is to move that work off the cron
+  request, not to allow more pages inside it.
+
 ## Suppression — follow-ups after wiring the send gate (2026-08-21)
 
 - [monitor] Global suppression is checked at SEND, not at SOURCING
