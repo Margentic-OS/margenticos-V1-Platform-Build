@@ -48,6 +48,10 @@ next-env.d.ts
 # Vercel
 .vercel
 
+# `vercel env pull production` writes a bare file named `production` holding a
+# VERCEL_OIDC_TOKEN. It was tracked from 2026-07-27 to 2026-08-21.
+production
+
 # MCP config — contains access tokens, never commit
 .mcp.json
 logs/
