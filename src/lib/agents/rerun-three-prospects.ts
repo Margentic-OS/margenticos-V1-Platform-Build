@@ -1,25 +1,61 @@
-// Verification re-run for the copy-quality rubric (readability, frame repetition,
-// inference direction). Runs the three dogfood prospects through the research agent with a
-// SHARED FrameRegistry so the cross-batch sentence-frame check actually has a batch to
-// compare against, and prints every candidate with its scores and readability verdict.
+// Diagnostic re-run for the copy-quality rubric (readability, frame repetition, inference
+// direction). Runs prospects through the research agent with a SHARED FrameRegistry so the
+// cross-batch sentence-frame check actually has a batch to compare against, and prints every
+// candidate with its scores and readability verdict.
 //
-// Run with: npx tsx --env-file=.env.local src/lib/agents/rerun-three-prospects.ts
+// This is the only per-candidate view of the six tests and the readability gate. The batch
+// entry point reports outcomes; this reports why each candidate won or was demoted.
+//
+// The organisation and prospect ids USED to be hardcoded here, which is how a diagnostic
+// silently becomes a throwaway that only works for one client. They are arguments now.
+//
+// Run with:
+//   npx tsx --env-file=.env.local src/lib/agents/rerun-three-prospects.ts \
+//     --org <uuid> --ids <uuid>,<uuid>,<uuid>
+//
+// WARNING: this calls runProspectResearchAgentV2 directly, which writes
+// personalisation_trigger and personalisation_question on every prospect it touches, and
+// clears them when the judge holds. It has no overwrite guard. Do not point it at prospects
+// whose copy has already been sent. For ordinary runs use scripts/run-research.ts, which
+// refuses that case unless explicitly told otherwise.
 
 import { runProspectResearchAgentV2 } from '@/lib/agents/prospect-research-agent-v2'
 import { FrameRegistry } from '@/lib/style/sentence-frames'
 import { readabilityScore } from '@/lib/style/readability'
 
-const ORG_ID = '0ed34697-0fa9-4f08-ac15-d3504ac45caf'
-
-const PROSPECTS: Array<{ name: string; id: string }> = [
-  { name: 'Robert', id: 'f69dedaa-ed4d-49e9-b725-81ef0572f98e' },
-  { name: 'Udo',    id: '1c0b56bb-4934-4b85-bbe6-256e97c645a8' },
-  { name: 'Alma',   id: 'f5f83c7a-01cb-4fc0-93fc-99ea73b3d840' },
-]
-
 const SIX = ['specific', 'verifiable', 'inferential', 'relevant', 'useful', 'non_judgemental'] as const
 
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`)
+  return i >= 0 ? process.argv[i + 1] : undefined
+}
+
+function usage(message: string): never {
+  console.error(`\n${message}\n`)
+  console.error('Usage:')
+  console.error('  npx tsx --env-file=.env.local src/lib/agents/rerun-three-prospects.ts --org <uuid> --ids <uuid>,<uuid>')
+  console.error('')
+  console.error('  --org  organisation id. Required.')
+  console.error('  --ids  comma-separated prospect ids. Required.')
+  console.error('')
+  process.exit(1)
+}
+
 async function main() {
+  const ORG_ID = arg('org')
+  if (!ORG_ID) usage('Missing --org.')
+
+  const idsRaw = arg('ids')
+  if (!idsRaw) usage('Missing --ids.')
+
+  const PROSPECTS = idsRaw
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(id => ({ name: id.slice(0, 8), id }))
+
+  if (PROSPECTS.length === 0) usage('--ids contained no prospect ids.')
+
   const registry = new FrameRegistry()
   const triggers: Array<{ name: string; text: string }> = []
 

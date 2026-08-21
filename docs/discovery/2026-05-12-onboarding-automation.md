@@ -200,7 +200,9 @@ There is no code wrapping any of these steps. A longer-term BACKLOG note ([docs/
 **Detail:**
 
 **Step 1 — Trigger mechanism:**
-The current trigger is [src/lib/agents/run-dogfood-batch-2.ts](../src/lib/agents/run-dogfood-batch-2.ts), a local CLI script run with `npx tsx --env-file=.env.local`. It passes hardcoded prospect UUIDs to `runProspectResearchAgentV2Batch()`. This is a dogfooding script, not a production operator flow.
+The current trigger is `src/lib/agents/run-dogfood-batch-2.ts`, a local CLI script run with `npx tsx --env-file=.env.local`. It passes hardcoded prospect UUIDs to `runProspectResearchAgentV2Batch()`. This is a dogfooding script, not a production operator flow.
+
+> **Superseded 2026-08-20.** That script was deleted. Research is now triggered from the operator dashboard via `POST /api/operator/organisations/[id]/research-prospects`, or from [scripts/run-research.ts](../../scripts/run-research.ts), both through the shared entry point [src/lib/operator/research-batch-entry.ts](../../src/lib/operator/research-batch-entry.ts). Nothing is hardcoded. The rest of this document is kept as the record of what was true in May 2026.
 
 **Step 2 — Research agent:**
 [src/lib/agents/prospect-research-agent-v2.ts](../src/lib/agents/prospect-research-agent-v2.ts) runs four sources in parallel per prospect:

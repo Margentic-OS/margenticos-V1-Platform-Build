@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { EnrichAndTierButton } from './EnrichAndTierButton'
+import { SourceProspectsButton } from './SourceProspectsButton'
+import { ResearchProspectsButton } from './ResearchProspectsButton'
 
 interface PipelineMetrics {
   organisation_id: string
@@ -13,14 +15,21 @@ interface PipelineMetrics {
   tier_2_count: number
   tier_3_count: number
   enriched_untiered_count: number
+  unresearched_count: number
 }
 
 interface PipelineOverviewProps {
   metrics: PipelineMetrics[]
   selectedClientId?: string | null
+  /**
+   * Ceiling the sourcing entry point enforces. Passed in rather than imported: this is a
+   * client component, and importing from sourcing-entry would pull the orchestrator, the
+   * Apollo handler and the service-role client into the browser bundle.
+   */
+  sourcingMaxBatchSize: number
 }
 
-export function PipelineOverview({ metrics, selectedClientId }: PipelineOverviewProps) {
+export function PipelineOverview({ metrics, selectedClientId, sourcingMaxBatchSize }: PipelineOverviewProps) {
   const searchParams = useSearchParams()
   const currentClient = searchParams.get('client')
 
@@ -116,6 +125,19 @@ export function PipelineOverview({ metrics, selectedClientId }: PipelineOverview
                   </p>
                 </div>
               )}
+            </div>
+
+            {/* Run the pipeline: source, then research. Both run inside one request and
+                refuse a batch too large to finish, so neither needs a queue yet. */}
+            <div className="space-y-3 mb-6 pb-6 border-b border-border-card">
+              <SourceProspectsButton
+                organisationId={org.organisation_id}
+                maxBatchSize={sourcingMaxBatchSize}
+              />
+              <ResearchProspectsButton
+                organisationId={org.organisation_id}
+                unresearchedCount={org.unresearched_count}
+              />
             </div>
 
             {/* Action buttons */}

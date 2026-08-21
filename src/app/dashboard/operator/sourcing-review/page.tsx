@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { PipelineOverview } from './components/PipelineOverview'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
+import { SOURCING_MAX_BATCH_SIZE } from '@/lib/operator/sourcing-entry'
 
 export default async function SourcingReviewPage({
   searchParams,
@@ -56,7 +57,7 @@ export default async function SourcingReviewPage({
     orgs.map(async (org) => {
       const result = await supabase
         .from('prospects')
-        .select('id, sourcing_review_status, enrichment_status, sourced_tier', { count: 'exact' })
+        .select('id, sourcing_review_status, enrichment_status, sourced_tier, current_research_result_id, suppressed', { count: 'exact' })
         .eq('organisation_id', org.id)
 
       if (!result.data) {
@@ -69,6 +70,7 @@ export default async function SourcingReviewPage({
           tier_2_count: 0,
           tier_3_count: 0,
           enriched_untiered_count: 0,
+          unresearched_count: 0,
         }
       }
 
@@ -83,6 +85,12 @@ export default async function SourcingReviewPage({
       const enrichedUntiered = prospects.filter(
         p => p.enrichment_status === 'enriched' && p.sourced_tier === null
       ).length
+      // Matches the 'unresearched' scope the research entry point selects: never researched
+      // and not suppressed. Suppressed prospects are excluded because researching copy that
+      // can never be sent spends money for nothing.
+      const unresearched = prospects.filter(
+        p => p.current_research_result_id === null && p.suppressed === false
+      ).length
 
       return {
         organisation_id: org.id,
@@ -93,6 +101,7 @@ export default async function SourcingReviewPage({
         tier_2_count: tier2,
         tier_3_count: tier3,
         enriched_untiered_count: enrichedUntiered,
+        unresearched_count: unresearched,
       }
     })
   )
@@ -111,7 +120,11 @@ export default async function SourcingReviewPage({
       />
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 max-w-[1040px]">
-          <PipelineOverview metrics={metrics} selectedClientId={clientParam} />
+          <PipelineOverview
+            metrics={metrics}
+            selectedClientId={clientParam}
+            sourcingMaxBatchSize={SOURCING_MAX_BATCH_SIZE}
+          />
         </div>
       </div>
     </>
