@@ -8,20 +8,17 @@ import { INSTANTLY_LEAD_STATUS_BOUNCED, INSTANTLY_LEAD_STATUS_UNSUBSCRIBED, INST
 
 describe('Instantly polling - bounce/unsubscribe detection mechanism', () => {
   describe('Status value constants - mechanism verification', () => {
-    it('exports BOUNCED constant with expected value (unverified, pending live confirmation)', () => {
-      // This documents the current assumption: status = '-2' for bounced leads.
-      // DO NOT change without live Instantly API confirmation.
-      // See BACKLOG: "Instantly bounce/unsub detection - live field and value verification"
-      expect(INSTANTLY_LEAD_STATUS_BOUNCED).toBe('-2')
-      expect(typeof INSTANTLY_LEAD_STATUS_BOUNCED).toBe('string')
+    it('exports BOUNCED as the number -1, per the Instantly v2 Lead schema', () => {
+      // Lead.status: 1 Active, 2 Paused, 3 Completed, -1 Bounced, -2 Unsubscribed, -3 Skipped.
+      // Previously '-2' as a string: inverted AND the wrong type.
+      expect(INSTANTLY_LEAD_STATUS_BOUNCED).toBe(-1)
+      expect(typeof INSTANTLY_LEAD_STATUS_BOUNCED).toBe('number')
     })
 
-    it('exports UNSUBSCRIBED constant with expected value (unverified, pending live confirmation)', () => {
-      // This documents the current assumption: status = '-1' for unsubscribed leads.
-      // DO NOT change without live Instantly API confirmation.
-      // See BACKLOG: "Instantly bounce/unsub detection - live field and value verification"
-      expect(INSTANTLY_LEAD_STATUS_UNSUBSCRIBED).toBe('-1')
-      expect(typeof INSTANTLY_LEAD_STATUS_UNSUBSCRIBED).toBe('string')
+    it('exports UNSUBSCRIBED as the number -2, per the Instantly v2 Lead schema', () => {
+      // Previously '-1' as a string: inverted AND the wrong type.
+      expect(INSTANTLY_LEAD_STATUS_UNSUBSCRIBED).toBe(-2)
+      expect(typeof INSTANTLY_LEAD_STATUS_UNSUBSCRIBED).toBe('number')
     })
 
     it('BOUNCED and UNSUBSCRIBED values are distinct (mechanism requirement)', () => {
@@ -34,15 +31,20 @@ describe('Instantly polling - bounce/unsubscribe detection mechanism', () => {
       expect(INSTANTLY_LEAD_STATUS_VERIFIED).toBe(false)
     })
 
-    it('status values use string type matching Instantly V2 API response format', () => {
-      // Instantly V2 API returns status as string in JSON, not numeric.
-      // The mechanism compares these string constants to response.status field.
+    it('status values are numbers, so a strict comparison against the API can succeed', () => {
+      // The API types Lead.status as a number. When these were strings, every strict
+      // comparison against a returned row was false regardless of the value, so
+      // correcting the inversion alone would have changed nothing observable.
       const statusValues = [INSTANTLY_LEAD_STATUS_BOUNCED, INSTANTLY_LEAD_STATUS_UNSUBSCRIBED]
       statusValues.forEach(value => {
-        expect(typeof value).toBe('string')
-        // Verify they can be compared with response.status (which is a string in JSON)
-        expect(value).toMatch(/^-?\d+$/)
+        expect(typeof value).toBe('number')
+        expect(Number.isInteger(value)).toBe(true)
       })
+
+      // The bug being locked out: a numeric row value must not equal a string constant.
+      expect(INSTANTLY_LEAD_STATUS_BOUNCED === -1).toBe(true)
+      // @ts-expect-error comparing number to string is exactly what used to happen
+      expect(INSTANTLY_LEAD_STATUS_BOUNCED === '-1').toBe(false)
     })
   })
 

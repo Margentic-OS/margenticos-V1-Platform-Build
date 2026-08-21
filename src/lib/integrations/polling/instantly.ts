@@ -18,21 +18,23 @@
 //   At very large lead counts (10k+), replace with webhook-based ingestion.
 //
 // Status values for bounced/unsubscribed leads:
-//   WARNING: The values and field below are UNVERIFIED.
 //
-//   Research (2026-06-15): Instantly's public V2 API documentation does not enumerate
-//   the numeric status values for the lead status field. The field itself that carries
-//   bounce/unsubscribe signals (status vs lt_interest_status vs enrichment_status) is
-//   also unconfirmed.
+//   Source: Instantly API v2 Lead schema.
+//     status (readOnly, number): 1 Active, 2 Paused, 3 Completed,
+//                                -1 Bounced, -2 Unsubscribed, -3 Skipped
 //
-//   Current assumption: status field uses -2 for bounced, -1 for unsubscribed.
-//   This assumption has NOT been confirmed against a live Instantly API response.
+//   Corrected 2026-08-21. The previous values were '-2' for bounced and '-1' for
+//   unsubscribed: inverted, and strings where the API returns numbers. Either fault
+//   alone was enough to make detection wrong, and the string type meant correcting the
+//   inversion by itself would have changed nothing observable.
 //
-//   CRITICAL: A wrong status value means bounce detection silently never fires, leaving
-//   a bouncing campaign undetected and risking permanent damage to sending domains.
+//   The filter is no longer trusted on its own. Every returned lead is checked against
+//   the status that was requested before a signal is written (verifyLeadStatus below).
+//   A row that comes back from a bounced query without status -1 is not written as a
+//   bounce; it is recorded as a poll failure and surfaces in polling_cursors.last_error.
 //
-//   Before any production send, this MUST be verified by calling the real Instantly API
-//   and inspecting the actual status field on a known-bounced and known-unsubscribed lead.
+//   INSTANTLY_LEAD_STATUS_VERIFIED remains false. It flips only after a real bounce has
+//   been observed travelling this path end to end, not because the constants were fixed.
 //   See BACKLOG: "Instantly bounce/unsub detection - live field and value verification".
 
 import * as Sentry from '@sentry/nextjs'
@@ -45,12 +47,28 @@ import { mockEmailsList, mockEmailGet, mockLeadsList } from '@/lib/integrations/
 import { InstantlyFlagError } from '@/lib/integrations/handlers/instantly/types'
 const SOURCE = 'instantly'
 
-// Status value constants - UNVERIFIED pending live API confirmation.
-export const INSTANTLY_LEAD_STATUS_BOUNCED = '-2'
-export const INSTANTLY_LEAD_STATUS_UNSUBSCRIBED = '-1'
+// Lead status values, from the Instantly API v2 Lead schema.
+//
+//   status (readOnly, NUMBER):
+//     1 Active, 2 Paused, 3 Completed, -1 Bounced, -2 Unsubscribed, -3 Skipped
+//
+// NUMBERS, not strings. The API returns status as a number, so a strict comparison of
+// -1 against '-1' is false forever. These were previously strings AND inverted
+// (BOUNCED='-2', UNSUBSCRIBED='-1'), which meant the bounce poll was filtering for
+// unsubscribes and the unsubscribe poll was filtering for bounces. Both are fixed here.
+//
+// Do NOT confuse this axis with lt_interest_status, which is writable, is a different
+// axis, and shares the same numeric values with entirely different meanings (-1 there
+// is Not Interested, not Bounced). Nothing in this file touches that field.
+//
+// status is readOnly. It is used here only as a list filter and as a read-back check.
+// It is never written.
+export const INSTANTLY_LEAD_STATUS_BOUNCED = -1
+export const INSTANTLY_LEAD_STATUS_UNSUBSCRIBED = -2
 
-// Safety flag: set to true only after live verification confirms the status values and
-// field are correct. While false, polling logs a warning that it operates on unverified values.
+// Safety flag: set to true only after a real bounce has been observed end to end through
+// this path, not merely after the constants were corrected. While false, polling logs a
+// warning on every run. Correcting the values above does NOT earn this flag.
 export const INSTANTLY_LEAD_STATUS_VERIFIED = false
 
 type SupabaseServiceClient = SupabaseClient<Database>
@@ -325,6 +343,45 @@ async function fetchOutboundEmailBody(
   } finally {
     clearTimeout(timeoutId)
   }
+}
+
+// ── Returned-lead status verification ─────────────────────────────────────────
+//
+// The list request carries a status filter, but a filter is a request, not a guarantee.
+// Before this existed the poller wrote a signal for every row that came back and never
+// looked at the row, so an ignored filter, a renamed field, or a changed enum would all
+// have produced confidently mislabelled data with no error anywhere. This is the check
+// that makes the classification something we observed rather than something we asked for.
+//
+// A string is deliberately NOT coerced. If Instantly starts returning "-1" instead of -1,
+// that is a schema change worth seeing, and Number(raw) would paper over it silently —
+// which is the exact failure mode this function exists to catch.
+
+type LeadStatusVerdict =
+  | { ok: true }
+  | { ok: false; reason: string }
+
+function verifyLeadStatus(
+  lead: Record<string, unknown>,
+  expectedStatus: number
+): LeadStatusVerdict {
+  const raw = lead.status
+
+  if (typeof raw !== 'number') {
+    return {
+      ok: false,
+      reason:
+        raw === undefined
+          ? 'no status field on the returned lead'
+          : `status is ${typeof raw} ${JSON.stringify(raw)}, expected a number`,
+    }
+  }
+
+  if (raw !== expectedStatus) {
+    return { ok: false, reason: `status is ${raw}, expected ${expectedStatus}` }
+  }
+
+  return { ok: true }
 }
 
 // ── Signal writer ─────────────────────────────────────────────────────────────
@@ -689,7 +746,7 @@ export async function pollInstantlyReplies(
 export async function pollInstantlyLeadStatus(
   supabase: SupabaseServiceClient,
   apiKey: string,
-  instantlyStatus: string,
+  instantlyStatus: number,
   signalType: 'email_bounced' | 'lead_unsubscribed'
 ): Promise<PollResult> {
   if (!INSTANTLY_LEAD_STATUS_VERIFIED) {
@@ -812,12 +869,38 @@ export async function pollInstantlyLeadStatus(
 
         if (!leads || leads.length === 0) break
 
+        // Mismatches are counted per page and reported once, rather than once per row.
+        // A filter that is being ignored returns a whole page of wrong rows, and one
+        // recordPollFailure per row would add 100 to error_count for a single bad call.
+        // One call that misbehaved is one failure; the row count goes in the message.
+        let pageMismatches = 0
+        let firstMismatchReason: string | null = null
+
         for (const lead of leads) {
           const l = lead as Record<string, unknown>
           const leadId = l.id as string | undefined
 
           if (!leadId) {
             logger.warn('Instantly poll: lead missing id field', { signal_type: signalType })
+            result.errors++
+            continue
+          }
+
+          // The filter asked for this status. Confirm the row actually carries it before
+          // writing a signal that asserts it does.
+          const verdict = verifyLeadStatus(l, instantlyStatus)
+          if (!verdict.ok) {
+            pageMismatches++
+            if (firstMismatchReason === null) firstMismatchReason = verdict.reason
+            logger.error('Instantly poll: returned lead does not carry the requested status', {
+              resource,
+              signal_type: signalType,
+              campaign_external_id: instantlyCampaignId,
+              page: pageCount,
+              lead_id: leadId,
+              requested_status: instantlyStatus,
+              reason: verdict.reason,
+            })
             result.errors++
             continue
           }
@@ -836,6 +919,19 @@ export async function pollInstantlyLeadStatus(
           if (outcome === 'written') result.written++
           else if (outcome === 'skipped') result.skipped++
           else result.errors++
+        }
+
+        if (pageMismatches > 0) {
+          // Surfaces through writePollState into last_error and error_count, and makes
+          // the run's ok false. A status filter that is not being honoured is a broken
+          // poll, not a quiet skip.
+          campaignFailed = true
+          recordPollFailure(
+            state,
+            `campaign ${instantlyCampaignId} page ${pageCount}: ` +
+            `${pageMismatches}/${leads.length} returned leads did not carry status ` +
+            `${instantlyStatus} (first: ${firstMismatchReason})`
+          )
         }
 
         if (!nextCursor) break
