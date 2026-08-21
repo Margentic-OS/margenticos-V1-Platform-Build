@@ -8,6 +8,19 @@
 //   leads_bounced   — full status scan via GET /api/v2/lead/list?status=BOUNCED_STATUS
 //   leads_unsub     — full status scan via GET /api/v2/lead/list?status=UNSUB_STATUS
 //
+// Two different things use the word cursor, and collapsing them breaks this file:
+//
+//   PAGING WITHIN A RUN  — ALL THREE resources loop pages until next_starting_after
+//                          comes back absent, so one run sees every matching row.
+//                          Bounded by MAX_PAGES_PER_SCAN and by a non-advancing-cursor
+//                          check; see the Pagination guards section.
+//   RESUMING ACROSS RUNS — ONLY 'replies' persists polling_cursors.last_cursor.
+//                          leads_bounced and leads_unsubscribed deliberately persist
+//                          nothing and re-scan in full every run, for the reason
+//                          immediately below.
+//
+// The two sets are not the same set: three loop, one persists.
+//
 // Why full scan for bounces/unsubscribes (not cursor-based):
 //   Instantly V2 has no updated_after filter on leads. Bounces and unsubscribes are
 //   status changes on existing leads — a lead created weeks ago can bounce today.
@@ -47,6 +60,11 @@ import { mockEmailsList, mockEmailGet, mockLeadsList } from '@/lib/integrations/
 import { InstantlyFlagError } from '@/lib/integrations/handlers/instantly/types'
 import { recordSuppression } from '@/lib/suppression/suppression-list'
 const SOURCE = 'instantly'
+
+// Rows requested per list call, for all three resources. One constant because the page
+// cap above states its ceiling in rows, and a cap that disagreed with the request size
+// would report a row count the poller never asked for.
+const INSTANTLY_PAGE_LIMIT = 100
 
 // Lead status values, from the Instantly API v2 Lead schema.
 //
@@ -170,8 +188,17 @@ async function getCursor(
 //                   NULL since the table was created. Telling a silent poll apart from a
 //                   clean one is worth more than a reservation nothing has claimed.
 //
-//   last_cursor     The pagination cursor to resume from on the next run. Advanced only
-//                   on a clean run, and only for resources that resume.
+//   last_cursor     The pagination cursor to resume from on the next run. Written only
+//                   for resources that RESUME across runs, which is 'replies' and only
+//                   'replies'. Do not confuse resuming across runs with paging within a
+//                   run: all three resources page through their results until the cursor
+//                   comes back absent, and only this one remembers where it stopped.
+//
+//                   Advanced on a clean run, and also on a run that stopped at the page
+//                   cap, because the pages before the cap were fetched and written and
+//                   the cursor points past finished work. NOT advanced when a page fetch
+//                   failed (that page must be re-fetched) and NOT advanced when the
+//                   cursor stopped advancing (the cursor is the thing that failed).
 //                   ALWAYS NULL for leads_bounced and leads_unsubscribed, by design, not
 //                   by omission: those resources re-scan in full every run because a lead
 //                   created weeks ago can bounce today and a creation-ordered cursor
@@ -447,14 +474,35 @@ async function writeSignal(
 
 // ── Instantly API client ──────────────────────────────────────────────────────
 
-// Shared response normaliser: { items, pagination } → { data, nextCursor, error }
+// Shared response normaliser: { items, next_starting_after } -> { data, nextCursor }
+//
+// next_starting_after is returned at the TOP LEVEL of the response, as a sibling of
+// items. There is no pagination object. Verified against a raw Instantly response on
+// 2026-08-21.
+//
+// This read used to be json.pagination.next_starting_after, a path that does not exist,
+// so nextCursor was null on every response and every one of the three loops below
+// stopped after page one. Every production log line since per-page logging landed shows
+// "cursor_returned": false for all three resources, which is what that looks like from
+// the outside. At 15 leads it changed nothing. At 500 prospects it silently caps reply
+// collection, and reply collection is the measurement half of the split test.
+//
+// The nested path is kept as a FALLBACK, checked second, in case the shape ever gains a
+// pagination object. It costs one optional chain and means a future reshape degrades
+// instead of breaking.
 function parseInstantlyResponse(json: unknown): { data: unknown[]; nextCursor: string | null } {
-  const items: unknown[] = Array.isArray(json)
-    ? json
-    : ((json as Record<string, unknown>)?.items as unknown[]) ?? []
-  const nextCursor: string | null =
-    ((json as Record<string, unknown>)?.pagination as Record<string, unknown>)
-      ?.next_starting_after as string | null ?? null
+  const root = json as Record<string, unknown> | null
+
+  const items: unknown[] = Array.isArray(json) ? json : (root?.items as unknown[]) ?? []
+
+  // Top level first, nested second. Only a non-empty string counts as a cursor: an
+  // empty string is Instantly saying "no more pages", and sending it back as
+  // starting_after would restart the scan from the beginning.
+  const topLevel = root?.next_starting_after
+  const nested = (root?.pagination as Record<string, unknown> | undefined)?.next_starting_after
+  const raw = typeof topLevel === 'string' ? topLevel : typeof nested === 'string' ? nested : null
+  const nextCursor = raw !== null && raw.trim().length > 0 ? raw : null
+
   return { data: items, nextCursor }
 }
 
@@ -585,6 +633,81 @@ async function instantlyPost(
   return { data, nextCursor, error: null, status: response.status }
 }
 
+// ── Pagination guards ─────────────────────────────────────────────────────────
+//
+// A loop that keeps requesting pages until an API we do not control says stop is
+// unbounded. Two things can stop it terminating, and both are handled here:
+//
+//   1. Too many pages. Bounded by MAX_PAGES_PER_SCAN.
+//   2. A cursor that never advances. An API that echoes the same next_starting_after
+//      back forever would otherwise spin until Vercel kills the function at 300s, with
+//      nothing written anywhere to say why.
+//
+// NEITHER IS A SILENT STOP. Both call recordPollFailure, so both reach
+// polling_cursors.last_error and error_count through writePollState, and both increment
+// result.errors, which makes the cron route's runOk false. A truncated scan announces
+// itself rather than reporting a clean run over partial data.
+//
+// Why 20 pages and not the 50 that was here before:
+//   Vercel maxDuration is 300s and one cron tick polls three resources in sequence.
+//   An Instantly list call costs roughly half a second, so 20 pages across three
+//   resources is about 30s of the 300s ceiling spent purely on pagination, near 10%,
+//   leaving the rest for the per-row work that actually dominates the tick. Every reply
+//   row costs an outbound-body fetch plus a signal insert; every bounced lead row costs
+//   a signal insert plus a suppression write. The old 50 would have spent about 75s, a
+//   quarter of the ceiling, on list calls before a single row was processed.
+//   At INSTANTLY_PAGE_LIMIT rows per page, 20 pages is 2,000 rows per scan, which is
+//   4x the 500-prospect scale this fix exists for.
+//   Raise it only with evidence that a real backlog needs it, and expect to move the
+//   per-row work off the cron request before raising it far.
+const MAX_PAGES_PER_SCAN = 20
+
+interface PageGuard {
+  pages: number
+  seenCursors: Set<string>
+}
+
+function newPageGuard(startingCursor?: string | null): PageGuard {
+  const seenCursors = new Set<string>()
+  // Seed with the cursor this scan starts from. If Instantly hands back the same value
+  // it was just sent, that is a cursor that did not advance, and it is worth catching on
+  // page one rather than on page two.
+  if (startingCursor) seenCursors.add(startingCursor)
+  return { pages: 0, seenCursors }
+}
+
+type PageGuardVerdict = { ok: true } | { ok: false; reason: string }
+
+// Call before issuing the request for the next page. Counts the page on the way through,
+// so guard.pages is always the number of pages actually requested.
+function beginPage(guard: PageGuard, label: string): PageGuardVerdict {
+  if (guard.pages >= MAX_PAGES_PER_SCAN) {
+    return {
+      ok: false,
+      reason:
+        `${label}: page cap reached at ${MAX_PAGES_PER_SCAN} pages ` +
+        `(${MAX_PAGES_PER_SCAN * INSTANTLY_PAGE_LIMIT} rows) - scan truncated, ` +
+        `there is more on the other side of the cap`,
+    }
+  }
+  guard.pages++
+  return { ok: true }
+}
+
+// Call with the cursor a page returned, before sending it as starting_after.
+function acceptCursor(guard: PageGuard, nextCursor: string, label: string): PageGuardVerdict {
+  if (guard.seenCursors.has(nextCursor)) {
+    return {
+      ok: false,
+      reason:
+        `${label}: next_starting_after came back as "${nextCursor}" a second time after ` +
+        `${guard.pages} page(s) - the cursor is not advancing`,
+    }
+  }
+  guard.seenCursors.add(nextCursor)
+  return { ok: true }
+}
+
 // ── Reply polling (cursor-based) ──────────────────────────────────────────────
 
 export async function pollInstantlyReplies(
@@ -608,18 +731,37 @@ export async function pollInstantlyReplies(
   const state = newPollState()
 
   let cursor = await getCursor(supabase, resource)
-  let pageCount = 0
-  const MAX_PAGES = 50 // safety ceiling — prevents runaway pagination on a very large backlog
-  const PAGE_LIMIT = 100
+  const guard = newPageGuard(cursor)
+
+  // Set false only when the CURSOR is what misbehaved. See the two break paths below.
+  let cursorIsTrustworthy = true
 
   try {
-    while (pageCount < MAX_PAGES) {
-      pageCount++
+    // Loops until Instantly stops returning next_starting_after. The two guards are the
+    // only other ways out, and each records a failure on the way through.
+    for (;;) {
+      const gate = beginPage(guard, resource)
+      if (!gate.ok) {
+        recordPollFailure(state, gate.reason)
+        logger.error('Instantly poll: reply pagination hit the page cap', {
+          resource,
+          reason: gate.reason,
+          total_pages: guard.pages,
+        })
+        result.errors++
+        // The stored cursor still moves on a cap hit, deliberately. Those pages were
+        // fetched and their rows written, so the cursor points past finished work and
+        // the next tick drains the rest of the backlog instead of re-fetching the same
+        // 20 pages every 15 minutes forever. The alarm is last_error. The progress is
+        // the cursor. Both, not one instead of the other.
+        break
+      }
+      const pageCount = guard.pages
 
       const params: Record<string, string> = {
         email_type: 'received',
         sort_order: 'asc',
-        limit: String(PAGE_LIMIT),
+        limit: String(INSTANTLY_PAGE_LIMIT),
       }
       if (cursor) params.starting_after = cursor
 
@@ -633,10 +775,13 @@ export async function pollInstantlyReplies(
           error,
           http_status: status,
           page: pageCount,
-          requested: PAGE_LIMIT,
+          requested: INSTANTLY_PAGE_LIMIT,
         })
         result.errors++
         // Cursor is not advanced: the page that failed must be re-fetched next run.
+        // Returning from inside the try still runs the finally, so writePollState fires
+        // and the failure recorded above lands in last_error and error_count. A page-3
+        // failure cannot truncate the scan and still report clean.
         return result
       }
 
@@ -648,7 +793,7 @@ export async function pollInstantlyReplies(
         resource,
         page: pageCount,
         http_status: status,
-        requested: PAGE_LIMIT,
+        requested: INSTANTLY_PAGE_LIMIT,
         returned: emails?.length ?? 0,
         cursor_returned: nextCursor !== null,
       })
@@ -709,22 +854,48 @@ export async function pollInstantlyReplies(
       }
 
       // Advance the cursor after processing the page, so a mid-page failure doesn't
-      // advance past unprocessed events.
-      // Prefer the cursor Instantly returned: next_starting_after is by definition the
-      // value to send as starting_after. Fall back to the last email's id, which is what
-      // this code has always used, so behaviour is unchanged whenever no cursor comes back.
+      // advance past unprocessed events. next_starting_after is by definition the value
+      // to send as starting_after, so it is preferred whenever it is present.
       const lastEmail = emails[emails.length - 1] as Record<string, unknown>
       const lastId = lastEmail?.id as string | undefined
-      if (nextCursor) cursor = nextCursor
-      else if (lastId) cursor = lastId
 
-      if (!nextCursor) break
+      if (!nextCursor) {
+        // Last page. Fall back to the last email's id so the NEXT RUN resumes after this
+        // page rather than re-reading it. This is the cross-run cursor, and it is the
+        // only resource that keeps one.
+        if (lastId) cursor = lastId
+        break
+      }
+
+      const advance = acceptCursor(guard, nextCursor, resource)
+      if (!advance.ok) {
+        recordPollFailure(state, advance.reason)
+        logger.error('Instantly poll: reply cursor did not advance', {
+          resource,
+          reason: advance.reason,
+          total_pages: guard.pages,
+        })
+        result.errors++
+        // Unlike the cap, do NOT move the stored cursor here. The cursor is the thing
+        // that misbehaved, and persisting a value Instantly keeps echoing back would pin
+        // every future run to this same page.
+        cursorIsTrustworthy = false
+        break
+      }
+
+      cursor = nextCursor
     }
 
-    // Clean completion: this run earned the right to move the stored cursor.
-    state.advanceCursor = true
+    // The run earned the right to move the stored cursor, unless the cursor itself is
+    // what failed. A page cap hit still advances; a stuck cursor does not.
+    state.advanceCursor = cursorIsTrustworthy
     state.cursor = cursor
-    logger.info('Instantly poll: replies polled', { resource, ...result, pages: pageCount })
+    logger.info('Instantly poll: replies polled', {
+      resource,
+      ...result,
+      total_pages: guard.pages,
+      cursor_advanced: cursorIsTrustworthy,
+    })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     recordPollFailure(state, msg)
@@ -821,20 +992,39 @@ export async function pollInstantlyLeadStatus(
       const instantlyCampaignId = campaign.external_id! // non-null: filtered above
 
       let pageCursor: string | null = null
-      let pageCount = 0
       let campaignFailed = false
       let campaignPolled = false
-      const MAX_PAGES_PER_CAMPAIGN = 50
-      const PAGE_LIMIT = 100
+      // One guard per campaign, not per run: each campaign is a separate cursor scan,
+      // so page counts and seen cursors must not carry across campaigns.
+      const guard = newPageGuard()
+      const scanLabel = `campaign ${instantlyCampaignId}`
 
-      while (pageCount < MAX_PAGES_PER_CAMPAIGN) {
-        pageCount++
+      for (;;) {
+        const gate = beginPage(guard, scanLabel)
+        if (!gate.ok) {
+          // A truncated full re-scan is worse than a truncated reply scan: this resource
+          // persists no cursor, so the next run starts from page one and stops at the
+          // same place. It cannot drain itself. That is exactly why the cap is a
+          // recorded failure and not a quiet break.
+          recordPollFailure(state, gate.reason)
+          logger.error('Instantly poll: lead status pagination hit the page cap', {
+            resource,
+            signal_type: signalType,
+            campaign_external_id: instantlyCampaignId,
+            reason: gate.reason,
+            pages: guard.pages,
+          })
+          campaignFailed = true
+          result.errors++
+          break
+        }
+        const pageCount = guard.pages
         totalPages++
 
         const body: Record<string, unknown> = {
           status: instantlyStatus,
           campaign: instantlyCampaignId,
-          limit: PAGE_LIMIT,
+          limit: INSTANTLY_PAGE_LIMIT,
         }
         if (pageCursor) body.starting_after = pageCursor
 
@@ -850,7 +1040,7 @@ export async function pollInstantlyLeadStatus(
             error,
             http_status: status,
             page: pageCount,
-            requested: PAGE_LIMIT,
+            requested: INSTANTLY_PAGE_LIMIT,
           })
           recordPollFailure(
             state,
@@ -872,7 +1062,7 @@ export async function pollInstantlyLeadStatus(
           campaign_external_id: instantlyCampaignId,
           page: pageCount,
           http_status: status,
-          requested: PAGE_LIMIT,
+          requested: INSTANTLY_PAGE_LIMIT,
           returned: leads?.length ?? 0,
           cursor_returned: nextCursor !== null,
         })
@@ -989,6 +1179,22 @@ export async function pollInstantlyLeadStatus(
         }
 
         if (!nextCursor) break
+
+        const advance = acceptCursor(guard, nextCursor, scanLabel)
+        if (!advance.ok) {
+          recordPollFailure(state, advance.reason)
+          logger.error('Instantly poll: lead status cursor did not advance', {
+            resource,
+            signal_type: signalType,
+            campaign_external_id: instantlyCampaignId,
+            reason: advance.reason,
+            pages: guard.pages,
+          })
+          campaignFailed = true
+          result.errors++
+          break
+        }
+
         pageCursor = nextCursor
       }
 
