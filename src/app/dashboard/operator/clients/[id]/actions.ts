@@ -17,6 +17,7 @@ import { composedToVariables, assertCompleteVariables } from '@/lib/composition/
 import { logger } from '@/lib/logger'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import type { ProspectForUpload, DfyOrderResult } from '@/lib/integrations/handlers/instantly/types'
+import { findBlockedProspects } from '@/lib/suppression/send-gate'
 
 export type SetupStatusField = 'campaigns' | 'linkedin'
 export type SetupStatusValue = 'pending' | 'in_progress' | 'complete'
@@ -259,13 +260,66 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     .eq('outbound_upload_status', 'uploading')
     .lt('outbound_upload_attempted_at', staleThresholdISO)
 
+  // ── Suppression pre-filter (COST, not correctness) ────────────────────────
+  // Runs immediately BEFORE the claim rather than inside it, on purpose. The claim is
+  // a compare-and-set UPDATE; an async lookup cannot go inside it, and wrapping the
+  // pair in a transaction to make it atomic would widen the very race the CAS exists
+  // to narrow. So this is a separate read whose only effect is to REMOVE ids from the
+  // claim, never to add any.
+  //
+  // That monotone-narrowing property is what makes it safe: if a suppression lands
+  // between this read and the claim, the claim includes that prospect and the final
+  // gate below (before the Instantly upload) catches it. This pre-filter can therefore
+  // never make a send less safe than it would be without it.
+  //
+  // Why it is here at all: the final gate runs AFTER composition, so without this we
+  // pay Anthropic to compose four emails for addresses already known to be dead.
+  //
+  // Blocked prospects are deliberately left as 'pending' rather than marked failed.
+  // This is an optimisation, and an optimisation must not mutate send state. They are
+  // simply excluded again on every subsequent run.
+  const { data: claimCandidates, error: candidateError } = await supabase
+    .from('prospects')
+    .select('id, email')
+    .eq('organisation_id', orgId)
+    .eq('outbound_upload_status', 'pending')
+    .not('email', 'is', null)
+    .not('sourced_tier', 'is', null)
+    .eq('email_send_eligible', true)
+    .eq('client_review_status', 'approved')
+    .eq('suppressed', false)
+
+  if (candidateError) {
+    return { ok: false, error: `Send gate pre-filter failed: ${candidateError.message}` }
+  }
+
+  let preFilteredIds: string[] = []
+  if (claimCandidates && claimCandidates.length > 0) {
+    const preGate = await findBlockedProspects(supabase, orgId, claimCandidates)
+    // Fail closed. An unknown suppression list is never treated as an empty one, even
+    // in the cost path — a gate that silently degrades to "allow all" is not a gate.
+    if (!preGate.ok) {
+      return { ok: false, error: `Send gate pre-filter failed: ${preGate.error}` }
+    }
+    preFilteredIds = Array.from(preGate.blocked.keys())
+
+    if (preFilteredIds.length > 0) {
+      logger.info('handleUploadLeads: suppressed prospects excluded before claim', {
+        organisation_id: orgId,
+        candidate_count: claimCandidates.length,
+        excluded_count: preFilteredIds.length,
+        reasons: Array.from(preGate.blocked.values()),
+      })
+    }
+  }
+
   // ── Claim prospects for upload (compare-and-set via status transition) ────
   // Atomically transition pending→uploading. This is race-narrowed (not eliminated):
   // rejects check outbound_upload_status='pending', which is now 'uploading', so they fail.
   // Separate UPDATE+SELECT (not mutation.select with inner join) avoids silent failure
   // if campaigns join yields no matches.
   const nowISO = new Date().toISOString()
-  const { data: claimedIds, error: claimError } = await supabase
+  let claimQuery = supabase
     .from('prospects')
     .update({ outbound_upload_status: 'uploading', outbound_upload_attempted_at: nowISO })
     .eq('organisation_id', orgId)
@@ -275,7 +329,13 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     .eq('email_send_eligible', true)              // Send eligibility gate
     .eq('client_review_status', 'approved')       // Client gatekeeper
     .eq('suppressed', false)                       // Suppression gate
-    .select('id')
+
+  // Exclude anything the pre-filter blocked. Narrowing only — see the note above.
+  if (preFilteredIds.length > 0) {
+    claimQuery = claimQuery.not('id', 'in', `(${preFilteredIds.join(',')})`)
+  }
+
+  const { data: claimedIds, error: claimError } = await claimQuery.select('id')
 
   if (claimError) {
     return { ok: false, error: claimError.message }
@@ -605,43 +665,58 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
     return { ok: false, error: 'No prospects ready for composition. Check approval, shell sync, and campaign assignment.' }
   }  // Note: prospects remain claimed if returned here; reclaim happens in finally block
 
-  // ── FINAL SAFETY CHECK: re-verify suppressed=false AND client_review_status != 'rejected' ─
-  // A reject could have landed after claim but before upload. This is the last checkpoint
-  // to prevent sending to a rejected prospect. Compliance-critical: must be impossible to send
-  // to anyone the client explicitly rejected, even if reject landed between claim and upload.
-  const { data: rejectedSinceUpload, error: rejectionCheckErr } = await supabase
-    .from('prospects')
-    .select('id')
-    .eq('organisation_id', orgId)
-    .in('id', Array.from(claimedIdSet))
-    .or('suppressed.eq.true,client_review_status.eq.rejected')
+  // ── FINAL SAFETY CHECK — the gate that owns correctness ───────────────────
+  // Last checkpoint before the Instantly upload. Checks BOTH suppression gates in one
+  // function (findBlockedProspects): the per-organisation one (prospects.suppressed and
+  // client_review_status) and the global bounce/unsubscribe list (suppressed_emails).
+  //
+  // The same function runs as a pre-filter before the claim above, purely to avoid
+  // paying to compose emails for dead addresses. Correctness lives HERE: a suppression
+  // that lands after the claim, or after composition, is caught at this line and nowhere
+  // else. Compliance-critical: it must be impossible to send to anyone the client
+  // rejected, or to an address that has already bounced or unsubscribed anywhere.
+  const finalGate = await findBlockedProspects(
+    supabase,
+    orgId,
+    (rawRows ?? []).filter(r => claimedIdSet.has(r.id)).map(r => ({ id: r.id, email: r.email }))
+  )
 
-  if (rejectionCheckErr) {
+  if (!finalGate.ok) {
     // On check failure, reclaim and abort (fail closed)
     await supabase
       .from('prospects')
       .update({ outbound_upload_status: 'pending' })
       .in('id', Array.from(claimedIdSet))
-    return { ok: false, error: `Final rejection check failed: ${rejectionCheckErr.message}` }
+    return { ok: false, error: `Final rejection check failed: ${finalGate.error}` }
   }
 
-  const rejectedIdSet = new Set((rejectedSinceUpload ?? []).map(r => r.id))
+  const rejectedIdSet = new Set(finalGate.blocked.keys())
 
-  // Filter out any prospects that were rejected after claim
+  // Filter out any prospects blocked by either gate
   if (rejectedIdSet.size > 0) {
-    logger.info('handleUploadLeads: prospects rejected after claim, excluding from send', {
+    logger.info('handleUploadLeads: prospects blocked after claim, excluding from send', {
       organisation_id: orgId,
       rejected_count: rejectedIdSet.size,
+      reasons: Array.from(finalGate.blocked.values()),
     })
 
-    // Mark excluded prospects as failed (rejected after claim)
-    await supabase
-      .from('prospects')
-      .update({
-        outbound_upload_status: 'failed',
-        outbound_upload_error: 'rejected-post-claim: client rejected prospect after send was initiated',
-      })
-      .in('id', Array.from(rejectedIdSet))
+    // Mark excluded prospects as failed, naming which gate blocked them. A globally
+    // suppressed address is a different operational fact from a client rejection and
+    // must not be reported as one.
+    await Promise.all(
+      Array.from(finalGate.blocked.entries()).map(([prospectId, reason]) =>
+        supabase
+          .from('prospects')
+          .update({
+            outbound_upload_status: 'failed',
+            outbound_upload_error:
+              reason === 'globally_suppressed'
+                ? 'globally-suppressed: address has bounced or unsubscribed and is on the global suppression list'
+                : 'rejected-post-claim: client rejected prospect after send was initiated',
+          })
+          .eq('id', prospectId)
+      )
+    )
 
     // Build email→prospect_id map once (safe exclusion keyed on id, not email)
     // Avoids risk of removing wrong lead if emails duplicate or are null

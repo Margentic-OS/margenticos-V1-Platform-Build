@@ -91,7 +91,85 @@ success back, and nothing errored anywhere. A resource with nothing to poll (no
 registered campaigns) reports `attempted: false` in the response and is not
 counted as a failure.
 
-**What this does NOT do.** It does not change how a bounce is detected, does not
-touch the status constants, and does not connect bounces or unsubscribes to
-suppression. Those signals are still written and read by nothing. See
-`docs/audits/bounce-path-2026-08-21.md`.
+**What this does NOT do.** It does not change how a bounce is detected and does not
+touch the status constants. See `docs/audits/bounce-path-2026-08-21.md`.
+
+**Update, 2026-08-21: bounces and unsubscribes now feed a suppression gate.** The
+sentence that used to sit here said those signals were "written and read by nothing".
+That is no longer true. Every verified bounced or unsubscribed lead's address is
+recorded in the global `suppressed_emails` table, and the upload path excludes matches
+before anything reaches Instantly. See the section below.
+
+
+---
+
+## Global suppression list (`suppressed_emails`)
+
+**What it does.** Holds every email address that has bounced or unsubscribed in any
+client's campaign, so we never mail it again from anywhere. One row per address per
+suppression, keyed on a lowercased and trimmed address.
+
+**What it connects to.**
+- Written by the Instantly bounce/unsubscribe poller, in `pollInstantlyLeadStatus`
+  (`src/lib/integrations/polling/instantly.ts`), immediately after each verified
+  signal is written.
+- Read by `findBlockedProspects()` (`src/lib/suppression/send-gate.ts`), which
+  `handleUploadLeads` calls twice: once before claiming prospects, once as the final
+  check before the upload.
+- All list operations live in `src/lib/suppression/suppression-list.ts`.
+
+**Why it is separate from `prospects.suppressed`.** That column is per organisation and
+already means four different things: the client rejected this prospect, the research
+agent disqualified them, they replied with an opt-out, or sourcing dedupe blocked them.
+It cannot also mean "this mailbox is dead everywhere". The two are independent gates,
+checked together in one function so there is still one chokepoint for the decision.
+
+**Normalisation, and why it matters.** Addresses are lowercased and trimmed on write
+and on every lookup, and Postgres enforces it with
+`CHECK (email = lower(btrim(email)))`. Without this, `Bob@X.com` and `bob@x.com` are
+two rows and the same person escapes suppression by capitalisation. Plus-addresses and
+dots are deliberately left alone: folding them is a provider-specific guess, and
+guessing wrong suppresses a mailbox that never bounced.
+
+**How to lift a suppression.** Never delete the row. Set `revoked_at` and
+`revoked_reason` together — the database rejects one without the other:
+
+```ts
+await revokeSuppression(serviceClient, 'Bob@X.com', 'mailbox restored, confirmed by client')
+```
+
+or by hand, normalising the address yourself:
+
+```sql
+UPDATE suppressed_emails
+   SET revoked_at = now(), revoked_reason = 'why this is safe to contact again'
+ WHERE email = lower(btrim('Bob@X.com')) AND revoked_at IS NULL;
+```
+
+The lookup filters on `revoked_at IS NULL`, so the revocation takes effect on the next
+upload. The row stays, so the history of an address is always answerable. If the same
+address bounces again later, a new active row is created and the revoked one is left
+alone: the unique index is partial and only covers active rows.
+
+**Who can read it.** Service role only. RLS is enabled with zero policies, and `anon`
+and `authenticated` are revoked at the grant level as well. There is no client-facing
+surface and there must never be one.
+
+**What to check if it breaks.**
+- *Suppressed addresses are still being uploaded.* Check that `findBlockedProspects` is
+  still called at the final safety check in `handleUploadLeads`. The pre-filter before
+  the claim is an optimisation and can be removed without affecting correctness; the
+  final gate cannot.
+- *Nothing is landing in the table.* Check `polling_cursors` for
+  `resource = 'leads_bounced'` / `'leads_unsubscribed'`. A suppression write failure is
+  recorded as a poll failure, so it reaches `last_error` and makes the run's `ok` false.
+- *An upload aborts with "Final rejection check failed".* The gate fails closed on a
+  query error rather than treating an unreadable list as an empty one. The message
+  carries which of the two gates errored.
+
+**Why it is global, and how to narrow it later.** A hard bounce is a fact about the
+mailbox; an unsubscribe is arguably narrower ("not from you", not "not from anyone").
+Today both are enforced globally, which is the strict reading. `reason` and
+`source_org_id` are stored on every row so that judgement can change as a WHERE clause
+rather than a migration. The global assumption is hardcoded in exactly one place, the
+query in `lookupSuppressedEmails()`. Nothing else in the codebase may assume it.

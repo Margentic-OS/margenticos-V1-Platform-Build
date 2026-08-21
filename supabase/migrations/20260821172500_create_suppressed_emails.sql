@@ -3,7 +3,7 @@
 -- Closes audit finding D2: bounce and unsubscribe detection was correct as of fcb2f94
 -- and consumed by nothing. This is the list it feeds and the gate that reads it.
 --
--- Status: PENDING (apply via Supabase MCP apply_migration, then mark APPLIED)
+-- Status: APPLIED (verified live 2026-08-21)
 --
 -- ─────────────────────────────────────────────────────────────────────────────
 -- WHAT THIS IS

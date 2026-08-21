@@ -1260,3 +1260,91 @@ and `lead_unsubscribed` signals are written and read by no gate. Detection is no
 correct; nothing consumes it.
 
 No code was changed by this addendum.
+
+---
+
+# Addendum 2 — D2 is closed (2026-08-21)
+
+Detection now feeds a gate. `email_bounced` and `lead_unsubscribed` signals are no
+longer written and read by nothing.
+
+## What changed
+
+**A new table, `suppressed_emails`.** Global, keyed on a normalised email address,
+separate from `prospects.suppressed`.
+Migration: `supabase/migrations/20260821172500_create_suppressed_emails.sql`,
+applied and verified live on 2026-08-21.
+
+**The poller writes to it.** In `pollInstantlyLeadStatus`, immediately after the
+signal write, every verified bounced or unsubscribed lead's address is recorded via
+`recordSuppression()`. This runs when the signal was written AND when it was skipped
+by the idempotency index, deliberately: a full-scan resource re-returns every bounced
+lead on every poll, so "skipped" is the normal case on every run after the first, and
+it is also what covers any signal written before this wiring existed.
+
+**The send path reads it.** `findBlockedProspects()` in
+`src/lib/suppression/send-gate.ts` is the one function that decides whether a prospect
+may be sent to. It is called at both points in `handleUploadLeads`:
+
+| Call site | Purpose | Consequence of removing it |
+|---|---|---|
+| `actions.ts`, before the claim | **Cost.** The final gate runs after composition, so without this we pay to compose four emails per dead address. | Money, not correctness. |
+| `actions.ts`, final safety check | **Correctness.** Last checkpoint before the Instantly upload. | A suppressed address could be sent to. |
+
+The pre-filter is a separate read placed immediately before the compare-and-set claim,
+NOT inside it. An async lookup cannot go inside a CAS, and wrapping the pair in a
+transaction to make it atomic would widen the very race the CAS exists to narrow. The
+pre-filter's only effect is to remove ids from the claim, never to add any, so it can
+never make a send less safe than it would be without it. If a suppression lands between
+the pre-filter and the claim, the final gate catches it.
+
+## The two decisions, named
+
+**`prospects.suppressed` is a second independent gate, not derived from this table.**
+It already carries four meanings that have nothing to do with deliverability: client
+rejection, research disqualification, opt-out reply, and sourcing dedupe block.
+Deriving it would destroy all four. Both gates are checked in one function, at one
+place, so there is still exactly one chokepoint for the decision.
+
+**`source_org_id` is `ON DELETE SET NULL`, not `CASCADE`.** Every other
+organisation-referencing table here cascades. A global suppression list must not:
+deleting a client would resurrect their bounced addresses as sendable. The suppression
+outlives the organisation; only the provenance goes null.
+
+## Scope, stated as limits
+
+- **Future uploads only.** Nothing here stops an in-flight Instantly sequence.
+  Instantly halts a bounced lead itself, which is where the bounce came from.
+- **Service role only.** RLS enabled with zero policies, matching
+  `integration_credentials`. Not even operators get a read policy. `anon` and
+  `authenticated` are additionally revoked at the grant level. There is no
+  client-facing surface and there must never be one.
+- **No backfill.** Confirmed with live SQL before starting: zero `email_bounced` and
+  zero `lead_unsubscribed` rows exist in `signals`. There was nothing to migrate.
+- **`INSTANTLY_LEAD_STATUS_VERIFIED` is still `false`.** Wiring a gate to detection
+  does not earn that flag. It flips only after a real bounce travels this path end to
+  end.
+
+## Correction to the pre-build survey
+
+The working note for this build said three `prospects.suppressed` rows were true.
+There are **six**, three per organisation, and none is a bounce or an unsubscribe:
+
+| Org | Rows | `suppression_reason` | Written by |
+|---|---|---|---|
+| `74243c62` (old MargenticOS, archived) | 3 | `staging-test-artifact` | **Nothing in this repository.** Not in `src/`, `supabase/`, `docs/`, or any commit. All three share one timestamp to the microsecond: a single hand-written `UPDATE` on 2026-06-04, unrecorded. |
+| `a2b621fc` (DRY RUN TEST, archived) | 3 | `dedupe-test: ...` | `src/lib/sourcing/test-dedupe.ts`, lines 64, 73 and 82. |
+
+Harmless — both orgs are archived and both reason strings name themselves as test
+artifacts — but the first set is an unaccounted-for direct write to a compliance
+column, and it is recorded here rather than left to be rediscovered.
+
+## Follow-up, logged not built
+
+**Check `suppressed_emails` at sourcing, not just at send.** `dedupe-verdict.ts`
+already treats a match against a suppressed prospect as a hard sourcing block
+(`suppressed_match`). Consulting the global list there too would stop a known-dead
+address ever being sourced, enriched or researched. That is further upstream than the
+pre-filter added here and saves considerably more: enrichment and research spend, not
+just composition spend. Deliberately out of scope for this build, which wired the send
+gate only. Tracked in `docs/BACKLOG.md`.

@@ -46,6 +46,7 @@ const CAMPAIGN: FakeCampaign = {
 function createFakeSupabase(campaigns: FakeCampaign[] = [CAMPAIGN]) {
   const cursorUpserts: Record<string, unknown>[] = []
   const signalInserts: Record<string, unknown>[] = []
+  const suppressionInserts: Record<string, unknown>[] = []
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const client: any = {
@@ -74,9 +75,25 @@ function createFakeSupabase(campaigns: FakeCampaign[] = [CAMPAIGN]) {
         return builder
       }
       if (table === 'signals') {
+        // writeSignal now chains .select('id') so the caller can record provenance
+        // against the signal that caused a side effect. Detection assertions below are
+        // unchanged; only the shape of the fake follows the production call.
+        return {
+          insert: (row: Record<string, unknown>) => ({
+            select: async (_cols: string) => {
+              signalInserts.push(row)
+              return { data: [{ id: `signal-${signalInserts.length}` }], error: null }
+            },
+          }),
+        }
+      }
+      if (table === 'suppressed_emails') {
+        // Detection now feeds the global suppression list. These tests are about
+        // detection, so the list is accepted and recorded but not asserted on here.
+        // The wiring itself is covered in instantly.suppression.test.ts.
         return {
           insert: async (row: Record<string, unknown>) => {
-            signalInserts.push(row)
+            suppressionInserts.push(row)
             return { error: null }
           },
         }
@@ -86,7 +103,7 @@ function createFakeSupabase(campaigns: FakeCampaign[] = [CAMPAIGN]) {
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  return { client, cursorUpserts, signalInserts }
+  return { client, cursorUpserts, signalInserts, suppressionInserts }
 }
 
 // Serves one page of leads, then an empty page.
@@ -236,11 +253,15 @@ describe('bounce and unsubscribe detection', () => {
     // The shape of an ignored status filter: a whole page of mixed leads comes back.
     vi.stubGlobal(
       'fetch',
+      // Addresses added 2026-08-21: a real Instantly lead always carries one, and a
+      // bounced lead without one is now its own reported error (it cannot be
+      // suppressed). Leaving them off would have this fixture testing that instead of
+      // the mixed-status counting it exists for.
       serveLeads([
-        { id: 'lead-1', status: -1 },  // Bounced      → written
-        { id: 'lead-2', status: -2 },  // Unsubscribed → rejected
-        { id: 'lead-3', status: 1 },   // Active       → rejected
-        { id: 'lead-4', status: -1 },  // Bounced      → written
+        { id: 'lead-1', email: 'one@example.com',   status: -1 },  // Bounced      → written
+        { id: 'lead-2', email: 'two@example.com',   status: -2 },  // Unsubscribed → rejected
+        { id: 'lead-3', email: 'three@example.com', status: 1 },   // Active       → rejected
+        { id: 'lead-4', email: 'four@example.com',  status: -1 },  // Bounced      → written
       ])
     )
 

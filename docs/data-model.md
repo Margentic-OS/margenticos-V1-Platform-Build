@@ -1,5 +1,6 @@
 # data-model.md — Database Tables, Fields, RLS Policies
-# Last updated: April 2026 — pipeline_unlock_manual_override added to organisations; sequence_position documented on document_suggestions; generated types written to src/types/database.ts
+# Last updated: 2026-08-21 — suppressed_emails added (global bounce/unsubscribe list, closes audit D2).
+# Previously April 2026 — pipeline_unlock_manual_override added to organisations; sequence_position documented on document_suggestions; generated types written to src/types/database.ts
 # Written for non-developers. Update this file whenever a table is added or changed.
 # The spec is in /prd/sections/03-data-model.md — this is the living reference.
 
@@ -290,6 +291,56 @@ Indexes (added migration add_signals_indexes, 2026-04-17 while table was empty):
 
 If new query patterns emerge, add indexes with CREATE INDEX CONCURRENTLY to avoid locking
 a live table with data already in it.
+
+---
+
+## Table: suppressed_emails
+
+**What it holds.** Every email address that has bounced or unsubscribed in any
+client's campaign. A global do-not-contact list, added 2026-08-21 to close audit
+finding D2, where bounce detection was correct and consumed by nothing.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | uuid | primary key |
+| `email` | text NOT NULL | Stored lowercase and trimmed. Enforced by `CHECK (email = lower(btrim(email)))`, not by convention. |
+| `reason` | text NOT NULL | `'bounced'` or `'unsubscribed'`, enforced by CHECK. |
+| `source_org_id` | uuid | Which client's campaign produced it. `ON DELETE SET NULL`. |
+| `source_signal_id` | uuid | The `signals` row that caused it. Nullable. `ON DELETE SET NULL`. |
+| `created_at` | timestamptz | |
+| `revoked_at` | timestamptz | Set to lift the suppression. Never delete the row. |
+| `revoked_reason` | text | Mandatory whenever `revoked_at` is set, enforced by CHECK. |
+
+**Indexes.** `UNIQUE (email) WHERE revoked_at IS NULL` is the suppression itself: one
+active entry per address, and idempotency for a repeated bounce. It is partial so a
+revoked row does not block a later re-suppression of the same address. Plus a plain
+index on `email` for the send gate's batch lookups.
+
+**Why `email` is normalised at the database level.** If `Bob@X.com` and `bob@x.com`
+can both exist, the same person escapes suppression by capitalisation. The application
+normalises on write and on every lookup; the CHECK constraint is the backstop for a
+hand-written INSERT that forgets.
+
+**Why `source_org_id` does not cascade.** Every other organisation-referencing table
+here uses `ON DELETE CASCADE`. This one must not. Deleting a client would otherwise
+resurrect their bounced addresses as sendable. The suppression outlives the
+organisation; only the provenance goes null.
+
+**RLS.** Enabled with **zero policies**, the same shape as `integration_credentials`.
+No authenticated user reaches it, not even operators. `anon` and `authenticated` are
+additionally revoked at the grant level; `service_role` holds SELECT, INSERT and
+UPDATE. Clients must never read this table and there is no client-facing surface for it.
+
+**No org-consistency trigger, deliberately.** `faqs`, `faq_extractions` and `prospects`
+each carry a BEFORE INSERT OR UPDATE trigger that raises when a referenced row belongs
+to a different organisation. This table must not inherit that pattern: its whole
+purpose is that a row written from organisation A applies when organisation B uploads.
+
+**How it relates to `prospects.suppressed`.** They are two independent gates, not one
+derived from the other. `prospects.suppressed` is per organisation and already carries
+four meanings unrelated to deliverability. Both are checked in one function,
+`findBlockedProspects()` in `src/lib/suppression/send-gate.ts`, which is the single
+chokepoint for the send decision.
 
 ---
 

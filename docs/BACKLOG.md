@@ -25,6 +25,43 @@
 
 ---
 
+## Suppression — follow-ups after wiring the send gate (2026-08-21)
+
+- [monitor] Global suppression is checked at SEND, not at SOURCING
+  Built 2026-08-21: suppressed_emails is consulted twice in handleUploadLeads, as a
+  pre-filter before the claim (cost) and at the final safety gate before the Instantly
+  upload (correctness). Both go through findBlockedProspects in
+  src/lib/suppression/send-gate.ts.
+  NOT built, and deliberately so: src/lib/sourcing/dedupe-verdict.ts already treats a
+  match against a suppressed prospect as a hard sourcing block ('suppressed_match'), but
+  it only looks at prospects.suppressed. It does not consult suppressed_emails.
+  Consequence: a known-dead address can still be sourced, enriched and researched. It is
+  only stopped at upload. Enrichment and research are where the real money goes, so this
+  saves considerably more than the pre-filter does.
+  Next action: add a suppressed_emails lookup to dedupe-verdict.ts alongside the existing
+  suppressed-prospect checks, returning 'suppressed_match'. One function, one new query.
+  Trigger: first time a bounced address shows up in a sourcing batch, or before any
+  sourcing run large enough that wasted enrichment credits matter.
+
+- [pre-c1] Six prospects.suppressed rows are test artifacts, three of them unexplained
+  Found during the 2026-08-21 discovery pass, recorded in
+  docs/audits/bounce-path-2026-08-21.md (Addendum 2).
+  Three rows on org a2b621fc carry 'dedupe-test: ...' and come from
+  src/lib/sourcing/test-dedupe.ts. Accounted for.
+  Three rows on org 74243c62 carry 'staging-test-artifact', which appears NOWHERE in the
+  repository or in git history. All three share one timestamp to the microsecond, so it
+  was a single hand-written UPDATE on 2026-06-04.
+  Harmless today: both organisations are archived. The point is that a compliance column
+  was written directly, by hand, with no record. Worth a rule before real client data.
+  Next action: decide whether direct writes to prospects.suppressed outside the four
+  application writers should be prevented, or merely logged.
+
+- [monitor] INSTANTLY_LEAD_STATUS_VERIFIED is still false
+  Unchanged by the 2026-08-21 suppression build, on purpose. Wiring a gate to detection
+  does not prove detection works. The flag flips only after a real bounce has travelled
+  the whole path: Instantly status -1, poller read-back, signals row, suppressed_emails
+  row, and exclusion at upload. Nothing has yet.
+
 ## Pipeline entry points — open items after making sourcing and research callable (2026-08-20)
 
 - [DONE 2026-08-20] Research entry point verified against a live run

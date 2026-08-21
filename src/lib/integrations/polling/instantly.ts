@@ -45,6 +45,7 @@ import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from '@/lib/integratio
 import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 import { mockEmailsList, mockEmailGet, mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
 import { InstantlyFlagError } from '@/lib/integrations/handlers/instantly/types'
+import { recordSuppression } from '@/lib/suppression/suppression-list'
 const SOURCE = 'instantly'
 
 // Lead status values, from the Instantly API v2 Lead schema.
@@ -386,8 +387,14 @@ function verifyLeadStatus(
 
 // ── Signal writer ─────────────────────────────────────────────────────────────
 
-// Returns 'written' | 'skipped' | 'error'.
+// Returns { outcome, signalId }.
 // 'skipped' means the idempotency constraint fired (signal already exists) — normal, not an error.
+//
+// signalId is the id of the row just inserted, and is null for 'skipped' and 'error'.
+// It exists so a caller can record provenance against the signal that caused a side
+// effect: the bounce and unsubscribe path writes it to suppressed_emails.source_signal_id.
+// On 'skipped' the row exists but its id was not returned by the conflicting insert,
+// which is why source_signal_id is nullable rather than worth a second round trip.
 async function writeSignal(
   supabase: SupabaseServiceClient,
   params: {
@@ -401,8 +408,8 @@ async function writeSignal(
     original_outbound_body?: string | null
     original_outbound_message_id?: string | null
   }
-): Promise<'written' | 'skipped' | 'error'> {
-  const { error } = await supabase.from('signals').insert({
+): Promise<{ outcome: 'written' | 'skipped' | 'error'; signalId: string | null }> {
+  const { data, error } = await supabase.from('signals').insert({
     organisation_id: params.organisation_id,
     campaign_id: params.campaign_id,
     prospect_id: params.prospect_id,
@@ -413,12 +420,15 @@ async function writeSignal(
     processed: false,
     original_outbound_body: params.original_outbound_body ?? null,
     original_outbound_message_id: params.original_outbound_message_id ?? null,
-  })
+  }).select('id')
 
-  if (!error) return 'written'
+  if (!error) {
+    const signalId = (data?.[0]?.id as string | undefined) ?? null
+    return { outcome: 'written', signalId }
+  }
 
   // Unique constraint violation = idempotency fired = already written. Not an error.
-  if (error.code === '23505') return 'skipped'
+  if (error.code === '23505') return { outcome: 'skipped', signalId: null }
 
   // Error code in the message text so Sentry deduplicates CHECK violations (23514),
   // FK violations (23503), and others as distinct issues.
@@ -432,7 +442,7 @@ async function writeSignal(
     external_event_id: params.external_event_id,
     error: error.message,
   })
-  return 'error'
+  return { outcome: 'error', signalId: null }
 }
 
 // ── Instantly API client ──────────────────────────────────────────────────────
@@ -681,7 +691,7 @@ export async function pollInstantlyReplies(
 
         const outbound = await fetchOutboundEmailBody(e, apiKey, baseUrl, isActive)
 
-        const outcome = await writeSignal(supabase, {
+        const { outcome } = await writeSignal(supabase, {
           organisation_id: campaignRow.organisation_id,
           campaign_id: campaignRow.id,
           prospect_id: null, // prospect linkage is downstream signal processing concern
@@ -906,7 +916,7 @@ export async function pollInstantlyLeadStatus(
           }
 
           // campaign_id and organisation_id come from the campaigns row — no extra lookup.
-          const outcome = await writeSignal(supabase, {
+          const { outcome, signalId } = await writeSignal(supabase, {
             organisation_id: campaign.organisation_id,
             campaign_id: campaign.id,
             prospect_id: null,
@@ -919,6 +929,50 @@ export async function pollInstantlyLeadStatus(
           if (outcome === 'written') result.written++
           else if (outcome === 'skipped') result.skipped++
           else result.errors++
+
+          // ── Suppression: the signal is the detection, this is the consequence ────
+          //
+          // Closes audit finding D2. Detection was correct as of fcb2f94 and fed
+          // nothing; a bounce wrote a row to signals and no send path ever read it.
+          //
+          // Runs on 'skipped' as well as 'written', deliberately. A skipped signal means
+          // the poller has seen this lead before, which for a full-scan resource is the
+          // NORMAL case on every run after the first. It also covers signals written
+          // before this wiring existed. recordSuppression is idempotent, so re-recording
+          // an address already on the list is a no-op that returns 'already_suppressed'.
+          //
+          // Not on 'error': if the signal did not land, do not act on it.
+          if (outcome !== 'error') {
+            const leadEmail = typeof l.email === 'string' ? l.email : null
+
+            if (!leadEmail) {
+              // A bounced lead with no address cannot be suppressed. Loud, because it
+              // means a real bounce is going unenforced.
+              logger.error('Instantly poll: bounced/unsubscribed lead has no email — cannot suppress', {
+                signal_type: signalType,
+                lead_id: leadId,
+                organisation_id: campaign.organisation_id,
+              })
+              result.errors++
+            } else {
+              const suppression = await recordSuppression(supabase, {
+                email: leadEmail,
+                reason: signalType === 'email_bounced' ? 'bounced' : 'unsubscribed',
+                source_org_id: campaign.organisation_id,
+                source_signal_id: signalId,
+              })
+              // A failed suppression write is a failed poll. The signal exists but the
+              // gate it feeds does not, which is exactly the D2 state this closes.
+              if (suppression === 'error') {
+                result.errors++
+                recordPollFailure(
+                  state,
+                  `campaign ${instantlyCampaignId} page ${pageCount}: suppression write failed for lead ${leadId}`
+                )
+                campaignFailed = true
+              }
+            }
+          }
         }
 
         if (pageMismatches > 0) {

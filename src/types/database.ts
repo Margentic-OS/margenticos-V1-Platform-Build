@@ -1237,6 +1237,7 @@ export type Database = {
       }
       prospect_research_results: {
         Row: {
+          candidates: Json
           created_at: string
           has_dateable_signal: boolean
           icp_fit: string
@@ -1251,6 +1252,7 @@ export type Database = {
           raw_website: Json | null
           relevance_reason: string | null
           run_id: string | null
+          selected_candidate_id: string | null
           signal_observation: string | null
           signal_relevance: string
           sources_attempted: string[]
@@ -1262,6 +1264,7 @@ export type Database = {
           trigger_text: string | null
         }
         Insert: {
+          candidates?: Json
           created_at?: string
           has_dateable_signal?: boolean
           icp_fit?: string
@@ -1276,6 +1279,7 @@ export type Database = {
           raw_website?: Json | null
           relevance_reason?: string | null
           run_id?: string | null
+          selected_candidate_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string
           sources_attempted?: string[]
@@ -1287,6 +1291,7 @@ export type Database = {
           trigger_text?: string | null
         }
         Update: {
+          candidates?: Json
           created_at?: string
           has_dateable_signal?: boolean
           icp_fit?: string
@@ -1301,6 +1306,7 @@ export type Database = {
           raw_website?: Json | null
           relevance_reason?: string | null
           run_id?: string | null
+          selected_candidate_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string
           sources_attempted?: string[]
@@ -1371,6 +1377,7 @@ export type Database = {
           enrichment_run_id: string | null
           enrichment_status: string | null
           first_name: string | null
+          fit_score: number | null
           has_dateable_signal: boolean
           icp_fit: string
           id: string
@@ -1381,6 +1388,7 @@ export type Database = {
           last_verification_error: string | null
           linkedin_url: string | null
           linkedin_url_normalised: string | null
+          messaging_doc_id: string | null
           operator_override_at: string | null
           operator_override_by: string | null
           operator_override_reason: string | null
@@ -1390,6 +1398,7 @@ export type Database = {
           outbound_upload_attempted_at: string | null
           outbound_upload_error: string | null
           outbound_upload_status: string
+          personalisation_question: string | null
           personalisation_trigger: string | null
           qualification_status: string | null
           qualified_at: string | null
@@ -1437,6 +1446,7 @@ export type Database = {
           enrichment_run_id?: string | null
           enrichment_status?: string | null
           first_name?: string | null
+          fit_score?: number | null
           has_dateable_signal?: boolean
           icp_fit?: string
           id?: string
@@ -1447,6 +1457,7 @@ export type Database = {
           last_verification_error?: string | null
           linkedin_url?: string | null
           linkedin_url_normalised?: string | null
+          messaging_doc_id?: string | null
           operator_override_at?: string | null
           operator_override_by?: string | null
           operator_override_reason?: string | null
@@ -1456,6 +1467,7 @@ export type Database = {
           outbound_upload_attempted_at?: string | null
           outbound_upload_error?: string | null
           outbound_upload_status?: string
+          personalisation_question?: string | null
           personalisation_trigger?: string | null
           qualification_status?: string | null
           qualified_at?: string | null
@@ -1503,6 +1515,7 @@ export type Database = {
           enrichment_run_id?: string | null
           enrichment_status?: string | null
           first_name?: string | null
+          fit_score?: number | null
           has_dateable_signal?: boolean
           icp_fit?: string
           id?: string
@@ -1513,6 +1526,7 @@ export type Database = {
           last_verification_error?: string | null
           linkedin_url?: string | null
           linkedin_url_normalised?: string | null
+          messaging_doc_id?: string | null
           operator_override_at?: string | null
           operator_override_by?: string | null
           operator_override_reason?: string | null
@@ -1522,6 +1536,7 @@ export type Database = {
           outbound_upload_attempted_at?: string | null
           outbound_upload_error?: string | null
           outbound_upload_status?: string
+          personalisation_question?: string | null
           personalisation_trigger?: string | null
           qualification_status?: string | null
           qualified_at?: string | null
@@ -2024,6 +2039,61 @@ export type Database = {
           },
         ]
       }
+      suppressed_emails: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          reason: string
+          revoked_at: string | null
+          revoked_reason: string | null
+          source_org_id: string | null
+          source_signal_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          reason: string
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          source_org_id?: string | null
+          source_signal_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          reason?: string
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          source_org_id?: string | null
+          source_signal_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "suppressed_emails_source_org_id_fkey"
+            columns: ["source_org_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "suppressed_emails_source_org_id_fkey"
+            columns: ["source_org_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "suppressed_emails_source_signal_id_fkey"
+            columns: ["source_signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           created_at: string
@@ -2497,4 +2567,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-
