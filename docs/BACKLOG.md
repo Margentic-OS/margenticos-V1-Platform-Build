@@ -25,6 +25,134 @@
 
 ---
 
+## Instantly poller — two structural items found while reviewing the cursor fix (2026-08-21)
+
+- [pre-c1] A row that fails to write is skipped PERMANENTLY for replies, and the reason
+  is not recorded where the runbook says to look
+  Raised by Doug 2026-08-21 as "the cursor advances on page-fetch success, not row-write
+  success". Verified against src/lib/integrations/polling/instantly.ts. True, with one
+  correction that matters: it is permanent for 'replies' ONLY.
+
+  WHAT IS TRUE. Inside a page that fetched cleanly, every per-row failure does
+  result.errors++ and continue. None of them touches cursorIsTrustworthy, so the page
+  loop finishes normally, state.advanceCursor stays true, and writePollState persists a
+  last_cursor that sits past the failed row. /emails is polled with sort_order 'asc' and
+  starting_after, so that reply is behind the cursor and is never requested again. The
+  only recovery is a hand-edit of polling_cursors.last_cursor.
+
+  The replies row failures are: missing id, missing eaccount, a campaign that will not
+  resolve, and writeSignal returning 'error'. Two of those deserve naming on their own.
+  resolveCampaign destructures only { data } and discards the Supabase error, then
+  caches the null, so a transient database blip is indistinguishable from "campaign not
+  registered" and silently drops EVERY reply for that campaign for the rest of the run,
+  behind an advancing cursor. And when the email carries no campaign_id at all,
+  resolveCampaign is never called, so nothing is logged despite the comment claiming the
+  event was logged upstream.
+
+  WHY 'permanently' IS WRONG FOR THE OTHER TWO RESOURCES. pollInstantlyLeadStatus never
+  sets state.advanceCursor, so writePollState omits last_cursor entirely and every run
+  re-scans every campaign from page one. A lead whose signal write failed gets it
+  retried on the next tick; a lead whose suppression write failed gets that retried too,
+  because the suppression block runs on 'skipped' as well as 'written' and both writes
+  are idempotent. That is genuine self-healing, not just re-detection. The full re-scan
+  is paying for itself here.
+
+  REFINEMENT ON THE TRIGGER. The persisted cursor is decided once, after the page loop,
+  not per page. If a later page's fetch fails the function returns before that line, so
+  nothing is persisted and the earlier pages' failed rows DO get retried. Permanence
+  attaches to a run that COMPLETES its page loop, which includes a page-cap break,
+  because a cap hit still advances.
+
+  WHERE THE REASON GOES. recordPollFailure is the only thing that writes
+  polling_cursors.last_error and error_count. Zero of the replies row failures call it.
+  In the lead loop exactly two of five do: the status mismatch and the suppression-write
+  failure. The signal-write failure immediately above the suppression one does not,
+  which is an odd inversion given they sit six lines apart.
+  Worse than not recording: because state.failures stays 0, writePollState takes its
+  else branches and writes error_count 0 and last_error NULL, so a run whose only
+  failures were row failures CLEARS a real error a previous run had recorded.
+  Tempered, because an adversarial pass caught this: no application code reads
+  last_error or error_count. cron_heartbeats is append-only and keeps ok=false forever,
+  Sentry captures an exception, and MON-002 watches liveness, so the run is not
+  invisible. But docs/integrations.md tells a HUMAN to "check last_error for the status
+  code" when debugging, and for this failure class that column is empty or freshly
+  wiped. The runbook points at the one place the answer is not.
+
+  Next action: decide per failure class whether it should freeze the cursor, record
+  through recordPollFailure, or both. A dropped reply is a dropped meeting, so replies
+  probably want recordPollFailure plus a frozen cursor on writeSignal 'error'. The cheap
+  independent win is making resolveCampaign propagate its error instead of swallowing it.
+  Trigger: before the first paying client, or the first time a reply is reported missing.
+
+- [pre-c1] The bounce and unsub re-scan is O(every bounce ever); the cap has a shelf
+  life, but wall clock runs out first and roughly nine times sooner
+  Raised by Doug 2026-08-21 as "O(every bounce ever), not O(new). At ~2,160 bounces a
+  year across 10 clients it crosses the 20-page cap within twelve months and then caps
+  every run." The growth characterisation is right and the conclusion is right. The
+  named mechanism is wrong, and the correction changes what the fix has to be.
+
+  THE COST IS REAL AND NEVER DECAYS. Instantly has no updated_after filter on leads, so
+  every run re-reads every bounced and unsubscribed lead that has ever existed. Each
+  already-seen lead costs exactly two sequential Supabase round trips, forever: the
+  signals insert hits the idempotency constraint and returns 'skipped', then
+  recordSuppression inserts and returns 'already_suppressed'. No batching, no
+  concurrency, no early exit, because the suppression call is deliberately gated on
+  outcome !== 'error' rather than outcome === 'written'.
+
+  WHY THE PAGE CAP IS NOT THE MECHANISM. The scan is issued once per CAMPAIGN, and the
+  PageGuard is constructed inside the campaign loop, so the 20-page / 2,000-row cap is a
+  per-campaign budget. The 2,160 figure is a workspace aggregate across 10 clients and
+  never lands in one scan. Per campaign that is ~216 a year, so a single campaign needs
+  roughly 9.3 years to reach 2,000 rows, and longer if a client runs more than one
+  campaign. With quarterly campaign rotation the per-campaign backlog stays near 54 and
+  the cap is never reached at all. Cross-checked another way: at a 3% bounce rate a
+  campaign needs about 67,000 prospects to hold 2,000 bounces, against a documented
+  500-prospect scale. The cap is a list-hygiene-disaster detector, not a growth ceiling.
+
+  WHAT ACTUALLY BINDS: ELAPSED TIME, on exactly the aggregate the 2,160 figure
+  describes. The campaign loop is sequential and one invocation polls replies, bounces
+  and unsubscribes and then refreshes campaign stats. At 2 round trips per row and a
+  same-region Supabase insert at ~30ms typical, a row costs ~60ms. Ten registered
+  campaigns cost roughly 10s of list calls before any row work. That leaves ~280s of a
+  300s budget, so about 4,700 rows. At ~2,600 new rows a year (2,160 bounces plus
+  unsubscribes at ~20%) the tick runs out of time at roughly 18 to 24 months. At p95
+  latency nearer 55ms a round trip it is about 12 months. So Doug's twelve months is
+  right at the pessimistic end of the latency range, for a different reason than the one
+  given, and the honest planning range is 12 to 24 months.
+
+  A SECOND GROWTH TERM, not in the original claim and more urgent at low bounce volume.
+  The campaigns query filters only on external_id IS NOT NULL and a non-archived
+  organisation. There is NO status filter, so every campaign ever registered is
+  re-scanned every 15 minutes forever, paused or completed or years finished. Each costs
+  about two Instantly list calls, roughly a second, per tick, at zero bounces. Per-row
+  work only overtakes per-campaign work at about 17 rows per campaign. Ten clients
+  rotating campaigns quarterly accumulate ~40 campaigns a year, and 55 campaigns would
+  consume most of a 60s budget on empty list calls alone. Today the scan set is 1
+  campaign, 0 of them active, with 0 bounce signals, so none of this is observable yet.
+
+  TWO CORRECTIONS TO THE FAILURE MODEL, from an adversarial pass, because the first
+  version of this entry was wrong on both:
+  pg_net's timeout_milliseconds := 55000 is NOT an execution limit. The migration's own
+  comment says pg_net queues the request and returns immediately; the timeout bounds how
+  long pg_net waits for a response, not how long the function runs. Exceeding it
+  produces a misleading timeout record while the poll actually completes. It is a
+  false-alarm channel, not a kill.
+  A function kill is NOT silent. No finally runs, so writePollState and the
+  cron_heartbeats insert never fire and the Sentry check-in stays in_progress, but
+  MON-002 reads cron_heartbeats for instantly-poll and flags PROBLEM once the last run
+  is over 30 minutes stale. Total absence is caught. What is NOT caught is partial
+  truncation, and because the campaigns query has no .order(), which clients get starved
+  by a mid-loop kill is not even deterministic.
+
+  Next action: do NOT respond by raising MAX_PAGES_PER_SCAN. The cap is not what breaks.
+  The fix is to stop re-paying for leads already known: consult suppressed_emails before
+  the per-row writes and skip rows already suppressed with a signal on file, or move the
+  lead-status scan off the 15-minute cron onto its own schedule, or narrow the campaigns
+  query so finished campaigns age out. Whichever is chosen, the standing rule from the
+  cursor fix applies: a scan that stops early must record a failure, never stop quietly.
+  Trigger: whichever comes first of 1,500 combined bounce plus unsubscribe signals, 25
+  campaigns in the scan set, or the instantly-poll cron exceeding 120s.
+
 ## Instantly pagination — follow-ups after fixing the cursor (2026-08-21)
 
 - [monitor] Pagination is proven by tests, NOT yet by a live multi-page run
