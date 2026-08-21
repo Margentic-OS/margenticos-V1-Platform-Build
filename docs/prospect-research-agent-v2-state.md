@@ -160,8 +160,27 @@ USD per prospect, measured across 156 reuse runs on 2026-08-20. Reuse also does 
 that a prospect skips its sources: one with nothing usable on file falls back to a full
 fetching run, which is why the entry point counts the real mix before admitting a batch.
 
-### Not verified
+### Verified 2026-08-20, on one prospect
 
-No batch has been run through the new entry point end to end. The acceptance run on the 15
-client-zero prospects was cancelled because a run would rewrite the openings that are about
-to be sent. Tracked in BACKLOG under "Pipeline entry points".
+The acceptance run on the 15 client-zero prospects was cancelled: a run would rewrite the
+openings that are about to be sent. Verified instead on one prospect
+(`63ea6c82`, `newperson@example.com`) in the DRY RUN TEST org, unarchived for the run and
+reverted byte-for-byte afterwards.
+
+| Check | Result |
+|---|---|
+| Selected | 1 of 1, the only live prospect |
+| Duration | 29.2s against a 47s estimate |
+| Result row | `c0f35d3a` written, 4 sources attempted, 0 successful |
+| Prospect update | `current_research_result_id` points at the new row, `research_ran_at` and `classified_at` stamped, `trigger_data` written |
+| Judge | HOLD, so `personalisation_trigger` and `personalisation_question` are both NULL |
+| Other prospects | zero rows written |
+| Cost | 0.03 USD |
+
+The HOLD is the correct outcome. The fixture has no name, no company and a fake email, so
+synthesis returned zero candidates and the writer had nothing to work with. Composition would
+fall back to the variant's authored opener, which is approved copy.
+
+Not proven by this run: the browser-to-route hop. The routes' auth gate is verified separately
+(403 without a session), and the route calls the same shared entry point, so what remains
+untested is the route's JSON body parsing.

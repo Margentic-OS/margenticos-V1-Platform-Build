@@ -27,20 +27,32 @@
 
 ## Pipeline entry points — open items after making sourcing and research callable (2026-08-20)
 
-- [pre-c1] Research entry point is unverified against a live run
-  Built and pushed in commit cb17e2a. Every guard has a test and the whole thing typechecks,
-  builds and deploys, but NO research batch has been run through it end to end. The planned
-  acceptance run, the 15 client-zero prospects in org 0ed34697-0fa9-4f08-ac15-d3504ac45caf,
-  was CANCELLED by Doug for a good reason: those 15 carry the openings from two days of
-  iteration and are the artifact about to be sent, and any research run rewrites
-  personalisation_trigger and personalisation_question, or clears them when the judge holds.
-  Not worth 0.80 USD and the risk.
-  What is proven: 21 guard tests, tsc, npm run build, and the routes deployed and returning
-  their auth gate. What is NOT proven: that a real batch completes through the route.
-  Next action: run it against a prospect whose copy has not shipped, the first time one
-  exists. Cheapest honest option is a single never-researched prospect anywhere.
+- [DONE 2026-08-20] Research entry point verified against a live run
+  Built in commit cb17e2a. The planned acceptance run on the 15 client-zero prospects was
+  CANCELLED for a good reason: those 15 carry the openings from two days of iteration and
+  are the artifact about to be sent, and any research run rewrites personalisation_trigger
+  and personalisation_question, or clears them when the judge holds.
+  Verified instead on one prospect (63ea6c82, newperson@example.com) in the DRY RUN TEST org,
+  which was unarchived, isolated to a single live prospect by temporarily suppressing the
+  other two fixtures, run, and reverted byte-for-byte to its exact before-state.
+  Result: 1 of 1 completed in 29.2s against a 47s estimate. One prospect_research_results row
+  (c0f35d3a) written, prospect updated and pointing at it, research_ran_at and classified_at
+  stamped, trigger_data written. Judge returned HOLD, so personalisation_trigger and
+  personalisation_question are both NULL, which is the correct outcome for a fixture with no
+  name, no company and a fake email. Zero rows written for any other prospect in the org.
+  Both agent_runs rows landed: research_batch_entry completed, prospect-research-v2 completed.
+  Cost 0.03 USD.
+  What this proves: selection, the stored-findings count, the runtime estimate, admission,
+  the in-flight guard, fresh-fetch fallback, the agent, both DB writes, and run accounting.
+  What it does NOT prove: the browser-to-route hop. The route's auth gate is verified
+  separately (403 without a session on both live routes), and the route calls the same shared
+  entry point, so what remains untested is the route's JSON body parsing. Not verified through
+  a browser because the only operator account is Doug's real one and driving it headlessly
+  would mean impersonating him.
 
 - [pre-c1] No non-archived organisation exists to test the pipeline against
+  STILL OPEN after the 2026-08-20 verification, which worked around this by unarchiving DRY
+  RUN TEST for 30 seconds and reverting. That is fine once and is not a routine procedure.
   Every organisation with prospects other than client zero is archived: DRY RUN TEST
   (a2b621fc-4c9d-43d9-9af4-1253ff49d12d, archived 2026-08-05, 3 live prospects, no stored
   findings), the old MargenticOS org (74243c62, archived), and Test Org A and B. The only
