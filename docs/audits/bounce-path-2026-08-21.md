@@ -1039,3 +1039,224 @@ defects 3 and 4 went unexamined.
 | Current value of `integrations_registry.is_active` for `instantly_api_active` | Deliberately not queried, per the audit brief |
 
 No code was changed. No bug found here was fixed.
+
+---
+
+# Addendum — 2026-08-21, later the same day
+
+Added after the instrumentation fix (`231351d`) and the detection fix (`fcb2f94`)
+went live. Both findings below were surfaced by live evidence that the original
+audit could not obtain, and **neither has been fixed.** Investigated only.
+
+Three of the "Open items this audit could not close" above are now closed by that
+evidence, and are answered inline where relevant.
+
+---
+
+## Addendum finding 1 — the pagination cursor is never read, on any resource
+
+**Status: CONFIRMED LIVE.** This was audit defect 4, filed as UNVERIFIED. It is now
+verified and it is real.
+
+### Location
+
+[src/lib/integrations/polling/instantly.ts:315-317](src/lib/integrations/polling/instantly.ts#L315),
+inside `parseInstantlyResponse`:
+
+```ts
+const nextCursor: string | null =
+  ((json as Record<string, unknown>)?.pagination as Record<string, unknown>)
+    ?.next_starting_after as string | null ?? null
+```
+
+Consumed at [instantly.ts:673-674](src/lib/integrations/polling/instantly.ts#L673)
+(lead status) and [instantly.ts:531](src/lib/integrations/polling/instantly.ts#L531)
+(replies).
+
+### Evidence
+
+A live `POST /leads/list` against campaign `cf695496-dba1-4bcb-beae-1b6ca28209d6`
+returned, verbatim at the end of the body:
+
+```json
+"items":[ ...15 lead objects... ],"next_starting_after":"01a02236-a59e-70a9-852c-6531cdf35fc5"
+```
+
+`next_starting_after` is a **top-level key, a sibling of `items`.** There is no
+`pagination` object in the response at all. The parser reads
+`json.pagination.next_starting_after`, a path that does not exist, so the optional
+chain short-circuits and `nextCursor` is `null` on every response.
+
+Corroborated by every production log line since per-page logging was added in
+`231351d`. Across all three resources and every run:
+
+```json
+{"resource":"replies","page":1,"http_status":200,"requested":100,"returned":0,"cursor_returned":false}
+{"resource":"leads_bounced","page":1,"http_status":200,"requested":100,"returned":0,"cursor_returned":false}
+{"resource":"leads_unsubscribed","page":1,"http_status":200,"requested":100,"returned":0,"cursor_returned":false}
+```
+
+`cursor_returned` has never once been true.
+
+This closes the open item "Is `next_starting_after` top-level or nested under
+`pagination`?" — **top-level.**
+
+### Impact and threshold
+
+Both loops break on `if (!nextCursor) break`, so **every resource is capped at one
+page of 100 items per run.** The 50-page ceilings
+([instantly.ts:448](src/lib/integrations/polling/instantly.ts#L448),
+[instantly.ts:618](src/lib/integrations/polling/instantly.ts#L618)) are unreachable
+and always have been.
+
+The break is silent. Nothing distinguishes "no cursor because this is the last page"
+from "no cursor because we are reading the wrong key". A run that saw 1 of 40 pages
+reports `ok: true` with `errors: 0`.
+
+Thresholds, per resource:
+
+| Resource | Invisible beyond | In real terms |
+|---|---|---|
+| `leads_bounced` | 100 bounced leads per campaign per run | ~5,000 sent at a 2% bounce rate; ~1,000 sent at a domain-damaging 10% |
+| `leads_unsubscribed` | 100 unsubscribed leads per campaign per run | same arithmetic |
+| `replies` | 100 replies per run (15-minute window) | unlikely to bind at current volume |
+
+**Zero impact today.** The only live campaign holds 15 leads, so one page covers
+everything and the cap has never been reached.
+
+**This must be fixed before the 500-prospect batch.** At 500 prospects a single
+campaign can exceed 100 in any of these categories, and the failure mode is the worst
+one in this system: correct-looking green output with most of the data never fetched.
+The fix is confined to `parseInstantlyResponse` and should read the top-level key,
+with the nested path kept only as a fallback if a different endpoint ever uses it.
+
+---
+
+## Addendum finding 2 — campaign stats have never been written, for two unrelated reasons
+
+**Status: CONFIRMED LIVE. Two independent defects, not one.**
+
+`campaigns.campaign_stats_updated_at` is `NULL` for every row with a non-null
+`external_id`. Live SQL:
+
+```
+external_id                                status   sent_count   campaign_stats_updated_at
+b1234567-mock-4000-a000-staging000001      active   0            null
+mock-campaign-1785956498252                active   0            null
+cf695496-dba1-4bcb-beae-1b6ca28209d6       draft    0            null
+```
+
+### The evidence that separates the two causes
+
+Production log line from the poll run, which is what rules out the single-cause
+explanations:
+
+```json
+"campaign_stats":{"updated":0,"skipped":2,"errors":0}
+```
+
+- `errors: 0` proves `fetchCampaignStats` did **not** throw. The analytics call
+  succeeds. The `response was not an array` warning at
+  [campaign-analytics.ts:82](src/lib/integrations/handlers/instantly/campaign-analytics.ts#L82)
+  never fires, so the response parses as an array.
+- `skipped: 2` proves the loop iterated exactly **two** campaigns and
+  `statsMap.get(external_id)` returned `undefined` for both
+  ([route.ts:139-143](src/app/api/cron/instantly-poll/route.ts#L139)).
+- Two, not three. The third campaign never reached the loop.
+
+So the code is behaving exactly as written. The data is wrong on both sides of it.
+
+### Problem A — `cf695496` is excluded before the lookup
+
+**Location:** [src/app/api/cron/instantly-poll/route.ts:132-135](src/app/api/cron/instantly-poll/route.ts#L132)
+
+```ts
+.from('campaigns')
+.select('id, external_id')
+.eq('status', 'active')
+.not('external_id', 'is', null)
+```
+
+Our local `campaigns.status` for `cf695496` is `'draft'`. Instantly reports the same
+campaign as Active and sending. It is filtered out before the analytics map is
+consulted.
+
+**Evidence that the data is there and only the filter is in the way** — live
+`GET /campaigns/analytics` for that campaign:
+
+```json
+{"campaign_name":"Margentic - send 1 (15 prospects)",
+ "campaign_id":"cf695496-dba1-4bcb-beae-1b6ca28209d6","campaign_status":1,
+ "leads_count":15,"contacted_count":15,"emails_sent_count":15,
+ "reply_count":0,"bounced_count":0,"unsubscribed_count":0}
+```
+
+The row exists and carries the exact field names the handler maps at
+[campaign-analytics.ts:91-93](src/lib/integrations/handlers/instantly/campaign-analytics.ts#L91).
+`statsMap` contains it. Our code simply never asks for it.
+
+**Impact.** `campaigns.bounced_count` is the only bounce number that reaches a human,
+via the operator panel at
+[CampaignMetricsPanel.tsx:33,79-85](src/components/dashboard/operator/CampaignMetricsPanel.tsx#L33).
+And the symptom is worse than a wrong number: `hasData` is derived as `sentCount > 0`
+([campaign-metrics.ts:60](src/lib/metrics/campaign-metrics.ts#L60)), so with
+`sent_count = 0` the panel renders its empty placeholder
+([CampaignMetricsPanel.tsx:20](src/components/dashboard/operator/CampaignMetricsPanel.tsx#L20)).
+There is no campaign metrics panel at all for the only campaign that is sending.
+
+**Threshold: already breached.** 15 leads uploaded, 15 sent.
+
+**Do not resolve this with a manual `UPDATE campaigns SET status = 'active'`.** That
+would populate the counters and make the symptom disappear while leaving the actual
+defect in place: **nothing in the codebase writes `campaigns.status` when a campaign
+goes live in Instantly.** The row was created `draft` and no code path has ever moved
+it. A manual update fixes one row once, and the next campaign reproduces the bug
+silently. The real question to answer first is which component owns that transition
+and why it does not exist.
+
+### Problem B — the two mock campaigns pass the filter and miss the lookup
+
+**Location:** the same loop, at
+[route.ts:139-143](src/app/api/cron/instantly-poll/route.ts#L139).
+
+`b1234567-mock-4000-a000-staging000001` and `mock-campaign-1785956498252` have
+`status = 'active'`, so they pass the filter in Problem A and reach the map lookup.
+Their `external_id` values are not real Instantly campaign UUIDs, so the analytics
+response contains no row for them, `statsMap.get()` returns `undefined`, and each
+increments `skipped`. That is the `skipped: 2`.
+
+**Impact.** Cosmetic today. These are stale test rows sitting in a production table.
+They consume two iterations of the loop, contribute a misleading `skipped` count that
+looks like a real miss, and would confuse anyone debugging Problem A by making the
+skip counter non-zero for an unrelated reason.
+
+**Threshold:** they become harmful the moment any code treats `skipped > 0` as a
+signal, or any operator view enumerates campaigns by `status = 'active'`.
+
+### Why both matter together
+
+Neither defect explains the whole observation. Problem A alone would leave
+`skipped: 2` unexplained. Problem B alone would leave `cf695496` unexplained. Their
+union is why **no campaign has ever had stats written**, and why the audit's one
+"working" bounce path (section D2 above) has in fact never produced a number.
+
+---
+
+## Open items from the original audit that are now closed
+
+| Original open item | Answer | Evidence |
+|---|---|---|
+| Does `POST /leads/list` accept a `status` body key, and is `campaign` the right key? | **Yes to both, and the status filter is honoured.** | An unfiltered call scoped only by `campaign` returns all 15 leads, each carrying `"status": 1`. The poller's filtered call returns 0. Were `status` ignored, those same 15 rows would come back and the read-back check added in `fcb2f94` would reject all 15. It reported zero mismatches and `error_count` 0. |
+| Is `next_starting_after` top-level or nested? | **Top-level.** | Addendum finding 1. |
+| Is a string `"-2"` coerced, rejected, or ignored? | Still **CANNOT DETERMINE**, and now moot. | Both the old string filter and the new numeric filter returned 0 rows, which is the true answer either way — Instantly's own analytics reports `bounced_count: 0, unsubscribed_count: 0`. The string form is gone as of `fcb2f94`. |
+
+Section B1's claim that "no field is read, and no value is compared" is **no longer
+true as of `fcb2f94`**. `verifyLeadStatus` now reads the returned lead's `status` and
+requires a strict numeric match before any signal is written. The rest of section B1,
+including the description of how the inversion arose, stands as the historical record.
+
+Sections C, D and E are unchanged. In particular **D2 still holds**: `email_bounced`
+and `lead_unsubscribed` signals are written and read by no gate. Detection is now
+correct; nothing consumes it.
+
+No code was changed by this addendum.
