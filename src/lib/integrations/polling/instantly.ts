@@ -59,6 +59,14 @@ export interface PollResult {
   written: number
   skipped: number
   errors: number
+  // attempted: the poller got as far as issuing at least one Instantly call.
+  // False when there was nothing to poll (no registered campaigns) or when the run
+  // aborted before any call was made.
+  attempted: boolean
+  // polled: at least one Instantly call returned 2xx and a parsed result set.
+  // An empty result set counts. This is the flag that separates "polled and found
+  // nothing" from "never reached Instantly" — the two the old code could not tell apart.
+  polled: boolean
 }
 
 // ── Campaign resolution ───────────────────────────────────────────────────────
@@ -117,56 +125,121 @@ async function getCursor(
   return data?.last_cursor ?? null
 }
 
-async function setCursorSuccess(
-  supabase: SupabaseServiceClient,
-  resource: string,
-  newCursor: string | null
-): Promise<void> {
-  await supabase
-    .from('polling_cursors')
-    .upsert(
-      {
-        organisation_id: null,
-        source: SOURCE,
-        resource,
-        last_cursor: newCursor,
-        last_run_at: new Date().toISOString(),
-        error_count: 0,
-        last_error: null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'organisation_id,source,resource' }
-    )
+// ── Poll state accounting ─────────────────────────────────────────────────────
+//
+// One polling_cursors row per (source, resource), written ONCE at the end of a run
+// from an accumulator. Accumulating rather than writing as we go is what stops a
+// later partial success from erasing an earlier real failure within the same run.
+//
+// Column meanings, as enforced by writePollState below:
+//
+//   last_run_at     The run was attempted. Written on every run, success or failure.
+//                   Answers "is the cron firing at all".
+//
+//   last_polled_at  At least one Instantly call for this resource returned 2xx and a
+//                   parsed result set. An empty page counts: zero items from a
+//                   successful call IS a successful poll. NOT written when every call
+//                   threw or returned non-2xx, and NOT written when the resource was
+//                   skipped because there was nothing to poll.
+//                   Answers "did we actually reach Instantly", which last_run_at
+//                   cannot, and which is the difference between "polled and found no
+//                   bounces" and "never asked".
+//
+//                   This REPURPOSES the column. 20260428_instantly_polling.sql:137-139
+//                   reserved it as a timestamp cursor for timestamp-filtered sources.
+//                   No such source exists, no code has ever written it, and it has been
+//                   NULL since the table was created. Telling a silent poll apart from a
+//                   clean one is worth more than a reservation nothing has claimed.
+//
+//   last_cursor     The pagination cursor to resume from on the next run. Advanced only
+//                   on a clean run, and only for resources that resume.
+//                   ALWAYS NULL for leads_bounced and leads_unsubscribed, by design, not
+//                   by omission: those resources re-scan in full every run because a lead
+//                   created weeks ago can bounce today and a creation-ordered cursor
+//                   would skip it. See the file header. Persisting a cursor there would
+//                   silently stop detecting late status changes.
+//
+//   error_count     Incremented by the number of failed calls in this run. Reset to 0
+//                   only by a run that recorded zero failures.
+//
+//   last_error      The FIRST real failure of the run, carrying its HTTP status where
+//                   there was one. Never overwritten by a later success in the same run.
+//                   Cleared only by a run that recorded zero failures.
+
+interface PollState {
+  // At least one Instantly call returned 2xx and a parsed result set.
+  polled: boolean
+  // Count of failed calls this run. Drives error_count.
+  failures: number
+  // First failure text of the run. Later failures and later successes never replace it.
+  firstError: string | null
+  // Cursor to persist, and whether this run earned the right to move it.
+  cursor: string | null
+  advanceCursor: boolean
 }
 
-async function setCursorError(
+function newPollState(): PollState {
+  return { polled: false, failures: 0, firstError: null, cursor: null, advanceCursor: false }
+}
+
+// Records a failure without clobbering the first one. Callers pass text that already
+// carries the HTTP status where the failure came from an HTTP response.
+function recordPollFailure(state: PollState, message: string): void {
+  state.failures++
+  if (state.firstError === null) state.firstError = message
+}
+
+async function writePollState(
   supabase: SupabaseServiceClient,
   resource: string,
-  errorMessage: string
+  state: PollState
 ): Promise<void> {
-  // Read current error_count then increment — two queries, acceptable at this frequency.
-  const { data: existing } = await supabase
-    .from('polling_cursors')
-    .select('error_count')
-    .is('organisation_id', null)
-    .eq('source', SOURCE)
-    .eq('resource', resource)
-    .maybeSingle()
+  const nowISO = new Date().toISOString()
 
-  await supabase
+  // Read the running total only when we are about to add to it.
+  let priorErrorCount = 0
+  if (state.failures > 0) {
+    const { data: existing } = await supabase
+      .from('polling_cursors')
+      .select('error_count')
+      .is('organisation_id', null)
+      .eq('source', SOURCE)
+      .eq('resource', resource)
+      .maybeSingle()
+    priorErrorCount = existing?.error_count ?? 0
+  }
+
+  const row: Database['public']['Tables']['polling_cursors']['Insert'] = {
+    organisation_id: null,
+    source: SOURCE,
+    resource,
+    last_run_at: nowISO,
+    error_count: state.failures > 0 ? priorErrorCount + state.failures : 0,
+    last_error: state.failures > 0 ? state.firstError : null,
+    updated_at: nowISO,
+  }
+
+  // Keys omitted from an upsert payload are absent from the ON CONFLICT SET clause,
+  // so leaving these out preserves the stored value rather than nulling it.
+  if (state.polled) row.last_polled_at = nowISO
+  if (state.advanceCursor) row.last_cursor = state.cursor
+
+  const { error } = await supabase
     .from('polling_cursors')
-    .upsert(
-      {
-        organisation_id: null,
-        source: SOURCE,
-        resource,
-        last_run_at: new Date().toISOString(),
-        error_count: (existing?.error_count ?? 0) + 1,
-        last_error: errorMessage,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'organisation_id,source,resource' }
+    .upsert(row, { onConflict: 'organisation_id,source,resource' })
+
+  if (error) {
+    // The poll itself may have succeeded — this is the bookkeeping failing, which is
+    // exactly the class of silence this change exists to remove. Say so loudly.
+    Sentry.captureException(
+      new Error(`polling_cursors write failed [${resource}]: ${error.message}`),
+      { level: 'warning', extra: { resource, polled: state.polled, failures: state.failures } }
     )
+    logger.error('Instantly poll: failed to write polling_cursors state', {
+      resource,
+      error: error.message,
+    })
+  }
 }
 
 // ── Outbound body capture (best-effort, non-blocking) ─────────────────────────
@@ -318,6 +391,17 @@ function parseInstantlyResponse(json: unknown): { data: unknown[]; nextCursor: s
   return { data: items, nextCursor }
 }
 
+// Return shape shared by both API clients.
+// `status` is the HTTP status where there was a response, null for network/parse
+// failures that never produced one. It is reported separately from `error` so the
+// per-campaign log and last_error can both carry it without re-parsing the message.
+interface InstantlyListResponse {
+  data: unknown[] | null
+  nextCursor: string | null
+  error: string | null
+  status: number | null
+}
+
 // GET request — used for /emails (cursor-based, query params)
 async function instantlyGet(
   path: string,
@@ -325,7 +409,7 @@ async function instantlyGet(
   params: Record<string, string>,
   baseUrl: string,
   isActive: boolean,
-): Promise<{ data: unknown[] | null; nextCursor: string | null; error: string | null }> {
+): Promise<InstantlyListResponse> {
   // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
   if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
     throw new InstantlyFlagError('instantlyGet: instantly_api_active is false — cannot call production Instantly')
@@ -351,7 +435,7 @@ async function instantlyGet(
         },
       })
     } catch (err) {
-      return { data: null, nextCursor: null, error: `Network error: ${String(err)}` }
+      return { data: null, nextCursor: null, error: `Network error: ${String(err)}`, status: null }
     }
   }
 
@@ -361,16 +445,22 @@ async function instantlyGet(
       data: null,
       nextCursor: null,
       error: `Instantly API ${response.status}: ${body.slice(0, 200)}`,
+      status: response.status,
     }
   }
 
   const json = await response.json().catch(() => null)
   if (!json) {
-    return { data: null, nextCursor: null, error: 'Instantly API returned non-JSON response' }
+    return {
+      data: null,
+      nextCursor: null,
+      error: `Instantly API ${response.status}: returned non-JSON response`,
+      status: response.status,
+    }
   }
 
   const { data, nextCursor } = parseInstantlyResponse(json)
-  return { data, nextCursor, error: null }
+  return { data, nextCursor, error: null, status: response.status }
 }
 
 // POST request — used for /leads/list (Instantly V2 list endpoints use POST with JSON body)
@@ -380,7 +470,7 @@ async function instantlyPost(
   body: Record<string, unknown>,
   baseUrl: string,
   isActive: boolean,
-): Promise<{ data: unknown[] | null; nextCursor: string | null; error: string | null }> {
+): Promise<InstantlyListResponse> {
   // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
   if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
     throw new InstantlyFlagError('instantlyPost: instantly_api_active is false — cannot call production Instantly')
@@ -400,7 +490,7 @@ async function instantlyPost(
         body: JSON.stringify(body),
       })
     } catch (err) {
-      return { data: null, nextCursor: null, error: `Network error: ${String(err)}` }
+      return { data: null, nextCursor: null, error: `Network error: ${String(err)}`, status: null }
     }
   }
 
@@ -410,16 +500,22 @@ async function instantlyPost(
       data: null,
       nextCursor: null,
       error: `Instantly API ${response.status}: ${text.slice(0, 200)}`,
+      status: response.status,
     }
   }
 
   const json = await response.json().catch(() => null)
   if (!json) {
-    return { data: null, nextCursor: null, error: 'Instantly API returned non-JSON response' }
+    return {
+      data: null,
+      nextCursor: null,
+      error: `Instantly API ${response.status}: returned non-JSON response`,
+      status: response.status,
+    }
   }
 
   const { data, nextCursor } = parseInstantlyResponse(json)
-  return { data, nextCursor, error: null }
+  return { data, nextCursor, error: null, status: response.status }
 }
 
 // ── Reply polling (cursor-based) ──────────────────────────────────────────────
@@ -440,12 +536,14 @@ export async function pollInstantlyReplies(
   const isActive = await getInstantlyApiActive()
   const baseUrl = resolveInstantlyBaseUrl(isActive)
   const resource = 'replies'
-  const result: PollResult = { written: 0, skipped: 0, errors: 0 }
+  const result: PollResult = { written: 0, skipped: 0, errors: 0, attempted: false, polled: false }
   const campaignCache = new Map<string, ResolvedCampaign | null>()
+  const state = newPollState()
 
   let cursor = await getCursor(supabase, resource)
   let pageCount = 0
   const MAX_PAGES = 50 // safety ceiling — prevents runaway pagination on a very large backlog
+  const PAGE_LIMIT = 100
 
   try {
     while (pageCount < MAX_PAGES) {
@@ -454,18 +552,39 @@ export async function pollInstantlyReplies(
       const params: Record<string, string> = {
         email_type: 'received',
         sort_order: 'asc',
-        limit: '100',
+        limit: String(PAGE_LIMIT),
       }
       if (cursor) params.starting_after = cursor
 
-      const { data: emails, nextCursor, error } = await instantlyGet('/emails', apiKey, params, baseUrl, isActive)
+      result.attempted = true
+      const { data: emails, nextCursor, error, status } = await instantlyGet('/emails', apiKey, params, baseUrl, isActive)
 
       if (error) {
-        await setCursorError(supabase, resource, error)
-        logger.error('Instantly poll: reply fetch failed', { error, page: pageCount })
+        recordPollFailure(state, error)
+        logger.error('Instantly poll: reply fetch failed', {
+          resource,
+          error,
+          http_status: status,
+          page: pageCount,
+          requested: PAGE_LIMIT,
+        })
         result.errors++
+        // Cursor is not advanced: the page that failed must be re-fetched next run.
         return result
       }
+
+      // A 2xx with a parsed body is a real poll, even when it carried zero items.
+      state.polled = true
+      result.polled = true
+
+      logger.info('Instantly poll: reply page fetched', {
+        resource,
+        page: pageCount,
+        http_status: status,
+        requested: PAGE_LIMIT,
+        returned: emails?.length ?? 0,
+        cursor_returned: nextCursor !== null,
+      })
 
       if (!emails || emails.length === 0) break
 
@@ -522,22 +641,31 @@ export async function pollInstantlyReplies(
         else result.errors++
       }
 
-      // Advance cursor to the last email in this page.
-      // Do this after processing the page so that a mid-page failure doesn't advance past unprocessed events.
+      // Advance the cursor after processing the page, so a mid-page failure doesn't
+      // advance past unprocessed events.
+      // Prefer the cursor Instantly returned: next_starting_after is by definition the
+      // value to send as starting_after. Fall back to the last email's id, which is what
+      // this code has always used, so behaviour is unchanged whenever no cursor comes back.
       const lastEmail = emails[emails.length - 1] as Record<string, unknown>
       const lastId = lastEmail?.id as string | undefined
-      if (lastId) cursor = lastId
+      if (nextCursor) cursor = nextCursor
+      else if (lastId) cursor = lastId
 
       if (!nextCursor) break
     }
 
-    await setCursorSuccess(supabase, resource, cursor)
-    logger.info('Instantly poll: replies polled', { ...result, pages: pageCount })
+    // Clean completion: this run earned the right to move the stored cursor.
+    state.advanceCursor = true
+    state.cursor = cursor
+    logger.info('Instantly poll: replies polled', { resource, ...result, pages: pageCount })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    await setCursorError(supabase, resource, msg)
-    logger.error('Instantly poll: reply polling threw', { error: msg })
+    recordPollFailure(state, msg)
+    logger.error('Instantly poll: reply polling threw', { resource, error: msg })
     result.errors++
+  } finally {
+    // One write per run, whatever happened — including the early return on fetch failure.
+    await writePollState(supabase, resource, state)
   }
 
   return result
@@ -578,7 +706,11 @@ export async function pollInstantlyLeadStatus(
   const isActive = await getInstantlyApiActive()
   const baseUrl = resolveInstantlyBaseUrl(isActive)
   const resource = signalType === 'email_bounced' ? 'leads_bounced' : 'leads_unsubscribed'
-  const result: PollResult = { written: 0, skipped: 0, errors: 0 }
+  const result: PollResult = { written: 0, skipped: 0, errors: 0, attempted: false, polled: false }
+  const state = newPollState()
+
+  // last_cursor stays NULL for this resource on purpose. See writePollState's notes:
+  // these resources re-scan in full every run, so state.advanceCursor is never set.
 
   // Fetch campaigns registered in our system that have an Instantly campaign UUID.
   // Exclude campaigns belonging to archived organisations — do not spend credits on archived clients.
@@ -590,24 +722,32 @@ export async function pollInstantlyLeadStatus(
 
   if (campaignsError) {
     logger.error('Instantly poll: failed to fetch campaigns for lead status scan', {
+      resource,
       signal_type: signalType,
       error: campaignsError.message,
     })
-    await setCursorError(supabase, resource, campaignsError.message)
+    recordPollFailure(state, `campaigns query failed: ${campaignsError.message}`)
     result.errors++
+    await writePollState(supabase, resource, state)
     return result
   }
 
   if (!campaigns || campaigns.length === 0) {
+    // Nothing to poll is not a failure, but it is also not a poll: last_polled_at stays
+    // untouched so this reads as "did not reach Instantly", not as a clean scan.
     logger.info('Instantly poll: no campaigns registered — lead status scan skipped', {
+      resource,
       signal_type: signalType,
+      campaigns_scanned: 0,
       fix: 'Insert a row into campaigns with external_id = the Instantly campaign UUID',
     })
-    await setCursorSuccess(supabase, resource, null)
+    await writePollState(supabase, resource, state)
     return result
   }
 
   let totalPages = 0
+  let campaignsPolled = 0
+  let campaignsFailed = 0
 
   try {
     for (const campaign of campaigns) {
@@ -615,7 +755,10 @@ export async function pollInstantlyLeadStatus(
 
       let pageCursor: string | null = null
       let pageCount = 0
+      let campaignFailed = false
+      let campaignPolled = false
       const MAX_PAGES_PER_CAMPAIGN = 50
+      const PAGE_LIMIT = 100
 
       while (pageCount < MAX_PAGES_PER_CAMPAIGN) {
         pageCount++
@@ -624,23 +767,48 @@ export async function pollInstantlyLeadStatus(
         const body: Record<string, unknown> = {
           status: instantlyStatus,
           campaign: instantlyCampaignId,
-          limit: 100,
+          limit: PAGE_LIMIT,
         }
         if (pageCursor) body.starting_after = pageCursor
 
-        const { data: leads, nextCursor, error } = await instantlyPost('/leads/list', apiKey, body, baseUrl, isActive)
+        result.attempted = true
+        const { data: leads, nextCursor, error, status } = await instantlyPost('/leads/list', apiKey, body, baseUrl, isActive)
 
         if (error) {
           // Log and move on to the next campaign — one campaign failure doesn't abort the run.
           logger.error('Instantly poll: lead status fetch failed', {
+            resource,
             signal_type: signalType,
             campaign_external_id: instantlyCampaignId,
             error,
+            http_status: status,
             page: pageCount,
+            requested: PAGE_LIMIT,
           })
+          recordPollFailure(
+            state,
+            `campaign ${instantlyCampaignId} page ${pageCount}: ${error}`
+          )
+          campaignFailed = true
           result.errors++
           break
         }
+
+        // A 2xx with a parsed body is a real poll, even when it carried zero leads.
+        campaignPolled = true
+        state.polled = true
+        result.polled = true
+
+        logger.info('Instantly poll: lead status page fetched', {
+          resource,
+          signal_type: signalType,
+          campaign_external_id: instantlyCampaignId,
+          page: pageCount,
+          http_status: status,
+          requested: PAGE_LIMIT,
+          returned: leads?.length ?? 0,
+          cursor_returned: nextCursor !== null,
+        })
 
         if (!leads || leads.length === 0) break
 
@@ -673,24 +841,34 @@ export async function pollInstantlyLeadStatus(
         if (!nextCursor) break
         pageCursor = nextCursor
       }
+
+      if (campaignFailed) campaignsFailed++
+      if (campaignPolled) campaignsPolled++
     }
 
-    await setCursorSuccess(supabase, resource, null)
     logger.info('Instantly poll: lead status scan complete', {
+      resource,
       signal_type: signalType,
-      status: instantlyStatus,
+      requested_status: instantlyStatus,
       campaigns_scanned: campaigns.length,
+      campaigns_polled: campaignsPolled,
+      campaigns_failed: campaignsFailed,
       total_pages: totalPages,
       ...result,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    await setCursorError(supabase, resource, msg)
+    recordPollFailure(state, msg)
     logger.error('Instantly poll: lead status polling threw', {
+      resource,
       signal_type: signalType,
       error: msg,
     })
     result.errors++
+  } finally {
+    // One write per run, whatever happened. state.advanceCursor is deliberately never
+    // set for this resource, so last_cursor is left untouched: see writePollState.
+    await writePollState(supabase, resource, state)
   }
 
   return result

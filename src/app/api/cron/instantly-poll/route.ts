@@ -78,9 +78,9 @@ export async function POST(request: NextRequest) {
   const baseUrl = resolveInstantlyBaseUrl(isActive)
 
   const results = {
-    replies:       { written: 0, skipped: 0, errors: 0 },
-    bounces:       { written: 0, skipped: 0, errors: 0 },
-    unsubscribes:  { written: 0, skipped: 0, errors: 0 },
+    replies:       { written: 0, skipped: 0, errors: 0, attempted: false, polled: false },
+    bounces:       { written: 0, skipped: 0, errors: 0, attempted: false, polled: false },
+    unsubscribes:  { written: 0, skipped: 0, errors: 0, attempted: false, polled: false },
   }
 
   // ── Poll replies ────────────────────────────────────────────────────────────
@@ -171,30 +171,68 @@ export async function POST(request: NextRequest) {
   const totalErrors = results.replies.errors + results.bounces.errors + results.unsubscribes.errors
   const totalWritten = results.replies.written + results.bounces.written + results.unsubscribes.written
 
+  // ── The ok rule ────────────────────────────────────────────────────────────
+  //
+  // ok is true only when BOTH hold:
+  //   1. every resource that issued at least one Instantly call got at least one
+  //      successful response back (attempted && !polled means every call for that
+  //      resource failed), and
+  //   2. no campaign-level or signal-level failure was recorded anywhere.
+  //
+  // A run in which every campaign errored fails both clauses and returns ok: false.
+  //
+  // A resource that was never attempted — no registered campaigns — is NOT a failure.
+  // It reports attempted: false and polled: false in the response, so "nothing to poll"
+  // stays visible without being counted as an error.
+  //
+  // This value drives all three instruments together: the DB heartbeat, the Sentry
+  // check-in, and the HTTP response. Previously the heartbeat used it and the other
+  // two were hardcoded to success, so a run that failed every call still read green.
+  const resourceResults = [results.replies, results.bounces, results.unsubscribes]
+  const resourcesThatFailedToPoll = resourceResults.filter(r => r.attempted && !r.polled).length
+  const runOk = totalErrors === 0 && resourcesThatFailedToPoll === 0
+
   logger.info('Instantly poll: run complete', {
+    ok: runOk,
     total_written: totalWritten,
     total_errors: totalErrors,
+    resources_failed_to_poll: resourcesThatFailedToPoll,
     ...results,
     campaign_stats: campaignStatsResult,
   })
 
   // ── Record heartbeat ───────────────────────────────────────────────────────────
-  const heartbeatOk = totalErrors === 0
   await supabase
     .from('cron_heartbeats')
     .insert({
       job_name: 'instantly-poll',
-      ok: heartbeatOk,
-      detail: heartbeatOk
+      ok: runOk,
+      detail: runOk
         ? `Polled: ${totalWritten} signals written, campaign stats updated`
-        : `Errors occurred: ${totalErrors} errors across reply/bounce/unsubscribe polling`,
+        : `Run failed: ${totalErrors} error(s), ${resourcesThatFailedToPoll} resource(s) reached zero successful Instantly calls`,
     })
     .throwOnError()
 
-  Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'ok', checkInId })
+  // Sentry check-in must carry the real outcome, and must be flushed before the
+  // serverless function returns or the event is dropped.
+  Sentry.captureCheckIn({
+    monitorSlug: MONITOR_SLUG,
+    status: runOk ? 'ok' : 'error',
+    checkInId,
+  })
+  if (!runOk) {
+    Sentry.captureException(
+      new Error(
+        `Instantly poll run failed: ${totalErrors} error(s), ` +
+        `${resourcesThatFailedToPoll} resource(s) with zero successful calls`
+      ),
+      { level: 'error', extra: { results, campaign_stats: campaignStatsResult } }
+    )
+  }
   try { await Sentry.flush(2000) } catch {}
+
   return NextResponse.json({
-    ok: true,
+    ok: runOk,
     results,
     campaign_stats: campaignStatsResult,
   })
