@@ -113,3 +113,55 @@ how it is written, not what is found. The readability gate visibly fired on thre
 (Robert c4 at 29 words, Udo c4 at 30 words, Alma c5 at 34 words), all demoted out of hook use.
 
 Re-run harness: `src/lib/agents/rerun-three-prospects.ts`. It costs real API spend per run.
+
+
+---
+
+## Callable from the application (2026-08-20)
+
+### What changed
+
+The agent had one caller in the repository: `src/lib/agents/run-dogfood-batch-2.ts`,
+hardcoded to organisation `74243c62` and eleven prospect ids. A search of `src/app` found
+nothing. So the live 15-prospect batch was not reproducible from the repository, and a
+client could not be onboarded without hand-running a script. Writing a throwaway script per
+batch is also what cost 22 USD in redundant research on 2026-08-20.
+
+Research is now started from `/dashboard/operator/sourcing-review`, or from
+`scripts/run-research.ts`, both through one shared entry point:
+`src/lib/operator/research-batch-entry.ts`. Full documentation is in `docs/agents.md` under
+"Pipeline entry points". `run-dogfood-batch-2.ts` is deleted.
+
+`rerun-three-prospects.ts` is still the re-run harness referenced above, and still costs real
+API spend per run, but it no longer hardcodes the organisation or the prospect ids:
+
+    npx tsx --env-file=.env.local src/lib/agents/rerun-three-prospects.ts \
+      --org <uuid> --ids <uuid>,<uuid>,<uuid>
+
+It calls the agent directly and therefore has NO overwrite guard. Do not point it at
+prospects whose copy has already been sent.
+
+### The thing to know before running any batch
+
+`updateProspect` writes `personalisation_trigger` and `personalisation_question` on every
+run. On a SEND verdict it replaces the stored opening with new wording. On a HOLD verdict it
+writes NULL, deleting it. Of the 15 researched prospects in the client-zero organisation, 12
+hold a trigger and 3 hold NULL, so the HOLD path is not rare.
+
+The entry point refuses any batch containing a prospect that already holds a trigger, unless
+the caller passes `allow_overwrite_trigger`. The dashboard cannot pass it and does not read
+it from the request body. Only `scripts/run-research.ts --allow-overwrite-trigger` can.
+
+### Reuse is not free
+
+`use_stored_findings: true` skips all four sources and the Sonnet synthesis call, but the
+writer, the floor check and the judge still run on `claude-sonnet-4-6`. Roughly 0.05 to 0.06
+USD per prospect, measured across 156 reuse runs on 2026-08-20. Reuse also does not guarantee
+that a prospect skips its sources: one with nothing usable on file falls back to a full
+fetching run, which is why the entry point counts the real mix before admitting a batch.
+
+### Not verified
+
+No batch has been run through the new entry point end to end. The acceptance run on the 15
+client-zero prospects was cancelled because a run would rewrite the openings that are about
+to be sent. Tracked in BACKLOG under "Pipeline entry points".

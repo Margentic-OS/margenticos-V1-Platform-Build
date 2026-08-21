@@ -1,5 +1,5 @@
 # agents.md — Agent Documentation
-# Last updated: April 2026
+# Last updated: August 2026
 # Written for non-developers. Update whenever an agent is added or its output changes.
 # The spec is in /prd/sections/06-agents.md — this is the living reference.
 
@@ -461,6 +461,145 @@ Cross-org access is blocked at the API layer (the approve endpoint), not here.
 **Testing:** Contract tests via `test-send.test.ts` verify signature and error handling.
 The standalone test script was removed (commit 37e9e1e) as part of hardening against
 accidental production calls — all Instantly API calls now route through the flag-driven URL resolver.
+
+---
+
+## Pipeline entry points — sourcing and research (August 2026)
+
+Not agents. These are the deterministic callers that let an operator start sourcing and
+research from the dashboard, and they are where every decision about cost, size and safety
+is made before an agent runs.
+
+**Why they exist:** until August 2026 neither pipeline stage had a production caller.
+`runSourcing` was reachable only from three `scripts/phase4-*.ts` files, each hardcoded to
+one organisation and one batch size. `runProspectResearchAgentV2Batch` had a single caller,
+a script hardcoded to a stale organisation and eleven prospect ids. A search of the
+application returned nothing for either. Two consequences: the live 15-prospect batch could
+not be reproduced from the repository, and a paying client could not be onboarded without
+someone hand-running scripts. The habit of writing a throwaway script per batch cost 22 USD
+in redundant research on 2026-08-20.
+
+### Where they live
+
+| Thing | File |
+|---|---|
+| Sourcing entry | `src/lib/operator/sourcing-entry.ts` |
+| Research entry | `src/lib/operator/research-batch-entry.ts` |
+| Sourcing route | `POST /api/operator/organisations/[id]/source-prospects` |
+| Research route | `POST /api/operator/organisations/[id]/research-prospects` |
+| Dashboard controls | `/dashboard/operator/sourcing-review` |
+| Sourcing CLI | `scripts/run-sourcing.ts` |
+| Research CLI | `scripts/run-research.ts` |
+
+The dashboard and the CLI both call the same entry point, so a run from a terminal and a
+click in a browser make identical decisions. There is no second implementation to drift.
+
+### Auth
+
+Both routes use the ADR-027 two-client pattern through `requireOperator`: an SSR session
+client reads the cookie to identify the user, a service-role client reads the role. Not
+operator means 403. This is copied from the send path, which is the half of the pipeline
+that already worked.
+
+### There is no job queue
+
+Each batch runs inside one request. The routes set `maxDuration = 300`, which is the Hobby
+ceiling and this repository's convention. The entry points hold back 60 seconds for cold
+start and a slow tail, leaving a 240 second budget, and refuse anything that would not
+finish inside it. A refusal is an explicit error naming the real limit, never a silent
+truncation of the batch.
+
+Measured on production `agent_runs`, 2026-08-20:
+
+| Work | Rate | Where it runs out of time |
+|---|---|---|
+| Sourcing | about 12s fixed plus 0.22s per prospect written | around 900 prospects |
+| Research, findings reused | about 5.1s per prospect at concurrency 5 | around 47 prospects |
+| Research, every source fetched | about 47s per prospect at concurrency 5 | around 5 prospects |
+
+Caps enforced: sourcing 500, research 40 absolute.
+
+Research does not use a flat cap. `use_stored_findings: true` does **not** guarantee a
+prospect skips its sources: one with nothing usable on file falls back to a full fetching
+run. So the entry point counts how many selected prospects actually have findings within the
+30 day window and sizes the batch from that real mix. The count fails pessimistic: if the
+lookup errors, every prospect is treated as a fetching run, so a database fault produces a
+refusal rather than an admitted batch that times out.
+
+The durable queue is a separate build. See BACKLOG.
+
+### The guard on finished copy
+
+`updateProspect` writes `personalisation_trigger` and `personalisation_question` on **every**
+run. It is not an append and it is not conditional:
+
+```
+personalisation_trigger: opening.written_won ? opening.opening : null
+```
+
+On a SEND verdict the stored opening is replaced with new wording. On a HOLD verdict it is
+set to NULL, destroying the existing one. The judge holds often enough for this to matter:
+of the 15 researched prospects in the client-zero organisation on 2026-08-20, 12 held a
+trigger and 3 held NULL.
+
+So the research entry point **refuses** to run on any prospect that already holds a trigger,
+unless the caller passes `allow_overwrite_trigger: true`. The dashboard route never passes
+it and never reads it from the request body, so no request can set it. Only the CLI can,
+behind `--allow-overwrite-trigger`. If the copy has already been sent, overwriting it means
+the stored record no longer matches what the prospect received.
+
+`src/lib/agents/rerun-three-prospects.ts` calls the agent directly and has no such guard.
+It is a diagnostic. Do not point it at prospects whose copy has shipped.
+
+### The safe default
+
+`use_stored_findings` defaults to **true** everywhere: in the agent, in the entry point, and
+in the route, which only turns it off on an explicit `false` and ignores a missing or
+malformed value. Re-fetching all four sources is the expensive half of a run and must be a
+deliberate choice. The default was false until 2026-08-20, no caller ever opted in, and that
+one default turned 13 prospects into 176 research runs in a day.
+
+### Concurrent runs
+
+Both entry points refuse to start when a run for the same organisation is already in flight,
+checked against an `agent_runs` row with `status='running'` inside a 10 minute window that
+matches the reaper cron. This is a soft guard, not a database lock, and it closes the case
+that actually happens: an operator clicking twice.
+
+What it prevents:
+
+- **Sourcing.** There is a unique index on `(organisation_id, source_person_key)`. Dedupe
+  reads the database before either run writes, so both pass, and the second then hits a
+  unique violation partway through its sequential insert loop and aborts part-written, after
+  Apollo credits have been spent.
+- **Research.** Both runs research the same prospects at full price. Worse, `FrameRegistry`
+  and `BatchUniquenessRegistry`, which guarantee that no two prospects ship the same bridge
+  or the same closing question, are per-batch and in-process. Two concurrent batches cannot
+  see each other, so duplicate wording ships with no collision reported.
+
+A real database lock (`SELECT FOR UPDATE SKIP LOCKED`) is phase 2 in BACKLOG.
+
+### Two behaviours worth knowing
+
+- **`runSourcing` never throws.** Every failure path returns a zero-count result carrying an
+  error string. A caller that only watches for an exception reads a total failure, such as
+  a missing client-approved ICP, as a successful run that found nobody. The entry point
+  checks the error field, which is what stops that.
+- **`runProspectResearchAgentV2Batch` does throw**, a `FatalApiError`, when a provider credit
+  balance runs out. That aborts the remaining prospects rather than writing a proxy over
+  good data on each one, and it must never be reported as a completed batch.
+
+### What to check if it breaks
+
+1. `agent_runs` for this organisation. `sourcing_entry` and `research_batch_entry` rows carry
+   the entry point's own view of the run, including refusals recorded as failures.
+2. A run stuck at `status='running'` blocks the next attempt for up to 10 minutes, then the
+   reaper cron clears it.
+3. Sourcing needs an ICP with `status='active'` and `client_approval_status='approved'`, a
+   non-null `icp_filter_spec`, and an active `can_source_prospects` row in
+   `integrations_registry`. All three produce distinct error messages.
+4. Both routes reject an archived organisation. Archived organisations also do not appear on
+   the sourcing review page at all.
 
 ---
 

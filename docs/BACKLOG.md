@@ -25,6 +25,62 @@
 
 ---
 
+## Pipeline entry points — open items after making sourcing and research callable (2026-08-20)
+
+- [pre-c1] Research entry point is unverified against a live run
+  Built and pushed in commit cb17e2a. Every guard has a test and the whole thing typechecks,
+  builds and deploys, but NO research batch has been run through it end to end. The planned
+  acceptance run, the 15 client-zero prospects in org 0ed34697-0fa9-4f08-ac15-d3504ac45caf,
+  was CANCELLED by Doug for a good reason: those 15 carry the openings from two days of
+  iteration and are the artifact about to be sent, and any research run rewrites
+  personalisation_trigger and personalisation_question, or clears them when the judge holds.
+  Not worth 0.80 USD and the risk.
+  What is proven: 21 guard tests, tsc, npm run build, and the routes deployed and returning
+  their auth gate. What is NOT proven: that a real batch completes through the route.
+  Next action: run it against a prospect whose copy has not shipped, the first time one
+  exists. Cheapest honest option is a single never-researched prospect anywhere.
+
+- [pre-c1] No non-archived organisation exists to test the pipeline against
+  Every organisation with prospects other than client zero is archived: DRY RUN TEST
+  (a2b621fc-4c9d-43d9-9af4-1253ff49d12d, archived 2026-08-05, 3 live prospects, no stored
+  findings), the old MargenticOS org (74243c62, archived), and Test Org A and B. The only
+  non-archived organisations besides client zero are Simcare and 360 Bia Og, both with zero
+  prospects.
+  Both new routes reject archived organisations, following enrich-approved-batch, and the
+  sourcing review page does not list them. So there is currently nowhere to exercise the
+  pipeline that is not the live client-zero batch.
+  Next action: decide whether to unarchive DRY RUN TEST, or seed a prospect into a
+  non-archived test organisation. A fresh research run on its 3 prospects costs roughly
+  0.45 USD because none of them have stored findings.
+
+- [monitor] use_stored_findings does not mean free, and the cost is not surfaced anywhere
+  Reuse skips all four sources and the Sonnet synthesis call, but the writer, the floor check
+  and the judge all still run on claude-sonnet-4-6. Measured from 2026-08-20: 244 research
+  runs cost 22 USD, of which 156 were reuse runs, putting a reuse run at roughly 0.05 to 0.06
+  USD. A 15-prospect reuse batch is therefore about 0.80 USD, not zero.
+  The dashboard warns that research costs money but shows no figure, and no run records what
+  it actually spent. Nothing tracks cumulative spend per organisation.
+  Trigger: first time a monthly Anthropic bill is a surprise.
+
+- [monitor] Runtime rate constants are measured, not enforced, and will drift
+  STORED_SECONDS_PER_PROSPECT (5.1), FRESH_SECONDS_PER_PROSPECT (46.8) and the sourcing
+  figures were measured from production agent_runs on 2026-08-20 and are hardcoded in the two
+  entry points. They decide what batch size is admitted. If the agent gets slower, batches
+  will be admitted that then time out; if it gets faster, batches will be refused for no
+  reason. Nothing re-measures them and nothing alarms when a run overshoots its estimate.
+  Next action when this bites: compare estimated_seconds, already logged and returned by both
+  entry points, against the real duration in agent_runs, and alert on a sustained gap.
+
+- [monitor] rerun-three-prospects.ts has no overwrite guard
+  src/lib/agents/rerun-three-prospects.ts calls runProspectResearchAgentV2 directly, so the
+  guard in the entry point does not apply. Its hardcoded org and prospect ids were replaced
+  with required CLI arguments on 2026-08-20, but pointing it at a prospect whose copy has
+  shipped still silently rewrites or clears that copy. It is kept because it is the only
+  per-candidate view of the six tests and the readability gate.
+  Next action if it ever bites: route it through the entry point, or give it the same guard.
+
+---
+
 ## Send claim race window (narrowed, not eliminated)
 
 - [monitor] Send claim reclaim + claim are separate non-transactional queries (2026-07-28, fixed 2026-07-28)
@@ -887,6 +943,28 @@ the new OPS-1 blocks for operational continuity.
   When this trigger fires: migrate to Vercel Queues or cron-chunked API route with persistent job state.
   Do not build speculatively — the local parallel runner is adequate until the trigger is hit.
 
+  UPDATED 2026-08-20. The trigger has partly fired and the shape of the gap is now measured.
+  Sourcing and research are callable from the operator dashboard as of commit cb17e2a, but
+  each batch runs inside one 300s request. Measured on production agent_runs:
+
+    sourcing                        about 12s fixed + 0.22s per prospect  -> runs out around 900
+    research, findings reused       about 5.1s per prospect at conc. 5    -> runs out around 47
+    research, every source fetched  about 47s per prospect at conc. 5     -> runs out around 5
+
+  Caps enforced today: sourcing 500, research 40 absolute, and the research entry point sizes
+  each batch from the real mix of prospects that can reuse stored findings.
+
+  THE ACTUAL GAP: research that must fetch sources cannot exceed about 5 prospects from the
+  dashboard. Onboarding a paying client means researching hundreds of never-seen prospects,
+  all of which fetch. Until the queue exists that has to run from scripts/run-research.ts in
+  batches of 5, or from a terminal in one long-lived process. This is the first thing that
+  will hurt on the first real onboarding.
+
+  Also worth noting for whoever builds it: runProspectResearchAgentV2Batch writes its failure
+  log with fs.writeFileSync to process.cwd()/logs, which is read-only on Vercel. It is caught,
+  so it degrades to a logged error and failed_log_path stays null. The failures themselves are
+  in the returned summary, so nothing is lost, but a queue worker should not rely on that file.
+
 - [phase2, trigger: 5+ paying clients actively reviewing batches weekly] Full QA dashboard UI replacing CSV export
   Current: exportBatchResultsToCSV() writes to /tmp. Doug opens in spreadsheet for spot-checks.
   Future: dashboard view with accept/reject per trigger, flag for rewrite, A/B test tracking.
@@ -901,6 +979,22 @@ the new OPS-1 blocks for operational continuity.
   Current: skip_existing = true provides soft resumability (checks current_research_result_id).
   Safe for sequential client processing. SELECT FOR UPDATE SKIP LOCKED needed only when
   multiple concurrent batch jobs for different clients could race on the same prospect row.
+
+  UPDATED 2026-08-20. A SOFT guard now exists in both entry points
+  (src/lib/operator/sourcing-entry.ts, src/lib/operator/research-batch-entry.ts): a run is
+  refused when an agent_runs row for the same organisation is still 'running' inside a 10
+  minute window matching the reaper cron. That closes the operator-clicks-twice case. It is
+  not a lock and it does not close the same-instant race.
+
+  What a real lock still has to fix, both measured against the current code:
+    - Sourcing: unique index on (organisation_id, source_person_key). Dedupe reads before
+      either run writes, both pass, and the second aborts part-written on a unique violation
+      after Apollo credits are already spent.
+    - Research: FrameRegistry and BatchUniquenessRegistry are per-batch and in-process. Two
+      concurrent batches cannot see each other, so the gate that stops two prospects shipping
+      the same bridge or the same closing question is blind across them and duplicate copy
+      ships with no collision reported. This is the more serious of the two: it is a copy
+      quality failure that reports success.
 
 - [phase2, trigger: batches frequently crashing mid-run] Persisted batch state with automatic resume
   Current: skip_existing = true allows restart after crash — already-researched prospects are skipped.
