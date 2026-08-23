@@ -187,7 +187,25 @@ export async function enrichProspectsForOrganisation(
           matches: response.matches.length,
         })
 
+        // ── The money is gone as of callApolloBulkMatch above. ─────────────────
+        // Everything below can throw, and until 2026-08-23 every one of those failure
+        // paths left enrichment_status NULL, which is exactly the state the trigger
+        // re-selects once the 30-minute lock goes stale. Aug 10 2026: 303 enrichments
+        // requested across 12 runs against 29 people, 141 credits, 4.86 each.
+        //
+        // So the floor is written FIRST, before the per-match loop and before anything
+        // that can fail. recordBatchSpend never throws; a floor that could abort the
+        // batch would reintroduce the hole it exists to close.
+        await recordBatchSpend(
+          supabase,
+          organisationId,
+          batchSourcePersonKeys,
+          response.credits_consumed,
+          operationId,
+        )
+
         // Process each match: populate identity, recheck dedupe, set enrichment_status
+        // This REFINES the floor written above. It no longer has to create the status.
         const returnedApolloIds = new Set<string>()
         for (const match of response.matches) {
           const sourcePersonKey = `apollo:${match.id}`
@@ -226,11 +244,18 @@ export async function enrichProspectsForOrganisation(
             .filter((id): id is string => id !== undefined)
 
           if (unreportedProspectIds.length > 0) {
+            // Scoped to rows still resting on the floor this batch just wrote. Without the
+            // predicate this UPDATE overwrites ANY status, including an 'enriched' verdict
+            // from an earlier run: Apollo answering under its own canonical person id makes
+            // every key we sent look unreturned, and a good prospect gets demoted to
+            // held_missing on a re-run. Caught by the mapping-miss test in
+            // enrichment-credit-guard.test.ts, which failed on exactly that before this line.
             const { error: missingError } = await (supabase as any)
               .from('prospects')
               .update({ enrichment_status: 'held_missing' })
               .eq('organisation_id', organisationId)
               .in('id', unreportedProspectIds)
+              .eq('enrichment_status', 'held_incomplete')
 
             if (missingError) {
               logger.error('enrichment: failed to mark unreturned prospects as held_missing', {
@@ -408,6 +433,91 @@ async function callApolloBulkMatch(
   }
 
   return await response.json()
+}
+
+/**
+ * Record what a returned bulk_match batch cost us, BEFORE anything that can fail.
+ *
+ * Two writes, in this order:
+ *
+ *  1. THE STATUS FLOOR. Every prospect in the batch still sitting at NULL gets
+ *     'held_incomplete'. Scoped with .is('enrichment_status', null) so a verdict from an
+ *     earlier run is never downgraded. enrichAndVerifyProspect overwrites this with the
+ *     real outcome moments later; the floor only has to survive the gap.
+ *
+ *  2. THE CREDIT STAMP, when Apollo reported a non-zero charge. This is what
+ *     enrichment-trigger reads to refuse a second purchase of the same person.
+ *
+ * KEYED ON source_person_key, NOT on the keyToProspectId map. That map is the prime
+ * suspect for the Aug 10 loop: Apollo can answer with its own canonical person id, and
+ * every id it returns that we did not send misses the map and skips the prospect
+ * entirely. Both writes here use the keys we SENT, so they land whatever Apollo calls
+ * the person in its reply.
+ *
+ * WHY THE STAMP COVERS THE WHOLE BATCH. credits_consumed arrives per batch, not per
+ * record, so when a batch is charged less than in full we cannot tell which records
+ * inside it were the billed ones. Marking all of them over-marks in that case, and
+ * over-marking is the safe direction: the cost is that a prospect needs an explicit
+ * re-enrichment to be retried, which is not a feature today. Under-marking is what
+ * spends money twice. Prospects Apollo returned nothing for are separately set to
+ * 'held_missing' below, which is terminal too, so the over-marking changes no outcome.
+ *
+ * NEVER THROWS. This runs after the credit is spent and before the refinement loop. An
+ * exception here would abort the batch at precisely the point the whole function exists
+ * to protect, so both failures are logged and swallowed.
+ */
+async function recordBatchSpend(
+  supabase: SupabaseServiceClient,
+  organisationId: string,
+  batchSourcePersonKeys: string[],
+  creditsConsumed: number,
+  operationId: string,
+): Promise<void> {
+  try {
+    const { error: floorError } = await (supabase as any)
+      .from('prospects')
+      .update({ enrichment_status: 'held_incomplete' })
+      .eq('organisation_id', organisationId)
+      .in('source_person_key', batchSourcePersonKeys)
+      .is('enrichment_status', null)
+
+    if (floorError) {
+      logger.error('enrichment: failed to write terminal status floor after paying', {
+        operation_id: operationId,
+        batch_size: batchSourcePersonKeys.length,
+        error: floorError.message,
+      })
+    }
+
+    if (creditsConsumed > 0) {
+      const { error: stampError } = await (supabase as any)
+        .from('prospects')
+        .update({ enrichment_credit_consumed_at: new Date().toISOString() })
+        .eq('organisation_id', organisationId)
+        .in('source_person_key', batchSourcePersonKeys)
+        .is('enrichment_credit_consumed_at', null)
+
+      if (stampError) {
+        logger.error('enrichment: failed to stamp credit consumption', {
+          operation_id: operationId,
+          credits_consumed: creditsConsumed,
+          error: stampError.message,
+        })
+      }
+    }
+
+    logger.info('enrichment: batch spend recorded', {
+      operation_id: operationId,
+      batch_size: batchSourcePersonKeys.length,
+      credits_consumed: creditsConsumed,
+      credit_stamped: creditsConsumed > 0,
+    })
+  } catch (err) {
+    logger.error('enrichment: recordBatchSpend threw, batch continues', {
+      operation_id: operationId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 
 /**

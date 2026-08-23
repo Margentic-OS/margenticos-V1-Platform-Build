@@ -1231,6 +1231,7 @@ export type Database = {
           email: string | null
           email_send_eligible: boolean | null
           email_status: string | null
+          enrichment_credit_consumed_at: string | null
           enrichment_locked_at: string | null
           enrichment_run_id: string | null
           enrichment_status: string | null
@@ -1290,6 +1291,7 @@ export type Database = {
           email?: string | null
           email_send_eligible?: boolean | null
           email_status?: string | null
+          enrichment_credit_consumed_at?: string | null
           enrichment_locked_at?: string | null
           enrichment_run_id?: string | null
           enrichment_status?: string | null
@@ -1349,6 +1351,7 @@ export type Database = {
           email?: string | null
           email_send_eligible?: boolean | null
           email_status?: string | null
+          enrichment_credit_consumed_at?: string | null
           enrichment_locked_at?: string | null
           enrichment_run_id?: string | null
           enrichment_status?: string | null

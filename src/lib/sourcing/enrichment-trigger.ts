@@ -11,7 +11,12 @@
 //
 // Lock is via enrichment_locked_at column (orthogonal to enrichment_status outcome).
 // Stale lock reclaim prevents crashed handlers from permanently skipping prospects.
-// Idempotency: once enrichment_status is set to terminal value, prospect is excluded from future runs.
+//
+// Idempotency has TWO independent guards, and both are load-bearing:
+//   enrichment_status IS NULL            - the ordinary case, set once a run reaches a verdict
+//   enrichment_credit_consumed_at IS NULL - the crash case, set the instant Apollo charges us
+// The second exists because the first is written at the END of a run and the money leaves at
+// the START. See the comment on the select below, and the 2026-08-23 migration.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
@@ -51,12 +56,27 @@ export async function enrichApprovedBatch(
     // Lockable predicates:
     //   - sourcing_review_status = 'approved'
     //   - enrichment_status IS NULL (not yet enriched)
+    //   - enrichment_credit_consumed_at IS NULL (we have never paid for this person)
     //   - enrichment_locked_at IS NULL (not locked)
     //   OR stale lock (> 30 min old, still unenriched) is reclaimable
     //
     // Lock is acquired by: UPDATE...SET enrichment_locked_at=now()
     // Lock prevents concurrent invocations from double-spending credits.
     // Stale lock reclaim prevents crashed handlers from permanently skipping prospects.
+    //
+    // THE CREDIT PREDICATE IS NOT REDUNDANT WITH THE STATUS ONE. The lock reclaim exists
+    // to rescue prospects a crashed handler abandoned, and until 2026-08-23 that was the
+    // whole test: it asked whether the lock had aged out, never whether Apollo had already
+    // charged us for the person behind it. A handler that died after the bulk_match
+    // response returned left the credit spent and the status NULL, so 30 minutes later the
+    // reclaim bought the same contact again. Aug 10 2026: 141 credits for 29 prospects,
+    // 4.86 each, against Apollo's ceiling of 1 per contact.
+    //
+    // enrichment_credit_consumed_at is written by recordBatchSpend the instant a charged
+    // response returns, before any step that can fail, so it is set even in exactly the
+    // crash window the reclaim is aimed at. Checking it here is what makes the reclaim
+    // safe to keep. Both predicates stay: status covers the ordinary finished case, credit
+    // covers the case where the run died holding the receipt.
 
     const staleThresholdISO = new Date(Date.now() - STALE_LOCK_THRESHOLD_MINUTES * 60 * 1000).toISOString()
 
@@ -66,6 +86,7 @@ export async function enrichApprovedBatch(
       .eq('organisation_id', organisationId)
       .eq('sourcing_review_status', 'approved')
       .is('enrichment_status', null)
+      .is('enrichment_credit_consumed_at', null)
       .or(`enrichment_locked_at.is.null,enrichment_locked_at.lt.${staleThresholdISO}`)
       .limit(maxBatchSize)
 
