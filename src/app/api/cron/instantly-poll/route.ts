@@ -144,7 +144,16 @@ export async function POST(request: NextRequest) {
   // counters, and its status still needs to track Instantly if it is resumed there.
   //
   // The lead-status poller already scans on external_id alone, so the two now agree.
-  const campaignStatsResult = { updated: 0, skipped: 0, errors: 0, statusChanged: 0 }
+  // 'skipped' used to live here and counted the miss below. It is gone rather than left
+  // at zero: a campaign the refresh could not do its job for is a failure, not a skip,
+  // and a field that can only ever read 0 invites someone to trust it.
+  // missingAnalytics is a BREAKDOWN of errors, not a separate total: every increment of
+  // it also increments errors, which is the number runOk reads.
+  const campaignStatsResult = { updated: 0, errors: 0, statusChanged: 0, missingAnalytics: 0 }
+  // First failure of the refresh, carried into the heartbeat detail so the row names a
+  // cause instead of just a count. Mirrors the poller's last_error discipline; campaign
+  // stats has no polling_cursors row of its own, so the heartbeat is where it goes.
+  let firstCampaignStatsError: string | null = null
   try {
     const statsMap = await fetchCampaignStats(apiKey, isActive, baseUrl)
 
@@ -157,7 +166,23 @@ export async function POST(request: NextRequest) {
       if (!campaign.external_id) continue
       const stats = statsMap.get(campaign.external_id)
       if (!stats) {
-        campaignStatsResult.skipped++
+        // A registered external_id that the workspace-wide analytics call does not know
+        // about. This is NOT "nothing to do". It is a campaigns row pointing at a
+        // campaign that does not exist in Instantly, and its counters and status will
+        // stay null forever with no other symptom. Counting it as a skip is what let two
+        // mock rows sit in the table reporting a clean run.
+        //
+        // Named, counted, and carried into runOk, which is the same standard the poller
+        // holds: a pass that could not do its job must not report clean.
+        const detail = `campaign ${campaign.id} external_id ${campaign.external_id} has no Instantly analytics row`
+        logger.error('Campaign stats refresh: no analytics row for a registered external_id', {
+          campaign_id: campaign.id,
+          external_id: campaign.external_id,
+          fix: 'Either the campaign was deleted in Instantly, or campaigns.external_id holds a value that was never a real Instantly campaign. Clear external_id or point it at a real campaign.',
+        })
+        campaignStatsResult.errors++
+        campaignStatsResult.missingAnalytics++
+        if (firstCampaignStatsError === null) firstCampaignStatsError = detail
         continue
       }
 
@@ -219,6 +244,9 @@ export async function POST(request: NextRequest) {
           error: updateError.message,
         })
         campaignStatsResult.errors++
+        if (firstCampaignStatsError === null) {
+          firstCampaignStatsError = `campaign ${campaign.id} update failed: ${updateError.message}`
+        }
       } else {
         campaignStatsResult.updated++
       }
@@ -227,10 +255,19 @@ export async function POST(request: NextRequest) {
     const msg = err instanceof Error ? err.message : String(err)
     logger.error('Campaign stats refresh: threw unexpectedly', { error: msg })
     campaignStatsResult.errors++
+    if (firstCampaignStatsError === null) firstCampaignStatsError = `campaign stats threw: ${msg}`
   }
 
   // ── Summary log ────────────────────────────────────────────────────────────
-  const totalErrors = results.replies.errors + results.bounces.errors + results.unsubscribes.errors
+  const totalErrors =
+    results.replies.errors +
+    results.bounces.errors +
+    results.unsubscribes.errors +
+    // Campaign stats failures now count. They did not before, so a refresh that could not
+    // resolve a single campaign still returned ok: true and stamped the Sentry check-in
+    // 'ok'. That is the same silence the poller instrumentation removed, left behind in
+    // the one block the earlier pass did not cover.
+    campaignStatsResult.errors
   const totalWritten = results.replies.written + results.bounces.written + results.unsubscribes.written
 
   // ── The ok rule ────────────────────────────────────────────────────────────
@@ -239,7 +276,14 @@ export async function POST(request: NextRequest) {
   //   1. every resource that issued at least one Instantly call got at least one
   //      successful response back (attempted && !polled means every call for that
   //      resource failed), and
-  //   2. no campaign-level or signal-level failure was recorded anywhere.
+  //   2. no campaign-level or signal-level failure was recorded anywhere, INCLUDING in
+  //      the campaign stats refresh.
+  //
+  // EXPECT THIS TO GO RED IMMEDIATELY, and that is the point. Two rows in campaigns hold
+  // mock external_ids that were never real Instantly campaigns, so every run will report
+  // ok: false and name them until they are cleaned. They are reported, not deleted: the
+  // data is the operator's to fix, and a red heartbeat naming the offending external_id
+  // is the mechanism that makes them impossible to keep ignoring.
   //
   // A run in which every campaign errored fails both clauses and returns ok: false.
   //
@@ -270,8 +314,11 @@ export async function POST(request: NextRequest) {
       job_name: 'instantly-poll',
       ok: runOk,
       detail: runOk
-        ? `Polled: ${totalWritten} signals written, campaign stats updated`
-        : `Run failed: ${totalErrors} error(s), ${resourcesThatFailedToPoll} resource(s) reached zero successful Instantly calls`,
+        ? `Polled: ${totalWritten} signals written, ${campaignStatsResult.updated} campaign(s) refreshed`
+        // Name the first campaign-stats cause when there is one. A count alone sends the
+        // reader to the logs; the external_id sends them to the row that needs fixing.
+        : `Run failed: ${totalErrors} error(s), ${resourcesThatFailedToPoll} resource(s) reached zero successful Instantly calls` +
+          (firstCampaignStatsError ? `. Campaign stats: ${firstCampaignStatsError}` : ''),
     })
     .throwOnError()
 
@@ -286,7 +333,8 @@ export async function POST(request: NextRequest) {
     Sentry.captureException(
       new Error(
         `Instantly poll run failed: ${totalErrors} error(s), ` +
-        `${resourcesThatFailedToPoll} resource(s) with zero successful calls`
+        `${resourcesThatFailedToPoll} resource(s) with zero successful calls` +
+        (firstCampaignStatsError ? `, campaign stats: ${firstCampaignStatsError}` : '')
       ),
       { level: 'error', extra: { results, campaign_stats: campaignStatsResult } }
     )

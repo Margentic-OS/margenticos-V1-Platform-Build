@@ -163,7 +163,23 @@ describe('POST /api/cron/instantly-poll — the ok rule', () => {
       'fetch',
       vi.fn(async (url: string | URL | Request) => {
         // Campaign analytics returns an array; the list endpoints return item pages.
-        if (String(url).includes('/campaigns/analytics')) return jsonResponse([])
+        //
+        // The analytics array must carry a row for the registered campaign. An empty
+        // array used to be harmless here, but a registered external_id with no analytics
+        // row is now a named failure rather than a silent skip, so an empty array would
+        // make this a genuinely unhealthy run. The fixture is corrected rather than the
+        // assertion relaxed: this test exists to prove a FULLY healthy run reads green.
+        if (String(url).includes('/campaigns/analytics')) {
+          return jsonResponse([
+            {
+              campaign_id: 'instantly-campaign-a',
+              campaign_status: 1,
+              emails_sent_count: 0,
+              reply_count: 0,
+              bounced_count: 0,
+            },
+          ])
+        }
         return jsonResponse({ items: [], pagination: {} })
       })
     )

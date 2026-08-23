@@ -29,8 +29,11 @@ vi.mock('@/lib/logger', () => ({
 }))
 
 const sentry = vi.hoisted(() => ({
-  captureCheckIn: vi.fn(() => 'mock-checkin-id'),
-  captureException: vi.fn(),
+  captureCheckIn: vi.fn(
+    (_checkIn: { monitorSlug: string; status: string; checkInId?: string }, _config?: unknown) =>
+      'mock-checkin-id'
+  ),
+  captureException: vi.fn((_err: Error, _ctx?: unknown) => undefined),
   flush: vi.fn(() => Promise.resolve()),
 }))
 vi.mock('@sentry/nextjs', () => sentry)
@@ -333,5 +336,107 @@ describe('campaigns.status syncs from Instantly, which is the source of truth', 
     expect(byId['internal-a'].status).toBe('active')
     expect(byId['internal-b'].status).toBe('paused')
     expect(byId['internal-b'].sent_count).toBe(7)
+  })
+})
+
+// ── Problem B: a campaign with no analytics row is a named failure ────────────
+
+describe('a registered external_id with no Instantly analytics row is a failure, not a skip', () => {
+  it('records an error naming the external_id, and the run does NOT report clean', async () => {
+    // Exactly the two mock rows in production: local campaigns whose external_ids were
+    // never real Instantly campaigns. The analytics call returns nothing for them.
+    db.campaigns = [localCampaign('active', 'mock-campaign-1785956498252')]
+    vi.stubGlobal('fetch', stubFetch([]))
+
+    const response = await POST(cronRequest())
+    const body = await response.json()
+
+    // No update was attempted: there was nothing trustworthy to write.
+    expect(db.campaignUpdates).toHaveLength(0)
+    expect(body.campaign_stats.missingAnalytics).toBe(1)
+    expect(body.campaign_stats.errors).toBe(1)
+    expect(body.campaign_stats.updated).toBe(0)
+    // The run is not clean. This is the whole difference from a skip.
+    expect(body.ok).toBe(false)
+  })
+
+  it('names the offending external_id in the cron_heartbeats detail, not just a count', async () => {
+    db.campaigns = [localCampaign('active', 'b1234567-mock-4000-a000-staging000001')]
+    vi.stubGlobal('fetch', stubFetch([]))
+
+    await POST(cronRequest())
+
+    expect(db.heartbeats).toHaveLength(1)
+    const hb = db.heartbeats[0]
+    expect(hb.ok).toBe(false)
+    expect(hb.detail as string).toContain('b1234567-mock-4000-a000-staging000001')
+    expect(hb.detail as string).toContain('no Instantly analytics row')
+  })
+
+  it('marks the Sentry check-in error and raises an exception naming the cause', async () => {
+    db.campaigns = [localCampaign('active', 'mock-campaign-1785956498252')]
+    vi.stubGlobal('fetch', stubFetch([]))
+
+    await POST(cronRequest())
+
+    const statuses = sentry.captureCheckIn.mock.calls.map(c => c[0].status)
+    expect(statuses).toContain('error')
+    expect(sentry.captureException).toHaveBeenCalled()
+    const raised = sentry.captureException.mock.calls[0][0]
+    expect(raised.message).toContain('mock-campaign-1785956498252')
+  })
+
+  it('a real campaign still refreshes cleanly alongside a mock one that fails', async () => {
+    // The production shape today: one real campaign, one mock. The mock must not stop
+    // the real one from getting its stats, and must not be hidden by it either.
+    db.campaigns = [
+      { id: 'internal-real', organisation_id: 'org-a', external_id: EXT, status: 'draft' },
+      { id: 'internal-mock', organisation_id: 'org-a', external_id: 'mock-campaign-1785956498252', status: 'active' },
+    ]
+    vi.stubGlobal('fetch', stubFetch([analyticsRow()]))
+
+    const response = await POST(cronRequest())
+    const body = await response.json()
+
+    // The real one was refreshed in full.
+    expect(db.campaignUpdates).toHaveLength(1)
+    expect(db.campaignUpdates[0].id).toBe('internal-real')
+    expect(db.campaignUpdates[0].payload.status).toBe('active')
+    expect(db.campaignUpdates[0].payload.sent_count).toBe(15)
+
+    // And the mock one is still loud.
+    expect(body.campaign_stats.updated).toBe(1)
+    expect(body.campaign_stats.missingAnalytics).toBe(1)
+    expect(body.ok).toBe(false)
+  })
+
+  it('reports ok: true when every registered campaign resolves', async () => {
+    // The end state once the mock rows are cleaned. Guards against the failure path
+    // being so eager that a healthy workspace can never go green.
+    db.campaigns = [localCampaign('draft')]
+    vi.stubGlobal('fetch', stubFetch([analyticsRow()]))
+
+    const response = await POST(cronRequest())
+    const body = await response.json()
+
+    expect(body.campaign_stats.missingAnalytics).toBe(0)
+    expect(body.campaign_stats.errors).toBe(0)
+    expect(body.ok).toBe(true)
+    expect(db.heartbeats[0].ok).toBe(true)
+  })
+
+  it('a database update failure is also carried into the heartbeat, named', async () => {
+    db.campaigns = [localCampaign('draft')]
+    db.campaignUpdateError = { message: 'permission denied for table campaigns' }
+    vi.stubGlobal('fetch', stubFetch([analyticsRow()]))
+
+    const response = await POST(cronRequest())
+    const body = await response.json()
+
+    expect(body.campaign_stats.errors).toBe(1)
+    // Not a missing analytics row — the breakdown stays honest about which cause it was.
+    expect(body.campaign_stats.missingAnalytics).toBe(0)
+    expect(body.ok).toBe(false)
+    expect(db.heartbeats[0].detail as string).toContain('permission denied')
   })
 })
