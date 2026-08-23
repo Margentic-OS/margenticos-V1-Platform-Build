@@ -4887,3 +4887,51 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   today ran a full four-source fetch because skip_existing was false. That is what turned
   15 prospects into 99 research runs. With use_stored_findings now available, prompt
   iteration should never touch a paid source again.
+
+## Apollo credit re-spend loop (2026-08-23)
+
+- [DONE] A spent Apollo credit is now recorded on the prospect row before anything
+  can fail. `recordBatchSpend` in adapter-apollo-enrichment.ts writes a terminal
+  status floor (`held_incomplete`) plus `enrichment_credit_consumed_at` the instant
+  a charged bulk_match response returns; enrichment-trigger filters on that column
+  as well as on enrichment_status. Measured cause: Aug 10 2026, 141 credits for 29
+  prospects, 4.86 each, against Apollo's ceiling of 1 per contact.
+
+- [post-build] THE keyToProspectId MAPPING MISS IS STILL UNCONFIRMED AS THE ROOT
+  CAUSE. The floor closes the re-spend loop regardless of which of the three
+  early-return paths fired, so the money leak is fixed either way. What is NOT
+  settled is whether Apollo genuinely answers bulk_match under its own canonical
+  person id rather than the id we sent. Confirm from the Aug 10 logs: the warning
+  `enrichment: could not map Apollo ID to prospect ID` in adapter-apollo-enrichment.ts.
+  Present means the mapping is wrong and `held_missing` is being written to people
+  Apollo actually returned, which is a data-accuracy bug worth its own fix. Absent
+  means one of the two UPDATE-failure paths fired instead.
+
+- [post-build] 29 ALREADY-ENRICHED PROSPECTS HAVE NO CREDIT STAMP. They are safe
+  today because enrichment_status = 'enriched' blocks re-selection on its own. A
+  backfill of enrichment_credit_consumed_at from enrichment_runs.run_timestamp would
+  make the ledger complete and protect them if a status reset is ever introduced.
+  Deliberately not done: it is a data write nobody asked for, and the guard does not
+  need it. Doug's call.
+
+- [post-build] PROMOTE TO A LEDGER TABLE IF DELIBERATE RE-ENRICHMENT SHIPS. The
+  single column answers "has this person ever cost us money", which is all the guard
+  needs. Refreshing stale emails on purpose would need charge COUNT and per-charge
+  history. At that point add enrichment_credit_events and keep the column as a
+  first-charged cache. Not built speculatively (ADR-018, CLAUDE.md simplicity rule).
+
+- [DECIDED, NOT BUILDING] PRE-ENRICHMENT HEADCOUNT/INDUSTRY FILTERING IS DEAD, TWICE
+  OVER. Apollo's free `mixed_people/api_search` response carries presence booleans
+  only (`has_employee_count`, `has_industry`, `has_revenue`), never the values.
+  Verified against the live API on 2026-08-23, and the interface in adapter-apollo.ts
+  was already accurate. Independently, Apollo's own docs describe firmographics as
+  modelled estimates around 50% accurate and stale within months, so filtering on them
+  would drop good prospects to save ~$1.36/month at 2,500 prospects. The
+  post-enrichment check in tier-classification.ts stays exactly as it is: we pay to
+  learn, and we judge on the enriched value. Do not revisit without new evidence.
+  Note that `organization_num_employees_ranges` IS already sent as a search filter
+  (adapter-apollo.ts), so Apollo does the headcount narrowing server-side and free.
+
+- [pre-existing, unrelated] `enrichment-field-ownership.test.ts > catches multiple
+  field ownership violations simultaneously` fails at HEAD and is untouched by the
+  credit fix. Confirmed failing on a clean tree at c8455bc.

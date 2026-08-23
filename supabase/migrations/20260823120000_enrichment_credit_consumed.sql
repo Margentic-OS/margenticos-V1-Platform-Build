@@ -2,7 +2,7 @@
 --            "we paid, processing did not finish" status.
 -- Date: 2026-08-23
 --
--- Status: PENDING (apply via Supabase MCP apply_migration, then mark APPLIED)
+-- Status: APPLIED (verified live 2026-08-23)
 --
 -- ─────────────────────────────────────────────────────────────────────────────
 -- WHAT THIS FIXES
