@@ -25,6 +25,73 @@
 
 ---
 
+## Campaign stats and status — follow-ups after making the panel real (2026-08-23)
+
+- [pre-c0] TWO MOCK CAMPAIGN ROWS MUST BE CLEANED. The cron is RED until they are.
+  Reported, deliberately NOT deleted: this is operator data, and the decision about what
+  to do with a campaigns row is Doug's, not a build session's.
+  The rows, both with external_ids that were never real Instantly campaigns:
+    b1234567-mock-4000-a000-staging000001   status active
+    mock-campaign-1785956498252             status active
+  Live Instantly holds exactly ONE campaign, cf695496-dba1-4bcb-beae-1b6ca28209d6.
+  As of a7a7eed a registered external_id with no analytics row is a NAMED FAILURE, so
+  every 15-minute tick now returns ok: false, writes a red cron_heartbeats row naming one
+  of these external_ids, and raises a Sentry exception. MON-002 reads cron_heartbeats, so
+  the monitor will show it too. This is intended: it is what makes the rows impossible to
+  keep ignoring. It also means a genuine failure could hide behind the noise while they
+  remain, which is the reason to clean them promptly rather than at leisure.
+  Next action, Doug's call between: delete the two campaigns rows if they are pure test
+  artifacts; or NULL their external_id if the rows are wanted but the Instantly link is
+  not; or point external_id at a real campaign. Any of the three turns the cron green.
+  Check first whether either row has dependent signals or prospects.
+  Trigger: now. This is the only thing standing between the cron and a green heartbeat.
+
+- [pre-c1] campaigns_status_check cannot express "stopped by Instantly", so three
+  distinct Instantly states collapse into 'paused'
+  Instantly's campaign status is a closed enum of eight (verified 2026-08-23 against
+  components.schemas.def-1 in https://developer.instantly.ai/api-reference/openapi.json).
+  Our column allows four: draft, active, paused, completed. The mapping in
+  src/lib/integrations/handlers/instantly/campaign-analytics.ts therefore folds
+  -1 Accounts Unhealthy, -2 Bounce Protect and -99 Account Suspended all onto 'paused'.
+  The lost information is the urgent kind: an account suspension renders in the dashboard
+  identically to an operator clicking pause. Mitigated but not solved: the route logs a
+  warning naming the real Instantly state whenever one of the three is seen, so the truth
+  survives in observability even though the column cannot hold it.
+  Not fixed here because widening the CHECK constraint changes what the dashboard renders,
+  and the dashboard was explicitly out of scope for this change.
+  Next action: decide whether to widen campaigns_status_check with a 'stopped' or
+  'suspended' value plus the dashboard work to render it, or to add a separate nullable
+  column carrying the raw Instantly state alongside the canonical one. The second is
+  smaller and does not touch the existing enum.
+  Trigger: first time a real campaign is stopped by Instantly rather than by us, or before
+  the first paying client, whichever is first.
+
+- [monitor] status 4, Running Subsequences, is mapped on a judgement call
+  Mapped to 'active' because the primary sequence has finished but child subsequences are
+  still running, so 'completed' would claim the campaign has finished when it has not.
+  Instantly's own documentation is genuinely ambiguous: campaign_running_subsequences
+  appears in the sending-status enum among the codes explaining why a campaign "is not
+  sending", while the label and the parallel subsequence schema both describe active child
+  sequences. The docs never state plainly whether mail leaves the workspace in this state.
+  Taken as the reading that cannot understate activity.
+  Next action: if a campaign is ever observed at status 4, check whether sends continue,
+  and correct the mapping if not. Nothing has been at status 4 yet.
+
+- [monitor] validateCampaign reads campaign status as a string; the live API returns a number
+  Spotted while mapping the enum, NOT fixed, because it is a different code path and this
+  change was scoped to the stats refresh.
+  src/lib/integrations/handlers/instantly/validateCampaign.ts:79 does
+  (data.status as string) ?? 'unknown'. Live GET /campaigns returns status as a NUMBER
+  (cf695496 came back as 1). The cast does not convert, so the field is typed string and
+  holds a number, and the 'unknown' fallback can never fire for a real response.
+  This is the same class of fault as the one fixed in fcb2f94, where lead status constants
+  were strings compared against numbers and every comparison was false forever.
+  Whether it currently causes a visible bug depends on what callers do with the value;
+  nothing was observed breaking.
+  Next action: check every caller of validateCampaign, then either parse the number
+  properly or reuse mapCampaignStatus from campaign-analytics.ts, which already handles
+  the full verified enum and refuses to coerce.
+
 ## Instantly poller — two structural items found while reviewing the cursor fix (2026-08-21)
 
 - [pre-c1] A row that fails to write is skipped PERMANENTLY for replies, and the reason

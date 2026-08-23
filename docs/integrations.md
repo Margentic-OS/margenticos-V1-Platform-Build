@@ -31,6 +31,66 @@ Taplio has no public scheduling API. The integration is content delivery only.
 Approved posts are delivered to Taplio manually or via Zapier. No API call is built.
 See /docs/ADR.md ADR-010.
 
+## Campaign stats and status — where the dashboard numbers come from
+
+The same cron that polls replies also refreshes each campaign's counters and its status,
+in one `GET /campaigns/analytics` call that returns every campaign in the workspace.
+
+**Instantly owns campaign status. We copy it, we never author it.** Before 2026-08-23
+nothing wrote `campaigns.status` at all: the creation insert hardcoded `draft` and no code
+path ever moved it. The refresh then filtered on `status = 'active'`, which is the trap
+worth remembering, because it looked reasonable and was self-defeating. The filter gated
+the loop on the column the loop was responsible for maintaining, so a campaign stuck at
+`draft` was excluded from the very process that would have corrected it. It could never
+recover, no matter how many times the cron ran. The filter is gone. The scope is now
+`external_id IS NOT NULL`, which means "this campaign exists in Instantly" and is exactly
+the set the analytics response can answer for.
+
+**The status values.** Instantly uses a closed enum of eight integers, verified against
+`components.schemas.def-1` in https://developer.instantly.ai/api-reference/openapi.json.
+Our column allows four. The mapping:
+
+| Instantly | Meaning | Stored as |
+|---|---|---|
+| 0 | Draft | `draft` |
+| 1 | Active | `active` |
+| 2 | Paused | `paused` |
+| 3 | Completed | `completed` |
+| 4 | Running Subsequences | `active` — still working, so not `completed` |
+| -1 | Accounts Unhealthy | `paused` |
+| -2 | Bounce Protect | `paused` |
+| -99 | Account Suspended | `paused` |
+
+Two things to know about that table. First, do not re-derive it from the Instantly MCP
+tool description, which lists only 0 to 3 and would silently lose four states. Second,
+the last three rows lose information that matters: an account suspension looks exactly
+like a deliberate pause once stored. The route logs a warning naming the real state
+whenever one occurs, so check the logs before concluding someone paused a campaign.
+
+**Status is intent, not live sending.** A campaign at status 1 may still be sending
+nothing, because of a schedule window, a daily limit, or an error. Instantly carries that
+separately in `not_sending_status`, and the richer answer is
+`GET /campaigns/{id}/sending-status`, where `healthy` is the only unobstructed value.
+Neither is used here. Do not read `status = 'active'` as "mail is going out right now".
+
+**An unrecognised status is never guessed.** If Instantly sends a value outside its own
+enum, the status column is left alone and a warning names the raw value. The counters are
+still written, because they are still trustworthy. Writing a guess into a column the
+dashboard renders is worse than writing nothing.
+
+**A campaign with no analytics row is a failure, not a skip.** If a row's `external_id`
+does not come back in the analytics response, that means our table points at a campaign
+that does not exist in Instantly. Since 2026-08-23 this is logged with the `external_id`
+named, counted in `campaign_stats.missingAnalytics`, and — this is the part that changed —
+counted toward the run's `ok`. It used to be a silent skip, which is how two mock rows sat
+in the table for months while the run reported clean.
+
+*If the cron is red and the detail names a mock external_id, that is this check working.*
+Fix the data: delete the row, NULL its `external_id`, or point it at a real campaign. See
+BACKLOG.md.
+
+---
+
 ## Instantly polling — how to tell a healthy run from a silent one
 
 The poller is `/api/cron/instantly-poll`, which calls
