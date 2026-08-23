@@ -28,7 +28,7 @@ import {
   INSTANTLY_LEAD_STATUS_BOUNCED,
   INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
 } from '@/lib/integrations/polling/instantly'
-import { fetchCampaignStats } from '@/lib/integrations/handlers/instantly/campaign-analytics'
+import { fetchCampaignStats, INSTANTLY_ABNORMAL_STOP_STATUSES } from '@/lib/integrations/handlers/instantly/campaign-analytics'
 import { getInstantlyApiKey, getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
 
@@ -120,40 +120,102 @@ export async function POST(request: NextRequest) {
     results.unsubscribes.errors++
   }
 
-  // ── Campaign stats refresh ─────────────────────────────────────────────────
+  // ── Campaign stats and status refresh ──────────────────────────────────────
   // Runs after reply polling. Failures here are isolated and never affect reply polling.
-  // Fetches all campaign analytics in one API call, then updates each active campaign row.
-  // Future: if active campaign count exceeds ~50, consider batching with concurrency limit.
-  const campaignStatsResult = { updated: 0, skipped: 0, errors: 0 }
+  // One analytics call returns every campaign in the workspace; each local row is then
+  // updated from the map with no further API calls.
+  //
+  // WHY THERE IS NO LONGER A status FILTER HERE.
+  // This query used to carry .eq('status', 'active'). That filter was not merely
+  // redundant alongside external_id IS NOT NULL, it was SELF-DEFEATING, and it is the
+  // whole of the bug this loop now fixes.
+  //
+  // campaigns.status is written by nothing except the creation insert, which hardcodes
+  // 'draft'. This loop is now the only thing that ever moves it. So filtering the loop on
+  // the column the loop maintains is a deadlock: a campaign stuck at 'draft' can only be
+  // corrected by the refresh, and the filter excluded it from the refresh before the
+  // correction could run. cf695496 sat at 'draft' locally while Instantly reported it
+  // Active and sending, and no number of ticks could ever have freed it.
+  //
+  // external_id IS NOT NULL is the correct and sufficient scope: it means "this campaign
+  // exists in Instantly", which is exactly the set the analytics map can answer for.
+  // Keeping a status filter as well would only reintroduce the same desync later.
+  // It is also right on the merits: a paused or completed campaign still needs its final
+  // counters, and its status still needs to track Instantly if it is resumed there.
+  //
+  // The lead-status poller already scans on external_id alone, so the two now agree.
+  const campaignStatsResult = { updated: 0, skipped: 0, errors: 0, statusChanged: 0 }
   try {
     const statsMap = await fetchCampaignStats(apiKey, isActive, baseUrl)
 
-    const { data: activeCampaigns } = await supabase
+    const { data: registeredCampaigns } = await supabase
       .from('campaigns')
-      .select('id, external_id')
-      .eq('status', 'active')
+      .select('id, external_id, status')
       .not('external_id', 'is', null)
 
-    for (const campaign of activeCampaigns ?? []) {
+    for (const campaign of registeredCampaigns ?? []) {
       if (!campaign.external_id) continue
       const stats = statsMap.get(campaign.external_id)
       if (!stats) {
         campaignStatsResult.skipped++
         continue
       }
+
+      // Instantly is the source of truth for whether a campaign is sending. The handler
+      // has already translated its numeric campaign_status into our four-value column;
+      // nothing here sees an Instantly status integer except to name it in a log.
+      const update: {
+        sent_count: number
+        replied_count: number
+        bounced_count: number
+        campaign_stats_updated_at: string
+        status?: string
+      } = {
+        sent_count:    stats.sentCount,
+        replied_count: stats.repliedCount,
+        bounced_count: stats.bouncedCount,
+        campaign_stats_updated_at: new Date().toISOString(),
+      }
+
+      if (stats.status === null) {
+        // Unmapped means Instantly sent a value outside its own documented enum, or sent
+        // none at all. Do not write a guess into a column the dashboard renders. Say so
+        // and leave the stored value alone; the counters above are still good.
+        logger.warn('Campaign status sync: unrecognised campaign_status, status left unchanged', {
+          campaign_id: campaign.id,
+          external_id: campaign.external_id,
+          raw_status: stats.rawStatus,
+          fix: 'Check Instantly campaign_status against the enum in campaign-analytics.ts',
+        })
+      } else {
+        update.status = stats.status
+        if (stats.status !== campaign.status) campaignStatsResult.statusChanged++
+
+        // All three abnormal stops store as plain 'paused', so the stored value cannot
+        // tell an account suspension apart from an operator clicking pause. Log the real
+        // state so the difference survives somewhere an operator can find it.
+        if (stats.rawStatus !== null && INSTANTLY_ABNORMAL_STOP_STATUSES.includes(stats.rawStatus)) {
+          logger.warn('Campaign status sync: campaign stopped by Instantly, not by us', {
+            campaign_id: campaign.id,
+            external_id: campaign.external_id,
+            raw_status: stats.rawStatus,
+            stored_as: stats.status,
+            meaning: stats.rawStatus === -99 ? 'Account Suspended'
+                   : stats.rawStatus === -1  ? 'Accounts Unhealthy'
+                   : 'Bounce Protect',
+          })
+        }
+      }
+
       const { error: updateError } = await supabase
         .from('campaigns')
-        .update({
-          sent_count:    stats.sentCount,
-          replied_count: stats.repliedCount,
-          bounced_count: stats.bouncedCount,
-          campaign_stats_updated_at: new Date().toISOString(),
-        })
+        .update(update)
         .eq('id', campaign.id)
 
       if (updateError) {
         logger.error('Campaign stats refresh: DB update failed', {
           campaign_id: campaign.id,
+          external_id: campaign.external_id,
           error: updateError.message,
         })
         campaignStatsResult.errors++
