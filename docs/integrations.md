@@ -89,6 +89,13 @@ in the table for months while the run reported clean.
 Fix the data: delete the row, NULL its `external_id`, or point it at a real campaign. See
 BACKLOG.md.
 
+**Do NOT expect MON-002 to turn red with it.** Checked against the live view definition on
+2026-08-23: `mon_002.state` is derived from `max(ran_at)` staleness alone, so it reports
+PROBLEM only when the cron stops running entirely. A cron that runs every 15 minutes and
+fails every time reads `state = OK`. The failure is visible in the row's `detail` string
+and in `cron_heartbeats.ok`, not in the state. Check `cron_heartbeats` directly, or Sentry,
+when you want to know whether runs are succeeding rather than merely happening.
+
 ---
 
 ## Instantly polling — how to tell a healthy run from a silent one

@@ -25,6 +25,44 @@
 
 ---
 
+## Monitoring — MON-002 does not do what two earlier entries in this file claim (2026-08-23)
+
+- [pre-c1] MON-002 is a LIVENESS check only. A cron that fails every run still reads OK.
+  Found while collecting receipts for the campaign stats work, by reading the live view
+  definition rather than the migration.
+
+    CASE WHEN max(ran_at) IS NULL THEN 'UNKNOWN'
+         WHEN EXTRACT(epoch FROM now() - max(ran_at))/60 > 30 THEN 'PROBLEM'
+         ELSE 'OK' END
+
+  state depends on max(ran_at) and NOTHING else. cron_heartbeats.ok is never consulted.
+  So MON-002 answers "is the cron running", not "is the cron working". Confirmed live: the
+  21:15 tick wrote ok=false with a detail naming a broken external_id, and MON-002 still
+  reported state OK at the same moment.
+
+  CORRECTION TO EARLIER CLAIMS IN THIS FILE AND IN COMMIT a7a7eed. The 2026-08-21 entry
+  "The bounce and unsub re-scan is O(every bounce ever)" says a function kill "is NOT
+  silent" because "MON-002 flags PROBLEM once the last run is over 30 minutes stale". That
+  much is right, and it is the ONLY case MON-002 catches. Commit a7a7eed's message then
+  overstated it, saying the red campaign-stats run "surfaces in the monitor too". It does
+  not. Anything that fails while still completing is invisible to MON-002's state.
+
+  A SECOND DEFECT in the same view. detail is
+  COALESCE(max(CASE WHEN ok = false THEN detail END), 'Last run: ...') over ALL heartbeat
+  history with no recency bound, and max() on text is lexical, not most-recent. So once any
+  failed run exists, MON-002 shows a failure string forever, and it is whichever failure
+  string sorts highest rather than the latest one. After the mock campaigns are cleaned,
+  MON-002's detail will keep displaying the mock external_id indefinitely.
+
+  Next action: give MON-002 a state that reflects the most recent run's ok, and bound the
+  detail to that same run, something like ordering by ran_at desc limit 1 instead of max()
+  over all history. Check the sibling views (mon_003 and any others built from the same
+  template) for the identical pattern before fixing just this one.
+  NOT done here: this change was scoped to campaign stats, and monitor views were out of
+  scope. Flagged rather than fixed.
+  Trigger: before relying on the monitor page for anything, and before the first paying
+  client.
+
 ## Campaign stats and status — follow-ups after making the panel real (2026-08-23)
 
 - [pre-c0] TWO MOCK CAMPAIGN ROWS MUST BE CLEANED. The cron is RED until they are.
