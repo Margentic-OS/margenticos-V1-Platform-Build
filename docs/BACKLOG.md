@@ -107,6 +107,22 @@
   summary. The queue worker must not rely on that file. (Carried forward from the
   2026-08-20 entry; still true and now directly relevant.)
 
+- [phase2, trigger: a second sourcing or scraping vendor is registered] Queue concurrency
+  ceilings are sized off ONE vendor's limits and are not read from integrations_registry.
+  Added 2026-08-24 (C2). QUEUE_CONFIG.research.maxInFlight = 10 exists because Apify
+  allows 25 concurrent actor runs and the LinkedIn source runs two per prospect.
+  QUEUE_CONFIG.enrich.claimBatchSize = 10 exists because that is Apollo bulk_match's page
+  size. Both numbers are correct today and both are vendor facts living in application
+  config rather than in the registry.
+  This does not violate tool agnosticism as it stands: no queue code branches on a vendor
+  name, and the handlers still own their own translation. But swapping the scraping vendor
+  means editing config.ts, which is exactly the "nothing else changes" property ADR-001
+  promises. A test in fairness.test.ts asserts the Apify ceiling holds so the coupling is
+  at least loud.
+  Fix when triggered: move concurrency and batch limits into integrations_registry.config
+  alongside the capability, and have QUEUE_CONFIG read them. Not worth building
+  speculatively for a single registered vendor per capability.
+
 - [pre-c1] The four CLI research/enrich entry points stay on the inline path.
   scripts/run-research.ts, scripts/backfill-firmographics.ts,
   src/lib/agents/rerun-three-prospects.ts, src/lib/agents/test-prospect-research-run.ts.
