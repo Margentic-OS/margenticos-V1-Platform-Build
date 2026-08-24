@@ -1,7 +1,7 @@
 -- Migration: queue depth view, three queue monitors, and the worker cron schedule
 -- Date: 2026-08-24
 --
--- Status: PENDING (apply via Supabase MCP apply_migration, then verify live)
+-- Status: APPLIED (verified live 2026-08-24)
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHAT THIS DOES NOT INHERIT FROM MON-002
@@ -69,7 +69,14 @@ WITH latest AS (
   SELECT ok, detail, ran_at
     FROM public.cron_heartbeats
    WHERE job_name = 'queue-worker'
-   ORDER BY ran_at DESC
+   -- id DESC is a real tiebreak, not decoration. The worker runs on a one-minute cron
+   -- with maxDuration 300, so up to five invocations can overlap and two finishing close
+   -- together can write heartbeats with equal ran_at. With ran_at alone Postgres may
+   -- return either row, so a failed and a successful run landing in the same instant
+   -- would make this check flap with no change in the facts. cron_heartbeats.id is a
+   -- bigserial, so the row inserted last always wins. Found by the live verification of
+   -- this migration, where three heartbeats in one transaction shared now().
+   ORDER BY ran_at DESC, id DESC
    LIMIT 1
 )
 SELECT
@@ -244,3 +251,55 @@ GRANT SELECT ON public.queue_depth TO service_role;
 GRANT SELECT ON public.mon_016     TO service_role;
 GRANT SELECT ON public.mon_017     TO service_role;
 GRANT SELECT ON public.mon_018     TO service_role;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- SCHEDULE THE WORKER
+--
+-- Every minute. The worker is cheap when idle: it reclaims expired leases, reads three
+-- flags, and returns. A one-minute tick is what makes the queue feel responsive when a
+-- batch is enqueued, and what bounds a second client's wait under the rotation.
+--
+-- HOST: app.margenticos.com. The custom domain is stable; Vercel-generated hostnames are
+-- not guaranteed. The other seven jobs are NOT normalised to it here, deliberately.
+--
+-- THE TOKEN IS HARDCODED, and that is not laziness. ALTER DATABASE ... SET "app.*"
+-- requires superuser / supabase_admin, which the Supabase SQL editor's postgres role does
+-- not have. So current_setting('app.cron_secret', true) returns NULL and the route
+-- receives "Bearer " with nothing after it, giving a silent 401 every minute forever.
+-- That has cost this build time twice. Same pattern as the other seven jobs.
+--
+-- The DO block below lifts the token out of an EXISTING job's command rather than having
+-- it pasted into this file, so the secret is not committed to the repository. CRON_SECRET
+-- does live in cron.job.command in plaintext, which is accepted for this token (it gates
+-- only cron endpoints) and must NOT be the pattern for API keys.
+--
+-- To verify:   SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'queue-worker';
+-- To remove:   SELECT cron.unschedule('queue-worker');
+
+DO $$
+DECLARE
+  tok text;
+  cmd text;
+BEGIN
+  SELECT substring(command from 'Bearer ([A-Za-z0-9_\-]+)') INTO tok
+    FROM cron.job WHERE jobname = 'auto-approve' LIMIT 1;
+
+  IF tok IS NULL OR length(tok) < 20 THEN
+    RAISE EXCEPTION 'Could not extract CRON_SECRET from the auto-approve job command.';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'queue-worker') THEN
+    PERFORM cron.unschedule('queue-worker');
+  END IF;
+
+  cmd := format($c$
+  SELECT net.http_post(
+    url     := 'https://app.margenticos.com/api/cron/queue-worker',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer %s"}'::jsonb,
+    body    := '{}'::jsonb,
+    timeout_milliseconds := 55000
+  );
+  $c$, tok);
+
+  PERFORM cron.schedule('queue-worker', '* * * * *', cmd);
+END $$;
