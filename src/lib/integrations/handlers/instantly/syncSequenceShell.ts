@@ -45,7 +45,10 @@ import type { MessagingContent } from '@/lib/composition/compose-sequence'
 
 // ─── Default delay schedule ───────────────────────────────────────────────────
 // Delays represent gaps BETWEEN consecutive steps (Instantly relative-gap semantics).
-// delays[i] = gap between step i+1 and step i+2. Instantly ignores delay on step 1.
+// delays[i] = the gap AFTER step i+1, before step i+2. Step 1's delay is NOT ignored: it is
+// exactly what places email 2 on day 3. The FINAL step's delay is the unused one, because
+// no step follows it. Verified live on campaign cf695496, whose shell carries [3,7,7,7] and
+// whose email 2 sent three days after email 1.
 // Cadence: first gap 3 days, every subsequent gap 7 days
 // (step 1 sends day 0, step 2 on day 3, step 3 on day 10, step 4 on day 17, etc.).
 // Final step's delay is unused (no step after it).

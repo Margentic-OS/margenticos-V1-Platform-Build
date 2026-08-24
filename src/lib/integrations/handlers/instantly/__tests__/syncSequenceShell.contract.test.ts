@@ -187,14 +187,22 @@ describe('syncSequenceShell — PATCH request shape', () => {
     if (result.ok) expect(result.stepCount).toBe(2)
   })
 
-  it('step 1 has delay=0, step 2 has delay=3 (default cold-email schedule)', async () => {
+  it('step 1 has delay=3, step 2 has delay=7 (default cold-email schedule: days 0, 3, 10, 17)', async () => {
+    // A step's delay is the gap AFTER that step, before the next one. Step 1's delay of 3
+    // is what puts email 2 on day 3; it is not ignored. The FINAL step's delay is the
+    // unused one, because no step follows it.
+    //
+    // This assertion previously read 0 and 3, which was correct only against the original
+    // absolute-offset schedule (i === 0 ? 0 : i * 3). defaultDelays was rewritten three
+    // times after that (65e0b50, 3c31223, fc808ec) and none of those commits touched this
+    // file, so the test kept asserting a schedule the code had not produced since June.
     const fetchSpy = makeFetchSpy(200, PATCH_SUCCESS_BODY)
     await syncSequenceShell(BASE_INPUT)
     const [, options] = fetchSpy.mock.calls[0]
     const steps = JSON.parse(options?.body as string).sequences[0].steps
-    expect(steps[0].delay).toBe(0)
+    expect(steps[0].delay).toBe(3)
     expect(steps[0].delay_unit).toBe('days')
-    expect(steps[1].delay).toBe(3)
+    expect(steps[1].delay).toBe(7)
     expect(steps[1].delay_unit).toBe('days')
   })
 
