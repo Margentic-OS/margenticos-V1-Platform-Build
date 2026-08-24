@@ -2,8 +2,25 @@
 // Operator-only endpoint to trigger enrichment of approved prospects.
 // - Operator authentication: required
 // - Reads only approved+unenriched prospects
-// - Calls enrichApprovedBatch trigger function
 // - Returns enrichment run result with credits consumed, outcome counts
+//
+// ═════════════════════════════════════════════════════════════════════════════
+// TWO PATHS, CHOSEN BY AN EXPLICIT DATABASE FLAG
+//
+//   system_flags.queue_enrich = false  INLINE. enrichApprovedBatch runs the whole batch
+//                                      inside this request. What has always happened.
+//   system_flags.queue_enrich = true   QUEUED. This request only ENQUEUES and returns
+//                                      immediately; the pg_cron worker does the work.
+//
+// The flag is read from the database and never inferred from NODE_ENV, VERCEL_URL, or
+// the presence of a key. Rolling back is one UPDATE with no deploy, and isQueueEnabled
+// fails closed to the inline path on any read error.
+//
+// THE RESPONSE SHAPES DIFFER, AND THE CALLER MUST NOT GUESS. The inline path can report
+// credits_consumed because the work is finished when it answers. The queued path cannot:
+// nothing has run yet. It returns queued:true and a count, and the UI reads that field
+// rather than inferring from a zero credit count, which would be indistinguishable from
+// an enrichment that found nothing.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
@@ -11,6 +28,8 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/database'
 import { enrichApprovedBatch } from '@/lib/sourcing/enrichment-trigger'
+import { isQueueEnabled } from '@/lib/queue/flags'
+import { enqueueEnrichForOrganisation } from '@/lib/queue/enqueue/enrich'
 import { logger } from '@/lib/logger'
 import { requireOperator } from '@/lib/supabase/require-operator'
 
@@ -62,12 +81,54 @@ export async function POST(
       return NextResponse.json({ error: 'Organisation not found or archived' }, { status: 404 })
     }
 
+    const queued = await isQueueEnabled(supabase, 'enrich')
+
     logger.info('enrich-approved-batch: operator triggered', {
       operator_id: user.id,
       organisation_id: organisationId,
+      path: queued ? 'queue' : 'inline',
     })
 
-    // Trigger enrichment
+    // ── QUEUED PATH ─────────────────────────────────────────────────────────
+    if (queued) {
+      const enqueued = await enqueueEnrichForOrganisation(
+        supabase,
+        organisationId,
+        `operator:${user.id}`,
+      )
+
+      if (!enqueued.ok) {
+        return NextResponse.json({ error: enqueued.error }, { status: 500 })
+      }
+
+      logger.info('enrich-approved-batch: enqueued', {
+        operator_id: user.id,
+        organisation_id: organisationId,
+        selected: enqueued.selected,
+        created: enqueued.created,
+        already_queued: enqueued.alreadyQueued,
+      })
+
+      return NextResponse.json({
+        ok: true,
+        queued: true,
+        result: {
+          selected: enqueued.selected,
+          queued: enqueued.created,
+          already_queued: enqueued.alreadyQueued,
+          // Named rather than left to inference: nothing has been enriched at this point
+          // and no credit has been spent, so any number here would be a lie.
+          message:
+            enqueued.created > 0
+              ? `${enqueued.created} prospect(s) queued for enrichment. The background worker picks them up within a minute.`
+              : enqueued.alreadyQueued > 0
+                ? `Nothing new to queue: all ${enqueued.alreadyQueued} eligible prospect(s) are already in the queue.`
+                : 'Nothing to enrich. No approved prospects are awaiting enrichment.',
+        },
+      })
+    }
+
+    // ── INLINE PATH ─────────────────────────────────────────────────────────
     const result = await enrichApprovedBatch(supabase, organisationId, 100)
 
     logger.info('enrich-approved-batch: triggered successfully', {
@@ -80,6 +141,7 @@ export async function POST(
 
     return NextResponse.json({
       ok: true,
+      queued: false,
       result: {
         status: result.status,
         batch_size: result.batch_size,

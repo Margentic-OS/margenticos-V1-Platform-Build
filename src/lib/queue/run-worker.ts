@@ -27,10 +27,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { QUEUE_CONFIG, WORKER_BUDGET_SECONDS } from './config'
-import { executeJob } from './execute-job'
 import { planClaimsWithRotation, inFlightHeadroom } from './fairness'
 import { isQueueEnabled, setQueueFlag } from './flags'
-import { getHandlerFactory } from './handlers'
+import { getHandlerFactory, type JobBatchExecutor } from './handlers'
 import {
   claimJobs,
   countInFlight,
@@ -111,6 +110,15 @@ export interface RunWorkerOptions {
   /** Injectable for tests. Defaults to the real clock. */
   now?: () => number
   budgetSeconds?: number
+  /**
+   * How the worker finds the executor for a job type. Defaults to the real registry.
+   *
+   * Injectable because the alternative is spying on an ESM named export, which binds at
+   * import time and is not reliably observable from inside this module. A test that
+   * spied on it passed alone and failed in the full suite, which is the worst kind of
+   * test: one whose result depends on what else ran.
+   */
+  resolveExecutor?: (jobType: JobType) => JobBatchExecutor | null
 }
 
 export async function runWorker({
@@ -118,6 +126,7 @@ export async function runWorker({
   workerId,
   now = Date.now,
   budgetSeconds = WORKER_BUDGET_SECONDS,
+  resolveExecutor = getHandlerFactory,
 }: RunWorkerOptions): Promise<WorkerRunResult> {
   const startedAt = now()
   const elapsed = () => (now() - startedAt) / 1000
@@ -153,7 +162,7 @@ export async function runWorker({
 
     try {
       result.enabled = await isQueueEnabled(supabase, jobType)
-      result.handlerRegistered = getHandlerFactory(jobType) !== null
+      result.handlerRegistered = resolveExecutor(jobType) !== null
 
       if (!result.enabled) continue
 
@@ -214,13 +223,13 @@ export async function runWorker({
         result.organisationsServed += 1
         await setRotationCursor(supabase, jobType, entry.organisation_id)
 
-        // Jobs of one organisation run concurrently. Each is its own row and its own
-        // try/catch inside executeJob, which never throws, so one prospect failing
-        // cannot affect its neighbours.
-        const factory = getHandlerFactory(jobType)!
-        const outcomes = await Promise.all(
-          claimed.map(job => executeJob(supabase, job, workerId, factory(job, claimed))),
-        )
+        // The executor owns the whole claimed batch. For enrichment that is one Apollo
+        // bulk_match call covering up to ten prospects; for the per-job types it is
+        // perJobExecutor mapping executeJob across them concurrently. Either way it
+        // returns one outcome per job and never throws, so one batch cannot stop the
+        // rest of the pass.
+        const executor = resolveExecutor(jobType)!
+        const outcomes = await executor(supabase, claimed, workerId)
 
         for (const outcome of outcomes) {
           if (outcome.status === 'done') result.done += 1

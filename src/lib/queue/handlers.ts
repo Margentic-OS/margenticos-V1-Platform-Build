@@ -29,26 +29,58 @@
 // That third case is why this file exports a lookup rather than the worker importing
 // handlers directly: it makes "enabled but unrunnable" a state the worker can detect.
 
-import type { JobHandler } from './execute-job'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { executeJob, type JobHandler, type JobOutcome } from './execute-job'
+import { enrichBatchExecutor } from './executors/enrich'
 import type { JobRow, JobType } from './types'
 
 /**
- * Builds the handler for one claimed job.
+ * Runs one CLAIMED BATCH to terminal states and reports an outcome per job.
  *
- * A factory rather than a bare handler because enrichment needs the whole claimed batch
- * to issue a single Apollo bulk_match call, so it has to see the other rows it was
- * claimed alongside. research and compose ignore the batch and act on ctx.job alone.
+ * ── WHY THE UNIT IS A BATCH AND NOT A SINGLE JOB ──
+ *
+ * Apollo's people/bulk_match takes TEN people per HTTP call and reports one
+ * credits_consumed figure for the whole call. An executor that could only see one job at
+ * a time would have to issue ten calls where one would do: ten times the requests against
+ * a 600/hour ceiling, for identical cost in credits.
+ *
+ * So the contract is batch-shaped, and the per-job case is expressed in terms of it by
+ * perJobExecutor below rather than the other way round. That keeps one code path in the
+ * worker instead of a special case for enrichment.
+ *
+ * Every executor must return exactly one JobOutcome per job it was given, and must never
+ * throw: the worker runs many batches per invocation and one batch failing must not stop
+ * the others.
  */
-export type JobHandlerFactory = (job: JobRow, claimedBatch: JobRow[]) => JobHandler
+export type JobBatchExecutor = (
+  supabase: SupabaseClient,
+  jobs: JobRow[],
+  workerId: string,
+) => Promise<JobOutcome[]>
 
-const HANDLERS: Partial<Record<JobType, JobHandlerFactory>> = {
-  // enrich:   registered in C4
+/**
+ * Turns a per-job handler into a batch executor, for job types whose work is genuinely
+ * one prospect at a time.
+ *
+ * Jobs run concurrently. executeJob never throws, so one prospect failing writes to its
+ * own row and cannot affect its neighbours.
+ */
+export function perJobExecutor(
+  handlerFor: (job: JobRow) => JobHandler,
+): JobBatchExecutor {
+  return (supabase, jobs, workerId) =>
+    Promise.all(jobs.map(job => executeJob(supabase, job, workerId, handlerFor(job))))
+}
+
+const HANDLERS: Partial<Record<JobType, JobBatchExecutor>> = {
+  // C4. Batch-shaped: one Apollo bulk_match call per claimed batch of up to ten.
+  enrich: enrichBatchExecutor,
   // research: registered in C5
   // compose:  registered in C6
 }
 
-/** The handler factory for a job type, or null when none is deployed yet. */
-export function getHandlerFactory(jobType: JobType): JobHandlerFactory | null {
+/** The executor for a job type, or null when none is deployed yet. */
+export function getHandlerFactory(jobType: JobType): JobBatchExecutor | null {
   return HANDLERS[jobType] ?? null
 }
 

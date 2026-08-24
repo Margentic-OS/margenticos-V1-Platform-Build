@@ -6,17 +6,19 @@ interface EnrichAndTierButtonProps {
   organisationId: string
 }
 
-type Status = 'idle' | 'enriching' | 'tiering' | 'success' | 'error'
+type Status = 'idle' | 'enriching' | 'tiering' | 'success' | 'queued' | 'error'
 
 export function EnrichAndTierButton({ organisationId }: EnrichAndTierButtonProps) {
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
   const [enrichResult, setEnrichResult] = useState<{ enriched: number; credits: number } | null>(null)
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null)
 
   const handleEnrichAndTier = async () => {
     setStatus('enriching')
     setError(null)
     setEnrichResult(null)
+    setQueuedMessage(null)
 
     try {
       // Step 1: Enrich approved prospects
@@ -34,6 +36,22 @@ export function EnrichAndTierButton({ organisationId }: EnrichAndTierButtonProps
 
       if (!enrichData.ok) {
         throw new Error(enrichData.result?.error || 'Enrichment failed')
+      }
+
+      // ── QUEUED PATH: STOP HERE. DO NOT TIER. ────────────────────────────────
+      //
+      // When enrichment is queued, nothing has been enriched by the time this response
+      // arrives. The background worker picks the jobs up within a minute. Chaining
+      // straight into tiering, as the inline path does, would tier prospects that have
+      // no enrichment data yet and assign tiers from empty firmographics.
+      //
+      // So the queued path ends here and the operator tiers once enrichment has
+      // finished. There is no page reload either: reloading would show the same
+      // unenriched prospects and read as if nothing happened.
+      if (enrichData.queued) {
+        setQueuedMessage(enrichData.result?.message ?? 'Prospects queued for enrichment.')
+        setStatus('queued')
+        return
       }
 
       setEnrichResult({
@@ -102,6 +120,22 @@ export function EnrichAndTierButton({ organisationId }: EnrichAndTierButtonProps
       >
         Tiering...
       </button>
+    )
+  }
+
+  if (status === 'queued') {
+    return (
+      <div className="flex gap-2 items-center">
+        <button
+          onClick={handleEnrichAndTier}
+          className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-white text-[#1C3A2A] border border-[#BDDAB0] hover:bg-[#EBF5E6] transition-colors"
+        >
+          Check again
+        </button>
+        <div className="px-3 py-1.5 rounded-[6px] bg-[#EBF5E6] border border-[#BDDAB0] text-xs text-[#3B6D11]">
+          {queuedMessage} Tier the batch once enrichment has finished.
+        </div>
+      </div>
     )
   }
 
