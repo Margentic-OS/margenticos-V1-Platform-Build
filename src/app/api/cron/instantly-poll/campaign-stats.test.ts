@@ -133,6 +133,8 @@ function analyticsRow(overrides: Record<string, unknown> = {}) {
     emails_sent_count: 15,
     reply_count: 0,
     bounced_count: 0,
+    contacted_count: 15,
+    unsubscribed_count: 0,
     ...overrides,
   }
 }
@@ -438,5 +440,44 @@ describe('a registered external_id with no Instantly analytics row is a failure,
     expect(body.campaign_stats.missingAnalytics).toBe(0)
     expect(body.ok).toBe(false)
     expect(db.heartbeats[0].detail as string).toContain('permission denied')
+  })
+})
+
+// ── People are not emails ─────────────────────────────────────────────────────
+
+describe('contacted_count is stored separately, because emails are not people', () => {
+  it('stores contacted and unsubscribed counts alongside the email counters', async () => {
+    // The live shape: 15 people in the list, 26 emails out across the sequence steps.
+    // A client overview that reported 26 prospects contacted would be wrong by 73%.
+    vi.stubGlobal('fetch', stubFetch([analyticsRow({
+      emails_sent_count: 26,
+      contacted_count: 15,
+      unsubscribed_count: 1,
+      reply_count: 1,
+    })]))
+
+    await POST(cronRequest())
+    const { payload } = onlyUpdate()
+
+    expect(payload.sent_count).toBe(26)
+    expect(payload.contacted_count).toBe(15)
+    expect(payload.unsubscribed_count).toBe(1)
+    expect(payload.contacted_count).not.toBe(payload.sent_count)
+  })
+
+  it('defaults both to zero when Instantly omits them, rather than writing undefined', async () => {
+    vi.stubGlobal('fetch', stubFetch([{
+      campaign_id: EXT,
+      campaign_status: 1,
+      emails_sent_count: 5,
+      reply_count: 0,
+      bounced_count: 0,
+    }]))
+
+    await POST(cronRequest())
+    const { payload } = onlyUpdate()
+
+    expect(payload.contacted_count).toBe(0)
+    expect(payload.unsubscribed_count).toBe(0)
   })
 })

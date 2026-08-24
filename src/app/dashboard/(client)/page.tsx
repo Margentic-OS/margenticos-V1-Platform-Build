@@ -4,6 +4,9 @@ import { redirect } from 'next/navigation'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import type { Database } from '@/types/database'
 import { deriveCampaignsStatus } from '@/lib/dashboard/derive-setup-status'
+import { deriveCampaignLiveness } from '@/lib/dashboard/campaign-liveness'
+import type { CampaignLiveness } from '@/lib/dashboard/campaign-liveness'
+import { getClientVisibleCampaignMetrics } from '@/lib/metrics/get-client-visible-campaign-metrics'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { IntakeIncompleteState } from '@/components/dashboard/empty-states/IntakeIncompleteState'
 import { StrategyInReviewState } from '@/components/dashboard/empty-states/StrategyInReviewState'
@@ -42,7 +45,9 @@ type StrategyReviewSubstate = 'generating' | 'team_reviewing'
 
 function buildTopbarProps(
   orgName: string,
-  state: DashboardState
+  state: DashboardState,
+  liveness: CampaignLiveness,
+  outreachStarted: boolean,
 ): {
   eyebrow: string
   title: string
@@ -71,6 +76,20 @@ function buildTopbarProps(
       subtitle: 'Building your strategy documents',
       statusLabel: 'Setting up',
       statusVariant: 'setup',
+      orgInitials,
+    }
+  }
+
+  // Once mail is in the field, "Ready to deploy / Campaigns warming up" is simply false.
+  // The topbar carries the same verdict the hero card does, from the same derivation, so
+  // the two can never contradict each other on the same screen.
+  if (outreachStarted) {
+    return {
+      eyebrow: 'Outreach',
+      title: orgName,
+      subtitle: liveness.label,
+      statusLabel: liveness.verdict === 'sending' ? 'Campaigns live' : liveness.label,
+      statusVariant: liveness.verdict === 'sending' ? 'live' : 'warming',
       orgInitials,
     }
   }
@@ -178,10 +197,14 @@ export default async function DashboardPage({
   ).length
 
   // Derive campaign setup status from real signals (registered campaigns + lead uploads).
-  const [campaignsRes, uploadedCountRes] = await Promise.all([
+  // sending_state and its timestamp come along for the ride: liveness is derived from
+  // them, never from campaigns.status, which is intent and can say 'active' while nothing
+  // is going out. The external_id IS NOT NULL filter stays, so every row here is one the
+  // sending tool knows about.
+  const [campaignsRes, uploadedCountRes, metrics] = await Promise.all([
     supabase
       .from('campaigns')
-      .select('id, shell_synced_at')
+      .select('id, shell_synced_at, external_id, sending_state, sending_status_checked_at')
       .eq('organisation_id', org.id)
       .not('external_id', 'is', null),
     supabase
@@ -190,9 +213,14 @@ export default async function DashboardPage({
       .eq('organisation_id', org.id)
       .not('campaign_id', 'is', null)
       .neq('outbound_upload_status', 'pending'),
+    // No client is passed. The chokepoint builds its own service-role client, because
+    // reply_handling_actions is operator-only under RLS and a session client reads zero
+    // rows from it in silence. org.id was resolved through the session client above.
+    getClientVisibleCampaignMetrics(org.id),
   ])
 
   const registeredCampaigns = campaignsRes.data ?? []
+  const liveness = deriveCampaignLiveness(registeredCampaigns)
   const uploadedCount = uploadedCountRes.count ?? 0
   const derivedCampaignsStatus = deriveCampaignsStatus(registeredCampaigns, uploadedCount)
 
@@ -244,7 +272,7 @@ export default async function DashboardPage({
     }
   }
 
-  const topbarProps = buildTopbarProps(org.name, state)
+  const topbarProps = buildTopbarProps(org.name, state, liveness, metrics.hasData)
 
   // ─── Build component-specific props ─────────────────────────────────────
 
@@ -326,6 +354,8 @@ export default async function DashboardPage({
             <DocumentsActiveState
               orgName={org.name}
               documents={activeDocuments}
+              metrics={metrics}
+              liveness={liveness}
               contractStartDate={org.contract_start_date}
               warmupStartedAt={org.warmup_started_at ?? null}
               linkedinChannelEnabled={org.linkedin_channel_enabled ?? false}

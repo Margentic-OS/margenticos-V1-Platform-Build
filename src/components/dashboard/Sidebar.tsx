@@ -12,6 +12,11 @@ interface SidebarProps {
   pipelineUnlocked: boolean
   dashboardState: DashboardState
   pendingProspectsCount: number
+  // True once a single email has actually gone out. The setup checklist below cannot be
+  // derived from dashboardState alone: 'documents_active' is where a client sits both the
+  // day their documents are approved and six weeks later with mail in the field, and the
+  // checklist was telling the second client their campaigns were not live yet.
+  outreachStarted: boolean
   // Provided only when the layout knows the user is an operator. Used to
   // resolve the correct client name from ?client= (O-3) and to preserve
   // ?client= across nav links (O-4). Real clients receive an empty array.
@@ -41,7 +46,8 @@ const SETUP_STEPS = [
 
 function getStepStatus(
   stepIndex: number,
-  state: DashboardState
+  state: DashboardState,
+  outreachStarted: boolean
 ): 'done' | 'active' | 'pending' {
   if (state === 'intake_incomplete') {
     if (stepIndex === 0) return 'active'
@@ -52,13 +58,19 @@ function getStepStatus(
     if (stepIndex === 1) return 'active'
     return 'pending'
   }
-  // documents_active
+  // documents_active.
+  //
+  // Emails in the field settle every step. Integrations cannot be unconnected and
+  // campaigns cannot be un-live once mail has gone out, whatever the derived setup status
+  // says, so all four read done. Without this the last step said "Campaigns live:
+  // pending" while the client's sequence was running.
+  if (outreachStarted) return 'done'
   if (stepIndex <= 1) return 'done'
   if (stepIndex === 2) return 'active'
   return 'pending'
 }
 
-export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingProspectsCount, allOrgs }: SidebarProps) {
+export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingProspectsCount, outreachStarted, allOrgs }: SidebarProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
@@ -217,7 +229,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
           </p>
           <ol className="space-y-2.5">
             {SETUP_STEPS.map((step, i) => {
-              const status = getStepStatus(i, dashboardState)
+              const status = getStepStatus(i, dashboardState, outreachStarted)
               return (
                 <li key={i} className="flex items-center gap-2.5">
                   <span

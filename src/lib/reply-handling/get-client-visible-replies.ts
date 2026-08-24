@@ -16,8 +16,13 @@ import { Database } from '@/types/database'
 
 type SupabaseServiceClient = SupabaseClient<Database>
 
-// The 5 intents clients are allowed to see: positive/engaged signals
-const CLIENT_VISIBLE_INTENTS = [
+// The 5 intents clients are allowed to see: positive/engaged signals.
+//
+// EXPORTED because it is the single definition of "a reply the client may see". The
+// client-facing metrics chokepoint counts against this same list, so the "Interested"
+// number on the overview can never disagree with the number of cards on the replies page.
+// A second, private copy of this list anywhere is a bug waiting to happen.
+export const CLIENT_VISIBLE_INTENTS = [
   'positive_direct_booking',
   'positive_passive',
   'information_request_generic',

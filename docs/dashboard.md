@@ -46,6 +46,86 @@ What to check if it breaks:
   handler and the service-role client into the browser bundle. The batch-size cap is passed
   down as a prop from the server page for that reason.
 
+### Client overview — /dashboard
+
+Two entirely different pages behind one route, chosen by whether a single email has gone
+out. `metrics.hasData` is the switch, and it is true from the first send.
+
+**Before anything is sent** the page is a promise: strategy is ready, warmup runs six
+weeks, results appear once outreach begins. That is true at that point, so it stays.
+
+**Once outreach has started** the promise is retired and the page reports. It leads with
+how many PEOPLE have been contacted, carries a live sending pill, and shows five counts:
+contacted, delivered, replies, interested, meetings held.
+
+**Counts, never rates, on this page.** One reply from twenty-six emails is 3.8%, and a
+percentage on a sample that size is noise dressed as a measurement. Rates live on
+Benchmarks, behind a sample gate. There is a test asserting no `%` character appears
+anywhere in the rendered overview.
+
+**What each number actually is.**
+
+| Shown | Source | Why not the obvious thing |
+|---|---|---|
+| Contacted | `campaigns.contacted_count` | NOT `sent_count`. That counts emails, and a four-step sequence sends up to four to one person. Live: 26 sent, 15 contacted |
+| Delivered | `sent_count` minus `bounced_count` | "Sent" is what we handed the tool. Delivered is what landed |
+| Replies | `campaigns.replied_count` | Instantly's count, the same number the reply rate is built from |
+| Interested | `reply_handling_actions` rows whose `classified_intent` is in the client-visible set | NOT `signals.signal_type = 'positive_reply'`, which nothing has ever written. See below |
+| Meetings held | `meetings.meeting_status = 'held'` | Booked is shown separately in the footnote. A meeting counts as held only after somebody confirms it happened |
+
+**The positive-reply count read zero for structural reasons, not for want of replies.**
+Both metrics functions counted `signals` rows with `signal_type = 'positive_reply'`. Nothing
+in this system has ever written that value: the poller writes `reply_received`, and the
+classifier writes its verdict to `reply_handling_actions.classified_intent`. Live check on
+2026-08-24, every org: 14 signals, all `reply_received`, zero `positive_reply`. The fixture
+in the test suite inserted the phantom value by hand, which is how a metric that could
+never be non-zero passed its own test for months.
+
+**Liveness never comes from `campaigns.status`.** It comes from `deriveCampaignLiveness`
+in `src/lib/dashboard/campaign-liveness.ts`, reading `sending_state`, and it refuses to
+say "Sending" on a reading older than an hour (four missed polls). "Not reported" is a
+state a client is shown. A guess is not. The function is pure and deterministic, per
+ADR-018: thresholds and a lookup table, no model.
+
+**The setup checklist follows the emails, not the paperwork.** Both the sidebar steps and
+the Campaign setup card mark complete once anything has sent, whatever
+`deriveCampaignsStatus` says. That function reads shell sync and lead uploads, which can
+still read `in_progress` for a campaign that has already sent, and it was telling a client
+with a running sequence that their campaigns were not live yet.
+
+**What to check if it breaks:**
+- All five counts zero while Instantly shows activity: check `campaign_stats_updated_at` on
+  `campaigns`. If it is stale the poll is not running. See integrations.md.
+- "Interested" zero while the replies page shows cards: both read
+  `reply_handling_actions` with the same intent list, imported from
+  `get-client-visible-replies.ts`. If they disagree, someone has made a second copy of
+  that list.
+- Everything zero for a client but correct for an operator: RLS. See below.
+
+### The RLS trap, which has now cost this build three times
+
+**A client's session Supabase client returns ZERO ROWS, silently, on every table a client
+cannot read.** No error. No exception. An empty array, which renders as a confident `0`.
+
+Tables a client session cannot read at all: `prospects` (policy
+`clients_read_own_prospects_denied`, `USING (false)`), `signals`, `reply_handling_actions`,
+`reply_drafts` — all operator-only. Tables a client session CAN read: `campaigns`,
+`meetings`, `organisations`, `intake_responses`, `strategy_documents`.
+
+The rule: **any client-facing read of a protected table uses the server-side service-role
+client.** That is ADR-027's two-client pattern. The session client authenticates the user
+and resolves which organisation they may see; the service client performs the read.
+
+`getClientVisibleCampaignMetrics` now **builds its own service-role client and takes an
+organisation id only**. The caller cannot pass one in, so nobody can hand it a session
+client by mistake. The two clients are the same TypeScript type, so nothing catches that
+mistake at compile time and nothing raises at runtime, which is exactly why it kept
+recurring.
+
+The cost, stated plainly: org-scoping there has no RLS backstop any more. The
+`.eq('organisation_id', orgId)` on every query IS the gate. Every query in that file must
+carry it.
+
 ## View inventory (to be built)
 - Empty state view (months 1–2 default)
 - Client pipeline view (post-unlock)

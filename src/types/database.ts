@@ -70,6 +70,7 @@ export type Database = {
           bounced_count: number
           campaign_stats_updated_at: string | null
           campaign_type: string
+          contacted_count: number
           created_at: string
           external_id: string | null
           id: string
@@ -90,12 +91,14 @@ export type Database = {
           shell_synced_at: string | null
           started_at: string | null
           status: string
+          unsubscribed_count: number
           updated_at: string
         }
         Insert: {
           bounced_count?: number
           campaign_stats_updated_at?: string | null
           campaign_type: string
+          contacted_count?: number
           created_at?: string
           external_id?: string | null
           id?: string
@@ -116,12 +119,14 @@ export type Database = {
           shell_synced_at?: string | null
           started_at?: string | null
           status?: string
+          unsubscribed_count?: number
           updated_at?: string
         }
         Update: {
           bounced_count?: number
           campaign_stats_updated_at?: string | null
           campaign_type?: string
+          contacted_count?: number
           created_at?: string
           external_id?: string | null
           id?: string
@@ -142,6 +147,7 @@ export type Database = {
           shell_synced_at?: string | null
           started_at?: string | null
           status?: string
+          unsubscribed_count?: number
           updated_at?: string
         }
         Relationships: [

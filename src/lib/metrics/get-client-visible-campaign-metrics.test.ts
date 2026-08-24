@@ -21,6 +21,10 @@ describe('Campaign Metrics Choicepoint — ADR-026 Runtime Boundary', () => {
     }
 
     supabase = createClient<Database>(url, key)
+    // getClientVisibleCampaignMetrics builds its own service-role client rather than
+    // accepting one, so the caller cannot hand it a session client by mistake. It reads
+    // NEXT_PUBLIC_SUPABASE_URL; this suite is configured with SUPABASE_URL.
+    process.env.NEXT_PUBLIC_SUPABASE_URL ??= url
     // Create two test organisations
     const now = Date.now()
     const orgA = await supabase
@@ -57,6 +61,7 @@ describe('Campaign Metrics Choicepoint — ADR-026 Runtime Boundary', () => {
       sent_count: 100,
       replied_count: 5,
       bounced_count: 2,
+      contacted_count: 60,
     })
 
     // Create campaigns with bounce data for org B
@@ -67,14 +72,33 @@ describe('Campaign Metrics Choicepoint — ADR-026 Runtime Boundary', () => {
       sent_count: 200,
       replied_count: 10,
       bounced_count: 4,
+      contacted_count: 120,
     })
 
-    // Insert positive reply signals
-    await supabase.from('signals').insert({
-      organisation_id: testOrgA,
-      signal_type: 'positive_reply',
-      source: 'test',
-    })
+    // A positive reply, recorded the way production actually records one.
+    //
+    // This block used to insert a signal with signal_type 'positive_reply' and assert the
+    // count came back. Nothing in the system has ever written that signal_type — the
+    // poller writes 'reply_received' and the classifier writes its verdict to
+    // reply_handling_actions.classified_intent. The fixture manufactured a row shape that
+    // does not occur, which is precisely how a metric that was structurally always zero
+    // passed its own test.
+    const replySignal = await supabase
+      .from('signals')
+      .insert({ organisation_id: testOrgA, signal_type: 'reply_received', source: 'test' })
+      .select('id')
+      .single()
+
+    if (replySignal.data?.id) {
+      await supabase.from('reply_handling_actions').insert({
+        organisation_id: testOrgA,
+        signal_id: replySignal.data.id,
+        classified_intent: 'positive_passive',
+        classification_confidence: 0.95,
+        action_taken: 'auto_reply_calendly',
+        attempt_number: 1,
+      })
+    }
 
     // Insert meeting for org A
     const prospect = await supabase
@@ -89,6 +113,7 @@ describe('Campaign Metrics Choicepoint — ADR-026 Runtime Boundary', () => {
         prospect_id: prospect.data.id,
         meeting_date: new Date().toISOString(),
         qualification: 'qualified',
+        meeting_status: 'booked',
       })
     }
   })
@@ -101,16 +126,19 @@ describe('Campaign Metrics Choicepoint — ADR-026 Runtime Boundary', () => {
   it('client choicepoint returns object WITHOUT bouncedCount at runtime (data layer proof)', async () => {
     if (!supabase || !testOrgA) return
     // CRITICAL: Call the real function against real DB data that HAS bounced_count
-    const result = await getClientVisibleCampaignMetrics(supabase, testOrgA)
+    const result = await getClientVisibleCampaignMetrics(testOrgA)
 
     // RUNTIME ASSERTION: the returned object must NOT have bouncedCount property
     expect(result).not.toHaveProperty('bouncedCount')
     expect(Object.keys(result)).toEqual([
+      'contactedCount',
       'sentCount',
+      'deliveredCount',
       'repliedCount',
       'replyRate',
       'positiveReplyCount',
-      'meetingCount',
+      'meetingsBooked',
+      'meetingsHeld',
       'hasData',
     ])
 
@@ -120,22 +148,46 @@ describe('Campaign Metrics Choicepoint — ADR-026 Runtime Boundary', () => {
     expect(result.replyRate).toBe(5)
     expect(result.hasData).toBe(true)
 
+    // bounced_count IS selected now, to derive delivered. The raw total still never
+    // leaves this function; 100 sent minus 2 bounced is the only trace of it.
+    expect(result.deliveredCount).toBe(98)
+    expect(result.contactedCount).toBe(60)
+
     // CRITICAL: Verify the query selected ONLY safe columns
     // The function logic shows SELECT 'sent_count, replied_count' — never bounced_count
     // This assertion proves the data layer excludes bounced_count from the SELECT clause
     expect((result as unknown as Record<string, unknown>).bouncedCount).toBeUndefined()
   })
 
+  it('counts a positive reply from the action row, which is where the classification lives', async () => {
+    if (!supabase || !testOrgA) return
+    const result = await getClientVisibleCampaignMetrics(testOrgA)
+
+    // One positive_passive action row was seeded. Before this change the query counted a
+    // signal_type nothing writes and this read 0 no matter what the client received.
+    expect(result.positiveReplyCount).toBe(1)
+  })
+
+  it('separates meetings booked from meetings held', async () => {
+    if (!supabase || !testOrgA) return
+    const result = await getClientVisibleCampaignMetrics(testOrgA)
+
+    // One meeting, seeded at 'booked'. Booked answers "did outreach produce meetings";
+    // held answers "did they happen", and nobody has confirmed this one.
+    expect(result.meetingsBooked).toBe(1)
+    expect(result.meetingsHeld).toBe(0)
+  })
+
   it('cross-org boundary: client choicepoint returns ZERO org-B rows when queried as org-A', async () => {
     if (!supabase || !testOrgA || !testOrgB) return
     // CRITICAL: Org A queries its own metrics
-    const resultOrgA = await getClientVisibleCampaignMetrics(supabase, testOrgA)
+    const resultOrgA = await getClientVisibleCampaignMetrics(testOrgA)
 
     // Should return only org A's sent count (100), NOT org B's (200)
     expect(resultOrgA.sentCount).toBe(100)
 
     // Org B queries its own metrics
-    const resultOrgB = await getClientVisibleCampaignMetrics(supabase, testOrgB)
+    const resultOrgB = await getClientVisibleCampaignMetrics(testOrgB)
 
     // Should return only org B's sent count (200), NOT org A's
     expect(resultOrgB.sentCount).toBe(200)
@@ -181,7 +233,7 @@ describe('Campaign Metrics Choicepoint — ADR-026 Runtime Boundary', () => {
   it('client and operator variants are distinguishable at runtime', async () => {
     if (!supabase || !testOrgA) return
     // Call both against the same org
-    const clientResult = await getClientVisibleCampaignMetrics(supabase, testOrgA)
+    const clientResult = await getClientVisibleCampaignMetrics(testOrgA)
     const operatorResult = await getAllCampaignMetricsForOrg(supabase, testOrgA)
 
     // CRITICAL: Client result DOES NOT have bouncedCount

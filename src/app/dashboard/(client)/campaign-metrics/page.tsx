@@ -34,7 +34,10 @@ export default async function ClientCampaignMetricsPage({
 
   if (!org) redirect('/dashboard')
 
-  const metrics = await getClientVisibleCampaignMetrics(supabase, org.id)
+  // No supabase client is passed. The chokepoint builds its own service-role client:
+  // client-facing metrics read protected tables, and the session client returns zero rows
+  // on those silently. See the module header.
+  const metrics = await getClientVisibleCampaignMetrics(org.id)
 
   const statusLabel = org.pipeline_unlocked ? 'Campaigns live' : 'Warming up'
   const statusVariant = org.pipeline_unlocked ? 'live' : 'warming'

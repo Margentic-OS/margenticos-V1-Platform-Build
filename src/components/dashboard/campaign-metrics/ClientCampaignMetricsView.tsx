@@ -15,7 +15,7 @@ function fmtPct(v: number): string {
 }
 
 export function ClientCampaignMetricsView({ metrics }: ClientCampaignMetricsViewProps) {
-  const { sentCount, repliedCount, replyRate, positiveReplyCount, meetingCount, hasData } = metrics
+  const { sentCount, repliedCount, replyRate, positiveReplyCount, meetingsBooked, hasData } = metrics
 
   // Note: openCount will be added once the open_count column is added to campaigns table
 
@@ -83,7 +83,7 @@ export function ClientCampaignMetricsView({ metrics }: ClientCampaignMetricsView
             Meetings booked
           </p>
           <p className="text-[28px] font-medium text-primary-text">
-            {fmt(meetingCount)}
+            {fmt(meetingsBooked)}
           </p>
           <p className="text-[11px] text-secondary-text mt-1">
             Qualified opportunities

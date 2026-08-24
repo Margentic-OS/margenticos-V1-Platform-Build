@@ -9,8 +9,9 @@
 // updates in a single loop without additional API calls.
 //
 // This file is the API boundary only. Field name translation from
-// Instantly's schema (emails_sent_count, reply_count, bounced_count)
-// to capability-facing names (sentCount, repliedCount, bouncedCount)
+// Instantly's schema (emails_sent_count, reply_count, bounced_count,
+// contacted_count, unsubscribed_count) to capability-facing names
+// (sentCount, repliedCount, bouncedCount, contactedCount, unsubscribedCount)
 // happens here. Nothing above this file sees Instantly field names.
 //
 // The same rule now covers campaign STATUS. Instantly's numeric campaign_status is
@@ -27,6 +28,12 @@ export interface CampaignStatResult {
   sentCount:    number
   repliedCount: number
   bouncedCount: number
+  // PEOPLE, not emails. Instantly's contacted_count is "leads for whom the sequence has
+  // started". sentCount counts emails and over-counts people the moment a follow-up goes
+  // out, so the two are never interchangeable and the client-facing "prospects contacted"
+  // reads this one.
+  contactedCount:    number
+  unsubscribedCount: number
   // Canonical status derived from Instantly's numeric campaign_status.
   // null means the row carried no campaign_status, or carried a value that is not in
   // the documented enum. Either way the caller must NOT write it. See mapCampaignStatus.
@@ -117,6 +124,8 @@ interface InstantlyCampaignAnalyticsRow {
   emails_sent_count:    number
   reply_count:          number
   bounced_count:        number
+  contacted_count:      number
+  unsubscribed_count:   number
 }
 
 // fetchCampaignStats — retrieves analytics for every campaign in the workspace.
@@ -176,10 +185,12 @@ export async function fetchCampaignStats(
     if (!r.campaign_id) continue
     const rawStatus = typeof r.campaign_status === 'number' ? r.campaign_status : null
     result.set(r.campaign_id, {
-      sentCount:    r.emails_sent_count ?? 0,
-      repliedCount: r.reply_count       ?? 0,
-      bouncedCount: r.bounced_count     ?? 0,
-      status:       mapCampaignStatus(r.campaign_status),
+      sentCount:         r.emails_sent_count   ?? 0,
+      repliedCount:      r.reply_count         ?? 0,
+      bouncedCount:      r.bounced_count       ?? 0,
+      contactedCount:    r.contacted_count     ?? 0,
+      unsubscribedCount: r.unsubscribed_count  ?? 0,
+      status:            mapCampaignStatus(r.campaign_status),
       rawStatus,
     })
   }

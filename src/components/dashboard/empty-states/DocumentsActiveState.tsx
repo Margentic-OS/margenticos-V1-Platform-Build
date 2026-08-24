@@ -2,6 +2,8 @@ import Link from 'next/link'
 import type { DocumentType } from '@/types'
 import { DOCUMENT_META, DOCUMENT_ORDER } from '@/lib/document-labels'
 import { appendClientParam } from '@/lib/dashboard/client-param'
+import type { CampaignLiveness } from '@/lib/dashboard/campaign-liveness'
+import type { ClientVisibleCampaignMetrics } from '@/lib/metrics/get-client-visible-campaign-metrics'
 
 export interface ActiveDocument {
   type: DocumentType
@@ -27,6 +29,10 @@ interface DocumentsActiveStateProps {
   clientParam?: string
   pendingProspectsCount: number
   approvedProspectsCount: number
+  // Real outreach numbers. metrics.hasData is true from the first email sent, and it is
+  // what decides whether this page talks about a launch date or about results.
+  metrics: ClientVisibleCampaignMetrics
+  liveness: CampaignLiveness
 }
 
 
@@ -71,10 +77,22 @@ function warmupProgressPercent(warmupStartedAt: string | null): number {
   return Math.min(100, Math.max(0, Math.round((elapsed / warmupMs) * 100)))
 }
 
+function fmt(n: number): string {
+  return n.toLocaleString()
+}
+
 function statusLabel(status: SetupStepStatus): string {
   if (status === 'complete') return 'Complete'
   if (status === 'in_progress') return 'In progress'
   return 'Pending'
+}
+
+// Liveness pill colours. 'unknown' is deliberately neutral rather than amber: not knowing
+// is not a warning, and dressing it as one would be its own small untruth.
+const LIVENESS_PILL: Record<string, { dot: string; bg: string; text: string }> = {
+  sending:     { dot: 'bg-brand-green-accent', bg: 'bg-[rgba(245,240,232,0.10)]', text: 'text-[#F5F0E8]' },
+  not_sending: { dot: 'bg-brand-amber',        bg: 'bg-[rgba(254,247,230,0.14)]', text: 'text-[#F5E4C0]' },
+  unknown:     { dot: 'bg-[rgba(245,240,232,0.35)]', bg: 'bg-[rgba(245,240,232,0.06)]', text: 'text-[rgba(245,240,232,0.60)]' },
 }
 
 export function DocumentsActiveState({
@@ -86,11 +104,18 @@ export function DocumentsActiveState({
   clientParam,
   pendingProspectsCount,
   approvedProspectsCount,
+  metrics,
+  liveness,
 }: DocumentsActiveStateProps) {
   // Determine prospects card state
   const hasProspectsPending = pendingProspectsCount > 0
   const hasProspectsApproved = approvedProspectsCount > 0
   const prospectState = hasProspectsPending ? 'pending' : (hasProspectsApproved ? 'approved' : 'none')
+
+  // One email out is enough. Past this point the page stops promising a launch and starts
+  // reporting what happened, because a client with mail in the field being told their
+  // campaigns "launch soon" is the exact failure this replaces.
+  const outreachStarted = metrics.hasData
 
   const setupCards = [
     {
@@ -114,9 +139,15 @@ export function DocumentsActiveState({
     {
       key: 'campaigns',
       label: 'Campaign setup',
-      statusLabel: statusLabel(setupStatus.campaigns),
-      done: setupStatus.campaigns === 'complete',
-      detail: linkedinChannelEnabled
+      // Once mail is in the field, setup is finished by definition, whatever the derived
+      // status says. deriveCampaignsStatus reads shell sync and lead uploads, which can
+      // still read 'in_progress' for a campaign that has already sent. The checklist
+      // follows the emails, not the paperwork.
+      statusLabel: outreachStarted ? 'Complete' : statusLabel(setupStatus.campaigns),
+      done: outreachStarted || setupStatus.campaigns === 'complete',
+      detail: outreachStarted
+        ? `Your sequence is running. ${fmt(metrics.contactedCount)} ${metrics.contactedCount === 1 ? 'person has' : 'people have'} been contacted so far.`
+        : linkedinChannelEnabled
         ? 'Email sequences and LinkedIn content being configured'
         : 'Email sequences being configured',
     },
@@ -140,47 +171,107 @@ export function DocumentsActiveState({
           {/* Left column */}
           <div className="space-y-4">
 
-            {/* Welcome card — dark green */}
-            <div className="bg-brand-green rounded-[10px] p-6">
-              <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-[rgba(245,240,232,0.40)] mb-3">
-                Ready
-              </p>
-              {warmupStartedAt ? (
-                <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">
-                  Your campaigns launch {launchDate}
-                </h2>
-              ) : (
-                <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">
-                  Your strategy is ready
-                </h2>
-              )}
-              <p className="text-[12px] text-[rgba(245,240,232,0.60)] leading-relaxed mb-5">
-                Strategy is ready. Email warmup runs for 6 weeks to protect your domain reputation before the first campaign goes live. Meetings will appear here once outreach begins.
-              </p>
-
-              {/* Warmup progress — hidden until operator sets warmup_started_at */}
-              {warmupStartedAt && (
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10px] font-normal text-[rgba(245,240,232,0.45)]">
-                      Warmup progress
-                    </span>
-                    <span className="text-[10px] font-medium text-[rgba(245,240,232,0.65)]">
-                      {warmupPct}%
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-[rgba(245,240,232,0.10)] rounded-full">
-                    <div
-                      className="h-full bg-brand-green-accent rounded-full transition-all duration-500"
-                      style={{ width: `${warmupPct}%` }}
-                    />
-                  </div>
-                  <p className="text-[10px] text-[rgba(245,240,232,0.35)] mt-1.5">
-                    Campaigns live once warmup reaches 100%
+            {/* Hero card — dark green.
+                Two entirely different cards, chosen by whether a single email has gone
+                out. Before that it is a promise about a launch. After it, results only:
+                the promise is no longer true and no longer the client's question. */}
+            {outreachStarted ? (
+              <div className="bg-brand-green rounded-[10px] p-6">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-[rgba(245,240,232,0.40)]">
+                    Outreach
                   </p>
+                  <span className={[
+                    'flex items-center gap-1.5 px-2 py-0.5 rounded-full shrink-0',
+                    LIVENESS_PILL[liveness.verdict].bg,
+                  ].join(' ')}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${LIVENESS_PILL[liveness.verdict].dot}`} />
+                    <span className={`text-[10px] font-medium ${LIVENESS_PILL[liveness.verdict].text}`}>
+                      {liveness.label}
+                    </span>
+                  </span>
                 </div>
-              )}
-            </div>
+
+                <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-1">
+                  {metrics.contactedCount > 0
+                    ? `${fmt(metrics.contactedCount)} ${metrics.contactedCount === 1 ? 'prospect' : 'prospects'} contacted`
+                    : 'Your first emails are going out'}
+                </h2>
+                {liveness.detail && (
+                  <p className="text-[12px] text-[rgba(245,240,232,0.55)] leading-relaxed mb-5">
+                    {liveness.detail}
+                  </p>
+                )}
+
+                {/* Counts, not rates. Rates on a sample this small are noise, and the
+                    Benchmarks page is where a rate belongs once there is enough of one. */}
+                <dl className="grid grid-cols-5 gap-3 pt-4 border-t border-[rgba(245,240,232,0.10)]">
+                  {[
+                    { label: 'Contacted', value: metrics.contactedCount },
+                    { label: 'Delivered', value: metrics.deliveredCount },
+                    { label: 'Replies', value: metrics.repliedCount },
+                    { label: 'Interested', value: metrics.positiveReplyCount },
+                    { label: 'Meetings held', value: metrics.meetingsHeld },
+                  ].map(stat => (
+                    <div key={stat.label}>
+                      <dd className="text-[22px] font-medium text-[#F5F0E8] leading-none mb-1.5">
+                        {fmt(stat.value)}
+                      </dd>
+                      <dt className="text-[10px] text-[rgba(245,240,232,0.45)] leading-tight">
+                        {stat.label}
+                      </dt>
+                    </div>
+                  ))}
+                </dl>
+
+                <p className="text-[10px] text-[rgba(245,240,232,0.35)] mt-4 leading-relaxed">
+                  {metrics.meetingsBooked > metrics.meetingsHeld
+                    ? `${fmt(metrics.meetingsBooked)} booked in total. A meeting counts as held once it has been confirmed after the date.`
+                    : 'Delivered is emails sent minus anything that bounced. A meeting counts as held once it has been confirmed after the date.'}
+                </p>
+              </div>
+            ) : (
+              <div className="bg-brand-green rounded-[10px] p-6">
+                <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-[rgba(245,240,232,0.40)] mb-3">
+                  Ready
+                </p>
+                {warmupStartedAt ? (
+                  <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">
+                    Your campaigns launch {launchDate}
+                  </h2>
+                ) : (
+                  <h2 className="text-[18px] font-medium text-[#F5F0E8] leading-snug mb-3">
+                    Your strategy is ready
+                  </h2>
+                )}
+                <p className="text-[12px] text-[rgba(245,240,232,0.60)] leading-relaxed mb-5">
+                  Strategy is ready. Email warmup runs for 6 weeks to protect your domain reputation before the first campaign goes live. Results will appear here once outreach begins.
+                </p>
+
+                {/* Warmup progress — hidden until operator sets warmup_started_at */}
+                {warmupStartedAt && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-normal text-[rgba(245,240,232,0.45)]">
+                        Warmup progress
+                      </span>
+                      <span className="text-[10px] font-medium text-[rgba(245,240,232,0.65)]">
+                        {warmupPct}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 bg-[rgba(245,240,232,0.10)] rounded-full">
+                      <div
+                        className="h-full bg-brand-green-accent rounded-full transition-all duration-500"
+                        style={{ width: `${warmupPct}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-[rgba(245,240,232,0.35)] mt-1.5">
+                      Campaigns live once warmup reaches 100%
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Setup step cards */}
             <div className="space-y-3">

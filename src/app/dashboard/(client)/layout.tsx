@@ -7,10 +7,16 @@ import { OperatorViewingBanner } from '@/components/dashboard/OperatorViewingBan
 
 async function resolveDashboardState(
   orgId: string
-): Promise<{ state: DashboardState; pendingProspectsCount: number }> {
+): Promise<{ state: DashboardState; pendingProspectsCount: number; outreachStarted: boolean }> {
   const supabase = await createClient()
 
-  const [{ count: totalCritical }, { count: filledCritical }, { count: activeDocs }, { count: pendingCount }] =
+  const [
+    { count: totalCritical },
+    { count: filledCritical },
+    { count: activeDocs },
+    { count: pendingCount },
+    campaignsResult,
+  ] =
     await Promise.all([
       supabase
         .from('intake_responses')
@@ -37,6 +43,12 @@ async function resolveDashboardState(
         .not('sourced_tier', 'is', null)
         .not('tier_published_at', 'is', null)
         .eq('suppressed', false),
+      // campaigns is one of the few tables a client session CAN read
+      // (clients_read_own_campaigns), so the session client is correct here.
+      supabase
+        .from('campaigns')
+        .select('sent_count')
+        .eq('organisation_id', orgId),
     ])
 
   const intakeComplete =
@@ -48,7 +60,12 @@ async function resolveDashboardState(
   else if (allDocsActive) state = 'documents_active'
   else state = 'strategy_in_review'
 
-  return { state, pendingProspectsCount: pendingCount ?? 0 }
+  // One email is the whole test. The setup checklist in the sidebar cannot answer
+  // "are campaigns live" from state alone, because documents_active covers both the day
+  // the documents were approved and six weeks later with a sequence running.
+  const outreachStarted = (campaignsResult.data ?? []).some(c => (c.sent_count ?? 0) > 0)
+
+  return { state, pendingProspectsCount: pendingCount ?? 0, outreachStarted }
 }
 
 export default async function ClientLayout({
@@ -88,7 +105,7 @@ export default async function ClientLayout({
 
   const dashboardStateResult = org
     ? await resolveDashboardState(org.id)
-    : { state: 'intake_incomplete' as const, pendingProspectsCount: 0 }
+    : { state: 'intake_incomplete' as const, pendingProspectsCount: 0, outreachStarted: false }
 
   return (
     <div className="flex min-h-screen bg-surface-shell">
@@ -100,6 +117,7 @@ export default async function ClientLayout({
           pipelineUnlocked={org?.pipeline_unlocked ?? false}
           dashboardState={dashboardStateResult.state}
           pendingProspectsCount={dashboardStateResult.pendingProspectsCount}
+          outreachStarted={dashboardStateResult.outreachStarted}
           allOrgs={allOrgs}
         />
       </Suspense>
