@@ -61,6 +61,14 @@ export function assertCompleteVariables(
 // HTML-special characters are escaped; {{...}} markers are not present in composed
 // bodies (first_name is substituted before this call; no other markers remain).
 //
+// The paragraphs are joined with NOTHING, not with a newline. The outbound provider
+// converts every newline inside a substituted variable value into a <br> at send time,
+// so a readability newline between </p> and <p> arrives as <p>a</p><br><p>b</p> and the
+// reader sees two blank lines between every sentence. That shipped on 2026-08-21 and it
+// is the kind of thing that reads as machine-written. A <p> already carries its own
+// paragraph spacing, so the join has nothing to add. Do not reinstate the newline for
+// legibility of the stored value: it is not a formatting choice, it is a <br>.
+//
 // The opt-out footer is rendered with extra top margin so it separates visibly from the
 // sign-off and reads as a notice. Blank paragraphs are filtered out by the line below,
 // so that separation cannot be expressed as extra newlines in the body text: it has to
@@ -83,5 +91,5 @@ export function plainTextToHtml(text: string): string {
 
       return `<p>${escaped.replace(/\n/g, '<br>')}</p>`
     })
-    .join('\n')
+    .join('')
 }

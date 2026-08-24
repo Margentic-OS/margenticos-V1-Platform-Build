@@ -158,9 +158,26 @@ describe('syncSequenceShell — PATCH request shape', () => {
 
     expect(steps).toHaveLength(2)  // TWO_STEP_MESSAGING has 2 emails
     expect(steps[0].variants[0].subject).toBe('{{m_subject_1}}')
-    expect(steps[0].variants[0].body).toBe('<p>{{m_body_1}}</p>')
+    expect(steps[0].variants[0].body).toBe('<body>{{m_body_1}}</body>')
     expect(steps[1].variants[0].subject).toBe('{{m_subject_2}}')
-    expect(steps[1].variants[0].body).toBe('<p>{{m_body_2}}</p>')
+    expect(steps[1].variants[0].body).toBe('<body>{{m_body_2}}</body>')
+  })
+
+  it('wraps every step body in <body>, never in <p>', async () => {
+    // The provider builds the outer document and emits <html><head>...</head> straight
+    // into this wrapper with no <body> of its own, so the <body> has to come from here.
+    // <p> was also invalid nesting: the value substituted in is a run of <p> elements.
+    const fetchSpy = makeFetchSpy(200, PATCH_SUCCESS_BODY)
+    await syncSequenceShell(BASE_INPUT)
+    const [, options] = fetchSpy.mock.calls[0]
+    const steps = JSON.parse(options?.body as string).sequences[0].steps
+
+    for (const step of steps) {
+      const body = step.variants[0].body as string
+      expect(body).toMatch(/^<body>/)
+      expect(body).toMatch(/<\/body>$/)
+      expect(body).not.toMatch(/^<p[ >]/)
+    }
   })
 
   it('step count matches the Messaging doc email count', async () => {

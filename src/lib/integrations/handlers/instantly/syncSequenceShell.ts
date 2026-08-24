@@ -92,6 +92,18 @@ export function getDocStepCount(messagingDoc: MessagingContent): number {
 
 // ─── Shell builder ────────────────────────────────────────────────────────────
 
+// The wrapper element the provider substitutes each step's body into.
+//
+// <body>, not <p>. The provider builds the outer document itself and emits
+// <html><head>...</head> immediately followed by this wrapper, with no <body> anywhere,
+// which leaves the sent message structurally invalid and gives some filters something to
+// score against. This wrapper is the only place in the document we control, so it is
+// where the <body> has to come from. It also fixes an invalid nesting: the value
+// substituted in is itself a run of <p> elements, and a <p> may not contain a <p>.
+function shellBodyWrapper(n: number): string {
+  return `<body>{{m_body_${n}}}</body>`
+}
+
 function buildShellSequences(
   stepCount: number,
   delays: Array<{ delay: number; delay_unit: 'days' | 'hours' }>,
@@ -106,7 +118,7 @@ function buildShellSequences(
       variants: [
         {
           subject: `{{m_subject_${n}}}`,
-          body: `<p>{{m_body_${n}}}</p>`,
+          body: shellBodyWrapper(n),
           enabled: true,
         },
       ],
