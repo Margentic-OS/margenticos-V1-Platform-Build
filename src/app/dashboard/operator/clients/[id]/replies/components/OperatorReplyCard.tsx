@@ -1,6 +1,6 @@
 'use client'
 
-import type { ClientVisibleReply } from '@/lib/reply-handling/get-client-visible-replies'
+import type { OperatorVisibleReply } from '@/lib/reply-handling/get-client-visible-replies'
 
 // Labels for all 8 intents (not just the 5 visible to clients)
 const ALL_INTENT_LABELS: Record<string, string> = {
@@ -38,7 +38,7 @@ function formatDate(isoString: string): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export function OperatorReplyCard({ reply }: { reply: ClientVisibleReply }) {
+export function OperatorReplyCard({ reply }: { reply: OperatorVisibleReply }) {
   const prospectName = reply.prospect.first_name
     ? `${reply.prospect.first_name} ${reply.prospect.last_name || ''}`.trim()
     : reply.prospect.email || 'Unknown prospect'

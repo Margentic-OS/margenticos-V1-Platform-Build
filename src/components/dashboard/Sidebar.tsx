@@ -25,7 +25,13 @@ interface SidebarProps {
 
 // TODO: Restore Campaigns at T-10 days pre-launch when campaigns are provisioned
 // TODO: Restore Approvals when the client-facing approvals page is built
+//
+// Replies sits first, above Pipeline. It is the only page here that shows a client
+// something a person said to them, and it had no nav entry at all: the route existed, the
+// chokepoint behind it existed and enforced both filters, and nothing anywhere linked to
+// it. It was reachable only by typing the URL.
 const NAV_RESULTS = [
+  { label: 'Replies', href: '/dashboard/replies' },
   { label: 'Pipeline', href: '/dashboard/pipeline' },
   { label: 'Benchmarks', href: '/dashboard/benchmarks' },
 ]

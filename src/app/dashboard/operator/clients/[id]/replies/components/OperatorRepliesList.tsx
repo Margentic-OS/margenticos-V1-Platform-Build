@@ -1,9 +1,9 @@
 'use client'
 
-import type { ClientVisibleReply } from '@/lib/reply-handling/get-client-visible-replies'
+import type { OperatorVisibleReply } from '@/lib/reply-handling/get-client-visible-replies'
 import { OperatorReplyCard } from './OperatorReplyCard'
 
-export function OperatorRepliesList({ replies }: { replies: ClientVisibleReply[] }) {
+export function OperatorRepliesList({ replies }: { replies: OperatorVisibleReply[] }) {
   return (
     <div className="px-7 py-6">
       <div className="space-y-3">

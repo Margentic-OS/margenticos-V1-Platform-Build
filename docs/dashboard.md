@@ -102,6 +102,11 @@ with a running sequence that their campaigns were not live yet.
   that list.
 - Everything zero for a client but correct for an operator: RLS. See below.
 
+### Client replies — /dashboard/replies
+
+Nav entry added; the route had existed with nothing linking to it. Full detail of what the
+card shows and what it must never show is in reply-handling.md, "What a client sees".
+
 ### The RLS trap, which has now cost this build three times
 
 **A client's session Supabase client returns ZERO ROWS, silently, on every table a client
