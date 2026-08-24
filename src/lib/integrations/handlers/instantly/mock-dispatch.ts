@@ -24,6 +24,32 @@ export function mockCampaignAnalytics(): Response {
   return mockResponse([])
 }
 
+// GET /campaigns/:id/sending-status — fetchCampaignSendingStatus
+// Returns 'healthy' because the mock workspace has nothing obstructing it. Shaped like
+// the real response: the code lives at diagnostics.status, with summary carrying the
+// same value, so a caller that reads either field is exercised.
+export function mockCampaignSendingStatus(): Response {
+  return mockResponse({
+    diagnostics: {
+      campaign_id: 'mock-campaign',
+      last_updated: new Date().toISOString(),
+      status: 'healthy',
+      issue_tracking: {
+        current_status_code: 'healthy',
+        issue_first_seen_at: null,
+        consecutive_loops_with_issue: 0,
+        last_healthy_send_at: null,
+      },
+    },
+    summary: {
+      status: 'healthy',
+      status_message: 'Campaign is sending normally',
+      issue_started_at: null,
+      last_healthy_send_at: null,
+    },
+  })
+}
+
 // GET /campaigns/:id — validateCampaign, syncSequenceShell (read-before-patch)
 export function mockCampaignGet(campaignId: string): Response {
   return mockResponse({

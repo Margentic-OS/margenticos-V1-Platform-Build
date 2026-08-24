@@ -15,6 +15,7 @@ const isProduction = process.env.VERCEL_ENV === 'production' ||
 
 import {
   mockCampaignAnalytics,
+  mockCampaignSendingStatus,
   mockCampaignGet,
   mockCampaignPatch,
   mockLeadsAdd,
@@ -43,9 +44,14 @@ async function toNext(r: Response) {
 export async function GET(_req: NextRequest, ctx: RouteContext) {
   if (isProduction) return new NextResponse('Not found', { status: 404 })
   const { path } = await ctx.params
-  const [resource, id] = path
+  const [resource, id, subresource] = path
 
   if (resource === 'campaigns' && id === 'analytics') return toNext(mockCampaignAnalytics())
+  // Must precede the bare /campaigns/:id branch, which would otherwise swallow this path
+  // and answer a sending-status call with a campaign object.
+  if (resource === 'campaigns' && id && subresource === 'sending-status') {
+    return toNext(mockCampaignSendingStatus())
+  }
   if (resource === 'campaigns' && id) return toNext(mockCampaignGet(id))
   if (resource === 'emails' && id) return toNext(mockEmailGet(id))
   if (resource === 'emails') return toNext(mockEmailsList())

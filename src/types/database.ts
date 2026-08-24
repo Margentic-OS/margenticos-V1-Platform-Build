@@ -78,6 +78,9 @@ export type Database = {
           organisation_id: string
           paused_at: string | null
           replied_count: number
+          sending_state: string | null
+          sending_status_checked_at: string | null
+          sending_status_raw: string | null
           sent_count: number
           sequence_name: string | null
           shell_delays: Json | null
@@ -101,6 +104,9 @@ export type Database = {
           organisation_id: string
           paused_at?: string | null
           replied_count?: number
+          sending_state?: string | null
+          sending_status_checked_at?: string | null
+          sending_status_raw?: string | null
           sent_count?: number
           sequence_name?: string | null
           shell_delays?: Json | null
@@ -124,6 +130,9 @@ export type Database = {
           organisation_id?: string
           paused_at?: string | null
           replied_count?: number
+          sending_state?: string | null
+          sending_status_checked_at?: string | null
+          sending_status_raw?: string | null
           sent_count?: number
           sequence_name?: string | null
           shell_delays?: Json | null

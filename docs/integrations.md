@@ -98,6 +98,94 @@ when you want to know whether runs are succeeding rather than merely happening.
 
 ---
 
+## Campaign sending health — the column that decides whether a client sees "live"
+
+`campaigns.status` answers **what somebody intended this campaign to do**. It is a copy of
+Instantly's `campaign_status` and nothing more. `campaigns.sending_state` answers **whether
+mail is actually leaving right now**. They are different questions with different answers,
+and the client dashboard prints the word "live" off the second one only.
+
+That is not a stylistic preference. A campaign sitting at `status = 'active'` can be
+sending precisely nothing: outside its schedule window, out of leads, at its daily cap, or
+with every sending account already at its own cap. Reading `status` and calling it live
+would replace one lie with a better-dressed one.
+
+**The source.** `GET /api/v2/campaigns/{id}/sending-status`, one call per campaign because
+Instantly offers no bulk form of it. It runs on the same 15-minute poll, immediately after
+the workspace-wide analytics call, and only for campaigns that analytics call resolved — a
+row pointing at a deleted campaign fails once in the analytics pass rather than twice.
+
+**The enum, verified 2026-08-24** against
+`paths./api/v2/campaigns/{id}/sending-status.get` → response 200 →
+`properties.diagnostics.properties.status` in
+https://developer.instantly.ai/api-reference/openapi.json. A closed enum of **eighteen**
+strings, of which `healthy` is the only one that means mail is going out.
+
+| Instantly | Stored `sending_state` | What it means for the client |
+|---|---|---|
+| `healthy` | `sending` | Mail is going out |
+| `campaign_draft` | `draft` | Never started |
+| `campaign_paused` | `paused` | Deliberately stopped |
+| `campaign_completed` | `completed` | Finished its sequence |
+| `out_of_schedule` | `waiting` | Intends to send, nothing to send this instant |
+| `waiting_for_leads` | `waiting` | " |
+| `follow_up_delay_not_met` | `waiting` | " |
+| `waiting_for_esp_match` | `waiting` | " |
+| `campaign_running_subsequences` | `waiting` | " |
+| `daily_limit_met` | `limit_reached` | Cap hit for today, resumes on its own |
+| `account_daily_limit_met` | `limit_reached` | " |
+| `new_lead_limit_met` | `limit_reached` | " |
+| `domain_limit_reached` | `limit_reached` | " |
+| `campaign_bounce_protect` | `blocked` | Stopped by Instantly. Needs a human |
+| `campaign_accounts_unhealthy` | `blocked` | " |
+| `campaign_account_suspended` | `blocked` | " |
+| `all_accounts_unhealthy` | `blocked` | " |
+| `no_accounts_available` | `blocked` | " |
+
+**This is NOT `not_sending_status`, and confusing the two costs thirteen values.** The
+campaign object (`components.schemas.def-1`) carries its own `not_sending_status`, a
+five-value **numeric** enum verified in the same pass: `1` out of schedule, `2` waiting for
+leads, `3` daily limit met, `4` all accounts at daily limit, `99` error. Anyone who reads
+the endpoint response and maps it through that five-code vocabulary loses every
+campaign-state code and every account-health code. The endpoint is strictly richer, so
+`not_sending_status` is not fetched at all. As always: do not re-derive either enum from
+the Instantly MCP tool description.
+
+**`campaign_running_subsequences` lands in `waiting` while `campaign_status = 4` maps to
+`active`.** That looks like a contradiction and is not: intent is active, health is not
+healthy. This endpoint settles the judgement call BACKLOG.md flagged against status 4,
+because it lists the code among the reasons a campaign is not sending and treats `healthy`
+as the sole unobstructed value.
+
+**Three columns, and what each one is for.**
+
+- `sending_state` — ours, seven canonical values, `CHECK`-constrained. Nothing above the
+  integrations layer sees an Instantly string.
+- `sending_status_raw` — Instantly's code, deliberately **unconstrained**. Constraining it
+  would put a vendor's closed enum in two places, so the day they add a nineteenth value
+  the write fails and takes the campaign's counters down with it in the same statement.
+  Diagnostics only: when `sending_state` says `waiting`, this says whether that is a
+  schedule window or an ESP match. Never rendered to a client.
+- `sending_status_checked_at` — when Instantly last **answered**, not when it last answered
+  healthily. Stamped even when Instantly reports no data, because "we asked at 15:15 and
+  Instantly had nothing to say" is a different fact from "we have not asked since Tuesday".
+  Any surface that prints "live" must check this for staleness first.
+
+**What happens when the call fails.** The counters still get written — they came from the
+analytics call and are still good — and all three sending columns are left out of the
+update entirely, so the previous reading keeps its old `sending_status_checked_at`.
+Staleness there is the signal that the value cannot be trusted; refreshing the timestamp
+while failing to refresh the state would erase it. The failure is counted in
+`campaign_stats.sendingErrors`, counts toward the run's `ok`, and is named in the heartbeat
+detail.
+
+**An unrecognised code is never guessed.** A string outside the enum clears
+`sending_state` to NULL, keeps the raw code, and logs a warning. NULL means "not
+established" and must render as "not reported", never as "not sending" and certainly never
+as "live".
+
+---
+
 ## Instantly polling — how to tell a healthy run from a silent one
 
 The poller is `/api/cron/instantly-poll`, which calls

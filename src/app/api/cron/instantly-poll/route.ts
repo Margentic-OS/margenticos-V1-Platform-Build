@@ -29,6 +29,7 @@ import {
   INSTANTLY_LEAD_STATUS_UNSUBSCRIBED,
 } from '@/lib/integrations/polling/instantly'
 import { fetchCampaignStats, INSTANTLY_ABNORMAL_STOP_STATUSES } from '@/lib/integrations/handlers/instantly/campaign-analytics'
+import { fetchCampaignSendingStatus, SENDING_STATES_NEEDING_ATTENTION } from '@/lib/integrations/handlers/instantly/campaign-sending-status'
 import { getInstantlyApiKey, getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
 
@@ -120,10 +121,16 @@ export async function POST(request: NextRequest) {
     results.unsubscribes.errors++
   }
 
-  // ── Campaign stats and status refresh ──────────────────────────────────────
+  // ── Campaign stats, status, and live sending health refresh ────────────────
   // Runs after reply polling. Failures here are isolated and never affect reply polling.
   // One analytics call returns every campaign in the workspace; each local row is then
-  // updated from the map with no further API calls.
+  // updated from the map, plus ONE sending-status call per resolved campaign, which is
+  // the only per-campaign call in the pass because Instantly offers no bulk form of it.
+  //
+  // Two different questions are answered here and they must never be conflated.
+  // status is INTENT, copied from Instantly's campaign_status. sending_state is LIVE
+  // HEALTH, read from GET /campaigns/{id}/sending-status where 'healthy' is the only
+  // unobstructed value. A campaign can be 'active' and sending nothing.
   //
   // WHY THERE IS NO LONGER A status FILTER HERE.
   // This query used to carry .eq('status', 'active'). That filter was not merely
@@ -149,7 +156,7 @@ export async function POST(request: NextRequest) {
   // and a field that can only ever read 0 invites someone to trust it.
   // missingAnalytics is a BREAKDOWN of errors, not a separate total: every increment of
   // it also increments errors, which is the number runOk reads.
-  const campaignStatsResult = { updated: 0, errors: 0, statusChanged: 0, missingAnalytics: 0 }
+  const campaignStatsResult = { updated: 0, errors: 0, statusChanged: 0, missingAnalytics: 0, sendingChecked: 0, sendingErrors: 0 }
   // First failure of the refresh, carried into the heartbeat detail so the row names a
   // cause instead of just a count. Mirrors the poller's last_error discipline; campaign
   // stats has no polling_cursors row of its own, so the heartbeat is where it goes.
@@ -159,7 +166,7 @@ export async function POST(request: NextRequest) {
 
     const { data: registeredCampaigns } = await supabase
       .from('campaigns')
-      .select('id, external_id, status')
+      .select('id, external_id, status, sending_state')
       .not('external_id', 'is', null)
 
     for (const campaign of registeredCampaigns ?? []) {
@@ -195,6 +202,9 @@ export async function POST(request: NextRequest) {
         bounced_count: number
         campaign_stats_updated_at: string
         status?: string
+        sending_state?: string | null
+        sending_status_raw?: string | null
+        sending_status_checked_at?: string
       } = {
         sent_count:    stats.sentCount,
         replied_count: stats.repliedCount,
@@ -230,6 +240,64 @@ export async function POST(request: NextRequest) {
                    : 'Bounce Protect',
           })
         }
+      }
+
+      // ── Live sending health ──────────────────────────────────────────────
+      //
+      // status above is INTENT. It says what someone meant this campaign to do, and a
+      // campaign at 'active' can be sending nothing: outside its schedule, out of leads,
+      // at its daily cap, or with every account already at its own cap. The client
+      // dashboard prints the word live off THIS value, never off status, because
+      // "your campaign is active" while the accounts are at limit is not a smaller lie
+      // than the placeholder copy it replaced.
+      //
+      // One call per campaign: Instantly offers no bulk form of this endpoint. It runs
+      // only for campaigns the analytics map already resolved, so a row pointing at a
+      // deleted campaign fails once above rather than twice.
+      //
+      // A failure here does NOT abandon the counters. They came from the analytics call
+      // and are still good, so the update below still writes them; only the sending
+      // fields are left out, which leaves the previous reading in place with its old
+      // sending_status_checked_at. A stale timestamp is what tells the dashboard not to
+      // trust the value, so leaving both untouched together is the honest failure.
+      try {
+        const sending = await fetchCampaignSendingStatus(campaign.external_id, apiKey, isActive, baseUrl)
+        update.sending_state             = sending.state
+        update.sending_status_raw        = sending.rawStatus
+        update.sending_status_checked_at = new Date().toISOString()
+        campaignStatsResult.sendingChecked++
+
+        // Instantly answered and carried no status. Documented behaviour, not a failure:
+        // the endpoint returns null for both fields when it has no data yet. The state is
+        // cleared rather than left stale, and the timestamp is still stamped, because
+        // "we asked and Instantly had nothing" is a different fact from "we never asked".
+        if (sending.state === null) {
+          logger.info('Campaign sending-status: no state established, previous reading cleared', {
+            campaign_id: campaign.id,
+            external_id: campaign.external_id,
+            raw_status: sending.rawStatus,
+          })
+        } else if (SENDING_STATES_NEEDING_ATTENTION.includes(sending.state)) {
+          // 'waiting' and 'limit_reached' clear themselves. 'blocked' does not: every code
+          // behind it needs a human. Logged every tick it persists, on purpose.
+          logger.warn('Campaign sending-status: sending is blocked and will not resume on its own', {
+            campaign_id: campaign.id,
+            external_id: campaign.external_id,
+            raw_status: sending.rawStatus,
+            previous_state: campaign.sending_state,
+          })
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        const detail = `campaign ${campaign.id} sending-status failed: ${msg}`
+        logger.error('Campaign sending-status: fetch failed, sending health left unchanged', {
+          campaign_id: campaign.id,
+          external_id: campaign.external_id,
+          error: msg,
+        })
+        campaignStatsResult.errors++
+        campaignStatsResult.sendingErrors++
+        if (firstCampaignStatsError === null) firstCampaignStatsError = detail
       }
 
       const { error: updateError } = await supabase
@@ -314,7 +382,7 @@ export async function POST(request: NextRequest) {
       job_name: 'instantly-poll',
       ok: runOk,
       detail: runOk
-        ? `Polled: ${totalWritten} signals written, ${campaignStatsResult.updated} campaign(s) refreshed`
+        ? `Polled: ${totalWritten} signals written, ${campaignStatsResult.updated} campaign(s) refreshed, ${campaignStatsResult.sendingChecked} sending-status check(s)`
         // Name the first campaign-stats cause when there is one. A count alone sends the
         // reader to the logs; the external_id sends them to the row that needs fixing.
         : `Run failed: ${totalErrors} error(s), ${resourcesThatFailedToPoll} resource(s) reached zero successful Instantly calls` +
