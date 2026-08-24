@@ -36,11 +36,18 @@
 // Health metrics only. Diagnostic fields — complaint rate, mailbox health, per-mailbox
 // anything — are never selected and never returned.
 //
-// bounced_count IS now selected, and that is a deliberate change from the earlier rule
-// here. It is not returned raw. It is used to derive deliveredCount, because "emails
-// delivered" is what a client understands and sent-minus-bounced is the only honest way
-// to say it. A bounce total the client can subtract for themselves is not diagnostic
-// data; per-mailbox bounce attribution would be, and that is still never fetched.
+// bounced_count and unsubscribed_count are BOTH selected and BOTH returned, and that is a
+// deliberate reversal of the earlier rule in this file, which said bounced_count must
+// never be fetched or returned.
+//
+// The reversal is a product decision, not a drift: bounce rate and opt-out rate are on
+// the list of aggregates a client is always shown. Hiding a client's own bounce rate from
+// them does not protect anything, and it leaves them unable to tell a list-quality
+// problem from a copy problem in their own campaign.
+//
+// What stays diagnostic and is still never fetched here: per-mailbox attribution,
+// complaint rate, mailbox health, and anything that identifies WHICH addresses bounced.
+// A total the client can reason about is not the same as a list of names.
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
@@ -55,6 +62,10 @@ export interface ClientVisibleCampaignMetrics {
   sentCount: number
   // sentCount minus bounces. What actually landed.
   deliveredCount: number
+  // Totals, never per-address. A client may see how many bounced or opted out; they may
+  // never see which addresses did.
+  bouncedCount: number
+  unsubscribedCount: number
   repliedCount: number
   replyRate: number | null
   // Replies whose classified intent is in the client-visible positive set. Counted from
@@ -99,7 +110,7 @@ export async function getClientVisibleCampaignMetrics(
   const [campaignsResult, positiveRepliesResult, meetingsResult] = await Promise.all([
     supabase
       .from('campaigns')
-      .select('contacted_count, sent_count, replied_count, bounced_count')
+      .select('contacted_count, sent_count, replied_count, bounced_count, unsubscribed_count')
       .eq('organisation_id', clientOrgId),
 
     // THE PREVIOUS QUERY HERE COULD NEVER HAVE RETURNED ANYTHING.
@@ -133,6 +144,7 @@ export async function getClientVisibleCampaignMetrics(
   const sentCount      = campaigns.reduce((sum, c) => sum + (c.sent_count      ?? 0), 0)
   const repliedCount   = campaigns.reduce((sum, c) => sum + (c.replied_count   ?? 0), 0)
   const bouncedCount   = campaigns.reduce((sum, c) => sum + (c.bounced_count   ?? 0), 0)
+  const unsubscribedCount = campaigns.reduce((sum, c) => sum + (c.unsubscribed_count ?? 0), 0)
 
   // Clamped at zero. Bounces and sends are refreshed in the same statement so they should
   // never cross, but a negative "delivered" on a client's dashboard is not a number worth
@@ -145,6 +157,8 @@ export async function getClientVisibleCampaignMetrics(
     contactedCount,
     sentCount,
     deliveredCount,
+    bouncedCount,
+    unsubscribedCount,
     repliedCount,
     replyRate: sentCount > 0 ? (repliedCount / sentCount) * 100 : null,
     positiveReplyCount: positiveRepliesResult.count ?? 0,

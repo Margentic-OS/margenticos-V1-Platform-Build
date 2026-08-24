@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
+import { useState } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
+import type { StrategyNavState } from '@/lib/dashboard/strategy-nav-state'
 import { appendClientParam } from '@/lib/dashboard/client-param'
 import { ClientSwitcher } from './ClientSwitcher'
 
@@ -17,6 +19,10 @@ interface SidebarProps {
   // day their documents are approved and six weeks later with mail in the field, and the
   // checklist was telling the second client their campaigns were not live yet.
   outreachStarted: boolean
+  // Whether the Strategy section starts collapsed, and why. Derived in
+  // src/lib/dashboard/strategy-nav-state.ts. It is never collapsed while a document is
+  // unapproved, because an unapproved document is what blocks the lead upload.
+  strategyNav: StrategyNavState
   // Provided only when the layout knows the user is an operator. Used to
   // resolve the correct client name from ?client= (O-3) and to preserve
   // ?client= across nav links (O-4). Real clients receive an empty array.
@@ -76,7 +82,7 @@ function getStepStatus(
   return 'pending'
 }
 
-export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingProspectsCount, outreachStarted, allOrgs }: SidebarProps) {
+export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingProspectsCount, outreachStarted, strategyNav, allOrgs }: SidebarProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
@@ -90,6 +96,14 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
   function isActive(href: string) {
     return pathname === href || pathname.startsWith(href + '/')
   }
+
+  // A collapsed section must never hide the page the client is looking at, so being on a
+  // strategy route forces it open regardless of the derived default.
+  const onStrategyRoute = pathname.startsWith('/dashboard/strategy')
+  const [strategyOpen, setStrategyOpen] = useState(
+    !strategyNav.collapsedByDefault || onStrategyRoute
+  )
+  const strategyExpanded = strategyOpen || onStrategyRoute
 
   return (
     <aside className="w-[210px] min-h-screen bg-brand-green flex flex-col shrink-0 print:hidden">
@@ -201,30 +215,60 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
           </>
         )}
 
-        {/* Strategy section */}
-        <p className="px-2 mb-2 text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
-          Strategy
-        </p>
-        <ul className="space-y-0.5">
-          {NAV_STRATEGY.map((item) => {
-            const active = isActive(item.href)
-            return (
-              <li key={item.href}>
-                <Link
-                  href={appendClientParam(item.href, clientId)}
-                  className={[
-                    'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
-                    active
-                      ? 'bg-[rgba(245,240,232,0.08)] border-l-2 border-brand-green-accent text-[#F5F0E8] font-medium'
-                      : 'text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]',
-                  ].join(' ')}
-                >
-                  {item.label}
-                </Link>
-              </li>
-            )
-          })}
-        </ul>
+        {/* Strategy section.
+            Collapses only once all four documents are approved and nothing is pending.
+            While a document is unapproved it stays open, because that is the state
+            blocking the lead upload and hiding it behind a chevron would leave the client
+            waiting on us while we wait on them. */}
+        <button
+          type="button"
+          onClick={() => setStrategyOpen(o => !o)}
+          aria-expanded={strategyExpanded}
+          aria-controls="sidebar-strategy-nav"
+          disabled={onStrategyRoute}
+          className="w-full flex items-center justify-between px-2 mb-2 text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)] hover:text-[rgba(245,240,232,0.50)] transition-colors disabled:cursor-default disabled:hover:text-[rgba(245,240,232,0.28)]"
+        >
+          <span className="flex items-center gap-1.5">
+            Strategy
+            {strategyNav.needsAttention.length > 0 && (
+              <span className="text-[8px] font-medium text-[#F5F0E8] bg-brand-green-accent px-1 py-px rounded-[3px] normal-case tracking-normal">
+                {strategyNav.reason === 'blocking_upload' ? 'Approval needed' : 'New version'}
+              </span>
+            )}
+          </span>
+          {!onStrategyRoute && (
+            <svg
+              width="7" height="7" viewBox="0 0 8 8" fill="none" aria-hidden="true"
+              className={strategyExpanded ? 'rotate-90 transition-transform' : 'transition-transform'}
+            >
+              <path d="M2 1L6 4L2 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
+        {strategyExpanded && (
+          <ul id="sidebar-strategy-nav" className="space-y-0.5">
+            {NAV_STRATEGY.map((item) => {
+              const active = isActive(item.href)
+              const flagged = strategyNav.needsAttention.includes(item.label)
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={appendClientParam(item.href, clientId)}
+                    className={[
+                      'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
+                      active
+                        ? 'bg-[rgba(245,240,232,0.08)] border-l-2 border-brand-green-accent text-[#F5F0E8] font-medium'
+                        : 'text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]',
+                    ].join(' ')}
+                  >
+                    <span>{item.label}</span>
+                    {flagged && <span className="w-1.5 h-1.5 rounded-full bg-brand-amber shrink-0" />}
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </nav>
 
       {/* Setup progress steps — shown until pipeline unlocked */}

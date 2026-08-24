@@ -8,6 +8,7 @@
 // ADR-003: organisation_id = orgId filter on every query. No exceptions.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { CLIENT_VISIBLE_INTENTS } from '@/lib/reply-handling/get-client-visible-replies'
 
 export interface CampaignMetrics {
   sentCount:           number
@@ -30,12 +31,23 @@ export async function computeCampaignMetrics(
       .select('sent_count, replied_count, bounced_count')
       .eq('organisation_id', orgId),
 
-    // Positive reply count — signals table is the only source for this
+    // Positive reply count.
+    //
+    // This counted signals with signal_type 'positive_reply' and therefore always read 0.
+    // Nothing in this system writes that value: the poller writes 'reply_received' and the
+    // classifier writes its verdict to reply_handling_actions.classified_intent. Same
+    // defect, same fix, as getClientVisibleCampaignMetrics. The intent list is imported
+    // from the reply chokepoint rather than restated.
+    //
+    // NOTE: reply_handling_actions is operator-only under RLS, so a caller passing a
+    // client session client still gets 0 here. The remaining caller is the Pipeline page,
+    // which is gated behind pipeline_unlocked and out of scope for this change. See
+    // BACKLOG.md.
     supabase
-      .from('signals')
+      .from('reply_handling_actions')
       .select('*', { count: 'exact', head: true })
       .eq('organisation_id', orgId)
-      .eq('signal_type', 'positive_reply'),
+      .in('classified_intent', CLIENT_VISIBLE_INTENTS),
 
     // Total meetings booked for this org
     supabase

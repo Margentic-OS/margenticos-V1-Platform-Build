@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { BenchmarksView } from '@/components/dashboard/benchmarks/BenchmarksView'
-import { computeCampaignMetrics } from '@/lib/metrics/campaign-metrics'
+import { getClientVisibleCampaignMetrics } from '@/lib/metrics/get-client-visible-campaign-metrics'
 
 function getOrgInitials(name: string): string {
   return name
@@ -34,7 +34,10 @@ export default async function BenchmarksPage({
 
   if (!org) redirect('/dashboard')
 
-  const metrics = await computeCampaignMetrics(org.id, supabase)
+  // The client-facing chokepoint, not computeCampaignMetrics. It builds its own
+  // service-role client, and it counts positive replies from the action row rather than
+  // from a signal_type nothing writes.
+  const metrics = await getClientVisibleCampaignMetrics(org.id)
 
   const statusLabel = org.pipeline_unlocked ? 'Campaigns live' : 'Warming up'
   const statusVariant = org.pipeline_unlocked ? 'live' : 'warming'

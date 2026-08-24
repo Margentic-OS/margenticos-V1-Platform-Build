@@ -26,6 +26,7 @@ function renderSidebar(state: DashboardState, outreachStarted: boolean) {
       dashboardState={state}
       pendingProspectsCount={0}
       outreachStarted={outreachStarted}
+      strategyNav={{ collapsedByDefault: false, reason: 'blocking_upload', needsAttention: [] }}
     />
   )
 }
