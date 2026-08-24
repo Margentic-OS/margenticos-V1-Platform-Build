@@ -107,6 +107,37 @@
   summary. The queue worker must not rely on that file. (Carried forward from the
   2026-08-20 entry; still true and now directly relevant.)
 
+- [pre-c1, UNVERIFIED] Four job-queue review findings whose verdict was never reached.
+  The 2026-08-24 adversarial review of C2 judged 26 findings and hit the session limit
+  mid-verification. Six findings had incomplete refuter panels. Two were checked by hand
+  and both were real, and both are FIXED in C2.1 (setQueueFlag reporting success on a
+  zero-row update, and 'billing' as a bare substring in ACCOUNT_EXHAUSTION_PATTERNS).
+  The remaining four have NO verdict. They are recorded as claims, not as defects, and
+  nobody should treat them as either confirmed or dismissed:
+
+    1. enqueueJobsForProspects aborts the whole batch when one prospect fails to enqueue.
+       (0 of 3 refuters returned. A separate finding about the same function, that its
+       serial loop could breach the 300s wall, WAS fully judged and refuted 3-0 on the
+       grounds that it has no caller yet.)
+    2. A completeJob failure or no-op is treated as a handler failure, so a job that
+       succeeded is re-run or terminated. (0 of 3. NOTE: this overlaps finding F, which
+       WAS confirmed and fixed in C2.1 by separating the handler and completion-write
+       try blocks. Re-read it against the fixed code before spending time on it.)
+    3. A paid call that fails in flight leaves no spend stamp, and the network-error
+       class re-calls the paid API. (0 of 3. This is the network-error variant of the
+       stamp-after-resolve finding, which WAS judged, and which Doug decided on
+       2026-08-24 to leave unfixed and document instead: stamping before the call makes
+       every transient failure look paid and destroys the retry behaviour. See the
+       KNOWN LIMITATION block in src/lib/queue/execute-job.ts before reopening.)
+    4. enqueue_job accepts any (organisation_id, prospect_id) pair with no consistency
+       check, so a transposed argument enqueues one org's prospect under another.
+       (2 of 3 returned, BOTH refuted, one vote short of a verdict. Closest to being
+       dismissed, but it is the one with an agent-isolation flavour, so it deserves the
+       third look rather than the benefit of the doubt.)
+
+  Do NOT re-run the workflow to resolve these. It cost 6.2M subagent tokens and did not
+  finish. Check them by hand if and when they matter.
+
 - [phase2, trigger: a second sourcing or scraping vendor is registered] Queue concurrency
   ceilings are sized off ONE vendor's limits and are not read from integrations_registry.
   Added 2026-08-24 (C2). QUEUE_CONFIG.research.maxInFlight = 10 exists because Apify

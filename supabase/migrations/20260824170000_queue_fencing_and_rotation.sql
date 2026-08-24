@@ -1,7 +1,7 @@
 -- Migration: fence complete_job and fail_job to the lease holder, add the rotation cursor
 -- Date: 2026-08-24
 --
--- Status: PENDING (apply via Supabase MCP apply_migration, then verify live)
+-- Status: APPLIED (verified live 2026-08-24)
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- 1. THE FENCING BUG (money-adjacent)
