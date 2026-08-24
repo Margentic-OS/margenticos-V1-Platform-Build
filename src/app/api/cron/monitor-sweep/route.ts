@@ -17,6 +17,14 @@
 //   mon_001, mon_002, mon_003, mon_004, mon_005, mon_007, mon_010 (liveness checks)
 //   mon_006 (Tier 1: client revisions awaiting review)
 //   mon_011, mon_012, mon_013, mon_014, mon_015 (additional checks)
+//   mon_016, mon_017, mon_018 (durable job queue)
+//
+// The three queue checks deliberately do NOT follow mon_002's shape. mon_002 derives its
+// state from max(ran_at) staleness alone and reads cron_heartbeats.ok only for the detail
+// string, so a cron that runs on time and fails every run reads OK there. mon_016 reads
+// ok into its STATE, and mon_017 and mon_018 ignore the heartbeat entirely and read the
+// queue's real contents, so a green worker heartbeat cannot mask a queue that never
+// drains.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -37,8 +45,8 @@ export async function POST(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const checkCodes = ['MON-001', 'MON-002', 'MON-003', 'MON-004', 'MON-005', 'MON-006', 'MON-007', 'MON-010', 'MON-011', 'MON-012', 'MON-013', 'MON-014', 'MON-015']
-  const viewNames = ['mon_001', 'mon_002', 'mon_003', 'mon_004', 'mon_005', 'mon_006', 'mon_007', 'mon_010', 'mon_011', 'mon_012', 'mon_013', 'mon_014', 'mon_015']
+  const checkCodes = ['MON-001', 'MON-002', 'MON-003', 'MON-004', 'MON-005', 'MON-006', 'MON-007', 'MON-010', 'MON-011', 'MON-012', 'MON-013', 'MON-014', 'MON-015', 'MON-016', 'MON-017', 'MON-018']
+  const viewNames = ['mon_001', 'mon_002', 'mon_003', 'mon_004', 'mon_005', 'mon_006', 'mon_007', 'mon_010', 'mon_011', 'mon_012', 'mon_013', 'mon_014', 'mon_015', 'mon_016', 'mon_017', 'mon_018']
 
   const results = {
     checked: 0,

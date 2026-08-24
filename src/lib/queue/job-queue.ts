@@ -280,3 +280,67 @@ export async function countInFlight(
   if (error) throw new Error(`countInFlight failed: ${error.message}`)
   return count ?? 0
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ROTATION CURSOR
+//
+// Read before planning a pass, written after. See the header of fairness.ts for why
+// ordering by oldest job is not on its own a round-robin, and queue_rotation in
+// 20260824170000 for why the cursor lives in its own table rather than in worker memory.
+
+/** Which organisation the previous pass finished on. Null when the rotation is fresh. */
+export async function getRotationCursor(
+  supabase: SupabaseClient,
+  jobType: JobType,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('queue_rotation')
+    .select('last_organisation_id')
+    .eq('job_type', jobType)
+    .maybeSingle()
+
+  if (error) {
+    // A missing cursor is not a reason to skip a pass. Starting from the oldest is the
+    // same behaviour the planner has for an unrecognised cursor, and losing one tick of
+    // rotation is far cheaper than doing no work at all.
+    logger.warn('job-queue: could not read rotation cursor, starting from the oldest', {
+      job_type: jobType,
+      error: error.message,
+    })
+    return null
+  }
+
+  return (data?.last_organisation_id as string | null) ?? null
+}
+
+/**
+ * Record where this pass stopped, so the next one starts after it.
+ *
+ * NEVER THROWS. A cursor that fails to save costs one tick of rotation, which is a
+ * fairness hiccup. Aborting the worker over it would cost the whole tick's work.
+ */
+export async function setRotationCursor(
+  supabase: SupabaseClient,
+  jobType: JobType,
+  organisationId: string,
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('queue_rotation')
+      .update({ last_organisation_id: organisationId, updated_at: new Date().toISOString() })
+      .eq('job_type', jobType)
+
+    if (error) {
+      logger.warn('job-queue: could not save rotation cursor, next pass may repeat this one', {
+        job_type: jobType,
+        organisation_id: organisationId,
+        error: error.message,
+      })
+    }
+  } catch (err) {
+    logger.warn('job-queue: setRotationCursor threw, next pass may repeat this one', {
+      job_type: jobType,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
