@@ -23,6 +23,101 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## Job queue build (C1 landed 2026-08-24) — open items and things found on the way
+
+- [pre-c1, BLOCKER ON VOLUME] Apify is on the FREE plan and it, not the request
+  timeout, is now the ceiling on research volume.
+  Measured live 2026-08-24 from GET /v2/users/me/limits:
+    maxMonthlyUsageUsd 10, monthlyUsageCreditsUsd 5, maxMonthlyActorComputeUnits 625,
+    maxConcurrentActorJobs 25, dataRetentionDays 7
+  LinkedIn scraping costs $0.006/prospect (COST_APIFY) and runs TWO actors per
+  prospect. Brave Search is 2 calls/prospect against a 2,000/month free tier.
+  So the monthly ceilings are roughly:
+    Apify free credit ($5)  ~833 prospects
+    Apify hard stop ($10)   ~1,666 prospects
+    Brave free tier         ~1,000 prospects
+  The queue removes the ~5-per-click ceiling and replaces it with ~833-1,666/month.
+  3,333 prospects of fresh research is NOT fundable in one month on these plans, and
+  no amount of queue work changes that. Doug decided 2026-08-24 to build the queue now
+  and treat the plan upgrade as a separate commercial decision. The credit-exhaustion
+  circuit breaker (turns the job type's flag off after N consecutive credit/auth
+  failures) is what stops a dry account being hammered.
+  Next action: price the Apify paid tier before the first real client onboarding.
+
+- [pre-c1] Anthropic rate limits are nowhere near binding, and the queue must not
+  pretend otherwise.
+  Measured live 2026-08-24 from response headers on a real 1-token call:
+    requests-limit 10000/min, input-tokens-limit 10,000,000/min,
+    output-tokens-limit 2,000,000/min. Identical for haiku-4-5, opus-4-6, sonnet-4-6.
+  Research makes ~3 Anthropic calls per prospect, compose 1. Anthropic cannot be the
+  bottleneck at any volume this platform will reach. The adaptive header reader is
+  implemented as insurance against a tier change and is documented in code as NOT
+  load-bearing. Real pacing is a global in-flight cap sized off Apify concurrency.
+
+- [pre-c1] We do not have an Anthropic ADMIN key.
+  GET /v1/organizations/rate_limits returns 401 authentication_error with
+  ANTHROPIC_API_KEY. That endpoint needs an sk-ant-admin key and .env.local has none.
+  Not blocking: response headers give the same numbers from the key we actually use.
+  Next action: only get one if org-level limit reporting is ever needed for its own
+  sake.
+
+- [DONE 2026-08-24, but read it] REVOKE FROM PUBLIC is not sufficient on Supabase.
+  The C1 migration revoked FROM PUBLIC on eight SECURITY DEFINER functions and granted
+  service_role, and has_function_privilege then showed anon and authenticated STILL
+  holding EXECUTE. Supabase's ALTER DEFAULT PRIVILEGES grants EXECUTE to those roles
+  explicitly at creation time, so revoking the PUBLIC pseudo-role is a silent no-op.
+  Because the functions are SECURITY DEFINER they bypass RLS, so RLS-with-zero-policies
+  did not help. Fixed in 20260824160500. Every other SECURITY DEFINER function in the
+  database was audited at the same time and none were affected.
+  STANDING RULE going forward: name anon and authenticated in the REVOKE, and verify
+  with has_function_privilege for BOTH of them, not just for the intended caller.
+  Checking only the intended caller passes while the hole stays open.
+
+- [pre-c1] Supabase migration history is out of sync with the repo.
+  `supabase migration list` shows local filenames and remote versions that do not
+  match, because MCP apply_migration records its own timestamp rather than the
+  filename's. Consequence: `supabase db push` is NOT safe on this project, it would
+  try to replay files the remote already has under a different version. Keep using
+  MCP apply_migration, which is what CLAUDE.md already mandates.
+  Next action: reconcile the history table, or document db push as forbidden here.
+
+- [pre-c1] Vercel and Supabase limits are NOT the constraint, contrary to assumption.
+  Vercel Functions concurrency auto-scales to 30,000 on Hobby AND Pro (docs/functions/
+  limitations, checked 2026-08-24). Hobby max duration is 300s, default and maximum.
+  Supabase Free: max_connections 60, 3 superuser-reserved, 17 in use. But the app
+  reaches Postgres through PostgREST over HTTP, which held 6 idle connections total
+  regardless of request volume, so worker concurrency does not map onto Postgres
+  connections. Neither bounds the worker.
+
+- [cleanup] ADR.md has TWO entries numbered ADR-026.
+  Line ~1874 "Per-lead custom variables for sequence content delivery" and line ~2040
+  "Client reply view: org-scoping RLS-backed". One needs renumbering. ADR-029 (job
+  queue) was added 2026-08-24 after ADR-028, so the next free number is 030 unless the
+  duplicate is resolved first.
+
+- [cleanup] ADR-013 and CLAUDE.md say prospect research web-search synthesis uses
+  claude-haiku-4-5-20251001. The code uses claude-sonnet-4-6 (synthesize.ts:22, and
+  write-opening.ts:23-24 for both writer and judge). Doc/code drift, found 2026-08-24
+  while sizing token throughput for the queue. Changes cost estimates, not behaviour.
+  Next action: decide which is correct and make the other match, in one commit.
+
+- [pre-c1] runProspectResearchAgentV2Batch writes its failure log with fs.writeFileSync
+  to process.cwd()/logs, which is read-only on Vercel. Already caught and degraded to a
+  logged error with failed_log_path null. The failures themselves are in the returned
+  summary. The queue worker must not rely on that file. (Carried forward from the
+  2026-08-20 entry; still true and now directly relevant.)
+
+- [pre-c1] The four CLI research/enrich entry points stay on the inline path.
+  scripts/run-research.ts, scripts/backfill-firmographics.ts,
+  src/lib/agents/rerun-three-prospects.ts, src/lib/agents/test-prospect-research-run.ts.
+  They are operator tools run from a terminal with no 300s limit, and routing them
+  through the queue would stop them returning results to the terminal. Only the two
+  routes and the one server action are switched by the flags. Decided 2026-08-24.
+  Note that backfill-firmographics.ts calls enrichProspectsForOrganisation DIRECTLY,
+  bypassing enrichment-trigger's lock entirely. That is pre-existing and unchanged by
+  the queue, but it means the queue's guarantees do not cover that script.
+
+
 ---
 
 ## Client dashboard truthfulness — follow-ups after making it report reality (2026-08-24)

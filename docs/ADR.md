@@ -2103,3 +2103,76 @@ Intent-filtering is application-enforced only because the intent values all belo
 ### Follow-ups (tracked in BACKLOG.md)
 - Authenticated-user RLS test deferred (JWT-minting limitation, pre-second-client item)
 - Client-note feature deferred (fast-follow only if clients ask)
+
+---
+
+## ADR-029 — Durable job queue in its own table; agent_runs stays the history
+Date: August 2026 | Status: Accepted
+
+Context:
+Three units of slow, money-spending work ran inside a single web request: Apollo
+enrichment, prospect research (Apify plus Anthropic), and sequence composition
+(Anthropic). Vercel terminates any request at 300s and this is the Hobby maximum,
+not a configurable default. Research is measured at 46.8s of wall clock per prospect
+(FRESH_SECONDS_PER_PROSPECT), so one request admitted about five prospects before the
+admission check refused the rest. Onboarding a client with hundreds of never-seen
+prospects therefore meant hundreds of manual clicks, or running the CLI from a
+terminal in one long-lived process.
+
+Enrichment additionally carries a money bug of a specific class. The Apollo re-spend
+fixed in 3de0589 was a crash mid-job that left the work claimable and payable twice:
+the money left at the START of a run and the outcome was written at the END, so every
+failure path in between left a row that looked untouched. On 10 August 2026 that cost
+141 credits for 29 prospects, 4.86 each, against Apollo's ceiling of one per contact.
+A lease with a spend stamp is the structural fix for that class, not a patch for that
+instance.
+
+There was an obvious temptation to extend agent_runs rather than add a table. It
+already has organisation_id, a status, timestamps and an error message, and it is
+already written by every agent.
+
+Decision:
+A new table, job_queue, holding one row per prospect per job type. agent_runs is not
+extended and does not change.
+
+agent_runs is a HISTORY table, written after the fact to record that something ran.
+Its columns are id, organisation_id, agent_name, status, started_at, completed_at,
+duration_ms, output_summary, error_message. It has no claim state, no lease, no
+attempt count and no spend record. Those four are the entire substance of a durable
+queue. Adding them would give one table two meanings, "what happened" and "what is
+happening", which is the failure class that has cost this build the most time.
+
+Both are written during a job, and they answer different questions:
+  agent_runs  what did we run, when, and how long did it take
+  job_queue   what is owed, who holds it, what has it cost, and what happens next
+
+Consequences:
+- Claiming is a single UPDATE ... RETURNING with FOR UPDATE SKIP LOCKED, never a
+  SELECT followed by an UPDATE. Two workers take disjoint sets by construction.
+- A claim carries a lease, not a lock, so a dead worker's job is reclaimable. Reclaim
+  must never re-spend: a job whose spend_recorded_at is set goes terminal instead of
+  calling the paid API again.
+- attempts increments at claim time, not at completion, so a job that reliably kills
+  its worker still exhausts its attempts and terminates rather than looping forever.
+- Failures are classified at the point of failure as transient or permanent. A 429 or
+  529 backs off; a 400 or an auth failure is terminal. Treating both alike either
+  loses work or burns money.
+- Per-organisation round-robin rather than plain FIFO, so one client's large batch
+  cannot starve another client's small one.
+- Rollout is behind an explicit database flag per job type (system_flags), never
+  inferred from environment shape. The inline paths stay until each type is proven.
+
+Rejected alternatives:
+- Extending agent_runs. See above.
+- Vercel Queues. Real and would work, but it is a second durable store alongside
+  Postgres, with its own failure modes and no way to answer "what is queued for this
+  organisation" in the same query as the prospect rows. Postgres already gives us
+  atomicity, SKIP LOCKED, and partial unique indexes for idempotency.
+- A worker-count concurrency dial paced against Anthropic rate limits. Measured live,
+  this account allows 10,000 requests/minute and 10M input tokens/minute. Research
+  uses about three Anthropic calls per prospect and compose one, so Anthropic is
+  nowhere near the binding constraint at any volume this platform will reach. The
+  real ceiling is Apify: 25 concurrent actor runs and a monthly spend cap. The dial
+  is therefore a global in-flight cap sized off Apify concurrency. Anthropic response
+  headers are still read and acted on, documented in code as insurance against a tier
+  change, explicitly not load-bearing.
