@@ -107,6 +107,76 @@ with a running sequence that their campaigns were not live yet.
 Nav entry added; the route had existed with nothing linking to it. Full detail of what the
 card shows and what it must never show is in reply-handling.md, "What a client sees".
 
+### Client benchmarks — /dashboard/benchmarks
+
+**No targets. Ranges only.** The page used to render "Target ≥ 2%" under a meeting
+booking rate we underwrite at roughly 0.9%, beside a status pill reading "On track" or
+"Below target". A target on a client's dashboard is a promise, and that one committed us
+in writing to missing it by half every time they opened the page. The thresholds are
+DELETED from `tier1-benchmarks.ts`, not hidden, so there is nothing left to render one
+from. Do not reinstate them there; an internal alerting threshold belongs in the operator
+warnings engine.
+
+What replaced the status pill is positional, not evaluative: "Within the industry range",
+"Above", "Below". It says where the number sits, not whether it is good. For a bounce rate
+"below" is excellent and for a reply rate it is not, and the client knows which of their
+numbers they care about better than a colour does.
+
+**Rates wait for a sample.** `src/lib/benchmarks/sample-gate.ts`, deterministic per
+ADR-018. Until the denominator clears the minimum the card shows an em dash and "too early
+to report a rate", with how far off it is. The counts are always shown, because those are
+true from the first email; only the rate has to wait.
+
+| Gate | Value | Derivation |
+|---|---|---|
+| Send-denominated rates (reply, meeting, bounce, opt-out) | 400 emails | standard error of a proportion under 1 point at a 4% rate needs n ≈ 384; at a 1% rate, under half a point needs n ≈ 396 |
+| Positive reply share | 25 replies | denominator is replies and the proportion sits near half, where the error is widest: a 10-point standard error needs n = 25 |
+
+The number this exists to stop showing: 1 reply from 26 emails renders as 3.8%, sits
+neatly inside the published industry range, and looks exactly like a measurement. The next
+reply takes it to 7.7%. A zero rate is withheld on the same rule, because 0% from 26
+emails is equally noisy and reads as a far more alarming claim. Both thresholds are
+rounded on purpose: they are a judgement about when a number stops being noise, and
+writing 384 would imply a precision that is not there.
+
+**Bounce rate and opt-out rate are now shown.** They are on the list of aggregates a
+client is always shown and previously had no surface anywhere. This REVERSES the earlier
+rule in `get-client-visible-campaign-metrics.ts` that `bounced_count` must never be
+fetched or returned. The reversal is deliberate: hiding a client's own bounce rate
+protects nothing and leaves them unable to tell a list-quality problem from a copy
+problem. What is still protected is the distinction between a TOTAL and an ATTRIBUTION. A
+client may see how many bounced. They may never see which addresses did, nor per-mailbox
+health, nor complaint rate.
+
+**The Belkins citation is removed.** The page cited Belkins's 2025 study beside a 1 to 3%
+meeting booking range. Belkins's own published production figure is 0.16 meetings per
+1,000 emails, which is 0.016%, roughly a hundredth of the bottom of the range they were
+cited to support. Citing a source that contradicts the figure beside it is worse than
+citing nothing. Do not re-add it. See BACKLOG.md: the question it leaves is about the
+RANGE, not only the citation.
+
+**A plain paragraph on the first ninety days** sits above the cards, with no numbers in
+it. A target in prose is the same promise the cards no longer make.
+
+### Strategy nav — collapsed only when there is nothing to do
+
+`src/lib/dashboard/strategy-nav-state.ts`, deterministic. Three states:
+
+- **all_approved** — collapses by default. The four documents are reference material once
+  approved; a client reads them twice and then wants the space back.
+- **blocking_upload** — NEVER collapsed. `assertStrategyApproved` blocks the lead upload
+  until all four carry `client_approval_status = 'approved'`, so an unapproved document is
+  the thing standing between the client and any outreach at all. Collapsing would hide the
+  blocker behind a chevron and leave the client waiting on us while we wait on them. A
+  MISSING document counts as unapproved, exactly as the upload gate treats it, so the
+  worst version cannot happen: nothing on screen to click and the upload silently blocked.
+- **pending_version** — expanded. A suggestion the client has not acted on. Nothing is
+  blocked, but there is something to do.
+
+Blocking outranks pending, so the client is told about the blocker first. The section also
+force-expands on any `/dashboard/strategy` route and disables its own toggle there, so it
+cannot collapse away the page the client is standing on.
+
 ### The RLS trap, which has now cost this build three times
 
 **A client's session Supabase client returns ZERO ROWS, silently, on every table a client

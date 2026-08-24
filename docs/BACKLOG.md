@@ -25,6 +25,88 @@
 
 ---
 
+## Client dashboard truthfulness — follow-ups after making it report reality (2026-08-24)
+
+- [pre-c1] THE MEETING BOOKING RANGE NOW RESTS ON ONE SOURCE, AND THE OTHER ONE CONTRADICTS IT
+  The Belkins citation was removed from the benchmarks page because Belkins's own published
+  production figure is 0.16 meetings per 1,000 emails (0.016%), against the 1 to 3% range it
+  was cited beside. That is roughly a hundredth of the bottom of the range.
+  Removing the citation fixes the inconsistency a client could find in a minute. It does not
+  answer the question underneath it, which is whether 1 to 3% is a defensible range at all.
+  What we underwrite is roughly 0.9%, which sits BELOW the range we are showing as context.
+  Next action: decide whether the range should be revised downward, or whether the two
+  numbers measure different things (Belkins's may be per-email across all campaigns
+  including cold lists, ours per-campaign on a researched list). Either way write down
+  which, because the current state is a range with one source and a known dissenting figure
+  that is not mentioned on the page.
+  Trigger: before the first paying client sees the benchmarks page.
+
+- [monitor] THE SAMPLE GATE THRESHOLDS ARE A JUDGEMENT, NOT A MEASUREMENT
+  400 emails for send-denominated rates, 25 replies for the positive share. Derived from the
+  standard error of a proportion (see sample-gate.ts) and then rounded, because pretending
+  to 384 would be its own small dishonesty.
+  The consequence worth knowing before a client asks: at current volume the benchmarks page
+  shows an em dash on every card, and will for months. That is intended and is better than
+  showing noise, but the first client to see it WILL ask, and the ninety-days paragraph
+  above the cards is the answer.
+  Next action: revisit once a client has passed 400 sends and there is a real rate to look
+  at. If 400 proves too conservative in practice, lower it deliberately rather than by drift.
+
+- [pre-c1] computeCampaignMetrics STILL RETURNS ZERO POSITIVE REPLIES FOR A CLIENT SESSION
+  The phantom signal_type bug is fixed in both metrics modules: they now count
+  reply_handling_actions filtered by CLIENT_VISIBLE_INTENTS rather than signals with
+  signal_type 'positive_reply', which nothing has ever written.
+  But computeCampaignMetrics still ACCEPTS a Supabase client, and its remaining caller, the
+  Pipeline page, passes the session client. reply_handling_actions is operator-only under
+  RLS, so that call still reads 0 in silence. Its twin, getClientVisibleCampaignMetrics, was
+  given the structural fix of building its own service-role client so the wrong one cannot
+  be passed. computeCampaignMetrics was not, because the Pipeline page is gated behind
+  pipeline_unlocked and was out of scope.
+  Next action: either give computeCampaignMetrics the same treatment, or delete it and point
+  the Pipeline page at the chokepoint. The two modules do nearly the same job, and that is
+  exactly how one bug came to live in two places at once.
+  Trigger: before pipeline_unlocked is turned on for any client.
+
+- [post-build] THE CLIENT CAMPAIGN-HEALTH PAGE HAS NO NAV ENTRY EITHER
+  /dashboard/campaign-metrics exists, renders, and nothing links to it. Same fault the
+  replies page had. Left alone because it was not in scope. Its "Meetings booked" card also
+  carries the subtitle "Qualified opportunities", which is not what a booked meeting is.
+  Next action: decide whether it earns a nav entry now that the overview carries counts and
+  benchmarks carries rates, or whether it is redundant and should be deleted. Do not leave a
+  third unreachable page.
+
+- [post-build] src/lib/database.types.ts IS DEAD AND DIVERGING
+  Nothing imports it. src/types/database.ts is the live file and is the only one updated
+  with the five new campaigns columns, so the two now disagree.
+  Reported, not deleted: pre-existing dead code, and removing it was not part of this change.
+  Next action: delete it, or regenerate both from the live schema.
+
+## Two sessions in one working tree destroyed work on 2026-08-24, and nearly hid it
+
+- [pre-c1] THE ONE-SESSION-AT-A-TIME RULE IN CLAUDE.md IS NOT ADVISORY. This is what it costs.
+  Sequence, reconstructed from the reflog:
+    13:08:51  session B ran `git add -A` and committed a checkpoint. It swept session A's
+              entire in-progress working tree into that commit: 16 files, 977 insertions,
+              under a message describing a syncSequenceShell fix the commit did not contain.
+    ~13:13    session A's `next build` hung on the .next lock, 0% CPU, 13 minutes.
+    later     session B ran `git reset --hard origin/main`. That reverted 12 tracked files
+              and DELETED 4 more from disk, because session B's own checkpoint had made
+              them tracked. It also took session B's own three commits off the branch.
+  Nothing was actually lost, but only by luck: the work survived inside the very commit
+  that swept it up, and was recovered with `git cherry-pick -n`.
+  THREE THINGS WORTH REMEMBERING.
+  First, `git reset --hard` does NOT delete untracked files. Files created AFTER the
+  sweeping checkpoint survived; files created before it were deleted. That difference is
+  what made the damage look arbitrary and made the first diagnosis wrong.
+  Second, a checkpoint commit made with `git add -A` in a shared tree is not a checkpoint,
+  it is a claim on someone else's work under a misleading message. Stage explicit paths.
+  Third, `git fsck --lost-found` found only ONE dangling blob and it was unrelated. Loose
+  blobs are the wrong place to look when the content was committed rather than staged;
+  scan dangling COMMITS and their trees for the paths instead.
+  Next action: no build session starts without `git status` AND a check for other running
+  sessions, per the session-start ritual. If a second session is needed, it works on its
+  own branch or its own worktree, never the same tree.
+
 ## Monitoring — MON-002 does not do what two earlier entries in this file claim (2026-08-23)
 
 - [pre-c1] MON-002 is a LIVENESS check only. A cron that fails every run still reads OK.
