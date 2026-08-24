@@ -107,6 +107,42 @@
   summary. The queue worker must not rely on that file. (Carried forward from the
   2026-08-20 entry; still true and now directly relevant.)
 
+- [pre-c1, REAL DEFECT, found 2026-08-24 during C4 verification] The queue claim path does
+  NOT exclude archived organisations. The route does. They disagree.
+  Traced through every layer:
+    enrich-approved-batch route        FILTERS archived (404s)
+    enqueueEnrichForOrganisation       no filter
+    queue_next_organisations           no filter
+    claim_jobs                         no filter
+    enrichBatchExecutor and the Apollo adapter   no filter
+    enrichment-trigger (the inline path)         no filter
+  Consequence: if a client is archived while jobs are queued, or a job is enqueued by any
+  path other than the route, the worker keeps claiming and enriching that organisation's
+  prospects and SPENDING MONEY on a client that has been archived. The route being the
+  only gate means the guarantee disappears the moment anything else enqueues.
+  This is the same class Doug already flagged: the poller and the reply processor both
+  carry an archived check and handleUploadLeads does not.
+  Not fixed in C4 because C4's scope was the migration, and because the fix has a real
+  decision in it: should archived-org jobs be (a) refused at enqueue, (b) skipped at
+  claim, or (c) cancelled in place when an organisation is archived? (c) is the only one
+  that handles the archive-after-enqueue case, and it needs a trigger or a sweep.
+  Next action: decide the shape, then apply it to queue_next_organisations AND the
+  inline enrichment-trigger together, since they share the hole.
+
+- [DONE 2026-08-24, state left in place deliberately] One prospect in the archived
+  DRY RUN TEST org is approved and enriched, from the C4 live verification.
+    org      a2b621fc-4c9d-43d9-9af4-1253ff49d12d (DRY RUN TEST, archived)
+    prospect 63ea6c82-a876-4c90-a56e-e6b2d2f04fdb (apollo:new-person-789)
+    now      sourcing_review_status = approved, enrichment_status = enriched,
+             email alice_000_47c9cd@mock.invalid
+  It was enriched in MOCK mode: credits_consumed 0, no Apollo call, no money.
+  enrichment_credit_consumed_at is NULL because recordBatchSpend only stamps it when
+  credits_consumed > 0, which is correct.
+  Left as is rather than reverted: the org is archived and was built for exactly this, so
+  there is nothing to clean up, and the row is now a worked example of a completed queue
+  job. If it is ever reverted, note that the job_queue row 59a2358e-cc48-46bb-9918-74c270ad0547
+  is the matching history.
+
 - [pre-c1, UNVERIFIED] Four job-queue review findings whose verdict was never reached.
   The 2026-08-24 adversarial review of C2 judged 26 findings and hit the session limit
   mid-verification. Six findings had incomplete refuter panels. Two were checked by hand
