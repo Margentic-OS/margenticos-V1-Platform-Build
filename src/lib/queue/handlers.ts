@@ -32,6 +32,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { executeJob, type JobHandler, type JobOutcome } from './execute-job'
 import { enrichBatchExecutor } from './executors/enrich'
+import { researchHandler } from './executors/research'
 import type { JobRow, JobType } from './types'
 
 /**
@@ -75,7 +76,9 @@ export function perJobExecutor(
 const HANDLERS: Partial<Record<JobType, JobBatchExecutor>> = {
   // C4. Batch-shaped: one Apollo bulk_match call per claimed batch of up to ten.
   enrich: enrichBatchExecutor,
-  // research: registered in C5
+  // C5. Genuinely per-prospect, so perJobExecutor maps executeJob across the claimed
+  // batch and each prospect gets its own row, its own spend stamp and its own verdict.
+  research: perJobExecutor(() => researchHandler()),
   // compose:  registered in C6
 }
 

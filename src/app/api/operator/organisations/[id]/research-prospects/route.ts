@@ -19,8 +19,26 @@
 //     that reuses findings already on file instead of paying to fetch all four sources
 //     again.
 //
-// Long work: the batch runs inside this request. There is no queue. runResearchBatchForOrg
-// refuses a batch that would not finish inside the budget, with an explicit error.
+// ═════════════════════════════════════════════════════════════════════════════
+// TWO PATHS, CHOSEN BY AN EXPLICIT DATABASE FLAG
+//
+//   system_flags.queue_research = false  INLINE. The batch runs inside this request, and
+//                                        runResearchBatchForOrg refuses anything that
+//                                        would not finish inside the 240s budget. At
+//                                        46.8s per fetching prospect that is about FIVE.
+//   system_flags.queue_research = true   QUEUED. This request only ENQUEUES and returns
+//                                        immediately. The pg_cron worker does the work,
+//                                        ten prospects in flight at a time, with no
+//                                        per-request ceiling at all.
+//
+// The queued path is the whole reason the queue exists: the five-per-click limit is what
+// made onboarding a client with hundreds of unresearched prospects impractical.
+//
+// use_stored_findings is honoured on the INLINE path only. job_queue carries no payload,
+// so a queued job always runs with the safe default of TRUE. A request that asks for
+// false while the queue is on is REFUSED rather than silently downgraded: quietly
+// ignoring an explicit instruction to re-fetch every source would be worse than saying
+// no, because the caller would believe fresh research had been ordered.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
@@ -29,6 +47,8 @@ import { cookies } from 'next/headers'
 import * as Sentry from '@sentry/nextjs'
 import type { Database } from '@/types/database'
 import { runResearchBatchForOrg, type ResearchScope } from '@/lib/operator/research-batch-entry'
+import { isQueueEnabled } from '@/lib/queue/flags'
+import { enqueueResearchForOrganisation } from '@/lib/queue/enqueue/research'
 import { logger } from '@/lib/logger'
 import { requireOperator } from '@/lib/supabase/require-operator'
 
@@ -100,13 +120,73 @@ export async function POST(
     // of every source.
     const useStoredFindings = body.use_stored_findings === false ? false : true
 
+    const queued = await isQueueEnabled(supabase, 'research')
+
     logger.info('research-prospects: operator triggered', {
       operator_id: user.id,
       organisation_id: organisationId,
       scope,
       use_stored_findings: useStoredFindings,
+      path: queued ? 'queue' : 'inline',
     })
 
+    // ── QUEUED PATH ─────────────────────────────────────────────────────────
+    if (queued) {
+      // Refused, not silently downgraded. See the header.
+      if (!useStoredFindings) {
+        return NextResponse.json({
+          error:
+            'Refused: use_stored_findings=false cannot be honoured while research runs through ' +
+            'the queue, because a queued job carries no per-job options and always uses the safe ' +
+            'default. Re-fetching every source is a paid operation and must not happen by ' +
+            'accident. Run it from the CLI, which stays on the inline path.',
+        }, { status: 400 })
+      }
+
+      const enqueued = await enqueueResearchForOrganisation(
+        supabase,
+        organisationId,
+        scope as ResearchScope,
+        `operator:${user.id}`,
+      )
+
+      if (!enqueued.ok) {
+        // A refusal is the guard working, not a server fault.
+        logger.warn('research-prospects: enqueue refused', {
+          operator_id: user.id,
+          organisation_id: organisationId,
+          error: enqueued.error,
+        })
+        return NextResponse.json({ error: enqueued.error }, { status: 400 })
+      }
+
+      logger.info('research-prospects: enqueued', {
+        operator_id: user.id,
+        organisation_id: organisationId,
+        scope,
+        selected: enqueued.selected,
+        created: enqueued.created,
+        already_queued: enqueued.alreadyQueued,
+      })
+
+      return NextResponse.json({
+        ok: true,
+        queued: true,
+        result: {
+          scope: enqueued.scope,
+          selected: enqueued.selected,
+          queued: enqueued.created,
+          already_queued: enqueued.alreadyQueued,
+          message:
+            enqueued.created > 0
+              ? `${enqueued.created} prospect(s) queued for research. The background worker runs ` +
+                'up to ten at a time and takes roughly a minute per prospect.'
+              : `Nothing new to queue: all ${enqueued.alreadyQueued} eligible prospect(s) are already in the queue.`,
+        },
+      })
+    }
+
+    // ── INLINE PATH ─────────────────────────────────────────────────────────
     const result = await runResearchBatchForOrg({
       supabase,
       organisation_id: organisationId,
@@ -139,6 +219,9 @@ export async function POST(
 
     return NextResponse.json({
       ok: true,
+      // Named explicitly so the caller reads a field rather than inferring the path from
+      // which keys happen to be present.
+      queued: false,
       result: {
         prospects_selected: result.prospects_selected,
         use_stored_findings: result.use_stored_findings,

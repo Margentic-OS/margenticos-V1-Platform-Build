@@ -8,7 +8,7 @@ interface ResearchProspectsButtonProps {
   unresearchedCount: number
 }
 
-type Status = 'idle' | 'researching' | 'success' | 'error'
+type Status = 'idle' | 'researching' | 'success' | 'error' | 'queued'
 
 interface ResearchResult {
   total: number
@@ -25,11 +25,13 @@ export function ResearchProspectsButton({ organisationId, unresearchedCount }: R
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ResearchResult | null>(null)
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null)
 
   async function handleResearch() {
     setStatus('researching')
     setError(null)
     setResult(null)
+    setQueuedMessage(null)
 
     try {
       const res = await fetch(`/api/operator/organisations/${organisationId}/research-prospects`, {
@@ -45,6 +47,18 @@ export function ResearchProspectsButton({ organisationId, unresearchedCount }: R
 
       if (!res.ok || !data.ok) {
         throw new Error(data.error || 'Research failed')
+      }
+
+      // ── QUEUED PATH ────────────────────────────────────────────────────────
+      //
+      // Nothing has been researched when this response arrives; the worker picks the jobs
+      // up within a minute and runs ten at a time. The inline success view renders
+      // completed, failed and collision counts, none of which exist yet on this path, so
+      // rendering it would show zeros that look like a batch that did nothing.
+      if (data.queued) {
+        setQueuedMessage(data.result?.message ?? 'Prospects queued for research.')
+        setStatus('queued')
+        return
       }
 
       setResult(data.result as ResearchResult)
@@ -66,6 +80,22 @@ export function ResearchProspectsButton({ organisationId, unresearchedCount }: R
         </button>
         <span className="text-xs text-text-secondary">
           Up to a few minutes. Leave this tab open.
+        </span>
+      </div>
+    )
+  }
+
+  if (status === 'queued') {
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleResearch}
+          className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-white text-[#1C3A2A] border border-[#BDDAB0] hover:bg-[#EBF5E6] transition-colors"
+        >
+          Queue more
+        </button>
+        <span className="text-xs text-[#3B6D11]">
+          {queuedMessage} You can close this tab.
         </span>
       </div>
     )
