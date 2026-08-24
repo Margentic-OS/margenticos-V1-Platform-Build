@@ -1,7 +1,17 @@
 -- Migration: create job_queue, system_flags, and the atomic claim/lease primitives
 -- Date: 2026-08-24
 --
--- Status: PENDING (apply via Supabase MCP apply_migration, then verify live)
+-- Status: APPLIED (verified live 2026-08-24)
+--
+-- INCOMPLETE ON ITS OWN. The function grant block at the bottom of this file revokes
+-- FROM PUBLIC only, which on Supabase is a silent no-op: ALTER DEFAULT PRIVILEGES has
+-- already granted EXECUTE to anon and authenticated explicitly, and revoking PUBLIC
+-- does not remove a named-role grant. All eight functions are SECURITY DEFINER, so
+-- they bypass RLS. 20260824160500_job_queue_revoke_anon_authenticated.sql closes it
+-- and explains it in full.
+--
+-- DO NOT COPY THE GRANT BLOCK AT THE BOTTOM OF THIS FILE AS A TEMPLATE. Copy the one
+-- in 20260824160500 instead, which names the roles.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHY THIS TABLE EXISTS AND WHY IT IS NOT agent_runs
@@ -594,6 +604,11 @@ GRANT SELECT, UPDATE           ON public.system_flags TO service_role;
 -- own auth gate (Bearer CRON_SECRET) and the enqueue paths run behind the operator
 -- gate, so nothing here is called by authenticated directly. pg_cron is NOT granted:
 -- the scheduled job posts to the HTTP route, it does not call these functions.
+
+-- WARNING: THE REVOKES BELOW ARE NOT SUFFICIENT ON SUPABASE. Kept as applied, for
+-- history. See 20260824160500_job_queue_revoke_anon_authenticated.sql, which names
+-- anon and authenticated explicitly. A replay of this repo applies both in order and
+-- lands correct; this file alone does not.
 
 REVOKE ALL ON FUNCTION public.job_queue_backoff(integer)                              FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.enqueue_job(text, uuid, uuid, text, integer)            FROM PUBLIC;

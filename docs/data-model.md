@@ -423,6 +423,119 @@ RLS:
 
 ---
 
+## Table: job_queue
+
+**What it holds.** One row per prospect per unit of slow, money-spending work. Added
+2026-08-24. Three job types: `enrich` (Apollo), `research` (Apify plus Anthropic) and
+`compose` (Anthropic). Document generation is **not** queued: those agents run once per
+client, not once per prospect.
+
+**Why this exists.** All three used to run inside a single web request. Vercel kills any
+request at 300s, and research is measured at 46.8s per prospect, so one request admitted
+about five prospects. That capped the whole volume plan at a few prospects per click.
+
+**Why it is not `agent_runs`.** Read this before proposing a merge; the overlap is
+superficial. `agent_runs` is a history table, written after the fact to record that
+something ran. It has no claim state, no lease, no attempt count and no spend record,
+and those four are the entire substance of a durable queue. Adding them would give one
+table two meanings. `agent_runs` stays as the history and both are written during a job:
+`agent_runs` answers "what did we run and when", `job_queue` answers "what is owed, who
+holds it, what has it cost, and what happens next".
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | uuid | primary key |
+| `job_type` | text NOT NULL | `'enrich'`, `'research'` or `'compose'`, enforced by CHECK. |
+| `organisation_id` | uuid NOT NULL | Agent isolation, and the per-organisation fairness key. `ON DELETE CASCADE`. |
+| `prospect_id` | uuid NOT NULL | The target. `ON DELETE CASCADE`: a job for a deleted prospect has nothing to act on. |
+| `state` | text NOT NULL | `queued` / `claimed` / `done` / `failed` / `cancelled`, enforced by CHECK. Default `queued`. |
+| `claimed_by` | text | Which worker invocation holds it. Cleared on reclaim. |
+| `lease_expires_at` | timestamptz | The claim expiry. A dead worker's job is reclaimable once this passes. |
+| `attempts` | integer NOT NULL | Incremented **at claim time**, not at completion. |
+| `max_attempts` | integer NOT NULL | Per row, so an expensive job type can be capped tighter with no code change. Default 3. |
+| `run_after` | timestamptz NOT NULL | Backoff schedule. The claim only sees rows where this has passed. |
+| `last_error` | text | Mandatory on `failed`, enforced by CHECK. |
+| `last_error_class` | text | `'transient'` or `'permanent'`, classified at the point of failure. |
+| `spend_recorded_at` | timestamptz | **The pay-before-work stamp.** Non-null means a paid call already returned for this job. |
+| `spend_detail` | jsonb | Credits, tokens, actor run id. Deliberately unconstrained, see below. |
+| `result_summary` | text | |
+| `enqueued_by` | text | Which surface enqueued it, for the flag rollback story. |
+| `created_at`, `updated_at` | timestamptz | |
+
+**Indexes.** `UNIQUE (job_type, prospect_id) WHERE state IN ('queued','claimed')` is the
+idempotency spine: one live job per target per type, enforced by the database rather
+than by application logic, so a double click collapses to one row. It is partial, so a
+finished job never blocks a later deliberate re-run. Plus a partial claim index on
+`(job_type, organisation_id, run_after, created_at) WHERE state='queued'`, a partial
+lease index for reclaim, a monitoring index, and a plain `prospect_id` index so the
+cascade delete does not sequentially scan.
+
+**Why `spend_detail` has no constraint tying it to `spend_recorded_at`.** It is tempting
+to require that a stamped row also carries detail. Do not add it. The stamp is written
+in the microseconds after money leaves the account, and a constraint violation at that
+exact moment would abort the one write that prevents paying twice. The recording path
+must be incapable of throwing.
+
+**How re-spend is prevented.** `record_job_spend()` writes `spend_recorded_at` the
+instant a paid call returns, before any parsing, mapping or database write that can
+throw. This is the fix pattern from commit 3de0589, where a crash mid-job left work
+claimable and payable twice: 141 Apollo credits for 29 prospects on 10 August 2026,
+against a ceiling of one per contact. When a worker claims a job that already has
+`spend_recorded_at` set, it does **not** call the paid API. The job goes straight to
+terminal `failed`, because a response we already paid for cannot be reconstructed and
+calling again is precisely the bug.
+
+**Database functions.** All eight are `SECURITY DEFINER` and callable only by
+`service_role`: `enqueue_job`, `claim_jobs`, `queue_next_organisations`,
+`record_job_spend`, `complete_job`, `fail_job`, `reclaim_expired_jobs`, and
+`job_queue_backoff`. `claim_jobs` is a single `UPDATE ... RETURNING` using
+`FOR UPDATE SKIP LOCKED`, never a `SELECT` followed by an `UPDATE`, which is what makes
+two concurrent workers take disjoint sets. Backoff lives in SQL in one function so
+reclaim and fail cannot drift apart.
+
+**RLS.** Enabled with **zero policies**, the same shape as `suppressed_emails`.
+`anon` and `authenticated` are revoked at both the table and the function grant level;
+`service_role` holds SELECT, INSERT and UPDATE. There is no client-facing surface for
+this table and there must never be one.
+
+**A trap worth knowing about.** `REVOKE ... FROM PUBLIC` is **not sufficient** for
+functions in the public schema on Supabase. `ALTER DEFAULT PRIVILEGES` has already
+granted EXECUTE to `anon` and `authenticated` explicitly, so revoking `PUBLIC` is a
+silent no-op. The roles must be named. This was caught during the C1 verification step,
+when `has_function_privilege` showed `anon` still holding EXECUTE on all eight
+`SECURITY DEFINER` functions, and fixed in
+`20260824160500_job_queue_revoke_anon_authenticated.sql`. Always verify with
+`has_function_privilege` for `anon` and `authenticated`, not just for the intended caller.
+
+---
+
+## Table: system_flags
+
+**What it holds.** Explicit rollout flags, one row per key. Added 2026-08-24 alongside
+`job_queue`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `key` | text | primary key, e.g. `queue_enrich` |
+| `enabled` | boolean NOT NULL | Default **false**, which means the existing inline path runs. |
+| `note` | text | Plain English. Humans read this table when deciding whether to flip something. |
+| `updated_at` | timestamptz | |
+| `updated_by` | text | Free text, not a FK: may be a person, a script, or the credit-exhaustion circuit breaker. |
+
+**Current keys.** `queue_enrich`, `queue_research`, `queue_compose`. All false until each
+job type is proven live. Flipping one back is a single UPDATE with no deploy.
+
+**Why a database flag and never an environment variable.** Per CLAUDE.md, mode is never
+inferred from `NODE_ENV`, `VERCEL_URL`, or the presence of a key. Inferred modes cannot
+be audited, cannot be flipped without a deploy, and drift silently from whatever the UI
+claims. Same discipline as `enrichment_live`.
+
+**Why not `integrations_registry.config`.** That table is keyed by capability and holds
+tool configuration. Queue rollout is not a capability and has no vendor. Putting it
+there would repeat the one-table-two-meanings mistake described under `job_queue`.
+
+---
+
 ## What to check if something breaks
 
 1. "I can see data I shouldn't"
