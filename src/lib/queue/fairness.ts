@@ -11,8 +11,43 @@
 // by the DEPTH of the largest batch. With three active clients and a one-minute tick,
 // the third waits about three minutes no matter how much work the first has queued.
 //
-// This function is pure so the property can be tested directly, rather than inferred
-// from watching a live queue drain.
+// ═════════════════════════════════════════════════════════════════════════════
+// WHY ORDERING BY OLDEST IS NOT ENOUGH ON ITS OWN, AND WHY THE CURSOR EXISTS
+//
+// The first version of this file ordered organisations by their oldest queued job and
+// stopped there. That is not a round-robin. It is a priority queue that always returns
+// the same answer.
+//
+// Worked example, research, which is the job type whose ceiling cannot be raised:
+// maxInFlight 10 rows, claimBatchSize 5, so exactly two organisations fit per pass.
+// With orgs A, B and C all holding deep backlogs, A and B are served and C is not.
+// On the next tick A and B are STILL the two oldest, because their remaining jobs were
+// created at the same time as the ones just claimed. C is not served then either, or on
+// any tick after it, for as long as A and B have work. C waits forever.
+//
+// So the planner needs memory. It starts each pass at the organisation AFTER the one it
+// finished on last time, which turns a fixed priority order into a genuine rotation.
+//
+// WHERE THE CURSOR LIVES: the queue_rotation table, one row per job_type, holding
+// last_organisation_id. It is deliberately NOT in system_flags (that table is booleans
+// for rollout), NOT in job_queue (that is per-job state, and the cursor outlives every
+// individual job), and NOT in worker memory (each Vercel invocation is a fresh process,
+// so in-memory rotation would reset on every tick and rotate nothing).
+//
+// planClaims itself stays PURE. It is handed the cursor and returns the next one, so
+// the rotation property is testable without a database.
+
+/**
+ * Where a pass should begin, and where it ended.
+ *
+ * nextCursor is the LAST organisation this pass planned for. Persisting it means the
+ * following pass starts after it. Null when nothing was planned, which leaves the
+ * stored cursor untouched rather than resetting the rotation to the top.
+ */
+export interface ClaimPlan {
+  entries: ClaimPlanEntry[]
+  nextCursor: string | null
+}
 
 import type { JobTypeConfig } from './config'
 import type { OrganisationBacklog } from './types'
@@ -45,30 +80,82 @@ export function planClaims(
   backlog: OrganisationBacklog[],
   config: JobTypeConfig,
   headroom: number,
+  lastServedOrganisationId: string | null = null,
 ): ClaimPlanEntry[] {
-  if (headroom <= 0) return []
+  return planClaimsWithRotation(backlog, config, headroom, lastServedOrganisationId).entries
+}
 
-  // Defensive: the SQL already orders by oldest, but this function is pure and callers
-  // may hand it a list from anywhere. Sorting here means the property holds regardless.
+/**
+ * The full planner, returning the next cursor alongside the entries.
+ *
+ * Rules, in order:
+ *   1. Organisations are ordered oldest-job-first, which is the FIFO property worth
+ *      keeping: an organisation that has waited longest sorts ahead of a newcomer.
+ *   2. That order is then ROTATED to begin after the organisation served last, so the
+ *      same two organisations cannot hold the front of the queue forever.
+ *   3. Each organisation is capped at claimBatchSize on this pass, so no organisation
+ *      can take more than its slice however deep its backlog.
+ *   4. The total is capped by the remaining global in-flight headroom.
+ *   5. An organisation whose slice would be zero is dropped rather than returned with
+ *      limit 0, so callers never issue a pointless claim round trip.
+ */
+export function planClaimsWithRotation(
+  backlog: OrganisationBacklog[],
+  config: JobTypeConfig,
+  headroom: number,
+  lastServedOrganisationId: string | null = null,
+): ClaimPlan {
+  if (headroom <= 0) return { entries: [], nextCursor: null }
+
+  // The SQL already orders by oldest, but this function is pure and callers may hand it
+  // a list from anywhere. Sorting here means the property holds regardless.
   const ordered = [...backlog].sort((a, b) => a.oldest.localeCompare(b.oldest))
 
-  const plan: ClaimPlanEntry[] = []
+  const rotated = rotateAfter(ordered, lastServedOrganisationId)
+
+  const entries: ClaimPlanEntry[] = []
   let remaining = headroom
 
-  for (const org of ordered) {
+  for (const org of rotated) {
     if (remaining <= 0) break
 
-    // Never claim more than the organisation actually has waiting. Asking for 25 when 3
+    // Never claim more than the organisation actually has waiting. Asking for 10 when 3
     // are queued is harmless at the database, but it makes the plan misreport how much
     // of the headroom this pass will really use.
     const slice = Math.min(config.claimBatchSize, remaining, Math.max(org.depth, 0))
     if (slice <= 0) continue
 
-    plan.push({ organisation_id: org.organisation_id, limit: slice })
+    entries.push({ organisation_id: org.organisation_id, limit: slice })
     remaining -= slice
   }
 
-  return plan
+  return {
+    entries,
+    // Null when nothing was planned, so a pass that found no work leaves the stored
+    // cursor alone. Resetting it to the top would undo the rotation every quiet tick.
+    nextCursor: entries.length > 0 ? entries[entries.length - 1].organisation_id : null,
+  }
+}
+
+/**
+ * Rotate an ordered list so it begins just after `afterId`.
+ *
+ * When afterId is null, or names an organisation no longer in the list because its
+ * backlog drained, the list is returned unrotated. That is the correct degradation:
+ * an unknown cursor means "start from the oldest", which is where a fresh rotation
+ * should begin anyway.
+ */
+function rotateAfter<T extends { organisation_id: string }>(
+  ordered: T[],
+  afterId: string | null,
+): T[] {
+  if (afterId === null || ordered.length === 0) return ordered
+
+  const index = ordered.findIndex(o => o.organisation_id === afterId)
+  if (index === -1) return ordered
+
+  const start = (index + 1) % ordered.length
+  return [...ordered.slice(start), ...ordered.slice(0, start)]
 }
 
 /**

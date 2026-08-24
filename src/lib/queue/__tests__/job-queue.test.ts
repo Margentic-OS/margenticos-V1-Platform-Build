@@ -188,7 +188,7 @@ describe('failJob and completeJob', () => {
     const job = makeJob({ state: 'claimed' })
     const fake = createFakeQueue([job])
 
-    await failJob(fake.client, job.id, 'boom', 'permanent', true)
+    await failJob(fake.client, job.id, 'worker-one', 'boom', 'permanent', true)
 
     expect(fake.rpcCalls[0].args).toMatchObject({
       p_error_class: 'permanent',
@@ -200,7 +200,7 @@ describe('failJob and completeJob', () => {
     const job = makeJob({ state: 'claimed' })
     const fake = createFakeQueue([job])
 
-    await failJob(fake.client, job.id, 'x'.repeat(5000), 'transient')
+    await failJob(fake.client, job.id, 'worker-one', 'x'.repeat(5000), 'transient')
 
     expect((fake.rpcCalls[0].args.p_error as string).length).toBeLessThanOrEqual(900)
   })
@@ -208,7 +208,7 @@ describe('failJob and completeJob', () => {
   it('returns null when the job was not claimed, rather than inventing a row', async () => {
     const job = makeJob({ state: 'queued' })
     const fake = createFakeQueue([job])
-    expect(await completeJob(fake.client, job.id, 'summary')).toBeNull()
+    expect(await completeJob(fake.client, job.id, 'worker-one', 'summary')).toBeNull()
   })
 })
 

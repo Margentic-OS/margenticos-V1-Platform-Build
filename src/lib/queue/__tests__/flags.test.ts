@@ -82,27 +82,43 @@ describe('isQueueEnabled — failing closed', () => {
 describe('setQueueFlag', () => {
   it('writes the new value against the right key', async () => {
     const fake = createFakeQueue([])
+    fake.flags.set('queue_research', false)
     await setQueueFlag(fake.client, 'research', true, 'operator:doug')
     expect(fake.flags.get('queue_research')).toBe(true)
   })
 
   it('can turn a flag back off, which is the rollback', async () => {
     const fake = createFakeQueue([])
+    fake.flags.set('queue_research', false)
     await setQueueFlag(fake.client, 'research', true, 'operator:doug')
     await setQueueFlag(fake.client, 'research', false, 'circuit-breaker:apify-exhausted')
     expect(fake.flags.get('queue_research')).toBe(false)
   })
 
-  it('throws when the write fails, because a silent no-op here is dangerous', async () => {
-    const failing = {
-      from: () => ({
-        update: () => ({ eq: async () => ({ error: { message: 'read only transaction' } }) }),
-      }),
-    } as never
+  it('throws when the write errors, because a silent no-op here is dangerous', async () => {
+    const fake = createFakeQueue([], { failRpc: { 'update:system_flags': 'read only transaction' } })
+    fake.flags.set('queue_enrich', true)
 
     // Unlike the read, the write must be loud: an operator who thinks they turned the
     // queue off, and did not, is worse off than one who sees an error.
-    await expect(setQueueFlag(failing, 'enrich', false, 'operator:doug'))
+    await expect(setQueueFlag(fake.client, 'enrich', false, 'operator:doug'))
       .rejects.toThrow(/Failed to set queue_enrich to false/)
+  })
+
+  it('THROWS when the update matched ZERO rows, rather than reporting success', async () => {
+    // The circuit-breaker bug. A bare .update().eq() returns error null when it matched
+    // nothing, so a missing or misnamed flag row reported success while changing nothing.
+    // If that happens to the credit-exhaustion breaker, the breaker does not exist: the
+    // worker believes it stopped the job type and keeps hammering a dry account.
+    const fake = createFakeQueue([])
+    // No row seeded, so nothing matches.
+    await expect(setQueueFlag(fake.client, 'research', false, 'circuit-breaker:apify-exhausted'))
+      .rejects.toThrow(/no system_flags row matched/)
+  })
+
+  it('the zero-row throw names the consequence for the circuit breaker', async () => {
+    const fake = createFakeQueue([])
+    await expect(setQueueFlag(fake.client, 'enrich', false, 'circuit-breaker'))
+      .rejects.toThrow(/job type is still running/)
   })
 })

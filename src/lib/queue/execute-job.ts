@@ -27,6 +27,37 @@
 //
 //    That is the difference between a rule and a mechanism. The rule was already
 //    written down before 10 August 2026 and it was still possible to violate it.
+//
+// ═════════════════════════════════════════════════════════════════════════════
+// A KNOWN, DELIBERATE LIMITATION. DO NOT "FIX" THIS.
+//
+// paid() records spend AFTER call() resolves. So there is one window it does not
+// cover: the provider received the request and billed for it, and the response never
+// came back. A 504 from a gateway, or an ECONNRESET, after Apollo has already debited
+// the credits. No stamp is written, the error classifies as transient, the job is
+// requeued, and the paid call happens again.
+//
+// THE OBVIOUS FIX IS WORSE THAN THE PROBLEM. Stamping BEFORE the call makes every
+// transient failure look paid. A 429 is a request the provider received, rejected, and
+// charged nothing for. So are ECONNREFUSED, a DNS failure, and a connect timeout. Under
+// a pre-call stamp every one of those would hit the gate on retry and be terminated as
+// already-paid, which destroys the retry behaviour that invariant E exists to provide.
+// It would trade a rare duplicate charge for routine, silent loss of work.
+//
+// There is no third option from the client side. Telling "billed but the answer was
+// lost" apart from "never billed" requires either a provider-side idempotency key,
+// which Apollo's people/bulk_match does not offer, or a reconciliation read against the
+// provider's own usage record. Both are separate features, not a tightening of this one.
+//
+// WHAT IS ACTUALLY BOUNDED HERE. This is the ordinary at-least-once ambiguity of any
+// queue over a non-idempotent paid API, and it is capped by max_attempts (3 for enrich,
+// 2 for research). It is structurally different from the 3de0589 bug, where money left
+// at the START and status was written at the END, so EVERY ordinary failure in between
+// re-paid: a mapping miss, a parse error, a database write failure, a worker death.
+// That deterministic every-run re-spend is what produced 141 credits for 29 prospects.
+// This is a rare tail, not a loop.
+//
+// Reviewed adversarially on 2026-08-24 and left in place on purpose.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
@@ -89,6 +120,17 @@ export type JobHandler = (ctx: JobContext) => Promise<string>
 
 export type JobOutcome =
   | { status: 'done'; jobId: string; summary: string }
+  /**
+   * The work finished but the completion write threw. NOT a failure: the external call
+   * is done and paid for. The lease lapses and reclaim requeues; the spend gate stops
+   * the next attempt from paying again.
+   */
+  | { status: 'completion_write_failed'; jobId: string; summary: string }
+  /**
+   * The work finished but this worker's lease had already been reclaimed, so the fence
+   * rejected the completion write. Another worker owns the row and is redoing it.
+   */
+  | { status: 'lease_lost'; jobId: string; summary: string }
   | {
       status: 'failed'
       jobId: string
@@ -111,6 +153,7 @@ export type JobOutcome =
 export async function executeJob(
   supabase: SupabaseClient,
   job: JobRow,
+  worker: string,
   handler: JobHandler,
 ): Promise<JobOutcome> {
   // ── The spend gate, before anything else ────────────────────────────────────
@@ -126,7 +169,7 @@ export async function executeJob(
       spend_detail:      job.spend_detail,
     })
 
-    await safeFail(supabase, job, decision.reason, 'permanent', true)
+    await safeFail(supabase, job, worker, decision.reason, 'permanent', true)
 
     return {
       status:             'failed',
@@ -166,19 +209,22 @@ export async function executeJob(
   }
 
   // ── Run it ──────────────────────────────────────────────────────────────────
+  //
+  // THE HANDLER AND THE COMPLETION WRITE ARE IN SEPARATE TRY BLOCKS, and that separation
+  // is the whole of fix F.
+  //
+  // They used to share one. So a throw from completeJob was caught by the handler's
+  // catch, classified as if the WORK had failed, and written through safeFail. The
+  // result: a job that ran to completion, paid its external API, and produced its output
+  // was recorded as failed. If the class came out transient it would then be retried and
+  // pay again; if permanent it was terminal, and the successful work was thrown away
+  // with a misleading reason attached.
+  //
+  // A handler failure and a bookkeeping failure are different events with different
+  // correct responses, so they cannot share a catch.
+  let summary: string
   try {
-    const summary = await handler(ctx)
-    await completeJob(supabase, job.id, summary)
-
-    logger.info('execute-job: job complete', {
-      job_id:          job.id,
-      job_type:        job.job_type,
-      organisation_id: job.organisation_id,
-      prospect_id:     job.prospect_id,
-      attempts:        job.attempts,
-    })
-
-    return { status: 'done', jobId: job.id, summary }
+    summary = await handler(ctx)
   } catch (err) {
     const errorClass = classifyError(err)
     const errorText  = describeError(err)
@@ -199,7 +245,7 @@ export async function executeJob(
       error:            errorText,
     })
 
-    await safeFail(supabase, job, errorText, errorClass, false)
+    await safeFail(supabase, job, worker, errorText, errorClass, false)
 
     return {
       status:             'failed',
@@ -209,6 +255,67 @@ export async function executeJob(
       terminatedForSpend: false,
       accountExhausted:   exhausted,
     }
+  }
+
+  // ── The work succeeded. Now record it. ──────────────────────────────────────
+  //
+  // A failure from here on is a BOOKKEEPING failure, never a work failure. The external
+  // call is done and paid for and its output is written. Marking the job failed now
+  // would be a lie that costs money on retry.
+  try {
+    const completed = await completeJob(supabase, job.id, worker, summary)
+
+    if (completed === null) {
+      // Zero rows matched, which means the fence rejected us: this worker's lease
+      // expired and the job was reclaimed while the handler was still running. The work
+      // IS done, but another worker now owns the row and is redoing it.
+      //
+      // Not marked failed, because it did not fail. Not marked done either, because we
+      // no longer hold the claim and overwriting the new holder's row is exactly the
+      // corruption the fence exists to stop.
+      logger.error('execute-job: work finished but the lease had already been reclaimed', {
+        job_id:          job.id,
+        job_type:        job.job_type,
+        organisation_id: job.organisation_id,
+        prospect_id:     job.prospect_id,
+        worker,
+        attempts:        job.attempts,
+        consequence:
+          'Another worker holds this job and will redo it. If the handler made a paid ' +
+          'call, spend_recorded_at is set and the spend gate will terminate that attempt ' +
+          'rather than paying again.',
+        fix: 'Raise leaseSeconds for this job type if this recurs.',
+      })
+      return { status: 'lease_lost', jobId: job.id, summary }
+    }
+
+    logger.info('execute-job: job complete', {
+      job_id:          job.id,
+      job_type:        job.job_type,
+      organisation_id: job.organisation_id,
+      prospect_id:     job.prospect_id,
+      attempts:        job.attempts,
+    })
+
+    return { status: 'done', jobId: job.id, summary }
+  } catch (err) {
+    // The completion write itself threw. The job stays 'claimed', its lease lapses, and
+    // reclaim requeues it. If the handler paid for anything, the spend gate terminates
+    // that next attempt instead of paying twice. Deliberately NOT routed through
+    // safeFail: this job did not fail.
+    logger.error('execute-job: work succeeded but the completion write failed', {
+      job_id:          job.id,
+      job_type:        job.job_type,
+      organisation_id: job.organisation_id,
+      prospect_id:     job.prospect_id,
+      worker,
+      summary,
+      error: err instanceof Error ? err.message : String(err),
+      consequence:
+        'Job stays claimed until its lease expires, then reclaim requeues it. It is NOT ' +
+        'marked failed, because the work was done.',
+    })
+    return { status: 'completion_write_failed', jobId: job.id, summary }
   }
 }
 
@@ -223,12 +330,13 @@ export async function executeJob(
 async function safeFail(
   supabase: SupabaseClient,
   job: JobRow,
+  worker: string,
   errorText: string,
   errorClass: ErrorClass,
   forceTerminal: boolean,
 ): Promise<void> {
   try {
-    await failJob(supabase, job.id, errorText, errorClass, forceTerminal)
+    await failJob(supabase, job.id, worker, errorText, errorClass, forceTerminal)
   } catch (err) {
     logger.error('execute-job: could not write the failure, leaving the lease to lapse', {
       job_id: job.id,

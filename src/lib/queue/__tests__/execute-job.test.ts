@@ -53,7 +53,7 @@ describe('executeJob — a reclaimed job that was already paid for', () => {
     // The spy stands in for Apollo, Apify or Anthropic. If it is called, we paid twice.
     const paidApiCall = vi.fn(async () => ({ credits_consumed: 1 }))
 
-    const outcome = await executeJob(fake.client, job, async ctx => {
+    const outcome = await executeJob(fake.client, job, 'worker-one', async ctx => {
       await ctx.paid('apollo.bulk_match', paidApiCall)
       return 'should never get here'
     })
@@ -73,7 +73,7 @@ describe('executeJob — a reclaimed job that was already paid for', () => {
     })
     const fake = createFakeQueue([job])
 
-    await executeJob(fake.client, job, async () => 'unreachable')
+    await executeJob(fake.client, job, 'worker-one', async () => 'unreachable')
 
     // Under the attempt cap, a transient failure would normally go back to 'queued'.
     // force_terminal is what stops that here.
@@ -87,7 +87,7 @@ describe('executeJob — a reclaimed job that was already paid for', () => {
     const fake = createFakeQueue([job])
     const handler = vi.fn(async () => 'summary')
 
-    await executeJob(fake.client, job, handler)
+    await executeJob(fake.client, job, 'worker-one', handler)
 
     // The gate runs before the handler, so a handler that does anything expensive
     // before its first paid() call is also protected.
@@ -100,7 +100,7 @@ describe('executeJob — pay-before-work recording', () => {
     const job = makeJob({ state: 'claimed' })
     const fake = createFakeQueue([job])
 
-    await executeJob(fake.client, job, async ctx => {
+    await executeJob(fake.client, job, 'worker-one', async ctx => {
       await ctx.paid('apollo.bulk_match', async () => ({ credits_consumed: 4 }))
       // Everything after a paid call is a failure path that used to lose the receipt.
       throw new Error('parsing the response blew up')
@@ -114,7 +114,7 @@ describe('executeJob — pay-before-work recording', () => {
     const fake = createFakeQueue([job])
     let stampSeenByHandler: string | null = null
 
-    await executeJob(fake.client, job, async ctx => {
+    await executeJob(fake.client, job, 'worker-one', async ctx => {
       await ctx.paid('apify.linkedin', async () => ({ ok: true }))
       stampSeenByHandler = fake.get(job.id)!.spend_recorded_at
       return 'done'
@@ -128,7 +128,7 @@ describe('executeJob — pay-before-work recording', () => {
     const job = makeJob({ state: 'claimed' })
     const fake = createFakeQueue([job])
 
-    await executeJob(fake.client, job, async ctx => {
+    await executeJob(fake.client, job, 'worker-one', async ctx => {
       await ctx.paid(
         'apollo.bulk_match',
         async () => ({ credits_consumed: 2 }),
@@ -149,7 +149,7 @@ describe('executeJob — pay-before-work recording', () => {
     const job = makeJob({ state: 'claimed' })
     const fake = createFakeQueue([job])
 
-    await executeJob(fake.client, job, async ctx => {
+    await executeJob(fake.client, job, 'worker-one', async ctx => {
       await ctx.paid('first', async () => 1, () => ({ credits: 1 }))
       await ctx.paid('second', async () => 2, () => ({ credits: 99 }))
       return 'done'
@@ -166,7 +166,7 @@ describe('executeJob — pay-before-work recording', () => {
     const fake = createFakeQueue([job])
 
     // Attempt one: pays, then dies. Transient, under the cap, so it goes back to queued.
-    await executeJob(fake.client, job, async ctx => {
+    await executeJob(fake.client, job, 'worker-one', async ctx => {
       await ctx.paid('apollo.bulk_match', async () => ({ credits_consumed: 1 }))
       throw Object.assign(new Error('Service Unavailable'), { status: 503 })
     })
@@ -185,9 +185,13 @@ describe('executeJob — pay-before-work recording', () => {
     })
     const reclaimed = reclaimedRows[0]
     expect(reclaimed.spend_recorded_at).not.toBeNull()
+    expect(reclaimed.claimed_by).toBe('worker-two')
 
     const secondPaidCall = vi.fn(async () => ({ credits_consumed: 1 }))
-    await executeJob(fake.client, reclaimed, async ctx => {
+    // Executed as worker-two, the worker that actually holds the claim. Passing
+    // worker-one here would be rejected by the fence, which is correct behaviour but a
+    // different test from the one this is.
+    await executeJob(fake.client, reclaimed, 'worker-two', async ctx => {
       await ctx.paid('apollo.bulk_match', secondPaidCall)
       return 'x'
     })
@@ -202,7 +206,7 @@ describe('executeJob — failure classification drives what happens next', () =>
     const job = makeJob({ state: 'claimed', attempts: 1, max_attempts: 3 })
     const fake = createFakeQueue([job])
 
-    const outcome = await executeJob(fake.client, job, async () => {
+    const outcome = await executeJob(fake.client, job, 'worker-one', async () => {
       throw Object.assign(new Error('Too Many Requests'), { status: 429 })
     })
 
@@ -216,7 +220,7 @@ describe('executeJob — failure classification drives what happens next', () =>
     const job = makeJob({ state: 'claimed', attempts: 1, max_attempts: 3 })
     const fake = createFakeQueue([job])
 
-    const outcome = await executeJob(fake.client, job, async () => {
+    const outcome = await executeJob(fake.client, job, 'worker-one', async () => {
       throw Object.assign(new Error('Bad Request: details[] is malformed'), { status: 400 })
     })
 
@@ -231,7 +235,7 @@ describe('executeJob — failure classification drives what happens next', () =>
     const job = makeJob({ state: 'claimed', attempts: 1, max_attempts: 3 })
     const fake = createFakeQueue([job])
 
-    await executeJob(fake.client, job, async () => {
+    await executeJob(fake.client, job, 'worker-one', async () => {
       throw Object.assign(new Error('Overloaded'), { status: 529 })
     })
 
@@ -242,7 +246,7 @@ describe('executeJob — failure classification drives what happens next', () =>
     const job = makeJob({ state: 'claimed', attempts: 3, max_attempts: 3 })
     const fake = createFakeQueue([job])
 
-    await executeJob(fake.client, job, async () => {
+    await executeJob(fake.client, job, 'worker-one', async () => {
       throw Object.assign(new Error('Too Many Requests'), { status: 429 })
     })
 
@@ -255,7 +259,7 @@ describe('executeJob — failure classification drives what happens next', () =>
     const job = makeJob({ state: 'claimed' })
     const fake = createFakeQueue([job])
 
-    const outcome = await executeJob(fake.client, job, async () => {
+    const outcome = await executeJob(fake.client, job, 'worker-one', async () => {
       throw new Error('Your credit balance is too low to access the Anthropic API')
     })
 
@@ -271,7 +275,7 @@ describe('executeJob — isolation and resilience', () => {
     const fake = createFakeQueue([job])
 
     await expect(
-      executeJob(fake.client, job, async () => {
+      executeJob(fake.client, job, 'worker-one', async () => {
         throw new Error('catastrophic handler failure')
       }),
     ).resolves.toMatchObject({ status: 'failed' })
@@ -281,7 +285,7 @@ describe('executeJob — isolation and resilience', () => {
     const job = makeJob({ state: 'claimed' })
     const fake = createFakeQueue([job], { throwRpc: { fail_job: new Error('database is down') } })
 
-    const outcome = await executeJob(fake.client, job, async () => {
+    const outcome = await executeJob(fake.client, job, 'worker-one', async () => {
       throw new Error('handler failed')
     })
 
@@ -301,7 +305,7 @@ describe('executeJob — isolation and resilience', () => {
 
     const outcomes = await Promise.all(
       jobs.map(job =>
-        executeJob(fake.client, job, async () => {
+        executeJob(fake.client, job, 'worker-one', async () => {
           if (job.prospect_id === 'p2') throw new Error('this prospect is broken')
           return `researched ${job.prospect_id}`
         }),
@@ -321,10 +325,101 @@ describe('executeJob — isolation and resilience', () => {
     const job = makeJob({ state: 'claimed' })
     const fake = createFakeQueue([job])
 
-    const outcome = await executeJob(fake.client, job, async () => 'enriched 10 contacts, 10 credits')
+    const outcome = await executeJob(fake.client, job, 'worker-one', async () => 'enriched 10 contacts, 10 credits')
 
     expect(outcome.status).toBe('done')
     expect(fake.get(job.id)!.state).toBe('done')
     expect(fake.get(job.id)!.result_summary).toBe('enriched 10 contacts, 10 credits')
+  })
+})
+
+describe('executeJob — the lease fence (fix D)', () => {
+  it('does not mark done a job whose lease another worker now holds', async () => {
+    const job = makeJob({ state: 'claimed', claimed_by: 'worker-b' })
+    const fake = createFakeQueue([job])
+
+    // worker-a stalled, its lease was reclaimed, and worker-b now owns the row.
+    const outcome = await executeJob(fake.client, job, 'worker-a', async () => 'work done')
+
+    expect(outcome.status).toBe('lease_lost')
+    // The row still belongs to worker-b and is untouched.
+    expect(fake.get(job.id)!.state).toBe('claimed')
+    expect(fake.get(job.id)!.claimed_by).toBe('worker-b')
+  })
+
+  it('does not requeue a job another worker is actively running', async () => {
+    // The sharper half: without the fence a stalled worker could push a live job back to
+    // 'queued', where a third worker claims it and pays for the same prospect again.
+    const job = makeJob({ state: 'claimed', claimed_by: 'worker-b', attempts: 1, max_attempts: 3 })
+    const fake = createFakeQueue([job])
+
+    await executeJob(fake.client, job, 'worker-a', async () => {
+      throw Object.assign(new Error('Too Many Requests'), { status: 429 })
+    })
+
+    expect(fake.get(job.id)!.state).toBe('claimed')
+    expect(fake.get(job.id)!.claimed_by).toBe('worker-b')
+  })
+
+  it('the rightful holder still completes normally', async () => {
+    const job = makeJob({ state: 'claimed', claimed_by: 'worker-b' })
+    const fake = createFakeQueue([job])
+
+    const outcome = await executeJob(fake.client, job, 'worker-b', async () => 'work done')
+
+    expect(outcome.status).toBe('done')
+    expect(fake.get(job.id)!.state).toBe('done')
+  })
+})
+
+describe('executeJob — completion-write failure is not a work failure (fix F)', () => {
+  it('does NOT mark a paid, finished job as failed when the completion write throws', async () => {
+    const job = makeJob({ state: 'claimed', claimed_by: 'worker-one' })
+    const fake = createFakeQueue([job], { throwRpc: { complete_job: new Error('connection lost') } })
+    const paidApiCall = vi.fn(async () => ({ credits_consumed: 1 }))
+
+    const outcome = await executeJob(fake.client, job, 'worker-one', async ctx => {
+      await ctx.paid('apollo.bulk_match', paidApiCall)
+      return 'enriched 10 contacts'
+    })
+
+    expect(paidApiCall).toHaveBeenCalledTimes(1)
+    expect(outcome.status).toBe('completion_write_failed')
+    // Previously this was caught by the handler's catch and written through safeFail,
+    // recording a successful, paid run as a failure.
+    expect(fake.get(job.id)!.state).not.toBe('failed')
+    expect(fake.get(job.id)!.last_error).toBeNull()
+  })
+
+  it('leaves the job claimed so the lease lapses and reclaim requeues it', async () => {
+    const job = makeJob({ state: 'claimed', claimed_by: 'worker-one' })
+    const fake = createFakeQueue([job], { throwRpc: { complete_job: new Error('connection lost') } })
+
+    await executeJob(fake.client, job, 'worker-one', async () => 'done')
+
+    expect(fake.get(job.id)!.state).toBe('claimed')
+  })
+
+  it('still reports the summary so the caller knows the work happened', async () => {
+    const job = makeJob({ state: 'claimed', claimed_by: 'worker-one' })
+    const fake = createFakeQueue([job], { throwRpc: { complete_job: new Error('boom') } })
+
+    const outcome = await executeJob(fake.client, job, 'worker-one', async () => 'researched p1')
+
+    if (outcome.status !== 'completion_write_failed') throw new Error('expected completion_write_failed')
+    expect(outcome.summary).toBe('researched p1')
+  })
+
+  it('a handler failure is still recorded as a failure, unchanged', async () => {
+    // The separation must not have broken the ordinary path.
+    const job = makeJob({ state: 'claimed', claimed_by: 'worker-one', attempts: 1, max_attempts: 3 })
+    const fake = createFakeQueue([job])
+
+    const outcome = await executeJob(fake.client, job, 'worker-one', async () => {
+      throw Object.assign(new Error('Too Many Requests'), { status: 429 })
+    })
+
+    expect(outcome.status).toBe('failed')
+    expect(fake.get(job.id)!.state).toBe('queued')
   })
 })

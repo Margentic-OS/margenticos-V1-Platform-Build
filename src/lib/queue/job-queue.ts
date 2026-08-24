@@ -180,14 +180,23 @@ export async function recordJobSpend(
   }
 }
 
-/** Mark a claimed job finished. */
+/**
+ * Mark a claimed job finished.
+ *
+ * FENCED to the lease holder. Returns null when this worker no longer holds the claim,
+ * which means its lease expired and the job was reclaimed by someone else while it was
+ * still working. That is not an error to throw on: it is information the caller needs,
+ * because the work it just did is not recorded and another worker is redoing it.
+ */
 export async function completeJob(
   supabase: SupabaseClient,
   jobId: string,
+  worker: string,
   summary: string,
 ): Promise<JobRow | null> {
   const { data, error } = await supabase.rpc('complete_job', {
     p_job_id:  jobId,
+    p_worker:  worker,
     p_summary: summary.slice(0, 900),
   })
 
@@ -203,16 +212,22 @@ export async function completeJob(
  * forceTerminal is for the one case that is neither a permanent API error nor an
  * exhausted attempt count: a reclaimed job that already has spend recorded. It must
  * never be retried, because retrying means paying twice.
+ *
+ * FENCED to the lease holder, for a sharper reason than completeJob. Without the fence
+ * a stalled worker could push a job another worker is actively running back to
+ * 'queued', where a third worker claims it and pays for the same prospect again.
  */
 export async function failJob(
   supabase: SupabaseClient,
   jobId: string,
+  worker: string,
   errorText: string,
   errorClass: ErrorClass,
   forceTerminal = false,
 ): Promise<JobRow | null> {
   const { data, error } = await supabase.rpc('fail_job', {
     p_job_id:         jobId,
+    p_worker:         worker,
     p_error:          errorText.slice(0, 900),
     p_error_class:    errorClass,
     p_force_terminal: forceTerminal,

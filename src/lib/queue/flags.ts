@@ -94,10 +94,31 @@ export async function setQueueFlag(
   }
   if (note !== undefined) update.note = note
 
-  const { error } = await supabase.from('system_flags').update(update).eq('key', key)
+  // .select() is what makes this verifiable. A bare .update().eq() returns error: null
+  // when it matched ZERO rows, so a missing or misnamed flag row reported success while
+  // changing nothing.
+  //
+  // THAT MATTERS MORE HERE THAN ANYWHERE ELSE IN THE QUEUE. This function is the
+  // credit-exhaustion circuit breaker. If it can silently fail to flip, the breaker does
+  // not exist: the worker would believe it had stopped the job type and keep hammering a
+  // dry Apollo or Apify account until the attempt caps ran out across every queued job.
+  const { data, error } = await supabase
+    .from('system_flags')
+    .update(update)
+    .eq('key', key)
+    .select('key')
 
   if (error) {
     throw new Error(`Failed to set ${key} to ${enabled}: ${error.message}`)
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error(
+      `Failed to set ${key} to ${enabled}: no system_flags row matched that key. ` +
+      'The flag was NOT changed. If this was the credit-exhaustion circuit breaker, the ' +
+      'job type is still running. Seed the row with the migration in ' +
+      '20260824160000_job_queue.sql.',
+    )
   }
 
   logger.info('queue-flags: flag updated', {

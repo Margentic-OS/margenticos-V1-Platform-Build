@@ -79,9 +79,16 @@ const TRANSIENT_NETWORK_CODES = [
 /**
  * Phrases that mean the ACCOUNT has run out, not that this job failed.
  *
- * Matched case-insensitively against the message. Deliberately narrow: a false positive
- * here turns a whole job type off, so only unambiguous wording qualifies. "credit" on
- * its own is not enough, because "credits_consumed" appears in ordinary Apollo replies.
+ * Matched case-insensitively against the message. Deliberately narrow, and it must stay
+ * that way: a false positive here does not fail one job, it trips the circuit breaker
+ * and turns the whole job type off for every client.
+ *
+ * Two words are specifically NOT here, and both were considered:
+ *   'credit'   appears in ordinary Apollo success payloads as credits_consumed
+ *   'billing'  matches any message mentioning it, including a parse error naming a
+ *              billing_address field or a stack trace through a billing module
+ *
+ * Only phrases that cannot plausibly appear in an ordinary error qualify.
  */
 const ACCOUNT_EXHAUSTION_PATTERNS = [
   'insufficient credit',
@@ -92,8 +99,17 @@ const ACCOUNT_EXHAUSTION_PATTERNS = [
   'monthly usage limit',
   'usage limit exceeded',
   'payment required',
-  'billing',
   'plan limit',
+  // 'billing' ON ITS OWN WAS REMOVED on 2026-08-24. It is a bare substring that matches
+  // any message merely mentioning the word: a parse error naming a billing_address
+  // field, a 404 for a /billing endpoint, a stack trace through a module with billing in
+  // its path. The blast radius of a false positive here is not one job. isAccountExhaustion
+  // trips the circuit breaker, which turns a whole job type off for EVERY client, so one
+  // unlucky error string would stop all enrichment or all research platform-wide until a
+  // human noticed and flipped the flag back.
+  // These two phrases carry the same signal with none of the ambiguity.
+  'billing issue',
+  'billing problem',
 ]
 
 interface ErrorShape {

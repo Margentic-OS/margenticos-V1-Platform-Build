@@ -17,9 +17,26 @@ import type { JobRow, JobType } from '../types'
 
 let idCounter = 0
 
+/** The default holder for a job created directly in the 'claimed' state. */
+export const TEST_WORKER = 'worker-one'
+
 export function makeJob(overrides: Partial<JobRow> = {}): JobRow {
   idCounter += 1
   const now = new Date().toISOString()
+
+  // job_queue_claim_fields_consistent is a real CHECK constraint: a row in state
+  // 'claimed' MUST carry claimed_by and lease_expires_at. A fake that emits a claimed
+  // row with claimed_by null is producing a row the database would reject, and every
+  // test built on it would be testing an impossible state.
+  const claimedDefaults =
+    overrides.state === 'claimed'
+      ? {
+          claimed_by: overrides.claimed_by ?? TEST_WORKER,
+          lease_expires_at:
+            overrides.lease_expires_at ?? new Date(Date.now() + 300_000).toISOString(),
+        }
+      : {}
+
   return {
     id: `job-${idCounter}`,
     job_type: 'research' as JobType,
@@ -40,6 +57,7 @@ export function makeJob(overrides: Partial<JobRow> = {}): JobRow {
     created_at: now,
     updated_at: now,
     ...overrides,
+    ...claimedDefaults,
   }
 }
 
@@ -152,6 +170,9 @@ export function createFakeQueue(initialRows: JobRow[] = [], options: FakeQueueOp
     complete_job(args) {
       const row = find(args.p_job_id)
       if (!row || row.state !== 'claimed') return []
+      // THE FENCE, mirrored from the SQL: a worker whose lease was reclaimed matches
+      // nothing and changes nothing.
+      if (args.p_worker !== undefined && row.claimed_by !== args.p_worker) return []
       row.state = 'done'
       row.result_summary = args.p_summary
       row.lease_expires_at = null
@@ -162,6 +183,8 @@ export function createFakeQueue(initialRows: JobRow[] = [], options: FakeQueueOp
     fail_job(args) {
       const row = find(args.p_job_id)
       if (!row || row.state !== 'claimed') return []
+      // THE FENCE, mirrored from the SQL.
+      if (args.p_worker !== undefined && row.claimed_by !== args.p_worker) return []
       const terminal =
         args.p_force_terminal === true ||
         args.p_error_class === 'permanent' ||
@@ -258,11 +281,24 @@ export function createFakeQueue(initialRows: JobRow[] = [], options: FakeQueueOp
           return builder
         },
         update: (patch: Record<string, unknown>) => ({
-          async eq(col: string, val: unknown) {
-            if (table === 'system_flags' && col === 'key') {
-              fakeFlags.set(val as string, patch.enabled as boolean)
+          eq(col: string, val: unknown) {
+            const matched = table === 'system_flags' && col === 'key' && fakeFlags.has(val as string)
+            if (matched) fakeFlags.set(val as string, patch.enabled as boolean)
+
+            // Mirrors PostgREST: .update().eq() resolves with error null even when it
+            // matched nothing, and only .select() reveals how many rows were touched.
+            // That asymmetry is the whole reason setQueueFlag now calls .select().
+            const result = {
+              data: matched ? [{ key: val }] : [],
+              error: null as { message: string } | null,
             }
-            return { error: null }
+            return {
+              select: async () =>
+                options.failRpc?.['update:system_flags']
+                  ? { data: null, error: { message: options.failRpc['update:system_flags'] } }
+                  : result,
+              then: (resolve: (v: unknown) => void) => resolve({ error: result.error }),
+            }
           },
         }),
       }
