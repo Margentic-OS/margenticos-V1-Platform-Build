@@ -123,17 +123,25 @@ describe('Campaign Metrics Choicepoint — ADR-026 Runtime Boundary', () => {
     if (testOrgB) await supabase.from('organisations').delete().eq('id', testOrgB)
   })
 
-  it('client choicepoint returns object WITHOUT bouncedCount at runtime (data layer proof)', async () => {
+  it('client choicepoint returns totals only, never per-address or diagnostic fields', async () => {
     if (!supabase || !testOrgA) return
-    // CRITICAL: Call the real function against real DB data that HAS bounced_count
     const result = await getClientVisibleCampaignMetrics(testOrgA)
 
-    // RUNTIME ASSERTION: the returned object must NOT have bouncedCount property
-    expect(result).not.toHaveProperty('bouncedCount')
+    // DELIBERATE REVERSAL, 2026-08-24. This assertion used to be
+    // expect(result).not.toHaveProperty('bouncedCount'), on the rule that a client must
+    // never be shown bounce data. Bounce rate and opt-out rate are now on the list of
+    // aggregates a client is always shown: hiding a client's own bounce rate protects
+    // nothing and leaves them unable to tell a list-quality problem from a copy problem.
+    //
+    // What is still protected is the distinction between a TOTAL and an ATTRIBUTION. A
+    // client may see how many bounced. They may never see which addresses did, nor
+    // per-mailbox health, nor complaint rate.
     expect(Object.keys(result)).toEqual([
       'contactedCount',
       'sentCount',
       'deliveredCount',
+      'bouncedCount',
+      'unsubscribedCount',
       'repliedCount',
       'replyRate',
       'positiveReplyCount',
@@ -153,10 +161,13 @@ describe('Campaign Metrics Choicepoint — ADR-026 Runtime Boundary', () => {
     expect(result.deliveredCount).toBe(98)
     expect(result.contactedCount).toBe(60)
 
-    // CRITICAL: Verify the query selected ONLY safe columns
-    // The function logic shows SELECT 'sent_count, replied_count' — never bounced_count
-    // This assertion proves the data layer excludes bounced_count from the SELECT clause
-    expect((result as unknown as Record<string, unknown>).bouncedCount).toBeUndefined()
+    // The fields that remain diagnostic and must never appear.
+    for (const forbidden of [
+      'complaintRate', 'mailboxHealth', 'bouncedAddresses', 'perMailbox', 'suppressionReasons',
+    ]) {
+      expect(result).not.toHaveProperty(forbidden)
+    }
+    expect(result.bouncedCount).toBe(2)
   })
 
   it('counts a positive reply from the action row, which is where the classification lives', async () => {
@@ -230,22 +241,21 @@ describe('Campaign Metrics Choicepoint — ADR-026 Runtime Boundary', () => {
     expect(resultOrgA.bouncedCount).not.toBe(resultOrgB.bouncedCount)
   })
 
-  it('client and operator variants are distinguishable at runtime', async () => {
+  it('client and operator variants are still distinct shapes', async () => {
     if (!supabase || !testOrgA) return
-    // Call both against the same org
     const clientResult = await getClientVisibleCampaignMetrics(testOrgA)
     const operatorResult = await getAllCampaignMetricsForOrg(supabase, testOrgA)
 
-    // CRITICAL: Client result DOES NOT have bouncedCount
-    expect(clientResult).not.toHaveProperty('bouncedCount')
-    expect((clientResult as unknown as Record<string, unknown>).bouncedCount).toBeUndefined()
-
-    // CRITICAL: Operator result DOES have bouncedCount
-    expect(operatorResult).toHaveProperty('bouncedCount')
-    expect(operatorResult.bouncedCount).toBe(2)
-
-    // Both have the safe metrics
+    // They agree on the facts they share.
     expect(clientResult.sentCount).toBe(operatorResult.sentCount)
     expect(clientResult.repliedCount).toBe(operatorResult.repliedCount)
+    expect(clientResult.bouncedCount).toBe(operatorResult.bouncedCount)
+
+    // The client shape carries things the operator shape does not, and the reverse. They
+    // are separate types on purpose, so a field added for one cannot arrive in the other.
+    expect(clientResult).toHaveProperty('contactedCount')
+    expect(clientResult).toHaveProperty('meetingsHeld')
+    expect(operatorResult).not.toHaveProperty('contactedCount')
+    expect(operatorResult).toHaveProperty('meetingCount')
   })
 })

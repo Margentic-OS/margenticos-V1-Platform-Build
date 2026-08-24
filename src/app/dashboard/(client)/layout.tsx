@@ -4,10 +4,17 @@ import { redirect } from 'next/navigation'
 import { Sidebar } from '@/components/dashboard/Sidebar'
 import type { DashboardState } from '@/components/dashboard/Sidebar'
 import { OperatorViewingBanner } from '@/components/dashboard/OperatorViewingBanner'
+import { deriveStrategyNavState } from '@/lib/dashboard/strategy-nav-state'
+import type { StrategyNavState } from '@/lib/dashboard/strategy-nav-state'
 
 async function resolveDashboardState(
   orgId: string
-): Promise<{ state: DashboardState; pendingProspectsCount: number; outreachStarted: boolean }> {
+): Promise<{
+  state: DashboardState
+  pendingProspectsCount: number
+  outreachStarted: boolean
+  strategyNav: StrategyNavState
+}> {
   const supabase = await createClient()
 
   const [
@@ -16,6 +23,8 @@ async function resolveDashboardState(
     { count: activeDocs },
     { count: pendingCount },
     campaignsResult,
+    strategyDocsResult,
+    pendingSuggestionsResult,
   ] =
     await Promise.all([
       supabase
@@ -49,6 +58,19 @@ async function resolveDashboardState(
         .from('campaigns')
         .select('sent_count')
         .eq('organisation_id', orgId),
+      // Same filter assertStrategyApproved uses, so the sidebar and the upload gate are
+      // reading the same set of documents. Both tables are readable by a client session
+      // (clients_read_own_active_strategy_docs, clients_read_own_document_suggestions).
+      supabase
+        .from('strategy_documents')
+        .select('document_type, client_approval_status')
+        .eq('organisation_id', orgId)
+        .in('status', ['active', 'approved']),
+      supabase
+        .from('document_suggestions')
+        .select('document_type')
+        .eq('organisation_id', orgId)
+        .eq('status', 'pending'),
     ])
 
   const intakeComplete =
@@ -65,7 +87,12 @@ async function resolveDashboardState(
   // the documents were approved and six weeks later with a sequence running.
   const outreachStarted = (campaignsResult.data ?? []).some(c => (c.sent_count ?? 0) > 0)
 
-  return { state, pendingProspectsCount: pendingCount ?? 0, outreachStarted }
+  const strategyNav = deriveStrategyNavState(
+    strategyDocsResult.data ?? [],
+    (pendingSuggestionsResult.data ?? []).map(r => r.document_type),
+  )
+
+  return { state, pendingProspectsCount: pendingCount ?? 0, outreachStarted, strategyNav }
 }
 
 export default async function ClientLayout({
@@ -105,7 +132,19 @@ export default async function ClientLayout({
 
   const dashboardStateResult = org
     ? await resolveDashboardState(org.id)
-    : { state: 'intake_incomplete' as const, pendingProspectsCount: 0, outreachStarted: false }
+    : {
+        state: 'intake_incomplete' as const,
+        pendingProspectsCount: 0,
+        outreachStarted: false,
+        // No org resolved means nothing is approved, so the section stays open. Erring
+        // toward expanded is the safe direction: the failure mode of collapsing is a
+        // hidden blocker.
+        strategyNav: {
+          collapsedByDefault: false,
+          reason: 'blocking_upload' as const,
+          needsAttention: [],
+        },
+      }
 
   return (
     <div className="flex min-h-screen bg-surface-shell">
@@ -118,6 +157,7 @@ export default async function ClientLayout({
           dashboardState={dashboardStateResult.state}
           pendingProspectsCount={dashboardStateResult.pendingProspectsCount}
           outreachStarted={dashboardStateResult.outreachStarted}
+          strategyNav={dashboardStateResult.strategyNav}
           allOrgs={allOrgs}
         />
       </Suspense>
