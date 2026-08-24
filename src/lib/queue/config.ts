@@ -143,13 +143,40 @@ export const QUEUE_CONFIG: Record<JobType, JobTypeConfig> = {
 }
 
 /**
- * Total seconds a worker invocation will spend before it stops claiming new work.
+ * Total seconds a worker invocation will spend before it stops claiming NEW work.
  *
  * The platform kills the function at 300s (Hobby maximum, not a configurable default).
- * 60s is held back for cold start, the auth round trips and a slow tail, matching the
- * budget the inline research entry point already uses.
+ * 20s is held back for the heartbeat insert, the Sentry check-in and its flush(2000), and
+ * response serialisation, all of which run AFTER the last job finishes.
+ *
+ * ── WHY THIS IS 280 AND NOT 240 ──
+ *
+ * It was 240, mirroring RUNTIME_BUDGET_SECONDS in the inline research entry point. That
+ * was wrong, because the two budgets answer different questions. The inline one has to
+ * fit a WHOLE BATCH inside one request. This one only has to fit ONE MORE JOB.
+ *
+ * At 240 the queue could never run research at all. research.worstCaseSeconds is 240, and
+ * the claim guard asks `elapsed + worstCase > budget`. Once any time at all had elapsed on
+ * the reclaim and the flag reads, 240.3 > 240 was true, so a research job was never
+ * claimed. The worker reported ok:true with a green heartbeat and claimed nothing, for
+ * ever. A silent, permanent no-op.
+ *
+ * Caught by a probe before research was ever enabled in production, and now covered by a
+ * regression test that claims a research job at the DEFAULT budget rather than an
+ * invented one. The original budget tests all passed a deliberately small budget to prove
+ * the refusal worked, and never checked that the real budget permits anything.
  */
-export const WORKER_BUDGET_SECONDS = 240
+export const WORKER_BUDGET_SECONDS = 280
+
+/**
+ * How far into an invocation a job type must still be startable for its configuration to
+ * be usable.
+ *
+ * A job type whose worst case exactly equals the budget is startable only at elapsed
+ * zero, which never happens: the reclaim and the flag reads always consume some time. So
+ * "fits" is not enough. It has to fit with room to have got there.
+ */
+export const MIN_CLAIM_MARGIN_SECONDS = 30
 
 /** How many expired leases one worker invocation will reclaim before doing other work. */
 export const RECLAIM_BATCH_SIZE = 100
@@ -216,10 +243,19 @@ function assertQueueConfig(): void {
 
     // 5. A job that cannot fit the worker's budget can never be started at all, so it
     //    would sit queued forever with nothing reporting why.
-    if (worstCaseSeconds > WORKER_BUDGET_SECONDS) {
+    //
+    //    THE MARGIN IS THE POINT, not the comparison. This check used to read
+    //    `worstCaseSeconds > WORKER_BUDGET_SECONDS`, which passes at exact equality. That
+    //    is precisely the unusable case: the claim guard asks
+    //    `elapsed + worstCase > budget`, and elapsed is never zero, so a job type whose
+    //    worst case equals the budget is never claimed. research sat at 240 against a
+    //    240s budget and would have silently never run.
+    if (worstCaseSeconds + MIN_CLAIM_MARGIN_SECONDS > WORKER_BUDGET_SECONDS) {
       problems.push(
-        `${jobType}: worstCaseSeconds ${worstCaseSeconds} exceeds the worker budget of ` +
-        `${WORKER_BUDGET_SECONDS}s, so a job of this type could never be started.`,
+        `${jobType}: worstCaseSeconds ${worstCaseSeconds} leaves less than ` +
+        `${MIN_CLAIM_MARGIN_SECONDS}s of margin inside the ${WORKER_BUDGET_SECONDS}s worker ` +
+        'budget, so a job of this type could only be started in the first instants of an ' +
+        'invocation, and in practice never would be.',
       )
     }
 

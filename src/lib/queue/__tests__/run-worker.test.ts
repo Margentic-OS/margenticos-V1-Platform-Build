@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { runWorker, EXHAUSTION_TRIP_THRESHOLD } from '../run-worker'
-import { QUEUE_CONFIG } from '../config'
+import { QUEUE_CONFIG, WORKER_BUDGET_SECONDS, MIN_CLAIM_MARGIN_SECONDS } from '../config'
 import { createFakeQueue, makeJob } from './fake-queue'
 import { perJobExecutor, type JobBatchExecutor } from '../handlers'
 import type { JobRow, JobType } from '../types'
@@ -150,6 +150,48 @@ describe('runWorker — the deadline budget', () => {
     // No claim_jobs call was ever issued.
     expect(fake.rpcCalls.filter(c => c.fn === 'claim_jobs')).toHaveLength(0)
       })
+})
+
+describe('runWorker — EVERY job type must be claimable at the DEFAULT budget', () => {
+  // The gap that let research sit unrunnable. The other budget tests all pass a
+  // deliberately SMALL budget to prove the refusal works, and none of them checked that
+  // the REAL budget permits anything. research.worstCaseSeconds was 240 against a 240s
+  // budget, so `elapsed + worstCase > budget` was true the moment any time had elapsed,
+  // and the worker reported ok:true while claiming nothing, for ever.
+  it.each(Object.keys(QUEUE_CONFIG) as JobType[])(
+    '%s: one job is claimed with realistic elapsed time and no budget override', async jobType => {
+      const fake = workerFake(
+        [makeJob({ job_type: jobType, organisation_id: 'org-a' })],
+        { [`queue_${jobType}`]: true },
+      )
+      const resolveExecutor = withHandler(async () => 'done')
+
+      // 300ms passes on each clock read, as it does on the reclaim and the flag reads.
+      let t = 0
+      const run = await runWorker({
+        supabase: fake.client, workerId: 'w1', resolveExecutor,
+        now: () => { t += 300; return t },
+      })
+
+      expect(run.byJobType[jobType].budgetExhausted).toBe(false)
+      expect(run.byJobType[jobType].claimed).toBe(1)
+    })
+
+  it.each(Object.keys(QUEUE_CONFIG) as JobType[])(
+    '%s: worst case leaves real margin inside the budget', jobType => {
+      // Asserted here as well as at module load, so the number is visible in a test
+      // failure rather than only in a startup crash.
+      expect(QUEUE_CONFIG[jobType].worstCaseSeconds + MIN_CLAIM_MARGIN_SECONDS)
+        .toBeLessThanOrEqual(WORKER_BUDGET_SECONDS)
+    })
+
+  it('the budget still fits inside the platform timeout with room to report', () => {
+    // maxDuration is 300. The remainder covers the heartbeat insert, the Sentry check-in
+    // and its flush(2000), all of which run after the last job finishes.
+    const MAX_DURATION = 300
+    expect(WORKER_BUDGET_SECONDS).toBeLessThan(MAX_DURATION)
+    expect(MAX_DURATION - WORKER_BUDGET_SECONDS).toBeGreaterThanOrEqual(15)
+  })
 })
 
 describe('runWorker — the circuit breaker', () => {
