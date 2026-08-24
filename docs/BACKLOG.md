@@ -4966,46 +4966,79 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   on an undefined Supabase client in test setup; and the enrichment-field-ownership one
   already logged above. None are caused by, or fixed by, the composition change.
 
-- [REAL BUG, NOT FIXED, 2026-08-24] ENRICHMENT CAN OVERWRITE A SOURCED last_name WHEN THE
-  PROSPECT LOAD FAILS. field-ownership.ts:38 promises enrichment "must never overwrite a
-  non-null value" for FILL-IF-NULL fields. adapter-apollo-enrichment.ts:543-549 breaks that
-  promise: when the Step 1 SELECT of the current prospect fails it only calls logger.warn
-  and does NOT return. Line 583 then passes `currentProspect || {}`, so applyFillIfNullLogic
-  sees currentValue === undefined, its "do not overwrite" guard is false, last_name survives,
-  stripNonOwnedFields keeps it because last_name is a FILL-IF-NULL field, and the UPDATE
-  writes Apollo's guess over the real sourced surname. Reproduced directly against the real
-  functions: with a loaded prospect the payload is {email}, with a failed load it is
-  {email, last_name}. The guard fails OPEN, which is the wrong direction for a field-ownership
-  rule. Not fixed here because this session was scoped to stale test cleanup and this is a
-  data-integrity change to the enrichment write path. Two candidate fixes: return early on
-  fetchError, or make applyFillIfNullLogic treat an absent current record as "unknown, do not
-  write" rather than "null, safe to write". Doug's call which.
+- [REAL BUG, DECIDED, NOT BUILT, 2026-08-24] ENRICHMENT CAN OVERWRITE A SOURCED last_name.
+  This is a real bug, not a stale test. The failing test
+  `enrichment-field-ownership.test.ts > catches multiple field ownership violations
+  simultaneously` was the only automated alarm pointing at it.
+  field-ownership.ts:38 promises enrichment "must never overwrite a non-null value" for
+  FILL-IF-NULL fields. adapter-apollo-enrichment.ts:543-549 breaks that promise: when the
+  Step 1 SELECT of the current prospect fails it calls logger.warn and does NOT return.
+  Line 583 then passes `currentProspect || {}`, so applyFillIfNullLogic sees
+  currentValue === undefined, its "do not overwrite" guard at field-ownership.ts:98 is
+  false, last_name survives, stripNonOwnedFields keeps it because last_name is a
+  FILL-IF-NULL field, and the UPDATE writes Apollo's guess over the real sourced surname.
+  Reproduced directly against the real functions: with a loaded prospect the payload is
+  {email}; with a failed load it is {email, last_name}. The guard fails OPEN, which is the
+  wrong direction for a field-ownership rule.
+  TWO CANDIDATE FIXES:
+    (a) Return early on fetchError in adapter-apollo-enrichment.ts:543-549.
+    (b) Change applyFillIfNullLogic so an ABSENT current record means "unknown, do not
+        write" rather than "null, safe to write".
+  DOUG'S DECISION: take (b). Fixing the fetchError path alone fixes one route into the bug.
+  Changing the guard's default fixes the class, including any future caller that reaches
+  applyFillIfNullLogic without a loaded prospect. Not built in the 2026-08-24 session,
+  which was scoped to stale test cleanup.
 
-- [FLAG, NOT FIXED, 2026-08-24] client_prospects_view HAS DRIFTED FROM ITS MIGRATION, WHICH
-  IS STAMPED APPLIED. supabase/migrations/20260810_fix_client_prospects_view_rls.sql carries
-  "-- Status: APPLIED (verified live 2026-08-10 post-deploy)" and defines the view with
-  tier_published_at and WHERE organisation_id = get_my_organisation_id(). The live view
-  (checked directly with pg_get_viewdef) has 18 columns, no tier_published_at, and no WHERE
-  clause. The WITH (SECURITY_INVOKER = true) from that migration IS live, and the REVOKE
-  held: anon has no grant.
-  NOT a data leak. security_invoker = true means the view runs under the caller's rights and
-  the underlying prospects table has RLS enabled with 3 policies, so a client still sees only
-  their own organisation's rows. The missing WHERE was belt-and-braces on top of RLS, not the
-  isolation mechanism. Also no runtime impact today: no application code queries the view at
-  all. The client pages read prospects directly. Only Test 4 of the compliance test reads it.
-  What this actually costs is trust in the APPLIED stamps. Something replaced the view after
-  2026-08-10 without a migration file. Worth reconciling before the stamps are relied on again.
+- [DECISION NEEDED, 2026-08-24] THREE OF THE FOUR handleUploadLeads.compliance TESTS TEST
+  NOTHING. The file is named handleUploadLeads.compliance.test.ts and its docstring claims
+  to cover "four critical safety gates" of the upload pipeline. It does not import
+  handleUploadLeads and never calls it. Its only imports are @supabase/supabase-js, a
+  Database type, and vitest primitives.
+    Test 1 (excludes prospects rejected after claim) re-implements half of the Gate 2 query
+      by hand and asserts on its own query, not on the gate.
+    Test 2 (fails closed: reclaims prospects if rejection-check errors) is a TAUTOLOGY. It
+      UPDATEs outbound_upload_status to 'pending', then SELECTs it and asserts it is
+      'pending'. It verifies that Postgres stores what you write. Nothing else.
+    Test 3 (durable tier lock) is the same shape as test 1.
+    Test 4 (client_prospects_view never exposes email or verification fields) is the only
+      one testing anything real: the live column list of an actual database view. It cannot
+      be mocked without destroying its entire value.
+  These need REWRITING or DELETING, not fixing. That is a separate decision from the env-var
+  problem and should not be bundled with it. Note that even a rewrite of tests 1 to 3 to
+  actually call handleUploadLeads would need extensive mocking, and test 4 would still need
+  a real database. See the dev-database item below.
 
-- [BLOCKED, 2026-08-24] handleUploadLeads.compliance.test.ts CANNOT BE FIXED BY FIXING ITS
-  SETUP. The four tests do not import or call handleUploadLeads. Tests 1-3 hand-write rows
-  with the service client and then assert on what they just wrote. Test 2 is a pure tautology:
-  it UPDATEs outbound_upload_status to 'pending' and then asserts it is 'pending'. Test 1
-  re-implements half of the Gate 2 query rather than calling it. Only Test 4 tests anything
-  real, the live column list of client_prospects_view, and that genuinely needs a database.
-  The env vars are missing locally, and the only credentials in the repo are .env.local, which
-  is production: there is one Supabase project and no dev or staging database (see
-  docs/deployment.md, still marked "not yet connected"). Pointing these tests at it would
-  create and delete rows in live client data on every npm test, and the cleanup is already
-  known-broken. Mocking instead would make Tests 1-3 assert against the mock and would destroy
-  Test 4's only value. Correct fix is a separate dev Supabase project, which needs an account
-  decision from Doug. Left failing deliberately rather than made to look fixed.
+- [FLAG, NOT FIXED, 2026-08-24] MIGRATION STAMPS HAVE DIVERGED FROM THE LIVE DATABASE.
+  Three figures, all verified live by Doug as well as in session:
+    - 111 migrations applied in the live database against 97 files in supabase/migrations/.
+      Fourteen exist only in production, applied via MCP or the dashboard with no repo file.
+    - supabase/migrations/20260810_fix_client_prospects_view_rls.sql carries
+      "-- Status: APPLIED (verified live 2026-08-10 post-deploy)" and defines the view with
+      tier_published_at and WHERE organisation_id = get_my_organisation_id().
+    - The LIVE view (pg_get_viewdef) has 18 columns, NO tier_published_at, and NO WHERE
+      clause. Something replaced the view after 2026-08-10 without a migration file.
+  NO LEAK EXISTS. The isolation is done by RLS and security_invoker, not by that WHERE
+  clause. WITH (SECURITY_INVOKER = true) IS live on the view, the underlying prospects table
+  has RLS enabled with 3 policies, and the REVOKE held: anon has no grant. A client
+  therefore still sees only their own organisation's rows. The missing WHERE was
+  belt-and-braces on top of RLS. There is also no runtime impact today: no application code
+  queries client_prospects_view at all. The client pages read prospects directly, and only
+  test 4 above reads the view.
+  What this actually costs is trust in the APPLIED stamps. Per CLAUDE.md the whole point of
+  the stamp is that a migration has been verified live, and here one has drifted without
+  anyone noticing. Reconcile the 14 orphan migrations back into the repo before the stamps
+  are relied on again, and before any attempt at a local Supabase, which would otherwise
+  build a database that disagrees with production.
+
+- [BLOCKED, 2026-08-24] NO DEV OR STAGING DATABASE IS THE ROOT CAUSE OF SIX FAILING TEST
+  FILES. docs/deployment.md still reads "not yet connected" / "not yet configured". There is
+  one Supabase project and .env.local points at production. Six test files that write rows
+  therefore cannot run: pointing them at the only available credentials would create and
+  delete rows in live client data on every npm test. Correct fix is a separate dev Supabase
+  project, roughly 2 to 4 hours, and it needs an account decision from Doug. A local
+  Supabase is worse than it sounds: no supabase/config.toml, Docker not installed, and the
+  111-vs-97 migration gap above.
+  Separately and independently: two of the nine collection failures need only a dummy
+  RESEND_API_KEY and no database at all. Verified in session: setting it recovers 36 real
+  tests, including genuine HMAC and parsing assertions, in 351ms. One line in
+  vitest.config.ts (test.env). Not built on instruction.
