@@ -4935,3 +4935,33 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
 - [pre-existing, unrelated] `enrichment-field-ownership.test.ts > catches multiple
   field ownership violations simultaneously` fails at HEAD and is untouched by the
   credit fix. Confirmed failing on a clean tree at c8455bc.
+
+- [post-build, 2026-08-24] THE 15 LIVE C0 PROSPECTS STILL GET DOUBLE-SPACED EMAILS 3
+  AND 4. The paragraph-spacing fix (d4435e9) changes composition, and m_body_1 through
+  m_body_4 are computed at upload time and pushed straight to the outbound provider's
+  lead records. They are never stored in our database. The 15 prospects uploaded on
+  2026-08-21 therefore keep the values already on their lead records, newlines and all,
+  and the provider will keep converting those newlines to <br> on every remaining send.
+  Emails 1 and 2 have already gone out that way. Clearing it would mean re-uploading
+  those 15 leads with freshly composed variables, which is a live-campaign write nobody
+  has asked for and which risks disturbing an actively sending sequence. Deferred
+  deliberately. Doug's call whether the remaining two sends are worth the intervention.
+
+- [FLAG, DO NOT FIX] CAMPAIGN cf695496 STEP 1 IS HAND-EDITED AND A RE-SYNC WOULD
+  SILENTLY OVERWRITE IT. Step 1 of the live campaign was changed in the provider's UI
+  to <div>{{m_body_1}}</div>. Steps 2 to 4 still carry the <p> our code used to write,
+  and our code now writes <body>. syncSequenceShell PATCHes the whole sequences array,
+  so any re-sync of that campaign replaces all four steps and the hand-edit disappears
+  without a warning. Nothing in d4435e9 triggers a re-sync: the only caller is the
+  operator action at actions.ts:898, which is a deliberate button press. The <body>
+  wrapper reaches a campaign only when that campaign's shell is next synced. Before
+  ever re-syncing cf695496, decide what step 1 should be and expect the <div> to go.
+
+- [pre-existing, unrelated] TEST BASELINE AT 146ed11, CLEAN TREE: 6 failed, 958 passed,
+  11 skipped, across 11 failing files. Nine of those files fail at collection because
+  NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are not set locally; they are
+  integration tests wanting a live database. The 6 named failures are: the stale
+  delay 0/3 assertion in syncSequenceShell.contract.test.ts, which defaultDelays has
+  returned as 3/7 for some time; four in handleUploadLeads.compliance.test.ts failing
+  on an undefined Supabase client in test setup; and the enrichment-field-ownership one
+  already logged above. None are caused by, or fixed by, the composition change.
