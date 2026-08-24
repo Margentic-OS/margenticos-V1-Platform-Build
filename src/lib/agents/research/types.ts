@@ -119,6 +119,23 @@ export interface ObservationCandidate {
 export type QualificationStatus = 'qualified' | 'flagged_for_review' | 'disqualified'
 export type SynthesisConfidence = 'high' | 'medium' | 'low'
 export type TriggerSourceType =
+  // ── The values written since 2026-08-24 ──
+  //
+  // These are CandidateSource values, recorded verbatim rather than mapped into the
+  // legacy vocabulary below. The question trigger_source has to answer is "which PAID
+  // source produced the opener we shipped", and only these names answer it: they are the
+  // four fetchers plus the composite case. Mapping 'apollo' or 'web_search' into
+  // 'article' or 'company_content' would destroy exactly the distinction being measured.
+  | 'linkedin'
+  | 'apollo'
+  | 'website'
+  | 'web_search'
+  | 'composite'
+  // ── Legacy, kept only so rows written before 2026-08-24 still typecheck ──
+  //
+  // Nothing writes these now. They described the KIND of artefact rather than the source
+  // that fetched it, which is a different question and not the one that decides whether a
+  // paid source earns its cost.
   | 'linkedin_post'
   | 'podcast'
   | 'article'
@@ -153,7 +170,14 @@ export interface SynthesisOutput {
    * for audit, never written to prospects.personalisation_trigger.
    */
   icp_pain_proxy:        string | null
-  trigger_source:        TriggerSource | null  // null going forward; kept for DB compat
+  /**
+   * Which source produced the winning candidate. Populated from 2026-08-24.
+   *
+   * Was hardcoded null from 2026-08-19 to 2026-08-24, leaving 224 rows with no record of
+   * which paid source earned its keep. sources_attempted and sources_successful say what
+   * RAN, which is a different and much weaker question than what WON.
+   */
+  trigger_source:        TriggerSource | null
   relevance_reason:      string
   reasoning:             string
   /** Every candidate considered, winner included, with its six-test scores. */

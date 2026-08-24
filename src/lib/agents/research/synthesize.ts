@@ -16,7 +16,7 @@ import { SIX_TESTS, INFERENCE_DIRECTIONS } from './types'
 import type {
   ProspectContext, RawSourceData, SynthesisOutput,
   ObservationCandidate, CandidateScores, CandidateSource, SignalRelevance,
-  CandidateReadability, InferenceDirection,
+  CandidateReadability, InferenceDirection, TriggerSource,
 } from './types'
 
 const SYNTHESIS_MODEL = 'claude-sonnet-4-6'
@@ -634,7 +634,7 @@ function parseSynthesisResponse(
     confidence,
     trigger_text,
     icp_pain_proxy,
-    trigger_source: null,
+    trigger_source: buildTriggerSource(winner),
     relevance_reason: typeof parsed.relevance_reason === 'string' ? parsed.relevance_reason : '',
     reasoning,
     candidates,
@@ -842,5 +842,43 @@ export async function synthesizeResearch(
     throwIfFatal(err, `synthesis for prospect ${prospect.id}`)
     logger.error('research/synthesize: Claude call failed', { error: String(err) })
     return buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', `Claude error: ${String(err)}`, detectedSignal)
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// WHICH SOURCE PRODUCED THE OPENER
+//
+// trigger_source was hardcoded null from 2026-08-19, so the 224 rows written in that
+// window record nothing about which source won. sources_attempted and sources_successful
+// only say what RAN, and every run attempts all four, so they are near-constant and
+// cannot distinguish a source that reliably produces the winning observation from one
+// that returns data nobody ever uses.
+//
+// That distinction is the only evidence base for deciding whether a paid source earns its
+// cost, and at 300 prospects a week the sample builds fast.
+//
+// WRITTEN WHENEVER A CANDIDATE WINS, not only when the judge ships it. A candidate that
+// cleared the six tests and was then held for readability still shows which source
+// produced usable material, and holds are common enough that excluding them would bias
+// the sample toward whichever source happens to write short sentences. signal_relevance
+// on the same row already separates shipped from held, so both questions stay answerable
+// from one column.
+//
+// NOT called on the fallback path: buildFallbackSynthesis has no candidates at all, so
+// its trigger_source stays null and correctly means "no winner existed".
+function buildTriggerSource(winner: ObservationCandidate | null | undefined): TriggerSource | null {
+  if (!winner) return null
+
+  // Candidates carry provenance as free text, not a URL field. Lift a URL out when there
+  // is one so the row stays clickable, and keep the whole provenance regardless: "Apollo
+  // employment_history entry 2" is not a URL and is still exactly what a human needs to
+  // verify the claim in thirty seconds.
+  const urlMatch = winner.provenance.match(/https?:\/\/[^\s)"']+/)
+
+  return {
+    type: winner.source,
+    url: urlMatch ? urlMatch[0] : null,
+    date: winner.date,
+    description: winner.provenance,
   }
 }
