@@ -6,7 +6,7 @@ import {
   getAllCampaignMetricsForOrg,
 } from './get-client-visible-campaign-metrics'
 
-describe('Campaign Metrics Choicepoint — ADR-026 Runtime Boundary', () => {
+describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
   let supabase: ReturnType<typeof createClient<Database>>
   let testOrgA: string
   let testOrgB: string

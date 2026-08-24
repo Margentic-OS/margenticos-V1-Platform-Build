@@ -89,11 +89,11 @@
   regardless of request volume, so worker concurrency does not map onto Postgres
   connections. Neither bounds the worker.
 
-- [cleanup] ADR.md has TWO entries numbered ADR-026.
-  Line ~1874 "Per-lead custom variables for sequence content delivery" and line ~2040
-  "Client reply view: org-scoping RLS-backed". One needs renumbering. ADR-029 (job
-  queue) was added 2026-08-24 after ADR-028, so the next free number is 030 unless the
-  duplicate is resolved first.
+- [DONE 2026-08-24] ADR.md had TWO entries numbered ADR-026. The client reply view /
+  chokepoint one is now ADR-030; "Per-lead custom variables" keeps 026. The only code
+  reference was the describe() block in
+  src/lib/metrics/get-client-visible-campaign-metrics.test.ts, updated in the same
+  commit. CLAUDE.md's ADR reference list now carries 029 and 030.
 
 - [cleanup] ADR-013 and CLAUDE.md say prospect research web-search synthesis uses
   claude-haiku-4-5-20251001. The code uses claude-sonnet-4-6 (synthesize.ts:22, and

@@ -253,8 +253,25 @@ Supabase MCP `apply_migration` tool.
 - Assume Vercel deploy applied a migration (it doesn't)
 - Skip the live verification step
 - Leave migrations in the repo unapplied (track status in the file)
+- Run `supabase db push` on this project. See below.
 
 This prevents silent data-layer failures where code expects a schema change that was never applied.
+
+**`supabase db push` is UNSAFE on this project. MCP `apply_migration` is the only
+correct path.**
+
+The remote migration history does not match the repo filenames. MCP `apply_migration`
+records its own timestamp, generated when it runs, rather than the timestamp in the
+migration's filename. So a file named `20260824140000_campaign_sending_state.sql` is
+recorded remotely as version `20260824153206`.
+
+`supabase migration list` therefore shows two columns that do not line up, and
+`db push` reads that as a large set of unapplied local migrations. Running it would
+attempt to replay files the database already has under a different version number,
+against a schema that has already moved on.
+
+`supabase migration list` is safe and useful. `db push`, `db reset` and `db remote
+commit` are not. Confirmed 2026-08-24 while building the job queue.
 
 ---
 
@@ -786,26 +803,92 @@ Never place a route directly under src/app/dashboard/ outside (client)/ or opera
 
 ---
 
-## Database security — two standing rules (learn from 2026-06-05)
+## Database security — three standing rules (learn from 2026-06-05 and 2026-08-24)
 
-### Rule: Every REVOKE ships with explicit GRANTs to each legitimate caller
+### Rule: REVOKE FROM PUBLIC is NOT enough on Supabase. Name anon and authenticated.
 
-Every migration that runs REVOKE EXECUTE FROM PUBLIC on a function must also include
-explicit GRANT EXECUTE TO <role> for each legitimate caller of that function — verified
-with has_function_privilege before committing:
+This is the rule most likely to give you a false sense of safety, because the wrong
+version of it looks correct and passes a careless check.
 
-  GRANT EXECUTE ON FUNCTION public.fn_name(...) TO service_role;
-  SELECT has_function_privilege('service_role', 'public.fn_name(...)', 'EXECUTE');
+**Supabase runs ALTER DEFAULT PRIVILEGES on the public schema granting EXECUTE to
+anon, authenticated and service_role.** Every function created in the public schema
+therefore receives EXPLICIT, BY-NAME grants to anon and authenticated at creation
+time. It does NOT rely on the PUBLIC pseudo-role.
+
+So `REVOKE ALL ON FUNCTION ... FROM PUBLIC` removes a grant that was never there.
+It is a **silent no-op**. It does not error, it does not warn, and the function stays
+callable by anon.
+
+**SECURITY DEFINER executes as the function owner and bypasses RLS entirely.**
+Enabling RLS on the underlying table with zero policies does NOT protect against
+this. The policies are never consulted, because the function is not running as the
+caller.
+
+Every SECURITY DEFINER function must therefore:
+
+  1. REVOKE from all three, explicitly:
+
+       REVOKE ALL ON FUNCTION public.fn_name(...) FROM PUBLIC;
+       REVOKE EXECUTE ON FUNCTION public.fn_name(...) FROM anon, authenticated;
+
+  2. GRANT to each legitimate caller, in the same migration:
+
+       GRANT EXECUTE ON FUNCTION public.fn_name(...) TO service_role;
+
+  3. VERIFY, before committing, checking the roles that must NOT have it as well as
+     the one that must:
+
+       SELECT has_function_privilege('service_role',  'public.fn_name(...)', 'EXECUTE'), -- expect t
+              has_function_privilege('authenticated', 'public.fn_name(...)', 'EXECUTE'), -- expect f
+              has_function_privilege('anon',          'public.fn_name(...)', 'EXECUTE'); -- expect f
+
+**Checking only the intended caller passes while the hole stays open.** That is the
+entire failure mode. A verification that reads `service_role => true` and stops has
+proved nothing about who else can call it.
 
 Grant only the roles that actually call the function:
   service_role   → when a route owns the auth gate (most SECURITY DEFINER functions)
   authenticated  → only when RLS policies or client-visible routes call it directly
   pg_cron        → only for scheduled functions not accessible via REST
+                   (a pg_cron job that POSTs to an HTTP route does NOT need this)
+
+To audit the whole database for this class at any time:
+
+    SELECT p.proname
+      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.prosecdef
+       AND has_function_privilege('anon', p.oid, 'EXECUTE');
+
+Expected: zero rows.
+
+**The 2026-08-24 incident.** The job_queue migration revoked FROM PUBLIC on eight
+SECURITY DEFINER functions and granted service_role. The verification step showed
+anon and authenticated STILL holding EXECUTE on all eight. The stored ACL read:
+
+    claim_jobs: postgres=X/postgres anon=X/postgres authenticated=X/postgres service_role=X/postgres
+
+For about four minutes, holding only the public anon key, an unauthenticated caller
+could have created jobs that spend real money on Apollo, Apify and Anthropic, claimed
+another organisation's jobs, marked any job done or failed, or falsely stamped
+spend_recorded_at. That last one is the worst: a job with spend recorded must never
+call the paid API again, so a false stamp permanently kills real work. Nothing called
+the functions yet, so no job existed to attack. Fixed in
+20260824160500_job_queue_revoke_anon_authenticated.sql. Every other SECURITY DEFINER
+function in the database was audited with the query above and none were affected.
+
+### Rule: Every REVOKE ships with explicit GRANTs to each legitimate caller
+
+The other direction of the same discipline. A REVOKE that forgets to grant the real
+caller back breaks the feature silently.
 
 Never REVOKE and commit without verifying callers. The 2026-06-05 incident: a May
 security-audit REVOKE removed PUBLIC access to approve_document_suggestion without
 granting service_role back. Every UI Approve click silently failed for days until
 the Postgres error log was checked directly.
+
+Both incidents have the same root cause: a grant change was made and its effect was
+assumed rather than read back. has_function_privilege is the read-back, and it must
+cover every role that matters, in both directions.
 
 ### Rule: Diagnostics on side-effecting functions use BEGIN ... ROLLBACK
 
@@ -921,7 +1004,7 @@ and faster to add an LLM layer later than to simplify an LLM-dependent system.
 
 ---
 
-## ADR reference list — as of April 2026
+## ADR reference list — as of August 2026
 
 For quick reference. Full text in /docs/ADR.md.
 
@@ -945,6 +1028,9 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-018  Deterministic code vs LLM usage principles
   ADR-027  Two-client pattern for SSR routes (sessionClient + serviceClient)
   ADR-028  Code validators as hard gates on LLM output; prompt instructions advisory only
+  ADR-029  Durable job queue in its own table; agent_runs stays the history
+  ADR-030  Client reply view: org-scoping RLS-backed, intent-filtering chokepoint-enforced
+           (renumbered from a duplicate ADR-026 on 2026-08-24)
 
 ---
 

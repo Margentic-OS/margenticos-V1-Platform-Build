@@ -2037,7 +2037,12 @@ When a prompt rule and a validator rule conflict, the validator rule is authorit
 and the prompt must be updated to match in the same commit (per CLAUDE.md).
 Prompt-only enforcement is a defect, not a design choice.
 
-## ADR-026 — Client reply view: org-scoping RLS-backed, intent-filtering chokepoint-enforced
+## ADR-030 — Client reply view: org-scoping RLS-backed, intent-filtering chokepoint-enforced
+<!-- Renumbered from ADR-026 on 2026-08-24. Two entries carried that number: this one and
+     "Per-lead custom variables for sequence content delivery" earlier in this file. The
+     earlier one keeps 026 because it is referenced by date in the composition docs; this
+     one moved to the next free number. The only code reference was the describe() block in
+     src/lib/metrics/get-client-visible-campaign-metrics.test.ts, updated in the same commit. -->
 
 Date: June 2026 | Status: Accepted
 
