@@ -45,7 +45,9 @@ import type {
   IcpFit,
   QualificationStatus,
   SynthesisConfidence,
+  TokenUsage,
 } from './research/types'
+import { ZERO_TOKEN_USAGE, addTokenUsage } from './research/types'
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
 
@@ -348,6 +350,9 @@ async function synthesisFromStored(
   })
 
   return {
+    // A stored-findings run makes NO Anthropic call in synthesis. Zero is the measurement,
+    // not a gap in it, and it is what makes reuse legible in the spend data.
+    usage: ZERO_TOKEN_USAGE,
     icp_fit: stored.icp_fit ?? 'moderate',
     has_dateable_signal: stored.has_dateable_signal ?? stored.candidates.some(c => c.date !== null),
     signal_observation: stored.signal_observation ?? stored.candidates[0]?.observation ?? null,
@@ -651,6 +656,10 @@ export async function runProspectResearchAgentV2({
       selected_candidate_id: synthesis.selected_candidate_id,
       trigger_readability:   synthesis.trigger_readability,
       demotion_reason:       synthesis.demotion_reason,
+      // Synthesis plus every writer, floor and judge call, including discarded attempts.
+      // This is the number the cost model was guessing at.
+      token_usage:           addTokenUsage(synthesis.usage, opening.usage),
+      web_search_count:      rawData.web_search.search_count,
     }
 
   } catch (err) {

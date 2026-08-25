@@ -76,6 +76,30 @@ export function researchHandler(): JobHandler {
         sources_successful: research.sources_successful,
         has_dateable_signal: research.has_dateable_signal,
         qualification_status: research.qualification_status,
+
+        // WHAT IT ACTUALLY COST. Until 2026-08-25 the per-prospect cost model was built
+        // from character counts at ~4 chars/token, self-rated at plus or minus 20%, and it
+        // carried native web search at zero. Every Anthropic response already contained
+        // these numbers and every call site discarded them.
+        //
+        // token_usage.calls is the count of model calls, not prospects: the writer runs 1
+        // to 3 times and floor and judge 0 to 3 each, so a retried prospect is 5 or more.
+        // Without it the token totals cannot be read back per call, and the retry path is
+        // where the interesting spend is.
+        //
+        // cache_read_input_tokens is also the ONLY production-visible proof that prompt
+        // caching is still working. It bills at about a tenth of input, and if it drops to
+        // zero across a batch a per-prospect value has leaked back into a system prompt and
+        // nothing else will say so.
+        input_tokens:                research.token_usage.input_tokens,
+        output_tokens:               research.token_usage.output_tokens,
+        cache_creation_input_tokens: research.token_usage.cache_creation_input_tokens,
+        cache_read_input_tokens:     research.token_usage.cache_read_input_tokens,
+        anthropic_calls:             research.token_usage.calls,
+
+        // Billable Anthropic web searches, capped at WEB_SEARCH_MAX_USES per query and two
+        // queries per prospect. Zero on a stored-findings reuse, which calls nothing.
+        web_search_count:            research.web_search_count,
       }),
     )
 

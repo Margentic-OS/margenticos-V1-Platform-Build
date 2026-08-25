@@ -18,7 +18,8 @@ import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/firmographic'
 import { BatchUniquenessRegistry, uniquenessFeedback } from './batch-uniqueness'
-import type { ObservationCandidate } from './types'
+import type { ObservationCandidate, TokenUsage } from './types'
+import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage } from './types'
 
 const WRITER_MODEL = 'claude-sonnet-4-6'
 const JUDGE_MODEL = 'claude-sonnet-4-6'
@@ -78,6 +79,12 @@ export const OPENING_TARGET_WORDS =
   OPENING_BUDGET.observation + OPENING_BUDGET.bridge + OPENING_BUDGET.question
 
 export interface OpeningResult {
+  /**
+   * Every Anthropic call this prospect made, summed: writer, floor and judge across all
+   * attempts, including the attempts that were discarded. Written into
+   * job_queue.spend_detail so a retried prospect's real cost is visible.
+   */
+  usage: TokenUsage
   /** The opening that shipped, or null when the template won or the floor disqualified it. */
   opening: string | null
   /**
@@ -1127,7 +1134,7 @@ async function callModel(
   maxTokens: number,
   context: string,
   cacheSystem = false,
-): Promise<string> {
+): Promise<{ text: string; usage: TokenUsage }> {
   try {
     const res = await client.messages.create({
       model,
@@ -1137,19 +1144,13 @@ async function callModel(
         : system,
       messages: [{ role: 'user', content: user }],
     })
-    // Logged rather than returned, so the cache can be verified from the logs without
-    // changing this function's signature or every call site's destructuring. A run whose
-    // cache_read stays at 0 after the first prospect has an unstable prefix, and that is
-    // invisible unless it is recorded.
-    logger.debug('research/write-opening: model call usage', {
-      context,
-      input_tokens:                res.usage?.input_tokens,
-      output_tokens:               res.usage?.output_tokens,
-      cache_creation_input_tokens: res.usage?.cache_creation_input_tokens,
-      cache_read_input_tokens:     res.usage?.cache_read_input_tokens,
-    })
+    const usage = readTokenUsage(res.usage)
+    // RETURNED, not just logged. A debug line cannot be read back in production, because
+    // debug is off there, and it cannot be summed per prospect. Both are needed: the log
+    // for a live tail, the return value for spend_detail.
+    logger.debug('research/write-opening: model call usage', { context, ...usage })
     const block = res.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
-    return block?.text?.trim() ?? ''
+    return { text: block?.text?.trim() ?? '', usage }
   } catch (err) {
     throwIfFatal(err, context)
     throw err
@@ -1270,6 +1271,12 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   // The parts that used to vary are in the assignment block, prepended to the user message.
   const writerSystem = buildWriterPrompt()
   const assignment = buildWriterAssignment({ clientName: params.clientName, p3: params.p3, cta: params.cta })
+
+  // Accumulated across EVERY call this prospect makes, including the ones on attempts that
+  // were thrown away. A retried prospect's real cost is the point of measuring at all, so
+  // the counter has to sit outside the attempt loop.
+  let usage: TokenUsage = ZERO_TOKEN_USAGE
+  const record = (u: TokenUsage) => { usage = addTokenUsage(usage, u) }
   const judgeSystem = buildJudgePrompt()
   const floorSystem = buildFloorPrompt()
 
@@ -1294,7 +1301,9 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
       : `${assignment}\n\n## Findings\n\n${findings}\n\nWrite the observation, the bridge and the closing question. Return ONLY the three labelled blocks.`
     // cacheSystem: the writer prompt is the big stable one, and this is the call that runs
     // up to three times per prospect.
-    const raw = await callModel(client, WRITER_MODEL, writerSystem, user, 700, `writer for prospect ${params.prospectId}`, true)
+    const writerCall = await callModel(client, WRITER_MODEL, writerSystem, user, 700, `writer for prospect ${params.prospectId}`, true)
+    record(writerCall.usage)
+    const raw = writerCall.text
     const parsed = parseWriterOutput(raw)
     // Scrub each half separately, then rejoin. Scrubbing the joined text risks a
     // replacement spanning the blank line and collapsing the two paragraphs into one.
@@ -1322,8 +1331,9 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   // ships whenever its template happens to be worse.
   const floorCheck = async (opening: string, question: string): Promise<FloorCheck> => {
     const email = params.composeEmail1(opening, question)
-    const raw = await callModel(client, JUDGE_MODEL, floorSystem, email, 300, `floor for prospect ${params.prospectId}`)
-    return parseFloor(raw)
+    const floorCall = await callModel(client, JUDGE_MODEL, floorSystem, email, 300, `floor for prospect ${params.prospectId}`)
+    record(floorCall.usage)
+    return parseFloor(floorCall.text)
   }
 
   const compare = async (
@@ -1339,8 +1349,9 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     const emailB = writtenLabel === 'A' ? templateEmail : writtenEmail
 
     const user = `VERSION A\n\n${emailA}\n\n${'='.repeat(60)}\n\nVERSION B\n\n${emailB}`
-    const raw = await callModel(client, JUDGE_MODEL, judgeSystem, user, 300, `judge for prospect ${params.prospectId}`)
-    const { chosen, written_won, reason } = parseChoice(raw, writtenLabel)
+    const judgeCall = await callModel(client, JUDGE_MODEL, judgeSystem, user, 300, `judge for prospect ${params.prospectId}`)
+    record(judgeCall.usage)
+    const { chosen, written_won, reason } = parseChoice(judgeCall.text, writtenLabel)
     return {
       opening, observation, bridge, question, floor,
       written_label: writtenLabel, chosen_label: chosen, written_won, reason,
@@ -1417,6 +1428,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
       comparisons.push(a.c)
       if (a.c.written_won) {
         return {
+          usage,
           opening: a.c.opening, observation: a.c.observation, bridge: a.c.bridge,
           question: a.c.question, written_won: true,
           retry_used: i > 0, retries_used: i, strong_material: strongMaterial,
@@ -1444,6 +1456,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   params.uniqueness?.release(params.prospectId)
 
   return {
+    usage,
     opening: null, observation: null, bridge: null, question: null, written_won: false,
     retry_used: retries > 0, retries_used: retries, strong_material: strongMaterial,
     comparisons, judge_reasoning: reason,

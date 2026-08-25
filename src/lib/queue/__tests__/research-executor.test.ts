@@ -33,6 +33,16 @@ const okResult = (over: Record<string, unknown> = {}) => ({
   sources_attempted: ['linkedin', 'apollo', 'website', 'web_search'],
   sources_successful: ['linkedin', 'website'],
   trigger_text: 'Something specific and dateable.',
+  // Added 2026-08-25 with per-prospect token recording. Omitting them is not a harmless
+  // fixture gap: describeSpend reads token_usage.input_tokens, so an absent object throws
+  // inside paid()'s guard, the spend stamp is still written, and the DETAIL is replaced by
+  // an error note. That is the designed failure mode, and it is exactly what these two
+  // tests caught when the fields were first threaded through.
+  token_usage: {
+    input_tokens: 1200, output_tokens: 800,
+    cache_creation_input_tokens: 0, cache_read_input_tokens: 9000, calls: 4,
+  },
+  web_search_count: 2,
   ...over,
 })
 
@@ -80,6 +90,28 @@ describe('researchHandler — the spend stamp', () => {
       label: 'research.full_run',
       research_result_id: 'rr-1',
       sources_successful: ['linkedin', 'website'],
+    })
+  })
+
+  // The cost model was guesswork until these landed. A run that records a spend stamp but
+  // no token counts cannot be priced afterwards, and the response carrying them is gone.
+  it('records the token counts and the billable web search count', async () => {
+    researchImpl = async () => okResult()
+    const job = makeJob({ job_type: 'research', state: 'claimed', claimed_by: 'w1',
+                          organisation_id: ORG, prospect_id: 'p1' })
+    const fake = createFakeQueue([job])
+
+    await executeJob(fake.client, job, 'w1', researchHandler())
+
+    expect(fake.get(job.id)!.spend_detail).toMatchObject({
+      input_tokens: 1200,
+      output_tokens: 800,
+      cache_creation_input_tokens: 0,
+      // Non-zero is the only production-visible proof prompt caching still works.
+      cache_read_input_tokens: 9000,
+      // Calls, not prospects: writer 1-3, floor and judge 0-3 each, plus synthesis.
+      anthropic_calls: 4,
+      web_search_count: 2,
     })
   })
 

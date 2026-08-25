@@ -12,7 +12,7 @@ import { buildSynthesisPrompt, buildSignalBlock } from './prompts/synthesis-prom
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { readabilityScore, type ReadabilityScore } from '@/lib/style/readability'
-import { SIX_TESTS, INFERENCE_DIRECTIONS } from './types'
+import { SIX_TESTS, INFERENCE_DIRECTIONS, ZERO_TOKEN_USAGE, readTokenUsage } from './types'
 import type {
   ProspectContext, RawSourceData, SynthesisOutput,
   ObservationCandidate, CandidateScores, CandidateSource, SignalRelevance,
@@ -621,6 +621,8 @@ function parseSynthesisResponse(
     : readabilityDemotion
 
   return {
+    // Overwritten by synthesizeResearch, which is the only caller that saw the response.
+    usage: ZERO_TOKEN_USAGE,
     icp_fit,
     has_dateable_signal: detectedSignal.has_dateable_signal,
     // The winning candidate is the observation of record. Fall back to the
@@ -680,6 +682,9 @@ function buildFallbackSynthesis(
   // retained on the audit row only.
   const icp_pain_proxy = buildIcpPainTrigger(prospect, icpSummary)
   return {
+    // Overwritten by synthesizeResearch when a call was actually made. A fallback reached
+    // WITHOUT a call, or after one that threw, correctly keeps zero.
+    usage: ZERO_TOKEN_USAGE,
     icp_fit: 'moderate',
     has_dateable_signal: detectedSignal.has_dateable_signal,
     signal_observation:  detectedSignal.signal_observation,
@@ -783,10 +788,15 @@ export async function synthesizeResearch(
       prospect.id,
     )
 
+    // THE ONE PLACE THAT HAS THE RESPONSE. Every SynthesisOutput producer below defaults
+    // usage to zero; this is what makes it true. Read before any early return, so a
+    // no-text-block or parse-failure fallback still reports the tokens the call cost.
+    const callUsage = readTokenUsage(response.usage)
+
     const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
     if (!textBlock || textBlock.type !== 'text') {
       logger.warn('research/synthesize: no text block in response')
-      return buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', 'No text block in response', detectedSignal)
+      return { ...buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', 'No text block in response', detectedSignal), usage: callUsage }
     }
 
     // A truncated response is the most likely cause of a JSON parse failure, and it
@@ -813,6 +823,7 @@ export async function synthesizeResearch(
 
     const scrubbedResult = {
       ...result,
+      usage: callUsage,
       trigger_text:        scrubbedTrigger,
       signal_relevance:    rescored.signal_relevance,
       demotion_reason:     rescored.demotion_reason,

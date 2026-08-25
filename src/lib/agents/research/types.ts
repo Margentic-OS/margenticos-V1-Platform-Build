@@ -151,6 +151,15 @@ export interface TriggerSource {
 }
 
 export interface SynthesisOutput {
+  /**
+   * What the one synthesis call cost. ZERO on the stored-findings path, which makes no
+   * call at all, and that zero is a fact rather than a missing measurement.
+   *
+   * Every producer here defaults it to zero and synthesizeResearch overwrites it with the
+   * measured value on the single return that has the response in hand. That keeps the
+   * fallback and parse paths from having to carry a number they cannot know.
+   */
+  usage:               TokenUsage
   icp_fit:             IcpFit
   has_dateable_signal: boolean
   signal_observation:  string | null
@@ -207,6 +216,61 @@ export interface ProspectContext {
   email: string | null
   linkedin_url: string | null
   website_url: string | null
+}
+
+/**
+ * What a set of Anthropic calls actually cost, in tokens.
+ *
+ * Added 2026-08-25. Before this the per-prospect cost model was built from character
+ * counts at ~4 chars/token, self-rated at plus or minus 20%, and it omitted native web
+ * search entirely. Every response already carried these four numbers and every call site
+ * threw them away.
+ *
+ * `calls` is here because the writer runs 1 to 3 times per prospect and floor and judge
+ * run 0 to 3 times each. Without it a token total cannot be read back as a per-call
+ * figure, and the retry path is exactly where the interesting spend is.
+ */
+export interface TokenUsage {
+  input_tokens: number
+  output_tokens: number
+  cache_creation_input_tokens: number
+  cache_read_input_tokens: number
+  calls: number
+}
+
+export const ZERO_TOKEN_USAGE: TokenUsage = {
+  input_tokens: 0,
+  output_tokens: 0,
+  cache_creation_input_tokens: 0,
+  cache_read_input_tokens: 0,
+  calls: 0,
+}
+
+/** Sums usage across calls. Absent fields count as zero, never as unknown. */
+export function addTokenUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    input_tokens:                a.input_tokens + b.input_tokens,
+    output_tokens:               a.output_tokens + b.output_tokens,
+    cache_creation_input_tokens: a.cache_creation_input_tokens + b.cache_creation_input_tokens,
+    cache_read_input_tokens:     a.cache_read_input_tokens + b.cache_read_input_tokens,
+    calls:                       a.calls + b.calls,
+  }
+}
+
+/** Reads the SDK's usage object into ours. Null and undefined become zero. */
+export function readTokenUsage(usage: {
+  input_tokens?: number
+  output_tokens?: number
+  cache_creation_input_tokens?: number | null
+  cache_read_input_tokens?: number | null
+} | null | undefined): TokenUsage {
+  return {
+    input_tokens:                usage?.input_tokens ?? 0,
+    output_tokens:               usage?.output_tokens ?? 0,
+    cache_creation_input_tokens: usage?.cache_creation_input_tokens ?? 0,
+    cache_read_input_tokens:     usage?.cache_read_input_tokens ?? 0,
+    calls:                       1,
+  }
 }
 
 export interface LinkedInSourceResult {
@@ -292,6 +356,14 @@ export interface ResearchResult {
   selected_candidate_id: string | null
   trigger_readability: CandidateReadability
   demotion_reason: string | null
+  /**
+   * Every Anthropic token this prospect spent: the synthesis call plus every writer, floor
+   * and judge call across all attempts. Written to job_queue.spend_detail by the research
+   * executor, which is the only place a per-prospect cost can be read back later.
+   */
+  token_usage: TokenUsage
+  /** Billable web searches this prospect ran. Zero on a stored-findings reuse. */
+  web_search_count: number
 }
 
 export interface ResearchInput {
