@@ -8,7 +8,7 @@ import Anthropic, { RateLimitError } from '@anthropic-ai/sdk'
 import type { MessageCreateParamsNonStreaming, Message } from '@anthropic-ai/sdk/resources/messages'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
-import { buildSynthesisPrompt } from './prompts/synthesis-prompt'
+import { buildSynthesisPrompt, buildSignalBlock } from './prompts/synthesis-prompt'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { readabilityScore, type ReadabilityScore } from '@/lib/style/readability'
@@ -747,11 +747,13 @@ export async function synthesizeResearch(
 
   const detectedSignal = detectRecencySignal(rawData, new Date())
   const clientCtx = await loadClientContext(clientId, prospect.segment_id)
-  const systemPrompt = buildSynthesisPrompt({ ...clientCtx, signalObservation: detectedSignal.signal_observation })
+  // Per-client only. The per-prospect signal moved to the user message so this string is
+  // byte-identical across a batch and can therefore be cached. See buildSignalBlock.
+  const systemPrompt = buildSynthesisPrompt(clientCtx)
   const researchSections = formatResearchSections(rawData)
 
   const fullName = [prospect.first_name, prospect.last_name].filter(Boolean).join(' ') || 'Unknown'
-  const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${prospect.role ?? 'Unknown'}\nCompany: ${prospect.company_name ?? 'Unknown'}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
+  const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${prospect.role ?? 'Unknown'}\nCompany: ${prospect.company_name ?? 'Unknown'}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n## Recency check\n\n${buildSignalBlock(detectedSignal.signal_observation)}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
 
   const client = new Anthropic({ apiKey })
 
@@ -763,7 +765,21 @@ export async function synthesizeResearch(
       // through to the ICP proxy and were recorded as "no_signal" when the run had in
       // fact failed. Each candidate now carries an opposite_reading and a seventh test,
       // so the array outgrew the old ceiling.
-      { model: SYNTHESIS_MODEL, max_tokens: 16000, system: systemPrompt, messages: [{ role: 'user', content: userMessage }] } satisfies MessageCreateParamsNonStreaming,
+      // CACHED. The system prompt is ~6,700 tokens of instruction that does not vary
+      // within a client's batch, and every prospect paid full input price for it. The
+      // breakpoint sits on the system block, so the per-prospect user message below is
+      // outside the cached prefix, which is the whole reason buildSignalBlock moved there.
+      //
+      // Cache reads are ~10% of input price and writes ~125%, so this is a loss on a
+      // single-prospect run and a gain from the second prospect onwards. Batches are the
+      // normal case. TTL is 5 minutes by default, and concurrency is 5, so a batch stays
+      // well inside the window.
+      {
+        model: SYNTHESIS_MODEL,
+        max_tokens: 16000,
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+        messages: [{ role: 'user', content: userMessage }],
+      } satisfies MessageCreateParamsNonStreaming,
       prospect.id,
     )
 

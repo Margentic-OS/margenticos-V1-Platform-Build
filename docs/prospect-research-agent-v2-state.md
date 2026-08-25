@@ -184,3 +184,57 @@ fall back to the variant's authored opener, which is approved copy.
 Not proven by this run: the browser-to-route hop. The routes' auth gate is verified separately
 (403 without a session), and the route calls the same shared entry point, so what remains
 untested is the route's JSON body parsing.
+
+---
+
+## Prompt caching (2026-08-25)
+
+**What changed.** Both large system prompts now cache. Neither could before, because
+caching is a PREFIX match and each had a variable near the top:
+
+| Prompt | Was varying on | Moved to | Measured size |
+|---|---|---|---|
+| Synthesis | `signalBlock` (the per-prospect recency check), at ~line 62 of 471 | user message, under `## Recency check` | **6,953 tokens** |
+| Writer | `clientName` (line 1), `p3` (line 22), `cta` (line 63) | user message, in the `## Assignment` block above the findings | **8,738 tokens** |
+
+The synthesis system prompt is now per-CLIENT only, and a batch runs one client at a time,
+so it is byte-identical across every prospect in a run. The writer system prompt is now a
+CONSTANT, identical for every prospect, variant and client.
+
+**Floor and judge are deliberately NOT cached.** They are ~124 tokens each, far below
+Anthropic's ~1,024-token minimum cacheable prefix. A breakpoint on them would be silently
+ignored while still consuming one of the four a request is allowed.
+
+**Where it pays most: the retry path.** The writer call runs up to three times per prospect
+(`maxAttempts = strongMaterial ? 3 : 2`), and each attempt previously re-sent the whole
+8,738-token prompt at full price. Roughly 93% of that call's input is static.
+
+**The receipt, measured live 2026-08-25:**
+
+```
+  prospect 1 | synthesis  input 123  cache_read 6953
+  prospect 1 | writer     input 143  cache_read 8738
+  prospect 2 | synthesis  input 123  cache_read 6953
+  prospect 2 | writer     input 143  cache_read 8738
+```
+
+`input_tokens` collapses to the per-prospect message alone. Reproduce with:
+
+```
+RUN_CACHE_PROBE=1 npx vitest run src/lib/agents/research/__tests__/cache-receipt.test.ts
+```
+
+That test is skipped unless `RUN_CACHE_PROBE` is set, because it makes real paid calls. It
+does NOT run the research agent, deliberately: that would fetch paid sources and overwrite
+`prospect_research_results` for a prospect whose copy may already have shipped.
+
+**If it silently stops working.** Caching fails without erroring: one per-prospect byte back
+in a system prompt and every call reverts to full input price with nothing going red. Two
+guards exist. `write-opening.ts` logs `cache_read_input_tokens` on every model call at debug
+level, and `write-opening.test.ts` asserts the writer system prompt is a constant. Run the
+receipt above after any edit to either prompt builder.
+
+**What did NOT change:** no validator, no word limit, no style rule. The three writer values
+were relocated, not rewritten, and `checkOpeningGates` still receives `params.p3` exactly as
+before. The instruction to read the offer line before the findings still holds, because the
+assignment block physically precedes the findings in the user message.

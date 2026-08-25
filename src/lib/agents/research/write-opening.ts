@@ -120,12 +120,42 @@ export interface OpeningResult {
 // rulebook. Examples get copied, which is exactly why these four are the ones present:
 // they define the target better than any description of it would.
 
-export function buildWriterPrompt(params: {
+/**
+ * The per-run assignment: who the client is, the fixed offer line, and the approved
+ * closing question for this variant. Goes at the TOP of the user message, above the
+ * findings, because the prompt tells the writer to read the offer line before the findings.
+ *
+ * WHY THIS IS NOT IN THE SYSTEM PROMPT ANY MORE. Caching is a prefix match. clientName sat
+ * on line 1 of the system prompt and p3 on line 22, so on a ~9,300-token prompt only the
+ * first handful of tokens were ever stable and nothing could be cached. p3 and cta vary by
+ * VARIANT, so even a per-client cache would have split four ways.
+ *
+ * With these moved out, the writer system prompt is a constant. It is identical for every
+ * prospect, every variant and every client, which matters most on the retry path: a
+ * prospect burning three writer attempts sent this prompt three times, and it is ~93%
+ * static.
+ */
+export function buildWriterAssignment(params: {
   clientName: string
   p3: string
   cta: string
 }): string {
-  return `You are a senior BDR with fifteen years behind you, writing for ${params.clientName}.
+  return `## Assignment
+
+You are writing for: ${params.clientName}
+
+THE OFFER LINE (this is the fixed middle paragraph referred to in your instructions. It is
+the client's approved positioning. Reproduce it exactly, do not alter or paraphrase it):
+
+  ${params.p3}
+
+The approved closing question for this particular variant is "${params.cta}". Like the four
+in your instructions, it shows register and length. It is not an instruction to reuse it.`
+}
+
+export function buildWriterPrompt(): string {
+  return `You are a senior BDR with fifteen years behind you, writing for the client named in
+the ASSIGNMENT block at the top of the user message.
 
 You are writing to a founder you respect, who runs a real business and gets a lot of these.
 Your only goal is a reply. Not to demonstrate that you did the research. Not to prove you
@@ -141,7 +171,8 @@ Here is the email, exactly as it will send. You write the three bracketed parts:
 
   [YOUR BRIDGE GOES HERE]
 
-  ${params.p3}
+  [THE OFFER LINE — given verbatim as "THE OFFER LINE" in the ASSIGNMENT block above the
+   findings. You do not write this paragraph. It ships exactly as given.]
 
   [YOUR CLOSING QUESTION GOES HERE]
 
@@ -182,8 +213,8 @@ REGISTER AND LENGTH. They are not a menu and they are not four options to choose
   "Is this a gap you're looking to close?"
   "Worth a look to see if it fits where you are?"
 
-The approved question for this particular variant is "${params.cta}", and the same applies
-to it.
+The approved question for this particular variant is named in the ASSIGNMENT block, and the
+same applies to it.
 
 Your default is to WRITE a question for this prospect. Using one of the four verbatim is
 permitted only when it genuinely is the right question for this person, which will be rare,
@@ -1078,6 +1109,16 @@ export function buildFindingsBlock(candidates: ObservationCandidate[]): string {
 
 // ─── Model calls ─────────────────────────────────────────────────────────────
 
+/**
+ * `cacheSystem` marks the system prompt as a cache breakpoint. Set it ONLY for prompts
+ * that are byte-stable across calls and large enough to cache.
+ *
+ * The writer prompt qualifies on both counts: ~9,300 tokens and, since the assignment
+ * block moved to the user message, identical on every call. The floor and judge prompts
+ * qualify on neither: they are ~124 tokens each, far below Anthropic's ~1,024-token
+ * minimum cacheable prefix, so a breakpoint on them would be silently ignored while still
+ * spending one of the four breakpoints a request is allowed.
+ */
 async function callModel(
   client: Anthropic,
   model: string,
@@ -1085,11 +1126,27 @@ async function callModel(
   user: string,
   maxTokens: number,
   context: string,
+  cacheSystem = false,
 ): Promise<string> {
   try {
     const res = await client.messages.create({
-      model, max_tokens: maxTokens, system,
+      model,
+      max_tokens: maxTokens,
+      system: cacheSystem
+        ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
+        : system,
       messages: [{ role: 'user', content: user }],
+    })
+    // Logged rather than returned, so the cache can be verified from the logs without
+    // changing this function's signature or every call site's destructuring. A run whose
+    // cache_read stays at 0 after the first prospect has an unstable prefix, and that is
+    // invisible unless it is recorded.
+    logger.debug('research/write-opening: model call usage', {
+      context,
+      input_tokens:                res.usage?.input_tokens,
+      output_tokens:               res.usage?.output_tokens,
+      cache_creation_input_tokens: res.usage?.cache_creation_input_tokens,
+      cache_read_input_tokens:     res.usage?.cache_read_input_tokens,
     })
     const block = res.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
     return block?.text?.trim() ?? ''
@@ -1209,7 +1266,10 @@ export function joinOpening(observation: string, bridge: string): string {
 export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise<OpeningResult> {
   const client = new Anthropic({ apiKey: params.apiKey })
   const findings = buildFindingsBlock(params.candidates)
-  const writerSystem = buildWriterPrompt({ clientName: params.clientName, p3: params.p3, cta: params.cta })
+  // Constant across every prospect, variant and client, which is what makes it cacheable.
+  // The parts that used to vary are in the assignment block, prepended to the user message.
+  const writerSystem = buildWriterPrompt()
+  const assignment = buildWriterAssignment({ clientName: params.clientName, p3: params.p3, cta: params.cta })
   const judgeSystem = buildJudgePrompt()
   const floorSystem = buildFloorPrompt()
 
@@ -1227,10 +1287,14 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
       ? `\n\n## Closing questions already taken in this batch\n\nDo not use any of these, and do not reword one slightly:\n${taken.map(q => `- ${q}`).join('\n')}`
       : ''
 
+    // Assignment first: the prompt instructs the writer to read the offer line BEFORE the
+    // findings, so it has to physically precede them.
     const user = feedback
-      ? `## Findings\n\n${findings}${takenBlock}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the three labelled blocks.`
-      : `## Findings\n\n${findings}\n\nWrite the observation, the bridge and the closing question. Return ONLY the three labelled blocks.`
-    const raw = await callModel(client, WRITER_MODEL, writerSystem, user, 700, `writer for prospect ${params.prospectId}`)
+      ? `${assignment}\n\n## Findings\n\n${findings}${takenBlock}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the three labelled blocks.`
+      : `${assignment}\n\n## Findings\n\n${findings}\n\nWrite the observation, the bridge and the closing question. Return ONLY the three labelled blocks.`
+    // cacheSystem: the writer prompt is the big stable one, and this is the call that runs
+    // up to three times per prospect.
+    const raw = await callModel(client, WRITER_MODEL, writerSystem, user, 700, `writer for prospect ${params.prospectId}`, true)
     const parsed = parseWriterOutput(raw)
     // Scrub each half separately, then rejoin. Scrubbing the joined text risks a
     // replacement spanning the blank line and collapsing the two paragraphs into one.

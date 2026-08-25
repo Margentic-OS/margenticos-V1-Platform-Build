@@ -12,14 +12,29 @@ export interface PromptContext {
   positioningSummary: string  // positioning_summary plain text
   valuePropContext:   string  // cold outreach hook + top 2 value themes — alignment filter
   tovRules:           string  // writing rules + do/don't list
-  signalObservation:  string | null  // from deterministic recency check; null = no dateable signal found
+}
+
+/**
+ * THE PER-PROSPECT SIGNAL, WHICH IS WHY THIS IS NOT IN THE SYSTEM PROMPT.
+ *
+ * Prompt caching is a PREFIX match: the first byte that differs invalidates everything
+ * after it. This block used to be interpolated at roughly line 62 of a 471-line system
+ * prompt, and its value changes with every prospect, so ~430 lines of stable instruction
+ * sat behind a per-prospect variable and none of it could ever be cached.
+ *
+ * Everything left in buildSynthesisPrompt is per-CLIENT, and a batch runs one client at a
+ * time, so the system prompt is now byte-identical for every prospect in a run.
+ *
+ * Belongs in the user message on the merits anyway: it is data about this prospect, not an
+ * instruction about the job.
+ */
+export function buildSignalBlock(signalObservation: string | null): string {
+  return signalObservation
+    ? `A deterministic recency check ran before you were invoked and flagged this item:\n  ${signalObservation}\nThat is ONE candidate among many. It has no priority. Generate the full candidate set below and score this item alongside every other, on the same six tests.`
+    : `The deterministic recency check found no dated item. That does NOT mean there are no candidates. Employment history, website content, and composite absence patterns are all still eligible. Generate the full candidate set below.`
 }
 
 export function buildSynthesisPrompt(ctx: PromptContext): string {
-  const signalBlock = ctx.signalObservation
-    ? `A deterministic recency check ran before you were invoked and flagged this item:\n  ${ctx.signalObservation}\nThat is ONE candidate among many. It has no priority. Generate the full candidate set below and score this item alongside every other, on the same six tests.`
-    : `The deterministic recency check found no dated item. That does NOT mean there are no candidates. Employment history, website content, and composite absence patterns are all still eligible. Generate the full candidate set below.`
-
   return `You are a prospect research synthesist working for ${ctx.clientName}.
 
 Your job is to review research gathered from multiple public sources about a prospect and
@@ -59,7 +74,9 @@ signals → MODERATE, not STRONG. Absence of evidence is not evidence of fit.
 SIGNAL DIMENSION
 ─────────────────────────────────────────────────────────────────────
 
-${signalBlock}
+The deterministic recency check runs before you are invoked. Its verdict is given under
+"Recency check" in the user message. Read it there, treat whatever it flagged as ONE
+candidate among many with no priority, and score it alongside every other on the same tests.
 
 The has_dateable_signal field is determined before you run — do not re-assess it.
 

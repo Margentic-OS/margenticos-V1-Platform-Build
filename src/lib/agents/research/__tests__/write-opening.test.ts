@@ -11,6 +11,7 @@ import {
   parseChoice,
   buildFindingsBlock,
   buildWriterPrompt,
+  buildWriterAssignment,
   buildJudgePrompt,
   joinOpening,
   findClientBaseClaims,
@@ -151,10 +152,26 @@ describe('findings block ranks by six-test score', () => {
 })
 
 describe('prompt shape', () => {
-  it('the writer prompt embeds the variant P3 and CTA verbatim', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'THE_P3_LINE', cta: 'THE_CTA_LINE' })
-    expect(p).toContain('THE_P3_LINE')
-    expect(p).toContain('THE_CTA_LINE')
+  // WAS: "the writer prompt embeds the variant P3 and CTA verbatim". They moved to the
+  // assignment block in the user message on 2026-08-25 so the system prompt is a constant
+  // and can be cached. The prompt is ~9,300 tokens and the writer call runs up to three
+  // times per prospect, so a per-variant prefix was costing a full re-read every attempt.
+  it('the assignment block carries the variant P3 and CTA verbatim', () => {
+    const a = buildWriterAssignment({ clientName: 'Acme', p3: 'THE_P3_LINE', cta: 'THE_CTA_LINE' })
+    expect(a).toContain('THE_P3_LINE')
+    expect(a).toContain('THE_CTA_LINE')
+    expect(a).toContain('Acme')
+  })
+
+  // THE CACHE INVARIANT. If any per-prospect, per-variant or per-client value gets
+  // interpolated back into the system prompt, the prefix stops being stable, every call
+  // silently reverts to full input price, and nothing else in the suite would notice.
+  it('the writer system prompt is a constant, identical for every client and variant', () => {
+    expect(buildWriterPrompt()).toBe(buildWriterPrompt())
+    const p = buildWriterPrompt()
+    expect(p).not.toContain('THE_P3_LINE')
+    expect(p).not.toContain('THE_CTA_LINE')
+    expect(p).not.toContain('Acme')
   })
 
   it('the judge prompt asks exactly one question and no checklist', () => {
@@ -175,13 +192,13 @@ describe('prompt shape', () => {
   })
 
   it('the writer prompt establishes the senior persona and bans absence openers', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     expect(p).toContain('senior BDR with fifteen years')
     expect(p).toContain('NEVER OPEN BY NAMING WHAT THEY LACK')
   })
 
   it('the writer prompt still bans absence openers and names what IS observable', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('NEVER OPEN BY NAMING WHAT THEY LACK')
     expect(flat).toContain('Notice something that IS there instead')
@@ -191,7 +208,7 @@ describe('prompt shape', () => {
   })
 
   it('the writer prompt bans verdicts and carries the Richard and Robert failures verbatim', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT')
     // Richard: the bridge that was actually wrong, not merely presumptuous.
@@ -209,13 +226,13 @@ describe('prompt shape', () => {
     // twelve prospects then came back with "new client conversations are the first thing
     // that quietly gets deprioritised". The example was the cause, so it is deleted rather
     // than reworded, and this test stops it being reinstated.
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).not.toContain('quietly deprioritised')
     expect(flat).not.toContain('tends to be exactly where new client conversations')
   })
 
   it('the writer prompt blocks generic patterns with the standalone test', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('PATTERN FRAMING IS NOT PERMISSION TO GO GENERIC')
     expect(flat).toContain('Most firms at this stage find pipeline slips')
@@ -223,7 +240,7 @@ describe('prompt shape', () => {
   })
 
   it('the writer prompt requires clarity on one reading, with the Stephen riddle', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('EVERY SENTENCE MUST BE CLEAR ON ONE READING')
     // Correctly pattern-framed and still a riddle: stance alone is not enough.
@@ -231,7 +248,7 @@ describe('prompt shape', () => {
   })
 
   it('the writer prompt aims the bridge at the offer, with the Shevonne failure verbatim', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('START BY READING THE OFFER LINE')
     expect(p).toContain('AIMED WRONG:')
@@ -244,7 +261,7 @@ describe('prompt shape', () => {
   })
 
   it('the writer prompt carries the shared firmographic ban', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     expect(p).toContain(FIRMOGRAPHIC_RULE_TEXT)
   })
 
@@ -254,14 +271,14 @@ describe('prompt shape', () => {
   })
 
   it('the writer prompt asks for the observation AND the bridge, with the worked pair', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     expect(p).toContain('YOUR JOB IS THREE THINGS')
     // The bridge must be prospect-specific, not reusable filler.
     expect(p).toContain('PATTERN FRAMING IS NOT PERMISSION TO GO GENERIC')
   })
 
   it('the writer prompt states the loosened limits and nothing wider', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     // Five, not four: one fact per sentence necessarily splits sentences, and the cap that
     // actually bounds length is the word count, which is gated and did not move.
     expect(p).toContain('At most five sentences')
@@ -282,7 +299,7 @@ describe('prompt shape', () => {
   })
 
   it('both FAILING examples are retained', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     expect(p).toContain('Jason left Pani as Director of Product')
     expect(p).toContain('You left Visteon at SVP level')
   })
@@ -346,15 +363,18 @@ describe('writer output parsing', () => {
 
 describe('the writer prompt carries the question job and the Shevonne failure', () => {
   it('names the three parts and pins the offer line as fixed', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'THE_P3', cta: 'THE_CTA' })
+    const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('[YOUR CLOSING QUESTION GOES HERE]')
     expect(flat).toContain('The offer line in the middle is FIXED')
-    expect(p).toContain('THE_P3')
+    // The skeleton now names the slot and points at the assignment block, rather than
+    // interpolating the variant's own P3, which is what made the prompt cacheable.
+    expect(flat).toContain('THE OFFER LINE')
+    expect(flat).toContain('ASSIGNMENT block')
   })
 
   it('passes the four approved CTAs as register anchors', () => {
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('Is pipeline consistency something you\'re actively trying to fix?')
     expect(flat).toContain('Is getting more conversations in front of you something you\'re working on?')
     expect(flat).toContain('Is this a gap you\'re looking to close?')
@@ -362,7 +382,7 @@ describe('the writer prompt carries the question job and the Shevonne failure', 
   })
 
   it('carries the Shevonne browsers-versus-buyers failure verbatim, with a correction', () => {
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('builds an audience of browsers before it builds a pipeline of buyers')
     expect(flat).toContain('She does not want more. She wants different ones.')
     expect(flat).toContain('Is turning that audience into the right kind of buyer something you\'re working on?')
@@ -381,7 +401,7 @@ describe('the writer prompt carries the question job and the Shevonne failure', 
 
 describe('the writer prompt enforces one fact per sentence', () => {
   it('states the structural rule rather than a length rule', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('ONE FACT PER SENTENCE')
     expect(flat).toContain('about STRUCTURE, not length')
@@ -393,7 +413,7 @@ describe('the writer prompt enforces one fact per sentence', () => {
   })
 
   it('carries both real cramped examples verbatim', () => {
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     // Robert's, and the diagnosis of why it fails.
     expect(flat).toContain('DTCC tokenization, Treasury clearing, SEC crypto posture, shows where the thinking is')
     expect(flat).toContain('a verb whose subject is three clauses back')
@@ -403,7 +423,7 @@ describe('the writer prompt enforces one fact per sentence', () => {
   })
 
   it('pairs each cramped example with a clean rewrite of the same facts', () => {
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('Taffet publishes regulatory commentary regularly')
     expect(flat).toContain('You took two board seats in early 2026, at Hollywood Food Coalition and Sovern LA')
     // And says explicitly that only the joins moved, so it is not read as "make it shorter".
@@ -437,7 +457,7 @@ describe('the judge tests the first read, still as one question', () => {
 // ─── Digestibility, varied bridge shapes, and batch uniqueness ───────────────
 
 describe('the writer prompt targets load before resolution, not length', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('names the real problem and refuses to restate it as a word cap', () => {
     const p = prompt()
@@ -477,7 +497,7 @@ describe('the writer prompt targets load before resolution, not length', () => {
 })
 
 describe('the writer prompt varies the bridge construction', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('names the frame that collapsed and says why it matters', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -531,7 +551,7 @@ describe('the writer prompt varies the bridge construction', () => {
 })
 
 describe('the writer prompt treats the approved questions as register, not a menu', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'Worth a look?' })
+  const prompt = () => buildWriterPrompt()
 
   it('says write, do not pick', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -546,10 +566,20 @@ describe('the writer prompt treats the approved questions as register, not a men
     expect(flat).toContain('six of them carried the same approved question word for word')
   })
 
+  // The variant CTA moved into the assignment block so the system prompt could become a
+  // cacheable constant. The register-only framing still has to reach the writer, so it is
+  // now asserted on both halves: the prompt points at the assignment, the assignment carries
+  // the question and repeats the framing.
   it('extends the register-only framing to the variant CTA it is handed', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('The approved question for this particular variant is "Worth a look?"')
+    expect(flat).toContain('The approved question for this particular variant is named in the ASSIGNMENT block')
     expect(flat).toContain('the same applies to it')
+
+    const assignment = buildWriterAssignment({ clientName: 'Acme', p3: 'x', cta: 'Worth a look?' })
+      .replace(/\s+/g, ' ')
+    expect(assignment).toContain('The approved closing question for this particular variant is "Worth a look?"')
+    expect(assignment).toContain('it shows register and length')
+    expect(assignment).toContain('It is not an instruction to reuse it')
   })
 
   it('states the batch-uniqueness rule for questions too', () => {
@@ -560,7 +590,7 @@ describe('the writer prompt treats the approved questions as register, not a men
 })
 
 describe('the writer prompt asks for three paragraphs, returned as three blocks', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'OFFER LINE', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('shows the observation and the bridge as separate slots in the skeleton', () => {
     const p = prompt()
@@ -773,13 +803,13 @@ describe('the opening may not carry its own question mark', () => {
 
   it('the prompt states the same rule the gate enforces', () => {
     // CLAUDE.md: when a prompt and a validator enforce the same rule they must agree.
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('The bridge is NEVER a question')
     expect(flat).toContain('exactly one question mark and it is the closing question')
   })
 
   it('the prompt no longer offers a question as a bridge shape', () => {
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).not.toContain('There are more shapes than these four: a question')
   })
 })
@@ -787,7 +817,7 @@ describe('the opening may not carry its own question mark', () => {
 
 describe('the writer is asked for the same number of blocks in both turns', () => {
   it('stops the lifting by making the words unusable rather than by warning harder', () => {
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     // Warning was tried twice and failed twice: "development is usually what gives" off
     // "prospecting is usually what gives", then "Delivery has a deadline" verbatim. The
     // examples are now from other industries, so a lift is wrong on sight.
@@ -834,7 +864,7 @@ describe('the writer may not hand back the approved offer line', () => {
 // ─── Cross-industry bridge examples, and concrete nouns ─────────────────────
 
 describe('the bridge examples come from outside the client industry', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('uses four industries that are not consulting, agencies or outbound', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -893,7 +923,7 @@ describe('the bridge examples come from outside the client industry', () => {
 
   it('the examples themselves are concrete', () => {
     // An example carrying a banned noun would teach the opposite of the section below it.
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const flat = buildWriterPrompt()
     const examplesSection = flat.slice(
       flat.indexOf('A CONDITIONAL'),
       flat.indexOf('There are more shapes than these four'),
@@ -903,7 +933,7 @@ describe('the bridge examples come from outside the client industry', () => {
 })
 
 describe('the writer prompt bans abstract nouns and metaphors', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('names the reader cost, not just the rule', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -975,7 +1005,7 @@ describe('the budget is per part and sits below the gate', () => {
   })
 
   it('the prompt states each part separately, not just a total', () => {
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('A BUDGET PER PART, NOT ONE TOTAL')
     expect(flat).toContain(`observation about ${OPENING_BUDGET.observation} words`)
     expect(flat).toContain(`bridge about ${OPENING_BUDGET.bridge} words`)
@@ -984,14 +1014,14 @@ describe('the budget is per part and sits below the gate', () => {
   })
 
   it('the prompt says which number is the target and which is the limit', () => {
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('These are TARGETS')
     expect(flat).toContain(`The HARD LIMIT is ${OPENING_MAX_WORDS} words`)
     expect(flat).toContain('Aim below the limit deliberately')
   })
 
   it('the prompt forbids borrowing between parts', () => {
-    const flat = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' }).replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('CANNOT BORROW FROM ANOTHER')
     expect(flat).toContain('the worst possible place to economise')
   })
@@ -1046,7 +1076,7 @@ describe('a length failure names the part that is over', () => {
 })
 
 describe('the bridge may attribute, but only to the sender', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('allows the sender own experience and says why', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -1130,7 +1160,7 @@ describe('an existing client base cannot be claimed', () => {
 // ─── The camera test and plain verbs ────────────────────────────────────────
 
 describe('the writer prompt runs a camera test, not a reading age', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('drops the reading-age line and says why it failed', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -1206,7 +1236,7 @@ describe('the writer prompt runs a camera test, not a reading age', () => {
 // cause, so this section addresses that cause and nothing else.
 
 describe('the bridge states one true thing', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('names the cause rather than listing symptoms', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -1256,7 +1286,7 @@ describe('the bridge states one true thing', () => {
 })
 
 describe('two more things the bridge may not assume', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('bans assuming they have nobody, and ties it to the pipeline ban', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -1277,7 +1307,7 @@ describe('two more things the bridge may not assume', () => {
 })
 
 describe('the corrected pattern example is welded to facts nobody in the batch has', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('is about a print shop, not a hire and a network', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -1337,7 +1367,7 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
 // ─── The gap points at strangers, and the bridge follows its own observation ──
 
 describe('the gap is about people who have not met them yet', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('derives the rule from the offer line rather than naming a service', () => {
     // Stated as a principle so it holds for any client whose offer line generates rather
@@ -1375,7 +1405,7 @@ describe('the gap is about people who have not met them yet', () => {
 })
 
 describe('the bridge follows from its own observation', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('states the rule and carries the Daedra mismatch', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -1392,7 +1422,7 @@ describe('the bridge follows from its own observation', () => {
 })
 
 describe('two smaller bridge faults', () => {
-  const prompt = () => buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+  const prompt = () => buildWriterPrompt()
 
   it('carries the empty change-of-state construction verbatim', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -1411,7 +1441,7 @@ describe('the new failing examples do not become the next thing copied', () => {
   it('every quoted FAILING bridge is labelled as failing, not as a model', () => {
     // Seven instances of example-copying so far, all from examples labelled as good. These
     // are all labelled FAILING, which is the only reason it is safe to quote them verbatim.
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     for (const quote of [
       'The right buyers hear it on the day.',
       'A product shop builds an audience of people who browse.',
@@ -1427,7 +1457,7 @@ describe('the new failing examples do not become the next thing copied', () => {
   })
 
   it('the one WORKING bridge quoted here is Makesha own, already shipped and hers', () => {
-    const p = buildWriterPrompt({ clientName: 'Acme', p3: 'x', cta: 'y' })
+    const p = buildWriterPrompt()
     const idx = p.indexOf('The first clients in a new market usually come through people you already know.')
     const before = p.slice(0, idx)
     expect(before.lastIndexOf('WORKING')).toBeGreaterThan(before.lastIndexOf('FAILING'))
