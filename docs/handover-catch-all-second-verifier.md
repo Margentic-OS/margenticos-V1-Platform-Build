@@ -55,8 +55,54 @@ Microsoft** — provider-specific, not general. Measured by MX lookup on 2026-08
 Workspace or M365, and this cohort is unanimous. Reproduce with
 `dig +short MX <domain>` over the ten.
 
-That is the strongest argument for the sample. It is NOT evidence the vendor will resolve
-them: catch-all is a property of the receiving DOMAIN, which answers yes to every address by
+### THE SAMPLE HAS BEEN RUN. 2026-08-25. 8 of 10 recovered.
+
+All ten addresses were put through Bouncer's real-time endpoint on the free tier. Nothing was
+written to the database.
+
+| address | Bouncer | reason | acceptAll | provider | score | claimable? |
+|---|---|---|---|---|---|---|
+| emily@esstrategic.co | DELIVERABLE | accepted_email | yes | google | 90 | **yes** |
+| hkim@mpcconsulting.com | DELIVERABLE | accepted_email | yes | outlook | 90 | **yes** |
+| jan@beranekconsulting.com | DELIVERABLE | accepted_email | yes | google | 90 | **yes** |
+| jay.soon@soleconsulting.co | DELIVERABLE | accepted_email | yes | outlook | 90 | **yes** |
+| kelli@cruzconsultinggroup.com | DELIVERABLE | accepted_email | yes | google | 90 | **yes** |
+| lmulberry@northernstarconsult.com | DELIVERABLE | accepted_email | yes | google | 90 | **yes** |
+| kgentic@akiriconsulting.com | DELIVERABLE | accepted_email | yes | outlook | 90 | no copy yet |
+| charlie.setzler@landmarksurf.com | DELIVERABLE | accepted_email | yes | google | 90 | client REJECTED |
+| sohail@thesouthstarconsulting.com | RISKY | low_deliverability | yes | outlook | 75 | no |
+| tatyana.chorny@olympus.com | RISKY | low_deliverability | yes | outlook | 15 | no |
+
+**RECOVERY RATE 8/10 = 80%. Commercially claimable right now: 6.** One recovered address is
+client-rejected and one has no copy written yet.
+
+Every MyEmailVerifier verdict here was "Catch All", and Bouncer returned
+`domain.acceptAll: yes` on all ten — it AGREES the domains are catch-all and still resolved
+eight addresses individually. That is the provider-specific claim doing exactly what it says.
+Provider detection matched an independent MX lookup exactly, 5 google and 5 outlook.
+
+**How much to trust 8/10.** It is a strong signal and not a coin flip, but it is one cohort of
+ten on one day, and the 95% interval on 8/10 runs roughly 44-97%. Every domain was on Google
+or Microsoft, which is precisely Bouncer's stated sweet spot, so treat this as close to a BEST
+case rather than a general rate. The two risky addresses count as NOT recovered: risky is
+where we started.
+
+One oddity worth a look before sourcing more: olympus.com scored 15, far below every other
+address, and is a large corporate domain rather than a small consulting firm. It may be a
+mis-sourced prospect.
+
+Pricing, confirmed from the vendor page: **$8 per 1,000 pay-as-you-go, credits never expire,
+no prepaid block minimum.** The earlier "unsourced / expect a block minimum" warning in this
+document was wrong and is withdrawn. Ten checks would have cost 8 cents; the free tier covered
+it.
+
+The throwaway script that produced this is NOT in the repository, deliberately. It was a
+one-off measurement, not the integration.
+
+---
+
+That was the strongest argument for the sample. It is NOT evidence the vendor will resolve
+them in general: catch-all is a property of the receiving DOMAIN, which answers yes to every address by
 design, so an SMTP-probing vendor gets the same answer. Recovery comes from provider APIs and
 heuristics. **There is no measured catch-all recovery rate anywhere in this repo.** Any
 number you have seen is a ceiling, not a forecast.
@@ -190,10 +236,10 @@ optional — a paid call you cannot count is a budget you cannot enforce.
 1. **Populate `country` for the live 28** — hard prerequisite, §4.
 2. **Half-day paid sample.** Buy the smallest credit block, run the 10 catch-all addresses
    through a throwaway script modelled on `scripts/run-mev.ts`, write the answers down.
-   Price the entry BLOCK, not the address: vendors sell prepaid minimums that dwarf usage at
-   this volume. The `$0.008/address` figure in earlier discussion is **unsourced**.
-3. **Decide.** Most resolving to Valid → build. Most returning catch-all or unknown → dead,
-   and record why so nobody revives it.
+   **DONE 2026-08-25 — see §2. 8 of 10 recovered, 6 claimable.** Pricing confirmed at $8 per
+   1,000 pay-as-you-go with no block minimum and non-expiring credits, so the block-pricing
+   warning this document originally carried is withdrawn.
+3. **Decide.** The sample came back 80% recovered, 6 immediately claimable. Doug's call.
 4. **Build**, reusing §7 rather than copying it.
 
 ## 9. Accepted for the record, not yet built
