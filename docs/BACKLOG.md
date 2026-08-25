@@ -66,10 +66,12 @@
   the manual 2026-08-10 script, NOT by this path.
   Forward-looking prospects are fine: the same commit that added apollo_enrichment_data
   writes country at adapter-apollo-enrichment.ts:659. The exposure is the existing 28.
-  WHY THIS MATTERS SOON: it becomes live the moment those 28 are re-verified, which is
-  exactly what the proposed catch-all second-verifier pass would do. A German catch-all
-  re-verified as Valid would come back send-eligible with the country rule never consulted.
-  Fold this into that design rather than fixing it separately.
+  HARD PREREQUISITE, set by Doug 2026-08-25: THE CATCH-ALL SECOND PASS MUST NOT RUN until
+  country is populated for these 28 prospects. It becomes live the moment they are
+  re-verified, which is exactly what that pass does. A German catch-all re-verified as Valid
+  would come back send-eligible with the country rule never consulted, and the DE exclusion
+  is a commercial rule, not a preference. Populating country is a precondition of the second
+  pass, not a follow-up to it.
 
 ## Baseline run findings (2026-08-25)
 
