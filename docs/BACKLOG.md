@@ -23,6 +23,54 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## Apollo backfill — MEASURED AND DECLINED (2026-08-25)
+
+- [DECLINED 2026-08-25, DO NOT REVIVE ON THE SWEEP'S FRAMING] Backfilling
+  prospects.apollo_enrichment_data for the live client-zero organisation.
+
+  THE CASE FOR IT, which the verification sweep made and which is wrong. 0 of 28 live
+  unsuppressed prospects carry apollo_enrichment_data, so the row-first path at
+  prospect-research-agent-v2.ts:493 returns null every time and every research run falls
+  through to a live Apollo people/match call — the duplicate buy the 2026-08-24 commit set
+  out to remove. Nothing automated will revisit them: all 28 read enrichment_status
+  'enriched' and both enqueue selectors require it to be NULL.
+
+  WHY IT IS DECLINED. The arithmetic is negative and not marginally.
+
+    Backfill cost:  28 contacts x 1 Apollo credit = 28 credits (bulk_match, 10 per call).
+    Benefit:        at most 3 prospects, 4 if the catch-all policy flips.
+
+  The benefit is small because the TRIGGER GUARD already blocks re-research. 23 of the 28
+  hold a personalisation_trigger, so enqueueResearchForOrganisation refuses them outright,
+  and apollo_enrichment_data is read by exactly one consumer
+  (prospect-research-agent-v2.ts:494) on exactly that path. Spending 28 credits to save at
+  most 4 is a net loss of roughly 24.
+
+  THE FORWARD PATH IS ALREADY FIXED. adapter-apollo-enrichment.ts:659 writes both
+  apollo_enrichment_data and country on every new enrichment, so prospects sourced from now
+  on carry the subset and never make the duplicate call. The gap is legacy-only, bounded at
+  28 rows, and shrinking to zero as those rows age out.
+
+  HOW TO DO IT ANYWAY, if a reason ever appears: scripts/backfill-firmographics.ts already
+  has the shape (enrichment_status = 'enriched' AND a null-column predicate at line 18) and
+  reports credits_consumed at line 52. Change the predicate to apollo_enrichment_data and
+  point it at the org. It is a one-line change, not a build. The reason not to do it is
+  price, not difficulty.
+
+- [pre-c1, LIVE DEFECT, found while declining the backfill] The country exclusion cannot
+  fire for any prospect verified through the trigger.
+  prospects.country is 0 of 28 populated in the live organisation, and
+  verification-trigger.ts:129 selects it and passes prospect.country into
+  checkSendEligibility at :298. A null country means the exclusion rule silently evaluates
+  against nothing. The single prospect currently flagged country_excluded_de was flagged by
+  the manual 2026-08-10 script, NOT by this path.
+  Forward-looking prospects are fine: the same commit that added apollo_enrichment_data
+  writes country at adapter-apollo-enrichment.ts:659. The exposure is the existing 28.
+  WHY THIS MATTERS SOON: it becomes live the moment those 28 are re-verified, which is
+  exactly what the proposed catch-all second-verifier pass would do. A German catch-all
+  re-verified as Valid would come back send-eligible with the country rule never consulted.
+  Fold this into that design rather than fixing it separately.
+
 ## Baseline run findings (2026-08-25)
 
 - [pre-c1, ACTIONABLE] The synthesis reasoning block has grown back to the max_tokens ceiling.
