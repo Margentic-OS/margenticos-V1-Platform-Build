@@ -16,6 +16,16 @@
 //   scope 'unresearched'  current_research_result_id IS NULL
 //   scope 'researched'    current_research_result_id IS NOT NULL
 //   NO prospect already holds a personalisation_trigger
+//   send-eligibility            added 2026-08-25, see below
+//
+// THE SEND-ELIGIBILITY GATE, added 2026-08-25 and applied to BOTH paths in the same commit
+// precisely so the rule above keeps holding. Measured on the first real queue batch: 12 of
+// 13 prospects had already been verified as unmailable BEFORE research ran, and research
+// ran anyway. $2.56 spent, one mailable prospect bought. The policy lives in
+// src/lib/sourcing/send-eligibility-policy.ts and nowhere else.
+//
+// It SKIPS rather than refusing, unlike the trigger guard. Different in kind: the trigger
+// guard protects against a destructive write, this one protects against wasted spend.
 //
 // THE TRIGGER GUARD IS THE ONE THAT MATTERS AND THE ONE EASIEST TO WEAKEN.
 // updateProspect writes personalisation_trigger on EVERY run, unconditionally:
@@ -38,14 +48,24 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { enqueueJobsForProspects } from '../job-queue'
+import {
+  checkResearchEligibility,
+  summariseIneligible,
+  type IneligibleReason,
+} from '@/lib/sourcing/send-eligibility-policy'
 
 export type ResearchScope = 'unresearched' | 'researched'
 
 export interface EnqueueResearchSuccess {
   ok: true
+  /** Rows matching org + suppressed + scope, BEFORE the eligibility filter. */
   selected: number
   created: number
   alreadyQueued: number
+  /** Filtered out as not worth researching. selected - skippedIneligible = jobs considered. */
+  skippedIneligible: number
+  /** Plain-English counts by reason, or null when nothing was skipped. */
+  skippedBreakdown: string | null
   scope: ResearchScope
 }
 
@@ -74,7 +94,11 @@ export async function enqueueResearchForOrganisation(
   // ── Select ─────────────────────────────────────────────────────────────────
   let query = supabase
     .from('prospects')
-    .select('id, personalisation_trigger')
+    // The three verification columns are RAW on purpose. See send-eligibility-policy.ts:
+    // email_send_eligible is materialised at verification time and defaults to false, so it
+    // can neither be re-policied without a re-verification run nor distinguish "verified
+    // ineligible" from "never verified".
+    .select('id, personalisation_trigger, independent_verified_at, independent_email_status, email_send_ineligible_reason')
     .eq('organisation_id', organisationId)
     .eq('suppressed', false)
     .limit(maxProspects)
@@ -111,10 +135,45 @@ export async function enqueueResearchForOrganisation(
     }
   }
 
+  // ── GATE: do not pay for research on a prospect we already know we cannot email ──
+  //
+  // SKIPS rather than refusing the whole batch, unlike the trigger guard above. The two
+  // are different in kind. The trigger guard refuses because overwriting shipped copy is
+  // DESTRUCTIVE and has to be asked for explicitly. This is a spend FILTER: an operator
+  // who asks to research an organisation wants its mailable prospects researched, and
+  // refusing the batch because one address is a catch-all would be obstructive.
+  //
+  // It must not be silent, though, or it becomes the next invisible behaviour. Counts by
+  // reason go into the result and the log, and a batch that filters down to nothing
+  // returns an error naming why rather than a bare "nothing to do".
+  const eligible: string[] = []
+  const skippedReasons: IneligibleReason[] = []
+  for (const row of rows) {
+    const verdict = checkResearchEligibility({
+      independent_verified_at:      (row.independent_verified_at as string | null) ?? null,
+      independent_email_status:     (row.independent_email_status as string | null) ?? null,
+      email_send_ineligible_reason: (row.email_send_ineligible_reason as string | null) ?? null,
+    })
+    if (verdict.eligible) eligible.push(row.id as string)
+    else skippedReasons.push(verdict.reason)
+  }
+
+  if (eligible.length === 0) {
+    return {
+      ok: false,
+      error:
+        `Nothing to research. All ${rows.length} prospects were filtered out as not worth ` +
+        `researching: ${summariseIneligible(skippedReasons)}. Research costs roughly 60 times ` +
+        'what composition costs per prospect, so it does not run on addresses we already know ' +
+        'we cannot email. Verify the prospects, or revisit the catch-all policy in ' +
+        'src/lib/sourcing/send-eligibility-policy.ts.',
+    }
+  }
+
   const { created, alreadyQueued } = await enqueueJobsForProspects(supabase, {
     jobType: 'research',
     organisationId,
-    prospectIds: rows.map(r => r.id as string),
+    prospectIds: eligible,
     enqueuedBy,
   })
 
@@ -122,6 +181,9 @@ export async function enqueueResearchForOrganisation(
     organisation_id: organisationId,
     scope,
     selected: rows.length,
+    eligible: eligible.length,
+    skipped_ineligible: skippedReasons.length,
+    skipped_breakdown: skippedReasons.length > 0 ? summariseIneligible(skippedReasons) : null,
     created: created.length,
     already_queued: alreadyQueued.length,
   })
@@ -131,6 +193,8 @@ export async function enqueueResearchForOrganisation(
     selected: rows.length,
     created: created.length,
     alreadyQueued: alreadyQueued.length,
+    skippedIneligible: skippedReasons.length,
+    skippedBreakdown: skippedReasons.length > 0 ? summariseIneligible(skippedReasons) : null,
     scope,
   }
 }

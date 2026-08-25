@@ -19,6 +19,11 @@ import {
 import type { ResearchBatchSummary } from '@/lib/agents/research/types'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { logger } from '@/lib/logger'
+import {
+  checkResearchEligibility,
+  summariseIneligible,
+  type IneligibleReason,
+} from '@/lib/sourcing/send-eligibility-policy'
 
 // ── Runtime budget ────────────────────────────────────────────────────────────
 //
@@ -136,6 +141,19 @@ export async function runResearchBatchForOrg({
 
   const prospects = selected.prospects
   if (prospects.length === 0) {
+    // Eligibility takes precedence in the message: it is the actionable reason, and the
+    // generic ones below would otherwise hide it.
+    if (selected.skippedIneligible > 0) {
+      return {
+        ok: false,
+        error:
+          `Nothing to research. ${selected.skippedIneligible} prospect(s) were filtered out as ` +
+          `not worth researching: ${selected.skippedBreakdown}. Research costs roughly 60 times ` +
+          'what composition costs per prospect, so it does not run on addresses we already know ' +
+          'we cannot email. Verify them, or revisit the catch-all policy in ' +
+          'src/lib/sourcing/send-eligibility-policy.ts.',
+      }
+    }
     const what = prospect_ids
       ? 'None of the supplied prospect ids belong to this organisation, or all of them are suppressed.'
       : scope === 'unresearched'
@@ -290,7 +308,7 @@ export async function runResearchBatchForOrg({
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 type SelectResult =
-  | { ok: true; prospects: SelectedProspect[] }
+  | { ok: true; prospects: SelectedProspect[]; skippedIneligible: number; skippedBreakdown: string | null }
   | { ok: false; error: string }
 
 async function selectProspects(
@@ -303,7 +321,9 @@ async function selectProspects(
   // researching them spends money on copy that can never be sent.
   let query = supabase
     .from('prospects')
-    .select('id, personalisation_trigger')
+    // Raw verification columns, not email_send_eligible. See send-eligibility-policy.ts for
+    // why the materialised column is the wrong input here.
+    .select('id, personalisation_trigger, independent_verified_at, independent_email_status, email_send_ineligible_reason')
     .eq('organisation_id', organisation_id)
     .eq('suppressed', false)
 
@@ -324,12 +344,36 @@ async function selectProspects(
     return { ok: false, error: `Could not read prospects: ${error.message}` }
   }
 
-  return {
-    ok: true,
-    prospects: (data ?? []).map(row => ({
+  // ── SEND-ELIGIBILITY GATE ──────────────────────────────────────────────────
+  //
+  // Identical policy to the queue path (src/lib/queue/enqueue/research.ts), from the same
+  // module, applied in the same commit. That file's header states the standing rule: a
+  // prospect must be eligible under ONE definition, or flipping queue_research changes
+  // WHICH prospects get researched rather than only how. Two copies of this rule would
+  // recreate exactly that divergence.
+  //
+  // NOTE this applies even when explicit prospect_ids are supplied. An operator naming ids
+  // by hand is the case where a quiet re-spend on a dead address is MOST likely, not least.
+  const prospects: SelectedProspect[] = []
+  const skippedReasons: IneligibleReason[] = []
+  for (const row of data ?? []) {
+    const verdict = checkResearchEligibility({
+      independent_verified_at:      (row.independent_verified_at as string | null) ?? null,
+      independent_email_status:     (row.independent_email_status as string | null) ?? null,
+      email_send_ineligible_reason: (row.email_send_ineligible_reason as string | null) ?? null,
+    })
+    if (!verdict.eligible) { skippedReasons.push(verdict.reason); continue }
+    prospects.push({
       id: row.id as string,
       has_trigger: (row.personalisation_trigger as string | null) != null,
-    })),
+    })
+  }
+
+  return {
+    ok: true,
+    prospects,
+    skippedIneligible: skippedReasons.length,
+    skippedBreakdown: skippedReasons.length > 0 ? summariseIneligible(skippedReasons) : null,
   }
 }
 

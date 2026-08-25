@@ -98,10 +98,20 @@ function stubClient(tables: Record<string, Row[]>) {
 const ORG = 'org-1'
 const activeOrg = [{ id: ORG, name: 'Test Org' }]
 
-/** A prospect row as the entry point's select returns it. */
+/**
+ * A prospect row as the entry point's select returns it.
+ *
+ * Carries a clean Valid verdict by default. The send-eligibility gate added 2026-08-25
+ * fails closed on a missing verdict, so a fixture without these columns would be filtered
+ * out before any guard under test ran, and every assertion here would pass against an
+ * empty batch instead of the behaviour it names.
+ */
 const prospect = (id: string, trigger: string | null = null) => ({
   id,
   personalisation_trigger: trigger,
+  independent_verified_at: '2026-08-10T00:00:00Z',
+  independent_email_status: 'Valid',
+  email_send_ineligible_reason: null,
 })
 
 const okSummary = {
