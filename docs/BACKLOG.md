@@ -23,6 +23,42 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## Baseline run findings (2026-08-25)
+
+- [pre-c1, ACTIONABLE] The synthesis reasoning block has grown back to the max_tokens ceiling.
+  One of 13 prospects in the 2026-08-25 baseline run produced 15,096 output tokens against
+  a 16,000 ceiling and fell through to the synthesis fallback: zero candidates, low
+  confidence, ICP pain proxy recorded, no trigger. That is the same failure the ceiling was
+  raised from 8,000 to 16,000 to prevent on 2026-08-19, reappearing at the higher ceiling.
+  It was the ONLY failure in the run, so it is 1 in 13 rather than 3 in 12, but the
+  direction is wrong.
+  DO NOT FIX THIS BY LOWERING max_tokens. A lower ceiling makes truncation more frequent,
+  not less. The lever is the reasoning block in prompts/synthesis-prompt.ts: eight numbered
+  sections, several of them per candidate, plus opposite_reading and seven scores on every
+  candidate. It is 100% billable visible output, confirmed: extended thinking is NOT
+  enabled on any of the four research calls, so none of it is hidden reasoning.
+  Output tokens are 62% of measured per-prospect cost, so this is also the largest single
+  cost lever in the pipeline.
+
+- [monitor] Web search price per search is the one UNVERIFIED number in the cost model.
+  COST_WEB_SEARCH_PER_SEARCH = $0.01 comes from Anthropic's published ~$10/1,000 rate, not
+  from an invoice. The COUNT is now measured (54 searches over 13 prospects, 4.15 each).
+  Reconcile against a real Anthropic bill before quoting per-prospect cost to a client.
+
+- [research] Twenty prospects were requested for the baseline run; thirteen was the ceiling.
+  The live MargenticOS org holds 29 prospects: 15 already researched, 12 of those holding
+  shipped copy that the enqueue guard correctly refuses to overwrite, 1 suppressed. Topping
+  up to 20+ needs a sourcing run, which is a separate decision with its own Apollo cost.
+  At n=13 the write-rate regression check can detect a large regression but not a subtle
+  one. It came back 12/13 = 92.3% against an 88.5% baseline, so nothing was detected.
+
+- [monitor] Concurrent fan-out costs a few cache WRITES at the head of every batch.
+  Prospects 2, 3 and 6 wrote the synthesis prompt to cache as well as reading it, because
+  they started before prospect 1's entry committed. Cache writes bill at 1.25x input. It
+  self-corrects from roughly prospect 4 and cost well under a cent on this run. Only worth
+  addressing if batch sizes grow far beyond 13, and the fix would be to warm the cache with
+  one cheap call before fanning out.
+
 ## Web search cost work (2026-08-25)
 
 - [REJECTED 2026-08-25, DO NOT REVIVE ON THE OLD NUMBERS] Brave-first for prospect

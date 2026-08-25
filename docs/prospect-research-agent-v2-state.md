@@ -238,3 +238,61 @@ receipt above after any edit to either prompt builder.
 were relocated, not rewritten, and `checkOpeningGates` still receives `params.p3` exactly as
 before. The instruction to read the offer line before the findings still holds, because the
 assignment block physically precedes the findings in the user message.
+
+---
+
+## Baseline run, 2026-08-25 — first real batch through the queue
+
+Thirteen fresh MargenticOS prospects, `queue_research` on, current code. Asked for twenty;
+thirteen is every prospect the enqueue guard will accept in the live org (29 total, 15
+already researched, 12 of those holding shipped copy, 1 suppressed).
+
+**Write rate: 12 of 13 = 92.3% `use_as_hook`.** Against the 88.5% post-2026-08-20 baseline,
+so moving `p3`, `cta` and `clientName` out of the writer system prompt shows NO regression.
+That was the open question from the caching change and it is now answered on real data.
+`signal_relevance` and the job's `result_summary` agreed on all 13 rows.
+
+**Prompt caching took on a real batch**, which the probe alone could not prove:
+
+| | tokens |
+|---|---|
+| read from cache | 222,234 |
+| written to cache | 49,430 |
+
+`cache_read` is non-zero on all twelve prospects after the first. Synthesis prompt is 6,782
+tokens, writer 8,738; a prospect that retries the writer reads 8,738 twice. Three prospects
+(2, 3 and 6) also WROTE, because they started before the first entry committed. Concurrent
+fan-out costs a few 1.25x writes at the head of a batch and then self-corrects.
+
+**Measured cost, 13 prospects, all in:**
+
+| line | $ | $/prospect | share |
+|---|---|---|---|
+| output tokens | 1.5922 | 0.1225 | 62% |
+| web search tool | 0.5400 | 0.0415 | 21% |
+| cache write | 0.1854 | 0.0143 | 7% |
+| input (uncached) | 0.1460 | 0.0112 | 6% |
+| cache read | 0.0667 | 0.0051 | 3% |
+| Apify posts actor | 0.0260 | 0.0020 | 1% |
+| **TOTAL** | **2.5562** | **0.1966** | |
+
+Same run with caching off would have been $3.1192. **Caching saved 18%**, not the ~50% the
+pre-run estimate implied, because OUTPUT dominates and caching only touches input.
+
+60 Anthropic calls over 13 prospects = 4.6 per prospect. 54 web searches = 4.15 per
+prospect, so the new `WEB_SEARCH_MAX_USES` cap of 3 per query is occasionally binding.
+Duration ran 130s to 321s per prospect.
+
+**The one failure is the interesting row.** It was a synthesis FALLBACK: zero candidates,
+low confidence, `relevance_reason` "Synthesis fallback: no trigger written, ICP pain proxy
+recorded" — and **15,096 output tokens against the 16,000 `max_tokens` ceiling**. The
+reasoning block has grown back to the point where it approaches the ceiling that was raised
+from 8,000 on 2026-08-19 for exactly this reason. Lowering `max_tokens` would make this
+MORE frequent, not less. The lever is the reasoning block in `synthesis-prompt.ts`, which
+is eight numbered sections several of which run per candidate, and which is 100% billable
+visible output: extended thinking is not enabled on any of the four calls.
+
+**The unverified number in the cost model** is `COST_WEB_SEARCH_PER_SEARCH = $0.01`, taken
+from Anthropic's published ~$10/1,000 rate rather than measured from an invoice. The search
+COUNT is now measured; the price per search is not. Everything else above is derived from
+`usage` fields returned by the API.
