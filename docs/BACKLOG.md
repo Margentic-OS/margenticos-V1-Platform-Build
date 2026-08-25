@@ -107,6 +107,43 @@
   summary. The queue worker must not rely on that file. (Carried forward from the
   2026-08-20 entry; still true and now directly relevant.)
 
+## Queue build CLOSED AT C5 (2026-08-24). Compose is not a queue job.
+
+- [DECIDED, DO NOT REOPEN] COMPOSE WILL NOT BE MIGRATED TO THE JOB QUEUE.
+  C1 to C5 shipped: the durable queue, its worker, its monitors, and enrich and research
+  running on it behind flags. C6 was to be compose. It was investigated and abandoned on
+  the evidence below, not on effort.
+
+  THE REASON: composeSequence has no durable unit of work. It is stateless. It returns
+  composed emails and persists NOTHING except variant_id and messaging_doc_id on the
+  prospect. There is no composed-output table and no migration has ever created one,
+  checked against both the live schema and the full migration history. Its output is
+  consumed immediately by handleUploadLeads, which turns it into custom_variables, runs
+  the FINAL suppression gate, and uploads to the provider in one continuous step.
+
+  So a queued compose job has nowhere to put its result. The two ways to give it one both
+  cross a line:
+    (a) Persist composed copy in a new table and let upload read it later. This widens
+        the document-snapshot window that fetchComposeDocs exists to keep narrow. The
+        snapshot exists so a client revision between prospect N and N+1 cannot change what
+        ships; storing copy and uploading later makes that window unbounded.
+    (b) Move compose AND upload into the queue together. That is the send path, including
+        the suppression gates, which is explicitly out of scope for the queue work.
+
+  There is also a shape mismatch independent of storage: the shell-coherence check and the
+  provider upload are per-CAMPAIGN batch operations, while the queue is per-prospect.
+  Splitting them means either per-prospect uploads or reassembling batches in the worker.
+
+  THE REAL ITEM UNDERNEATH IS UPLOAD THROUGHPUT, NOT COMPOSE.
+  The entry that prompted C6 ("[scale] Background job queue for compose-at-upload when
+  batch volumes exceed ~50") named compose because compose is what it saw in the loop. The
+  thing that actually does not scale is handleUploadLeads as a whole. See the entry below.
+  Fix that, and the reason to queue compose disappears entirely.
+
+  If anyone reopens this: the question to ask first is not "how do we queue compose" but
+  "why is upload synchronous at all". Compose is a pure function of the approved documents
+  and the prospect. It is cheap, it is fast, and it is not the bottleneck.
+
 - [pre-c1, REAL DEFECT, found 2026-08-24 during C4 verification] The queue claim path does
   NOT exclude archived organisations. The route does. They disagree.
   Traced through every layer:
