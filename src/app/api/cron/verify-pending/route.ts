@@ -65,12 +65,19 @@ const MONITOR_CONFIG = {
 async function findOrganisationWithPendingVerification(
   supabase: SupabaseClient,
 ): Promise<string | null> {
+  // ARCHIVED ORGANISATIONS ARE EXCLUDED, and this is not defensive tidiness.
+  // Checked before scheduling: 2 enriched, unverified prospects sit in the archived
+  // "DRY RUN TEST" organisation. Without this join they would be the OLDEST pending work on
+  // the platform, so every sweep would pick them first — spending a 100/day free tier on a
+  // dead test organisation and reporting itself busy while real work waited. The enqueue
+  // helpers already refuse archived organisations; this now matches them.
   const { data, error } = await supabase
     .from('prospects')
-    .select('organisation_id, created_at')
+    .select('organisation_id, created_at, organisations!inner(archived_at)')
     .eq('enrichment_status', 'enriched')
     .is('independent_email_status', null)
     .not('email', 'is', null)
+    .is('organisations.archived_at', null)
     .order('created_at', { ascending: true })
     .limit(1)
 
