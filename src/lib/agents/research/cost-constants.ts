@@ -6,8 +6,10 @@
 export const COST_ANTHROPIC_LOW  = 0.015
 export const COST_ANTHROPIC_HIGH = 0.025
 
-// Apify harvestapi/linkedin-profile-scraper, per run
-export const COST_APIFY = 0.006
+// Apify, per prospect. ONE actor since 2026-08-25: harvestapi~linkedin-profile-posts
+// at $2/1000. The profile scraper at $4/1000 was dropped after producing 1 candidate in
+// 147, never selected. Was 0.006 when both ran. See src/lib/agents/research/sources/linkedin.ts.
+export const COST_APIFY = 0.002
 
 // Brave Search: 2 calls per prospect; free tier covers 2000 calls/month
 export const BRAVE_FREE_MONTHLY  = 2000

@@ -23,7 +23,11 @@
 
 import { describe, it, expect } from 'vitest'
 import { planClaims, planClaimsWithRotation, inFlightHeadroom } from '../fairness'
-import { QUEUE_CONFIG } from '../config'
+import {
+  QUEUE_CONFIG,
+  APIFY_ACTORS_PER_RESEARCH_PROSPECT,
+  APIFY_MAX_CONCURRENT_ACTOR_RUNS,
+} from '../config'
 import type { JobType, OrganisationBacklog } from '../types'
 
 const JOB_TYPES = Object.keys(QUEUE_CONFIG) as JobType[]
@@ -199,11 +203,20 @@ describe('basic planning behaviour', () => {
 })
 
 describe('external limits the config must keep honouring', () => {
-  it('keeps concurrent research prospects under the Apify 25-actor-run ceiling', () => {
-    const ACTORS_PER_PROSPECT = 2
-    const APIFY_MAX_CONCURRENT_ACTOR_RUNS = 25
-    expect(QUEUE_CONFIG.research.maxInFlight * ACTORS_PER_PROSPECT)
+  // The actor count is IMPORTED, not restated. It was a local literal 2, and when the
+  // profile actor was dropped on 2026-08-25 and maxInFlight went 10 -> 20, this test kept
+  // asserting against a number the source no longer used. A duplicated constant is how a
+  // guard silently stops guarding.
+  it('keeps concurrent research prospects under the Apify concurrent-actor-run ceiling', () => {
+    expect(QUEUE_CONFIG.research.maxInFlight * APIFY_ACTORS_PER_RESEARCH_PROSPECT)
       .toBeLessThanOrEqual(APIFY_MAX_CONCURRENT_ACTOR_RUNS)
+  })
+
+  // The drift this cannot catch: APIFY_ACTORS_PER_RESEARCH_PROSPECT claiming 1 while
+  // linkedin.ts actually starts 2. Only reading that file proves it, and the header
+  // comment there names this constant so the pair stay together.
+  it('states the actor count the LinkedIn source is believed to run', () => {
+    expect(APIFY_ACTORS_PER_RESEARCH_PROSPECT).toBe(1)
   })
 
   it('matches the enrich batch size to the Apollo bulk_match page size', () => {
@@ -223,27 +236,39 @@ describe('rotation — the cursor is what stops permanent starvation', () => {
     org('org-3', '2026-08-24T09:02:00Z', 1000),
   ]
 
-  it('research serves org-3 on the second pass, which it never did before', () => {
-    // The exact scenario that starved: two slots, three deep organisations.
-    const first = planClaimsWithRotation(backlog, QUEUE_CONFIG.research, reachableHeadroom('research'), null)
-    expect(first.entries.map(e => e.organisation_id)).toEqual(['org-1', 'org-2'])
-    expect(first.nextCursor).toBe('org-2')
+  // STARVATION ONLY EXISTS WHEN ORGANISATIONS OUTNUMBER SLOTS, so the scenario has to be
+  // built from the config rather than hardcoded. It used to be three orgs against two
+  // slots. Raising research.maxInFlight from 10 to 20 on 2026-08-25 made it four slots,
+  // at which point all three orgs were served every pass and these two tests failed while
+  // the behaviour they exist to protect had strictly IMPROVED. Deriving the org count
+  // keeps the scenario real at any config.
+  const slots = Math.floor(reachableHeadroom('research') / QUEUE_CONFIG.research.claimBatchSize)
+  const crowded = Array.from({ length: slots + 1 }, (_, i) =>
+    org(`crowd-${i + 1}`, `2026-08-24T09:0${i}:00Z`, 1000))
+  const lastId = `crowd-${slots + 1}`
 
-    const second = planClaimsWithRotation(backlog, QUEUE_CONFIG.research, reachableHeadroom('research'), first.nextCursor)
-    expect(second.entries.map(e => e.organisation_id)).toContain('org-3')
+  it('serves the organisation that did not fit, on the next pass', () => {
+    const first = planClaimsWithRotation(crowded, QUEUE_CONFIG.research, reachableHeadroom('research'), null)
+    // One more organisation than there are slots, so exactly one is left out, and it is
+    // the newest by created_at because planning starts from the oldest.
+    expect(first.entries).toHaveLength(slots)
+    expect(first.entries.map(e => e.organisation_id)).not.toContain(lastId)
+
+    const second = planClaimsWithRotation(crowded, QUEUE_CONFIG.research, reachableHeadroom('research'), first.nextCursor)
+    expect(second.entries.map(e => e.organisation_id)).toContain(lastId)
   })
 
-  it('rotates continuously rather than settling on a fixed pair', () => {
+  it('rotates continuously rather than settling on a fixed set', () => {
     const seen: string[][] = []
     let cursor: string | null = null
     for (let pass = 0; pass < 6; pass++) {
-      const plan = planClaimsWithRotation(backlog, QUEUE_CONFIG.research, reachableHeadroom('research'), cursor)
+      const plan = planClaimsWithRotation(crowded, QUEUE_CONFIG.research, reachableHeadroom('research'), cursor)
       seen.push(plan.entries.map(e => e.organisation_id))
       cursor = plan.nextCursor
     }
     // Every organisation appears across six passes, and no single pass repeats forever.
     const flat = seen.flat()
-    for (const id of ['org-1', 'org-2', 'org-3']) expect(flat).toContain(id)
+    for (const o of crowded) expect(flat).toContain(o.organisation_id)
     expect(new Set(seen.map(s => s.join(','))).size).toBeGreaterThan(1)
   })
 

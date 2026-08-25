@@ -1,8 +1,32 @@
 // LinkedIn source handler for prospect research agent v2.
 // Uses Apify REST API — no LinkedIn account, no cookies, no ban risk.
-// Runs two actors in parallel:
-//   harvestapi~linkedin-profile-scraper  — full profile data   ($4/1000)
+// Runs ONE actor:
 //   harvestapi~linkedin-profile-posts    — posts last 60 days  ($2/1000)
+//
+// ═════════════════════════════════════════════════════════════════════════════
+// THE PROFILE ACTOR WAS DROPPED ON 2026-08-25. DO NOT REINSTATE IT WITHOUT DATA.
+//
+// harvestapi~linkedin-profile-scraper cost $4/1000, twice the posts actor, and produced
+// nothing. Measured across the 105 fresh research runs on file:
+//
+//   147 of 147 LinkedIn candidates cite POSTS
+//     0 of 147 cite a headline
+//     1 of 147 cites a profile field, and it was never selected
+//
+// So the more expensive of the two actors contributed one candidate in 147 and zero
+// shipped openings.
+//
+// WHAT IS GENUINELY LOST: headline, about, location, connections. The role history it also
+// carried (current role, start date, previous roles) is DUPLICATED by Apollo, which is
+// already bought at enrichment time, costs nothing extra here, and converts far better:
+// 104 of 117 Apollo candidates cite employment_history and Apollo candidates clear all six
+// tests at 48.7% against LinkedIn's 12.2%.
+//
+// THE REAL WIN IS CONCURRENCY, NOT THE $0.004. Apify's plan allows 25 concurrent actor
+// runs. At two actors per prospect that capped research at 10 prospects in flight
+// (job_queue config, research.maxInFlight). At one actor the same ceiling admits 20. See
+// the note on maxInFlight in src/lib/queue/config.ts, which must move with this file.
+// ═════════════════════════════════════════════════════════════════════════════
 //
 // Returns available: false (not an error) when APIFY_API_KEY is not set.
 // Returns available: false with error when the API call fails.
@@ -13,7 +37,6 @@
 import { logger } from '@/lib/logger'
 import type { ProspectContext, LinkedInSourceResult } from '../types'
 
-const APIFY_PROFILE_ACTOR = 'harvestapi~linkedin-profile-scraper'
 const APIFY_POSTS_ACTOR   = 'harvestapi~linkedin-profile-posts'
 const APIFY_TIMEOUT_SEC   = 90
 const APIFY_FETCH_TIMEOUT = 100_000 // ms — slightly longer than actor timeout
@@ -39,33 +62,6 @@ async function runApifyActor(
   }
 
   return await response.json() as Array<Record<string, unknown>>
-}
-
-function formatProfileData(profile: Record<string, unknown>): string {
-  const lines: string[] = []
-
-  if (profile.fullName)    lines.push(`Name: ${profile.fullName}`)
-  if (profile.headline)    lines.push(`Headline: ${profile.headline}`)
-  if (profile.about)       lines.push(`About: ${[...String(profile.about)].slice(0, 500).join('')}`)
-  if (profile.location)    lines.push(`Location: ${profile.location}`)
-  if (profile.connections) lines.push(`Connections: ${profile.connections}`)
-
-  // Current position
-  const positions = profile.positions as Array<Record<string, unknown>> | undefined
-  if (positions?.length) {
-    const current = positions.find(p => p.endDate == null)
-    if (current) {
-      lines.push(`Current role: ${current.title ?? ''} at ${current.companyName ?? ''}`)
-      if (current.startDate) lines.push(`  Started: ${current.startDate}`)
-    }
-    const prev = positions.filter(p => p.endDate != null).slice(0, 2)
-    if (prev.length) {
-      lines.push('Previous roles:')
-      prev.forEach(p => lines.push(`  - ${p.title ?? ''} at ${p.companyName ?? ''}`))
-    }
-  }
-
-  return lines.filter(Boolean).join('\n')
 }
 
 function formatPostsData(posts: Array<Record<string, unknown>>): string {
@@ -116,48 +112,34 @@ export async function fetchLinkedInSource(prospect: ProspectContext): Promise<Li
   const input = { profileUrls: [linkedinUrl] }
 
   try {
-    const [profileItems, postsItems] = await Promise.allSettled([
-      runApifyActor(APIFY_PROFILE_ACTOR, input, apiKey),
-      runApifyActor(APIFY_POSTS_ACTOR, input, apiKey),
-    ])
+    // ONE actor. Promise.allSettled is gone with it: a single rejection is just a throw,
+    // caught below, and settling one promise only obscured that.
+    const postsData = await runApifyActor(APIFY_POSTS_ACTOR, input, apiKey)
 
-    const profileData = profileItems.status === 'fulfilled' && profileItems.value.length > 0
-      ? profileItems.value[0]
-      : null
-
-    const postsData = postsItems.status === 'fulfilled'
-      ? postsItems.value
-      : []
-
-    if (!profileData && !postsData.length) {
-      const profileErr = profileItems.status === 'rejected' ? String(profileItems.reason) : 'no data'
-      const postsErr   = postsItems.status === 'rejected'   ? String(postsItems.reason)   : 'no data'
+    if (!postsData.length) {
       return {
         available: false,
         profile_data: null,
         recent_posts: null,
         formatted: null,
-        error: `Profile: ${profileErr}. Posts: ${postsErr}`,
+        error: 'Apify posts actor returned no posts',
       }
     }
 
-    const parts: string[] = []
-    if (profileData) parts.push(formatProfileData(profileData))
-    if (postsData.length) parts.push(formatPostsData(postsData))
-
-    const formatted = parts.filter(Boolean).join('\n\n') || null
+    const formatted = formatPostsData(postsData) || null
     if (!formatted) {
-      return { available: false, profile_data: profileData, recent_posts: postsData, formatted: null, error: 'Apify returned empty data' }
+      return { available: false, profile_data: null, recent_posts: postsData, formatted: null, error: 'Apify returned empty data' }
     }
 
     logger.debug('research/linkedin: Apify succeeded', {
-      profile: !!profileData,
       posts: postsData.length,
     })
 
     return {
       available: true,
-      profile_data: profileData,
+      // Always null since the profile actor was dropped. The field is kept so stored
+      // raw_linkedin rows written before 2026-08-25 keep the same shape as new ones.
+      profile_data: null,
       recent_posts: postsData,
       formatted,
     }

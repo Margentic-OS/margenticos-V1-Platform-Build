@@ -26,8 +26,9 @@
 //     maxMonthlyUsageUsd                10      (FREE plan, $5 included credit)
 //     maxMonthlyActorComputeUnits       625
 //
-// The LinkedIn source runs TWO actors per prospect, so concurrent research prospects
-// must stay at or under 12 to respect the 25-run ceiling. That is the real dial, and
+// The LinkedIn source runs ONE actor per prospect since 2026-08-25 (it ran two until the
+// profile scraper was dropped), so concurrent research prospects must stay at or under 25
+// to respect the 25-run ceiling. That is the real dial, and
 // it is a CONCURRENCY cap rather than a request rate, because what Apify limits is
 // simultaneous runs and monthly dollars. A token bucket would govern neither.
 //
@@ -112,16 +113,36 @@ export const QUEUE_CONFIG: Record<JobType, JobTypeConfig> = {
   // worst case plus the full 300s invocation, because a worker killed at the wall must
   // not have its jobs stolen by the next tick while its own HTTP calls are still open.
   //
-  // maxInFlight 10 ROWS is the Apify ceiling, not a preference: 10 prospects x 2 actors
-  // = 20 concurrent actor runs, under the measured limit of 25. This is the one job
-  // type whose ceiling is externally fixed and cannot be raised to buy more fairness,
-  // which is exactly why rotation exists. At a slice of 5 only two organisations are
-  // served per pass; the rotation cursor is what stops the third waiting forever.
+  // maxInFlight 20 ROWS is the Apify ceiling, not a preference. RAISED FROM 10 ON
+  // 2026-08-25, when the LinkedIn profile actor was dropped and the per-prospect actor
+  // count went from 2 to 1. The arithmetic is the ceiling divided by actors per prospect:
+  //   before: 25 concurrent runs / 2 actors = 12, taken as 10 for margin
+  //   now:    25 concurrent runs / 1 actor  = 25, taken as 20 for the same margin
+  // This number MUST move with src/lib/agents/research/sources/linkedin.ts. If a second
+  // actor is ever reinstated, halve it in the same commit or the next batch will exceed
+  // Apify's concurrency limit and actor runs will start failing.
+  //
+  // HOW THE CEILING IS ACTUALLY ENFORCED, because the number only means something with
+  // this attached. maxInFlight counts ROWS in state='claimed' across every worker
+  // invocation, and invocations overlap: pg_cron fires every minute while a research pass
+  // runs for 156 to 234 seconds. Within one invocation perJobExecutor runs its claimed
+  // batch through Promise.all, so a slice of 5 is 5 concurrent prospects. The global
+  // ceiling is therefore what bounds Apify concurrency, not the slice.
+  //
+  // WHAT THIS DOES NOT DO. It does not halve wall clock on a small batch. Ramp-up is
+  // governed by claimBatchSize (5) and the one-minute tick, so twenty prospects take four
+  // ticks to get in flight whatever this is set to. The gain arrives on sustained batches
+  // large enough for the in-flight ceiling to be the binding constraint rather than the
+  // claim rate.
+  //
+  // At a slice of 5 into a ceiling of 20, four organisations are now served per pass
+  // rather than two, so raising this also bought fairness. The rotation cursor still
+  // matters: it is what stops the fifth organisation waiting forever.
   research: {
     leaseSeconds: 360,
     worstCaseSeconds: 240,
     claimBatchSize: 5,
-    maxInFlight: 10,
+    maxInFlight: 20,
     maxAttempts: 2,
   },
 
@@ -266,7 +287,8 @@ function assertQueueConfig(): void {
   }
 
   // 7. The one externally imposed ceiling. Apify allowed 25 concurrent actor runs when
-  //    measured on 2026-08-24 and the LinkedIn source runs two actors per prospect.
+  //    measured on 2026-08-24, and the LinkedIn source runs APIFY_ACTORS_PER_RESEARCH_PROSPECT
+  //    actors per prospect (1 since 2026-08-25, 2 before).
   //    Raising research.maxInFlight without raising the Apify plan buys actor-run
   //    rejections rather than throughput, so it fails here instead.
   const researchActorRuns = QUEUE_CONFIG.research.maxInFlight * APIFY_ACTORS_PER_RESEARCH_PROSPECT
@@ -288,8 +310,19 @@ function assertQueueConfig(): void {
 /** Measured live 2026-08-24 from GET https://api.apify.com/v2/users/me/limits. */
 export const APIFY_MAX_CONCURRENT_ACTOR_RUNS = 25
 
-/** The LinkedIn research source starts two actors per prospect, in parallel. */
-export const APIFY_ACTORS_PER_RESEARCH_PROSPECT = 2
+/**
+ * The LinkedIn research source starts ONE actor per prospect.
+ *
+ * Was 2 until 2026-08-25, when harvestapi~linkedin-profile-scraper was dropped for
+ * producing 1 candidate in 147, never selected, at twice the price of the posts actor.
+ * Halving this is what let research.maxInFlight go from 10 to 20.
+ *
+ * THIS CONSTANT IS THE GUARD, and it worked: raising maxInFlight first made
+ * assertQueueConfig throw at import, because 20 x 2 = 40 exceeds the 25-run ceiling. Keep
+ * it honest. If a second actor is ever added back, set this to 2 in the same commit and
+ * the assertion will refuse to start until maxInFlight comes back down.
+ */
+export const APIFY_ACTORS_PER_RESEARCH_PROSPECT = 1
 
 /** Apollo people/bulk_match accepts ten details[] entries per call. */
 export const APOLLO_BULK_MATCH_PAGE_SIZE = 10
