@@ -523,7 +523,28 @@ Decision:
 Document generation agents (ICP, positioning, tone of voice): claude-opus-4-6
 Messaging generation agent: claude-sonnet-4-6 (see update note below)
 Reply drafting (reply-draft-agent): claude-sonnet-4-6
-Web search utility (lightweight synthesis in prospect research agent): claude-haiku-4-5-20251001
+Prospect research (synthesis, writer, floor judge, judge): claude-sonnet-4-6
+
+  CORRECTED 2026-08-24. This entry previously read "Web search utility (lightweight
+  synthesis in prospect research agent): claude-haiku-4-5-20251001". That was wrong from
+  the moment the v2 research agent shipped. The code has always used claude-sonnet-4-6:
+  synthesize.ts:22 (SYNTHESIS_MODEL) and write-opening.ts:23-24 (WRITER_MODEL, JUDGE_MODEL).
+
+  Sonnet is roughly 3x Haiku, so every cost model built on the old figure understated
+  research by about that factor.
+
+  RESEARCH MAKES FOUR SONNET CALLS PER PROSPECT, not one:
+    1. synthesis      synthesize.ts, ranks the observation candidates
+    2. writer         write-opening.ts:1233, writes the opener
+    3. floor judge    write-opening.ts:1261, the readability/quality floor
+    4. judge          write-opening.ts:1278, the send-or-hold verdict
+  Plus a RETRY PATH that re-runs the writer on weak material or a collision, so a retried
+  prospect costs five or six calls.
+
+  These four share large, highly cacheable prefixes: the synthesis prompt, the writer
+  system prompt, the ICP and positioning context, the judge rubrics. This stage is where
+  prompt caching pays. Composition is not: it makes ZERO model calls, because its only one
+  was the bridge sentence and BRIDGE_ENABLED has been false since 5047e24 (2026-08-19).
 Building, debugging, refactoring (Claude Code tasks): claude-sonnet-4-6
 Signal processing and batch tasks: claude-haiku-4-5-20251001
 
@@ -550,8 +571,8 @@ claude-opus-4-6 is the intended model for all document generation — highest-va
 most context-intensive task in the system. The Sonnet switch is a pragmatic
 local-dev workaround, not a quality decision. Sonnet output for the messaging agent
 was reviewed and judged acceptable for the client-zero test run.
-claude-haiku-4-5-20251001 is appropriate for the web search synthesis step, which
-requires lightweight summarisation of fetched content, not deep reasoning.
+SUPERSEDED 2026-08-24: see the correction above. The research synthesis step is not
+lightweight and does not use Haiku.
 
 Rejected alternatives:
 - claude-opus-4-5 for document generation: superseded by claude-opus-4-6.

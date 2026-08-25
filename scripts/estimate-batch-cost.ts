@@ -11,7 +11,6 @@ import {
   COST_APIFY,
   BRAVE_FREE_MONTHLY,
   BRAVE_PAID_PER_CALL,
-  HAIKU_PERSONALIZATION_USD,
 } from '../src/lib/agents/research/cost-constants'
 
 function printEstimate(totalProspects: number): void {
@@ -23,10 +22,12 @@ function printEstimate(totalProspects: number): void {
   const braveCost     = hasBrave ? braveCallsNeeded * BRAVE_PAID_PER_CALL : 0
   const anthropicLow  = totalProspects * COST_ANTHROPIC_LOW
   const anthropicHigh = totalProspects * COST_ANTHROPIC_HIGH
-  const haikuCost     = totalProspects * HAIKU_PERSONALIZATION_USD
 
-  const totalLow  = apifyCost + anthropicLow  + haikuCost
-  const totalHigh = apifyCost + braveCost + anthropicHigh + haikuCost
+
+  // Haiku personalisation removed 2026-08-24: composition makes zero model calls while
+  // BRIDGE_ENABLED is false. Including it inflated every estimate.
+  const totalLow  = apifyCost + anthropicLow
+  const totalHigh = apifyCost + braveCost + anthropicHigh
 
   console.log('')
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
@@ -40,7 +41,6 @@ function printEstimate(totalProspects: number): void {
     console.log(`  Brave Search     : $0 (key not set — Anthropic native search only)`)
   }
   console.log(`  Anthropic Sonnet : ~$${anthropicLow.toFixed(2)}–$${anthropicHigh.toFixed(2)}`)
-  console.log(`  Anthropic Haiku  : ~$${haikuCost.toFixed(2)} (personalisation)`)
   console.log(`  Apollo           : $0 (included in plan)`)
   console.log('  ─────────────────────────────────────────────────')
   console.log(`  Estimated total  : ~$${totalLow.toFixed(2)}–$${totalHigh.toFixed(2)}`)

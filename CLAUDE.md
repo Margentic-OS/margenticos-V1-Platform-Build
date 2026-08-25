@@ -333,7 +333,24 @@ Per ADR-013, current agent model assignments:
                                                        (local-dev workaround —
                                                         revert to opus-4-6 when
                                                         streaming works stable)
-  Prospect research — web search synthesis step:       claude-haiku-4-5-20251001
+  Prospect research — synthesis, writer, judges:       claude-sonnet-4-6
+                                                       CORRECTED 2026-08-24. This list and
+                                                       ADR-013 both said haiku-4-5. The code
+                                                       has used sonnet-4-6 since the v2 agent
+                                                       shipped (synthesize.ts:22,
+                                                       write-opening.ts:23-24). Sonnet is
+                                                       roughly 3x Haiku, so every cost model
+                                                       built on the old figure was low.
+                                                       RESEARCH MAKES FOUR SONNET CALLS PER
+                                                       PROSPECT: synthesis, writer, floor
+                                                       judge, judge. A retry re-runs the
+                                                       writer, so a retried prospect is five
+                                                       or six. This is where the per-prospect
+                                                       Anthropic spend is, and where prompt
+                                                       caching pays.
+  Composition (bridge sentence):                       NONE. Composition makes zero model
+                                                       calls. BRIDGE_ENABLED has been false
+                                                       since 5047e24 (2026-08-19).
   Signal processing, batch tasks:                      claude-haiku-4-5-20251001
   Reply handling (positive reply classification):      claude-haiku-4-5-20251001
   Claude Code itself (build, debug, refactor):         claude-sonnet-4-6

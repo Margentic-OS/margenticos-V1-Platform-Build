@@ -632,7 +632,6 @@ import {
   COST_APIFY,
   BRAVE_FREE_MONTHLY,
   BRAVE_PAID_PER_CALL,
-  HAIKU_PERSONALIZATION_USD,
 } from './research/cost-constants'
 
 function printCostEstimate(totalProspects: number): void {
@@ -645,10 +644,13 @@ function printCostEstimate(totalProspects: number): void {
   const braveCost    = hasBrave ? braveCallsNeeded * BRAVE_PAID_PER_CALL : 0
   const anthropicLow  = totalProspects * COST_ANTHROPIC_LOW
   const anthropicHigh = totalProspects * COST_ANTHROPIC_HIGH
-  const haikuCost     = totalProspects * HAIKU_PERSONALIZATION_USD
 
-  const totalLow  = apifyCost + anthropicLow  + haikuCost
-  const totalHigh = apifyCost + braveCost + anthropicHigh + haikuCost
+  // The Haiku personalisation line was REMOVED from this estimate on 2026-08-24.
+  // Composition makes zero model calls: its only one was the bridge, and BRIDGE_ENABLED
+  // has been false since 5047e24. Summing it here inflated every estimate and is where
+  // the ~$0.05/prospect attributed to composition came from.
+  const totalLow  = apifyCost + anthropicLow
+  const totalHigh = apifyCost + braveCost + anthropicHigh
 
   console.log('')
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
@@ -662,7 +664,6 @@ function printCostEstimate(totalProspects: number): void {
     console.log(`  Brave Search     : $0 (key not set — Anthropic native search only)`)
   }
   console.log(`  Anthropic Sonnet : ~$${anthropicLow.toFixed(2)}–$${anthropicHigh.toFixed(2)}`)
-  console.log(`  Anthropic Haiku  : ~$${haikuCost.toFixed(2)} (personalisation)`)
   console.log(`  Apollo           : $0 (included in plan)`)
   console.log('  ─────────────────────────────────────────────────')
   console.log(`  Estimated total  : ~$${totalLow.toFixed(2)}–$${totalHigh.toFixed(2)}`)
@@ -767,10 +768,14 @@ export async function runProspectResearchAgentV2Batch({
   }
 
   // Rough cost constants — used for progress log estimate only.
+  // Research makes FOUR Sonnet calls per prospect: synthesis, writer, floor judge, judge.
+  // A retry re-runs the writer, so a retried prospect is five or six. The 0.020 figure is
+  // the measured blended cost of that set, not of one call.
+  //
+  // No Haiku term: composition makes zero model calls while BRIDGE_ENABLED is false.
   const costPerProspect =
     (process.env.APIFY_API_KEY ? COST_APIFY : 0) + // Apify LinkedIn
-    0.020 +                                          // Anthropic Sonnet synthesis
-    HAIKU_PERSONALIZATION_USD                        // Anthropic Haiku personalisation
+    0.020                                          // Anthropic Sonnet, four calls
 
   const batchStart = Date.now()
   const limit      = pLimit(concurrency)

@@ -72,34 +72,75 @@ export function stripNonOwnedFields(
 
 /**
  * Apply FILL-IF-NULL logic to enrichment payload.
- * Allows enrichment to populate sourced fields (like last_name) only if they are currently NULL.
  *
- * This function compares the enrichment payload against current prospect values and:
- * - Includes fill-if-null fields from the payload IF the prospect's current value is NULL
- * - Excludes fill-if-null fields IF the prospect already has a non-null value
+ * Allows enrichment to populate a sourced field (currently only last_name) ONLY when we
+ * can positively see that the prospect's current value is NULL.
  *
- * @param payload - Raw enrichment payload (may include last_name, etc)
- * @param currentProspect - Current prospect data from database
+ * ═════════════════════════════════════════════════════════════════════════════
+ * ABSENT IS "UNKNOWN, DO NOT WRITE". IT IS NOT "NULL, SAFE TO WRITE".
+ *
+ * This is the whole point of the function and it was wrong until 2026-08-24. The guard
+ * read:
+ *
+ *     if (currentValue !== null && currentValue !== undefined) delete result[field]
+ *
+ * so `undefined` fell through and the write proceeded. undefined does not mean the field
+ * is empty. It means we do not know what it is, and there are three ways to get it:
+ *
+ *   1. The caller passed no record at all. adapter-apollo-enrichment does
+ *      `applyFillIfNullLogic(payload, currentProspect || {})`, and currentProspect is
+ *      null whenever the prospect SELECT failed. That SELECT logs and continues rather
+ *      than aborting, so a transient database error silently became consent to overwrite.
+ *   2. The record was fetched but that column was not selected.
+ *   3. The record exists and genuinely has no such key.
+ *
+ * In all three the honest reading is the same: we cannot see the current value, so we
+ * must not overwrite it. Apollo's last_name is a match guess, and the prospect's existing
+ * surname came from sourcing where a human approved it. Replacing a real surname with a
+ * guess because a SELECT failed is silent data corruption: nothing errors, nothing logs,
+ * and the wrong name goes out on the next send.
+ *
+ * FIXED AT THE CLASS, NOT AT THE ROUTE. The obvious patch was to make the enrichment
+ * handler abort when the SELECT fails. That fixes one caller. This fixes every caller,
+ * including ones written later that pass a partial record for reasons of their own.
+ *
+ * THE ONLY CASE THAT PERMITS A WRITE: the record is present, the key exists on it, and
+ * its value is exactly null. Everything else is refused.
+ *
+ * @param payload         Raw enrichment payload (may include last_name, etc)
+ * @param currentProspect Current prospect data. null, undefined, or a record missing the
+ *                        key all mean UNKNOWN and block the fill.
  * @returns Payload with fill-if-null fields filtered based on current values
  */
 export function applyFillIfNullLogic(
   payload: Record<string, any>,
-  currentProspect: Record<string, any>,
+  currentProspect: Record<string, any> | null | undefined,
 ): Record<string, any> {
   const result = { ...payload }
-  const fillIfNullSet = new Set(FILL_IF_NULL_FIELDS)
 
   for (const field of FILL_IF_NULL_FIELDS) {
     const payloadValue = payload[field]
-    const currentValue = currentProspect[field]
 
-    // If payload has a value for this field, only include it if current value is NULL
-    if (field in payload && payloadValue !== undefined && payloadValue !== null) {
-      if (currentValue !== null && currentValue !== undefined) {
-        // Current value is not null: exclude from update (don't overwrite)
-        delete result[field]
-      }
+    // Nothing offered for this field, so there is nothing to decide.
+    if (!(field in payload) || payloadValue === undefined || payloadValue === null) continue
+
+    // UNKNOWN: no record, or the record cannot tell us about this field. Refuse.
+    if (
+      currentProspect === null ||
+      currentProspect === undefined ||
+      !(field in currentProspect) ||
+      currentProspect[field] === undefined
+    ) {
+      delete result[field]
+      continue
     }
+
+    // KNOWN and non-null: a real value exists and enrichment must never overwrite it.
+    if (currentProspect[field] !== null) {
+      delete result[field]
+    }
+
+    // KNOWN and exactly null: the only case that permits the fill.
   }
 
   return result
