@@ -9,7 +9,9 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { stripNonOwnedFields, verifyNoSourcedFields } from './field-ownership'
+import { stripNonOwnedFields, verifyNoSourcedFields,
+  FILL_IF_NULL_FIELDS,
+} from './field-ownership'
 
 describe('enrichment field ownership enforcement', () => {
   /**
@@ -124,14 +126,36 @@ describe('enrichment field ownership enforcement', () => {
     expect(before.violations).toHaveLength(4)
 
     // After enforcement
+    //
+    // ── NARROWED 2026-08-24. DO NOT WIDEN THIS BACK. ──
+    //
+    // This assertion used to be `after.valid === true`, i.e. stripNonOwnedFields must emit
+    // NO sourced fields at all. That was the correct contract when this test was written
+    // (e7e8e97, 2026-08-10), when last_name was untouchable.
+    //
+    // d40d2f5, THE SAME DAY, made last_name a FILL_IF_NULL field and changed
+    // stripNonOwnedFields to pass a non-null last_name through on purpose. It did not
+    // update this test, so the test has encoded a superseded contract ever since and has
+    // been red on a clean tree the whole time.
+    //
+    // FILL_IF_NULL is the MECHANISM, not a refinement. Apollo's people search returns
+    // last_name_obfuscated, never a real surname (adapter-apollo.ts:115), so nothing in
+    // the sourcing path can populate last_name. The real surname arrives only at
+    // enrichment. If enrichment cannot fill a null last_name, the column is never
+    // populated at all.
+    //
+    // So the guarantee this test defends is narrowed to the fields that are genuinely
+    // untouchable, and last_name's protection lives where it belongs: in
+    // applyFillIfNullLogic, which permits a write ONLY when the current value is visibly
+    // null. See src/lib/sourcing/__tests__/fill-if-null-unknown.test.ts.
     const safe = stripNonOwnedFields(badPayload)
     const after = verifyNoSourcedFields(safe)
-    expect(after.valid).toBe(true)
-    expect(after.violations).toHaveLength(0)
 
-    // All violations are removed
+    const untouchable = after.violations.filter(f => !FILL_IF_NULL_FIELDS.includes(f as never))
+    expect(untouchable).toHaveLength(0)
+
+    // All violations are removed EXCEPT the fill-if-null one, which is intentional.
     expect(safe).not.toHaveProperty('first_name')
-    expect(safe).not.toHaveProperty('last_name')
     expect(safe).not.toHaveProperty('job_title')
     expect(safe).not.toHaveProperty('company_name')
   })
