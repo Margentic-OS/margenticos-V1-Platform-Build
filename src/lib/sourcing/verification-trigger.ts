@@ -23,6 +23,20 @@ const MAX_RETRY_ATTEMPTS = 3
 const FREE_DAILY_LIMIT = 100
 const RATE_LIMIT_PER_MINUTE = 30
 
+/**
+ * How many addresses one invocation attempts by default.
+ *
+ * SIZED AGAINST THE CLOCK, not the free tier. The loop sleeps 60000/RATE_LIMIT_PER_MINUTE =
+ * 2s between addresses, so N addresses cost at least 2*(N-1) seconds of deliberate waiting
+ * before any network time. The old default of 100 is ~198s of sleep plus up to 100 probes,
+ * which cannot finish inside a 300s route.
+ *
+ * 40 is ~78s of sleep plus at most 40 * 20s of probe timeout in the pathological case. The
+ * realistic case is well under half the budget, and anything not reached keeps its lock
+ * released and is picked up by the next sweep.
+ */
+export const DEFAULT_VERIFY_BATCH_SIZE = 40
+
 export interface VerificationRun {
   organisation_id: string
   batch_size: number
@@ -46,9 +60,15 @@ export interface VerificationRun {
 export async function verifyEnrichedBatch(
   supabase: SupabaseClient,
   organisationId: string,
-  maxBatchSize: number = 100,
+  maxBatchSize: number = DEFAULT_VERIFY_BATCH_SIZE,
 ): Promise<VerificationRun> {
   const operationId = `verify-${organisationId.slice(0, 8)}-${Date.now()}`
+
+  // Every prospect this run has locked and not yet released. Each exit path removes its own
+  // id; whatever is left when the outer catch fires is released there. Without this, a throw
+  // anywhere after lock acquisition strands the entire remainder of the batch until the
+  // stale reclaim, and before that reclaim existed, forever.
+  const heldLocks = new Set<string>()
 
   logger.info('verification-trigger: run started', {
     operation_id: operationId,
@@ -69,16 +89,25 @@ export async function verifyEnrichedBatch(
   }
 
   try {
-    // ── Step 1: Check daily free-tier usage (Amendment 3) ─────────────────────
-    // Query how many verifications have been run today (organisation-wide)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const todayISO = today.toISOString()
+    // ── Step 1: Check daily free-tier usage ───────────────────────────────────
+    //
+    // THE QUOTA IS PER ACCOUNT, SO THE COUNT MUST BE TOO. This was scoped
+    // `.eq('organisation_id', organisationId)` against a 100/day limit that belongs to the
+    // MyEmailVerifier ACCOUNT, shared by every organisation on the platform. With one live
+    // organisation that read correctly by accident. Five organisations already have prospect
+    // rows, so the trigger for silent quota overrun is the SECOND organisation acquiring
+    // enriched prospects — not the first paying client.
+    //
+    // The day boundary is UTC to match how the column is stored and how the vendor's own day
+    // almost certainly rolls. setHours(0,0,0,0) used the SERVER's local midnight, which on a
+    // machine outside UTC counts the wrong window entirely.
+    const startOfDayUTC = new Date()
+    startOfDayUTC.setUTCHours(0, 0, 0, 0)
+    const todayISO = startOfDayUTC.toISOString()
 
     const { count: dailyCount, error: countError } = await supabase
       .from('prospects')
       .select('id', { count: 'exact', head: true })
-      .eq('organisation_id', organisationId)
       .gte('independent_verified_at', todayISO)
       .not('independent_email_status', 'is', null)
 
@@ -87,6 +116,17 @@ export async function verifyEnrichedBatch(
         operation_id: operationId,
         error: countError.message,
       })
+    }
+
+    // A COUNT ERROR MUST NOT READ AS ZERO USED. The warning above is kept, but falling
+    // through with `?? 0` told the run it had the entire day's quota free, which is the most
+    // expensive possible guess. Treat an unreadable count as exhausted: verification is
+    // resumable on the next sweep, an overrun is not.
+    if (countError) {
+      verificationRun.status = 'failed'
+      verificationRun.error_message =
+        `Could not read daily verification usage, so the free-tier budget is unknown: ${countError.message}`
+      return verificationRun
     }
 
     const dailyUsed = dailyCount ?? 0
@@ -120,7 +160,21 @@ export async function verifyEnrichedBatch(
       Date.now() - GREY_LISTED_RETRY_WINDOW_HOURS * 60 * 60 * 1000,
     ).toISOString()
 
-    // Cap batch size to daily remaining
+    // A lock older than this belonged to a run that died. Reclaiming it is safe because
+    // verification is an idempotent lookup: the worst case of verifying the same address
+    // twice is one wasted free-tier call, against the alternative of stranding it forever.
+    const staleLockThresholdISO = new Date(
+      Date.now() - STALE_LOCK_THRESHOLD_MINUTES * 60 * 1000,
+    ).toISOString()
+
+    // Cap batch size to daily remaining.
+    //
+    // KNOWN RESIDUAL, stated rather than hidden. dailyUsed counts prospects carrying a
+    // verified_at, so a probe that CONSUMED quota and then failed is invisible to the next
+    // run's count: there is no timestamped record of a failed call. Fixing that properly
+    // needs a call-counter table, which is a separate change. What is fixed here is the
+    // larger error, the per-organisation scoping, plus the in-run accounting below so a
+    // single run cannot exceed its own budget by failing.
     const cappedBatchSize = Math.min(maxBatchSize, dailyRemaining)
 
     // Select (a) unverified, (b) Grey-listed retryable
@@ -132,7 +186,15 @@ export async function verifyEnrichedBatch(
       .or(
         `independent_email_status.is.null,and(independent_email_status.eq.Grey-listed,independent_verified_at.lt.${staleThresholdISO},verification_attempt_count.lt.${MAX_RETRY_ATTEMPTS})`,
       )
-      .is('verification_locked_at', null)
+      // THE STALE RECLAIM THE HEADER HAS ALWAYS PROMISED, and which did not exist.
+      // STALE_LOCK_THRESHOLD_MINUTES was declared at the top of this file and referenced
+      // nowhere in the repo, while the filter below read `.is(locked_at, null)` only. So a
+      // prospect locked by a run that then died was unselectable FOREVER, with no recovery
+      // path and nothing to say so.
+      //
+      // Chained filters are ANDed by PostgREST, so this reads:
+      //   (never verified OR grey-listed and retryable) AND (unlocked OR lock gone stale)
+      .or(`verification_locked_at.is.null,verification_locked_at.lt.${staleLockThresholdISO}`)
       .limit(cappedBatchSize)
 
     if (lockError) {
@@ -177,6 +239,8 @@ export async function verifyEnrichedBatch(
       throw new Error(`Failed to acquire lock: ${updateLockError.message}`)
     }
 
+    for (const id of prospectIds) heldLocks.add(id as string)
+
     logger.info('verification-trigger: lock acquired', {
       operation_id: operationId,
       organisation_id: organisationId,
@@ -187,8 +251,33 @@ export async function verifyEnrichedBatch(
     // Respect rate limit (30/minute): 1 email every 2 seconds
     const rateLimitDelayMs = (60 * 1000) / RATE_LIMIT_PER_MINUTE
 
+    // Probes ATTEMPTED by this run, successful or not. Every attempt spends quota, so this
+    // is what the budget must be measured against — not total_verified, which counts only
+    // the ones that came back.
+    let probesAttempted = 0
+
     for (let idx = 0; idx < lockableProspects.length; idx++) {
       const prospect = lockableProspects[idx]
+
+      // Stop before spending past the budget. The remaining prospects keep their locks
+      // released below and are picked up by the next sweep.
+      if (probesAttempted >= dailyRemaining) {
+        logger.info('verification-trigger: stopping, daily free tier reached mid-run', {
+          operation_id: operationId,
+          probes_attempted: probesAttempted,
+          daily_remaining_at_start: dailyRemaining,
+          not_processed: lockableProspects.length - idx,
+        })
+        verificationRun.status = 'partial'
+        const unprocessed = lockableProspects.slice(idx).map(p => p.id as string)
+        await supabase
+          .from('prospects')
+          .update({ verification_locked_at: null })
+          .in('id', unprocessed)
+          .eq('organisation_id', organisationId)
+        for (const id of unprocessed) heldLocks.delete(id)
+        break
+      }
 
       if (!prospect.email) {
         logger.warn('verification-trigger: prospect has no email', {
@@ -196,6 +285,10 @@ export async function verifyEnrichedBatch(
           prospect_id: prospect.id,
         })
         verificationRun.failed_count++
+        // RELEASE. This path used to `continue` holding the lock, and a prospect with no
+        // email never gets one from here, so it was locked permanently on every sweep.
+        await releaseVerificationLock(supabase, organisationId, prospect.id, operationId)
+        heldLocks.delete(prospect.id)
         continue
       }
 
@@ -205,6 +298,7 @@ export async function verifyEnrichedBatch(
       }
 
       try {
+        probesAttempted++
         const result = await myemailverifierHandler.execute(prospect.email)
         await recordVerificationResult(supabase, organisationId, prospect.id, result, operationId, prospect.country, prospect.email)
 
@@ -218,6 +312,8 @@ export async function verifyEnrichedBatch(
           verificationRun.grey_listed_retry_count++
         }
 
+        // recordVerificationResult clears the lock on its own success path.
+        heldLocks.delete(prospect.id)
         verificationRun.total_verified++
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -229,12 +325,45 @@ export async function verifyEnrichedBatch(
         })
         verificationRun.failed_count++
 
-        // Record error on prospect
-        await supabase
+        // RELEASE THE LOCK AND COUNT THE ATTEMPT, in one write.
+        //
+        // Both halves matter and neither was here. Without the release, any address whose
+        // probe throws stays locked forever. Without the increment, adding the stale
+        // reclaim above would have created a worse bug than the one it fixed: a
+        // permanently bad address would be reclaimed every 30 minutes and re-probed
+        // forever, burning the free tier on a call that cannot succeed. The retry cap at
+        // MAX_RETRY_ATTEMPTS only bounds anything if failures actually count.
+        const { data: current } = await supabase
           .from('prospects')
-          .update({ last_verification_error: msg })
+          .select('verification_attempt_count')
           .eq('id', prospect.id)
           .eq('organisation_id', organisationId)
+          .maybeSingle()
+
+        const { error: failWriteError } = await supabase
+          .from('prospects')
+          .update({
+            last_verification_error: msg,
+            verification_attempt_count: (current?.verification_attempt_count ?? 0) + 1,
+            verification_locked_at: null,
+          })
+          .eq('id', prospect.id)
+          .eq('organisation_id', organisationId)
+
+        if (!failWriteError) heldLocks.delete(prospect.id)
+
+        // A failed release is the one thing that reintroduces the permanent lock, so it is
+        // logged at error rather than swallowed. The stale reclaim is the backstop.
+        if (failWriteError) {
+          logger.error('verification-trigger: could not release lock after a failed probe', {
+            operation_id: operationId,
+            prospect_id: prospect.id,
+            error: failWriteError.message,
+            consequence:
+              'This prospect stays locked until the stale reclaim picks it up in ' +
+              `${STALE_LOCK_THRESHOLD_MINUTES} minutes.`,
+          })
+        }
       }
     }
 
@@ -263,7 +392,64 @@ export async function verifyEnrichedBatch(
     })
     verificationRun.status = 'failed'
     verificationRun.error_message = msg
+
+    // RELEASE WHATEVER THIS RUN STILL HOLDS. The per-prospect loop catches its own errors,
+    // so reaching here means the failure was in selection, locking, or something outside the
+    // loop entirely — and in the last case the whole remaining batch is still locked.
+    if (heldLocks.size > 0) {
+      logger.warn('verification-trigger: releasing locks held by a failed run', {
+        operation_id: operationId,
+        organisation_id: organisationId,
+        held: heldLocks.size,
+      })
+      const { error: bulkReleaseError } = await supabase
+        .from('prospects')
+        .update({ verification_locked_at: null })
+        .in('id', [...heldLocks])
+        .eq('organisation_id', organisationId)
+      if (bulkReleaseError) {
+        logger.error('verification-trigger: bulk lock release failed', {
+          operation_id: operationId,
+          error: bulkReleaseError.message,
+          consequence:
+            `${heldLocks.size} prospect(s) stay locked until the stale reclaim picks them ` +
+            `up in ${STALE_LOCK_THRESHOLD_MINUTES} minutes.`,
+        })
+      }
+    }
+
     return verificationRun
+  }
+}
+
+/**
+ * Clear one prospect's verification lock.
+ *
+ * Separate from recordVerificationResult because the paths that need it MOST are the ones
+ * that never reach a result: no email, a probe that threw, a run that died. Those were
+ * exactly the paths that used to leave the lock set.
+ */
+async function releaseVerificationLock(
+  supabase: SupabaseClient,
+  organisationId: string,
+  prospectId: string,
+  operationId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('prospects')
+    .update({ verification_locked_at: null })
+    .eq('id', prospectId)
+    .eq('organisation_id', organisationId)
+
+  if (error) {
+    logger.error('verification-trigger: lock release failed', {
+      operation_id: operationId,
+      prospect_id: prospectId,
+      error: error.message,
+      consequence:
+        'This prospect stays locked until the stale reclaim picks it up in ' +
+        `${STALE_LOCK_THRESHOLD_MINUTES} minutes.`,
+    })
   }
 }
 

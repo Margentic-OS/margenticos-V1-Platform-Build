@@ -778,7 +778,14 @@ Never proceed with a commit if .env could be tracked by Git.
 
 ### Pre-commit: tool-name reference check
 Before committing any new or modified agent or component file, scan for hardcoded
-tool names: Instantly, Taplio, Lemlist, Apollo, GoHighLevel, Calendly, HunterIO.
+tool names: Instantly, Taplio, Lemlist, Apollo, GoHighLevel, Calendly, HunterIO,
+MyEmailVerifier, Bouncer, Apify, Brave.
+
+MyEmailVerifier was missing from this list until 2026-08-25, and its absence is exactly
+why the literal string 'myemailverifier' reached a DATABASE COLUMN DEFAULT
+(prospects.verification_provider) without ever being flagged. A vendor name in a column
+default is the hardest kind to remove later, because existing rows carry it. Any new
+vendor goes on this list in the same commit that introduces its handler.
 Hardcoded tool names belong only inside handler functions in the integrations layer.
 If a hardcoded tool name appears in an agent or component, flag it before committing.
 

@@ -7,7 +7,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { logger } from '@/lib/logger'
-import { verifyEnrichedBatch } from '@/lib/sourcing/verification-trigger'
+import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE } from '@/lib/sourcing/verification-trigger'
+
+// The Hobby ceiling, and this repo's convention for every long route. This file declared
+// NOTHING, which meant Vercel's default while the trigger deliberately sleeps 2s per address
+// for rate limiting: the old default batch of 100 spent ~200s asleep before its last API
+// call and could not complete inside its own request. Same omission commit 81ec7c9 fixed on
+// the lead-upload page.
+export const maxDuration = 300
 
 interface VerifyEnrichedRequest {
   organisation_id: string
@@ -70,13 +77,13 @@ export async function POST(request: NextRequest) {
     logger.info('verify-enriched: triggered by operator', {
       user_id: user.id,
       organisation_id,
-      max_batch_size: max_batch_size ?? 100,
+      max_batch_size: max_batch_size ?? DEFAULT_VERIFY_BATCH_SIZE,
     })
 
     const result = await verifyEnrichedBatch(
       supabase,
       organisation_id,
-      max_batch_size ?? 100,
+      max_batch_size ?? DEFAULT_VERIFY_BATCH_SIZE,
     )
 
     logger.info('verify-enriched: completed', {

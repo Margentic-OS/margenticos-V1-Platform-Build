@@ -35,6 +35,9 @@ interface MyEmailVerifierResponse {
   Diagnosis: string
 }
 
+/** Abort an individual verification probe. See the comment at the fetch below. */
+const VERIFY_FETCH_TIMEOUT_MS = 20_000
+
 export const myemailverifierHandler = {
   name: 'MyEmailVerifier',
   capability: 'can_validate_email',
@@ -51,11 +54,21 @@ export const myemailverifierHandler = {
     try {
       const endpoint = `https://client.myemailverifier.com/verifier/validate_single/${encodeURIComponent(email)}/${apiKey}`
 
+      // A TIMEOUT IS NOT OPTIONAL HERE. Verification is an SMTP probe behind an HTTP call,
+      // and a probe against an unresponsive mail server can hang for as long as the far end
+      // keeps the socket open. Without this, one bad address consumes the whole serverless
+      // invocation regardless of batch size, and no batch number is safe.
+      //
+      // 20s is chosen against the caller's rate limit rather than the network: the trigger
+      // sleeps 2s between addresses, so a batch of 40 already budgets ~80s of deliberate
+      // waiting inside a 300s route. Anything slower than 20s is not worth the slot it
+      // occupies, and the address is retried on a later sweep.
       const response = await fetch(endpoint, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: AbortSignal.timeout(VERIFY_FETCH_TIMEOUT_MS),
       })
 
       if (!response.ok) {
