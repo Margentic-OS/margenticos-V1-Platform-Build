@@ -15,7 +15,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { fetchLinkedInSource } from './research/sources/linkedin'
-import { fetchApolloSource }   from './research/sources/apollo'
+import { fetchApolloSource, apolloSourceFromRow } from './research/sources/apollo'
 import { fetchWebsiteSource }  from './research/sources/website'
 import { fetchWebSearchSource } from './research/sources/web-search'
 import { synthesizeResearch }  from './research/synthesize'
@@ -390,7 +390,7 @@ export async function runProspectResearchAgentV2({
     const supabase = getServiceClient()
     const { data: prospect, error: fetchError } = await supabase
       .from('prospects')
-      .select('id, first_name, last_name, company_name, role, email, linkedin_url, website_url, organisation_id, segment_id, variant_id')
+      .select('id, first_name, last_name, company_name, role, email, linkedin_url, website_url, organisation_id, segment_id, variant_id, apollo_enrichment_data')
       .eq('id', prospect_id)
       .eq('organisation_id', client_id)
       .single()
@@ -459,7 +459,35 @@ export async function runProspectResearchAgentV2({
         ] as const
       : await Promise.all([
           fetchLinkedInSource(ctx),
-          fetchApolloSource(ctx),
+          // ── APOLLO: ROW FIRST, LIVE CALL ONLY AS FALLBACK ──────────────────
+          //
+          // Enrichment already bought this person via bulk_match and, since
+          // 2026-08-24, stores the named subset on the prospect row. Calling
+          // people/match here as well bought the SAME person a second time,
+          // largely to recover employment_history, which enrichment had parsed
+          // and thrown away.
+          //
+          // Measured: employment_history produces 38 of research's 40 winning
+          // Apollo candidates, and Apollo is the strongest source in the system
+          // at 40 of 92 wins against Apify's 8. So the call could not be removed,
+          // only served from the row. About 113 duplicate paid calls per 244
+          // researched prospects.
+          //
+          // The fallback stays for prospects enrichment never matched: the live
+          // match rate is 46.3%, so a live call is still the only route for the
+          // rest, and for anything enriched before this change shipped.
+          (async () => {
+            const stored = apolloSourceFromRow(
+              prospect.apollo_enrichment_data as Record<string, unknown> | null,
+            )
+            if (stored) {
+              logger.debug('prospect-research-v2: Apollo served from the prospect row, no call made', {
+                prospect_id: prospect.id,
+              })
+              return stored
+            }
+            return fetchApolloSource(ctx)
+          })(),
           fetchWebsiteSource(ctx),
           fetchWebSearchSource(ctx),
         ])

@@ -7,7 +7,8 @@
  *
  * Enrichment-owned fields (safe to write):
  *   email, linkedin_url, linkedin_url_normalised, website_url,
- *   email_status, company_headcount, company_industry, country
+ *   email_status, company_headcount, company_industry, country,
+ *   apollo_enrichment_data
  *
  * Sourced fields (NEVER touched by enrichment):
  *   first_name, last_name, job_title, company_name
@@ -25,6 +26,10 @@ export const ENRICHMENT_OWNED_FIELDS = [
   'company_headcount',
   'company_industry',
   'country',
+  // Added 2026-08-24. The named subset of the Apollo bulk_match response we already paid
+  // for. Enrichment-owned because enrichment is the only thing that buys it. Its SHAPE is
+  // governed by the allow-list in apollo-enrichment-subset.ts, not by this list.
+  'apollo_enrichment_data',
 ] as const
 
 export const SOURCED_FIELDS = [

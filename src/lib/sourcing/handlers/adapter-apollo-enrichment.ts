@@ -22,6 +22,7 @@ import { logger } from '@/lib/logger'
 import { normaliseLinkedInUrl } from '@/lib/sourcing/normalise-linkedin'
 import { getDedupeVerdict } from '@/lib/sourcing/dedupe-verdict'
 import { stripNonOwnedFields, applyFillIfNullLogic } from '@/lib/sourcing/field-ownership'
+import { buildApolloEnrichmentSubset } from '@/lib/sourcing/apollo-enrichment-subset'
 import { shouldUseMockEnrichment } from '@/lib/sourcing/enrichment-mode'
 import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 
@@ -36,12 +37,29 @@ interface ApolloMatch {
   email_status?: string | null
   linkedin_url?: string | null
   title?: string | null
+  /**
+   * The person's country. Parsed since 2026-08-24.
+   *
+   * It was in ENRICHMENT_OWNED_FIELDS from the start and never parsed here, so the write
+   * path was permitted to populate a column we never collected. country is NULL on every
+   * prospect row, and that is why two German companies were emailed against a standing
+   * exclusion rule in the C0 send. Written as a FIRST-CLASS COLUMN, not into the jsonb,
+   * so a jurisdiction gate can query it directly.
+   */
+  country?: string | null
   organization?: {
     name?: string | null
     primary_domain?: string | null
     estimated_num_employees?: number | null
     industry?: string | null
   } | null
+  /**
+   * Everything else bulk_match returns. Deliberately untyped: it is not read field by
+   * field here, it is handed to buildApolloEnrichmentSubset, which decides what may be
+   * kept from an explicit allow-list. Typing it would invite someone to reach into a
+   * field the allow-list has not approved.
+   */
+  [key: string]: unknown
 }
 
 interface ApolloBulkMatchResponse {
@@ -363,11 +381,63 @@ function generateTestModeResponse(apolloIds: string[], specIndustries: string[] 
       email_status: 'verified',
       linkedin_url: `https://mock.invalid/in/${emailLocal}`,
       // CRITICALLY: no title field (enrichment does NOT write job titles)
+
+      // ── The mock did not match the real response shape until 2026-08-24 ──
+      //
+      // It returned 8 fields. A live bulk_match probe on that date returned 33 top-level
+      // fields and 39 organization fields. A mock narrower than the API cannot exercise
+      // the code that reads the API, so country and employment_history were untestable
+      // without spending a credit, and country in particular is the field whose absence
+      // let two German companies into the C0 send.
+      //
+      // The additions below use the EXACT field names the live probe returned. Values are
+      // obviously fake. The forbidden fields are included ON PURPOSE so the data
+      // minimisation boundary is exercised against a payload that actually contains the
+      // things it must strip: a mock with nothing to strip proves nothing.
+      country: idx % 5 === 0 ? 'Germany' : 'United Kingdom',
+      seniority: 'founder',
+      departments: ['operations'],
+      subdepartments: ['operations'],
+      functions: ['operations'],
+      headline: `Founder at Test Company ${idx + 1}`,
+      organization_id: `mock-org-${idx + 1}`,
+      employment_history: [{
+        title: 'Founder', organization_name: `Test Company ${idx + 1}`,
+        organization_id: `mock-org-${idx + 1}`, start_date: '2016-10-01',
+        end_date: null, current: true, kind: 'employment',
+        description: 'Runs the firm.',
+        // Forbidden. Must never reach apollo_enrichment_data.
+        emails: [`${emailLocal}@personal.mock.invalid`],
+        raw_address: '12 Mock Lane, Mocktown',
+      }],
+      // Forbidden, person level. Must never reach apollo_enrichment_data.
+      street_address: '12 Mock Lane', city: 'Mocktown', state: 'Mockshire',
+      postal_code: 'MO1 1CK', formatted_address: '12 Mock Lane, Mocktown MO1 1CK',
+      phone: '+44 7700 900000', photo_url: 'https://mock.invalid/photo.jpg',
+      facebook_url: 'https://mock.invalid/fb', twitter_url: 'https://mock.invalid/x',
+      github_url: 'https://mock.invalid/gh',
+
       organization: {
         name: `Test Company ${idx + 1}`,
         primary_domain: `testco${idx + 1}.mock.invalid`,
         estimated_num_employees: headcount, // Plausible range 2-19
         industry, // Canonical industry
+        id: `mock-org-${idx + 1}`,
+        founded_year: 2016,
+        organization_revenue: 1_000_000,
+        organization_headcount_six_month_growth: 11,
+        organization_headcount_twelve_month_growth: 24,
+        organization_headcount_twenty_four_month_growth: 40,
+        industries: ['consulting'],
+        secondary_industries: ['software'],
+        naics_codes: ['541611'],
+        sic_codes: ['8742'],
+        keywords: ['operations'],
+        linkedin_uid: `mock-uid-${idx + 1}`,
+        linkedin_url: `https://mock.invalid/company/testco${idx + 1}`,
+        website_url: `https://testco${idx + 1}.mock.invalid`,
+        // Forbidden, org level.
+        street_address: '1 Mock Park', city: 'Mocktown', phone: '+44 20 7000 0000',
       },
     }
   })
@@ -561,6 +631,17 @@ async function enrichAndVerifyProspect(
   const companyHeadcount = apolloMatch.organization?.estimated_num_employees || null
   const companyIndustry = apolloMatch.organization?.industry || null
 
+  // FIRST-CLASS COLUMN, not jsonb. A jurisdiction gate has to be able to filter on this
+  // in a WHERE clause. Enrichment already owns the field; it simply was never parsed.
+  const country = (typeof apolloMatch.country === 'string' && apolloMatch.country.trim())
+    ? apolloMatch.country.trim()
+    : null
+
+  // The subset of everything else we already paid for. An ALLOW-LIST decides the shape:
+  // no addresses, no phone, no personal social URLs, no nested emails. See
+  // apollo-enrichment-subset.ts for why the whole payload is not stored.
+  const apolloEnrichmentData = buildApolloEnrichmentSubset(apolloMatch as Record<string, unknown>)
+
   // Step 2c: Include last_name from Apollo for FILL-IF-NULL logic
   // last_name is a sourced field but can be populated if currently NULL
   const lastName = apolloMatch.last_name || null
@@ -574,6 +655,8 @@ async function enrichAndVerifyProspect(
     email_status: emailStatus,
     company_headcount: companyHeadcount,
     company_industry: companyIndustry,
+    country,
+    apollo_enrichment_data: apolloEnrichmentData,
     last_name: lastName, // Include for FILL-IF-NULL logic
   }
 

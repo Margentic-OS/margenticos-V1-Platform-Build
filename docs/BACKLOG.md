@@ -107,6 +107,40 @@
   summary. The queue worker must not rely on that file. (Carried forward from the
   2026-08-20 entry; still true and now directly relevant.)
 
+## GDPR: prospect_research_results.raw_apollo stores the FULL people/match payload (2026-08-24)
+
+- [pre-c1, DATA EXPOSURE, NOT YET REMEDIATED] 113 existing rows hold personal data we have
+  no purpose for.
+  Found while building the enrichment subset. prospect_research_results.raw_apollo stores
+  the whole Apollo people/match person object under a `raw` key. Measured live:
+
+    rows with a raw key                            113
+    carrying street_address                        113
+    carrying formatted_address                     113
+    carrying employment_history (with nested emails) 113
+
+  So for every prospect research matched, we hold their street address, formatted address,
+  and an emails array inside each employment history entry. We email the UK and Ireland.
+  UK GDPR data minimisation says keep what the purpose needs; a prospect's home address is
+  not defensible for sending a cold email.
+
+  THIS IS PRE-EXISTING, not introduced by the enrichment subset work. The new
+  prospects.apollo_enrichment_data column is built from an ALLOW-LIST specifically so it
+  cannot repeat this, and assertNoForbiddenFields throws if a prohibited name appears at
+  any nesting depth. raw_apollo has no such boundary.
+
+  Remediation has two halves and both need a decision:
+    1. STOP WRITING IT. Route raw_apollo through buildApolloEnrichmentSubset, or store
+       only the formatted string research actually reads. The `raw` key exists for
+       debugging and nothing reads it in anger.
+    2. CLEAN THE 113 EXISTING ROWS. A jsonb rewrite stripping the forbidden keys. It is a
+       data write on historical records, so it wants explicit approval and a verified
+       read-back, not a quiet migration.
+
+  Not fixed in the same commit as the subset work on purpose: that commit's job was to
+  stop the duplicate purchase, and mixing a historical data cleanup into it would have
+  made both harder to review and harder to roll back.
+
 ## Queue build CLOSED AT C5 (2026-08-24). Compose is not a queue job.
 
 - [DECIDED, DO NOT REOPEN] COMPOSE WILL NOT BE MIGRATED TO THE JOB QUEUE.
