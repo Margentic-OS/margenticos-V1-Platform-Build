@@ -13,6 +13,36 @@ export const COST_APIFY = 0.006
 export const BRAVE_FREE_MONTHLY  = 2000
 export const BRAVE_PAID_PER_CALL = 0.003
 
+// ─── Anthropic native web search ─────────────────────────────────────────────
+//
+// THIS FILE PRICED BRAVE AND PRICED THE NATIVE PATH AT NOTHING, and Brave has served
+// 3 of the 209 search texts on file. So the line that actually runs was carried at $0
+// while the fallback that almost never runs had a cost row of its own. Every per-prospect
+// figure derived from this file before 2026-08-25 is understated, including the ones used
+// to argue about caching and batching earlier the same day.
+//
+// WHAT ACTUALLY RUNS. fetchWebSearchSource fires TWO queries per prospect (person and
+// company, web-search.ts:37-38). Each is one Haiku request carrying the server-side
+// web_search tool, and Anthropic bills that tool PER SEARCH (~$10 per 1,000), on top of
+// tokens. Until WEB_SEARCH_MAX_USES was added on 2026-08-25 the searches per request were
+// uncapped, so there was no worst case at all.
+//
+// The Haiku tokens are real but secondary: max_tokens is 512 and the input is one short
+// prompt plus whatever the search results inject, so roughly $0.003-$0.005 per prospect
+// against $0.02-$0.06 of search fees. Folded into the range below rather than split out.
+//
+// THESE ARE ESTIMATES, and deliberately labelled as such. web-search.ts now persists
+// search_count per run into raw_web_search. Once real runs are on file, replace the
+// bounds below with the measured distribution and delete this paragraph.
+export const COST_WEB_SEARCH_PER_SEARCH = 0.01
+export const WEB_SEARCH_QUERIES_PER_PROSPECT = 2
+
+// Best case: one search per query, both queries answered first time.
+export const COST_WEB_SEARCH_LOW  = 0.02
+// Worst case: every query runs the full WEB_SEARCH_MAX_USES (3) allowance.
+// 2 queries x 3 searches x $0.01 = $0.06, plus Haiku tokens.
+export const COST_WEB_SEARCH_HIGH = 0.065
+
 // DEAD. NOT A LIVE COST. Composition makes ZERO model calls.
 //
 // Its only consumer was the bridge sentence in src/lib/composition/personalization.ts,

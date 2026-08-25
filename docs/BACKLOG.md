@@ -23,6 +23,69 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## Web search cost work (2026-08-25)
+
+- [REJECTED 2026-08-25, DO NOT REVIVE ON THE OLD NUMBERS] Brave-first for prospect
+  research, via a per-caller provider preference flag.
+
+  THE CASE FOR IT, which looked strong and was wrong. Web search appeared to cost
+  ~$0.036/prospect, roughly 14% of all-in cost, and to have produced only 5 of 62 shipped
+  openings at about $0.72 each. Brave is already wired as the fallback, the key is set in
+  Vercel Production and Preview, and the free tier covers 2,000 calls/month against 2 calls
+  per prospect. The flag itself is genuinely small: 4 live files, ~35 lines, no migration.
+
+  WHY IT WAS REJECTED. Three measurements, taken 2026-08-25:
+
+  1. WEB SEARCH IS LOAD-BEARING FOR FAR MORE THAN 5 OF 62. The 5 direct wins are right, but
+     the denominator is 57 attributable wins, not 62, and solo-source attribution hides
+     8 more shipped openings whose winning COMPOSITE candidate cites web search in its
+     provenance. Real footprint: 13 of 57 = 22.8%, of which 9 rest on a positive
+     web-search-only fact. This is the same mistake that nearly cut the source outright.
+  2. freshness=pm6 WOULD HAVE EXCLUDED A LOAD-BEARING FACT. searchViaBrave caps results at
+     the past six months. One shipped opening rests on "Mark Eber retired from management
+     responsibilities in December 2022; previous company had nearly 250 employees and
+     $44 million in fee income." Brave as configured cannot return that.
+  3. THE limited THRESHOLD DIFFERS BETWEEN THE PATHS AND IS STRICTER ON BRAVE. Brave sets
+     limited when results.length < 3, and fetchWebSearchSource discards limited content
+     entirely. So a Brave query returning 1 or 2 good hits stores NOTHING, where the native
+     threshold keeps it. Preferring Brave would raise the null rate on this source by an
+     amount nobody has measured.
+
+  AND THE EVIDENCE FOR BRAVE'S QUALITY DOES NOT EXIST. Of 209 stored search texts, 206 are
+  native and 3 are Brave, from 2 rows written 11 seconds apart, both inside the 2026-08-20
+  00:00-02:00 window where 31 of 34 runs failed regardless of source. n=2 in the worst two
+  hours in the dataset supports nothing in either direction.
+
+  The quoted $0.036, $0.72 and 14% figures do not reproduce and were dropped by Doug on
+  2026-08-25. Do not restate them.
+
+  WHAT TO DO INSTEAD, and what was done: cap the searches (WEB_SEARCH_MAX_USES), stop
+  storing verbose negatives (isSubstantive), and record provider and search count per run
+  so the question becomes answerable. All three landed 2026-08-25.
+
+  WHAT WOULD REOPEN THIS. Real data showing Brave is comparable, which now requires only
+  reading raw_web_search.providers and search_count after a deliberate A/B. Reopen on that,
+  never on the cost figures above.
+
+- [monitor] Native web search cost is an ESTIMATE, not a measurement.
+  COST_WEB_SEARCH_LOW/HIGH in cost-constants.ts are derived from Anthropic's published
+  ~$10/1,000 searches and the new WEB_SEARCH_MAX_USES cap of 3, giving $0.02-$0.065 per
+  prospect. Before 2026-08-25 this line was priced at ZERO while Brave, which almost never
+  runs, had a cost row of its own, so every per-prospect figure produced before that date
+  is understated. raw_web_search.search_count now records the real number per run. Replace
+  the constants with the measured distribution once a week of real runs is on file, and
+  tighten WEB_SEARCH_MAX_USES to 2 at the same time if the third search is rarely reached.
+
+- [research] isSubstantive removes the mostly-negative tail, not the duplication.
+  The gate now rejects a web search text whose non-negative share is under 40%, which on
+  the 60-text sample is 4 of the 57 that previously passed. The often-quoted "72% of stored
+  texts carry a negative marker" is true but does NOT mean 72% is waste: most of those
+  texts also carry a real role or headcount fact. The remaining inefficiency is that those
+  facts DUPLICATE Apollo, which supplies the same fields and whose candidates pass all six
+  tests 48.7% of the time against web search's 11.4%. That cannot be fixed in webSearch.ts,
+  which is shared with the document agents and cannot know what Apollo returned. If it is
+  worth fixing, the place is the synthesis prompt or fetchWebSearchSource, not the gate.
+
 ## Job queue build (C1 landed 2026-08-24) — open items and things found on the way
 
 - [pre-c1, BLOCKER ON VOLUME] Apify is on the FREE plan and it, not the request

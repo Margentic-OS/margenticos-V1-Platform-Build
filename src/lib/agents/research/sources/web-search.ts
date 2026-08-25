@@ -19,6 +19,11 @@ export async function fetchWebSearchSource(prospect: ProspectContext): Promise<W
       company_search: null,
       combined: null,
       error: 'No name or company to search',
+      // Nothing was called, so nothing was billed. This is the one zero here that is a
+      // fact rather than a floor.
+      providers: [],
+      search_count: 0,
+      result_count: 0,
     }
   }
 
@@ -51,15 +56,29 @@ export async function fetchWebSearchSource(prospect: ProspectContext): Promise<W
       .join('\n\n')
       .trim() || null
 
+    // Spend and provenance are recorded whether or not the content was usable. A query
+    // that ran, cost money and returned nothing is exactly the case worth counting: it is
+    // the majority case on the native path, and it was invisible until now.
+    const providers = [...new Set([personResult.source, companyResult.source])]
+    const searchCount = personResult.searchCount + companyResult.searchCount
+    const resultCount = personResult.resultCount + companyResult.resultCount
+
     if (available) {
       logger.debug('research/web-search: succeeded', {
         person: !!personText,
         company: !!companyText,
+        providers,
+        search_count: searchCount,
+        result_count: resultCount,
       })
     } else {
       logger.debug('research/web-search: no substantive findings', {
         person_reason:  personResult.limitedReason  ?? 'none',
         company_reason: companyResult.limitedReason ?? 'none',
+        providers,
+        // Searches that were paid for and yielded nothing usable. Watch this number.
+        search_count: searchCount,
+        result_count: resultCount,
       })
     }
 
@@ -71,6 +90,9 @@ export async function fetchWebSearchSource(prospect: ProspectContext): Promise<W
       error: available
         ? undefined
         : `No substantive findings. person: ${personResult.limitedReason ?? 'empty'}; company: ${companyResult.limitedReason ?? 'empty'}`,
+      providers,
+      search_count: searchCount,
+      result_count: resultCount,
     }
   } catch (err) {
     logger.warn('research/web-search: failed', { error: String(err) })
@@ -80,6 +102,12 @@ export async function fetchWebSearchSource(prospect: ProspectContext): Promise<W
       company_search: null,
       combined: null,
       error: String(err),
+      // The throw loses both responses, so any searches the provider already ran are
+      // unrecoverable from here. Zero is a floor on what was billed, not a statement
+      // that nothing was.
+      providers: [],
+      search_count: 0,
+      result_count: 0,
     }
   }
 }

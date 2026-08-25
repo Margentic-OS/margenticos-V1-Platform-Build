@@ -32,6 +32,22 @@ export interface WebSearchResult {
   limited: boolean
   /** Human-readable reason for limitation — included in suggestion_reason when true. */
   limitedReason?: string
+  /**
+   * THE BILLABLE UNIT. How many searches the provider actually ran for this one query.
+   *
+   * Anthropic bills the server-side web_search tool per SEARCH, not per request, and one
+   * request may run several. This number was previously computed and thrown away, so the
+   * native path could not be priced at all and was carried at $0 in the project's own
+   * estimator while plausibly being the second-largest Anthropic line. See
+   * WEB_SEARCH_MAX_USES below.
+   *
+   * Native: the number of web_search_tool_result blocks in the response.
+   * Brave:  always 1, one HTTP call per query.
+   * none:   0, nothing ran.
+   */
+  searchCount: number
+  /** How many individual hits those searches returned in total. Quality, not cost. */
+  resultCount: number
 }
 
 export interface ResearchBundle {
@@ -50,6 +66,27 @@ export interface ResearchBundle {
 // automatically. We send one message and receive synthesis in the text block.
 // No tool-result loop required from our side.
 
+/**
+ * Ceiling on searches per query. Anthropic bills this tool per search (~$10 per 1,000),
+ * and prospect research fires TWO queries per prospect, so the worst case here multiplies
+ * by two before it reaches the per-prospect figure.
+ *
+ * WHY 3 AND NOT 2. Measured 2026-08-25 across 206 stored native texts: 148 of them (72%)
+ * contain an explicit "could not find" / "no verifiable". The queries are quoted-name and
+ * OR-heavy, so a first pass frequently returns nothing for a small consultancy and the
+ * model's natural next move is to drop the quotes or the year and try again. The wins that
+ * were actually load-bearing look like that second pass: a UK incorporation date, a dated
+ * podcast episode, a retirement with figures. Capping at 2 would leave exactly one
+ * reformulation, and cutting the tail that produced those facts to save a cent is the
+ * wrong trade while the real distribution is unknown.
+ *
+ * IT IS UNKNOWN BECAUSE NOTHING RECORDED IT. searchCount above now does. Once a week of
+ * real runs is on file, read the distribution and tighten this to 2 if the third search
+ * is rarely reached or rarely useful. Do not tighten it on instinct: 3 bounds the tail at
+ * 6 searches per prospect, which is the point of the cap. Uncapped was the actual defect.
+ */
+export const WEB_SEARCH_MAX_USES = 3
+
 async function searchViaNativeAnthropic(query: string): Promise<WebSearchResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set')
@@ -60,6 +97,7 @@ async function searchViaNativeAnthropic(query: string): Promise<WebSearchResult>
   const webSearchTool: WebSearchTool20250305 = {
     type: 'web_search_20250305',
     name: 'web_search',
+    max_uses: WEB_SEARCH_MAX_USES,
   }
 
   const messages: MessageParam[] = [
@@ -104,10 +142,13 @@ async function searchViaNativeAnthropic(query: string): Promise<WebSearchResult>
   }
 
   // Count the results the search actually returned, so "no results" is distinguishable
-  // from "results but a thin summary".
+  // from "results but a thin summary". searchCount is the separate, BILLABLE number:
+  // one web_search_tool_result block is one charged search, however many hits it carried.
   let resultCount = 0
+  let searchCount = 0
   for (const b of blocks) {
     if (b.type !== 'web_search_tool_result') continue
+    searchCount += 1
     const content = (b as { content?: unknown }).content
     if (Array.isArray(content)) resultCount += content.length
   }
@@ -124,26 +165,100 @@ async function searchViaNativeAnthropic(query: string): Promise<WebSearchResult>
           ? 'Search executed but returned zero results'
           : 'Search returned results but no substantive findings')
       : undefined,
+    searchCount,
+    resultCount,
   }
 }
+
+const NEGATIVE_MARKERS = [
+  'unable to find', 'could not find', 'no specific', 'no verifiable',
+  'i was unable', 'limited verifiable information', 'no results',
+  "i'll search", 'i will search', 'let me search',
+]
+
+// The marker list above catches how the model opens a negative. It does NOT catch how the
+// model fills the BULLETS of one, and that is where most of the volume is. Measured over
+// 60 stored texts: extending the sentence test with only the marker list changed exactly
+// ZERO verdicts, because the bullets say "No podcast, interview, article or published
+// content attributable to X" and "The company's website contains no evidence of media
+// appearances", none of which contain a listed marker.
+const NEGATIVE_PATTERNS = [
+  /^\s*(?:[•\-*]\s*)?(?:no|none|neither|nothing)\b/i,
+  /\bno (?:evidence|record|mention|trace|indication|public|published|dated|other|available)\b/i,
+  /\b(?:does|do|did) not (?:appear|show|return|contain|indicate)\b/i,
+  /\bnone (?:show|of the|appear|are|is)\b/i,
+  /\bnot (?:find|found|available|verifiable|publicly)\b/i,
+]
+
+function isNegativeStatement(sentence: string): boolean {
+  const lower = sentence.toLowerCase()
+  return NEGATIVE_MARKERS.some(marker => lower.includes(marker))
+    || NEGATIVE_PATTERNS.some(pattern => pattern.test(sentence))
+}
+
+/** Length of the real characters, ignoring bullet glyphs and whitespace. */
+function contentLength(text: string): number {
+  return text.replace(/[•\-*\s]/g, '').length
+}
+
+const SUBSTANTIVE_MIN_CHARS = 60
+
+/**
+ * How much of a text must be non-negative for it to count as a finding.
+ *
+ * TUNED ON REAL DATA, 2026-08-25, over 60 stored native search texts. The positive-share
+ * distribution is bimodal: 7 texts sit below 40%, then the mass runs from 40% to 100%.
+ * Cutting at the gap rejects 4 of the 57 that previously passed. Cutting at 0.5 instead
+ * rejects 12, but starts taking texts whose surviving half is a real role or headcount
+ * fact, so 0.4 is the conservative edge of the gap rather than the middle of the data.
+ *
+ * BE HONEST ABOUT THE SIZE OF THIS. The often-quoted figure is that 72% of stored native
+ * texts carry an explicit negative marker, which is true, and it is tempting to read that
+ * as "72% is waste". It is not: most of those texts also carry a genuine positive fact
+ * about the person or company, and only the share below this threshold is mostly-negative
+ * by volume. This gate removes that tail. It does not remove the duplication between web
+ * search's role/headcount output and Apollo's, which is a different problem and cannot be
+ * solved here, because this utility is shared with the document agents and cannot know
+ * what Apollo returned.
+ *
+ * search_count and providers are now persisted per run, so revisit this on real data
+ * rather than on instinct.
+ */
+const SUBSTANTIVE_MIN_POSITIVE_SHARE = 0.4
 
 // A synthesis is substantive when it carries actual findings, not a stub or a
 // "could not find anything" note. Guards against storing a bare bullet character
 // or a one-line apology as if it were research.
-function isSubstantive(text: string): boolean {
-  const stripped = text.replace(/[•\-*\s]/g, '')
-  if (stripped.length < 60) return false
+//
+// THE 220-CHARACTER CEILING THIS REPLACES WAS THE BUG. The old rule disqualified a
+// negative marker only when the WHOLE text was under 220 characters, so a verbose negative
+// simply outgrew the test and was stored as successful research, then fed to the Sonnet
+// synthesis call as paid input tokens.
+//
+// The old comment already stated the right rule: "a negative marker only disqualifies when
+// the text is mostly that statement". It measured "mostly" with a length constant, which
+// is exactly the kind of constant a model's prose grows past. Measuring the SHARE of the
+// text that is not a negative statement tests "mostly" directly, and leaves no number for
+// prose to outgrow.
+//
+// Mixed text is the case that matters and it still passes: "No verifiable 2026 press
+// releases found. The company registered a UK entity on 19 March 2026." keeps sentence two,
+// which is the finding that was load-bearing in three shipped openings.
+export function isSubstantive(text: string): boolean {
+  if (contentLength(text) < SUBSTANTIVE_MIN_CHARS) return false
 
-  const lower = text.toLowerCase()
-  const NEGATIVE_MARKERS = [
-    'unable to find', 'could not find', 'no specific', 'no verifiable',
-    'i was unable', 'limited verifiable information', 'no results',
-    "i'll search", 'i will search', 'let me search',
-  ]
-  // A negative marker only disqualifies when the text is mostly that statement.
-  if (NEGATIVE_MARKERS.some(m => lower.includes(m)) && stripped.length < 220) return false
+  // Split on sentence ends AND newlines, so a bulleted list is judged bullet by bullet
+  // rather than as one blob. A run-on negative with no terminator stays a single sentence
+  // and is dropped whole, which is the correct reading of it.
+  const positiveText = text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .filter(sentence => !isNegativeStatement(sentence))
+    .join(' ')
 
-  return true
+  const positiveChars = contentLength(positiveText)
+  if (positiveChars < SUBSTANTIVE_MIN_CHARS) return false
+
+  return positiveChars / Math.max(contentLength(text), 1) >= SUBSTANTIVE_MIN_POSITIVE_SHARE
 }
 
 // ─── Brave Search fallback ────────────────────────────────────────────────────
@@ -184,6 +299,10 @@ async function searchViaBrave(query: string): Promise<WebSearchResult> {
       source: 'brave',
       limited: true,
       limitedReason: 'Brave Search returned no results for this query',
+      // One HTTP call was made and returned nothing. It is a search that happened, so it
+      // counts; Brave's free tier is metered on calls, not on useful calls.
+      searchCount: 1,
+      resultCount: 0,
     }
   }
 
@@ -200,6 +319,8 @@ async function searchViaBrave(query: string): Promise<WebSearchResult> {
     limited: results.length < 3,
     limitedReason:
       results.length < 3 ? `Only ${results.length} result(s) found` : undefined,
+    searchCount: 1,
+    resultCount: results.length,
   }
 }
 
@@ -245,6 +366,11 @@ export async function webSearch(query: string): Promise<WebSearchResult> {
     source: 'none',
     limited: true,
     limitedReason: 'Web search unavailable — neither Anthropic native search nor Brave Search API succeeded',
+    // A native attempt that threw may still have run, and been billed for, searches we
+    // never saw: the exception carries no response body. Recording 0 here is a floor on
+    // spend, not a claim that nothing was charged.
+    searchCount: 0,
+    resultCount: 0,
   }
 }
 
@@ -295,6 +421,10 @@ async function webSearchWithTimeout(query: string, timeoutMs: number): Promise<W
       source: 'none' as const,
       limited: true,
       limitedReason: `Web search timed out after ${timeoutMs}ms — proceeding without results`,
+      // A timeout abandons the request; it does not cancel searches the provider already
+      // ran and billed. Same floor-not-truth caveat as the both-paths-failed return above.
+      searchCount: 0,
+      resultCount: 0,
     }
   })
 }

@@ -238,6 +238,23 @@ export interface WebSearchSourceResult {
   company_search: string | null
   combined: string | null
   error?: string
+  /**
+   * WHICH PROVIDER ANSWERED, and what it cost. Stored into prospect_research_results
+   * .raw_web_search, which is jsonb, so this needs no migration.
+   *
+   * Added 2026-08-25 because neither question could be answered from stored data. On the
+   * 209 search texts on file there is no provider field at all, so "is Brave worse than
+   * native" had to be inferred from the SHAPE of the prose and came out as n=2. And the
+   * per-search billing was invisible, so the native path sat at $0 in the cost estimator
+   * while plausibly being the second-largest Anthropic line.
+   *
+   * Both queries are summed. Per-query detail is not worth a schema.
+   */
+  providers: readonly ('anthropic_native' | 'brave' | 'none')[]
+  /** Total BILLABLE searches across both queries. The cost unit. */
+  search_count: number
+  /** Total hits returned across both queries. The quality unit. */
+  result_count: number
 }
 
 export interface RawSourceData {

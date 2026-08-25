@@ -455,7 +455,15 @@ export async function runProspectResearchAgentV2({
           { available: false, profile_data: null, recent_posts: null, formatted: null, error: SOURCE_SKIPPED_REUSE },
           { available: false, formatted: null, raw: null, error: SOURCE_SKIPPED_REUSE },
           { available: false, url: null, content: null, fetch_method: null, error: SOURCE_SKIPPED_REUSE },
-          { available: false, person_search: null, company_search: null, combined: null, error: SOURCE_SKIPPED_REUSE },
+          // Zero here is a FACT, not a floor: a reuse run never calls the provider. This
+          // is the row that makes reuse legible in the spend data. Counting web search
+          // calls from sources_attempted instead overcounts a reuse run by two phantom
+          // requests, and 101 stored rows on file carry exactly that shape.
+          {
+            available: false, person_search: null, company_search: null, combined: null,
+            error: SOURCE_SKIPPED_REUSE,
+            providers: [], search_count: 0, result_count: 0,
+          },
         ] as const
       : await Promise.all([
           fetchLinkedInSource(ctx),
@@ -660,7 +668,12 @@ import {
   COST_APIFY,
   BRAVE_FREE_MONTHLY,
   BRAVE_PAID_PER_CALL,
+  COST_WEB_SEARCH_LOW,
+  COST_WEB_SEARCH_HIGH,
+  COST_WEB_SEARCH_PER_SEARCH,
+  WEB_SEARCH_QUERIES_PER_PROSPECT,
 } from './research/cost-constants'
+import { WEB_SEARCH_MAX_USES } from './tools/webSearch'
 
 function printCostEstimate(totalProspects: number): void {
   const hasApify = !!process.env.APIFY_API_KEY
@@ -673,12 +686,19 @@ function printCostEstimate(totalProspects: number): void {
   const anthropicLow  = totalProspects * COST_ANTHROPIC_LOW
   const anthropicHigh = totalProspects * COST_ANTHROPIC_HIGH
 
+  // Native web search, ADDED 2026-08-25. It was missing entirely, which is the opposite
+  // error to the composition one below: that line was summed and spent nothing, this line
+  // spends and was not summed. It is charged on every prospect regardless of Brave, so it
+  // belongs in totalLow as well as totalHigh.
+  const webSearchLow  = totalProspects * COST_WEB_SEARCH_LOW
+  const webSearchHigh = totalProspects * COST_WEB_SEARCH_HIGH
+
   // The Haiku personalisation line was REMOVED from this estimate on 2026-08-24.
   // Composition makes zero model calls: its only one was the bridge, and BRIDGE_ENABLED
   // has been false since 5047e24. Summing it here inflated every estimate and is where
   // the ~$0.05/prospect attributed to composition came from.
-  const totalLow  = apifyCost + anthropicLow
-  const totalHigh = apifyCost + braveCost + anthropicHigh
+  const totalLow  = apifyCost + anthropicLow + webSearchLow
+  const totalHigh = apifyCost + braveCost + anthropicHigh + webSearchHigh
 
   console.log('')
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
@@ -692,6 +712,7 @@ function printCostEstimate(totalProspects: number): void {
     console.log(`  Brave Search     : $0 (key not set — Anthropic native search only)`)
   }
   console.log(`  Anthropic Sonnet : ~$${anthropicLow.toFixed(2)}–$${anthropicHigh.toFixed(2)}`)
+  console.log(`  Anthropic search : ~$${webSearchLow.toFixed(2)}–$${webSearchHigh.toFixed(2)} (${totalProspects}×${WEB_SEARCH_QUERIES_PER_PROSPECT} queries, 1–${WEB_SEARCH_MAX_USES} searches each @ $${COST_WEB_SEARCH_PER_SEARCH})`)
   console.log(`  Apollo           : $0 (included in plan)`)
   console.log('  ─────────────────────────────────────────────────')
   console.log(`  Estimated total  : ~$${totalLow.toFixed(2)}–$${totalHigh.toFixed(2)}`)
