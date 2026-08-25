@@ -46,6 +46,43 @@ export const dynamic = 'force-dynamic'
 // waiting. Same ceiling and same reasoning as every other long route in this repo.
 export const maxDuration = 300
 
+/**
+ * THE INSTRUMENTATION RULE, copied deliberately from the queue-worker route.
+ *
+ * One value drives all three instruments: the cron_heartbeats row, the Sentry check-in, and
+ * the HTTP response body. They cannot disagree.
+ *
+ * THIS ROUTE SHIPPED WITHOUT THE HEARTBEAT and that was a real gap, not a tidiness one.
+ * MON-002 derives liveness from max(ran_at) staleness in cron_heartbeats alone, so a sweep
+ * that writes no row is INVISIBLE to monitoring: it could stop running entirely and nothing
+ * would say so. That is the exact shape of the Instantly poller that ran dead for four
+ * months. A scheduled job that cannot be observed is a scheduled job you do not have.
+ *
+ * Note the known limit of MON-002, inherited rather than introduced: it reads staleness and
+ * never consults cron_heartbeats.ok, so a sweep that runs on time and fails every time still
+ * reads OK there. The ok column is still written honestly for anything that does read it,
+ * and the Sentry check-in carries the same value.
+ */
+async function writeHeartbeat(
+  supabase: SupabaseClient,
+  ok: boolean,
+  detail: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('cron_heartbeats')
+    .insert({ job_name: MONITOR_SLUG, ok, detail: detail.slice(0, 900) })
+
+  // A failed heartbeat must not turn a successful sweep into a failed one. It is logged, and
+  // the consequence is that MON-002 sees staleness and alarms — which is the correct
+  // outcome, because from the outside an unobservable run and a missing run are the same.
+  if (error) {
+    logger.error('verify-pending: heartbeat write failed', {
+      error: error.message,
+      consequence: 'MON-002 will read this sweep as stale until the next successful write.',
+    })
+  }
+}
+
 const MONITOR_SLUG = 'verify-pending'
 const MONITOR_CONFIG = {
   schedule: { type: 'crontab' as const, value: '*/10 * * * *' },
@@ -114,6 +151,7 @@ export async function POST(request: NextRequest) {
     // in whenever every enriched prospect already carries a verdict.
     if (!organisationId) {
       logger.info('verify-pending: no organisation has unverified enriched prospects')
+      await writeHeartbeat(supabase, true, 'Nothing pending: every enriched prospect has a verdict.')
       Sentry.captureCheckIn({ checkInId, monitorSlug: MONITOR_SLUG, status: 'ok' }, MONITOR_CONFIG)
       await Sentry.flush(2000)
       return NextResponse.json({ ok: true, organisation_id: null, verified: 0, detail: 'nothing pending' })
@@ -136,6 +174,14 @@ export async function POST(request: NextRequest) {
       daily_used: run.daily_verifications_used,
     })
 
+    await writeHeartbeat(
+      supabase,
+      ok,
+      `${run.status}: verified ${run.total_verified}, send-eligible ${run.send_eligible_count}, ` +
+      `failed ${run.failed_count}, daily used ${run.daily_verifications_used ?? '?'}.` +
+      (run.error_message ? ` ${run.error_message}` : ''),
+    )
+
     Sentry.captureCheckIn(
       { checkInId, monitorSlug: MONITOR_SLUG, status: ok ? 'ok' : 'error' },
       MONITOR_CONFIG,
@@ -155,6 +201,9 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error('verify-pending: unexpected failure', { error: message })
+    // Best effort: if the client itself is the thing that broke, this write fails too and
+    // MON-002 falls back to staleness, which is the correct degradation.
+    await writeHeartbeat(supabase, false, `Unexpected failure: ${message}`)
     Sentry.captureCheckIn({ checkInId, monitorSlug: MONITOR_SLUG, status: 'error' }, MONITOR_CONFIG)
     await Sentry.flush(2000)
     return NextResponse.json({ ok: false, error: message }, { status: 500 })
