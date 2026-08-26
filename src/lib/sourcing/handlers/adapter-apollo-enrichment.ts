@@ -25,6 +25,7 @@ import { stripNonOwnedFields, applyFillIfNullLogic } from '@/lib/sourcing/field-
 import { buildApolloEnrichmentSubset } from '@/lib/sourcing/apollo-enrichment-subset'
 import { shouldUseMockEnrichment } from '@/lib/sourcing/enrichment-mode'
 import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
+import { toIso2CountryCode } from '@/lib/sourcing/country-code'
 
 type SupabaseServiceClient = ReturnType<typeof createClient<Database>>
 
@@ -633,9 +634,13 @@ async function enrichAndVerifyProspect(
 
   // FIRST-CLASS COLUMN, not jsonb. A jurisdiction gate has to be able to filter on this
   // in a WHERE clause. Enrichment already owns the field; it simply was never parsed.
-  const country = (typeof apolloMatch.country === 'string' && apolloMatch.country.trim())
-    ? apolloMatch.country.trim()
-    : null
+  //
+  // TRANSLATED TO CANONICAL ISO-2 HERE, because the handler owns its vendor's vocabulary
+  // (CLAUDE.md) and because writing it raw is what broke the DE exclusion. Apollo returns
+  // "Germany"; send-eligibility-rules.ts matches 'DE'; the two never met, and two German
+  // prospects were mailed as a result. See src/lib/sourcing/country-code.ts for the full
+  // account. A WHERE clause on this column is only meaningful if one vocabulary reaches it.
+  const country = toIso2CountryCode(apolloMatch.country)
 
   // The subset of everything else we already paid for. An ALLOW-LIST decides the shape:
   // no addresses, no phone, no personal social URLs, no nested emails. See
