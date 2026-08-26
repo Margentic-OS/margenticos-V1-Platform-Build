@@ -45,7 +45,22 @@
 -- the queue-worker job and rewrites only the URL path. The secret is never read, never
 -- printed, and never committed.
 --
--- Status: NOT APPLIED. Deliberate. See the top of this file.
+-- Status: APPLIED 2026-08-26 01:32 UTC, on Doug's explicit approval.
+--
+-- ORDERING NOTE, because it is not obvious and it bit. This could NOT be applied when the
+-- rest of the build landed. The cron POSTs to https://app.margenticos.com, which serves
+-- MAIN, and the route only existed on the feature branch. Confirmed before scheduling:
+--
+--   POST https://app.margenticos.com/api/cron/verify-catch-all  ->  404
+--   POST https://app.margenticos.com/api/cron/verify-pending    ->  401  (exists, gated)
+--
+-- Scheduling it first would have produced a 404 every 30 minutes, zero paid calls, and a
+-- failing heartbeat that looked like a broken sweep rather than a missing deploy. The merge
+-- to main and the production deploy are prerequisites of this migration, not follow-ups.
+--
+-- Verified after applying: job active, schedule */30, command points at
+-- /api/cron/verify-catch-all on app.margenticos.com, and the route returns 401 rather than
+-- 404 in production.
 
 -- Idempotent: unschedule any previous version of this job.
 SELECT cron.unschedule('verify-catch-all')
