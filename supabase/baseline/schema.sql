@@ -1,0 +1,3248 @@
+-- ═══════════════════════════════════════════════════════════════════════
+-- BASELINE SCHEMA — public schema of project hjpvnvjryxdjcfdsfhzy
+-- Captured 2026-08-26 22:31 UTC from the LIVE database, read-only.
+-- ═══════════════════════════════════════════════════════════════════════
+--
+-- WHY THIS FILE EXISTS: supabase/migrations/ CANNOT REBUILD THIS DATABASE.
+-- 131 migrations are applied remotely against 115 files in the repo, and no file
+-- anywhere creates organisations, prospects or campaigns. The three core
+-- create_*_tables migrations from 2026-04-15 exist only in the remote database.
+-- If this project were lost, the repository could not recreate it.
+--
+-- HOW IT WAS CAPTURED, and what that means for trust: the documented routes
+-- (supabase db dump, pg_dump) both need Docker or a Postgres client, neither of
+-- which is installed on this machine, and installing them was not in scope. This
+-- was generated instead from the live catalog via the Supabase Management API,
+-- read-only. It is a RECONSTRUCTION, not a byte-for-byte pg_dump. See the
+-- COVERAGE section at the end of this file for exactly what is and is not here.
+
+-- ── EXTENSIONS ────────────────────────────────────────────────────────
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;
+CREATE EXTENSION IF NOT EXISTS supabase_vault WITH SCHEMA vault;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
+
+-- ── SEQUENCES (must precede the tables whose DEFAULTs call nextval) ───
+-- FOUND MISSING on the first pass: two column defaults call nextval() and no
+-- CREATE SEQUENCE existed, so the file would not have restored. Caught by grepping
+-- the generated output for nextval( against CREATE SEQUENCE rather than by reading it.
+CREATE SEQUENCE IF NOT EXISTS public.cron_heartbeats_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.monitor_events_id_seq;
+ALTER SEQUENCE public.cron_heartbeats_id_seq OWNED BY public.cron_heartbeats.id;
+ALTER SEQUENCE public.monitor_events_id_seq OWNED BY public.monitor_events.id;
+
+-- ── TABLES ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.agent_runs (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  agent_name text NOT NULL,
+  status text NOT NULL,
+  started_at timestamp with time zone DEFAULT now() NOT NULL,
+  completed_at timestamp with time zone,
+  duration_ms integer,
+  output_summary text,
+  error_message text
+);
+
+CREATE TABLE IF NOT EXISTS public.campaigns (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  campaign_type text NOT NULL,
+  external_id text,
+  status text DEFAULT 'draft'::text NOT NULL,
+  sequence_name text,
+  started_at timestamp with time zone,
+  paused_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  sent_count integer DEFAULT 0 NOT NULL,
+  replied_count integer DEFAULT 0 NOT NULL,
+  bounced_count integer DEFAULT 0 NOT NULL,
+  campaign_stats_updated_at timestamp with time zone,
+  name text,
+  shell_synced_at timestamp with time zone,
+  shell_doc_id uuid,
+  shell_step_count integer,
+  shell_delays jsonb,
+  shell_segment_id uuid,
+  open_count integer DEFAULT 0 NOT NULL,
+  sending_state text,
+  sending_status_raw text,
+  sending_status_checked_at timestamp with time zone,
+  contacted_count integer DEFAULT 0 NOT NULL,
+  unsubscribed_count integer DEFAULT 0 NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.cron_heartbeats (
+  id bigint DEFAULT nextval('cron_heartbeats_id_seq'::regclass) NOT NULL,
+  job_name text NOT NULL,
+  ran_at timestamp with time zone DEFAULT now() NOT NULL,
+  ok boolean DEFAULT true NOT NULL,
+  detail text,
+  created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.document_suggestions (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  document_id uuid,
+  document_type text NOT NULL,
+  field_path text NOT NULL,
+  current_value text,
+  suggested_value text NOT NULL,
+  suggestion_reason text,
+  confidence_level text DEFAULT 'low'::text NOT NULL,
+  signal_count integer DEFAULT 0 NOT NULL,
+  ab_variant text,
+  conflicting_suggestion_id uuid,
+  status text DEFAULT 'pending'::text NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  reviewed_at timestamp with time zone,
+  reviewed_by uuid,
+  sequence_position integer,
+  rejection_reason text,
+  segment_id uuid,
+  revision_note text,
+  update_trigger text DEFAULT 'signal_suggestion'::text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.enrichment_runs (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  batch_size integer NOT NULL,
+  total_requested_enrichments integer NOT NULL,
+  unique_enriched_records integer NOT NULL,
+  missing_records integer NOT NULL,
+  credits_consumed integer NOT NULL,
+  run_timestamp timestamp with time zone NOT NULL,
+  status text NOT NULL,
+  error_message text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.faq_extractions (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  signal_id uuid,
+  reply_draft_id uuid,
+  extracted_question text NOT NULL,
+  suggested_answer text NOT NULL,
+  similar_faq_id uuid,
+  status text DEFAULT 'pending'::text NOT NULL,
+  reviewed_by_user_id uuid,
+  reviewed_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  similar_pending_extraction_id uuid,
+  similarity_score numeric(4,3),
+  potential_names_flagged jsonb DEFAULT '[]'::jsonb NOT NULL,
+  prompt_version text,
+  source text DEFAULT 'reply_extracted'::text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.faqs (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  question_canonical text NOT NULL,
+  question_variants jsonb DEFAULT '[]'::jsonb NOT NULL,
+  answer text NOT NULL,
+  source_signal_ids jsonb DEFAULT '[]'::jsonb NOT NULL,
+  status text DEFAULT 'approved'::text NOT NULL,
+  times_used integer DEFAULT 0 NOT NULL,
+  last_used_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  created_by_user_id uuid
+);
+
+CREATE TABLE IF NOT EXISTS public.industry_tag_mappings (
+  apollo_tag text NOT NULL,
+  canonical_industry text NOT NULL,
+  created_by uuid NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.intake_files (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  storage_path text NOT NULL,
+  original_filename text NOT NULL,
+  file_size_bytes integer NOT NULL,
+  mime_type text NOT NULL,
+  file_purpose text NOT NULL,
+  extracted_text text,
+  extraction_status text DEFAULT 'pending'::text NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  created_by uuid
+);
+
+CREATE TABLE IF NOT EXISTS public.intake_responses (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  field_key text NOT NULL,
+  field_label text NOT NULL,
+  response_value text,
+  is_critical boolean DEFAULT false NOT NULL,
+  word_count integer DEFAULT 0 NOT NULL,
+  section text NOT NULL,
+  version integer DEFAULT 1 NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  segment_id uuid
+);
+
+CREATE TABLE IF NOT EXISTS public.intake_website_pages (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  url text NOT NULL,
+  page_label text NOT NULL,
+  display_order integer DEFAULT 0 NOT NULL,
+  fetch_status text DEFAULT 'pending'::text NOT NULL,
+  extracted_text text,
+  error_message text,
+  fetched_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.integration_credentials (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid,
+  source text NOT NULL,
+  credential_type text NOT NULL,
+  value text NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.integrations_registry (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tool_name text NOT NULL,
+  capability text NOT NULL,
+  is_active boolean DEFAULT false NOT NULL,
+  api_handler_ref text NOT NULL,
+  connection_status text DEFAULT 'disconnected'::text NOT NULL,
+  config jsonb DEFAULT '{}'::jsonb NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  supported_fields text[]
+);
+
+CREATE TABLE IF NOT EXISTS public.job_queue (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  job_type text NOT NULL,
+  organisation_id uuid NOT NULL,
+  prospect_id uuid NOT NULL,
+  state text DEFAULT 'queued'::text NOT NULL,
+  claimed_by text,
+  lease_expires_at timestamp with time zone,
+  attempts integer DEFAULT 0 NOT NULL,
+  max_attempts integer DEFAULT 3 NOT NULL,
+  run_after timestamp with time zone DEFAULT now() NOT NULL,
+  last_error text,
+  last_error_class text,
+  spend_recorded_at timestamp with time zone,
+  spend_detail jsonb,
+  result_summary text,
+  enqueued_by text,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.meetings (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  prospect_id uuid,
+  campaign_id uuid,
+  booked_at timestamp with time zone DEFAULT now() NOT NULL,
+  meeting_date timestamp with time zone,
+  status text DEFAULT 'booked'::text NOT NULL,
+  qualification text,
+  qualification_notes text,
+  revenue_value numeric,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  source text DEFAULT 'manual'::text NOT NULL,
+  calendly_event_uuid text,
+  calendly_invitee_uuid text,
+  scheduled_start_at timestamp with time zone,
+  meeting_status text DEFAULT 'booked'::text NOT NULL,
+  held_decision_locked boolean DEFAULT false NOT NULL,
+  held_confirmed_by text,
+  invitee_phone text,
+  is_billable boolean DEFAULT false NOT NULL,
+  billed_at timestamp with time zone
+);
+
+CREATE TABLE IF NOT EXISTS public.monitor_checks (
+  code text NOT NULL,
+  title text NOT NULL,
+  description text NOT NULL,
+  category text NOT NULL,
+  tier integer NOT NULL,
+  is_scheduled boolean DEFAULT false NOT NULL,
+  expected_interval_minutes integer,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  plain_meaning text DEFAULT ''::text NOT NULL,
+  plain_impact text DEFAULT ''::text NOT NULL,
+  plain_action text DEFAULT ''::text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.monitor_events (
+  id bigint DEFAULT nextval('monitor_events_id_seq'::regclass) NOT NULL,
+  check_code text NOT NULL,
+  state text NOT NULL,
+  detail text,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  resolved_at timestamp with time zone,
+  acknowledged_at timestamp with time zone,
+  acknowledged_note text
+);
+
+CREATE TABLE IF NOT EXISTS public.notifications_log (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  notification_type text NOT NULL,
+  subject_id uuid NOT NULL,
+  sent_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.organisations (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  name text NOT NULL,
+  slug text NOT NULL,
+  contract_start_date date,
+  contract_status text,
+  engagement_month integer DEFAULT 0 NOT NULL,
+  payment_status text,
+  pipeline_unlocked boolean DEFAULT false NOT NULL,
+  pipeline_unlock_at timestamp with time zone,
+  meetings_count integer DEFAULT 0 NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  pipeline_unlock_manual_override boolean DEFAULT false NOT NULL,
+  founder_first_name text,
+  auto_approve_window_hours integer DEFAULT 72 NOT NULL,
+  calendly_url text,
+  monthly_meetings_target integer DEFAULT 8 NOT NULL,
+  setup_status jsonb DEFAULT '{"linkedin": "pending", "campaigns": "pending"}'::jsonb NOT NULL,
+  contract_end_date date,
+  agents_dispatched_at timestamp with time zone,
+  docs_complete_notification_sent_at timestamp with time zone,
+  currency text DEFAULT 'GBP'::text NOT NULL,
+  warmup_started_at timestamp with time zone,
+  linkedin_channel_enabled boolean DEFAULT false NOT NULL,
+  founder_last_name text,
+  founder_title text,
+  calendly_webhook_secret text,
+  auto_held_window_hours integer DEFAULT 72 NOT NULL,
+  billing_basis text DEFAULT 'held'::text NOT NULL,
+  reminder_handling text,
+  client_review_enabled boolean DEFAULT true NOT NULL,
+  intake_last_activity_at timestamp with time zone,
+  warmup_completed_at timestamp with time zone,
+  archived_at timestamp with time zone
+);
+
+CREATE TABLE IF NOT EXISTS public.patterns (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  pattern_type text NOT NULL,
+  pattern_data jsonb DEFAULT '{}'::jsonb NOT NULL,
+  sample_size integer DEFAULT 0 NOT NULL,
+  confidence_score double precision,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.polling_cursors (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid,
+  source text NOT NULL,
+  resource text NOT NULL,
+  last_cursor text,
+  last_polled_at timestamp with time zone,
+  last_run_at timestamp with time zone,
+  error_count integer DEFAULT 0 NOT NULL,
+  last_error text,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.prospect_research_results (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  prospect_id uuid NOT NULL,
+  organisation_id uuid NOT NULL,
+  run_id uuid,
+  qualification_status text DEFAULT 'qualified'::text NOT NULL,
+  qualification_reason text,
+  trigger_text text,
+  trigger_source jsonb,
+  synthesis_reasoning text,
+  synthesis_confidence text,
+  raw_linkedin jsonb,
+  raw_apollo jsonb,
+  raw_website jsonb,
+  raw_web_search jsonb,
+  sources_attempted text[] DEFAULT '{}'::text[] NOT NULL,
+  sources_successful text[] DEFAULT '{}'::text[] NOT NULL,
+  synthesized_at timestamp with time zone DEFAULT now() NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  relevance_reason text,
+  icp_fit text DEFAULT 'unassessed'::text NOT NULL,
+  has_dateable_signal boolean DEFAULT false NOT NULL,
+  signal_observation text,
+  signal_relevance text DEFAULT 'ignore'::text NOT NULL,
+  candidates jsonb DEFAULT '[]'::jsonb NOT NULL,
+  selected_candidate_id text
+);
+
+CREATE TABLE IF NOT EXISTS public.prospects (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  first_name text,
+  last_name text,
+  email text,
+  company_name text,
+  role text,
+  linkedin_url text,
+  personalisation_trigger text,
+  research_source text,
+  suppressed boolean DEFAULT false NOT NULL,
+  suppressed_at timestamp with time zone,
+  suppression_reason text,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  variant_id text,
+  trigger_confidence text,
+  research_ran_at timestamp with time zone,
+  trigger_data jsonb,
+  qualification_status text DEFAULT 'qualified'::text,
+  current_research_result_id uuid,
+  website_url text,
+  icp_fit text DEFAULT 'unassessed'::text NOT NULL,
+  has_dateable_signal boolean DEFAULT false NOT NULL,
+  signal_observation text,
+  classified_at timestamp with time zone,
+  signal_relevance text DEFAULT 'ignore'::text NOT NULL,
+  outbound_lead_id text,
+  outbound_upload_status text DEFAULT 'pending'::text NOT NULL,
+  outbound_upload_attempted_at timestamp with time zone,
+  outbound_upload_error text,
+  campaign_id uuid,
+  segment_id uuid,
+  sourced_tier text,
+  qualified_at timestamp with time zone,
+  source_person_key text,
+  linkedin_url_normalised text,
+  country text,
+  sourcing_review_status text,
+  email_status text,
+  enrichment_status text,
+  enrichment_run_id uuid,
+  enrichment_locked_at timestamp with time zone,
+  company_headcount integer,
+  company_industry text,
+  job_title text,
+  independent_email_status text,
+  email_send_eligible boolean DEFAULT false,
+  independent_verified_at timestamp with time zone,
+  verification_attempt_count integer DEFAULT 0,
+  last_verification_error text,
+  verification_provider text DEFAULT 'myemailverifier'::text,
+  verification_locked_at timestamp with time zone,
+  client_review_status text,
+  client_review_reason text,
+  client_review_auto_approved_at timestamp with time zone,
+  tier_published_at timestamp with time zone,
+  tiering_reason text,
+  enrichment_mode text DEFAULT 'test'::text,
+  email_send_ineligible_reason text,
+  operator_override_at timestamp with time zone,
+  operator_override_by uuid,
+  operator_override_tier character varying(20),
+  operator_override_reason text,
+  fit_score integer,
+  messaging_doc_id uuid,
+  personalisation_question text,
+  enrichment_credit_consumed_at timestamp with time zone,
+  apollo_enrichment_data jsonb,
+  second_pass_status text,
+  second_pass_reason text,
+  second_pass_score integer,
+  second_pass_provider text,
+  second_pass_verified_at timestamp with time zone,
+  second_pass_accept_all boolean,
+  second_pass_attempt_count integer DEFAULT 0 NOT NULL,
+  second_pass_locked_at timestamp with time zone,
+  second_pass_error text
+);
+
+CREATE TABLE IF NOT EXISTS public.queue_rotation (
+  job_type text NOT NULL,
+  last_organisation_id uuid,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.reply_drafts (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  signal_id uuid NOT NULL,
+  prospect_id uuid,
+  tier integer NOT NULL,
+  intent text NOT NULL,
+  ai_draft_body text,
+  final_sent_body text,
+  draft_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+  status text DEFAULT 'pending'::text NOT NULL,
+  reviewed_by_user_id uuid,
+  reviewed_at timestamp with time zone,
+  edited_at timestamp with time zone,
+  edited_by_user_id uuid,
+  sent_at timestamp with time zone,
+  send_error text,
+  instantly_message_id text,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.reply_handling_actions (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  signal_id uuid NOT NULL,
+  prospect_id uuid,
+  campaign_id uuid,
+  classified_intent text,
+  classification_confidence numeric(4,3),
+  classification_reasoning text,
+  faq_entry_id uuid,
+  tier_assigned integer,
+  action_taken text NOT NULL,
+  action_payload jsonb,
+  scheduled_resume_at timestamp with time zone,
+  action_succeeded boolean,
+  action_error text,
+  instantly_response jsonb,
+  attempt_number integer DEFAULT 1 NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.segments (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  name text NOT NULL,
+  slug text NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  is_default boolean DEFAULT false NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.signals (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  signal_type text NOT NULL,
+  prospect_id uuid,
+  campaign_id uuid,
+  raw_data jsonb DEFAULT '{}'::jsonb NOT NULL,
+  processed boolean DEFAULT false NOT NULL,
+  processed_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  variant_id text,
+  source text,
+  external_event_id text,
+  original_outbound_body text,
+  original_outbound_message_id text
+);
+
+CREATE TABLE IF NOT EXISTS public.strategy_documents (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  document_type text NOT NULL,
+  version text DEFAULT '1.0'::text NOT NULL,
+  content jsonb DEFAULT '{}'::jsonb NOT NULL,
+  plain_text text,
+  status text DEFAULT 'draft'::text NOT NULL,
+  generated_at timestamp with time zone,
+  last_updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  update_trigger text,
+  is_stale boolean DEFAULT false NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  segment_id uuid,
+  client_approval_status text DEFAULT 'pending'::text NOT NULL,
+  approval_source text,
+  approved_at timestamp with time zone,
+  pending_since timestamp with time zone DEFAULT now() NOT NULL,
+  revision_note text,
+  change_summary text,
+  icp_filter_spec jsonb
+);
+
+CREATE TABLE IF NOT EXISTS public.suppressed_emails (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  email text NOT NULL,
+  reason text NOT NULL,
+  source_org_id uuid,
+  source_signal_id uuid,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  revoked_at timestamp with time zone,
+  revoked_reason text
+);
+
+CREATE TABLE IF NOT EXISTS public.synthesis_batch_entries (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  batch_id uuid,
+  organisation_id uuid NOT NULL,
+  prospect_id uuid NOT NULL,
+  state text DEFAULT 'pending_submission'::text NOT NULL,
+  raw_sources jsonb NOT NULL,
+  detected_signal jsonb NOT NULL,
+  client_context jsonb NOT NULL,
+  client_name text NOT NULL,
+  segment_id uuid,
+  variant_id text NOT NULL,
+  messaging_doc_id uuid NOT NULL,
+  messaging_doc_version text NOT NULL,
+  messaging_content jsonb NOT NULL,
+  doc_superseded boolean DEFAULT false NOT NULL,
+  phase1_run_id uuid,
+  usage jsonb,
+  result_type text,
+  stop_reason text,
+  error text,
+  submit_attempts integer DEFAULT 0 NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  response_message jsonb
+);
+
+CREATE TABLE IF NOT EXISTS public.synthesis_batches (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  anthropic_batch_id text,
+  state text DEFAULT 'attempted'::text NOT NULL,
+  request_count integer DEFAULT 0 NOT NULL,
+  model text NOT NULL,
+  cache_ttl text NOT NULL,
+  requested_at timestamp with time zone DEFAULT now() NOT NULL,
+  submitted_at timestamp with time zone,
+  ended_at timestamp with time zone,
+  collected_at timestamp with time zone,
+  expires_at timestamp with time zone DEFAULT (now() + '24:00:00'::interval) NOT NULL,
+  last_polled_at timestamp with time zone,
+  poll_count integer DEFAULT 0 NOT NULL,
+  counts jsonb,
+  error text,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.system_flags (
+  key text NOT NULL,
+  enabled boolean DEFAULT false NOT NULL,
+  note text,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_by text
+);
+
+CREATE TABLE IF NOT EXISTS public.users (
+  id uuid NOT NULL,
+  organisation_id uuid,
+  email text NOT NULL,
+  role text NOT NULL,
+  display_name text,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  last_seen_at timestamp with time zone
+);
+
+CREATE TABLE IF NOT EXISTS public.users_pending_review (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  email text NOT NULL,
+  attempted_org_id uuid NOT NULL,
+  attempted_at timestamp with time zone DEFAULT now() NOT NULL,
+  reviewed boolean DEFAULT false NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.verification_calls (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  organisation_id uuid NOT NULL,
+  prospect_id uuid,
+  provider text NOT NULL,
+  requested_at timestamp with time zone DEFAULT now() NOT NULL,
+  completed_at timestamp with time zone,
+  outcome text DEFAULT 'attempted'::text NOT NULL,
+  verdict text,
+  score integer,
+  error text
+);
+
+-- ── PRIMARY KEYS, UNIQUE AND CHECK CONSTRAINTS ────────────────────────
+ALTER TABLE public.agent_runs ADD CONSTRAINT agent_runs_pkey PRIMARY KEY (id);
+ALTER TABLE public.agent_runs ADD CONSTRAINT agent_runs_status_check CHECK ((status = ANY (ARRAY['completed'::text, 'failed'::text, 'running'::text, 'skipped'::text, 'skipped_idempotent'::text])));
+ALTER TABLE public.campaigns ADD CONSTRAINT campaigns_campaign_type_check CHECK ((campaign_type = ANY (ARRAY['cold_email'::text, 'linkedin_post'::text, 'linkedin_dm'::text])));
+ALTER TABLE public.campaigns ADD CONSTRAINT campaigns_pkey PRIMARY KEY (id);
+ALTER TABLE public.campaigns ADD CONSTRAINT campaigns_sending_state_check CHECK (((sending_state IS NULL) OR (sending_state = ANY (ARRAY['sending'::text, 'draft'::text, 'paused'::text, 'completed'::text, 'waiting'::text, 'limit_reached'::text, 'blocked'::text]))));
+ALTER TABLE public.campaigns ADD CONSTRAINT campaigns_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'paused'::text, 'completed'::text])));
+ALTER TABLE public.cron_heartbeats ADD CONSTRAINT cron_heartbeats_pkey PRIMARY KEY (id);
+ALTER TABLE public.document_suggestions ADD CONSTRAINT document_suggestions_confidence_level_check CHECK ((confidence_level = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text])));
+ALTER TABLE public.document_suggestions ADD CONSTRAINT document_suggestions_document_type_check CHECK ((document_type = ANY (ARRAY['icp'::text, 'positioning'::text, 'tov'::text, 'messaging'::text])));
+ALTER TABLE public.document_suggestions ADD CONSTRAINT document_suggestions_pkey PRIMARY KEY (id);
+ALTER TABLE public.document_suggestions ADD CONSTRAINT document_suggestions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'superseded'::text])));
+ALTER TABLE public.document_suggestions ADD CONSTRAINT document_suggestions_update_trigger_check CHECK ((update_trigger = ANY (ARRAY['signal_suggestion'::text, 'client_revision'::text])));
+ALTER TABLE public.enrichment_runs ADD CONSTRAINT enrichment_runs_pkey PRIMARY KEY (id);
+ALTER TABLE public.enrichment_runs ADD CONSTRAINT enrichment_runs_status_check CHECK ((status = ANY (ARRAY['success'::text, 'partial'::text, 'failed'::text])));
+ALTER TABLE public.faq_extractions ADD CONSTRAINT faq_extractions_pkey PRIMARY KEY (id);
+ALTER TABLE public.faq_extractions ADD CONSTRAINT faq_extractions_source_check CHECK ((source = ANY (ARRAY['seed_generated'::text, 'reply_extracted'::text])));
+ALTER TABLE public.faq_extractions ADD CONSTRAINT faq_extractions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved_new'::text, 'approved_merge'::text, 'rejected'::text])));
+ALTER TABLE public.faqs ADD CONSTRAINT faqs_pkey PRIMARY KEY (id);
+ALTER TABLE public.faqs ADD CONSTRAINT faqs_status_check CHECK ((status = ANY (ARRAY['approved'::text, 'archived'::text])));
+ALTER TABLE public.industry_tag_mappings ADD CONSTRAINT industry_tag_mappings_pkey PRIMARY KEY (apollo_tag);
+ALTER TABLE public.intake_files ADD CONSTRAINT intake_files_extraction_status_check CHECK ((extraction_status = ANY (ARRAY['pending'::text, 'complete'::text, 'failed'::text])));
+ALTER TABLE public.intake_files ADD CONSTRAINT intake_files_file_purpose_check CHECK ((file_purpose = ANY (ARRAY['voice_sample'::text, 'icp_doc'::text, 'case_study'::text, 'other'::text])));
+ALTER TABLE public.intake_files ADD CONSTRAINT intake_files_pkey PRIMARY KEY (id);
+ALTER TABLE public.intake_responses ADD CONSTRAINT intake_responses_organisation_id_field_key_key UNIQUE (organisation_id, field_key);
+ALTER TABLE public.intake_responses ADD CONSTRAINT intake_responses_pkey PRIMARY KEY (id);
+ALTER TABLE public.intake_website_pages ADD CONSTRAINT intake_website_pages_fetch_status_check CHECK ((fetch_status = ANY (ARRAY['pending'::text, 'complete'::text, 'failed'::text])));
+ALTER TABLE public.intake_website_pages ADD CONSTRAINT intake_website_pages_pkey PRIMARY KEY (id);
+ALTER TABLE public.integration_credentials ADD CONSTRAINT integration_credentials_pkey PRIMARY KEY (id);
+ALTER TABLE public.integrations_registry ADD CONSTRAINT integrations_registry_capability_tool_name_key UNIQUE (capability, tool_name);
+ALTER TABLE public.integrations_registry ADD CONSTRAINT integrations_registry_connection_status_check CHECK ((connection_status = ANY (ARRAY['connected'::text, 'disconnected'::text, 'error'::text])));
+ALTER TABLE public.integrations_registry ADD CONSTRAINT integrations_registry_pkey PRIMARY KEY (id);
+ALTER TABLE public.job_queue ADD CONSTRAINT job_queue_attempts_sane CHECK (((attempts >= 0) AND (max_attempts > 0)));
+ALTER TABLE public.job_queue ADD CONSTRAINT job_queue_claim_fields_consistent CHECK (((state <> 'claimed'::text) OR ((claimed_by IS NOT NULL) AND (lease_expires_at IS NOT NULL))));
+ALTER TABLE public.job_queue ADD CONSTRAINT job_queue_error_class_valid CHECK (((last_error_class IS NULL) OR (last_error_class = ANY (ARRAY['transient'::text, 'permanent'::text]))));
+ALTER TABLE public.job_queue ADD CONSTRAINT job_queue_failed_has_error CHECK (((state <> 'failed'::text) OR (last_error IS NOT NULL)));
+ALTER TABLE public.job_queue ADD CONSTRAINT job_queue_pkey PRIMARY KEY (id);
+ALTER TABLE public.job_queue ADD CONSTRAINT job_queue_state_valid CHECK ((state = ANY (ARRAY['queued'::text, 'claimed'::text, 'done'::text, 'failed'::text, 'cancelled'::text])));
+ALTER TABLE public.job_queue ADD CONSTRAINT job_queue_type_valid CHECK ((job_type = ANY (ARRAY['enrich'::text, 'research'::text, 'compose'::text, 'research_sources'::text, 'research_collect'::text])));
+ALTER TABLE public.meetings ADD CONSTRAINT meetings_calendly_event_uuid_key UNIQUE (calendly_event_uuid);
+ALTER TABLE public.meetings ADD CONSTRAINT meetings_calendly_invitee_uuid_key UNIQUE (calendly_invitee_uuid);
+ALTER TABLE public.meetings ADD CONSTRAINT meetings_held_confirmed_by_check CHECK (((held_confirmed_by IS NULL) OR (held_confirmed_by = ANY (ARRAY['client'::text, 'operator'::text, 'auto'::text]))));
+ALTER TABLE public.meetings ADD CONSTRAINT meetings_meeting_status_check CHECK ((meeting_status = ANY (ARRAY['booked'::text, 'held'::text, 'no_show'::text, 'canceled'::text, 'rescheduled'::text])));
+ALTER TABLE public.meetings ADD CONSTRAINT meetings_pkey PRIMARY KEY (id);
+ALTER TABLE public.meetings ADD CONSTRAINT meetings_qualification_check CHECK ((qualification = ANY (ARRAY['qualified'::text, 'unqualified'::text, 'pending'::text])));
+ALTER TABLE public.meetings ADD CONSTRAINT meetings_source_check CHECK ((source = ANY (ARRAY['calendly'::text, 'manual'::text])));
+ALTER TABLE public.meetings ADD CONSTRAINT meetings_status_check CHECK ((status = ANY (ARRAY['booked'::text, 'completed'::text, 'no_show'::text, 'cancelled'::text, 'rescheduled'::text])));
+ALTER TABLE public.monitor_checks ADD CONSTRAINT monitor_checks_pkey PRIMARY KEY (code);
+ALTER TABLE public.monitor_events ADD CONSTRAINT monitor_events_pkey PRIMARY KEY (id);
+ALTER TABLE public.monitor_events ADD CONSTRAINT monitor_events_state_check CHECK ((state = ANY (ARRAY['PROBLEM'::text, 'OK'::text, 'UNKNOWN'::text])));
+ALTER TABLE public.notifications_log ADD CONSTRAINT notifications_log_pkey PRIMARY KEY (id);
+ALTER TABLE public.notifications_log ADD CONSTRAINT unique_notification_per_subject UNIQUE (organisation_id, notification_type, subject_id);
+ALTER TABLE public.organisations ADD CONSTRAINT organisations_auto_held_window_hours_check CHECK (((auto_held_window_hours > 0) AND (auto_held_window_hours <= 720)));
+ALTER TABLE public.organisations ADD CONSTRAINT organisations_billing_basis_check CHECK ((billing_basis = ANY (ARRAY['held'::text, 'booked'::text])));
+ALTER TABLE public.organisations ADD CONSTRAINT organisations_contract_status_check CHECK ((contract_status = ANY (ARRAY['active'::text, 'paused'::text, 'churned'::text])));
+ALTER TABLE public.organisations ADD CONSTRAINT organisations_currency_check CHECK ((currency = ANY (ARRAY['GBP'::text, 'EUR'::text, 'USD'::text])));
+ALTER TABLE public.organisations ADD CONSTRAINT organisations_pkey PRIMARY KEY (id);
+ALTER TABLE public.organisations ADD CONSTRAINT organisations_slug_key UNIQUE (slug);
+ALTER TABLE public.patterns ADD CONSTRAINT patterns_pkey PRIMARY KEY (id);
+ALTER TABLE public.polling_cursors ADD CONSTRAINT polling_cursors_pkey PRIMARY KEY (id);
+ALTER TABLE public.prospect_research_results ADD CONSTRAINT prospect_research_results_icp_fit_check CHECK ((icp_fit = ANY (ARRAY['strong'::text, 'moderate'::text, 'weak'::text, 'unassessed'::text])));
+ALTER TABLE public.prospect_research_results ADD CONSTRAINT prospect_research_results_pkey PRIMARY KEY (id);
+ALTER TABLE public.prospect_research_results ADD CONSTRAINT prospect_research_results_qualification_status_check CHECK ((qualification_status = ANY (ARRAY['qualified'::text, 'flagged_for_review'::text, 'disqualified'::text])));
+ALTER TABLE public.prospect_research_results ADD CONSTRAINT prospect_research_results_signal_relevance_check CHECK ((signal_relevance = ANY (ARRAY['use_as_hook'::text, 'mention_only'::text, 'no_signal'::text, 'ignore'::text])));
+ALTER TABLE public.prospect_research_results ADD CONSTRAINT prospect_research_results_synthesis_confidence_check CHECK ((synthesis_confidence = ANY (ARRAY['high'::text, 'medium'::text, 'low'::text])));
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_client_review_reason_check CHECK ((char_length(client_review_reason) <= 200));
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_client_review_status_check CHECK ((client_review_status = ANY (ARRAY['pending_review'::text, 'approved'::text, 'rejected'::text])));
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_enrichment_status_check CHECK ((enrichment_status = ANY (ARRAY['enriched'::text, 'held_unverified'::text, 'held_no_email'::text, 'held_missing'::text, 'held_duplicate'::text, 'held_incomplete'::text])));
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_icp_fit_check CHECK ((icp_fit = ANY (ARRAY['strong'::text, 'moderate'::text, 'weak'::text, 'unassessed'::text])));
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_operator_override_tier_check CHECK (((operator_override_tier)::text = ANY ((ARRAY['tier_1'::character varying, 'tier_2'::character varying, 'tier_3'::character varying])::text[])));
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_outbound_upload_status_check CHECK ((outbound_upload_status = ANY (ARRAY['pending'::text, 'uploading'::text, 'uploaded'::text, 'failed'::text])));
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_pkey PRIMARY KEY (id);
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_qualification_status_check CHECK ((qualification_status = ANY (ARRAY['qualified'::text, 'flagged_for_review'::text, 'disqualified'::text, 'replied_positive'::text])));
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_research_source_check CHECK ((research_source = ANY (ARRAY['apollo'::text, 'web_search'::text, 'website_fetch'::text, 'pain_proxy'::text])));
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_signal_relevance_check CHECK ((signal_relevance = ANY (ARRAY['use_as_hook'::text, 'mention_only'::text, 'no_signal'::text, 'ignore'::text])));
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_sourced_tier_check CHECK ((sourced_tier = ANY (ARRAY['tier_1'::text, 'tier_2'::text, 'tier_3'::text])));
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_sourcing_review_status_check CHECK ((sourcing_review_status = ANY (ARRAY['pending_review'::text, 'approved'::text, 'rejected'::text])));
+ALTER TABLE public.queue_rotation ADD CONSTRAINT queue_rotation_job_type_valid CHECK ((job_type = ANY (ARRAY['enrich'::text, 'research'::text, 'compose'::text])));
+ALTER TABLE public.queue_rotation ADD CONSTRAINT queue_rotation_pkey PRIMARY KEY (job_type);
+ALTER TABLE public.reply_drafts ADD CONSTRAINT reply_drafts_body_required CHECK ((((status = ANY (ARRAY['manual_required'::text, 'draft_failed'::text])) AND (ai_draft_body IS NULL)) OR ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'sent'::text, 'send_failed'::text])) AND (ai_draft_body IS NOT NULL))));
+ALTER TABLE public.reply_drafts ADD CONSTRAINT reply_drafts_pkey PRIMARY KEY (id);
+ALTER TABLE public.reply_drafts ADD CONSTRAINT reply_drafts_signal_id_key UNIQUE (signal_id);
+ALTER TABLE public.reply_drafts ADD CONSTRAINT reply_drafts_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'sent'::text, 'send_failed'::text, 'manual_required'::text, 'draft_failed'::text])));
+ALTER TABLE public.reply_drafts ADD CONSTRAINT reply_drafts_tier_check CHECK ((tier = ANY (ARRAY[2, 3])));
+ALTER TABLE public.reply_handling_actions ADD CONSTRAINT reply_handling_actions_pkey PRIMARY KEY (id);
+ALTER TABLE public.segments ADD CONSTRAINT segments_org_slug_key UNIQUE (organisation_id, slug);
+ALTER TABLE public.segments ADD CONSTRAINT segments_pkey PRIMARY KEY (id);
+ALTER TABLE public.signals ADD CONSTRAINT signals_pkey PRIMARY KEY (id);
+ALTER TABLE public.signals ADD CONSTRAINT signals_signal_type_check CHECK ((signal_type = ANY (ARRAY['reply_received'::text, 'email_bounced'::text, 'lead_unsubscribed'::text, 'email_opened'::text, 'email_clicked'::text, 'email_marked_spam'::text, 'linkedin_post_liked'::text, 'linkedin_post_commented'::text, 'linkedin_dm_received'::text, 'meeting_booked'::text, 'meeting_qualified'::text, 'meeting_unqualified'::text, 'meeting_no_show'::text])));
+ALTER TABLE public.strategy_documents ADD CONSTRAINT strategy_docs_approval_source_check CHECK ((approval_source = ANY (ARRAY['client'::text, 'auto'::text, 'operator'::text])));
+ALTER TABLE public.strategy_documents ADD CONSTRAINT strategy_docs_client_approval_status_check CHECK ((client_approval_status = ANY (ARRAY['pending'::text, 'approved'::text])));
+ALTER TABLE public.strategy_documents ADD CONSTRAINT strategy_documents_document_type_check CHECK ((document_type = ANY (ARRAY['icp'::text, 'positioning'::text, 'tov'::text, 'messaging'::text])));
+ALTER TABLE public.strategy_documents ADD CONSTRAINT strategy_documents_pkey PRIMARY KEY (id);
+ALTER TABLE public.strategy_documents ADD CONSTRAINT strategy_documents_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'archived'::text])));
+ALTER TABLE public.strategy_documents ADD CONSTRAINT strategy_documents_update_trigger_check CHECK ((update_trigger = ANY (ARRAY['initial'::text, 'signal_suggestion'::text, 'intake_update'::text, 'manual'::text, 'client_revision'::text])));
+ALTER TABLE public.suppressed_emails ADD CONSTRAINT suppressed_emails_email_normalised CHECK ((email = lower(btrim(email))));
+ALTER TABLE public.suppressed_emails ADD CONSTRAINT suppressed_emails_email_not_blank CHECK ((length(email) > 0));
+ALTER TABLE public.suppressed_emails ADD CONSTRAINT suppressed_emails_pkey PRIMARY KEY (id);
+ALTER TABLE public.suppressed_emails ADD CONSTRAINT suppressed_emails_reason_valid CHECK ((reason = ANY (ARRAY['bounced'::text, 'unsubscribed'::text])));
+ALTER TABLE public.suppressed_emails ADD CONSTRAINT suppressed_emails_revocation_complete CHECK ((((revoked_at IS NULL) AND (revoked_reason IS NULL)) OR ((revoked_at IS NOT NULL) AND (revoked_reason IS NOT NULL))));
+ALTER TABLE public.synthesis_batch_entries ADD CONSTRAINT synthesis_batch_entries_batch_required CHECK (((state <> 'submitted'::text) OR (batch_id IS NOT NULL)));
+ALTER TABLE public.synthesis_batch_entries ADD CONSTRAINT synthesis_batch_entries_pkey PRIMARY KEY (id);
+ALTER TABLE public.synthesis_batch_entries ADD CONSTRAINT synthesis_batch_entries_result_type_valid CHECK (((result_type IS NULL) OR (result_type = ANY (ARRAY['succeeded'::text, 'errored'::text, 'expired'::text, 'canceled'::text]))));
+ALTER TABLE public.synthesis_batch_entries ADD CONSTRAINT synthesis_batch_entries_state_valid CHECK ((state = ANY (ARRAY['pending_submission'::text, 'submitted'::text, 'succeeded'::text, 'errored'::text, 'expired'::text, 'cancelled'::text, 'collected'::text, 'failed'::text])));
+ALTER TABLE public.synthesis_batches ADD CONSTRAINT synthesis_batches_id_implies_submitted CHECK (((anthropic_batch_id IS NULL) = (submitted_at IS NULL)));
+ALTER TABLE public.synthesis_batches ADD CONSTRAINT synthesis_batches_pkey PRIMARY KEY (id);
+ALTER TABLE public.synthesis_batches ADD CONSTRAINT synthesis_batches_state_valid CHECK ((state = ANY (ARRAY['attempted'::text, 'submitted'::text, 'ended'::text, 'collected'::text, 'failed'::text, 'expired'::text])));
+ALTER TABLE public.system_flags ADD CONSTRAINT system_flags_pkey PRIMARY KEY (key);
+ALTER TABLE public.users ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+ALTER TABLE public.users ADD CONSTRAINT users_role_check CHECK ((role = ANY (ARRAY['operator'::text, 'client'::text])));
+ALTER TABLE public.users_pending_review ADD CONSTRAINT users_pending_review_pkey PRIMARY KEY (id);
+ALTER TABLE public.verification_calls ADD CONSTRAINT verification_calls_outcome_valid CHECK ((outcome = ANY (ARRAY['attempted'::text, 'ok'::text, 'failed'::text])));
+ALTER TABLE public.verification_calls ADD CONSTRAINT verification_calls_pkey PRIMARY KEY (id);
+
+-- ── FOREIGN KEYS (applied after all tables exist) ─────────────────────
+ALTER TABLE public.agent_runs ADD CONSTRAINT agent_runs_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id);
+ALTER TABLE public.campaigns ADD CONSTRAINT campaigns_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.document_suggestions ADD CONSTRAINT document_suggestions_conflicting_suggestion_id_fkey FOREIGN KEY (conflicting_suggestion_id) REFERENCES document_suggestions(id);
+ALTER TABLE public.document_suggestions ADD CONSTRAINT document_suggestions_document_id_fkey FOREIGN KEY (document_id) REFERENCES strategy_documents(id) ON DELETE CASCADE;
+ALTER TABLE public.document_suggestions ADD CONSTRAINT document_suggestions_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.document_suggestions ADD CONSTRAINT document_suggestions_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES users(id);
+ALTER TABLE public.document_suggestions ADD CONSTRAINT document_suggestions_segment_id_fkey FOREIGN KEY (segment_id) REFERENCES segments(id) ON DELETE SET NULL;
+ALTER TABLE public.enrichment_runs ADD CONSTRAINT enrichment_runs_organisation_fk FOREIGN KEY (organisation_id) REFERENCES organisations(id);
+ALTER TABLE public.faq_extractions ADD CONSTRAINT faq_extractions_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.faq_extractions ADD CONSTRAINT faq_extractions_reply_draft_id_fkey FOREIGN KEY (reply_draft_id) REFERENCES reply_drafts(id) ON DELETE CASCADE;
+ALTER TABLE public.faq_extractions ADD CONSTRAINT faq_extractions_reviewed_by_user_id_fkey FOREIGN KEY (reviewed_by_user_id) REFERENCES auth.users(id);
+ALTER TABLE public.faq_extractions ADD CONSTRAINT faq_extractions_signal_id_fkey FOREIGN KEY (signal_id) REFERENCES signals(id) ON DELETE CASCADE;
+ALTER TABLE public.faq_extractions ADD CONSTRAINT faq_extractions_similar_faq_id_fkey FOREIGN KEY (similar_faq_id) REFERENCES faqs(id);
+ALTER TABLE public.faq_extractions ADD CONSTRAINT faq_extractions_similar_pending_extraction_id_fkey FOREIGN KEY (similar_pending_extraction_id) REFERENCES faq_extractions(id);
+ALTER TABLE public.faqs ADD CONSTRAINT faqs_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES auth.users(id);
+ALTER TABLE public.faqs ADD CONSTRAINT faqs_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.industry_tag_mappings ADD CONSTRAINT industry_tag_mappings_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
+ALTER TABLE public.intake_files ADD CONSTRAINT intake_files_created_by_fkey FOREIGN KEY (created_by) REFERENCES users(id);
+ALTER TABLE public.intake_files ADD CONSTRAINT intake_files_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.intake_responses ADD CONSTRAINT intake_responses_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.intake_responses ADD CONSTRAINT intake_responses_segment_id_fkey FOREIGN KEY (segment_id) REFERENCES segments(id) ON DELETE SET NULL;
+ALTER TABLE public.intake_website_pages ADD CONSTRAINT intake_website_pages_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.integration_credentials ADD CONSTRAINT integration_credentials_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.job_queue ADD CONSTRAINT job_queue_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.job_queue ADD CONSTRAINT job_queue_prospect_id_fkey FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE CASCADE;
+ALTER TABLE public.meetings ADD CONSTRAINT meetings_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE SET NULL;
+ALTER TABLE public.meetings ADD CONSTRAINT meetings_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.meetings ADD CONSTRAINT meetings_prospect_id_fkey FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE SET NULL;
+ALTER TABLE public.monitor_events ADD CONSTRAINT monitor_events_check_code_fkey FOREIGN KEY (check_code) REFERENCES monitor_checks(code);
+ALTER TABLE public.notifications_log ADD CONSTRAINT notifications_log_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.polling_cursors ADD CONSTRAINT polling_cursors_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.prospect_research_results ADD CONSTRAINT prospect_research_results_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.prospect_research_results ADD CONSTRAINT prospect_research_results_prospect_id_fkey FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE CASCADE;
+ALTER TABLE public.prospect_research_results ADD CONSTRAINT prospect_research_results_run_id_fkey FOREIGN KEY (run_id) REFERENCES agent_runs(id);
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE SET NULL;
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_current_research_result_id_fkey FOREIGN KEY (current_research_result_id) REFERENCES prospect_research_results(id) ON DELETE SET NULL;
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_operator_override_by_fkey FOREIGN KEY (operator_override_by) REFERENCES auth.users(id);
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.prospects ADD CONSTRAINT prospects_segment_id_fkey FOREIGN KEY (segment_id) REFERENCES segments(id) ON DELETE SET NULL;
+ALTER TABLE public.queue_rotation ADD CONSTRAINT queue_rotation_last_organisation_id_fkey FOREIGN KEY (last_organisation_id) REFERENCES organisations(id) ON DELETE SET NULL;
+ALTER TABLE public.reply_drafts ADD CONSTRAINT reply_drafts_edited_by_user_id_fkey FOREIGN KEY (edited_by_user_id) REFERENCES auth.users(id);
+ALTER TABLE public.reply_drafts ADD CONSTRAINT reply_drafts_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.reply_drafts ADD CONSTRAINT reply_drafts_prospect_id_fkey FOREIGN KEY (prospect_id) REFERENCES prospects(id);
+ALTER TABLE public.reply_drafts ADD CONSTRAINT reply_drafts_reviewed_by_user_id_fkey FOREIGN KEY (reviewed_by_user_id) REFERENCES auth.users(id);
+ALTER TABLE public.reply_drafts ADD CONSTRAINT reply_drafts_signal_id_fkey FOREIGN KEY (signal_id) REFERENCES signals(id) ON DELETE CASCADE;
+ALTER TABLE public.reply_handling_actions ADD CONSTRAINT fk_reply_handling_actions_faq_id FOREIGN KEY (faq_entry_id) REFERENCES faqs(id);
+ALTER TABLE public.reply_handling_actions ADD CONSTRAINT reply_handling_actions_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES campaigns(id);
+ALTER TABLE public.reply_handling_actions ADD CONSTRAINT reply_handling_actions_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id);
+ALTER TABLE public.reply_handling_actions ADD CONSTRAINT reply_handling_actions_prospect_id_fkey FOREIGN KEY (prospect_id) REFERENCES prospects(id);
+ALTER TABLE public.reply_handling_actions ADD CONSTRAINT reply_handling_actions_signal_id_fkey FOREIGN KEY (signal_id) REFERENCES signals(id);
+ALTER TABLE public.segments ADD CONSTRAINT segments_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.signals ADD CONSTRAINT signals_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE SET NULL;
+ALTER TABLE public.signals ADD CONSTRAINT signals_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.signals ADD CONSTRAINT signals_prospect_id_fkey FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE SET NULL;
+ALTER TABLE public.strategy_documents ADD CONSTRAINT strategy_documents_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.strategy_documents ADD CONSTRAINT strategy_documents_segment_id_fkey FOREIGN KEY (segment_id) REFERENCES segments(id) ON DELETE SET NULL;
+ALTER TABLE public.suppressed_emails ADD CONSTRAINT suppressed_emails_source_org_id_fkey FOREIGN KEY (source_org_id) REFERENCES organisations(id) ON DELETE SET NULL;
+ALTER TABLE public.suppressed_emails ADD CONSTRAINT suppressed_emails_source_signal_id_fkey FOREIGN KEY (source_signal_id) REFERENCES signals(id) ON DELETE SET NULL;
+ALTER TABLE public.synthesis_batch_entries ADD CONSTRAINT synthesis_batch_entries_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES synthesis_batches(id) ON DELETE SET NULL;
+ALTER TABLE public.synthesis_batch_entries ADD CONSTRAINT synthesis_batch_entries_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.synthesis_batch_entries ADD CONSTRAINT synthesis_batch_entries_prospect_id_fkey FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE CASCADE;
+ALTER TABLE public.synthesis_batches ADD CONSTRAINT synthesis_batches_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.users ADD CONSTRAINT users_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE public.users ADD CONSTRAINT users_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.users_pending_review ADD CONSTRAINT users_pending_review_attempted_org_id_fkey FOREIGN KEY (attempted_org_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.verification_calls ADD CONSTRAINT verification_calls_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE CASCADE;
+ALTER TABLE public.verification_calls ADD CONSTRAINT verification_calls_prospect_id_fkey FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE SET NULL;
+
+-- ── INDEXES (constraint-backing indexes excluded: created above) ──────
+CREATE INDEX campaigns_external_id_idx ON public.campaigns USING btree (external_id);
+CREATE UNIQUE INDEX campaigns_external_id_unique_idx ON public.campaigns USING btree (external_id) WHERE (external_id IS NOT NULL);
+CREATE INDEX idx_cron_heartbeats_job_name ON public.cron_heartbeats USING btree (job_name, ran_at DESC);
+CREATE UNIQUE INDEX document_suggestions_org_type_pending_unique ON public.document_suggestions USING btree (organisation_id, document_type) WHERE (status = 'pending'::text);
+CREATE INDEX idx_document_suggestions_status_update_trigger ON public.document_suggestions USING btree (status, update_trigger) WHERE (status = 'pending'::text);
+CREATE INDEX idx_faq_extractions_org_status ON public.faq_extractions USING btree (organisation_id, status);
+CREATE INDEX idx_faq_extractions_org_status_source ON public.faq_extractions USING btree (organisation_id, status, source);
+CREATE INDEX idx_faq_extractions_signal_id ON public.faq_extractions USING btree (signal_id);
+CREATE INDEX idx_faqs_org_question_canonical ON public.faqs USING btree (organisation_id, question_canonical);
+CREATE INDEX idx_faqs_org_status ON public.faqs USING btree (organisation_id, status);
+CREATE INDEX idx_industry_tag_mappings_canonical ON public.industry_tag_mappings USING btree (canonical_industry);
+CREATE INDEX idx_intake_website_pages_org ON public.intake_website_pages USING btree (organisation_id, display_order);
+CREATE UNIQUE INDEX idx_integration_credentials_unique ON public.integration_credentials USING btree (organisation_id, source, credential_type) NULLS NOT DISTINCT;
+CREATE INDEX job_queue_claim_idx ON public.job_queue USING btree (job_type, organisation_id, run_after, created_at) WHERE (state = 'queued'::text);
+CREATE INDEX job_queue_lease_idx ON public.job_queue USING btree (lease_expires_at) WHERE (state = 'claimed'::text);
+CREATE UNIQUE INDEX job_queue_one_live_per_target ON public.job_queue USING btree (job_type, prospect_id) WHERE (state = ANY (ARRAY['queued'::text, 'claimed'::text]));
+CREATE UNIQUE INDEX job_queue_one_live_research_per_prospect ON public.job_queue USING btree (prospect_id) WHERE ((state = ANY (ARRAY['queued'::text, 'claimed'::text])) AND (job_type = ANY (ARRAY['research'::text, 'research_sources'::text, 'research_collect'::text])));
+CREATE INDEX job_queue_prospect_idx ON public.job_queue USING btree (prospect_id);
+CREATE INDEX job_queue_state_updated_idx ON public.job_queue USING btree (job_type, state, updated_at);
+CREATE INDEX idx_meetings_autoheld_eligible ON public.meetings USING btree (organisation_id, scheduled_start_at, held_decision_locked, meeting_status) WHERE ((meeting_status = 'booked'::text) AND (held_decision_locked = false));
+CREATE INDEX idx_meetings_awaiting_confirmation ON public.meetings USING btree (organisation_id, meeting_status, held_decision_locked) WHERE ((meeting_status = 'booked'::text) AND (held_decision_locked = false));
+CREATE INDEX idx_meetings_calendly_uuids ON public.meetings USING btree (calendly_event_uuid, calendly_invitee_uuid) WHERE (calendly_event_uuid IS NOT NULL);
+CREATE INDEX idx_monitor_events_check_code_created ON public.monitor_events USING btree (check_code, created_at DESC);
+CREATE INDEX idx_organisations_archived_at ON public.organisations USING btree (archived_at) WHERE (archived_at IS NULL);
+CREATE INDEX idx_organisations_intake_last_activity ON public.organisations USING btree (intake_last_activity_at) WHERE (intake_last_activity_at IS NOT NULL);
+CREATE UNIQUE INDEX idx_polling_cursors_unique ON public.polling_cursors USING btree (organisation_id, source, resource) NULLS NOT DISTINCT;
+CREATE INDEX idx_prr_organisation_id ON public.prospect_research_results USING btree (organisation_id);
+CREATE INDEX idx_prr_prospect_id ON public.prospect_research_results USING btree (prospect_id);
+CREATE INDEX idx_prr_synthesized_at ON public.prospect_research_results USING btree (synthesized_at DESC);
+CREATE INDEX idx_prospects_client_review_status ON public.prospects USING btree (organisation_id, client_review_status) WHERE (client_review_status IS NOT NULL);
+CREATE INDEX idx_prospects_enrichment_and_tier_ready ON public.prospects USING btree (organisation_id, enrichment_status, sourced_tier) WHERE ((enrichment_status = 'enriched'::text) AND (sourced_tier IS NULL));
+CREATE INDEX idx_prospects_enrichment_lock_status ON public.prospects USING btree (organisation_id, enrichment_locked_at, enrichment_status) WHERE ((enrichment_locked_at IS NOT NULL) OR (enrichment_status IS NULL));
+CREATE INDEX idx_prospects_enrichment_run_id ON public.prospects USING btree (enrichment_run_id) WHERE (enrichment_run_id IS NOT NULL);
+CREATE INDEX idx_prospects_enrichment_status ON public.prospects USING btree (organisation_id, enrichment_status) WHERE (enrichment_status IS NOT NULL);
+CREATE UNIQUE INDEX idx_prospects_linkedin_url_normalised ON public.prospects USING btree (organisation_id, linkedin_url_normalised) WHERE (linkedin_url_normalised IS NOT NULL);
+CREATE INDEX idx_prospects_messaging_doc_id ON public.prospects USING btree (messaging_doc_id) WHERE (messaging_doc_id IS NOT NULL);
+CREATE INDEX idx_prospects_operator_override ON public.prospects USING btree (organisation_id, operator_override_at DESC) WHERE (operator_override_at IS NOT NULL);
+CREATE INDEX idx_prospects_org_tier_suppressed ON public.prospects USING btree (organisation_id, sourced_tier, suppressed) WHERE (sourced_tier IS NOT NULL);
+CREATE INDEX idx_prospects_second_pass_pending ON public.prospects USING btree (organisation_id, second_pass_locked_at) WHERE ((second_pass_status IS NULL) AND (independent_email_status IS NOT NULL) AND (suppressed = false));
+CREATE INDEX idx_prospects_send_ineligible_reason ON public.prospects USING btree (email_send_ineligible_reason);
+CREATE UNIQUE INDEX idx_prospects_source_person_key ON public.prospects USING btree (organisation_id, source_person_key) WHERE (source_person_key IS NOT NULL);
+CREATE INDEX idx_prospects_sourced_tier_client_review ON public.prospects USING btree (organisation_id, sourced_tier, client_review_status) WHERE (sourced_tier IS NOT NULL);
+CREATE INDEX idx_prospects_sourcing_review_status ON public.prospects USING btree (organisation_id, sourcing_review_status) WHERE (sourcing_review_status IS NOT NULL);
+CREATE INDEX idx_prospects_tier_published_at ON public.prospects USING btree (organisation_id, sourced_tier, tier_published_at) WHERE (sourced_tier IS NOT NULL);
+CREATE INDEX idx_prospects_tiering_reason ON public.prospects USING btree (tiering_reason);
+CREATE INDEX idx_prospects_verification_needed ON public.prospects USING btree (organisation_id, enrichment_status, independent_email_status, independent_verified_at, verification_attempt_count) WHERE ((enrichment_status = 'enriched'::text) AND ((independent_email_status IS NULL) OR (independent_email_status = 'Grey-listed'::text)));
+CREATE INDEX prospects_apollo_enrichment_data_present_idx ON public.prospects USING btree (id) WHERE (apollo_enrichment_data IS NOT NULL);
+CREATE INDEX prospects_enrichment_selectable_idx ON public.prospects USING btree (organisation_id, sourcing_review_status) WHERE ((enrichment_status IS NULL) AND (enrichment_credit_consumed_at IS NULL));
+CREATE INDEX prospects_fit_score_idx ON public.prospects USING btree (organisation_id, fit_score);
+CREATE INDEX idx_reply_drafts_org_status_created ON public.reply_drafts USING btree (organisation_id, status, created_at DESC);
+CREATE INDEX idx_reply_drafts_pending_status ON public.reply_drafts USING btree (status) WHERE (status = 'pending'::text);
+CREATE INDEX idx_reply_handling_actions_org_created ON public.reply_handling_actions USING btree (organisation_id, created_at DESC);
+CREATE INDEX idx_reply_handling_actions_signal ON public.reply_handling_actions USING btree (signal_id);
+CREATE UNIQUE INDEX segments_org_primary_idx ON public.segments USING btree (organisation_id) WHERE (is_default = true);
+CREATE INDEX segments_organisation_id_idx ON public.segments USING btree (organisation_id);
+CREATE UNIQUE INDEX idx_signals_idempotency ON public.signals USING btree (organisation_id, source, external_event_id) WHERE ((source IS NOT NULL) AND (external_event_id IS NOT NULL));
+CREATE INDEX idx_signals_org_processed_at ON public.signals USING btree (organisation_id, processed_at);
+CREATE INDEX idx_signals_org_type ON public.signals USING btree (organisation_id, signal_type);
+CREATE INDEX idx_signals_processed ON public.signals USING btree (processed);
+CREATE INDEX idx_signals_type_processed_at ON public.signals USING btree (signal_type, processed_at);
+CREATE UNIQUE INDEX suppressed_emails_active_unique ON public.suppressed_emails USING btree (email) WHERE (revoked_at IS NULL);
+CREATE INDEX suppressed_emails_email_idx ON public.suppressed_emails USING btree (email);
+CREATE INDEX synthesis_batch_entries_batch_idx ON public.synthesis_batch_entries USING btree (batch_id, state);
+CREATE UNIQUE INDEX synthesis_batch_entries_one_live_per_prospect ON public.synthesis_batch_entries USING btree (prospect_id) WHERE (state = ANY (ARRAY['pending_submission'::text, 'submitted'::text, 'succeeded'::text, 'errored'::text, 'expired'::text, 'cancelled'::text]));
+CREATE INDEX synthesis_batch_entries_pending_idx ON public.synthesis_batch_entries USING btree (organisation_id, created_at) WHERE (state = 'pending_submission'::text);
+CREATE INDEX synthesis_batch_entries_prospect_idx ON public.synthesis_batch_entries USING btree (prospect_id, created_at DESC);
+CREATE UNIQUE INDEX synthesis_batches_anthropic_id_uniq ON public.synthesis_batches USING btree (anthropic_batch_id) WHERE (anthropic_batch_id IS NOT NULL);
+CREATE INDEX synthesis_batches_open_idx ON public.synthesis_batches USING btree (state, requested_at) WHERE (state = ANY (ARRAY['attempted'::text, 'submitted'::text, 'ended'::text]));
+CREATE INDEX synthesis_batches_org_idx ON public.synthesis_batches USING btree (organisation_id, created_at DESC);
+CREATE UNIQUE INDEX system_flags_research_path_exclusive ON public.system_flags USING btree ((true)) WHERE (enabled AND (key = ANY (ARRAY['queue_research'::text, 'queue_research_sources'::text])));
+CREATE UNIQUE INDEX users_one_client_per_org ON public.users USING btree (organisation_id) WHERE (role = 'client'::text);
+CREATE INDEX idx_verification_calls_prospect ON public.verification_calls USING btree (prospect_id);
+CREATE INDEX idx_verification_calls_provider_requested ON public.verification_calls USING btree (provider, requested_at DESC);
+
+-- ── FUNCTIONS ─────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.append_faq_variant(p_faq_id uuid, p_new_variant text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+  UPDATE faqs
+  SET
+    question_variants = question_variants || jsonb_build_array(p_new_variant),
+    updated_at        = now()
+  WHERE id = p_faq_id;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.approve_document_suggestion(p_suggestion_id uuid, p_reviewer_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+ SET row_security TO 'off'
+AS $function$
+DECLARE
+  v_suggestion record;
+  v_content    jsonb;
+  v_new_doc    jsonb;
+BEGIN
+  SELECT * INTO v_suggestion
+  FROM document_suggestions
+  WHERE id = p_suggestion_id AND status = 'pending'
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Suggestion % not found or not in pending status', p_suggestion_id;
+  END IF;
+
+  BEGIN
+    v_content := v_suggestion.suggested_value::jsonb;
+  EXCEPTION WHEN others THEN
+    RAISE EXCEPTION 'suggested_value is not valid JSON for suggestion %', p_suggestion_id;
+  END;
+
+  IF v_suggestion.document_type = 'messaging' THEN
+    IF v_content -> 'variants' IS NULL THEN
+      RAISE EXCEPTION 'Messaging suggestion % is missing the variants key in suggested_value', p_suggestion_id;
+    END IF;
+  END IF;
+
+  -- Delegate archival + versioning + insert to the shared helper.
+  SELECT promote_strategy_doc_version(
+    v_suggestion.organisation_id,
+    v_suggestion.document_type,
+    v_suggestion.segment_id,
+    v_content,
+    'signal_suggestion',
+    NULL,
+    NULL
+  ) INTO v_new_doc;
+
+  UPDATE document_suggestions
+  SET
+    status      = 'approved',
+    reviewed_at = now(),
+    reviewed_by = p_reviewer_id
+  WHERE id = p_suggestion_id;
+
+  RETURN v_new_doc;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.check_prospect_campaign_org_match()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NEW.campaign_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM public.campaigns
+      WHERE id = NEW.campaign_id
+        AND organisation_id = NEW.organisation_id
+    ) THEN
+      RAISE EXCEPTION
+        'prospect campaign_id % does not belong to organisation_id %',
+        NEW.campaign_id,
+        NEW.organisation_id
+        USING ERRCODE = '23503';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.claim_jobs(p_job_type text, p_organisation_id uuid, p_worker text, p_lease_seconds integer, p_limit integer)
+ RETURNS SETOF job_queue
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  UPDATE public.job_queue q
+     SET state            = 'claimed',
+         claimed_by       = p_worker,
+         lease_expires_at = now() + make_interval(secs => p_lease_seconds),
+         attempts         = q.attempts + 1,
+         updated_at       = now()
+   WHERE q.id IN (
+           SELECT id
+             FROM public.job_queue
+            WHERE job_type        = p_job_type
+              AND organisation_id = p_organisation_id
+              AND state           = 'queued'
+              AND run_after      <= now()
+            ORDER BY created_at
+            LIMIT p_limit
+            FOR UPDATE SKIP LOCKED
+         )
+     AND q.state = 'queued'
+  RETURNING q.*;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.complete_job(p_job_id uuid, p_worker text, p_summary text)
+ RETURNS SETOF job_queue
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  UPDATE public.job_queue
+     SET state            = 'done',
+         result_summary   = p_summary,
+         lease_expires_at = NULL,
+         updated_at       = now()
+   WHERE id         = p_job_id
+     AND state      = 'claimed'
+     AND claimed_by = p_worker
+  RETURNING *;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.enqueue_job(p_job_type text, p_organisation_id uuid, p_prospect_id uuid, p_enqueued_by text, p_max_attempts integer DEFAULT 3)
+ RETURNS SETOF job_queue
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  INSERT INTO public.job_queue (job_type, organisation_id, prospect_id, enqueued_by, max_attempts)
+  VALUES (p_job_type, p_organisation_id, p_prospect_id, p_enqueued_by, p_max_attempts)
+  ON CONFLICT (job_type, prospect_id) WHERE state IN ('queued', 'claimed')
+  DO NOTHING
+  RETURNING *;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.enqueue_research_phase(p_job_type text, p_organisation_id uuid, p_prospect_id uuid, p_enqueued_by text, p_max_attempts integer)
+ RETURNS SETOF job_queue
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF p_job_type NOT IN ('research_sources','research_collect') THEN
+    RAISE EXCEPTION
+      'enqueue_research_phase handles only research_sources and research_collect, got %. Use enqueue_job for every other job type.', p_job_type;
+  END IF;
+
+  RETURN QUERY
+    INSERT INTO public.job_queue
+      (job_type, organisation_id, prospect_id, enqueued_by, max_attempts)
+    VALUES
+      (p_job_type, p_organisation_id, p_prospect_id, p_enqueued_by, p_max_attempts)
+    RETURNING *;
+
+EXCEPTION WHEN unique_violation THEN
+  RETURN;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fail_job(p_job_id uuid, p_worker text, p_error text, p_error_class text, p_force_terminal boolean DEFAULT false)
+ RETURNS SETOF job_queue
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  UPDATE public.job_queue q
+     SET state = CASE
+                   WHEN p_force_terminal             THEN 'failed'
+                   WHEN p_error_class = 'permanent'  THEN 'failed'
+                   WHEN q.attempts >= q.max_attempts THEN 'failed'
+                   ELSE 'queued'
+                 END,
+         last_error       = p_error,
+         last_error_class = p_error_class,
+         run_after        = now() + public.job_queue_backoff(q.attempts),
+         lease_expires_at = NULL,
+         updated_at       = now()
+   WHERE q.id         = p_job_id
+     AND q.state      = 'claimed'
+     AND q.claimed_by = p_worker
+  RETURNING q.*;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.get_my_organisation_id()
+ RETURNS uuid
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT organisation_id FROM public.users WHERE id = auth.uid();
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  INSERT INTO public.users (id, email, role)
+  VALUES (NEW.id, NEW.email, 'client')
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE
+  org_id      uuid;
+  role_intent text;
+BEGIN
+  org_id      := (NEW.raw_user_meta_data->>'organisation_id')::uuid;
+  role_intent := NEW.raw_user_meta_data->>'intended_role';
+
+  -- Safety door: only handle client invites. Operators are created via SQL
+  -- with no metadata. Do NOT extend this function to handle operators.
+  IF role_intent IS NULL OR role_intent != 'client' THEN
+    RETURN NEW;
+  END IF;
+
+  IF org_id IS NULL THEN
+    RAISE EXCEPTION 'missing_organisation_id_in_invite_metadata';
+  END IF;
+
+  BEGIN
+    INSERT INTO public.users (id, email, organisation_id, role)
+    VALUES (NEW.id, NEW.email, org_id, 'client');
+  EXCEPTION WHEN unique_violation THEN
+    -- Org already has a client user. Record the attempt for operator review.
+    -- Do NOT re-raise — let the transaction commit so this row persists
+    -- and the Database Webhook can fire the operator notification.
+    INSERT INTO public.users_pending_review (email, attempted_org_id)
+    VALUES (NEW.email, org_id);
+  END;
+
+  RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.is_operator()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'operator'
+  );
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.job_queue_backoff(p_attempts integer)
+ RETURNS interval
+ LANGUAGE sql
+AS $function$
+  SELECT make_interval(
+    secs => least(power(2, greatest(p_attempts, 0))::double precision * 30.0, 900.0)
+            * (1.0 + random() * 0.3)
+  );
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.promote_strategy_doc_version(p_org_id uuid, p_doc_type text, p_segment_id uuid, p_content jsonb, p_update_trigger text, p_revision_note text DEFAULT NULL::text, p_change_summary text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+ SET row_security TO 'off'
+AS $function$
+DECLARE
+  v_max_version text;
+  v_new_version integer;
+  v_new_doc     record;
+BEGIN
+  -- Version: highest in this org + doc_type + segment lineage (NULL-safe).
+  SELECT version INTO v_max_version
+  FROM strategy_documents
+  WHERE organisation_id = p_org_id
+    AND document_type   = p_doc_type
+    AND segment_id IS NOT DISTINCT FROM p_segment_id
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  IF v_max_version IS NULL THEN
+    v_new_version := 1;
+  ELSE
+    v_new_version := FLOOR(v_max_version::numeric)::integer + 1;
+  END IF;
+
+  -- Archive the current active document for this org + doc_type + segment (NULL-safe).
+  UPDATE strategy_documents
+  SET status = 'archived', last_updated_at = now()
+  WHERE organisation_id = p_org_id
+    AND document_type   = p_doc_type
+    AND segment_id IS NOT DISTINCT FROM p_segment_id
+    AND status          = 'active';
+
+  -- Insert new active version.
+  INSERT INTO strategy_documents (
+    organisation_id,
+    segment_id,
+    document_type,
+    version,
+    content,
+    status,
+    generated_at,
+    last_updated_at,
+    update_trigger,
+    client_approval_status,
+    pending_since,
+    revision_note,
+    change_summary
+  )
+  VALUES (
+    p_org_id,
+    p_segment_id,
+    p_doc_type,
+    v_new_version::text,
+    p_content,
+    'active',
+    now(),
+    now(),
+    p_update_trigger,
+    'pending',
+    now(),
+    p_revision_note,
+    p_change_summary
+  )
+  RETURNING * INTO v_new_doc;
+
+  RETURN to_jsonb(v_new_doc);
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.queue_next_organisations(p_job_type text)
+ RETURNS TABLE(organisation_id uuid, oldest timestamp with time zone, depth bigint)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  SELECT q.organisation_id, min(q.created_at) AS oldest, count(*) AS depth
+    FROM public.job_queue q
+   WHERE q.job_type   = p_job_type
+     AND q.state      = 'queued'
+     AND q.run_after <= now()
+   GROUP BY q.organisation_id
+   ORDER BY min(q.created_at);
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.reclaim_expired_jobs(p_limit integer DEFAULT 100)
+ RETURNS SETOF job_queue
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  UPDATE public.job_queue q
+     SET state = CASE
+                   WHEN q.attempts >= q.max_attempts THEN 'failed'
+                   ELSE 'queued'
+                 END,
+         last_error = 'Lease expired at '
+                      || to_char(q.lease_expires_at, 'YYYY-MM-DD HH24:MI:SS UTC')
+                      || ' while held by ' || coalesce(q.claimed_by, 'unknown worker')
+                      || '. Attempt ' || q.attempts || ' of ' || q.max_attempts || '.'
+                      || CASE
+                           WHEN q.spend_recorded_at IS NOT NULL
+                             THEN ' Spend was already recorded for this job, so it must not call the paid API again.'
+                           ELSE ''
+                         END,
+         last_error_class = 'transient',
+         run_after        = now() + public.job_queue_backoff(q.attempts),
+         claimed_by       = NULL,
+         lease_expires_at = NULL,
+         updated_at       = now()
+   WHERE q.id IN (
+           SELECT id
+             FROM public.job_queue
+            WHERE state             = 'claimed'
+              AND lease_expires_at <= now()
+            ORDER BY lease_expires_at
+            LIMIT p_limit
+            FOR UPDATE SKIP LOCKED
+         )
+     AND q.state = 'claimed'
+  RETURNING q.*;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.record_job_spend(p_job_id uuid, p_detail jsonb)
+ RETURNS void
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  UPDATE public.job_queue
+     SET spend_recorded_at = now(),
+         spend_detail      = p_detail,
+         updated_at        = now()
+   WHERE id = p_job_id
+     AND spend_recorded_at IS NULL;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.rls_auto_enable()
+ RETURNS event_trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog'
+AS $function$
+DECLARE
+  cmd record;
+BEGIN
+  FOR cmd IN
+    SELECT *
+    FROM pg_event_trigger_ddl_commands()
+    WHERE command_tag IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
+      AND object_type IN ('table','partitioned table')
+  LOOP
+     IF cmd.schema_name IS NOT NULL AND cmd.schema_name IN ('public') AND cmd.schema_name NOT IN ('pg_catalog','information_schema') AND cmd.schema_name NOT LIKE 'pg_toast%' AND cmd.schema_name NOT LIKE 'pg_temp%' THEN
+      BEGIN
+        EXECUTE format('alter table if exists %s enable row level security', cmd.object_identity);
+        RAISE LOG 'rls_auto_enable: enabled RLS on %', cmd.object_identity;
+      EXCEPTION
+        WHEN OTHERS THEN
+          RAISE LOG 'rls_auto_enable: failed to enable RLS on %', cmd.object_identity;
+      END;
+     ELSE
+        RAISE LOG 'rls_auto_enable: skip % (either system schema or not in enforced list: %.)', cmd.object_identity, cmd.schema_name;
+     END IF;
+  END LOOP;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.validate_faq_extractions_org_consistency()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF NEW.signal_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM signals
+      WHERE id = NEW.signal_id AND organisation_id = NEW.organisation_id
+    ) THEN
+      RAISE EXCEPTION
+        'faq_extractions: CRITICAL — signal_id % does not belong to organisation %',
+        NEW.signal_id, NEW.organisation_id;
+    END IF;
+  END IF;
+
+  IF NEW.reply_draft_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM reply_drafts
+      WHERE id = NEW.reply_draft_id AND organisation_id = NEW.organisation_id
+    ) THEN
+      RAISE EXCEPTION
+        'faq_extractions: CRITICAL — reply_draft_id % does not belong to organisation %',
+        NEW.reply_draft_id, NEW.organisation_id;
+    END IF;
+  END IF;
+
+  IF NEW.similar_faq_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM faqs
+      WHERE id = NEW.similar_faq_id AND organisation_id = NEW.organisation_id
+    ) THEN
+      RAISE EXCEPTION
+        'faq_extractions: CRITICAL — similar_faq_id % does not belong to organisation %',
+        NEW.similar_faq_id, NEW.organisation_id;
+    END IF;
+  END IF;
+
+  IF NEW.similar_pending_extraction_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM faq_extractions AS fe
+      WHERE id = NEW.similar_pending_extraction_id AND organisation_id = NEW.organisation_id
+    ) THEN
+      RAISE EXCEPTION
+        'faq_extractions: CRITICAL — similar_pending_extraction_id % does not belong to organisation %',
+        NEW.similar_pending_extraction_id, NEW.organisation_id;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.validate_faqs_org_exists()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM organisations
+    WHERE id = NEW.organisation_id
+  ) THEN
+    RAISE EXCEPTION
+      'faqs: CRITICAL — organisation_id % does not exist',
+      NEW.organisation_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$
+;
+
+-- ── VIEWS ─────────────────────────────────────────────────────────────
+-- security_invoker is preserved where set. A view WITHOUT it runs as its OWNER
+-- and does not consult RLS on its base tables. See ADR and CLAUDE.md.
+CREATE OR REPLACE VIEW public.client_organisation_view AS
+ SELECT id,
+    name,
+    slug,
+    contract_start_date,
+    pipeline_unlocked,
+    pipeline_unlock_at,
+    meetings_count,
+    created_at,
+    updated_at
+   FROM organisations
+  WHERE id = get_my_organisation_id();
+
+CREATE OR REPLACE VIEW public.client_prospects_view WITH (security_invoker = true) AS
+ SELECT id,
+    organisation_id,
+    first_name,
+    last_name,
+    company_name,
+    role,
+    job_title,
+    linkedin_url,
+    website_url,
+    company_industry,
+    company_headcount,
+    personalisation_trigger,
+    client_review_status,
+    client_review_reason,
+    client_review_auto_approved_at,
+    sourced_tier,
+    created_at,
+    suppressed
+   FROM prospects;
+
+CREATE OR REPLACE VIEW public.mon_001 AS
+ SELECT 'MON-001'::text AS check_code,
+        CASE
+            WHEN max(ran_at) IS NULL THEN 'UNKNOWN'::text
+            WHEN (EXTRACT(epoch FROM now() - max(ran_at)) / 60::numeric) > 75::numeric THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+    COALESCE(max(
+        CASE
+            WHEN ok = false THEN detail
+            ELSE NULL::text
+        END), 'Last run: '::text || to_char(max(ran_at), 'YYYY-MM-DD HH24:MI:SS UTC'::text)) AS detail,
+    max(ran_at) AS last_run
+   FROM cron_heartbeats
+  WHERE job_name = 'auto-approve'::text;
+
+CREATE OR REPLACE VIEW public.mon_002 AS
+ SELECT 'MON-002'::text AS check_code,
+        CASE
+            WHEN max(ran_at) IS NULL THEN 'UNKNOWN'::text
+            WHEN (EXTRACT(epoch FROM now() - max(ran_at)) / 60::numeric) > 30::numeric THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+    COALESCE(max(
+        CASE
+            WHEN ok = false THEN detail
+            ELSE NULL::text
+        END), 'Last run: '::text || to_char(max(ran_at), 'YYYY-MM-DD HH24:MI:SS UTC'::text)) AS detail,
+    max(ran_at) AS last_run
+   FROM cron_heartbeats
+  WHERE job_name = 'instantly-poll'::text;
+
+CREATE OR REPLACE VIEW public.mon_003 AS
+ SELECT 'MON-003'::text AS check_code,
+        CASE
+            WHEN max(ran_at) IS NULL THEN 'UNKNOWN'::text
+            WHEN (EXTRACT(epoch FROM now() - max(ran_at)) / 60::numeric) > 10::numeric THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+    COALESCE(max(
+        CASE
+            WHEN ok = false THEN detail
+            ELSE NULL::text
+        END), 'Last run: '::text || to_char(max(ran_at), 'YYYY-MM-DD HH24:MI:SS UTC'::text)) AS detail,
+    max(ran_at) AS last_run
+   FROM cron_heartbeats
+  WHERE job_name = 'process-replies'::text;
+
+CREATE OR REPLACE VIEW public.mon_004 AS
+ SELECT 'MON-004'::text AS check_code,
+        CASE
+            WHEN max(ran_at) IS NULL THEN 'UNKNOWN'::text
+            WHEN (EXTRACT(epoch FROM now() - max(ran_at)) / 60::numeric) > 20::numeric THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+    COALESCE(max(
+        CASE
+            WHEN ok = false THEN detail
+            ELSE NULL::text
+        END), 'Last run: '::text || to_char(max(ran_at), 'YYYY-MM-DD HH24:MI:SS UTC'::text)) AS detail,
+    max(ran_at) AS last_run
+   FROM cron_heartbeats
+  WHERE job_name = 'reap-agent-runs'::text;
+
+CREATE OR REPLACE VIEW public.mon_005 AS
+ SELECT 'MON-005'::text AS check_code,
+        CASE
+            WHEN max(ran_at) IS NULL THEN 'UNKNOWN'::text
+            WHEN (EXTRACT(epoch FROM now() - max(ran_at)) / 60::numeric) > 30::numeric THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+    COALESCE(max(
+        CASE
+            WHEN ok = false THEN detail
+            ELSE NULL::text
+        END), 'Last run: '::text || to_char(max(ran_at), 'YYYY-MM-DD HH24:MI:SS UTC'::text)) AS detail,
+    max(ran_at) AS last_run
+   FROM cron_heartbeats
+  WHERE job_name = 'monitor-sweep'::text;
+
+CREATE OR REPLACE VIEW public.mon_006 AS
+ WITH revisions_with_windows AS (
+         SELECT ds.created_at,
+            o.auto_approve_window_hours,
+            EXTRACT(epoch FROM now() - ds.created_at) / 60::numeric / 60::numeric AS age_hours,
+            (EXTRACT(epoch FROM now() - ds.created_at) / 60::numeric / 60::numeric) > COALESCE(o.auto_approve_window_hours, 72)::numeric AS is_overdue
+           FROM document_suggestions ds
+             JOIN organisations o ON ds.organisation_id = o.id
+          WHERE ds.status = 'pending'::text AND ds.update_trigger = 'client_revision'::text AND o.archived_at IS NULL
+        ), overdue_summary AS (
+         SELECT count(*) AS overdue_count,
+            min(revisions_with_windows.created_at) AS oldest_overdue_created
+           FROM revisions_with_windows
+          WHERE revisions_with_windows.is_overdue = true
+        ), all_pending AS (
+         SELECT count(*) AS revision_count
+           FROM revisions_with_windows
+        )
+ SELECT 'MON-006'::text AS check_code,
+        CASE
+            WHEN all_pending.revision_count = 0 THEN 'OK'::text
+            WHEN overdue_summary.overdue_count > 0 THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+        CASE
+            WHEN all_pending.revision_count = 0 THEN 'No client revisions pending'::text
+            WHEN overdue_summary.overdue_count > 0 THEN (overdue_summary.overdue_count::text || ' overdue revision(s) (exceeding org window). Oldest: '::text) || to_char(overdue_summary.oldest_overdue_created, 'YYYY-MM-DD HH24:MI:SS UTC'::text)
+            ELSE all_pending.revision_count::text || ' revision(s) awaiting review (within window)'::text
+        END AS detail,
+        CASE
+            WHEN overdue_summary.overdue_count > 0 THEN overdue_summary.oldest_overdue_created
+            ELSE NULL::timestamp with time zone
+        END AS oldest_revision
+   FROM all_pending,
+    overdue_summary;
+
+CREATE OR REPLACE VIEW public.mon_007 AS
+ SELECT 'MON-007'::text AS check_code,
+        CASE
+            WHEN max(ran_at) IS NULL THEN 'UNKNOWN'::text
+            WHEN (EXTRACT(epoch FROM now() - max(ran_at)) / 60::numeric) > 1500::numeric THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+    COALESCE(max(
+        CASE
+            WHEN ok = false THEN detail
+            ELSE NULL::text
+        END), 'Last run: '::text || to_char(max(ran_at), 'YYYY-MM-DD HH24:MI:SS UTC'::text)) AS detail,
+    max(ran_at) AS last_run
+   FROM cron_heartbeats
+  WHERE job_name = 'strategy-doc-auto-approve'::text;
+
+CREATE OR REPLACE VIEW public.mon_010 AS
+ SELECT 'MON-010'::text AS check_code,
+        CASE
+            WHEN max(ran_at) IS NULL THEN 'UNKNOWN'::text
+            WHEN (EXTRACT(epoch FROM now() - max(ran_at)) / 60::numeric) > 1500::numeric THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+    COALESCE(max(
+        CASE
+            WHEN ok = false THEN detail
+            ELSE NULL::text
+        END), 'Last run: '::text || to_char(max(ran_at), 'YYYY-MM-DD HH24:MI:SS UTC'::text)) AS detail,
+    max(ran_at) AS last_run
+   FROM cron_heartbeats
+  WHERE job_name = 'resolve-auto-held'::text;
+
+CREATE OR REPLACE VIEW public.mon_011 AS
+ WITH failed_runs AS (
+         SELECT count(*) AS count,
+            max(ar.completed_at) AS newest
+           FROM agent_runs ar
+             JOIN organisations o ON ar.organisation_id = o.id
+          WHERE ar.status = 'failed'::text AND ar.completed_at >= (now() - '7 days'::interval) AND o.archived_at IS NULL
+        )
+ SELECT 'MON-011'::text AS check_code,
+        CASE
+            WHEN count = 0 THEN 'OK'::text
+            ELSE 'PROBLEM'::text
+        END AS state,
+        CASE
+            WHEN count = 0 THEN 'No unresolved failed agent runs'::text
+            ELSE (count::text || ' failed agent run(s) in last 7 days. Newest: '::text) || to_char(newest, 'YYYY-MM-DD HH24:MI:SS UTC'::text)
+        END AS detail,
+    newest AS oldest_incident
+   FROM failed_runs;
+
+CREATE OR REPLACE VIEW public.mon_012 AS
+ WITH zombies AS (
+         SELECT count(*) AS count,
+            max(ar.started_at) AS oldest_started
+           FROM agent_runs ar
+             JOIN organisations o ON ar.organisation_id = o.id
+          WHERE ar.status = 'running'::text AND ar.started_at < (now() - '00:15:00'::interval) AND o.archived_at IS NULL
+        )
+ SELECT 'MON-012'::text AS check_code,
+        CASE
+            WHEN count = 0 THEN 'OK'::text
+            ELSE 'PROBLEM'::text
+        END AS state,
+        CASE
+            WHEN count = 0 THEN 'No zombie agent runs detected'::text
+            ELSE (count::text || ' zombie run(s) running for >15min. Oldest started: '::text) || to_char(oldest_started, 'YYYY-MM-DD HH24:MI:SS UTC'::text)
+        END AS detail,
+    oldest_started AS oldest_zombie
+   FROM zombies;
+
+CREATE OR REPLACE VIEW public.mon_013 AS
+ WITH orphaned AS (
+         SELECT count(*) AS count
+           FROM campaigns c
+             JOIN organisations o ON c.organisation_id = o.id
+          WHERE c.status = 'active'::text AND c.external_id IS NULL AND o.archived_at IS NULL
+        )
+ SELECT 'MON-013'::text AS check_code,
+        CASE
+            WHEN count = 0 THEN 'OK'::text
+            ELSE 'PROBLEM'::text
+        END AS state,
+        CASE
+            WHEN count = 0 THEN 'No orphaned active campaigns'::text
+            ELSE count::text || ' active campaign(s) with no external_id (sync incomplete)'::text
+        END AS detail,
+    now() AS check_time
+   FROM orphaned;
+
+CREATE OR REPLACE VIEW public.mon_014 AS
+ WITH stale AS (
+         SELECT count(*) AS count,
+            min(s.created_at) AS oldest
+           FROM signals s
+             JOIN organisations o ON s.organisation_id = o.id
+          WHERE s.processed = false AND s.created_at < (now() - '48:00:00'::interval) AND o.archived_at IS NULL
+        )
+ SELECT 'MON-014'::text AS check_code,
+        CASE
+            WHEN count = 0 THEN 'OK'::text
+            ELSE 'PROBLEM'::text
+        END AS state,
+        CASE
+            WHEN count = 0 THEN 'No stale unprocessed signals'::text
+            ELSE (count::text || ' signal(s) unprocessed for >48h. Oldest: '::text) || to_char(oldest, 'YYYY-MM-DD HH24:MI:SS UTC'::text)
+        END AS detail,
+    oldest AS oldest_signal
+   FROM stale;
+
+CREATE OR REPLACE VIEW public.mon_015 AS
+ WITH failed_actions AS (
+         SELECT count(*) AS count,
+            max(rha.created_at) AS newest
+           FROM reply_handling_actions rha
+             JOIN organisations o ON rha.organisation_id = o.id
+          WHERE rha.action_taken = 'permanently_failed'::text AND rha.created_at >= (now() - '7 days'::interval) AND o.archived_at IS NULL
+        )
+ SELECT 'MON-015'::text AS check_code,
+        CASE
+            WHEN count = 0 THEN 'OK'::text
+            ELSE 'PROBLEM'::text
+        END AS state,
+        CASE
+            WHEN count = 0 THEN 'No permanently failed reply actions in last 7 days'::text
+            ELSE (count::text || ' reply action(s) marked permanently_failed. Newest: '::text) || to_char(newest, 'YYYY-MM-DD HH24:MI:SS UTC'::text)
+        END AS detail,
+    newest AS newest_failure
+   FROM failed_actions;
+
+CREATE OR REPLACE VIEW public.mon_016 AS
+ WITH latest AS (
+         SELECT cron_heartbeats.ok,
+            cron_heartbeats.detail,
+            cron_heartbeats.ran_at
+           FROM cron_heartbeats
+          WHERE cron_heartbeats.job_name = 'queue-worker'::text
+          ORDER BY cron_heartbeats.ran_at DESC, cron_heartbeats.id DESC
+         LIMIT 1
+        )
+ SELECT 'MON-016'::text AS check_code,
+        CASE
+            WHEN (( SELECT count(*) AS count
+               FROM latest)) = 0 THEN 'UNKNOWN'::text
+            WHEN (( SELECT EXTRACT(epoch FROM now() - latest.ran_at) / 60::numeric
+               FROM latest)) > 5::numeric THEN 'PROBLEM'::text
+            WHEN (( SELECT latest.ok
+               FROM latest)) = false THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+        CASE
+            WHEN (( SELECT count(*) AS count
+               FROM latest)) = 0 THEN 'Queue worker has never reported. Check the pg_cron job queue-worker exists and is active.'::text
+            WHEN (( SELECT EXTRACT(epoch FROM now() - latest.ran_at) / 60::numeric
+               FROM latest)) > 5::numeric THEN ('Queue worker last ran '::text || to_char(( SELECT latest.ran_at
+               FROM latest), 'YYYY-MM-DD HH24:MI:SS UTC'::text)) || ', over 5 minutes ago against a one-minute schedule.'::text
+            WHEN (( SELECT latest.ok
+               FROM latest)) = false THEN 'Queue worker ran but reported failure: '::text || COALESCE(( SELECT latest.detail
+               FROM latest), 'no detail'::text)
+            ELSE 'Last run OK: '::text || COALESCE(( SELECT latest.detail
+               FROM latest), ''::text)
+        END AS detail,
+    ( SELECT latest.ran_at
+           FROM latest) AS last_run;
+
+CREATE OR REPLACE VIEW public.mon_017 AS
+ WITH eligible AS (
+         SELECT count(*) AS queued,
+            min(job_queue.created_at) AS oldest
+           FROM job_queue
+          WHERE job_queue.state = 'queued'::text AND job_queue.run_after <= now()
+        ), completions AS (
+         SELECT max(job_queue.updated_at) AS last_done
+           FROM job_queue
+          WHERE job_queue.state = 'done'::text
+        )
+ SELECT 'MON-017'::text AS check_code,
+        CASE
+            WHEN (( SELECT eligible.queued
+               FROM eligible)) = 0 THEN 'OK'::text
+            WHEN (( SELECT completions.last_done
+               FROM completions)) IS NULL AND (( SELECT EXTRACT(epoch FROM now() - eligible.oldest) / 60::numeric
+               FROM eligible)) > 60::numeric THEN 'PROBLEM'::text
+            WHEN (( SELECT completions.last_done
+               FROM completions)) < (now() - '01:00:00'::interval) THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+        CASE
+            WHEN (( SELECT eligible.queued
+               FROM eligible)) = 0 THEN 'No eligible queued jobs. Nothing to drain.'::text
+            ELSE (((((( SELECT eligible.queued
+               FROM eligible))::text) || ' job(s) queued and eligible, oldest waiting '::text) || COALESCE(( SELECT round(EXTRACT(epoch FROM now() - eligible.oldest) / 60::numeric) AS round
+               FROM eligible), 0::numeric)::text) || ' minutes. Last completion: '::text) || COALESCE(to_char(( SELECT completions.last_done
+               FROM completions), 'YYYY-MM-DD HH24:MI:SS UTC'::text), 'never'::text)
+        END AS detail,
+    ( SELECT completions.last_done
+           FROM completions) AS last_run;
+
+CREATE OR REPLACE VIEW public.mon_018 AS
+ WITH window_stats AS (
+         SELECT count(*) FILTER (WHERE job_queue.state = 'failed'::text) AS failed,
+            count(*) FILTER (WHERE job_queue.state = ANY (ARRAY['failed'::text, 'done'::text])) AS terminal
+           FROM job_queue
+          WHERE job_queue.updated_at > (now() - '24:00:00'::interval) AND (job_queue.state = ANY (ARRAY['failed'::text, 'done'::text]))
+        )
+ SELECT 'MON-018'::text AS check_code,
+        CASE
+            WHEN (( SELECT window_stats.failed
+               FROM window_stats)) >= 10 THEN 'PROBLEM'::text
+            WHEN (( SELECT window_stats.terminal
+               FROM window_stats)) >= 20 AND ((( SELECT window_stats.failed
+               FROM window_stats))::numeric / NULLIF(( SELECT window_stats.terminal
+               FROM window_stats), 0)::numeric) >= 0.10 THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+    (((((( SELECT window_stats.failed
+           FROM window_stats))::text) || ' failed of '::text) || ((( SELECT window_stats.terminal
+           FROM window_stats))::text)) || ' terminal job(s) in 24h'::text) ||
+        CASE
+            WHEN (( SELECT window_stats.terminal
+               FROM window_stats)) >= 20 THEN (' ('::text || round(100::numeric * (( SELECT window_stats.failed
+               FROM window_stats))::numeric / NULLIF(( SELECT window_stats.terminal
+               FROM window_stats), 0)::numeric, 1)::text) || '%)'::text
+            WHEN (( SELECT window_stats.terminal
+               FROM window_stats)) > 0 THEN ' (below the 20-job floor, so the percentage rule is not applied)'::text
+            ELSE ''::text
+        END AS detail,
+    now() AS last_run;
+
+CREATE OR REPLACE VIEW public.mon_019 AS
+ SELECT 'MON-019'::text AS check_code,
+        CASE
+            WHEN max(ran_at) IS NULL THEN 'UNKNOWN'::text
+            WHEN (EXTRACT(epoch FROM now() - max(ran_at)) / 60::numeric) > 20::numeric THEN 'PROBLEM'::text
+            WHEN bool_or(NOT ok) FILTER (WHERE ran_at > (now() - '01:00:00'::interval)) THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+    COALESCE(max(
+        CASE
+            WHEN ok = false THEN detail
+            ELSE NULL::text
+        END), 'Last run: '::text || to_char(max(ran_at), 'YYYY-MM-DD HH24:MI:SS UTC'::text)) AS detail,
+    max(ran_at) AS last_run
+   FROM cron_heartbeats
+  WHERE job_name = 'verify-pending'::text;
+
+CREATE OR REPLACE VIEW public.mon_020 AS
+ SELECT 'MON-020'::text AS check_code,
+        CASE
+            WHEN max(ran_at) IS NULL THEN 'UNKNOWN'::text
+            WHEN (EXTRACT(epoch FROM now() - max(ran_at)) / 60::numeric) > 90::numeric THEN 'PROBLEM'::text
+            WHEN bool_or(NOT ok) FILTER (WHERE ran_at > (now() - '02:00:00'::interval)) THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+    COALESCE(max(
+        CASE
+            WHEN ok = false THEN detail
+            ELSE NULL::text
+        END), 'Last run: '::text || to_char(max(ran_at), 'YYYY-MM-DD HH24:MI:SS UTC'::text)) AS detail,
+    max(ran_at) AS last_run
+   FROM cron_heartbeats
+  WHERE job_name = 'verify-catch-all'::text;
+
+CREATE OR REPLACE VIEW public.mon_021 AS
+ WITH hb AS (
+         SELECT max(cron_heartbeats.ran_at) AS last_run,
+            bool_or(NOT cron_heartbeats.ok) FILTER (WHERE cron_heartbeats.ran_at > (now() - '01:00:00'::interval)) AS recent_failure,
+            max(
+                CASE
+                    WHEN cron_heartbeats.ok = false THEN cron_heartbeats.detail
+                    ELSE NULL::text
+                END) AS failure_detail
+           FROM cron_heartbeats
+          WHERE cron_heartbeats.job_name = 'synthesis-batch-sweep'::text
+        ), batches AS (
+         SELECT count(*) FILTER (WHERE synthesis_batches.state = 'attempted'::text AND synthesis_batches.requested_at < (now() - '00:30:00'::interval)) AS unreceipted,
+            count(*) FILTER (WHERE (synthesis_batches.state = ANY (ARRAY['submitted'::text, 'ended'::text])) AND synthesis_batches.requested_at < (now() - '26:00:00'::interval)) AS overdue,
+            max(EXTRACT(epoch FROM now() - synthesis_batches.requested_at) / 3600::numeric) FILTER (WHERE synthesis_batches.state = ANY (ARRAY['attempted'::text, 'submitted'::text, 'ended'::text])) AS oldest_open_hours
+           FROM synthesis_batches
+        ), entries AS (
+         SELECT count(*) FILTER (WHERE synthesis_batch_entries.state = 'pending_submission'::text AND synthesis_batch_entries.created_at < (now() - '00:30:00'::interval)) AS stuck_pending,
+            count(*) FILTER (WHERE (synthesis_batch_entries.state = ANY (ARRAY['succeeded'::text, 'collected'::text])) AND synthesis_batch_entries.updated_at > (now() - '24:00:00'::interval)) AS good_24h,
+            count(*) FILTER (WHERE (synthesis_batch_entries.state = ANY (ARRAY['errored'::text, 'expired'::text, 'cancelled'::text, 'failed'::text])) AND synthesis_batch_entries.updated_at > (now() - '24:00:00'::interval)) AS bad_24h,
+            count(*) FILTER (WHERE synthesis_batch_entries.doc_superseded AND synthesis_batch_entries.updated_at > (now() - '24:00:00'::interval)) AS superseded_24h
+           FROM synthesis_batch_entries
+        )
+ SELECT 'MON-021'::text AS check_code,
+        CASE
+            WHEN hb.last_run IS NULL THEN 'UNKNOWN'::text
+            WHEN (EXTRACT(epoch FROM now() - hb.last_run) / 60::numeric) > 15::numeric THEN 'PROBLEM'::text
+            WHEN hb.recent_failure THEN 'PROBLEM'::text
+            WHEN batches.unreceipted > 0 THEN 'PROBLEM'::text
+            WHEN batches.overdue > 0 THEN 'PROBLEM'::text
+            WHEN entries.stuck_pending > 0 THEN 'PROBLEM'::text
+            WHEN (entries.good_24h + entries.bad_24h) >= 5 AND (entries.bad_24h::numeric / (entries.good_24h + entries.bad_24h)::numeric) > 0.20 THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+        CASE
+            WHEN hb.last_run IS NULL THEN 'The synthesis batch sweep has never run. Expected until its pg_cron job is scheduled.'::text
+            WHEN (EXTRACT(epoch FROM now() - hb.last_run) / 60::numeric) > 15::numeric THEN ('Sweep last ran '::text || to_char(hb.last_run, 'YYYY-MM-DD HH24:MI:SS UTC'::text)) || ', over 15 minutes ago.'::text
+            WHEN hb.recent_failure THEN COALESCE(hb.failure_detail, 'A sweep run failed in the last hour.'::text)
+            WHEN batches.unreceipted > 0 THEN (batches.unreceipted || ' batch(es) submitted with no receipt recorded for over 30 minutes. '::text) || 'Reconciliation should have attached them. This is the state that can lead to paying twice.'::text
+            WHEN batches.overdue > 0 THEN (((batches.overdue || ' batch(es) still open past 26 hours, so the sweep is not ageing them out. '::text) || 'Oldest open batch: '::text) || round(COALESCE(batches.oldest_open_hours, 0::numeric), 1)) || 'h.'::text
+            WHEN entries.stuck_pending > 0 THEN (entries.stuck_pending || ' entr(ies) have waited over 30 minutes to be submitted. '::text) || 'Their sources are already paid for.'::text
+            WHEN (entries.good_24h + entries.bad_24h) >= 5 AND (entries.bad_24h::numeric / (entries.good_24h + entries.bad_24h)::numeric) > 0.20 THEN ((entries.bad_24h || ' of '::text) || (entries.good_24h + entries.bad_24h)) || ' synthesis entries failed in the last 24h.'::text
+            ELSE (((((((((('Sweep last ran '::text || to_char(hb.last_run, 'YYYY-MM-DD HH24:MI:SS UTC'::text)) || '. Open batches oldest '::text) || round(COALESCE(batches.oldest_open_hours, 0::numeric), 1)) || 'h. '::text) || 'Last 24h: '::text) || entries.good_24h) || ' collected, '::text) || entries.bad_24h) || ' failed, '::text) || entries.superseded_24h) || ' written against a superseded messaging document.'::text
+        END AS detail,
+    hb.last_run
+   FROM hb,
+    batches,
+    entries;
+
+CREATE OR REPLACE VIEW public.mon_022 AS
+ WITH invariants AS (
+         SELECT ( SELECT count(*) AS count
+                   FROM pg_indexes
+                  WHERE pg_indexes.schemaname = 'public'::name AND pg_indexes.indexname = 'system_flags_research_path_exclusive'::name) AS exclusion_index,
+            ( SELECT count(*) AS count
+                   FROM pg_indexes
+                  WHERE pg_indexes.schemaname = 'public'::name AND pg_indexes.indexname = 'job_queue_one_live_research_per_prospect'::name) AS family_index,
+            ( SELECT count(*) AS count
+                   FROM pg_indexes
+                  WHERE pg_indexes.schemaname = 'public'::name AND pg_indexes.indexname = 'synthesis_batch_entries_one_live_per_prospect'::name) AS entry_index,
+            ( SELECT count(*) AS count
+                   FROM system_flags
+                  WHERE system_flags.enabled AND (system_flags.key = ANY (ARRAY['queue_research'::text, 'queue_research_sources'::text]))) AS enabled_research_paths,
+            ( SELECT count(*) AS count
+                   FROM pg_class c
+                     JOIN pg_namespace n ON n.oid = c.relnamespace
+                  WHERE n.nspname = 'public'::name AND (c.relname = ANY (ARRAY['synthesis_batches'::name, 'synthesis_batch_entries'::name])) AND c.relrowsecurity) AS tables_with_rls,
+            ( SELECT count(*) AS count
+                   FROM pg_class c
+                     JOIN pg_namespace n ON n.oid = c.relnamespace
+                  WHERE n.nspname = 'public'::name AND (c.relname = ANY (ARRAY['synthesis_batches'::name, 'synthesis_batch_entries'::name])) AND (has_table_privilege('anon'::name, c.oid, 'SELECT'::text) OR has_table_privilege('authenticated'::name, c.oid, 'SELECT'::text))) AS tables_reachable_by_anon
+        )
+ SELECT 'MON-022'::text AS check_code,
+        CASE
+            WHEN exclusion_index = 0 THEN 'PROBLEM'::text
+            WHEN family_index = 0 THEN 'PROBLEM'::text
+            WHEN entry_index = 0 THEN 'PROBLEM'::text
+            WHEN enabled_research_paths > 1 THEN 'PROBLEM'::text
+            WHEN tables_with_rls < 2 THEN 'PROBLEM'::text
+            WHEN tables_reachable_by_anon > 0 THEN 'PROBLEM'::text
+            ELSE 'OK'::text
+        END AS state,
+        CASE
+            WHEN exclusion_index = 0 THEN 'system_flags_research_path_exclusive is GONE. Both research paths can now be enabled at once, which allows 40 concurrent Apify actor runs against a ceiling of 25, and the Apify assertion in queue config must become a SUM.'::text
+            WHEN family_index = 0 THEN 'job_queue_one_live_research_per_prospect is GONE. An operator click during a batch wait can now re-buy Apify, Apollo and Brave for prospects already in flight.'::text
+            WHEN entry_index = 0 THEN 'synthesis_batch_entries_one_live_per_prospect is GONE. One prospect can now have two synthesis calls paid for and two research rows written.'::text
+            WHEN enabled_research_paths > 1 THEN 'Both queue_research and queue_research_sources are enabled. Apify concurrency is no longer bounded by its measured ceiling.'::text
+            WHEN tables_with_rls < 2 THEN 'Row level security is OFF on one of the synthesis batch tables.'::text
+            WHEN tables_reachable_by_anon > 0 THEN 'anon or authenticated can SELECT a synthesis batch table. Those rows hold paid-for source payloads, a client''s messaging document, and the Anthropic spend ledger.'::text
+            ELSE 'All three uniqueness indexes present, one research path enabled at most, RLS on both tables, and neither reachable by anon or authenticated.'::text
+        END AS detail,
+    now() AS last_run
+   FROM invariants i;
+
+CREATE OR REPLACE VIEW public.queue_depth AS
+ SELECT job_type,
+    organisation_id,
+    count(*) FILTER (WHERE state = 'queued'::text) AS queued,
+    count(*) FILTER (WHERE state = 'claimed'::text) AS claimed,
+    count(*) FILTER (WHERE state = 'failed'::text) AS failed_total,
+    count(*) FILTER (WHERE state = 'done'::text AND updated_at > (now() - '24:00:00'::interval)) AS done_24h,
+    count(*) FILTER (WHERE state = 'failed'::text AND updated_at > (now() - '24:00:00'::interval)) AS failed_24h,
+    COALESCE(EXTRACT(epoch FROM now() - min(created_at) FILTER (WHERE state = 'queued'::text AND run_after <= now()))::bigint, 0::bigint) AS oldest_queued_age_seconds,
+    max(updated_at) FILTER (WHERE state = 'done'::text) AS last_completion_at
+   FROM job_queue q
+  GROUP BY job_type, organisation_id;
+
+-- ── TRIGGERS ──────────────────────────────────────────────────────────
+CREATE TRIGGER campaigns_set_updated_at BEFORE UPDATE ON public.campaigns FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER faq_extractions_org_consistency_check BEFORE INSERT OR UPDATE ON public.faq_extractions FOR EACH ROW EXECUTE FUNCTION validate_faq_extractions_org_consistency();
+CREATE TRIGGER faqs_org_consistency_check BEFORE INSERT OR UPDATE ON public.faqs FOR EACH ROW EXECUTE FUNCTION validate_faqs_org_exists();
+CREATE TRIGGER intake_responses_set_updated_at BEFORE UPDATE ON public.intake_responses FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER integrations_registry_set_updated_at BEFORE UPDATE ON public.integrations_registry FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER meetings_set_updated_at BEFORE UPDATE ON public.meetings FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER organisations_set_updated_at BEFORE UPDATE ON public.organisations FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER patterns_set_updated_at BEFORE UPDATE ON public.patterns FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER prospects_campaign_org_check BEFORE INSERT OR UPDATE OF campaign_id, organisation_id ON public.prospects FOR EACH ROW EXECUTE FUNCTION check_prospect_campaign_org_match();
+CREATE TRIGGER prospects_set_updated_at BEFORE UPDATE ON public.prospects FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER "users-pending-review-notify" AFTER INSERT ON public.users_pending_review FOR EACH ROW EXECUTE FUNCTION supabase_functions.http_request('https://app.margenticos.com/api/webhooks/users-pending-review-notify', 'POST', '{"x-webhook-secret":"8071e7d43c98725164d95ff4136babc6df573b904bf3b5c39ead2978a12c901e"}', '{}', '5000');
+
+-- ── ROW LEVEL SECURITY ────────────────────────────────────────────────
+ALTER TABLE public.agent_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaigns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cron_heartbeats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.document_suggestions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.enrichment_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.faq_extractions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.faqs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.industry_tag_mappings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.intake_files ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.intake_responses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.intake_website_pages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.integration_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.integrations_registry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.job_queue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meetings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.monitor_checks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.monitor_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organisations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.patterns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.polling_cursors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.prospect_research_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.prospects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.queue_rotation ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reply_drafts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reply_handling_actions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.segments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.signals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.strategy_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.suppressed_emails ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.synthesis_batch_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.synthesis_batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.system_flags ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users_pending_review ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.verification_calls ENABLE ROW LEVEL SECURITY;
+
+-- ── RLS POLICIES ──────────────────────────────────────────────────────
+CREATE POLICY clients_read_own_agent_runs ON public.agent_runs AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((organisation_id = ( SELECT users.organisation_id
+   FROM users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'client'::text)))));
+
+CREATE POLICY operators_read_all_agent_runs ON public.agent_runs AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((EXISTS ( SELECT 1
+   FROM users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'operator'::text)))));
+
+CREATE POLICY clients_read_own_campaigns ON public.campaigns AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((organisation_id = get_my_organisation_id()));
+
+CREATE POLICY operators_full_access_campaigns ON public.campaigns AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY cron_heartbeats_operator_read ON public.cron_heartbeats AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((EXISTS ( SELECT 1
+   FROM users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'operator'::text)))));
+
+CREATE POLICY clients_read_own_document_suggestions ON public.document_suggestions AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((organisation_id = get_my_organisation_id()));
+
+CREATE POLICY operators_full_access_suggestions ON public.document_suggestions AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY operator_enrichment_runs_all ON public.enrichment_runs AS PERMISSIVE FOR ALL TO public
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY clients_cannot_access_faq_extractions ON public.faq_extractions AS PERMISSIVE FOR ALL TO authenticated
+  USING (false);
+
+CREATE POLICY operators_full_access_faq_extractions ON public.faq_extractions AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY clients_cannot_access_faqs ON public.faqs AS PERMISSIVE FOR ALL TO authenticated
+  USING (false);
+
+CREATE POLICY operators_full_access_faqs ON public.faqs AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY "Operators can insert mappings" ON public.industry_tag_mappings AS PERMISSIVE FOR INSERT TO authenticated
+  WITH CHECK ((EXISTS ( SELECT 1
+   FROM auth.users
+  WHERE ((users.id = auth.uid()) AND ((users.raw_user_meta_data ->> 'role'::text) = 'operator'::text)))));
+
+CREATE POLICY "Operators can read mappings" ON public.industry_tag_mappings AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((EXISTS ( SELECT 1
+   FROM auth.users
+  WHERE ((users.id = auth.uid()) AND ((users.raw_user_meta_data ->> 'role'::text) = 'operator'::text)))));
+
+CREATE POLICY "Operators can update mappings" ON public.industry_tag_mappings AS PERMISSIVE FOR UPDATE TO authenticated
+  USING ((EXISTS ( SELECT 1
+   FROM auth.users
+  WHERE ((users.id = auth.uid()) AND ((users.raw_user_meta_data ->> 'role'::text) = 'operator'::text)))));
+
+CREATE POLICY users_delete_own_org_files ON public.intake_files AS PERMISSIVE FOR DELETE TO authenticated
+  USING ((organisation_id = ( SELECT users.organisation_id
+   FROM users
+  WHERE (users.id = auth.uid()))));
+
+CREATE POLICY users_insert_own_org_files ON public.intake_files AS PERMISSIVE FOR INSERT TO authenticated
+  WITH CHECK ((organisation_id = ( SELECT users.organisation_id
+   FROM users
+  WHERE (users.id = auth.uid()))));
+
+CREATE POLICY users_select_own_org_files ON public.intake_files AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((organisation_id = ( SELECT users.organisation_id
+   FROM users
+  WHERE (users.id = auth.uid()))));
+
+CREATE POLICY clients_manage_own_intake ON public.intake_responses AS PERMISSIVE FOR ALL TO authenticated
+  USING ((organisation_id = get_my_organisation_id()))
+  WITH CHECK ((organisation_id = get_my_organisation_id()));
+
+CREATE POLICY operators_full_access_intake ON public.intake_responses AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY clients_read_own_intake_website_pages ON public.intake_website_pages AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((((auth.jwt() ->> 'role'::text) = 'client'::text) AND (organisation_id = ( SELECT users.organisation_id
+   FROM users
+  WHERE (users.id = auth.uid())
+ LIMIT 1))));
+
+CREATE POLICY operators_all_intake_website_pages ON public.intake_website_pages AS PERMISSIVE FOR ALL TO authenticated
+  USING (((auth.jwt() ->> 'role'::text) = 'operator'::text))
+  WITH CHECK (((auth.jwt() ->> 'role'::text) = 'operator'::text));
+
+CREATE POLICY clients_cannot_access_credentials ON public.integration_credentials AS PERMISSIVE FOR ALL TO authenticated
+  USING (false);
+
+CREATE POLICY operators_manage_credentials ON public.integration_credentials AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY operators_read_credentials ON public.integration_credentials AS PERMISSIVE FOR SELECT TO authenticated
+  USING (is_operator());
+
+CREATE POLICY operators_full_access_integrations ON public.integrations_registry AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY clients_read_own_meetings ON public.meetings AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((organisation_id = get_my_organisation_id()));
+
+CREATE POLICY operators_full_access_meetings ON public.meetings AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY monitor_checks_operator_read ON public.monitor_checks AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((EXISTS ( SELECT 1
+   FROM users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'operator'::text)))));
+
+CREATE POLICY monitor_events_operator_read ON public.monitor_events AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((EXISTS ( SELECT 1
+   FROM users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'operator'::text)))));
+
+CREATE POLICY clients_read_own_organisation ON public.organisations AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((id = get_my_organisation_id()));
+
+CREATE POLICY operators_full_access_organisations ON public.organisations AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY authenticated_cannot_delete_patterns ON public.patterns AS PERMISSIVE FOR DELETE TO authenticated
+  USING (false);
+
+CREATE POLICY authenticated_cannot_insert_patterns ON public.patterns AS PERMISSIVE FOR INSERT TO authenticated
+  WITH CHECK (false);
+
+CREATE POLICY authenticated_cannot_update_patterns ON public.patterns AS PERMISSIVE FOR UPDATE TO authenticated
+  USING (false);
+
+CREATE POLICY operators_read_patterns ON public.patterns AS PERMISSIVE FOR SELECT TO authenticated
+  USING (is_operator());
+
+CREATE POLICY operators_read_polling_cursors ON public.polling_cursors AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((EXISTS ( SELECT 1
+   FROM users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'operator'::text)))));
+
+CREATE POLICY clients_read_own_research_results ON public.prospect_research_results AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((organisation_id = ( SELECT users.organisation_id
+   FROM users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'client'::text)))));
+
+CREATE POLICY operators_read_all_research_results ON public.prospect_research_results AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((EXISTS ( SELECT 1
+   FROM users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'operator'::text)))));
+
+CREATE POLICY clients_read_own_prospects_denied ON public.prospects AS PERMISSIVE FOR SELECT TO authenticated
+  USING (false);
+
+CREATE POLICY clients_update_own_prospect_review ON public.prospects AS PERMISSIVE FOR UPDATE TO authenticated
+  USING ((organisation_id = get_my_organisation_id()))
+  WITH CHECK ((organisation_id = get_my_organisation_id()));
+
+CREATE POLICY operators_full_access_prospects ON public.prospects AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY operators_full_access_reply_drafts ON public.reply_drafts AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY operators_read_reply_handling_actions ON public.reply_handling_actions AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((EXISTS ( SELECT 1
+   FROM users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'operator'::text)))));
+
+CREATE POLICY clients_read_own_segments ON public.segments AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((organisation_id = get_my_organisation_id()));
+
+CREATE POLICY operators_full_access_segments ON public.segments AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY operators_full_access_signals ON public.signals AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY clients_read_own_active_strategy_docs ON public.strategy_documents AS PERMISSIVE FOR SELECT TO authenticated
+  USING (((organisation_id = get_my_organisation_id()) AND (status = ANY (ARRAY['active'::text, 'approved'::text]))));
+
+CREATE POLICY operators_full_access_strategy_docs ON public.strategy_documents AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY operators_full_access_users ON public.users AS PERMISSIVE FOR ALL TO authenticated
+  USING (is_operator())
+  WITH CHECK (is_operator());
+
+CREATE POLICY users_read_own_organisation_members ON public.users AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((organisation_id = get_my_organisation_id()));
+
+CREATE POLICY users_update_own_profile ON public.users AS PERMISSIVE FOR UPDATE TO authenticated
+  USING ((id = auth.uid()))
+  WITH CHECK ((id = auth.uid()));
+
+CREATE POLICY operators_read_all_pending_review ON public.users_pending_review AS PERMISSIVE FOR SELECT TO authenticated
+  USING ((EXISTS ( SELECT 1
+   FROM users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'operator'::text)))));
+
+-- ── GRANTS on tables and views (anon / authenticated / service_role) ──
+-- These are load-bearing. Supabase's ALTER DEFAULT PRIVILEGES grants anon and
+-- authenticated BY NAME at creation, so a rebuild that omits these does NOT
+-- reproduce the security posture. See the database-security rules in CLAUDE.md.
+GRANT DELETE ON public.agent_runs TO anon;
+GRANT DELETE ON public.agent_runs TO authenticated;
+GRANT DELETE ON public.agent_runs TO service_role;
+GRANT DELETE ON public.campaigns TO anon;
+GRANT DELETE ON public.campaigns TO authenticated;
+GRANT DELETE ON public.campaigns TO service_role;
+GRANT DELETE ON public.client_organisation_view TO anon;
+GRANT DELETE ON public.client_organisation_view TO authenticated;
+GRANT DELETE ON public.client_organisation_view TO service_role;
+GRANT DELETE ON public.client_prospects_view TO authenticated;
+GRANT DELETE ON public.client_prospects_view TO service_role;
+GRANT DELETE ON public.cron_heartbeats TO anon;
+GRANT DELETE ON public.cron_heartbeats TO service_role;
+GRANT DELETE ON public.document_suggestions TO anon;
+GRANT DELETE ON public.document_suggestions TO authenticated;
+GRANT DELETE ON public.document_suggestions TO service_role;
+GRANT DELETE ON public.enrichment_runs TO anon;
+GRANT DELETE ON public.enrichment_runs TO authenticated;
+GRANT DELETE ON public.enrichment_runs TO service_role;
+GRANT DELETE ON public.faq_extractions TO anon;
+GRANT DELETE ON public.faq_extractions TO authenticated;
+GRANT DELETE ON public.faq_extractions TO service_role;
+GRANT DELETE ON public.faqs TO anon;
+GRANT DELETE ON public.faqs TO authenticated;
+GRANT DELETE ON public.faqs TO service_role;
+GRANT DELETE ON public.industry_tag_mappings TO anon;
+GRANT DELETE ON public.industry_tag_mappings TO authenticated;
+GRANT DELETE ON public.industry_tag_mappings TO service_role;
+GRANT DELETE ON public.intake_files TO anon;
+GRANT DELETE ON public.intake_files TO authenticated;
+GRANT DELETE ON public.intake_files TO service_role;
+GRANT DELETE ON public.intake_responses TO anon;
+GRANT DELETE ON public.intake_responses TO authenticated;
+GRANT DELETE ON public.intake_responses TO service_role;
+GRANT DELETE ON public.intake_website_pages TO anon;
+GRANT DELETE ON public.intake_website_pages TO authenticated;
+GRANT DELETE ON public.intake_website_pages TO service_role;
+GRANT DELETE ON public.integration_credentials TO anon;
+GRANT DELETE ON public.integration_credentials TO authenticated;
+GRANT DELETE ON public.integration_credentials TO service_role;
+GRANT DELETE ON public.integrations_registry TO anon;
+GRANT DELETE ON public.integrations_registry TO authenticated;
+GRANT DELETE ON public.integrations_registry TO service_role;
+GRANT DELETE ON public.job_queue TO service_role;
+GRANT DELETE ON public.meetings TO anon;
+GRANT DELETE ON public.meetings TO authenticated;
+GRANT DELETE ON public.meetings TO service_role;
+GRANT DELETE ON public.mon_001 TO service_role;
+GRANT DELETE ON public.mon_002 TO service_role;
+GRANT DELETE ON public.mon_003 TO service_role;
+GRANT DELETE ON public.mon_004 TO service_role;
+GRANT DELETE ON public.mon_005 TO service_role;
+GRANT DELETE ON public.mon_006 TO service_role;
+GRANT DELETE ON public.mon_007 TO service_role;
+GRANT DELETE ON public.mon_010 TO service_role;
+GRANT DELETE ON public.mon_011 TO service_role;
+GRANT DELETE ON public.mon_012 TO service_role;
+GRANT DELETE ON public.mon_013 TO service_role;
+GRANT DELETE ON public.mon_014 TO service_role;
+GRANT DELETE ON public.mon_015 TO service_role;
+GRANT DELETE ON public.mon_016 TO service_role;
+GRANT DELETE ON public.mon_017 TO service_role;
+GRANT DELETE ON public.mon_018 TO service_role;
+GRANT DELETE ON public.mon_019 TO service_role;
+GRANT DELETE ON public.mon_020 TO service_role;
+GRANT DELETE ON public.mon_021 TO service_role;
+GRANT DELETE ON public.mon_022 TO service_role;
+GRANT DELETE ON public.monitor_checks TO anon;
+GRANT DELETE ON public.monitor_checks TO service_role;
+GRANT DELETE ON public.monitor_events TO anon;
+GRANT DELETE ON public.monitor_events TO service_role;
+GRANT DELETE ON public.notifications_log TO anon;
+GRANT DELETE ON public.notifications_log TO authenticated;
+GRANT DELETE ON public.notifications_log TO service_role;
+GRANT DELETE ON public.organisations TO anon;
+GRANT DELETE ON public.organisations TO authenticated;
+GRANT DELETE ON public.organisations TO service_role;
+GRANT DELETE ON public.patterns TO anon;
+GRANT DELETE ON public.patterns TO authenticated;
+GRANT DELETE ON public.patterns TO service_role;
+GRANT DELETE ON public.polling_cursors TO anon;
+GRANT DELETE ON public.polling_cursors TO authenticated;
+GRANT DELETE ON public.polling_cursors TO service_role;
+GRANT DELETE ON public.prospect_research_results TO anon;
+GRANT DELETE ON public.prospect_research_results TO authenticated;
+GRANT DELETE ON public.prospect_research_results TO service_role;
+GRANT DELETE ON public.prospects TO anon;
+GRANT DELETE ON public.prospects TO authenticated;
+GRANT DELETE ON public.prospects TO service_role;
+GRANT DELETE ON public.queue_depth TO service_role;
+GRANT DELETE ON public.queue_rotation TO service_role;
+GRANT DELETE ON public.reply_drafts TO anon;
+GRANT DELETE ON public.reply_drafts TO authenticated;
+GRANT DELETE ON public.reply_drafts TO service_role;
+GRANT DELETE ON public.reply_handling_actions TO anon;
+GRANT DELETE ON public.reply_handling_actions TO authenticated;
+GRANT DELETE ON public.reply_handling_actions TO service_role;
+GRANT DELETE ON public.segments TO anon;
+GRANT DELETE ON public.segments TO authenticated;
+GRANT DELETE ON public.segments TO service_role;
+GRANT DELETE ON public.signals TO anon;
+GRANT DELETE ON public.signals TO authenticated;
+GRANT DELETE ON public.signals TO service_role;
+GRANT DELETE ON public.strategy_documents TO anon;
+GRANT DELETE ON public.strategy_documents TO authenticated;
+GRANT DELETE ON public.strategy_documents TO service_role;
+GRANT DELETE ON public.suppressed_emails TO service_role;
+GRANT DELETE ON public.synthesis_batch_entries TO service_role;
+GRANT DELETE ON public.synthesis_batches TO service_role;
+GRANT DELETE ON public.system_flags TO service_role;
+GRANT DELETE ON public.users TO anon;
+GRANT DELETE ON public.users TO authenticated;
+GRANT DELETE ON public.users TO service_role;
+GRANT DELETE ON public.users_pending_review TO anon;
+GRANT DELETE ON public.users_pending_review TO authenticated;
+GRANT DELETE ON public.users_pending_review TO service_role;
+GRANT DELETE ON public.verification_calls TO service_role;
+GRANT INSERT ON public.agent_runs TO anon;
+GRANT INSERT ON public.agent_runs TO authenticated;
+GRANT INSERT ON public.agent_runs TO service_role;
+GRANT INSERT ON public.campaigns TO anon;
+GRANT INSERT ON public.campaigns TO authenticated;
+GRANT INSERT ON public.campaigns TO service_role;
+GRANT INSERT ON public.client_organisation_view TO anon;
+GRANT INSERT ON public.client_organisation_view TO authenticated;
+GRANT INSERT ON public.client_organisation_view TO service_role;
+GRANT INSERT ON public.client_prospects_view TO authenticated;
+GRANT INSERT ON public.client_prospects_view TO service_role;
+GRANT INSERT ON public.cron_heartbeats TO anon;
+GRANT INSERT ON public.cron_heartbeats TO service_role;
+GRANT INSERT ON public.document_suggestions TO anon;
+GRANT INSERT ON public.document_suggestions TO authenticated;
+GRANT INSERT ON public.document_suggestions TO service_role;
+GRANT INSERT ON public.enrichment_runs TO anon;
+GRANT INSERT ON public.enrichment_runs TO authenticated;
+GRANT INSERT ON public.enrichment_runs TO service_role;
+GRANT INSERT ON public.faq_extractions TO anon;
+GRANT INSERT ON public.faq_extractions TO authenticated;
+GRANT INSERT ON public.faq_extractions TO service_role;
+GRANT INSERT ON public.faqs TO anon;
+GRANT INSERT ON public.faqs TO authenticated;
+GRANT INSERT ON public.faqs TO service_role;
+GRANT INSERT ON public.industry_tag_mappings TO anon;
+GRANT INSERT ON public.industry_tag_mappings TO authenticated;
+GRANT INSERT ON public.industry_tag_mappings TO service_role;
+GRANT INSERT ON public.intake_files TO anon;
+GRANT INSERT ON public.intake_files TO authenticated;
+GRANT INSERT ON public.intake_files TO service_role;
+GRANT INSERT ON public.intake_responses TO anon;
+GRANT INSERT ON public.intake_responses TO authenticated;
+GRANT INSERT ON public.intake_responses TO service_role;
+GRANT INSERT ON public.intake_website_pages TO anon;
+GRANT INSERT ON public.intake_website_pages TO authenticated;
+GRANT INSERT ON public.intake_website_pages TO service_role;
+GRANT INSERT ON public.integration_credentials TO anon;
+GRANT INSERT ON public.integration_credentials TO authenticated;
+GRANT INSERT ON public.integration_credentials TO service_role;
+GRANT INSERT ON public.integrations_registry TO anon;
+GRANT INSERT ON public.integrations_registry TO authenticated;
+GRANT INSERT ON public.integrations_registry TO service_role;
+GRANT INSERT ON public.job_queue TO service_role;
+GRANT INSERT ON public.meetings TO anon;
+GRANT INSERT ON public.meetings TO authenticated;
+GRANT INSERT ON public.meetings TO service_role;
+GRANT INSERT ON public.mon_001 TO service_role;
+GRANT INSERT ON public.mon_002 TO service_role;
+GRANT INSERT ON public.mon_003 TO service_role;
+GRANT INSERT ON public.mon_004 TO service_role;
+GRANT INSERT ON public.mon_005 TO service_role;
+GRANT INSERT ON public.mon_006 TO service_role;
+GRANT INSERT ON public.mon_007 TO service_role;
+GRANT INSERT ON public.mon_010 TO service_role;
+GRANT INSERT ON public.mon_011 TO service_role;
+GRANT INSERT ON public.mon_012 TO service_role;
+GRANT INSERT ON public.mon_013 TO service_role;
+GRANT INSERT ON public.mon_014 TO service_role;
+GRANT INSERT ON public.mon_015 TO service_role;
+GRANT INSERT ON public.mon_016 TO service_role;
+GRANT INSERT ON public.mon_017 TO service_role;
+GRANT INSERT ON public.mon_018 TO service_role;
+GRANT INSERT ON public.mon_019 TO service_role;
+GRANT INSERT ON public.mon_020 TO service_role;
+GRANT INSERT ON public.mon_021 TO service_role;
+GRANT INSERT ON public.mon_022 TO service_role;
+GRANT INSERT ON public.monitor_checks TO anon;
+GRANT INSERT ON public.monitor_checks TO service_role;
+GRANT INSERT ON public.monitor_events TO anon;
+GRANT INSERT ON public.monitor_events TO service_role;
+GRANT INSERT ON public.notifications_log TO anon;
+GRANT INSERT ON public.notifications_log TO authenticated;
+GRANT INSERT ON public.notifications_log TO service_role;
+GRANT INSERT ON public.organisations TO anon;
+GRANT INSERT ON public.organisations TO authenticated;
+GRANT INSERT ON public.organisations TO service_role;
+GRANT INSERT ON public.patterns TO anon;
+GRANT INSERT ON public.patterns TO authenticated;
+GRANT INSERT ON public.patterns TO service_role;
+GRANT INSERT ON public.polling_cursors TO anon;
+GRANT INSERT ON public.polling_cursors TO authenticated;
+GRANT INSERT ON public.polling_cursors TO service_role;
+GRANT INSERT ON public.prospect_research_results TO anon;
+GRANT INSERT ON public.prospect_research_results TO authenticated;
+GRANT INSERT ON public.prospect_research_results TO service_role;
+GRANT INSERT ON public.prospects TO anon;
+GRANT INSERT ON public.prospects TO authenticated;
+GRANT INSERT ON public.prospects TO service_role;
+GRANT INSERT ON public.queue_depth TO service_role;
+GRANT INSERT ON public.queue_rotation TO service_role;
+GRANT INSERT ON public.reply_drafts TO anon;
+GRANT INSERT ON public.reply_drafts TO authenticated;
+GRANT INSERT ON public.reply_drafts TO service_role;
+GRANT INSERT ON public.reply_handling_actions TO anon;
+GRANT INSERT ON public.reply_handling_actions TO authenticated;
+GRANT INSERT ON public.reply_handling_actions TO service_role;
+GRANT INSERT ON public.segments TO anon;
+GRANT INSERT ON public.segments TO authenticated;
+GRANT INSERT ON public.segments TO service_role;
+GRANT INSERT ON public.signals TO anon;
+GRANT INSERT ON public.signals TO authenticated;
+GRANT INSERT ON public.signals TO service_role;
+GRANT INSERT ON public.strategy_documents TO anon;
+GRANT INSERT ON public.strategy_documents TO authenticated;
+GRANT INSERT ON public.strategy_documents TO service_role;
+GRANT INSERT ON public.suppressed_emails TO service_role;
+GRANT INSERT ON public.synthesis_batch_entries TO service_role;
+GRANT INSERT ON public.synthesis_batches TO service_role;
+GRANT INSERT ON public.system_flags TO service_role;
+GRANT INSERT ON public.users TO anon;
+GRANT INSERT ON public.users TO authenticated;
+GRANT INSERT ON public.users TO service_role;
+GRANT INSERT ON public.users_pending_review TO anon;
+GRANT INSERT ON public.users_pending_review TO authenticated;
+GRANT INSERT ON public.users_pending_review TO service_role;
+GRANT INSERT ON public.verification_calls TO service_role;
+GRANT REFERENCES ON public.agent_runs TO anon;
+GRANT REFERENCES ON public.agent_runs TO authenticated;
+GRANT REFERENCES ON public.agent_runs TO service_role;
+GRANT REFERENCES ON public.campaigns TO anon;
+GRANT REFERENCES ON public.campaigns TO authenticated;
+GRANT REFERENCES ON public.campaigns TO service_role;
+GRANT REFERENCES ON public.client_organisation_view TO anon;
+GRANT REFERENCES ON public.client_organisation_view TO authenticated;
+GRANT REFERENCES ON public.client_organisation_view TO service_role;
+GRANT REFERENCES ON public.client_prospects_view TO authenticated;
+GRANT REFERENCES ON public.client_prospects_view TO service_role;
+GRANT REFERENCES ON public.cron_heartbeats TO anon;
+GRANT REFERENCES ON public.cron_heartbeats TO service_role;
+GRANT REFERENCES ON public.document_suggestions TO anon;
+GRANT REFERENCES ON public.document_suggestions TO authenticated;
+GRANT REFERENCES ON public.document_suggestions TO service_role;
+GRANT REFERENCES ON public.enrichment_runs TO anon;
+GRANT REFERENCES ON public.enrichment_runs TO authenticated;
+GRANT REFERENCES ON public.enrichment_runs TO service_role;
+GRANT REFERENCES ON public.faq_extractions TO anon;
+GRANT REFERENCES ON public.faq_extractions TO authenticated;
+GRANT REFERENCES ON public.faq_extractions TO service_role;
+GRANT REFERENCES ON public.faqs TO anon;
+GRANT REFERENCES ON public.faqs TO authenticated;
+GRANT REFERENCES ON public.faqs TO service_role;
+GRANT REFERENCES ON public.industry_tag_mappings TO anon;
+GRANT REFERENCES ON public.industry_tag_mappings TO authenticated;
+GRANT REFERENCES ON public.industry_tag_mappings TO service_role;
+GRANT REFERENCES ON public.intake_files TO anon;
+GRANT REFERENCES ON public.intake_files TO authenticated;
+GRANT REFERENCES ON public.intake_files TO service_role;
+GRANT REFERENCES ON public.intake_responses TO anon;
+GRANT REFERENCES ON public.intake_responses TO authenticated;
+GRANT REFERENCES ON public.intake_responses TO service_role;
+GRANT REFERENCES ON public.intake_website_pages TO anon;
+GRANT REFERENCES ON public.intake_website_pages TO authenticated;
+GRANT REFERENCES ON public.intake_website_pages TO service_role;
+GRANT REFERENCES ON public.integration_credentials TO anon;
+GRANT REFERENCES ON public.integration_credentials TO authenticated;
+GRANT REFERENCES ON public.integration_credentials TO service_role;
+GRANT REFERENCES ON public.integrations_registry TO anon;
+GRANT REFERENCES ON public.integrations_registry TO authenticated;
+GRANT REFERENCES ON public.integrations_registry TO service_role;
+GRANT REFERENCES ON public.job_queue TO service_role;
+GRANT REFERENCES ON public.meetings TO anon;
+GRANT REFERENCES ON public.meetings TO authenticated;
+GRANT REFERENCES ON public.meetings TO service_role;
+GRANT REFERENCES ON public.mon_001 TO service_role;
+GRANT REFERENCES ON public.mon_002 TO service_role;
+GRANT REFERENCES ON public.mon_003 TO service_role;
+GRANT REFERENCES ON public.mon_004 TO service_role;
+GRANT REFERENCES ON public.mon_005 TO service_role;
+GRANT REFERENCES ON public.mon_006 TO service_role;
+GRANT REFERENCES ON public.mon_007 TO service_role;
+GRANT REFERENCES ON public.mon_010 TO service_role;
+GRANT REFERENCES ON public.mon_011 TO service_role;
+GRANT REFERENCES ON public.mon_012 TO service_role;
+GRANT REFERENCES ON public.mon_013 TO service_role;
+GRANT REFERENCES ON public.mon_014 TO service_role;
+GRANT REFERENCES ON public.mon_015 TO service_role;
+GRANT REFERENCES ON public.mon_016 TO service_role;
+GRANT REFERENCES ON public.mon_017 TO service_role;
+GRANT REFERENCES ON public.mon_018 TO service_role;
+GRANT REFERENCES ON public.mon_019 TO service_role;
+GRANT REFERENCES ON public.mon_020 TO service_role;
+GRANT REFERENCES ON public.mon_021 TO service_role;
+GRANT REFERENCES ON public.mon_022 TO service_role;
+GRANT REFERENCES ON public.monitor_checks TO anon;
+GRANT REFERENCES ON public.monitor_checks TO service_role;
+GRANT REFERENCES ON public.monitor_events TO anon;
+GRANT REFERENCES ON public.monitor_events TO service_role;
+GRANT REFERENCES ON public.notifications_log TO anon;
+GRANT REFERENCES ON public.notifications_log TO authenticated;
+GRANT REFERENCES ON public.notifications_log TO service_role;
+GRANT REFERENCES ON public.organisations TO anon;
+GRANT REFERENCES ON public.organisations TO authenticated;
+GRANT REFERENCES ON public.organisations TO service_role;
+GRANT REFERENCES ON public.patterns TO anon;
+GRANT REFERENCES ON public.patterns TO authenticated;
+GRANT REFERENCES ON public.patterns TO service_role;
+GRANT REFERENCES ON public.polling_cursors TO anon;
+GRANT REFERENCES ON public.polling_cursors TO authenticated;
+GRANT REFERENCES ON public.polling_cursors TO service_role;
+GRANT REFERENCES ON public.prospect_research_results TO anon;
+GRANT REFERENCES ON public.prospect_research_results TO authenticated;
+GRANT REFERENCES ON public.prospect_research_results TO service_role;
+GRANT REFERENCES ON public.prospects TO anon;
+GRANT REFERENCES ON public.prospects TO authenticated;
+GRANT REFERENCES ON public.prospects TO service_role;
+GRANT REFERENCES ON public.queue_depth TO service_role;
+GRANT REFERENCES ON public.queue_rotation TO service_role;
+GRANT REFERENCES ON public.reply_drafts TO anon;
+GRANT REFERENCES ON public.reply_drafts TO authenticated;
+GRANT REFERENCES ON public.reply_drafts TO service_role;
+GRANT REFERENCES ON public.reply_handling_actions TO anon;
+GRANT REFERENCES ON public.reply_handling_actions TO authenticated;
+GRANT REFERENCES ON public.reply_handling_actions TO service_role;
+GRANT REFERENCES ON public.segments TO anon;
+GRANT REFERENCES ON public.segments TO authenticated;
+GRANT REFERENCES ON public.segments TO service_role;
+GRANT REFERENCES ON public.signals TO anon;
+GRANT REFERENCES ON public.signals TO authenticated;
+GRANT REFERENCES ON public.signals TO service_role;
+GRANT REFERENCES ON public.strategy_documents TO anon;
+GRANT REFERENCES ON public.strategy_documents TO authenticated;
+GRANT REFERENCES ON public.strategy_documents TO service_role;
+GRANT REFERENCES ON public.suppressed_emails TO service_role;
+GRANT REFERENCES ON public.synthesis_batch_entries TO service_role;
+GRANT REFERENCES ON public.synthesis_batches TO service_role;
+GRANT REFERENCES ON public.system_flags TO service_role;
+GRANT REFERENCES ON public.users TO anon;
+GRANT REFERENCES ON public.users TO authenticated;
+GRANT REFERENCES ON public.users TO service_role;
+GRANT REFERENCES ON public.users_pending_review TO anon;
+GRANT REFERENCES ON public.users_pending_review TO authenticated;
+GRANT REFERENCES ON public.users_pending_review TO service_role;
+GRANT REFERENCES ON public.verification_calls TO service_role;
+GRANT SELECT ON public.agent_runs TO anon;
+GRANT SELECT ON public.agent_runs TO authenticated;
+GRANT SELECT ON public.agent_runs TO service_role;
+GRANT SELECT ON public.campaigns TO anon;
+GRANT SELECT ON public.campaigns TO authenticated;
+GRANT SELECT ON public.campaigns TO service_role;
+GRANT SELECT ON public.client_organisation_view TO anon;
+GRANT SELECT ON public.client_organisation_view TO authenticated;
+GRANT SELECT ON public.client_organisation_view TO service_role;
+GRANT SELECT ON public.client_prospects_view TO authenticated;
+GRANT SELECT ON public.client_prospects_view TO service_role;
+GRANT SELECT ON public.cron_heartbeats TO anon;
+GRANT SELECT ON public.cron_heartbeats TO service_role;
+GRANT SELECT ON public.document_suggestions TO anon;
+GRANT SELECT ON public.document_suggestions TO authenticated;
+GRANT SELECT ON public.document_suggestions TO service_role;
+GRANT SELECT ON public.enrichment_runs TO anon;
+GRANT SELECT ON public.enrichment_runs TO authenticated;
+GRANT SELECT ON public.enrichment_runs TO service_role;
+GRANT SELECT ON public.faq_extractions TO anon;
+GRANT SELECT ON public.faq_extractions TO authenticated;
+GRANT SELECT ON public.faq_extractions TO service_role;
+GRANT SELECT ON public.faqs TO anon;
+GRANT SELECT ON public.faqs TO authenticated;
+GRANT SELECT ON public.faqs TO service_role;
+GRANT SELECT ON public.industry_tag_mappings TO anon;
+GRANT SELECT ON public.industry_tag_mappings TO authenticated;
+GRANT SELECT ON public.industry_tag_mappings TO service_role;
+GRANT SELECT ON public.intake_files TO anon;
+GRANT SELECT ON public.intake_files TO authenticated;
+GRANT SELECT ON public.intake_files TO service_role;
+GRANT SELECT ON public.intake_responses TO anon;
+GRANT SELECT ON public.intake_responses TO authenticated;
+GRANT SELECT ON public.intake_responses TO service_role;
+GRANT SELECT ON public.intake_website_pages TO anon;
+GRANT SELECT ON public.intake_website_pages TO authenticated;
+GRANT SELECT ON public.intake_website_pages TO service_role;
+GRANT SELECT ON public.integration_credentials TO anon;
+GRANT SELECT ON public.integration_credentials TO authenticated;
+GRANT SELECT ON public.integration_credentials TO service_role;
+GRANT SELECT ON public.integrations_registry TO anon;
+GRANT SELECT ON public.integrations_registry TO authenticated;
+GRANT SELECT ON public.integrations_registry TO service_role;
+GRANT SELECT ON public.job_queue TO service_role;
+GRANT SELECT ON public.meetings TO anon;
+GRANT SELECT ON public.meetings TO authenticated;
+GRANT SELECT ON public.meetings TO service_role;
+GRANT SELECT ON public.mon_001 TO service_role;
+GRANT SELECT ON public.mon_002 TO service_role;
+GRANT SELECT ON public.mon_003 TO service_role;
+GRANT SELECT ON public.mon_004 TO service_role;
+GRANT SELECT ON public.mon_005 TO service_role;
+GRANT SELECT ON public.mon_006 TO service_role;
+GRANT SELECT ON public.mon_007 TO service_role;
+GRANT SELECT ON public.mon_010 TO service_role;
+GRANT SELECT ON public.mon_011 TO service_role;
+GRANT SELECT ON public.mon_012 TO service_role;
+GRANT SELECT ON public.mon_013 TO service_role;
+GRANT SELECT ON public.mon_014 TO service_role;
+GRANT SELECT ON public.mon_015 TO service_role;
+GRANT SELECT ON public.mon_016 TO service_role;
+GRANT SELECT ON public.mon_017 TO service_role;
+GRANT SELECT ON public.mon_018 TO service_role;
+GRANT SELECT ON public.mon_019 TO service_role;
+GRANT SELECT ON public.mon_020 TO service_role;
+GRANT SELECT ON public.mon_021 TO service_role;
+GRANT SELECT ON public.mon_022 TO service_role;
+GRANT SELECT ON public.monitor_checks TO anon;
+GRANT SELECT ON public.monitor_checks TO service_role;
+GRANT SELECT ON public.monitor_events TO anon;
+GRANT SELECT ON public.monitor_events TO service_role;
+GRANT SELECT ON public.notifications_log TO anon;
+GRANT SELECT ON public.notifications_log TO authenticated;
+GRANT SELECT ON public.notifications_log TO service_role;
+GRANT SELECT ON public.organisations TO anon;
+GRANT SELECT ON public.organisations TO authenticated;
+GRANT SELECT ON public.organisations TO service_role;
+GRANT SELECT ON public.patterns TO anon;
+GRANT SELECT ON public.patterns TO authenticated;
+GRANT SELECT ON public.patterns TO service_role;
+GRANT SELECT ON public.polling_cursors TO anon;
+GRANT SELECT ON public.polling_cursors TO authenticated;
+GRANT SELECT ON public.polling_cursors TO service_role;
+GRANT SELECT ON public.prospect_research_results TO anon;
+GRANT SELECT ON public.prospect_research_results TO authenticated;
+GRANT SELECT ON public.prospect_research_results TO service_role;
+GRANT SELECT ON public.prospects TO anon;
+GRANT SELECT ON public.prospects TO authenticated;
+GRANT SELECT ON public.prospects TO service_role;
+GRANT SELECT ON public.queue_depth TO service_role;
+GRANT SELECT ON public.queue_rotation TO service_role;
+GRANT SELECT ON public.reply_drafts TO anon;
+GRANT SELECT ON public.reply_drafts TO authenticated;
+GRANT SELECT ON public.reply_drafts TO service_role;
+GRANT SELECT ON public.reply_handling_actions TO anon;
+GRANT SELECT ON public.reply_handling_actions TO authenticated;
+GRANT SELECT ON public.reply_handling_actions TO service_role;
+GRANT SELECT ON public.segments TO anon;
+GRANT SELECT ON public.segments TO authenticated;
+GRANT SELECT ON public.segments TO service_role;
+GRANT SELECT ON public.signals TO anon;
+GRANT SELECT ON public.signals TO authenticated;
+GRANT SELECT ON public.signals TO service_role;
+GRANT SELECT ON public.strategy_documents TO anon;
+GRANT SELECT ON public.strategy_documents TO authenticated;
+GRANT SELECT ON public.strategy_documents TO service_role;
+GRANT SELECT ON public.suppressed_emails TO service_role;
+GRANT SELECT ON public.synthesis_batch_entries TO service_role;
+GRANT SELECT ON public.synthesis_batches TO service_role;
+GRANT SELECT ON public.system_flags TO service_role;
+GRANT SELECT ON public.users TO anon;
+GRANT SELECT ON public.users TO authenticated;
+GRANT SELECT ON public.users TO service_role;
+GRANT SELECT ON public.users_pending_review TO anon;
+GRANT SELECT ON public.users_pending_review TO authenticated;
+GRANT SELECT ON public.users_pending_review TO service_role;
+GRANT SELECT ON public.verification_calls TO service_role;
+GRANT TRIGGER ON public.agent_runs TO anon;
+GRANT TRIGGER ON public.agent_runs TO authenticated;
+GRANT TRIGGER ON public.agent_runs TO service_role;
+GRANT TRIGGER ON public.campaigns TO anon;
+GRANT TRIGGER ON public.campaigns TO authenticated;
+GRANT TRIGGER ON public.campaigns TO service_role;
+GRANT TRIGGER ON public.client_organisation_view TO anon;
+GRANT TRIGGER ON public.client_organisation_view TO authenticated;
+GRANT TRIGGER ON public.client_organisation_view TO service_role;
+GRANT TRIGGER ON public.client_prospects_view TO authenticated;
+GRANT TRIGGER ON public.client_prospects_view TO service_role;
+GRANT TRIGGER ON public.cron_heartbeats TO anon;
+GRANT TRIGGER ON public.cron_heartbeats TO service_role;
+GRANT TRIGGER ON public.document_suggestions TO anon;
+GRANT TRIGGER ON public.document_suggestions TO authenticated;
+GRANT TRIGGER ON public.document_suggestions TO service_role;
+GRANT TRIGGER ON public.enrichment_runs TO anon;
+GRANT TRIGGER ON public.enrichment_runs TO authenticated;
+GRANT TRIGGER ON public.enrichment_runs TO service_role;
+GRANT TRIGGER ON public.faq_extractions TO anon;
+GRANT TRIGGER ON public.faq_extractions TO authenticated;
+GRANT TRIGGER ON public.faq_extractions TO service_role;
+GRANT TRIGGER ON public.faqs TO anon;
+GRANT TRIGGER ON public.faqs TO authenticated;
+GRANT TRIGGER ON public.faqs TO service_role;
+GRANT TRIGGER ON public.industry_tag_mappings TO anon;
+GRANT TRIGGER ON public.industry_tag_mappings TO authenticated;
+GRANT TRIGGER ON public.industry_tag_mappings TO service_role;
+GRANT TRIGGER ON public.intake_files TO anon;
+GRANT TRIGGER ON public.intake_files TO authenticated;
+GRANT TRIGGER ON public.intake_files TO service_role;
+GRANT TRIGGER ON public.intake_responses TO anon;
+GRANT TRIGGER ON public.intake_responses TO authenticated;
+GRANT TRIGGER ON public.intake_responses TO service_role;
+GRANT TRIGGER ON public.intake_website_pages TO anon;
+GRANT TRIGGER ON public.intake_website_pages TO authenticated;
+GRANT TRIGGER ON public.intake_website_pages TO service_role;
+GRANT TRIGGER ON public.integration_credentials TO anon;
+GRANT TRIGGER ON public.integration_credentials TO authenticated;
+GRANT TRIGGER ON public.integration_credentials TO service_role;
+GRANT TRIGGER ON public.integrations_registry TO anon;
+GRANT TRIGGER ON public.integrations_registry TO authenticated;
+GRANT TRIGGER ON public.integrations_registry TO service_role;
+GRANT TRIGGER ON public.job_queue TO service_role;
+GRANT TRIGGER ON public.meetings TO anon;
+GRANT TRIGGER ON public.meetings TO authenticated;
+GRANT TRIGGER ON public.meetings TO service_role;
+GRANT TRIGGER ON public.mon_001 TO service_role;
+GRANT TRIGGER ON public.mon_002 TO service_role;
+GRANT TRIGGER ON public.mon_003 TO service_role;
+GRANT TRIGGER ON public.mon_004 TO service_role;
+GRANT TRIGGER ON public.mon_005 TO service_role;
+GRANT TRIGGER ON public.mon_006 TO service_role;
+GRANT TRIGGER ON public.mon_007 TO service_role;
+GRANT TRIGGER ON public.mon_010 TO service_role;
+GRANT TRIGGER ON public.mon_011 TO service_role;
+GRANT TRIGGER ON public.mon_012 TO service_role;
+GRANT TRIGGER ON public.mon_013 TO service_role;
+GRANT TRIGGER ON public.mon_014 TO service_role;
+GRANT TRIGGER ON public.mon_015 TO service_role;
+GRANT TRIGGER ON public.mon_016 TO service_role;
+GRANT TRIGGER ON public.mon_017 TO service_role;
+GRANT TRIGGER ON public.mon_018 TO service_role;
+GRANT TRIGGER ON public.mon_019 TO service_role;
+GRANT TRIGGER ON public.mon_020 TO service_role;
+GRANT TRIGGER ON public.mon_021 TO service_role;
+GRANT TRIGGER ON public.mon_022 TO service_role;
+GRANT TRIGGER ON public.monitor_checks TO anon;
+GRANT TRIGGER ON public.monitor_checks TO service_role;
+GRANT TRIGGER ON public.monitor_events TO anon;
+GRANT TRIGGER ON public.monitor_events TO service_role;
+GRANT TRIGGER ON public.notifications_log TO anon;
+GRANT TRIGGER ON public.notifications_log TO authenticated;
+GRANT TRIGGER ON public.notifications_log TO service_role;
+GRANT TRIGGER ON public.organisations TO anon;
+GRANT TRIGGER ON public.organisations TO authenticated;
+GRANT TRIGGER ON public.organisations TO service_role;
+GRANT TRIGGER ON public.patterns TO anon;
+GRANT TRIGGER ON public.patterns TO authenticated;
+GRANT TRIGGER ON public.patterns TO service_role;
+GRANT TRIGGER ON public.polling_cursors TO anon;
+GRANT TRIGGER ON public.polling_cursors TO authenticated;
+GRANT TRIGGER ON public.polling_cursors TO service_role;
+GRANT TRIGGER ON public.prospect_research_results TO anon;
+GRANT TRIGGER ON public.prospect_research_results TO authenticated;
+GRANT TRIGGER ON public.prospect_research_results TO service_role;
+GRANT TRIGGER ON public.prospects TO anon;
+GRANT TRIGGER ON public.prospects TO authenticated;
+GRANT TRIGGER ON public.prospects TO service_role;
+GRANT TRIGGER ON public.queue_depth TO service_role;
+GRANT TRIGGER ON public.queue_rotation TO service_role;
+GRANT TRIGGER ON public.reply_drafts TO anon;
+GRANT TRIGGER ON public.reply_drafts TO authenticated;
+GRANT TRIGGER ON public.reply_drafts TO service_role;
+GRANT TRIGGER ON public.reply_handling_actions TO anon;
+GRANT TRIGGER ON public.reply_handling_actions TO authenticated;
+GRANT TRIGGER ON public.reply_handling_actions TO service_role;
+GRANT TRIGGER ON public.segments TO anon;
+GRANT TRIGGER ON public.segments TO authenticated;
+GRANT TRIGGER ON public.segments TO service_role;
+GRANT TRIGGER ON public.signals TO anon;
+GRANT TRIGGER ON public.signals TO authenticated;
+GRANT TRIGGER ON public.signals TO service_role;
+GRANT TRIGGER ON public.strategy_documents TO anon;
+GRANT TRIGGER ON public.strategy_documents TO authenticated;
+GRANT TRIGGER ON public.strategy_documents TO service_role;
+GRANT TRIGGER ON public.suppressed_emails TO service_role;
+GRANT TRIGGER ON public.synthesis_batch_entries TO service_role;
+GRANT TRIGGER ON public.synthesis_batches TO service_role;
+GRANT TRIGGER ON public.system_flags TO service_role;
+GRANT TRIGGER ON public.users TO anon;
+GRANT TRIGGER ON public.users TO authenticated;
+GRANT TRIGGER ON public.users TO service_role;
+GRANT TRIGGER ON public.users_pending_review TO anon;
+GRANT TRIGGER ON public.users_pending_review TO authenticated;
+GRANT TRIGGER ON public.users_pending_review TO service_role;
+GRANT TRIGGER ON public.verification_calls TO service_role;
+GRANT TRUNCATE ON public.agent_runs TO anon;
+GRANT TRUNCATE ON public.agent_runs TO authenticated;
+GRANT TRUNCATE ON public.agent_runs TO service_role;
+GRANT TRUNCATE ON public.campaigns TO anon;
+GRANT TRUNCATE ON public.campaigns TO authenticated;
+GRANT TRUNCATE ON public.campaigns TO service_role;
+GRANT TRUNCATE ON public.client_organisation_view TO anon;
+GRANT TRUNCATE ON public.client_organisation_view TO authenticated;
+GRANT TRUNCATE ON public.client_organisation_view TO service_role;
+GRANT TRUNCATE ON public.client_prospects_view TO authenticated;
+GRANT TRUNCATE ON public.client_prospects_view TO service_role;
+GRANT TRUNCATE ON public.cron_heartbeats TO anon;
+GRANT TRUNCATE ON public.cron_heartbeats TO service_role;
+GRANT TRUNCATE ON public.document_suggestions TO anon;
+GRANT TRUNCATE ON public.document_suggestions TO authenticated;
+GRANT TRUNCATE ON public.document_suggestions TO service_role;
+GRANT TRUNCATE ON public.enrichment_runs TO anon;
+GRANT TRUNCATE ON public.enrichment_runs TO authenticated;
+GRANT TRUNCATE ON public.enrichment_runs TO service_role;
+GRANT TRUNCATE ON public.faq_extractions TO anon;
+GRANT TRUNCATE ON public.faq_extractions TO authenticated;
+GRANT TRUNCATE ON public.faq_extractions TO service_role;
+GRANT TRUNCATE ON public.faqs TO anon;
+GRANT TRUNCATE ON public.faqs TO authenticated;
+GRANT TRUNCATE ON public.faqs TO service_role;
+GRANT TRUNCATE ON public.industry_tag_mappings TO anon;
+GRANT TRUNCATE ON public.industry_tag_mappings TO authenticated;
+GRANT TRUNCATE ON public.industry_tag_mappings TO service_role;
+GRANT TRUNCATE ON public.intake_files TO anon;
+GRANT TRUNCATE ON public.intake_files TO authenticated;
+GRANT TRUNCATE ON public.intake_files TO service_role;
+GRANT TRUNCATE ON public.intake_responses TO anon;
+GRANT TRUNCATE ON public.intake_responses TO authenticated;
+GRANT TRUNCATE ON public.intake_responses TO service_role;
+GRANT TRUNCATE ON public.intake_website_pages TO anon;
+GRANT TRUNCATE ON public.intake_website_pages TO authenticated;
+GRANT TRUNCATE ON public.intake_website_pages TO service_role;
+GRANT TRUNCATE ON public.integration_credentials TO anon;
+GRANT TRUNCATE ON public.integration_credentials TO authenticated;
+GRANT TRUNCATE ON public.integration_credentials TO service_role;
+GRANT TRUNCATE ON public.integrations_registry TO anon;
+GRANT TRUNCATE ON public.integrations_registry TO authenticated;
+GRANT TRUNCATE ON public.integrations_registry TO service_role;
+GRANT TRUNCATE ON public.job_queue TO service_role;
+GRANT TRUNCATE ON public.meetings TO anon;
+GRANT TRUNCATE ON public.meetings TO authenticated;
+GRANT TRUNCATE ON public.meetings TO service_role;
+GRANT TRUNCATE ON public.mon_001 TO service_role;
+GRANT TRUNCATE ON public.mon_002 TO service_role;
+GRANT TRUNCATE ON public.mon_003 TO service_role;
+GRANT TRUNCATE ON public.mon_004 TO service_role;
+GRANT TRUNCATE ON public.mon_005 TO service_role;
+GRANT TRUNCATE ON public.mon_006 TO service_role;
+GRANT TRUNCATE ON public.mon_007 TO service_role;
+GRANT TRUNCATE ON public.mon_010 TO service_role;
+GRANT TRUNCATE ON public.mon_011 TO service_role;
+GRANT TRUNCATE ON public.mon_012 TO service_role;
+GRANT TRUNCATE ON public.mon_013 TO service_role;
+GRANT TRUNCATE ON public.mon_014 TO service_role;
+GRANT TRUNCATE ON public.mon_015 TO service_role;
+GRANT TRUNCATE ON public.mon_016 TO service_role;
+GRANT TRUNCATE ON public.mon_017 TO service_role;
+GRANT TRUNCATE ON public.mon_018 TO service_role;
+GRANT TRUNCATE ON public.mon_019 TO service_role;
+GRANT TRUNCATE ON public.mon_020 TO service_role;
+GRANT TRUNCATE ON public.mon_021 TO service_role;
+GRANT TRUNCATE ON public.mon_022 TO service_role;
+GRANT TRUNCATE ON public.monitor_checks TO anon;
+GRANT TRUNCATE ON public.monitor_checks TO service_role;
+GRANT TRUNCATE ON public.monitor_events TO anon;
+GRANT TRUNCATE ON public.monitor_events TO service_role;
+GRANT TRUNCATE ON public.notifications_log TO anon;
+GRANT TRUNCATE ON public.notifications_log TO authenticated;
+GRANT TRUNCATE ON public.notifications_log TO service_role;
+GRANT TRUNCATE ON public.organisations TO anon;
+GRANT TRUNCATE ON public.organisations TO authenticated;
+GRANT TRUNCATE ON public.organisations TO service_role;
+GRANT TRUNCATE ON public.patterns TO anon;
+GRANT TRUNCATE ON public.patterns TO authenticated;
+GRANT TRUNCATE ON public.patterns TO service_role;
+GRANT TRUNCATE ON public.polling_cursors TO anon;
+GRANT TRUNCATE ON public.polling_cursors TO authenticated;
+GRANT TRUNCATE ON public.polling_cursors TO service_role;
+GRANT TRUNCATE ON public.prospect_research_results TO anon;
+GRANT TRUNCATE ON public.prospect_research_results TO authenticated;
+GRANT TRUNCATE ON public.prospect_research_results TO service_role;
+GRANT TRUNCATE ON public.prospects TO anon;
+GRANT TRUNCATE ON public.prospects TO authenticated;
+GRANT TRUNCATE ON public.prospects TO service_role;
+GRANT TRUNCATE ON public.queue_depth TO service_role;
+GRANT TRUNCATE ON public.queue_rotation TO service_role;
+GRANT TRUNCATE ON public.reply_drafts TO anon;
+GRANT TRUNCATE ON public.reply_drafts TO authenticated;
+GRANT TRUNCATE ON public.reply_drafts TO service_role;
+GRANT TRUNCATE ON public.reply_handling_actions TO anon;
+GRANT TRUNCATE ON public.reply_handling_actions TO authenticated;
+GRANT TRUNCATE ON public.reply_handling_actions TO service_role;
+GRANT TRUNCATE ON public.segments TO anon;
+GRANT TRUNCATE ON public.segments TO authenticated;
+GRANT TRUNCATE ON public.segments TO service_role;
+GRANT TRUNCATE ON public.signals TO anon;
+GRANT TRUNCATE ON public.signals TO authenticated;
+GRANT TRUNCATE ON public.signals TO service_role;
+GRANT TRUNCATE ON public.strategy_documents TO anon;
+GRANT TRUNCATE ON public.strategy_documents TO authenticated;
+GRANT TRUNCATE ON public.strategy_documents TO service_role;
+GRANT TRUNCATE ON public.suppressed_emails TO service_role;
+GRANT TRUNCATE ON public.synthesis_batch_entries TO service_role;
+GRANT TRUNCATE ON public.synthesis_batches TO service_role;
+GRANT TRUNCATE ON public.system_flags TO service_role;
+GRANT TRUNCATE ON public.users TO anon;
+GRANT TRUNCATE ON public.users TO authenticated;
+GRANT TRUNCATE ON public.users TO service_role;
+GRANT TRUNCATE ON public.users_pending_review TO anon;
+GRANT TRUNCATE ON public.users_pending_review TO authenticated;
+GRANT TRUNCATE ON public.users_pending_review TO service_role;
+GRANT TRUNCATE ON public.verification_calls TO service_role;
+GRANT UPDATE ON public.agent_runs TO anon;
+GRANT UPDATE ON public.agent_runs TO authenticated;
+GRANT UPDATE ON public.agent_runs TO service_role;
+GRANT UPDATE ON public.campaigns TO anon;
+GRANT UPDATE ON public.campaigns TO authenticated;
+GRANT UPDATE ON public.campaigns TO service_role;
+GRANT UPDATE ON public.client_organisation_view TO anon;
+GRANT UPDATE ON public.client_organisation_view TO authenticated;
+GRANT UPDATE ON public.client_organisation_view TO service_role;
+GRANT UPDATE ON public.client_prospects_view TO authenticated;
+GRANT UPDATE ON public.client_prospects_view TO service_role;
+GRANT UPDATE ON public.cron_heartbeats TO anon;
+GRANT UPDATE ON public.cron_heartbeats TO service_role;
+GRANT UPDATE ON public.document_suggestions TO anon;
+GRANT UPDATE ON public.document_suggestions TO authenticated;
+GRANT UPDATE ON public.document_suggestions TO service_role;
+GRANT UPDATE ON public.enrichment_runs TO anon;
+GRANT UPDATE ON public.enrichment_runs TO authenticated;
+GRANT UPDATE ON public.enrichment_runs TO service_role;
+GRANT UPDATE ON public.faq_extractions TO anon;
+GRANT UPDATE ON public.faq_extractions TO authenticated;
+GRANT UPDATE ON public.faq_extractions TO service_role;
+GRANT UPDATE ON public.faqs TO anon;
+GRANT UPDATE ON public.faqs TO authenticated;
+GRANT UPDATE ON public.faqs TO service_role;
+GRANT UPDATE ON public.industry_tag_mappings TO anon;
+GRANT UPDATE ON public.industry_tag_mappings TO authenticated;
+GRANT UPDATE ON public.industry_tag_mappings TO service_role;
+GRANT UPDATE ON public.intake_files TO anon;
+GRANT UPDATE ON public.intake_files TO authenticated;
+GRANT UPDATE ON public.intake_files TO service_role;
+GRANT UPDATE ON public.intake_responses TO anon;
+GRANT UPDATE ON public.intake_responses TO authenticated;
+GRANT UPDATE ON public.intake_responses TO service_role;
+GRANT UPDATE ON public.intake_website_pages TO anon;
+GRANT UPDATE ON public.intake_website_pages TO authenticated;
+GRANT UPDATE ON public.intake_website_pages TO service_role;
+GRANT UPDATE ON public.integration_credentials TO anon;
+GRANT UPDATE ON public.integration_credentials TO authenticated;
+GRANT UPDATE ON public.integration_credentials TO service_role;
+GRANT UPDATE ON public.integrations_registry TO anon;
+GRANT UPDATE ON public.integrations_registry TO authenticated;
+GRANT UPDATE ON public.integrations_registry TO service_role;
+GRANT UPDATE ON public.job_queue TO service_role;
+GRANT UPDATE ON public.meetings TO anon;
+GRANT UPDATE ON public.meetings TO authenticated;
+GRANT UPDATE ON public.meetings TO service_role;
+GRANT UPDATE ON public.mon_001 TO service_role;
+GRANT UPDATE ON public.mon_002 TO service_role;
+GRANT UPDATE ON public.mon_003 TO service_role;
+GRANT UPDATE ON public.mon_004 TO service_role;
+GRANT UPDATE ON public.mon_005 TO service_role;
+GRANT UPDATE ON public.mon_006 TO service_role;
+GRANT UPDATE ON public.mon_007 TO service_role;
+GRANT UPDATE ON public.mon_010 TO service_role;
+GRANT UPDATE ON public.mon_011 TO service_role;
+GRANT UPDATE ON public.mon_012 TO service_role;
+GRANT UPDATE ON public.mon_013 TO service_role;
+GRANT UPDATE ON public.mon_014 TO service_role;
+GRANT UPDATE ON public.mon_015 TO service_role;
+GRANT UPDATE ON public.mon_016 TO service_role;
+GRANT UPDATE ON public.mon_017 TO service_role;
+GRANT UPDATE ON public.mon_018 TO service_role;
+GRANT UPDATE ON public.mon_019 TO service_role;
+GRANT UPDATE ON public.mon_020 TO service_role;
+GRANT UPDATE ON public.mon_021 TO service_role;
+GRANT UPDATE ON public.mon_022 TO service_role;
+GRANT UPDATE ON public.monitor_checks TO anon;
+GRANT UPDATE ON public.monitor_checks TO service_role;
+GRANT UPDATE ON public.monitor_events TO anon;
+GRANT UPDATE ON public.monitor_events TO service_role;
+GRANT UPDATE ON public.notifications_log TO anon;
+GRANT UPDATE ON public.notifications_log TO authenticated;
+GRANT UPDATE ON public.notifications_log TO service_role;
+GRANT UPDATE ON public.organisations TO anon;
+GRANT UPDATE ON public.organisations TO authenticated;
+GRANT UPDATE ON public.organisations TO service_role;
+GRANT UPDATE ON public.patterns TO anon;
+GRANT UPDATE ON public.patterns TO authenticated;
+GRANT UPDATE ON public.patterns TO service_role;
+GRANT UPDATE ON public.polling_cursors TO anon;
+GRANT UPDATE ON public.polling_cursors TO authenticated;
+GRANT UPDATE ON public.polling_cursors TO service_role;
+GRANT UPDATE ON public.prospect_research_results TO anon;
+GRANT UPDATE ON public.prospect_research_results TO authenticated;
+GRANT UPDATE ON public.prospect_research_results TO service_role;
+GRANT UPDATE ON public.prospects TO anon;
+GRANT UPDATE ON public.prospects TO authenticated;
+GRANT UPDATE ON public.prospects TO service_role;
+GRANT UPDATE ON public.queue_depth TO service_role;
+GRANT UPDATE ON public.queue_rotation TO service_role;
+GRANT UPDATE ON public.reply_drafts TO anon;
+GRANT UPDATE ON public.reply_drafts TO authenticated;
+GRANT UPDATE ON public.reply_drafts TO service_role;
+GRANT UPDATE ON public.reply_handling_actions TO anon;
+GRANT UPDATE ON public.reply_handling_actions TO authenticated;
+GRANT UPDATE ON public.reply_handling_actions TO service_role;
+GRANT UPDATE ON public.segments TO anon;
+GRANT UPDATE ON public.segments TO authenticated;
+GRANT UPDATE ON public.segments TO service_role;
+GRANT UPDATE ON public.signals TO anon;
+GRANT UPDATE ON public.signals TO authenticated;
+GRANT UPDATE ON public.signals TO service_role;
+GRANT UPDATE ON public.strategy_documents TO anon;
+GRANT UPDATE ON public.strategy_documents TO authenticated;
+GRANT UPDATE ON public.strategy_documents TO service_role;
+GRANT UPDATE ON public.suppressed_emails TO service_role;
+GRANT UPDATE ON public.synthesis_batch_entries TO service_role;
+GRANT UPDATE ON public.synthesis_batches TO service_role;
+GRANT UPDATE ON public.system_flags TO service_role;
+GRANT UPDATE ON public.users TO anon;
+GRANT UPDATE ON public.users TO authenticated;
+GRANT UPDATE ON public.users TO service_role;
+GRANT UPDATE ON public.users_pending_review TO anon;
+GRANT UPDATE ON public.users_pending_review TO authenticated;
+GRANT UPDATE ON public.users_pending_review TO service_role;
+GRANT UPDATE ON public.verification_calls TO service_role;
+
+-- ── FUNCTION EXECUTE grants ───────────────────────────────────────────
+GRANT EXECUTE ON FUNCTION public.append_faq_variant(p_faq_id uuid, p_new_variant text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.approve_document_suggestion(p_suggestion_id uuid, p_reviewer_id uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.check_prospect_campaign_org_match() TO anon;
+GRANT EXECUTE ON FUNCTION public.check_prospect_campaign_org_match() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.check_prospect_campaign_org_match() TO service_role;
+GRANT EXECUTE ON FUNCTION public.claim_jobs(p_job_type text, p_organisation_id uuid, p_worker text, p_lease_seconds integer, p_limit integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.complete_job(p_job_id uuid, p_worker text, p_summary text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.enqueue_job(p_job_type text, p_organisation_id uuid, p_prospect_id uuid, p_enqueued_by text, p_max_attempts integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.enqueue_research_phase(p_job_type text, p_organisation_id uuid, p_prospect_id uuid, p_enqueued_by text, p_max_attempts integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fail_job(p_job_id uuid, p_worker text, p_error text, p_error_class text, p_force_terminal boolean) TO service_role;
+GRANT EXECUTE ON FUNCTION public.get_my_organisation_id() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_my_organisation_id() TO service_role;
+GRANT EXECUTE ON FUNCTION public.handle_new_auth_user() TO service_role;
+GRANT EXECUTE ON FUNCTION public.handle_new_user() TO service_role;
+GRANT EXECUTE ON FUNCTION public.is_operator() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_operator() TO service_role;
+GRANT EXECUTE ON FUNCTION public.job_queue_backoff(p_attempts integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.promote_strategy_doc_version(p_org_id uuid, p_doc_type text, p_segment_id uuid, p_content jsonb, p_update_trigger text, p_revision_note text, p_change_summary text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.queue_next_organisations(p_job_type text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.reclaim_expired_jobs(p_limit integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.record_job_spend(p_job_id uuid, p_detail jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION public.rls_auto_enable() TO service_role;
+GRANT EXECUTE ON FUNCTION public.set_updated_at() TO anon;
+GRANT EXECUTE ON FUNCTION public.set_updated_at() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.set_updated_at() TO service_role;
+GRANT EXECUTE ON FUNCTION public.validate_faq_extractions_org_consistency() TO anon;
+GRANT EXECUTE ON FUNCTION public.validate_faq_extractions_org_consistency() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.validate_faq_extractions_org_consistency() TO service_role;
+GRANT EXECUTE ON FUNCTION public.validate_faqs_org_exists() TO anon;
+GRANT EXECUTE ON FUNCTION public.validate_faqs_org_exists() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.validate_faqs_org_exists() TO service_role;
+
+-- ── COMMENTS ──────────────────────────────────────────────────────────
+COMMENT ON COLUMN public.campaigns.contacted_count IS 'People, not emails. Instantly''s contacted_count: leads for whom the sequence has started. sent_count counts emails and over-counts people once follow-ups go out. This is the number behind "prospects contacted" on the client overview.';
+COMMENT ON COLUMN public.campaigns.sending_state IS 'Canonical live sending health, translated from Instantly''s sending-status endpoint by src/lib/integrations/handlers/instantly/campaign-sending-status.ts. NULL means we have not established it: never checked, or checked and Instantly reported no data. Only ''sending'' means mail is actually going out. Never infer this from campaigns.status, which is intent.';
+COMMENT ON COLUMN public.campaigns.sending_status_checked_at IS 'When Instantly last answered the sending-status call for this campaign, whether or not the answer contained a status. Staleness here is what stops the dashboard claiming a campaign is live on the strength of a reading from days ago.';
+COMMENT ON COLUMN public.campaigns.sending_status_raw IS 'The raw Instantly sending-status code behind sending_state. Diagnostics only. Never rendered to a client, never joined on, deliberately unconstrained so a new Instantly enum value cannot fail the write that also carries the campaign counters.';
+COMMENT ON COLUMN public.campaigns.unsubscribed_count IS 'Instantly''s count of leads who unsubscribed from this campaign. Not the same as the suppressed_emails table, which is our own cross-campaign suppression list. The client opt-out rate is computed from this, because the sending tool''s number is the one that governs what actually goes out.';
+COMMENT ON COLUMN public.faq_extractions.potential_names_flagged IS 'Array of capitalised tokens detected in captured_answer that may be
+   personal names. Surfaced in curation UI for operator review before
+   the candidate becomes a canonical FAQ. Defaults to empty array.';
+COMMENT ON COLUMN public.faq_extractions.prompt_version IS 'Version of docs/prompts/faq-extraction-agent.md that produced this
+   extraction. For traceability when prompt evolves.';
+COMMENT ON COLUMN public.faq_extractions.similar_pending_extraction_id IS 'Self-referential FK to another faq_extractions row when the extracted
+   question is similar to a pending (not-yet-approved) extraction. Allows
+   the curation UI (Group 7) to dedupe pending candidates rather than
+   creating duplicate FAQ entries.';
+COMMENT ON COLUMN public.faq_extractions.similarity_score IS 'Top similarity score (0.000-1.000) from the FAQ matcher when
+   similar_faq_id or similar_pending_extraction_id is populated. Null
+   when no match above the 0.45 threshold was found.';
+COMMENT ON COLUMN public.faq_extractions.source IS 'Origin of the FAQ candidate: seed_generated (from organisation intake/strategy documents
+   at onboarding, before any replies) or reply_extracted (from operator-sent Tier 3 replies).
+   Allows curation UI to filter and prioritise each source appropriately.
+   Default reply_extracted for backcompat with existing rows.';
+COMMENT ON COLUMN public.prospect_research_results.candidates IS 'All observation candidates generated during synthesis, each with six-test scores and provenance. Rejected candidates are retained deliberately so selection is auditable.';
+COMMENT ON COLUMN public.prospects.apollo_enrichment_data IS 'Named subset of the Apollo bulk_match response, already paid for at enrichment. Shape is an ALLOW-LIST in src/lib/sourcing/apollo-enrichment-subset.ts. Never store street_address, raw_address, postal_code, city, state, formatted_address, phone, photo_url, personal social URLs, or any nested emails array: UK GDPR data minimisation, and we have no purpose for them.';
+COMMENT ON COLUMN public.prospects.enrichment_credit_consumed_at IS 'Set when an Apollo bulk_match response that consumed credits included this prospect''s batch. Never cleared by application code. enrichment-trigger refuses to re-select any prospect where this is NOT NULL, so a paid-for person can never be bought twice.';
+COMMENT ON COLUMN public.prospects.fit_score IS 'Fitness score (0-100) calculated during prospect classification. Used in phase 1 two-stage tiering model (disqualifiers + fit score). Null indicates prospect was removed in disqualifier stage.';
+COMMENT ON COLUMN public.prospects.operator_override_at IS 'Timestamp when operator override was applied';
+COMMENT ON COLUMN public.prospects.operator_override_by IS 'User ID of operator who applied override';
+COMMENT ON COLUMN public.prospects.operator_override_reason IS 'Reason for operator override';
+COMMENT ON COLUMN public.prospects.operator_override_tier IS 'Tier assigned by operator override (overrides classification)';
+COMMENT ON COLUMN public.prospects.personalisation_question IS 'Written closing question replacing the variant approved CTA at composition. NULL keeps the approved CTA. Written only when the personalised version wins the judge, always together with personalisation_trigger.';
+COMMENT ON COLUMN public.signals.original_outbound_body IS 'Body of the outbound email this reply is replying to. Captured at polling time via Instantly API. NULL if fetch failed or field not found in reply object.';
+COMMENT ON COLUMN public.signals.original_outbound_message_id IS 'Instantly UUID of the original outbound email. Captured at polling time.';
+COMMENT ON TABLE public.suppressed_emails IS 'Global do-not-contact list keyed on normalised email. Separate from prospects.suppressed, which is per-organisation and carries four unrelated meanings. Written by the Instantly bounce/unsubscribe poller; read by findBlockedProspects in src/lib/suppression/send-gate.ts. Service role only: RLS enabled with zero policies. Deliberately has NO org-consistency trigger — a row written from org A must apply when org B uploads.';
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- COVERAGE. READ THIS BEFORE TRUSTING THIS FILE FOR A RESTORE.
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- WHAT IS HERE, verified by counting the generated file against the live catalog
+-- rather than by reading it. Every figure matched exactly:
+--
+--     tables         36 / 36        views          23 / 23
+--     functions      21 / 21        indexes       117 / 117
+--     constraints   179 / 179       RLS policies   53 / 53
+--     triggers       11 / 11        extensions      7 / 7
+--     sequences       2 / 2         comments       22 / 22
+--     ENABLE ROW LEVEL SECURITY on all 36 tables
+--     850 GRANT statements for anon, authenticated and service_role
+--
+-- The grants are included deliberately and are load-bearing. Supabase runs
+-- ALTER DEFAULT PRIVILEGES on the public schema, granting anon and authenticated
+-- BY NAME at creation time, so a rebuild that omits grants does not reproduce the
+-- security posture even if every table and policy is identical. Views also record
+-- security_invoker where it is set: a view without it runs as its OWNER and never
+-- consults RLS on its base tables.
+--
+-- ═══════════════════════════════════════════════════════════════════════════
+-- WHAT IS NOT HERE. THIS IS THE IMPORTANT HALF.
+--
+--  1. NO DATA. Schema only. Not a backup of anything a client would miss.
+--
+--  2. ONLY THE public SCHEMA. auth, storage, cron, net, extensions and graphql
+--     are absent. Supabase manages auth and storage itself, but that means a
+--     restore from this file has NO USERS and NO STORAGE BUCKETS OR POLICIES.
+--
+--  3. NO pg_cron SCHEDULES. Eleven jobs live in cron.job and they are what make
+--     this platform run: the queue worker, both verification sweeps, reply
+--     processing, the monitor sweep, the synthesis batch sweep. They are excluded
+--     ON PURPOSE, because each command embeds CRON_SECRET literally and this
+--     repository is currently PUBLIC. A restore must reschedule them by hand from
+--     the pg_cron migrations, which ARE in the repo.
+--
+--  4. NO OWNERSHIP. No ALTER ... OWNER TO. On restore every object belongs to
+--     whoever ran the file. For views this matters more than it looks: a view's
+--     owner determines whose privileges it executes with.
+--
+--  5. NO ALTER DEFAULT PRIVILEGES. The grants above are a snapshot of what exists
+--     now, not the rule that keeps producing them for newly created objects.
+--
+--  6. NO SEQUENCE VALUES. The two sequences are created but not setval'd, which
+--     is correct for a schema baseline and wrong for a data restore.
+--
+--  7. NO auth.users FOREIGN KEY TARGETS. public.users.id references an auth user.
+--     Restoring into an empty project gives a table whose rows cannot be created
+--     until auth exists.
+--
+--  8. IT IS A RECONSTRUCTION, NOT pg_dump. Generated from the live catalog via the
+--     Supabase Management API, read-only, because supabase db dump needs Docker and
+--     pg_dump is not installed on this machine, and installing either was out of
+--     scope. Statement ORDER within a section is alphabetical, not dependency-sorted.
+--
+--  9. **IT HAS NEVER BEEN RESTORED.** No empty database was created and no replay was
+--     attempted, so "this file would rebuild the schema" is UNVERIFIED. The object
+--     counts prove COMPLETENESS, not EXECUTABILITY. One ordering defect was already
+--     found and fixed during generation (two column defaults called nextval() on
+--     sequences that no CREATE SEQUENCE produced, which would have failed on the
+--     first table). That was caught by grepping the output, not by reading it, and
+--     there may be more of the same shape.
+--
+--     A restore test is the obvious next step and it needs somewhere to restore TO,
+--     which is the same blocked decision as the 38 database-dependent tests.
+--
+-- ═══════════════════════════════════════════════════════════════════════════
+-- HOW TO REGENERATE
+--
+-- The generator is not committed, because it reads SUPABASE_ACCESS_TOKEN. It is
+-- twelve read-only catalog queries against
+--     POST https://api.supabase.com/v1/projects/{ref}/database/query
+-- one per section, each returning a single `ddl` column built with string_agg.
+-- Nothing it runs is a write. Never use db push, db reset or db remote commit on
+-- this project: the remote migration history does not match the repo filenames and
+-- a push would replay files the database already has under different versions.
