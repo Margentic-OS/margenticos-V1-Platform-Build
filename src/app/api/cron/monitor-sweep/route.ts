@@ -31,6 +31,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import * as Sentry from '@sentry/nextjs'
+import { MONITORS } from './monitors'
 
 export async function POST(request: NextRequest) {
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -46,8 +47,7 @@ export async function POST(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const checkCodes = ['MON-001', 'MON-002', 'MON-003', 'MON-004', 'MON-005', 'MON-006', 'MON-007', 'MON-010', 'MON-011', 'MON-012', 'MON-013', 'MON-014', 'MON-015', 'MON-016', 'MON-017', 'MON-018']
-  const viewNames = ['mon_001', 'mon_002', 'mon_003', 'mon_004', 'mon_005', 'mon_006', 'mon_007', 'mon_010', 'mon_011', 'mon_012', 'mon_013', 'mon_014', 'mon_015', 'mon_016', 'mon_017', 'mon_018', 'mon_019']
+  const monitors = MONITORS
 
   const results = {
     checked: 0,
@@ -56,9 +56,7 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Check each monitor ─────────────────────────────────────────────────────
-  for (let i = 0; i < checkCodes.length; i++) {
-    const checkCode = checkCodes[i]
-    const viewName = viewNames[i]
+  for (const [checkCode, viewName] of monitors) {
 
     try {
       // Query the view to get current state
