@@ -6097,8 +6097,17 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   reading the docs and assuming. A parameter name typo here does not fail, it ships a
   filter that filters nothing.
 
-- [DECISION NEEDED, 2026-08-26] RESIDUAL CANADA AND GERMANY EXPOSURE. NOT FIXED, because
-  the spec was explicit and its number was matched. Doug's call.
+- [RESOLVED 2026-08-26, was DECISION NEEDED] RESIDUAL CANADA AND GERMANY EXPOSURE. NOW
+  CLOSED at Doug's instruction: person_locations added, same three countries as
+  organization_locations. Shipped total 55,975, down from 61,523, which is 5,548 rows or
+  about 9 percent of inventory. Doug's reasoning, recorded because it is the precedent for
+  the next one of these: nine percent of inventory is affordable, a complaint is not, and
+  Canada was removed on legal grounds rather than preference.
+  Proof the gap is actually shut, rather than the parameter being silently ignored:
+  adding a country BACK returns precisely the people it was excluding. +canada gives
+  56,520, which is 55,975 plus exactly the 545. +germany gives 56,213, which is 55,975
+  plus exactly the 238. See ADR-032.
+  The original finding, kept for the reasoning:
   The filter constrains organization_locations only, so it removes German and Canadian
   FIRMS. It does not constrain where the PERSON is. Measured live:
     - 545 people located in Canada at in-scope US/UK/IE firms
@@ -6122,10 +6131,16 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
       dead code. Recover them from git history at bc05658 when the config layer returns.
     - spec.job_titles_excluded and spec.keywords_excluded ARE still honoured. They are
       post-filters applied to results in execute(), not search parameters.
-  Hardcoding the filter is an architectural decision and may deserve its own ADR. Not
-  written this session because docs/ADR.md was being edited in a parallel session.
+  Hardcoding the filter is an architectural decision and is now written up as ADR-032,
+  which also carries the manifest-check reasoning verbatim.
 
-- [pre-c1, 2026-08-26] ICP SPEC DEFAULTS STILL LIST DE AND CA. DEFAULT_PERSON_COUNTRIES and
+- [RESOLVED 2026-08-26, was pre-c1] ICP SPEC DEFAULTS NO LONGER LIST DE AND CA. Both
+  DEFAULT_PERSON_COUNTRIES and DEFAULT_COMPANY_COUNTRIES are now ['GB', 'IE', 'US'].
+  AU and NL were removed in the same edit, beyond the DE and CA that were asked for: the
+  filter does not source them either, so leaving them would have kept the divergence log
+  firing on every run, and that noise was half the reason for the change. Enforcement
+  still lives at the filter, which is hardcoded and which no spec value can widen. The
+  defaults now agree with it instead of contradicting it. Original finding below: DEFAULT_PERSON_COUNTRIES and
   DEFAULT_COMPANY_COUNTRIES in src/lib/agents/icp-filter-spec.ts still contain DE, CA, AU
   and NL, and the comment above them still recommends DE and NL. Not changed: the
   instruction was to remove Germany and Canada at the FILTER layer, and changing the

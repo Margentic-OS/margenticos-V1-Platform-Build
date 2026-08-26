@@ -2285,3 +2285,114 @@ Rejected alternatives:
   is therefore a global in-flight cap sized off Apify concurrency. Anthropic response
   headers are still read and acted on, documented in code as insurance against a tier
   change, explicitly not load-bearing.
+
+---
+
+## ADR-032 — Sourcing filter hardcoded in the handler; both location axes constrained
+Date: August 2026 | Status: Accepted
+
+Context:
+The Apollo sourcing query was built by translating each client's ICPFilterSpec into
+API parameters. That translation shipped three defects, and the common property of
+all three is what makes this decision worth recording: every one of them ran
+successfully, returned plausible results, and reported nothing wrong.
+
+  1. q_keywords was used for category sourcing. It is AND over free text, matched
+     against person and company NAMES, so it only ever found firms with the literal
+     word in their name. Measured on the final base: 4,924 against 72,458 for NAICS
+     alone. q_organization_keyword_tags is the OR parameter and the correct one.
+     The two names look interchangeable and are not.
+
+  2. Seniority was set to owner and founder, on the reasoning that the ICP is
+     founder-led firms. Apollo derives seniority from job TITLE, not from ownership,
+     and in professional services the owner is usually titled Partner or Managing
+     Partner. Measured on the final base: 29,139 against 72,458 once c_suite and
+     partner were added. The filter was excluding most of the population it was
+     written to target, and the first live sample row after the fix is a Lead Partner.
+
+  3. Geography was constrained on organization_locations only. That removes German
+     and Canadian FIRMS. It does not remove a person sitting in Toronto who works for
+     a US-registered company, and there were 545 such people in Canada and 238 in
+     Germany. CASL attaches to the RECIPIENT. Two German GmbHs had already been mailed
+     against an exclusion that lived in convention and had nothing to read it.
+
+A fourth property of the Apollo API turns any of these into a permanent hazard:
+APOLLO SILENTLY IGNORES A PARAMETER IT DOES NOT RECOGNISE. It does not error and it
+does not warn. While establishing which parameter carries NAICS, both naics_codes and
+q_organization_naics_codes returned 770,753, the completely unfiltered count. Only
+organization_naics_codes is read. A parameter-name typo here does not fail: it ships a
+filter that filters nothing and looks healthy on every dashboard.
+
+Decision:
+The Apollo search filter is HARDCODED in src/lib/sourcing/handlers/adapter-apollo.ts.
+The ICPFilterSpec no longer builds the query. The filter is:
+
+  organization_naics_codes            ['5416']
+  q_organization_keyword_tags         management / business / strategy consulting
+  organization_num_employees_ranges   ['5,50']
+  organization_locations              united states, united kingdom, ireland
+  person_locations                    united states, united kingdom, ireland
+  person_seniorities                  owner, founder, c_suite, partner
+  contact_email_status                ['verified']
+
+Live total_entries 55,975, measured 2026-08-26.
+
+Three parts of this are load-bearing and easy to undo by accident:
+
+BOTH LOCATION AXES ARE CONSTRAINED, to the same three countries. Constraining only the
+organization axis is what left the 545 Canadians reachable. Cost of closing it: 61,523
+to 55,975, some 5,548 rows or about 9 percent of inventory. That trade was made
+explicitly on the grounds that nine percent of inventory is affordable and a complaint
+is not, and that Canada was removed on legal grounds rather than preference.
+
+NAICS 5418 IS NOT EXCLUDED. Firms carry more than one NAICS code, so a consultancy
+coded both 5416 and 5418 is in scope and an exclusion rule would drop it. Adding 5418
+to the include list is a different thing and is not wanted: it measures 66,134.
+
+EVERY PARAMETER IS PROVED BY MEASUREMENT, never by reading the docs and assuming,
+because of the silent-ignore property above. The person_locations line was verified by
+arithmetic rather than assertion: adding a country back to it returns precisely the
+people it was excluding. +canada gives 56,520, which is 55,975 plus exactly the 545,
+and +germany gives 56,213, which is 55,975 plus exactly the 238. An ignored parameter
+would have left the total unchanged.
+
+Consequences:
+
+Accepted knowingly: THE ORCHESTRATOR'S MANIFEST CHECK NO LONGER DESCRIBES THE QUERY.
+Step 4 of the sourcing orchestrator compares populated spec fields against
+handler.supported_fields and still passes. It is now a check that runs, reports
+success, and says nothing about what is actually sent, which is precisely the
+silent-failure shape CLAUDE.md warns about. It was left in place deliberately:
+narrowing supported_fields would make the orchestrator THROW for any client whose spec
+populates a field the hardcoded filter ignores, which would stop sourcing rather than
+improve it. The trade is recorded here and commented at the call site rather than left
+to be rediscovered. Revisit when the config layer returns.
+
+The ICP spec defaults were changed to match: DEFAULT_PERSON_COUNTRIES and
+DEFAULT_COMPANY_COUNTRIES are now ['GB', 'IE', 'US']. Enforcement lives at the filter
+and no spec value can widen it, but a default listing a country the filter refuses is
+a document that lies, and it made the adapter log a divergence on every run. AU and NL
+went in the same edit for the same reason. Widening that list alone now changes
+nothing about who is sourced: both it and APOLLO_FILTER must change together.
+
+This is deliberately NOT tool-agnostic in the usual sense, and that is the cost being
+accepted. ADR-001 and ADR-015 put translation inside the handler, and that still holds:
+the hardcoding is inside the Apollo handler, nothing upstream of it sees Apollo
+parameter names, and swapping sourcing tools still means a new handler. What is given
+up is per-client configurability of the filter, which existed and produced three
+defects. One filter that has been measured beats a config layer that has not.
+
+Alternatives rejected:
+
+Keep the spec-driven translation and fix the three bugs. Rejected because the defects
+were not arithmetic errors, they were wrong beliefs about what Apollo's parameters mean,
+and the translation layer gave those beliefs somewhere to hide. With one hardcoded
+filter the query is readable in one screen and every value carries its measurement.
+
+Remove DE and CA from the spec defaults only, and leave the filter permissive.
+Rejected: that is what was already in place. A convention with nothing enforcing it is
+exactly what the two mailed GmbHs had to protect them.
+
+Revisit when: client two needs a different filter. At that point restore the
+ISO-3166-to-Apollo location table and the seniority map from git history at bc05658,
+and reinstate the manifest check as a real gate in the same change.
