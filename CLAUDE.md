@@ -906,6 +906,56 @@ load-bearing in the wrong direction. Build the value from the source of truth in
 `satisfies` is often the right tool where a literal really is wanted: it checks the shape
 without widening or silencing.
 
+### A fake that does not honour a filter cannot test that filter
+
+An in-memory stand-in for a database client is the standard way to test query logic
+without a live connection. The trap is that a fake is written to satisfy the code paths
+you were thinking about, and it QUIETLY ACCEPTS every call it does not implement:
+
+    eq:    (c, v) => chain      // recorded, honoured
+    in:    (c, v) => chain      // recorded, honoured
+    limit: () => chain          // SWALLOWED. Returns everything, always.
+
+The chain still returns data, the test still passes, and the assertion still looks like
+it is about the filter. It is not. Remove the filter from the real query and nothing
+fails.
+
+**Three instances, all found on 2026-08-26 by mutation-testing rather than by reading:**
+
+- `.limit()` ignored. `MAX_ENTRIES_PER_BATCH` set to 1 passed the whole suite, so a change
+  turning one batch per organisation into one batch per prospect would have shipped
+  green, taking the shared cached prefix with it.
+- `.select(cols)` swallowed at the wrapper. The column list was consumed by `from().select()`
+  and never reached the chain, so a hook keyed on which columns a read asked for never
+  fired, and deleting the claim's concurrency guard passed everything. That guard is what
+  stops two overlapping sweeps submitting and paying for the same entry twice.
+- `job_type` and `state` filters dropped in the enqueue fake. Narrowing the real query
+  from three research job types to one failed exactly ONE test, the one that inspects the
+  filter directly, while every behavioural test stayed green. The behavioural tests were
+  the ones that were supposed to prove the prospect could not be double-charged.
+
+**Why this is its own shape.** It is not the parallel arrays (two lists that must agree),
+and it is not validate-one-thing-return-another (a check that runs on the wrong value).
+Here the production code is CORRECT and the test is structurally incapable of noticing
+when it stops being. The suite is green in both worlds, so coverage numbers, test counts
+and CI all report success while the guard is gone.
+
+**How to apply:**
+
+1. A fake must honour every filter the code under test applies, or explicitly THROW on
+   the ones it does not implement. Silently returning `chain` is the failure.
+   `limit: () => { throw new Error('fake does not implement limit') }` is a better fake
+   than one that ignores it.
+2. **Mutation-test the guard, not the code path.** Delete the filter in the real query and
+   confirm a test goes red. Zero failures means the filter is not covered, whatever the
+   line coverage says.
+3. When a mutation comes back uncovered, **suspect the fake before the guard.** Twice out
+   of three here the guard was correct and the fake was lying.
+4. Anything with a timing component (a row changing between a read and a write) needs the
+   fake to be able to CHANGE STATE at that exact point. A test that sets up the conflict
+   before the read never reaches the guard at all, which is how the first version of the
+   concurrency test passed against both the real code and the mutated code.
+
 ### A test that reads the migration files proves history, not present state
 
 Migrations are append-only. A test that scans `supabase/migrations/*.sql` for a

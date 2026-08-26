@@ -270,8 +270,23 @@ describe('external limits the config must keep honouring', () => {
     expect(files.length, 'no migrations found, so this test would pass vacuously')
       .toBeGreaterThan(0)
 
+    // COMMENTS STRIPPED FIRST, and it is not cosmetic. This scan is a plain text match,
+    // so without stripping it cannot tell a statement from prose about a statement.
+    //
+    // Both directions were wrong. The MON-022 migration's own status header documents the
+    // mutation probes that proved the monitor goes red, and one line reads
+    // "DROP INDEX system_flags_research_path_exclusive". That is a receipt, not a change,
+    // and it failed this test the moment it was written. The mirror image is worse: a
+    // commented-out CREATE INDEX would have SATISFIED the assertion below.
+    //
+    // Known limit, stated rather than hidden: this strips line comments only, so a `--`
+    // inside a string literal would be truncated. No migration in this repository has one,
+    // and the authoritative check is MON-022 reading pg_indexes live regardless.
+    const stripComments = (sql: string) =>
+      sql.split('\n').map(line => line.replace(/--.*$/, '')).join('\n')
+
     const allSql = files
-      .map(f => fs.readFileSync(path.join(migrationsDir, f), 'utf8'))
+      .map(f => stripComments(fs.readFileSync(path.join(migrationsDir, f), 'utf8')))
       .join('\n')
 
     expect(
@@ -294,6 +309,10 @@ describe('external limits the config must keep honouring', () => {
     // A mutation test caught this. Renaming the index left the suite fully green,
     // because the original assertion was a substring match and the renamed string
     // contained it. Deleting the statement failed one test; renaming it failed none.
+    //
+    // MON-022 now covers the live case properly and was proved to go red against a real
+    // DROP INDEX inside BEGIN ... ROLLBACK. This scan is the cheap early warning, not the
+    // guarantee.
     expect(
       allSql,
       'a migration drops system_flags_research_path_exclusive. Both research paths can ' +
