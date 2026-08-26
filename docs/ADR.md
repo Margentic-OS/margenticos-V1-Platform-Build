@@ -2058,6 +2058,89 @@ When a prompt rule and a validator rule conflict, the validator rule is authorit
 and the prompt must be updated to match in the same commit (per CLAUDE.md).
 Prompt-only enforcement is a defect, not a design choice.
 
+## ADR-031 — Two-pass email verification, with send eligibility resolved by one function
+
+Date: 2026-08-25
+Status: Accepted
+
+Context.
+MyEmailVerifier reports "Catch All" for domains that accept mail for every address. That is
+honest: an SMTP probe cannot confirm a specific mailbox on such a domain. It is also a dead
+end at current volume, because sending best practice caps accept-all addresses at 2-5% of a
+campaign. Eight catch-alls carrying finished, paid-for copy would need a batch of 160-400
+prospects to mail inside that cap, against 13 send-eligible prospects in total. The only route
+to those eight is resolving them OUT of the bucket.
+
+A sample of 10 live catch-alls through Bouncer on 2026-08-25 returned 8 deliverable, 2 risky,
+0 undeliverable, with domain.acceptAll "yes" on all ten. The vendor agrees the domains are
+catch-all and resolves the individual addresses anyway, via provider APIs rather than a better
+probe. n=10, 95% interval roughly 44-97%, all inside the vendor's stated Google/Microsoft
+sweet spot: a best case, not a forecast.
+
+Decision.
+
+1. TWO PASSES, NOT A VENDOR SWAP. The cheap verifier runs on the whole list. The paid one runs
+   only on the segment the first could not confirm. MyEmailVerifier is not being replaced,
+   because it is not wrong.
+
+2. VERDICTS IN COLUMNS, PAID CALLS IN A LEDGER. second_pass_* columns on prospects hold the
+   verdict; verification_calls holds one row per paid attempt, written BEFORE the call. These
+   are two different needs. The verdict is read on the hot path at send and research time and
+   wants to be a flat column. Counting paid calls cannot be done from verdicts at all, because
+   a call that spends money and then fails writes no verdict, so counting verdicts undercounts
+   spend by exactly the failures.
+
+3. ONE FUNCTION MATERIALISES email_send_eligible. resolveSendEligibility is the only writer.
+   The column stays materialised because the send gate is right to want one fast flat read,
+   but with two passes writing it the obvious failure is that its value depends on which pass
+   ran last. The rule: a confirmed-deliverable first pass is eligible; a confirmed-dead
+   mailbox is never overturned by a second opinion and never spends a paid call; an
+   unconfirmable address becomes eligible only if the second pass resolves it to deliverable;
+   country exclusion is a hard AND that can only ever remove eligibility.
+
+4. GATE ON THE VENDOR'S STATUS, NOT ITS SCORE. The sample scored 90 eight times, then 75 and
+   15, which suggests a threshold near 80 and cannot support one: the entire range between 75
+   and 90 is unobserved. The score is recorded on every prospect so a threshold can be derived
+   later from real data.
+
+5. EACH HANDLER OWNS ITS VENDOR'S VOCABULARY. verification-verdict.ts composes a registry from
+   maps the handlers export and holds no vendor words itself. Adding a third vendor is a new
+   handler plus one registry line. This closes leak L7 from the catch-all handover, which was
+   correctly deferred until a second vocabulary existed.
+
+Consequences.
+- The catch-all bucket becomes recoverable at roughly $0.008 per address, against research
+  already spent at $0.24 per prospect. The research money on these rows is sunk either way.
+- A paid vendor introduces a budget that must be enforced, so the ledger is not optional. The
+  daily cap fails CLOSED on an unreadable count.
+- The research spend gate now reads both passes. Without that wiring a recovered catch-all
+  would still be refused research and the money spent resolving it would buy nothing.
+- Two gates deliberately disagree on an unreadable vendor word: send fails closed, research
+  fails open. An unrecognised status almost always means a vendor renamed something, and
+  halting all research platform-wide on a rename is far worse than researching a few
+  addresses.
+
+Rejected alternatives.
+- OVERWRITING independent_email_status with the newer verdict. Cheapest, and it destroys the
+  fact that justifies the send: "vendor two said deliverable on a domain vendor one called
+  catch-all". It also makes policy unchangeable without paying to re-verify, which is the
+  precise mistake send-eligibility-policy.ts already documents at length.
+- A GENERIC verification_results TABLE, one row per prospect per provider per attempt. More
+  correct in the abstract. It adds a join to every place eligibility is read, to buy
+  flexibility for a third vendor that does not exist. The paid-call accounting it would also
+  provide is met by the much smaller verification_calls ledger.
+- A FOURTH QUEUE JOB TYPE. The verify-pending route said to revisit this "if verification ever
+  becomes paid per address", and that trigger has fired. The answer is still no, for a
+  different reason: the queue's mechanism is a spend stamp written when a call returns, and
+  the ledger does the same job more directly by writing before the call. The queue would
+  additionally buy retry orchestration and concurrency, neither of which applies, since a
+  failed probe here should NOT be retried aggressively because each retry bills.
+- ROUTING THROUGH THE CAPABILITY REGISTRY (leak L3). Deliberately not done, per the handover.
+  src/lib/handlers/capability.ts has an empty handler map, zero callers, a signature that does
+  not match the map, and all 14 integrations_registry rows read connection_status
+  'disconnected'. Every integration in this repo bypasses it identically. Closing that gap is
+  a deliberate repo-wide change, not a rider on this build.
+
 ## ADR-030 — Client reply view: org-scoping RLS-backed, intent-filtering chokepoint-enforced
 <!-- Renumbered from ADR-026 on 2026-08-24. Two entries carried that number: this one and
      "Per-lead custom variables for sequence content delivery" earlier in this file. The

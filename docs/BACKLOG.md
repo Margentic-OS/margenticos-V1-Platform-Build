@@ -69,6 +69,90 @@
   /clients/[id]/ route at all. It affects the intake and client-detail routes too, which
   were not otherwise in scope for this session.
 
+## Catch-all second pass — BUILT 2026-08-25, cron NOT switched on
+
+- [pre-c1, ACTION REQUIRED, ONE COMMAND] The paid sweep is built, tested and applied, and
+  its pg_cron schedule is deliberately NOT applied.
+  `supabase/migrations/20260826002500_verify_catch_all_pg_cron.sql` is the money switch: the
+  moment it runs, a scheduled job begins making billed calls every 30 minutes with no human
+  involved. Every other migration in the build is inert.
+  First firing costs about 9 cents (11 addresses at $8/1,000) and then it idles, because it
+  only selects rows whose second_pass_status IS NULL. Hard ceiling 200 calls/day = $1.60.
+  Reverse with: SELECT cron.unschedule('verify-catch-all');
+  Doug's call, not a side effect of finishing the code.
+
+- [monitor] SECOND_PASS_DAILY_CALL_LIMIT = 200 was set against the size of the problem, not
+  against a budget. The live backlog is 11 addresses, so it is ~18x headroom and exists to
+  bound a runaway loop. Raise it when a real backlog justifies it. Credits do not expire, so
+  unspent headroom is not lost.
+
+- [monitor] The 80% recovery figure is n=10 on ONE day, 95% interval roughly 44-97%, and
+  every domain was on Google or Microsoft, which is the vendor's stated sweet spot. Treat it
+  as close to a BEST case. verification_calls now records every paid call with its verdict
+  and score, so the real rate becomes measurable rather than argued about. Revisit after
+  ~50 real calls.
+
+- [research] The score is recorded and gated on by NOTHING, deliberately. The sample scored
+  90 eight times, then 75 and 15, leaving the whole usable range between 75 and 90
+  unobserved. Derive a threshold from verification_calls once there is real spread, not from
+  this sample.
+
+- [phase2] 'Grey-listed' is excluded from the paid pass because the free first pass still has
+  retries pending on it. There are zero greylisted rows live, so this costs nothing today.
+  Revisit only if greylisted rows start accumulating.
+
+- [pre-c1] olympus.com scored 15 against every other address at 90, and it is a large
+  corporate domain sitting in a list of small consulting firms. FLAGGED, NOT CHASED, per
+  Doug 2026-08-25. Probably a sourcing miss rather than a verification one. If more
+  large-corporate domains appear in consulting-firm sourcing runs, the ICP filter spec is
+  the place to look, not the verifier.
+
+- [monitor] Two vendors now write verdicts and the SEND rule reads both, but nothing yet
+  reports the second pass in the operator UI. A recovered catch-all silently becomes
+  send-eligible with no surface saying why. The heartbeat detail carries the counts
+  (recovered / still unusable / paid calls), and MON-020 exposes failures, so it is
+  observable but not visible. Add a column or badge when the dashboard next gets attention.
+
+- [post-build] Leak L3 is still open and is accepted: second-pass-trigger.ts imports the
+  vendor handler BY NAME rather than resolving it through the capability registry, exactly as
+  the handover advised. src/lib/handlers/capability.ts still has an empty handler map, zero
+  callers, a signature that does not match the map, and all 14 integrations_registry rows read
+  connection_status = 'disconnected'. Every integration in this repo bypasses it the same way.
+  Closing it is a deliberate repo-wide change. What WAS closed is L7: no vendor VOCABULARY
+  reaches shared code any more, because each handler owns its map.
+
+- [LESSON, 2026-08-25] A circular import passed tsc AND all 1,578 vitest tests and failed only
+  `npm run build`, with "Cannot access 'f' before initialization" while collecting page data.
+  verification-verdict.ts imported the handler for its vocabulary map and the handler imported
+  toCanonicalVerdict back. vitest's module graph tolerates the cycle; the production build does
+  not. This is the concrete reason a local production build belongs in the receipts and is not
+  an optional extra. Fixed by making the type import type-only and having the handler translate
+  with its own map.
+
+- [LESSON, 2026-08-25] RLS with no policies is NOT the only control a new table needs.
+  verification_calls was created with RLS enabled and zero policies, which correctly returns
+  0 rows to anon (verified under SET LOCAL ROLE anon inside BEGIN...ROLLBACK). But
+  has_table_privilege('anon', ..., 'SELECT') still read TRUE, because Supabase's ALTER DEFAULT
+  PRIVILEGES grants TABLES to anon and authenticated as well as functions. RLS was the only
+  thing standing. Revoked by name and read back in both directions.
+  CLAUDE.md's standing rule is written about SECURITY DEFINER functions. The trap is wider:
+  assuming the effect of a grant rather than reading it back is the mistake, on tables too.
+
+## Monitor sweep — MON-019 was dark, and its own fix did not fix it (2026-08-25)
+
+- [CLOSED 2026-08-25] monitor-sweep held two parallel arrays, checkCodes (16) and viewNames
+  (17), and looped to checkCodes.length, so viewNames[16] = 'mon_019' was never read.
+  Commit 89ac57b, titled "so something actually reads the verification sweep's heartbeat",
+  added the view name and not the check code. The defect survived its own fix.
+  Verified live before touching it: 8 heartbeats written, mon_019 returning OK, and ZERO
+  MON-019 rows in monitor_events against 1 for MON-018.
+  A monitor that exists and is silent reads on the dashboard as a monitor that is healthy, so
+  this is a defect that hides defects.
+  Fixed by replacing both arrays with one array of pairs, plus a test that scans the
+  migrations for every CREATE VIEW mon_NNN and fails if the sweep does not query it. That
+  test guards itself, failing if the scan finds no views rather than passing over an empty set.
+  ANY NEW CRON NEEDS ALL THREE: the view, the monitor_checks row, and the registry entry.
+
 ## Country exclusion — FIXED, with two prospects already mailed (2026-08-25)
 
 - [CLOSED 2026-08-25, code + migration applied and verified live] The DE exclusion never

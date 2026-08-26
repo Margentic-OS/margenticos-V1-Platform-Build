@@ -1,5 +1,32 @@
 # Handover: the catch-all second verifier
 
+> **STATUS 2026-08-25: BUILT. This document is now HISTORY, not instructions.**
+>
+> The build landed in commit 90870a9 (branch `second-pass-verification`). Live technical
+> reference: **`docs/email-verification.md`**. Open items: `docs/BACKLOG.md`, section
+> "Catch-all second pass".
+>
+> **Three things in this document turned out to be wrong or incomplete. They are corrected
+> here so nobody rebuilds against them.**
+>
+> 1. **§4 understates the country defect badly.** It says `prospects.country` is unpopulated
+>    and would bite at re-verification. The rule could not have fired even with the column
+>    populated: the enrichment handler wrote `"Germany"` and the rule matched `'DE'`. And it
+>    had ALREADY let two German prospects be mailed. §4's claim that "new prospects are
+>    unaffected" is wrong in the direction that matters.
+> 2. **A naive backfill would have made it worse.** A populated non-excluded country
+>    short-circuits the `.de` domain fallback, so copying `"Germany"` in would have flipped
+>    `craid.de` from excluded to ELIGIBLE, turning off the one exclusion that worked.
+> 3. **§7's reuse table is good and one row is now void.** The cron shape it points at
+>    (`verify-pending`) was still DARK when this was written: MON-019 was registered but never
+>    queried, because the sweep looped over two parallel arrays of different lengths. Copying
+>    that shape would have copied the blind spot.
+>
+> The open design question in §5 was answered: second-pass columns plus a paid-call ledger,
+> with `email_send_eligible` written by one shared resolver. Leak L7 is closed; L3 is
+> deliberately still open. §9's items remain open and are unchanged.
+
+
 **Written 2026-08-25 for a fresh session.** Everything the next session needs, and nothing it
 does not. The session that wrote this was carrying two days of cost analysis that is
 irrelevant to the build; that context has been deliberately left out.
