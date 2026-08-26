@@ -6271,3 +6271,40 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   Related: the 2026-08-25 verification_calls incident, where RLS held and the grant
   underneath it did not. This is the same lesson one level out: the grant you did not
   think to look at is on a different object than the one you secured.
+
+## Send-eligibility retroactivity and in-flight removal (2026-08-26, pre-ramp audit F1/F3)
+
+- [pre-c1] NO CODE PATH REMOVES A PROSPECT ALREADY UPLOADED TO THE OUTBOUND PROVIDER.
+
+  Our send gates govern the UPLOAD. Once a prospect is uploaded the provider owns the
+  sequence, and marking the row `email_send_eligible = false` afterwards does nothing to
+  email that has not been sent yet. Confirmed live on 2026-08-26: two German prospects
+  sat `status: 1` in an active campaign with emails 3 and 4 still scheduled, while their
+  rows read `false / country_excluded_de`.
+
+  Stopping them was a manual action in the provider UI. There is no API call in this
+  codebase that pauses or deletes a lead, and no reconciliation that would have noticed.
+
+  NEXT ACTION, and it is a design question before it is a build:
+    1. Decide the trigger. Suppression is the obvious one (we already push suppression to
+       the provider on opt-out), but a COMPLIANCE rule change is different: it applies to
+       a set defined by a predicate, not to one person who replied.
+    2. Build a removal capability behind the registry (`can_remove_from_sequence` or
+       similar), so it is not hardcoded to one vendor.
+    3. Decide whether it fires automatically on `email_send_eligible` going true->false,
+       or only on an explicit operator action. Automatic is safer for compliance and
+       riskier for accidents.
+
+- [pre-c1] ELIGIBILITY IS FROZEN AT VERIFICATION. Changing EXCLUDED_COUNTRIES, the
+  catch-all send policy, or the Bouncer status mapping does NOT change any prospect
+  already verified. Re-evaluating requires re-verifying, which costs money.
+
+  Full reasoning in ADR-034. Not a defect to fix blind: the column is deliberately the
+  last word at send time, and re-evaluating in the claim would put verification state
+  into the conditional UPDATE that makes the send path race-safe.
+
+  What is missing is a cheap re-evaluation path that does NOT re-verify. Everything the
+  rule needs (country, the two stored verdicts) is already on the row; only the write is
+  gated behind the paid trigger. A `recomputeSendEligibility(prospect_ids)` that reruns
+  `resolveSendEligibility` over stored columns and updates the verdict would make rule
+  changes retroactive for free. Deliberately not built during the audit.
