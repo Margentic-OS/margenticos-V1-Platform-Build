@@ -6071,3 +6071,65 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   RESEND_API_KEY and no database at all. Verified in session: setting it recovers 36 real
   tests, including genuine HMAC and parsing assertions, in 351ms. One line in
   vitest.config.ts (test.env). Not built on instruction.
+
+## Apollo sourcing filter (2026-08-26, branch sourcing-filter)
+
+- [DONE 2026-08-26] Apollo search filter replaced and HARDCODED in
+  src/lib/sourcing/handlers/adapter-apollo.ts. Live total_entries 61,524, against 61,492
+  measured 2026-08-24 with the same spec. The 32-row difference is Apollo's index moving
+  over two days. Verified by calling Apollo with the request the adapter itself builds,
+  not with a hand-written body.
+
+  The two defects it fixes were both SILENT: the query ran, returned results, and looked
+  healthy while filtering on the wrong thing.
+    - q_keywords is AND over free text, matched against person and company NAMES, so it
+      only ever found firms with the literal word in their name. Measured on the shipped
+      base: 4,924 against 72,458 for NAICS alone. Replaced by q_organization_keyword_tags,
+      which is OR and is the correct parameter for sourcing by category.
+    - Apollo seniority is derived from job TITLE, not ownership. In professional services
+      the owner is usually titled Partner or Managing Partner. Measured on the shipped
+      base: 29,139 with owner+founder, 72,458 once c_suite and partner were added.
+
+  A third trap worth recording, found while building this. APOLLO IGNORES AN UNRECOGNISED
+  PARAMETER SILENTLY INSTEAD OF ERRORING. naics_codes and q_organization_naics_codes both
+  returned 770,753, the completely unfiltered count. Only organization_naics_codes is read.
+  Any new Apollo parameter must be proved by MEASURING that the total changes, never by
+  reading the docs and assuming. A parameter name typo here does not fail, it ships a
+  filter that filters nothing.
+
+- [DECISION NEEDED, 2026-08-26] RESIDUAL CANADA AND GERMANY EXPOSURE. NOT FIXED, because
+  the spec was explicit and its number was matched. Doug's call.
+  The filter constrains organization_locations only, so it removes German and Canadian
+  FIRMS. It does not constrain where the PERSON is. Measured live:
+    - 545 people located in Canada at in-scope US/UK/IE firms
+    - 238 people located in Germany at in-scope US/UK/IE firms
+  CASL attaches to the recipient, not to the firm's registration, so those 545 are the
+  live exposure, and it is the same class of gap as the two GmbHs that were mailed.
+  Closing it means adding person_locations US/UK/IE, which measures 55,976 against 61,524.
+  Cost of closing: 5,548 rows of inventory, about 9 percent. Not applied on instruction.
+
+- [pre-c1, 2026-08-26] CONFIG LAYER FOR THE SOURCING FILTER, deliberately deferred until
+  client two needs a different filter. Confirmed as a deferral in-session, not an oversight.
+  The ICPFilterSpec no longer builds the Apollo query at all. What that costs today:
+    - The orchestrator's manifest check (step 4) still compares spec fields against
+      handler.supported_fields and still passes. It no longer says anything about the query
+      that gets sent. It was left in place on purpose: narrowing supported_fields would make
+      the orchestrator throw for any client whose spec populates a field, which would stop
+      sourcing rather than improve it. This is the "check runs, reports success, thing it
+      protected was never reached" shape from CLAUDE.md, held knowingly and with a comment
+      at the call site rather than left to be rediscovered.
+    - The ISO-3166 to Apollo location table and the seniority map are deleted, not kept as
+      dead code. Recover them from git history at bc05658 when the config layer returns.
+    - spec.job_titles_excluded and spec.keywords_excluded ARE still honoured. They are
+      post-filters applied to results in execute(), not search parameters.
+  Hardcoding the filter is an architectural decision and may deserve its own ADR. Not
+  written this session because docs/ADR.md was being edited in a parallel session.
+
+- [pre-c1, 2026-08-26] ICP SPEC DEFAULTS STILL LIST DE AND CA. DEFAULT_PERSON_COUNTRIES and
+  DEFAULT_COMPANY_COUNTRIES in src/lib/agents/icp-filter-spec.ts still contain DE, CA, AU
+  and NL, and the comment above them still recommends DE and NL. Not changed: the
+  instruction was to remove Germany and Canada at the FILTER layer, and changing the
+  defaults as well would have moved the fix back into convention. The stored spec and the
+  live filter therefore disagree by design. The adapter logs that divergence on every run
+  (ignored_spec_countries) so it is visible rather than silent. Reconcile when the config
+  layer lands, or the defaults will quietly come back into force with it.

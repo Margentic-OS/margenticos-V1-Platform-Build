@@ -23,179 +23,107 @@ beforeAll(() => {
 })
 
 // ─── Adapter tests ──────────────────────────────────────────────────────────
+//
+// The Apollo search filter is hardcoded (see adapter-apollo.ts). These tests
+// assert the filter is what was measured, and that no spec value can change it.
+// The point of the second half is the 2026-08-24 incident: two German GmbHs were
+// mailed because the exclusion lived in convention rather than in the query.
+
+// A spec that asks for everything the hardcoded filter refuses. If any of these
+// values can reach the Apollo request, the filter is not a filter.
+const HOSTILE_SPEC: Record<string, unknown> = {
+  job_titles: ['Founder', 'CEO'],
+  job_titles_excluded: [],
+  seniority_levels: ['entry', 'manager'],
+  person_countries: ['DE', 'CA', 'AU', 'NL'],
+  company_countries: ['DE', 'CA'],
+  company_headcount_min: 500,
+  company_headcount_max: 20000,
+  industries: ['Software Publishers'],
+  industries_excluded: [],
+  keywords: ['consulting', 'advisory'],
+  keywords_excluded: [],
+  notes: '',
+  company_revenue_min: 1000000,
+  company_revenue_max: 10000000,
+}
 
 describe('apolloHandler.adapter', () => {
-  it('translates basic spec fields to API request', () => {
-    const spec: ICPFilterSpec = {
-      job_titles: ['Founder', 'CEO'],
-      job_titles_excluded: [],
-      seniority_levels: ['director'],
-      person_countries: ['US', 'GB'],
-      company_countries: ['US'],
-      company_headcount_min: 1,
-      company_headcount_max: 50,
-      industries: ['Management Consulting'],
-      industries_excluded: [],
-      keywords: ['consulting', 'advisory'],
-      keywords_excluded: [],
-      notes: '',
-    }
+  it('sends the measured filter: NAICS 5416, keyword tags, 5-50, US/UK/IE, verified', () => {
+    const request = apolloHandler.adapter({} as Record<string, unknown>)
 
-    const request = apolloHandler.adapter(spec as unknown as Record<string, unknown>)
-
-    expect(request.person_titles).toEqual(['Founder', 'CEO'])
-    expect(request.person_seniorities).toContain('director')
-    expect(request.person_seniorities).toContain('head') // director maps to head
-    expect(request.person_locations).toEqual(['united states', 'united kingdom']) // ISO codes translated to Apollo location names
-    expect(request.organization_locations).toEqual(['united states'])
-    expect(request.organization_num_employees_ranges).toEqual(['1,50'])
-    // Industries are NOT in q_keywords (Apollo has no industry parameter).
-    // Post-enrichment industry annotation provides filtering, not pre-filtering.
-    // q_keywords now uses only first keyword due to AND-semantics collapse (multi-word → zero results)
-    expect(request.q_keywords).toEqual('consulting')
+    expect(request.organization_naics_codes).toEqual(['5416'])
+    expect(request.q_organization_keyword_tags).toEqual([
+      'management consulting',
+      'business consulting',
+      'strategy consulting',
+    ])
+    expect(request.organization_num_employees_ranges).toEqual(['5,50'])
+    expect(request.organization_locations).toEqual([
+      'united states',
+      'united kingdom',
+      'ireland',
+    ])
+    expect(request.person_seniorities).toEqual(['owner', 'founder', 'c_suite', 'partner'])
     expect(request.contact_email_status).toEqual(['verified'])
   })
 
-  it('maps founder and owner seniorities to Apollo directly', () => {
-    const spec: ICPFilterSpec = {
-      job_titles: ['Founder'],
-      job_titles_excluded: [],
-      seniority_levels: ['founder', 'owner', 'c_suite'],
-      person_countries: ['US'],
-      company_countries: ['US'],
-      company_headcount_min: 1,
-      company_headcount_max: 50,
-      industries: [],
-      industries_excluded: [],
-      keywords: [],
-      keywords_excluded: [],
-      notes: '',
-    }
+  it('includes c_suite and partner, because Apollo seniority is title-derived', () => {
+    // In professional services the owner is usually titled Partner or Managing
+    // Partner. owner+founder alone measured 29,139 against 72,458 with all four.
+    const request = apolloHandler.adapter({} as Record<string, unknown>)
 
-    const request = apolloHandler.adapter(spec as unknown as Record<string, unknown>)
-
-    // founder and owner are now explicitly passed through when deriveFilterSpec includes them
-    expect(request.person_seniorities).toContain('owner')
-    expect(request.person_seniorities).toContain('founder')
+    expect(request.person_seniorities).toContain('partner')
     expect(request.person_seniorities).toContain('c_suite')
   })
 
-  it('maps vp seniority to vp and partner', () => {
-    const spec: ICPFilterSpec = {
-      job_titles: [],
-      job_titles_excluded: [],
-      seniority_levels: ['vp'],
-      person_countries: [],
-      company_countries: [],
-      company_headcount_min: 1,
-      company_headcount_max: 50,
-      industries: [],
-      industries_excluded: [],
-      keywords: [],
-      keywords_excluded: [],
-      notes: '',
-    }
+  it('never sends q_keywords, which is AND over person and company names', () => {
+    // The defect this replaced: q_keywords only ever matched firms with the
+    // literal word in their name. q_organization_keyword_tags is the OR
+    // parameter and the correct one for sourcing by category.
+    const request = apolloHandler.adapter(HOSTILE_SPEC)
 
-    const request = apolloHandler.adapter(spec as unknown as Record<string, unknown>)
-
-    expect(request.person_seniorities).toContain('vp')
-    expect(request.person_seniorities).toContain('partner')
+    expect(request).not.toHaveProperty('q_keywords')
+    expect(request).toHaveProperty('q_organization_keyword_tags')
   })
 
-  it('sends only keywords to q_keywords (industries excluded per API limitation)', () => {
-    const spec: ICPFilterSpec = {
-      job_titles: [],
-      job_titles_excluded: [],
-      seniority_levels: [],
-      person_countries: [],
-      company_countries: [],
-      company_headcount_min: 1,
-      company_headcount_max: 50,
-      industries: ['Marketing Consulting', 'Operations Consulting'],
-      industries_excluded: [],
-      keywords: ['boutique'],
-      keywords_excluded: [],
-      notes: '',
-    }
+  it('does not exclude NAICS 5418, and does not include it either', () => {
+    // Firms carry more than one NAICS code, so a consultancy coded 5416 and 5418
+    // is in scope and an exclusion would drop it. Adding 5418 to the include list
+    // is a different query and measured 66,134 against the target 61,524.
+    const request = apolloHandler.adapter({} as Record<string, unknown>)
 
-    const request = apolloHandler.adapter(spec as unknown as Record<string, unknown>)
-
-    // Industries are NOT in q_keywords. Apollo has no dedicated industry parameter.
-    // Industry fit is evaluated post-enrichment when full org data is available.
-    expect(request.q_keywords).toEqual('boutique')
+    expect(request.organization_naics_codes).not.toContain('5418')
+    expect(request).not.toHaveProperty('organization_naics_codes_excluded')
+    expect(request.organization_naics_codes).toEqual(['5416'])
   })
 
-  it('sets revenue range when provided (via extended fields)', () => {
-    const spec: Record<string, unknown> = {
-      job_titles: [],
-      job_titles_excluded: [],
-      seniority_levels: [],
-      person_countries: [],
-      company_countries: [],
-      company_headcount_min: 1,
-      company_headcount_max: 50,
-      industries: [],
-      industries_excluded: [],
-      keywords: [],
-      keywords_excluded: [],
-      notes: '',
-      company_revenue_min: 1000000,
-      company_revenue_max: 10000000,
-    }
+  it('cannot be made to source Germany or Canada by any spec value', () => {
+    const request = apolloHandler.adapter(HOSTILE_SPEC)
+    const serialised = JSON.stringify(request).toLowerCase()
 
-    const request = apolloHandler.adapter(spec as unknown as Record<string, unknown>)
-
-    expect(request.revenue_range?.min).toBe(1000000)
-    expect(request.revenue_range?.max).toBe(10000000)
+    expect(request.organization_locations).not.toContain('germany')
+    expect(request.organization_locations).not.toContain('canada')
+    expect(serialised).not.toContain('germany')
+    expect(serialised).not.toContain('canada')
+    expect(serialised).not.toContain('"de"')
+    expect(serialised).not.toContain('"ca"')
   })
 
-  it('translates ISO-3166 alpha-2 country codes to Apollo location names', () => {
-    const spec: Record<string, unknown> = {
-      job_titles: [],
-      job_titles_excluded: [],
-      seniority_levels: [],
-      person_countries: ['GB', 'IE', 'US', 'DE'],
-      company_countries: ['AU', 'NZ'],
-      company_headcount_min: 1,
-      company_headcount_max: 50,
-      industries: [],
-      industries_excluded: [],
-      keywords: [],
-      keywords_excluded: [],
-      notes: '',
-    }
+  it('ignores every other spec field: titles, headcount, revenue, industries', () => {
+    const request = apolloHandler.adapter(HOSTILE_SPEC)
 
-    const request = apolloHandler.adapter(spec)
-
-    expect(request.person_locations).toEqual([
-      'united kingdom',
-      'ireland',
-      'united states',
-      'germany',
-    ])
-    expect(request.organization_locations).toEqual(['australia', 'new zealand'])
+    expect(request).not.toHaveProperty('person_titles')
+    expect(request).not.toHaveProperty('person_locations')
+    expect(request).not.toHaveProperty('revenue_range')
+    expect(request.organization_num_employees_ranges).toEqual(['5,50'])
   })
 
-  it('sends only first keyword due to Apollo AND semantics', () => {
-    const spec: Record<string, unknown> = {
-      job_titles: [],
-      job_titles_excluded: [],
-      seniority_levels: [],
-      person_countries: [],
-      company_countries: [],
-      company_headcount_min: 1,
-      company_headcount_max: 50,
-      industries: [],
-      industries_excluded: [],
-      keywords: ['consulting', 'consultant', 'advisory', 'consultancy'],
-      keywords_excluded: [],
-      notes: '',
-    }
+  it('returns an identical request for any two specs', () => {
+    const fromEmpty = apolloHandler.adapter({} as Record<string, unknown>)
+    const fromHostile = apolloHandler.adapter(HOSTILE_SPEC)
 
-    const request = apolloHandler.adapter(spec)
-
-    // Should use only first keyword due to AND semantics collapse (28,390 → 0 with multi-word)
-    expect(request.q_keywords).toBe('consulting')
+    expect({ ...fromHostile }).toEqual({ ...fromEmpty })
   })
 })
 
@@ -401,7 +329,7 @@ describe('apolloHandler.supported_fields', () => {
     expect(apolloHandler.supported_fields).not.toContain('technologies_used')
   })
 
-  it('includes industries (satisfied via q_keywords)', () => {
+  it('still lists industries, now satisfied by the hardcoded NAICS + keyword tags', () => {
     expect(apolloHandler.supported_fields).toContain('industries')
   })
 })
