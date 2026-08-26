@@ -12,6 +12,7 @@
 // nothing to do. That is exactly what it should do while every rollout flag is false.
 //
 // C4 registers 'enrich'. C5 registers 'research'. C6 registers 'compose'.
+// The two research batch phases registered 2026-08-26, both flags still false.
 //
 // ── THE FLAG AND THE HANDLER ARE TWO SEPARATE GATES, ON PURPOSE ──
 //
@@ -33,6 +34,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { executeJob, type JobHandler, type JobOutcome } from './execute-job'
 import { enrichBatchExecutor } from './executors/enrich'
 import { researchHandler } from './executors/research'
+import { researchSourcesHandler } from './executors/research-sources'
+import { researchCollectHandler } from './executors/research-collect'
 import type { JobRow, JobType } from './types'
 
 /**
@@ -80,6 +83,18 @@ const HANDLERS: Partial<Record<JobType, JobBatchExecutor>> = {
   // batch and each prospect gets its own row, its own spend stamp and its own verdict.
   research: perJobExecutor(() => researchHandler()),
   // compose:  registered in C6
+
+  // ── THE BATCH PATH. Both registered together, on purpose. ─────────────────
+  //
+  // research_sources is only useful if research_collect can run, because phase 1 leaves a
+  // prospect mid-flight with its sources already bought. Deploying the first without the
+  // second would mean a flag flip could strand paid-for work with no code able to finish
+  // it, and the worker would report the honest but useless "enabled with no handler".
+  //
+  // Both flags remain false until a live batch proves the path. A handler that is
+  // deployed and waiting is the normal state, not a half-finished one.
+  research_sources: perJobExecutor(() => researchSourcesHandler()),
+  research_collect: perJobExecutor(() => researchCollectHandler()),
 }
 
 /** The executor for a job type, or null when none is deployed yet. */

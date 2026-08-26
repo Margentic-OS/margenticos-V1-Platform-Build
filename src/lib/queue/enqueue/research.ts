@@ -47,7 +47,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
-import { enqueueJobsForProspects, prospectsWithLiveResearchJob } from '../job-queue'
+import {
+  enqueueJobsForProspects,
+  enqueueResearchPhaseJob,
+  prospectsWithLiveResearchJob,
+} from '../job-queue'
 import {
   checkResearchEligibility,
   summariseIneligible,
@@ -55,6 +59,27 @@ import {
 } from '@/lib/sourcing/send-eligibility-policy'
 
 export type ResearchScope = 'unresearched' | 'researched'
+
+/**
+ * Which research path the enqueued jobs run down.
+ *
+ * ── PARAMETERISED, NOT COPIED, AND THAT IS THE WHOLE POINT ──
+ *
+ * The header above says these guards must refuse exactly what runResearchBatchForOrg
+ * refuses, because a prospect has to be eligible under ONE definition or flipping a flag
+ * changes WHICH prospects get researched rather than only how.
+ *
+ * The batch path makes that a three-way problem. Writing a second enqueue function for it
+ * would have meant three copies of the trigger guard, the eligibility gate and the
+ * batch-wait filter, each free to drift. So the guards stay in one function and only the
+ * final insert differs.
+ *
+ * 'research'         one job: sources, synthesis, writer, judge. The proven path.
+ * 'research_sources' phase 1 of the batch path. Its counterpart, research_collect, is
+ *                    never enqueued from here: the batch sweep enqueues it when the
+ *                    synthesis result arrives.
+ */
+export type ResearchEnqueueJobType = 'research' | 'research_sources'
 
 export interface EnqueueResearchSuccess {
   ok: true
@@ -75,6 +100,7 @@ export async function enqueueResearchForOrganisation(
   scope: ResearchScope,
   enqueuedBy: string,
   maxProspects = 5000,
+  jobType: ResearchEnqueueJobType = 'research',
 ): Promise<EnqueueResearchSuccess | { ok: false; error: string }> {
   // ── Organisation must exist and be active ──────────────────────────────────
   const { data: org, error: orgError } = await supabase
@@ -212,15 +238,25 @@ export async function enqueueResearchForOrganisation(
     }
   }
 
-  const { created, alreadyQueued } = await enqueueJobsForProspects(supabase, {
-    jobType: 'research',
-    organisationId,
-    prospectIds: enqueueable,
-    enqueuedBy,
-  })
+  // ── THE ONE PLACE THE TWO PATHS DIFFER ───────────────────────────────────
+  //
+  // The batch phases cannot use enqueue_job. Its ON CONFLICT names only
+  // (job_type, prospect_id), and the protection they need spans job types, so a violation
+  // of job_queue_one_live_research_per_prospect raises out of enqueue_job and would abort
+  // this loop part-way. enqueue_research_phase catches unique_violation and returns zero
+  // rows, which is the same contract. See 20260826130000_research_batch_job_types.sql.
+  const { created, alreadyQueued } = jobType === 'research'
+    ? await enqueueJobsForProspects(supabase, {
+        jobType: 'research',
+        organisationId,
+        prospectIds: enqueueable,
+        enqueuedBy,
+      })
+    : await enqueueBatchPhaseJobs(supabase, organisationId, enqueueable, enqueuedBy)
 
   logger.info('enqueue-research: complete', {
     organisation_id: organisationId,
+    job_type: jobType,
     scope,
     selected: rows.length,
     eligible: eligible.length,
@@ -243,4 +279,38 @@ export async function enqueueResearchForOrganisation(
     skippedBreakdown: skippedReasons.length > 0 ? summariseIneligible(skippedReasons) : null,
     scope,
   }
+}
+
+/**
+ * The batch path's insert, shaped to match enqueueJobsForProspects' return so the caller
+ * above does not branch twice.
+ */
+async function enqueueBatchPhaseJobs(
+  supabase: SupabaseClient,
+  organisationId: string,
+  prospectIds: string[],
+  enqueuedBy: string,
+): Promise<{ created: unknown[]; alreadyQueued: string[] }> {
+  const created: unknown[] = []
+  const alreadyQueued: string[] = []
+
+  for (const prospectId of prospectIds) {
+    const row = await enqueueResearchPhaseJob(supabase, {
+      jobType: 'research_sources',
+      organisationId,
+      prospectId,
+      enqueuedBy,
+    })
+    if (row) created.push(row)
+    else alreadyQueued.push(prospectId)
+  }
+
+  logger.info('enqueue-research: batch phase 1 enqueued', {
+    organisation_id: organisationId,
+    requested: prospectIds.length,
+    created: created.length,
+    already_queued: alreadyQueued.length,
+  })
+
+  return { created, alreadyQueued }
 }
