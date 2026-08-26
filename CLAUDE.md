@@ -869,6 +869,64 @@ no views at all, rather than passing vacuously over an empty set.
 This is the same family as validate-one-thing-return-another: **the check runs, reports
 success, and the thing it was supposed to protect was never reached.**
 
+### A type assertion that switches off the check that would have caught it
+
+`as` does not convert a value. It tells the compiler to stop checking. So the single
+most dangerous place for a cast is exactly where a type was doing useful work.
+
+    // Wrong. The literal is incomplete, and `as` is why nothing says so.
+    const byJobType = {
+      enrich: emptyResult(),
+      research: emptyResult(),
+      compose: emptyResult(),
+    } as Record<JobType, JobTypeResult>
+
+    // Right. Derived, so the drift cannot be expressed.
+    const byJobType = Object.fromEntries(
+      JOB_TYPES.map(jobType => [jobType, emptyResult()]),
+    ) as Record<JobType, JobTypeResult>
+
+**The 2026-08-26 incident.** `run-worker.ts` held the wrong version above. Without the
+cast, `Record<JobType, JobTypeResult>` makes an incomplete literal a COMPILE ERROR, and
+that error is precisely the notification that a new job type needs a result slot. The
+cast silenced it. When `research_sources` and `research_collect` were added,
+`byJobType[jobType]` was `undefined`, and the worker crashed on `result.enabled` inside a
+try/catch that recorded the crash as "job type pass threw". Thirty tests failed at once,
+which is the only reason it was caught before deploy. In production it would have been a
+job type that silently never ran, reported as a caught error rather than as a missing
+handler.
+
+This is the same family as the parallel arrays above, one level up: a second list
+(the literal's keys) that has to be kept in step with a first list (`JOB_TYPES`) by hand.
+The fix is the same in kind: derive the second from the first so there is only one list.
+
+**The rule:** before writing `as` on an object literal, ask what the target type would
+have rejected. If the answer is "an incomplete or wrong-shaped literal", the cast is
+load-bearing in the wrong direction. Build the value from the source of truth instead.
+`satisfies` is often the right tool where a literal really is wanted: it checks the shape
+without widening or silencing.
+
+### A test that reads the migration files proves history, not present state
+
+Migrations are append-only. A test that scans `supabase/migrations/*.sql` for a
+`CREATE INDEX` proves that a migration once created it. It says nothing about whether the
+index exists now, because a later migration is free to drop it and the CREATE stays in
+the repository, green forever.
+
+**Found 2026-08-26 by mutation-testing a test rather than a guard.** A test asserted that
+the migrations still create `system_flags_research_path_exclusive`, the index that a
+TypeScript assertion depends on. Deleting the statement failed the test. RENAMING it
+failed nothing, because the assertion was a substring match and the new name contained
+the old one. The tightened version matches `CREATE UNIQUE INDEX ...` and separately
+asserts no `DROP INDEX` names it.
+
+**The rule:** a migration scan is a cheap early warning and it belongs in the test suite,
+but it is never the authoritative check. Anything a code path actually depends on being
+true in the database gets a LIVE check that reads `pg_indexes`, `pg_constraint`,
+`has_table_privilege` or `pg_policies`, and that check goes in a monitor so it keeps
+running after the day it was written. State the limit in the test itself, so the next
+reader does not over-trust it.
+
 ### Related shapes already documented elsewhere in this file
 
 - Validating one value and returning another. The generation-time opt-out footer was
