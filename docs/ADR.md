@@ -2285,3 +2285,100 @@ Rejected alternatives:
   is therefore a global in-flight cap sized off Apify concurrency. Anthropic response
   headers are still read and acted on, documented in code as insurance against a tier
   change, explicitly not load-bearing.
+
+---
+
+## ADR-032: Research synthesis runs through the Batch API, split into two jobs
+
+**Date:** 2026-08-26
+**Status:** Accepted, rolling out behind a flag
+
+### Context
+
+Synthesis is one Anthropic call per prospect and roughly 78% of the Anthropic spend
+per prospect (about $0.118 of $0.159, inside an all-in $0.192). The Batch API charges
+50% of standard prices for identical bytes to an identical model, and the discount
+stacks with prompt caching. So the saving is available with no quality trade.
+
+The cost is time. A batch may take up to 24 hours. Nothing in this system can hold a
+lease that long: research's lease is 360 seconds and reap-agent-runs marks any
+agent_runs row still 'running' after 600 seconds as failed.
+
+### Decision
+
+Research splits into two queue job types with a wait between them.
+
+- `research_sources` fetches the four sources, snapshots everything the second half
+  needs, and submits the synthesis calls. Records spend. Completes.
+- A pg_cron sweep polls batch status. Nothing holds a lease.
+- `research_collect` reads the synthesis out of the batch result, runs writer, floor
+  and judge as today, and writes ONE complete prospect_research_results row.
+
+The existing single-job `research` path is NOT removed. Rollback is a flag flip with
+no deploy.
+
+### Why this is safe under the existing queue
+
+`decideExecution` is pure and per-row: it terminates any claimed job carrying
+`spend_recorded_at`. Two separate jobs means two independent stamps, so nothing is
+ever claimed twice after paying. An earlier analysis concluded batching would need a
+queue rewrite; that was true only for batching INSIDE the agent, where a single job
+would pause 24 hours and lose its lease.
+
+### The intermediate state lives in its own table, not in a half-written research row
+
+`storeResearchResult` requires an `opening`, so there is no row shape meaning
+"synthesis done, opening pending". And `loadStoredFindings` filters reuse candidates
+on `candidates.length > 0` and nothing else, so a synthesis-only row HAS candidates:
+an ordinary later run would select it as reuse material and hand a different prospect
+a synthesis with no judged opening, silently.
+
+`synthesis_batches` and `synthesis_batch_entries` remove that failure rather than
+guarding against it. `storeResearchResult`, `loadStoredFindings` and every live
+selection path are untouched.
+
+### Everything phase 2 needs is SNAPSHOTTED, never re-read
+
+A 24-hour gap turns every re-read into a silent drift: the copy is simply different
+and nothing fails. Snapshotted: the four source payloads, the approved messaging
+document content, the assigned variant, the recency signal, and the client document
+context. The messaging document is the one that would have shipped wrong copy, and it
+is why compose was never migrated to the queue.
+
+### Consequences accepted
+
+- **`batch_id` on an entry is ON DELETE SET NULL, not CASCADE.** These rows hold
+  sources bought with real money. Pruning old batch rows is exactly the tidy-up
+  someone runs without thinking about what it takes with it. Orphaning an entry is
+  recoverable; deleting the snapshot is not.
+- **The two research paths are mutually exclusive, enforced by a unique index on
+  system_flags.** Both fetch sources and therefore both start Apify actors against a
+  measured ceiling of 25 concurrent runs. With both at maxInFlight 20, allowing both
+  to be enabled would permit 40. The exclusion is what lets the Apify assertion take a
+  MAX across source-fetching job types rather than a SUM, which in turn lets the
+  proven path keep its measured configuration unchanged.
+- **One live research job per prospect, across all three research types.** The
+  existing per-type index does not span job types, and during a batch wait the
+  prospect still reads as unresearched. Without this, one operator click mid-wait
+  re-pays Apify, Apollo and Brave for every prospect in flight: the 10 August 2026
+  shape, 141 credits for 29 prospects.
+- **The 1-hour cache TTL on the batched call is PROVISIONAL.** Anthropic documents
+  in-batch cache hits as best-effort at 30% to 98%. A 1-hour write costs 2x base input
+  against 1.25x for 5 minutes, so at the bottom of that range the 1-hour TTL is a
+  loss. A 13-call probe measured 85% at 1h, but with max_tokens 16 rather than
+  production's 16,000. The real `cache_read_input_tokens` on the first live batch
+  decides it.
+
+### Rejected alternatives
+
+- **Batching inside the agent.** The job would pause for the batch and lose its
+  360-second lease. This is what made an earlier session conclude a queue rewrite was
+  needed.
+- **A nullable-opening research row.** See above: the reuse filter would select it.
+- **Batches of one, submitted by each phase-1 job.** Keeps the 50% discount and needs
+  no separate submitter, but maximises the number of independently scheduled batches,
+  which is the condition Anthropic names as reducing best-effort cache hits, and turns
+  one batch id to poll per organisation into one per prospect.
+- **Dropping `research.maxInFlight` from 20 to 15 to make room for the batch path.**
+  Would have been necessary if the Apify assertion summed across paths. Proving the
+  exclusion instead leaves a proven number alone.

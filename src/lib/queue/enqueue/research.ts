@@ -47,7 +47,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
-import { enqueueJobsForProspects } from '../job-queue'
+import { enqueueJobsForProspects, prospectsWithLiveResearchJob } from '../job-queue'
 import {
   checkResearchEligibility,
   summariseIneligible,
@@ -177,10 +177,45 @@ export async function enqueueResearchForOrganisation(
     }
   }
 
+  // ── GATE: a prospect mid-way through a BATCH run is not available to this path ──
+  //
+  // Added 2026-08-26 with the batch split, and it is a spend guard, not tidiness.
+  //
+  // The batch path runs research as two jobs with up to 24 hours between them, and the
+  // research row is deliberately not written until the second one finishes. So during
+  // that wait the prospect still reads as current_research_result_id IS NULL and the
+  // 'unresearched' scope above selects it. Enqueuing an ordinary research job for it
+  // would re-fetch Apify, Apollo, the website and Brave for sources that are already
+  // bought and already stored on the synthesis_batch_entries row. That is the shape of
+  // the 10 August 2026 incident: 141 credits for 29 prospects.
+  //
+  // job_queue_one_live_research_per_prospect makes it impossible at the database level,
+  // and would raise 23505 out of enqueue_job and abort this loop part-way through. This
+  // filter exists so the operator gets a sentence naming the reason instead. The index
+  // stays the guarantee; a race that slips past this still hits it.
+  //
+  // SKIPS rather than refusing the whole batch, matching the eligibility gate above and
+  // not the trigger guard: nothing destructive happens, the work is simply already in
+  // progress somewhere else.
+  const liveElsewhere = await prospectsWithLiveResearchJob(supabase, organisationId, eligible)
+  const enqueueable = eligible.filter(id => !liveElsewhere.has(id))
+
+  if (enqueueable.length === 0) {
+    return {
+      ok: false,
+      error:
+        `Nothing to research. All ${eligible.length} eligible prospects already have a ` +
+        'research job in progress, which for the batch path can mean waiting on an ' +
+        'Anthropic batch for up to 24 hours. Their sources are already paid for and ' +
+        'stored, so re-running them now would buy the same data twice. Wait for the ' +
+        'batch to collect.',
+    }
+  }
+
   const { created, alreadyQueued } = await enqueueJobsForProspects(supabase, {
     jobType: 'research',
     organisationId,
-    prospectIds: eligible,
+    prospectIds: enqueueable,
     enqueuedBy,
   })
 
@@ -191,6 +226,10 @@ export async function enqueueResearchForOrganisation(
     eligible: eligible.length,
     skipped_ineligible: skippedReasons.length,
     skipped_breakdown: skippedReasons.length > 0 ? summariseIneligible(skippedReasons) : null,
+    // Not the same as already_queued below. That one counts this job type's own
+    // duplicates; this counts prospects held by ANOTHER research job type, which during
+    // a batch rollout is the interesting number.
+    skipped_live_elsewhere: liveElsewhere.size,
     created: created.length,
     already_queued: alreadyQueued.length,
   })

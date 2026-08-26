@@ -22,11 +22,14 @@
 // would have missed compose again.
 
 import { describe, it, expect } from 'vitest'
+import fs from 'fs'
+import path from 'path'
 import { planClaims, planClaimsWithRotation, inFlightHeadroom } from '../fairness'
 import {
   QUEUE_CONFIG,
   APIFY_ACTORS_PER_RESEARCH_PROSPECT,
   APIFY_MAX_CONCURRENT_ACTOR_RUNS,
+  APIFY_JOB_TYPES,
 } from '../config'
 import type { JobType, OrganisationBacklog } from '../types'
 
@@ -207,9 +210,95 @@ describe('external limits the config must keep honouring', () => {
   // profile actor was dropped on 2026-08-25 and maxInFlight went 10 -> 20, this test kept
   // asserting against a number the source no longer used. A duplicated constant is how a
   // guard silently stops guarding.
-  it('keeps concurrent research prospects under the Apify concurrent-actor-run ceiling', () => {
-    expect(QUEUE_CONFIG.research.maxInFlight * APIFY_ACTORS_PER_RESEARCH_PROSPECT)
-      .toBeLessThanOrEqual(APIFY_MAX_CONCURRENT_ACTOR_RUNS)
+  //
+  // The job type is now imported too, for exactly the same reason. This read
+  // QUEUE_CONFIG.research directly, and when source fetching moved to research_sources
+  // it would have gone on passing while measuring a job type that no longer starts a
+  // single actor.
+  it.each(APIFY_JOB_TYPES)(
+    '%s: stays under the Apify concurrent-actor-run ceiling',
+    jobType => {
+      expect(QUEUE_CONFIG[jobType].maxInFlight * APIFY_ACTORS_PER_RESEARCH_PROSPECT)
+        .toBeLessThanOrEqual(APIFY_MAX_CONCURRENT_ACTOR_RUNS)
+    },
+  )
+
+  it('checks the ceiling against a NON-EMPTY set of job types', () => {
+    // it.each over an empty array passes vacuously and reports nothing. That is the
+    // shape that let MON-019 sit dark: a check that runs, goes green, and covers
+    // nothing. Assert the set has members before trusting the loop above.
+    expect(APIFY_JOB_TYPES.length).toBeGreaterThan(0)
+  })
+
+  it('every job type named as an Apify user is a real job type', () => {
+    // A typo or a renamed job type would make the ceiling silently skip the path that
+    // actually calls Apify.
+    for (const jobType of APIFY_JOB_TYPES) {
+      expect(QUEUE_CONFIG[jobType], `APIFY_JOB_TYPES names '${jobType}', absent from QUEUE_CONFIG`)
+        .toBeDefined()
+    }
+  })
+
+  it('names BOTH source-fetching paths, because both start actors', () => {
+    // research is the original single-job path and research_sources is phase 1 of the
+    // batch path. Both fetch the four sources. research_collect must NOT be here: it
+    // makes Anthropic calls only.
+    expect([...APIFY_JOB_TYPES].sort()).toEqual(['research', 'research_sources'])
+    expect(APIFY_JOB_TYPES).not.toContain('research_collect')
+  })
+
+  // ── THE TEST THAT TIES A TYPESCRIPT ASSUMPTION TO A SQL FACT ────────────────
+  //
+  // assertQueueConfig checks the Apify ceiling with a MAX across APIFY_JOB_TYPES, not a
+  // SUM. That is only sound because at most one source-fetching path can be enabled at
+  // a time, and the thing that makes that true is a unique index in the database, not
+  // anything in this repository's TypeScript.
+  //
+  // research and research_sources are both at maxInFlight 20. If that index is ever
+  // dropped, both flags can be on together, 40 concurrent actor runs are reachable
+  // against a measured ceiling of 25, Apify starts rejecting runs, and NOTHING in the
+  // TypeScript would notice: assertQueueConfig would still pass, because it is still
+  // taking a max.
+  //
+  // So this checks the WORLD rather than the config against itself, in the spirit of
+  // the monitor-view scan: it reads the migrations on disk. It also fails if it finds
+  // no migrations at all, rather than passing over an empty set.
+  it('the migrations still create the index the max-not-sum assumption depends on', () => {
+    const migrationsDir = path.resolve(__dirname, '../../../../supabase/migrations')
+    const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'))
+
+    expect(files.length, 'no migrations found, so this test would pass vacuously')
+      .toBeGreaterThan(0)
+
+    const allSql = files
+      .map(f => fs.readFileSync(path.join(migrationsDir, f), 'utf8'))
+      .join('\n')
+
+    expect(
+      allSql,
+      'system_flags_research_path_exclusive is gone. The two research paths can now both ' +
+      'be enabled, so the Apify ceiling in assertQueueConfig must become a SUM across ' +
+      'APIFY_JOB_TYPES, and the configuration must change to fit inside 25.',
+    ).toMatch(/CREATE UNIQUE INDEX[^;]*system_flags_research_path_exclusive/)
+
+    // And that it actually covers both flags, not just exists by name.
+    expect(allSql).toMatch(/queue_research'\s*,\s*'queue_research_sources/)
+
+    // ── WHAT THIS TEST CANNOT PROVE, STATED SO NOBODY OVER-TRUSTS IT ──
+    //
+    // Migrations are append-only history, not current state. A later migration that
+    // DROPPED the index would leave the CREATE above sitting in the repository and this
+    // assertion green. So the drop is checked for explicitly, which closes the realistic
+    // hole, and the authoritative check is a LIVE one: MON-021 reads pg_indexes.
+    //
+    // A mutation test caught this. Renaming the index left the suite fully green,
+    // because the original assertion was a substring match and the renamed string
+    // contained it. Deleting the statement failed one test; renaming it failed none.
+    expect(
+      allSql,
+      'a migration drops system_flags_research_path_exclusive. Both research paths can ' +
+      'then be enabled at once and the Apify ceiling assertion must become a SUM.',
+    ).not.toMatch(/DROP INDEX[^;]*system_flags_research_path_exclusive/)
   })
 
   // The drift this cannot catch: APIFY_ACTORS_PER_RESEARCH_PROSPECT claiming 1 while

@@ -1168,6 +1168,8 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-030  Client reply view: org-scoping RLS-backed, intent-filtering chokepoint-enforced
            (renumbered from a duplicate ADR-026 on 2026-08-24)
   ADR-031  Two-pass email verification; send eligibility resolved by one shared function
+  ADR-032  Research synthesis on the Batch API, split into research_sources +
+           research_collect with the intermediate state in synthesis_batch_entries
 
 ---
 
