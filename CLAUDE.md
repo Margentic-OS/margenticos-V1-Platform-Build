@@ -827,7 +827,63 @@ Never place a route directly under src/app/dashboard/ outside (client)/ or opera
 
 ---
 
-## Database security — three standing rules (learn from 2026-06-05 and 2026-08-24)
+## Silent-failure shapes — recognise these before writing them
+
+Some code shapes fail without producing an error, a log line, or a failing test. They are
+worth recognising by shape, because each one has already cost this build real time.
+
+### Parallel arrays that must stay in sync
+
+Two arrays whose elements correspond by INDEX, walked together by a loop. Adding an entry to
+one and not the other produces no error: the loop is bounded by one of them, so the extra
+entry is silently never reached, or the pairing shifts and every entry after the insertion
+point is quietly mismatched.
+
+**The 2026-08-25 incident.** monitor-sweep held `checkCodes` (16 entries) and `viewNames`
+(17 entries), looped `for (i = 0; i < checkCodes.length; i++)`, and read `viewNames[i]`. So
+`mon_019` at index 16 was never queried. The verification sweep was running, writing
+heartbeats, and its monitor view returned OK, while `monitor_events` held ZERO rows for
+MON-019. **A monitor that exists and is silent reads on the dashboard as a monitor that is
+healthy, so this is a defect that hides defects.**
+
+Worse: the commit immediately before the fix was titled "so something actually reads the
+verification sweep's heartbeat". It added the view name to one array and not the check code
+to the other. **The defect survived its own fix**, and the commit message asserted otherwise.
+
+The fix is structural, not vigilance: **one array of pairs**, so the drift cannot be
+expressed. There is no way to add a view without naming its code, and no index arithmetic to
+get wrong.
+
+    // Wrong
+    const codes = ['MON-001', 'MON-002']
+    const views = ['mon_001', 'mon_002', 'mon_003']
+
+    // Right
+    const MONITORS = [['MON-001', 'mon_001'], ['MON-002', 'mon_002']] as const
+
+And pair it with a test that checks the registry against the WORLD, not just against itself.
+The test that would have caught this scans the migrations for every `CREATE VIEW mon_NNN` and
+fails if the sweep does not query it. That test also guards itself: it fails if the scan finds
+no views at all, rather than passing vacuously over an empty set.
+
+This is the same family as validate-one-thing-return-another: **the check runs, reports
+success, and the thing it was supposed to protect was never reached.**
+
+### Related shapes already documented elsewhere in this file
+
+- Validating one value and returning another. The generation-time opt-out footer was
+  validated and then discarded by a return-value bug; every stored document shipped without
+  a footer.
+- A REVOKE that is a no-op, and a verification that reads only the role it hopes to see.
+  See the database security rules below.
+- A producer and a consumer that are each correct and disagree on FORMAT. The Apollo handler
+  wrote `"Germany"` and the send rule matched `'DE'`; both sides had passing tests, nothing
+  tested the seam, and two German prospects were mailed. If two modules must agree on a
+  value's shape, one test must exercise the PAIR, not each side alone.
+- A circular import. It passed `tsc --noEmit` and 1,578 vitest tests and failed only
+  `npm run build`. This is why a local production build is a required receipt.
+
+## Database security — four standing rules (learn from 2026-06-05, 2026-08-24 and 2026-08-25)
 
 ### Rule: REVOKE FROM PUBLIC is NOT enough on Supabase. Name anon and authenticated.
 
@@ -899,6 +955,62 @@ call the paid API again, so a false stamp permanently kills real work. Nothing c
 the functions yet, so no job existed to attack. Fixed in
 20260824160500_job_queue_revoke_anon_authenticated.sql. Every other SECURITY DEFINER
 function in the database was audited with the query above and none were affected.
+
+### Rule: The same trap applies to TABLES. RLS is one layer, not the only one.
+
+The rule above is written about FUNCTIONS. **Read it as being about GRANTS**, because
+Supabase's ALTER DEFAULT PRIVILEGES on the public schema grants TABLES to anon and
+authenticated too, not only function EXECUTE.
+
+This is easy to get wrong in the reassuring direction, because the standard Supabase
+advice for a service-only table is "enable RLS, add no policies", and that advice is
+correct as far as it goes. RLS with zero policies genuinely denies every row to anon.
+What it does not do is remove the GRANT sitting underneath it.
+
+**The 2026-08-25 incident.** verification_calls, the ledger recording every PAID email
+verification call, was created with RLS enabled and no policies. That was verified to
+work: as anon, with a live row present, the table returned 0 rows. The check used
+BEGIN ... ROLLBACK so the probe row was never committed. Then the privilege was read
+back directly:
+
+    has_table_privilege('anon', 'public.verification_calls', 'SELECT')   ->  true
+
+RLS was the ONLY thing standing between an unauthenticated caller and the spend ledger.
+Nothing was exposed, because RLS held. But a single later migration adding a permissive
+policy, or disabling RLS to debug something, would have opened it with no second layer
+and nothing to say so.
+
+So for every new table that is service-role only:
+
+  1. Enable RLS. This is what actually protects the rows today.
+  2. REVOKE the roles BY NAME anyway, and grant the real caller back:
+
+       REVOKE ALL ON TABLE public.table_name FROM anon, authenticated;
+       GRANT ALL ON TABLE public.table_name TO service_role;
+
+  3. VERIFY in BOTH directions, the roles that must NOT have it as well as the one
+     that must:
+
+       SELECT has_table_privilege('service_role',  'public.table_name', 'SELECT'), -- t
+              has_table_privilege('anon',          'public.table_name', 'SELECT'), -- f
+              has_table_privilege('authenticated', 'public.table_name', 'SELECT'); -- f
+
+To audit every table in the database for this class:
+
+    SELECT c.relname
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND c.relkind = 'r'
+       AND has_table_privilege('anon', c.oid, 'SELECT')
+       AND NOT c.relrowsecurity;
+
+Any row there is a table anon can read outright. A table with RLS on is protected today
+but still worth revoking, per the incident above.
+
+**The generalisation, which is the part worth carrying:** the mistake in both the
+2026-06-05, 2026-08-24 and 2026-08-25 incidents is identical, and it is not about
+functions or tables. It is ASSUMING THE EFFECT OF A GRANT INSTEAD OF READING IT BACK.
+Whenever a migration changes who can reach something, read the privilege back for every
+role that matters, in both directions, before committing.
 
 ### Rule: Every REVOKE ships with explicit GRANTs to each legitimate caller
 
