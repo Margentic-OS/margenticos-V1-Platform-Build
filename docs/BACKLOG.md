@@ -6090,19 +6090,38 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
 
   does NOT find it. That query filters on relkind = 'r', tables only. Views are 'v'.
 
-  Measured 2026-08-26: mon_019 and mon_020 both return true for
-  has_table_privilege('anon', ..., 'SELECT'). Not fixed here, deliberately. Every mon_*
-  view is a fresh SELECT over other tables and I have not traced what each one exposes or
-  who reads them, and changing grants on paths I have not traced is how a working
-  dashboard breaks quietly. It is also not urgent: the sweep and the operator dashboard
-  both read as service_role, so revoking is expected to be inert, but "expected to be" is
-  the phrase this project keeps getting caught by.
+  MEASURED 2026-08-26 with the widened query. TEN views are anon-readable while the
+  current audit returns zero rows:
+
+      client_organisation_view
+      mon_001  mon_002  mon_003  mon_004  mon_005  mon_007  mon_010  mon_019  mon_020
+
+  Note what is NOT in that list: mon_006, mon_011 through mon_018, and the new mon_021 and
+  mon_022. So some monitor views are already locked down and some are not, which means
+  this was never a deliberate policy either way. That is worth knowing before "fixing" it:
+  the inconsistency suggests grants were inherited from whatever the default was on the
+  day each view was created, not chosen.
+
+  client_organisation_view is the one to look at first and the one to be most careful
+  with. It is named as client-facing, so anon access may be load-bearing for something,
+  or it may be RLS-backed at the base tables. Either way it is not a mon_* view and it
+  should not be swept up in the same migration without being understood on its own.
+
+  Not fixed here, deliberately. Each of these is a fresh SELECT over other tables, I have
+  not traced what each exposes or who reads it, and changing grants on paths I have not
+  traced is how a working dashboard breaks quietly. It is also not urgent: the sweep and
+  the operator dashboard both read as service_role, so revoking is EXPECTED to be inert,
+  but "expected to be" is the phrase this project keeps getting caught by.
 
   NEXT ACTION, in this order:
     1. Widen the CLAUDE.md audit query to cover views as well as tables:
-       relkind IN ('r','v','m'). The current one cannot see this class at all.
-    2. Run it and list every anon-readable view.
-    3. For each, read what it selects from and confirm nothing client-facing reads it.
+       relkind IN ('r','v','m'). The current one cannot see this class at all, and it has
+       been returning zero rows reassuringly since the day it was written.
+    2. Handle client_organisation_view separately and first. Different object, different
+       question, and possibly a legitimate grant.
+    3. For each mon_* view, read what it selects from and confirm nothing client-facing
+       reads it. The operator dashboard reads monitor_checks and monitor_events, not the
+       views, so this is expected to be a short list.
     4. Revoke by name and grant service_role, one migration, with a live read-back in
        both directions.
 
