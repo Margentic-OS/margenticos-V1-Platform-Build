@@ -98,7 +98,11 @@ export async function enqueueResearchForOrganisation(
     // email_send_eligible is materialised at verification time and defaults to false, so it
     // can neither be re-policied without a re-verification run nor distinguish "verified
     // ineligible" from "never verified".
-    .select('id, personalisation_trigger, independent_verified_at, independent_email_status, email_send_ineligible_reason')
+    // second_pass_* added 2026-08-25. WITHOUT THEM THE GATE IS BLIND TO THE PAID PASS:
+    // checkResearchEligibility treats an absent second_pass_status as "not run", so a
+    // catch-all that Bouncer resolved to deliverable would still be filtered out and the
+    // money spent resolving it would buy nothing.
+    .select('id, personalisation_trigger, independent_verified_at, independent_email_status, email_send_ineligible_reason, verification_provider, second_pass_status, second_pass_provider')
     .eq('organisation_id', organisationId)
     .eq('suppressed', false)
     .limit(maxProspects)
@@ -153,6 +157,9 @@ export async function enqueueResearchForOrganisation(
       independent_verified_at:      (row.independent_verified_at as string | null) ?? null,
       independent_email_status:     (row.independent_email_status as string | null) ?? null,
       email_send_ineligible_reason: (row.email_send_ineligible_reason as string | null) ?? null,
+      verification_provider:        (row.verification_provider as string | null) ?? null,
+      second_pass_status:           (row.second_pass_status as string | null) ?? null,
+      second_pass_provider:         (row.second_pass_provider as string | null) ?? null,
     })
     if (verdict.eligible) eligible.push(row.id as string)
     else skippedReasons.push(verdict.reason)

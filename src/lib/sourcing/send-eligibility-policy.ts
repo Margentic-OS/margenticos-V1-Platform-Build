@@ -40,6 +40,8 @@
 // not a replacement for it.
 // ═════════════════════════════════════════════════════════════════════════════
 
+import { toCanonicalVerdict, isKnownVendorVerdict } from '@/lib/sourcing/verification-verdict'
+
 /**
  * THE ONE LINE THAT CHANGES IF THE CATCH ALL POLICY CHANGES.
  *
@@ -65,6 +67,23 @@ export interface VerificationFacts {
   independent_verified_at: string | null
   independent_email_status: string | null
   email_send_ineligible_reason: string | null
+  /**
+   * Which vendor produced independent_email_status. Optional: the column has a default of
+   * the first-pass vendor's name and predates the second pass, so an absent value is read
+   * as the first-pass vendor rather than rejected.
+   */
+  verification_provider?: string | null
+  /**
+   * The paid second pass, added 2026-08-25. Optional so every existing caller still
+   * type-checks; absent or null means it has not run.
+   *
+   * A CATCH-ALL THE SECOND PASS RESOLVED IS WORTH RESEARCHING, and without this field it
+   * would be refused. The whole point of paying for the second pass is that it converts an
+   * unconfirmable address into a confirmed one, so the gate that decides whether to spend
+   * research money has to be able to see the newer, better evidence.
+   */
+  second_pass_status?: string | null
+  second_pass_provider?: string | null
 }
 
 export type IneligibleReason =
@@ -77,14 +96,19 @@ export type ResearchEligibility =
   | { eligible: true }
   | { eligible: false; reason: IneligibleReason; detail: string }
 
-/**
- * Statuses that are unmailable under ANY policy. MyEmailVerifier's vocabulary is
- * "Valid" | "Invalid" | "Unknown" | "Catch All" | "Grey-listed"
- * (adapter-myemailverifier.ts:16). Invalid is a confirmed dead mailbox. Unknown and
- * Grey-listed mean verification could not reach a verdict, which is not the same as a
- * catch-all domain and is not covered by the flag above.
- */
-const UNDELIVERABLE_STATUSES = ['Invalid', 'Unknown', 'Grey-listed']
+// UNDELIVERABLE_STATUSES was here, holding ['Invalid', 'Unknown', 'Grey-listed'].
+//
+// It is DELETED rather than moved. It was one vendor's vocabulary embedded in a shared
+// policy module, listed as leak L7 in the catch-all handover and flagged there as the only
+// one of seven that costs anything on a live code path. The handover's advice was to fix it
+// when a second vendor arrives and not before, because it is only wrong once two
+// vocabularies exist. That is now.
+//
+// The same three facts are expressed by toCanonicalVerdict returning 'undeliverable' or
+// 'unknown', which every vendor's words map into. Note the mapping is deliberately finer
+// than the old list: Invalid is 'undeliverable' (a confirmed dead mailbox) while Unknown and
+// Grey-listed are 'unknown' (no verdict reached). Both are refused research, for different
+// stated reasons, where the flat list could not tell them apart.
 
 /**
  * Should we spend research money on this prospect?
@@ -138,23 +162,59 @@ export function checkResearchEligibility(p: VerificationFacts): ResearchEligibil
     }
   }
 
-  const status = p.independent_email_status
+  // TRANSLATED, NOT COMPARED TO VENDOR WORDS. This block used to test the raw strings
+  // 'Invalid' / 'Unknown' / 'Grey-listed' / 'Catch All' directly, which was one vendor's
+  // vocabulary sitting in a shared policy module. That was harmless while one vendor
+  // existed and is not any more: a second vendor writes different words for the same facts.
+  const firstPass = toCanonicalVerdict(p.verification_provider ?? null, p.independent_email_status)
+  const secondPass = toCanonicalVerdict(p.second_pass_provider ?? null, p.second_pass_status ?? null)
 
-  if (status !== null && UNDELIVERABLE_STATUSES.includes(status)) {
+  // THE SECOND PASS IS CONSULTED FIRST, because it is strictly newer and better evidence.
+  // A catch-all resolved to deliverable is an ordinary confirmed address and is worth
+  // researching regardless of what CATCH_ALL_IS_RESEARCH_WORTHY says: that flag governs the
+  // UNRESOLVED case, which is the only case it was ever about.
+  if (secondPass === 'deliverable') {
+    return { eligible: true }
+  }
+
+  if (firstPass === 'undeliverable') {
     return {
       eligible: false,
       reason: 'undeliverable',
-      detail: `Verification returned "${status}". This address cannot be emailed under any policy.`,
+      detail:
+        `Verification returned "${p.independent_email_status}". This address cannot be ` +
+        'emailed under any policy, and a second opinion does not overturn it.',
     }
   }
 
-  if (status === 'Catch All' && !CATCH_ALL_IS_RESEARCH_WORTHY) {
+  // A word we have NEVER SEEN is treated as "the vendor renamed something", not as a
+  // verdict, and does not block research. See isKnownVendorVerdict for why this one case
+  // fails open while everything else here fails closed. Checked before the 'unknown' branch
+  // because toCanonicalVerdict collapses both into 'unknown'.
+  if (!isKnownVendorVerdict(p.verification_provider ?? null, p.independent_email_status)) {
+    return { eligible: true }
+  }
+
+  if (firstPass === 'unknown') {
+    return {
+      eligible: false,
+      reason: 'undeliverable',
+      detail:
+        `Verification returned "${p.independent_email_status}", which reached no verdict. ` +
+        'Not worth research spend until something confirms the mailbox.',
+    }
+  }
+
+  if (firstPass === 'risky' && !CATCH_ALL_IS_RESEARCH_WORTHY) {
     return {
       eligible: false,
       reason: 'catch_all',
       detail:
-        'Catch-all domain, so the mailbox cannot be confirmed. Policy currently treats these ' +
-        'as not worth researching. Change CATCH_ALL_IS_RESEARCH_WORTHY to include them.',
+        'Catch-all domain, so the mailbox cannot be confirmed, and the paid second pass has ' +
+        'not resolved it' +
+        (secondPass ? ` (it returned "${p.second_pass_status}")` : ' yet') +
+        '. Policy currently treats these as not worth researching. Change ' +
+        'CATCH_ALL_IS_RESEARCH_WORTHY to include them.',
     }
   }
 

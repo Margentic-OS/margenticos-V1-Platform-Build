@@ -45,4 +45,5 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   ['MON-017', 'mon_017'],
   ['MON-018', 'mon_018'],
   ['MON-019', 'mon_019'],
+  ['MON-020', 'mon_020'],
 ] as const

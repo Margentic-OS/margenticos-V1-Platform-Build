@@ -38,6 +38,32 @@ interface MyEmailVerifierResponse {
 /** Abort an individual verification probe. See the comment at the fetch below. */
 const VERIFY_FETCH_TIMEOUT_MS = 20_000
 
+/** Canonical provider key. Matches prospects.verification_provider for first-pass rows. */
+export const MYEMAILVERIFIER_PROVIDER_KEY = 'myemailverifier'
+
+/**
+ * THIS VENDOR'S VOCABULARY, owned by this vendor's handler.
+ *
+ * CLAUDE.md: a handler owns its tool's translation table and nothing upstream sees
+ * tool-specific names. The shared module at src/lib/sourcing/verification-verdict.ts composes
+ * a registry from the maps each handler exports, so adding a vendor is a new handler plus one
+ * registry line and no shared file learns a new word.
+ *
+ * "Catch All" maps to risky rather than undeliverable, and that single choice is the business
+ * case for the second pass: the domain accepts mail for every address, so this probe cannot
+ * confirm the specific mailbox. It is an unconfirmable address, not a dead one.
+ *
+ * "Grey-listed" maps to unknown rather than risky: greylisting is a temporary rejection that
+ * a retry usually clears, so it means "ask again", not "this is dubious".
+ */
+export const MYEMAILVERIFIER_VERDICT_MAP = {
+  'Valid': 'deliverable',
+  'Invalid': 'undeliverable',
+  'Catch All': 'risky',
+  'Unknown': 'unknown',
+  'Grey-listed': 'unknown',
+} as const
+
 export const myemailverifierHandler = {
   name: 'MyEmailVerifier',
   capability: 'can_validate_email',
