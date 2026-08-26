@@ -6097,6 +6097,39 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   reading the docs and assuming. A parameter name typo here does not fail, it ships a
   filter that filters nothing.
 
+  WORKED EXAMPLE OF THE SAME MISTAKE, MADE WHILE FIXING IT. Recorded because it is the
+  more useful half of the finding above, and because it was caught by luck of a second
+  look rather than by process.
+
+  The task was to prove that adding person_locations actually excluded the 545 Canadians.
+  The first check built the probe like this:
+
+      { ...shippedFilter, person_locations: ['canada'] }      // WRONG
+
+  That REPLACES the filter's ['united states','united kingdom','ireland'] with ['canada']
+  rather than testing against it. So it measured "how many Canadians are at in-scope
+  firms", which is 545 whether or not person_locations is in the shipped filter. It
+  returned 545 before the fix and 545 after it. THE CHECK COULD NOT FAIL, so passing it
+  meant nothing, and it was one read-through away from being quoted as proof the gap was
+  closed.
+
+  The correct form ADDS instead of replacing, and is falsifiable:
+
+      { ...shippedFilter, person_locations: [...shipped, 'canada'] }   // RIGHT
+      55,975 + canada  = 56,520, delta exactly 545
+      55,975 + germany = 56,213, delta exactly 238
+
+  If person_locations were being ignored, both deltas would have been zero and the total
+  would have stayed at 61,523. The check can fail, therefore passing it is worth something.
+
+  THE RULE, which generalises past Apollo: A CHECK THAT PASSES REGARDLESS IS WORSE THAN NO
+  CHECK, because it manufactures confidence. No check leaves you knowing you are ignorant.
+  Before trusting any verification, ask what result would have made it FAIL, and if there
+  is no such result, the check is decoration. This is the same family as the MON-019
+  parallel arrays, the validated-then-discarded opt-out footer, and the REVOKE that read
+  back only the role it hoped to see: in every case the check ran, reported success, and
+  never touched the thing it was supposed to protect.
+
 - [RESOLVED 2026-08-26, was DECISION NEEDED] RESIDUAL CANADA AND GERMANY EXPOSURE. NOW
   CLOSED at Doug's instruction: person_locations added, same three countries as
   organization_locations. Shipped total 55,975, down from 61,523, which is 5,548 rows or
