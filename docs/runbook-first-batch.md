@@ -218,6 +218,54 @@ the 30% floor, that is the answer, and the earlier probe was measuring a differe
 `max_tokens: 16` against production's 16,000. Report the number that came back, not the
 number we expected.
 
+### THE PARITY CHECK — the failure mode with no signal
+
+Run this AFTER the cache reading above and BEFORE deciding the batch path is good.
+
+    npx tsx --env-file=.env.local scripts/verify-batch-parity.ts <prospect_id> <prospect_id> <prospect_id>
+
+Two or three prospects from the batch. Take their ids from:
+
+```sql
+SELECT prospect_id FROM synthesis_batch_entries
+WHERE state = 'collected' ORDER BY updated_at DESC LIMIT 3;
+```
+
+**Why this step exists.** Three of the four batch failure modes announce themselves:
+cache collapse shows in `reads_per_write`, a stalled batch reddens MON-021, errored
+entries appear per-entry in the ledger. **The fourth does not.** If a snapshot column is
+wrong or missing, phase 2 feeds the writer different material and produces a different
+opening with nothing failing. Same write rate, same counts, same green dashboard,
+different copy. No counter moves.
+
+The harness runs the same prospect through both paths and compares. It makes **paid**
+model calls (a few cents per prospect) and **writes nothing**: no research row, no
+prospect update, no `agent_runs` row.
+
+**Reading the output.** Three comparisons, and only the first two are verdicts:
+
+| | What it proves | Cost |
+|---|---|---|
+| **C1** | snapshot vs live inputs over the same stored Message. **Deterministic — this is the real detector.** | free |
+| **C2** | the writer's brief: snapshotted messaging document vs currently approved | free |
+| **C3** | full inline run vs the stored batch result | paid |
+
+**A C1 or C2 difference is a DEFECT.** The script prints both values raw and exits
+non-zero. It does not interpret them, on purpose. Stop and read them; do not proceed.
+
+**A C3 difference on its own is not.** The synthesis model and the writer are sampled, so
+identical inputs produce different prose. If C1 and C2 are clean, a C3 difference is the
+model choosing other words. The script says so and prints the full text either way, so a
+human decides rather than the script.
+
+The line to look for on each prospect:
+
+    trigger_text BYTE-IDENTICAL: true
+
+**Expected result on a healthy run:** C1 PASS, C2 PASS, `doc_id changed since phase 1:
+false`, and C3 either identical or differing only in wording. Anything else stops the
+ramp.
+
 ### The reconciliation against Anthropic's console
 
 Open the Anthropic console's Batches view. For the batch id in `synthesis_batches`:
@@ -324,4 +372,5 @@ recovery operation.
 2. If B came back below 5, change `BATCH_CACHE_TTL` to `'5m'` in the same commit.
 3. Compute the actual per-prospect saving from `synthesis_batch_entries.usage` against the
    $0.192 all-in baseline, and write it down. The forecast was 20 to 31%.
-4. Only then consider raising the batch size beyond one small organisation.
+4. Confirm the parity check passed C1 and C2 on every prospect you ran it against.
+5. Only then consider raising the batch size beyond one small organisation.
