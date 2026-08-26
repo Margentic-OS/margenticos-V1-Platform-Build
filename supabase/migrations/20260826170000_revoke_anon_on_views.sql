@@ -1,18 +1,21 @@
 -- Close the view-over-RLS-table bypass to anon.
 --
--- Status: NOT APPLIED. Written and awaiting Doug's go-ahead.
+-- Status: APPLIED (verified live 2026-08-26, on Doug's explicit go-ahead)
 --
--- The instruction for these nine was explicitly "report, do not batch-revoke them blind".
--- The tracing below is what turns a blind revoke into an informed one, but the decision
--- was reserved and reserving it still stands even though the measurements came back
--- supporting the change. Applying it because the evidence happens to agree would be
--- taking a decision that was not mine to take.
+-- Read-back after apply, all nine views:
+--   anon SELECT -> false, authenticated SELECT -> false, service_role SELECT -> true
 --
--- To apply: Supabase MCP apply_migration, then read back
---   has_table_privilege('anon', 'public.mon_019', 'SELECT')          -> expect false
---   has_table_privilege('authenticated', 'public.mon_019', 'SELECT') -> expect false
---   has_table_privilege('service_role', 'public.mon_019', 'SELECT')  -> expect true
--- and confirm the next monitor-sweep firing still records events for all 20 monitors.
+-- And the bypass was re-tested as anon, not merely inferred from the grant table:
+--   BEFORE:  SELECT * FROM public.mon_019;  -> returned data
+--   AFTER:   SELECT * FROM public.mon_019;  -> ERROR 42501 permission denied for view
+--
+-- The corrected audit query now returns only two views reachable by anon or
+-- authenticated, and both are understood:
+--   client_organisation_view  anon+auth, security_invoker false, but self-scoped by
+--                             WHERE id = get_my_organisation_id() and that function
+--                             denies EXECUTE to anon. Left in place by decision.
+--   client_prospects_view     authenticated only, security_invoker TRUE. The correct
+--                             pattern, and the one the others should have followed.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHAT WAS MEASURED, AND HOW IT DIFFERED FROM WHAT WAS REPORTED
