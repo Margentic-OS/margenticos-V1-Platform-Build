@@ -1,7 +1,24 @@
 -- Migration: store the whole Anthropic Message on a batch entry, not just its text
 -- Date: 2026-08-26
 --
--- Status: PENDING (apply via Supabase MCP apply_migration, then verify live and stamp)
+-- Status: APPLIED (verified live 2026-08-26)
+--
+-- Read-back after apply:
+--   synthesis_batch_entries.response_message  present, jsonb
+--   synthesis_batch_entries.response_text     absent
+--
+-- STAMPED LATE, and that is worth recording rather than quietly correcting. The migration
+-- was applied and verified during the session, and the file was left saying PENDING. Found
+-- during the merge by grepping every 2026-08-26 migration for its status line.
+--
+-- CLAUDE.md's rule is "never leave migrations in the repo unapplied (track status in the
+-- file)". This was the inverse and it is just as bad: a file saying PENDING against a
+-- database where it has already run invites a future session to apply it again. Here that
+-- would have been survivable, because DROP COLUMN IF EXISTS and ADD COLUMN IF EXISTS are
+-- both idempotent. It would not be survivable for a migration that inserts or backfills.
+--
+-- The check is cheap and worth doing before any merge:
+--   for f in supabase/migrations/2026*.sql; do echo "$f: $(grep -m1 '^-- Status:' $f)"; done
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHY THE COLUMN CHANGED SHAPE
