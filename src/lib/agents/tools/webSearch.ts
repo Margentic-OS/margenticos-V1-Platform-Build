@@ -84,10 +84,19 @@ export interface ResearchBundle {
  * real runs is on file, read the distribution and tighten this to 2 if the third search
  * is rarely reached or rarely useful. Do not tighten it on instinct: 3 bounds the tail at
  * 6 searches per prospect, which is the point of the cap. Uncapped was the actual defect.
+ *
+ * SINCE 2026-08-25 THIS IS A DEFAULT, NOT THE ONLY VALUE. Callers may pass
+ * `{ maxUses }` to webSearch. Prospect research passes 1; the ICP and positioning
+ * document agents pass nothing and keep 3. Change this constant only to move the
+ * DOCUMENT-generation budget: the per-prospect budget lives at the call site in
+ * src/lib/agents/research/sources/web-search.ts.
  */
 export const WEB_SEARCH_MAX_USES = 3
 
-async function searchViaNativeAnthropic(query: string): Promise<WebSearchResult> {
+async function searchViaNativeAnthropic(
+  query: string,
+  maxUses: number = WEB_SEARCH_MAX_USES,
+): Promise<WebSearchResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set')
 
@@ -97,7 +106,7 @@ async function searchViaNativeAnthropic(query: string): Promise<WebSearchResult>
   const webSearchTool: WebSearchTool20250305 = {
     type: 'web_search_20250305',
     name: 'web_search',
-    max_uses: WEB_SEARCH_MAX_USES,
+    max_uses: maxUses,
   }
 
   const messages: MessageParam[] = [
@@ -273,6 +282,12 @@ async function searchViaBrave(query: string): Promise<WebSearchResult> {
   const apiKey = process.env.BRAVE_SEARCH_API_KEY
   if (!apiKey) throw new Error('BRAVE_SEARCH_API_KEY not set')
 
+  // NOTE: THE FALLBACK IGNORES maxUses, and cannot honour it. Brave is one HTTP call
+  // returning up to `count` results, not an agent that decides how many searches to run,
+  // so there is no per-query search budget to cap. A caller asking for maxUses: 1 that
+  // falls through to here still gets exactly one call, which happens to be the same thing.
+  // Recorded because "I lowered the cap and the cost did not move" is otherwise a puzzle,
+  // and because Brave has served only 3 of 209 stored texts, so it is rarely the path.
   const url =
     `https://api.search.brave.com/res/v1/web/search` +
     `?q=${encodeURIComponent(query)}&count=6&freshness=pm6`
@@ -331,10 +346,34 @@ async function searchViaBrave(query: string): Promise<WebSearchResult> {
  * Tries Anthropic native first, falls back to Brave, degrades gracefully.
  * Never throws.
  */
-export async function webSearch(query: string): Promise<WebSearchResult> {
+export interface WebSearchOptions {
+  /**
+   * Billable searches this ONE query may run. Defaults to WEB_SEARCH_MAX_USES.
+   *
+   * PER CALLER, NOT GLOBAL, and that distinction is the whole point of this option.
+   * Two kinds of caller share this utility and they are not comparable:
+   *
+   *   PER-CLIENT   the ICP and positioning document agents, four queries each, run ONCE
+   *                per client. Richer search is worth paying for there and they are
+   *                unchanged: they call webSearch with no options and keep the default.
+   *   PER-PROSPECT prospect research, run on every prospect in every batch. This is where
+   *                the volume and therefore the cost is.
+   *
+   * A single global constant cannot express that, and lowering it would have quietly
+   * degraded the document agents to buy a saving that has nothing to do with them.
+   */
+  maxUses?: number
+}
+
+export async function webSearch(
+  query: string,
+  options: WebSearchOptions = {},
+): Promise<WebSearchResult> {
+  const maxUses = options.maxUses ?? WEB_SEARCH_MAX_USES
+
   // Try Anthropic native search first.
   try {
-    const result = await searchViaNativeAnthropic(query)
+    const result = await searchViaNativeAnthropic(query, maxUses)
     logger.debug('Web search: Anthropic native succeeded', { query, source: result.source })
     return result
   } catch (err) {

@@ -69,6 +69,73 @@
   /clients/[id]/ route at all. It affects the intake and client-detail routes too, which
   were not otherwise in scope for this session.
 
+## Web search reduced and cache TTL raised (2026-08-25) — BOTH NEED CONSOLE CONFIRMATION
+
+- [monitor, ACTION REQUIRED AFTER NEXT RESEARCH RUN] Web search cut from 2 queries x up to
+  3 searches to ONE query capped at ONE search, on the PER-PROSPECT path only.
+  Threaded per caller via `webSearch(query, { maxUses })`. The ICP and positioning document
+  agents call `runResearchQueries` and are UNCHANGED at the default of 3, because they run
+  once per client and richer search is worth paying for there.
+  Estimate: $0.084 -> $0.031 per prospect, and web search from 35% to ~16% of Anthropic
+  cost. All-in per prospect $0.245 -> $0.192.
+  THESE ARE ESTIMATES. Confirm from raw_web_search.search_count (should read exactly 1 per
+  prospect now, against a measured 4.15 before) and from the Anthropic console for the day
+  of the run. The console is the ground truth.
+  REDUCED, NOT DELETED, and the reason matters: this is the only source covering what the
+  OUTSIDE WORLD says about a prospect. Apollo has employment history, LinkedIn has what they
+  post, the website has self-description. None finds a podcast appearance or an
+  incorporation. The 0-of-11 conversion figure measures CONVERSION; the argument for keeping
+  it is COVERAGE. Do not revive deletion on the conversion number alone.
+  Trade-off accepted knowingly: one search cannot cover as much as six. Expect fewer
+  findings. The 92.3% write-rate baseline is the regression signal.
+
+- [monitor, ACTION REQUIRED, AND IT MAY NEED REVERTING] Cache TTL moved from the 5-minute
+  default to 1 hour on the synthesis and writer system prompts.
+
+  THE CONDITION IS EXACT AND IT IS NOT CURRENTLY MET. A 1-hour cache write costs 2x base
+  input; a 5-minute write costs 1.25x. Reads are 0.1x either way. Per request, for the
+  cached prefix:
+
+      5-minute at 4.14 reads/write : (1.25 + 0.1*3.14) / 4.14 = 0.378x
+      1-hour   at B    reads/write : (2.00 + 0.1*(B-1)) / B
+
+  Equal at B = 6.84. So the 1-hour TTL only pays off ABOVE ROUGHLY SEVEN reads per write.
+  At the 4.14 measured on the console today it costs about 48% MORE, not less.
+
+  The bet is that 4.14 was suppressed by entries expiring mid-batch: 13 prospects at ~170s
+  with concurrency 5 runs about 7 minutes, so the 5-minute window closed during the run. At
+  13 reads per write the 1-hour TTL is ~35% cheaper.
+
+  AFTER THE NEXT BATCH, compute cache_read_input_tokens / cache_creation_input_tokens.
+  Above 7: keep it. Below 7: revert by deleting the `ttl` field at both sites. That number
+  settles it, not the direction of the argument.
+
+- [research] A floor on cache writes that the TTL cannot fix. At the head of a batch several
+  prospects start before the first cache entry commits, so they all write rather than read.
+  That is a concurrency race, not expiry, and it caps amortisation at any TTL. The lever is
+  a single cheap pre-warm call (max_tokens: 0 against the same prefix) before fanning out.
+  Worth doing only if the measurement above comes back between about 4 and 7, where the race
+  is what is holding it under break-even.
+
+- [DECIDED, DO NOT ACTION] Caching the web search Haiku call was considered and is
+  IMPOSSIBLE, not merely unprofitable. Haiku 4.5's minimum cacheable prefix is 4,096 tokens.
+  The web search prompt is roughly 60 tokens. A cache_control marker there would be SILENTLY
+  IGNORED: no error, just cache_creation_input_tokens = 0, while consuming one of the four
+  breakpoints allowed per request. The 0.0% read rate on Haiku is explained by this, not by
+  a missing marker. Nothing to do.
+
+- [monitor] WEB_SEARCH_QUERIES_PER_PROSPECT is a MIRROR, not a control. The real query count
+  is structural: however many webSearch calls sources/web-search.ts makes. Nothing enforces
+  they agree, and before this change the constant read 2 while the call site fired 2 by
+  having two lines. web-search-budget.test.ts now pins the call count and the per-caller
+  split, so an edit that lowers WEB_SEARCH_MAX_USES instead of passing maxUses fails loudly
+  rather than silently degrading document generation.
+
+- [research] The per-prospect path calls webSearch RAW, with no timeout, while the document
+  path wraps it in an 8-second race (webSearchWithTimeout). Pre-existing asymmetry, not
+  introduced here, and lower risk now that the per-prospect call is capped at one search.
+  Worth closing if a research run ever hangs on a search.
+
 ## Catch-all second pass — BUILT 2026-08-25, cron NOT switched on
 
 - [pre-c1, ACTION REQUIRED, ONE COMMAND] The paid sweep is built, tested and applied, and

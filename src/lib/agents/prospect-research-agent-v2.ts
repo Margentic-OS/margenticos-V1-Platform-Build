@@ -681,8 +681,9 @@ import {
   COST_WEB_SEARCH_HIGH,
   COST_WEB_SEARCH_PER_SEARCH,
   WEB_SEARCH_QUERIES_PER_PROSPECT,
+  WEB_SEARCH_SEARCHES_PER_PROSPECT,
 } from './research/cost-constants'
-import { WEB_SEARCH_MAX_USES } from './tools/webSearch'
+
 
 function printCostEstimate(totalProspects: number): void {
   const hasApify = !!process.env.APIFY_API_KEY
@@ -723,7 +724,11 @@ function printCostEstimate(totalProspects: number): void {
   console.log(`  Anthropic Sonnet : ~$${anthropicLow.toFixed(2)}–$${anthropicHigh.toFixed(2)}`)
   // The label names BOTH halves on purpose. Reading "@ $0.01" against a range that also
   // carries Haiku tokens is how the token half stayed invisible for a month.
-  console.log(`  Anthropic search : ~$${webSearchLow.toFixed(2)}–$${webSearchHigh.toFixed(2)} (${totalProspects}×${WEB_SEARCH_QUERIES_PER_PROSPECT} queries, 1–${WEB_SEARCH_MAX_USES} searches each @ $${COST_WEB_SEARCH_PER_SEARCH} + Haiku tokens)`)
+  //
+  // It also names the PER-PROSPECT cap explicitly rather than WEB_SEARCH_MAX_USES, which
+  // is now only the DEFAULT and applies to the document agents. Printing 3 here would
+  // describe a budget this path does not use.
+  console.log(`  Anthropic search : ~$${webSearchLow.toFixed(2)}–$${webSearchHigh.toFixed(2)} (${totalProspects}×${WEB_SEARCH_QUERIES_PER_PROSPECT} query, ${WEB_SEARCH_SEARCHES_PER_PROSPECT} search each @ $${COST_WEB_SEARCH_PER_SEARCH} + Haiku tokens)`)
   console.log(`  Apollo           : $0 (included in plan)`)
   console.log('  ─────────────────────────────────────────────────')
   console.log(`  Estimated total  : ~$${totalLow.toFixed(2)}–$${totalHigh.toFixed(2)}`)

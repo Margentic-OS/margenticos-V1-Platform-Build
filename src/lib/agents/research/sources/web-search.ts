@@ -1,7 +1,47 @@
 // Web search source handler for prospect research agent v2.
-// Two-pass: person-specific (recent content/appearances) + company-specific (news/growth).
+//
+// ONE query, capped at ONE billable search. Reduced from two queries at up to three
+// searches each on 2026-08-25.
+//
 // Wraps the existing webSearch utility — Anthropic native first, Brave fallback.
 // Never throws.
+//
+// ═════════════════════════════════════════════════════════════════════════════
+// WHY REDUCED AND NOT DELETED
+//
+// Deleting it was the decision on the table, and the case looked strong: web search is
+// ~35% of Anthropic cost per prospect, won 0 of 11 clean shipped openings, and has the
+// worst six-test pass rate of the five sources at 11.4%.
+//
+// It survives because those numbers measure CONVERSION and the argument for keeping it is
+// about COVERAGE. This is the only source that reports what the outside world says about
+// a prospect. Apollo has employment history, LinkedIn has what they post themselves, the
+// website has how they describe themselves. None of them finds a podcast appearance or a
+// company incorporation dated last quarter. Deleting the source removes that entire
+// category of signal, not merely its conversion rate, and a category with a low hit rate
+// is not the same thing as a category with no value.
+//
+// So the spend is cut by roughly two thirds and the category is kept.
+//
+// ═════════════════════════════════════════════════════════════════════════════
+// WHY ONE MERGED QUERY RATHER THAN KEEPING THE BETTER OF THE TWO
+//
+// The old shape fired a PERSON query and a COMPANY query. Dropping either one would have
+// contradicted the reason for keeping the source at all: a podcast appearance is a person
+// signal and an incorporation is a company signal, and both were named as things nothing
+// else finds. Choosing between them would have deleted half the category to save a query.
+//
+// A merged query keeps both. That works here specifically because of how this API behaves:
+// the string below is not sent to a search engine as a literal query. It is handed to a
+// model as a TOPIC, and the model issues its own searches against it (see
+// searchViaNativeAnthropic). So a topic naming the person AND the company reads naturally
+// and lets the model spend its one search where there is actually something to find.
+//
+// THE TRADE-OFF, STATED PLAINLY: one search cannot cover both as well as up to six could.
+// This is a deliberate reduction in depth, not a free optimisation. Expect fewer findings.
+// Confirm the real saving from raw_web_search.search_count and the Anthropic console after
+// the next research run rather than trusting the estimate. The estimate is $0.084 down to
+// about $0.03 per prospect; the console is the ground truth, per CLAUDE.md.
 
 import { webSearch } from '@/lib/agents/tools/webSearch'
 import { logger } from '@/lib/logger'
@@ -27,54 +67,50 @@ export async function fetchWebSearchSource(prospect: ProspectContext): Promise<W
     }
   }
 
-  // Person query: finds podcast appearances, articles, interviews, LinkedIn activity.
-  const personQuery = fullName
-    ? `"${fullName}" ${company} podcast OR interview OR article OR published OR "wrote about" ${year}`
-    : `${company} founder OR CEO news ${year}`
+  // ONE topic covering both halves of what this source is for: what the PERSON has said
+  // or appeared on, and what the COMPANY has done. Written as a natural-language topic
+  // rather than a boolean search string, because the model reads it and decides what to
+  // search for.
+  const subject = fullName && company
+    ? `${fullName} of ${company}`
+    : (fullName || company)
 
-  // Company query: finds growth signals, announcements, hiring.
-  const companyQuery = company
-    ? `"${company}" growth OR hiring OR launched OR news OR announcement ${year}`
-    : `${fullName} company news ${year}`
+  const query =
+    `${subject}, in ${year}: any podcast appearances, interviews, published articles or ` +
+    `press coverage, and any company news such as funding, incorporation, hiring, ` +
+    `launches or announcements.`
 
   try {
-    const [personResult, companyResult] = await Promise.all([
-      webSearch(personQuery),
-      webSearch(companyQuery),
-    ])
+    // ONE SEARCH. The budget is passed per caller: the ICP and positioning document
+    // agents keep the default of 3, because they run once per client and richer search is
+    // worth paying for there. This runs on every prospect in every batch, which is where
+    // the volume is.
+    const result = await webSearch(query, { maxUses: 1 })
 
     // A query that came back `limited` produced no substantive findings. Treating it
     // as content is what let the model's own preamble ("I'll search for information
     // about...") be stored as research and counted as a successful source.
-    const personText  = !personResult.limited  ? (personResult.synthesis.trim()  || null) : null
-    const companyText = !companyResult.limited ? (companyResult.synthesis.trim() || null) : null
+    const text = !result.limited ? (result.synthesis.trim() || null) : null
 
-    const available = !!(personText || companyText)
-
-    const combined = [personText, companyText]
-      .filter(Boolean)
-      .join('\n\n')
-      .trim() || null
+    const available = !!text
+    const combined = text
 
     // Spend and provenance are recorded whether or not the content was usable. A query
     // that ran, cost money and returned nothing is exactly the case worth counting: it is
     // the majority case on the native path, and it was invisible until now.
-    const providers = [...new Set([personResult.source, companyResult.source])]
-    const searchCount = personResult.searchCount + companyResult.searchCount
-    const resultCount = personResult.resultCount + companyResult.resultCount
+    const providers = [...new Set([result.source])]
+    const searchCount = result.searchCount
+    const resultCount = result.resultCount
 
     if (available) {
       logger.debug('research/web-search: succeeded', {
-        person: !!personText,
-        company: !!companyText,
         providers,
         search_count: searchCount,
         result_count: resultCount,
       })
     } else {
       logger.debug('research/web-search: no substantive findings', {
-        person_reason:  personResult.limitedReason  ?? 'none',
-        company_reason: companyResult.limitedReason ?? 'none',
+        reason: result.limitedReason ?? 'none',
         providers,
         // Searches that were paid for and yielded nothing usable. Watch this number.
         search_count: searchCount,
@@ -84,12 +120,16 @@ export async function fetchWebSearchSource(prospect: ProspectContext): Promise<W
 
     return {
       available,
-      person_search: personText,
-      company_search: companyText,
+      // person_search KEEPS THE SINGLE MERGED RESULT and company_search is always null.
+      // The fields stay in the shape because consumers and stored rows already read them;
+      // collapsing them to one field is a schema change for no gain. person_search is the
+      // one that carries content because it is the field downstream code already prefers.
+      person_search: text,
+      company_search: null,
       combined,
       error: available
         ? undefined
-        : `No substantive findings. person: ${personResult.limitedReason ?? 'empty'}; company: ${companyResult.limitedReason ?? 'empty'}`,
+        : `No substantive findings: ${result.limitedReason ?? 'empty'}`,
       providers,
       search_count: searchCount,
       result_count: resultCount,

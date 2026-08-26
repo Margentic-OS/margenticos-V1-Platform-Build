@@ -775,14 +775,40 @@ export async function synthesizeResearch(
       // breakpoint sits on the system block, so the per-prospect user message below is
       // outside the cached prefix, which is the whole reason buildSignalBlock moved there.
       //
-      // Cache reads are ~10% of input price and writes ~125%, so this is a loss on a
-      // single-prospect run and a gain from the second prospect onwards. Batches are the
-      // normal case. TTL is 5 minutes by default, and concurrency is 5, so a batch stays
-      // well inside the window.
+      // Cache reads are ~10% of input price, so this is a loss on a single-prospect run
+      // and a gain from the second prospect onwards. Batches are the normal case.
+      // ─── CACHE TTL: 1 HOUR, NOT THE 5-MINUTE DEFAULT ───────────────────────────
+      //
+      // Changed 2026-08-25. The reason is that entries were expiring BETWEEN prospects:
+      // a batch of 13 at ~170s each with concurrency 5 runs about 7 minutes, so the
+      // 5-minute window closed mid-batch and the prompt was re-written to cache more than
+      // once. Console write amortisation was 4.14 reads per write.
+      //
+      // THIS IS NOT A FREE WIN, AND THE CONDITION IS EXACT. A 1-hour write costs 2x base
+      // input; a 5-minute write costs 1.25x. Reads are 0.1x either way. Per request, for
+      // the cached prefix:
+      //
+      //     5-minute at 4.14 reads/write : (1.25 + 0.1*3.14) / 4.14 = 0.378x
+      //     1-hour   at B    reads/write : (2.00 + 0.1*(B-1)) / B
+      //
+      // Those are equal at B = 6.84. So the 1-hour TTL only pays off ABOVE roughly SEVEN
+      // reads per write. At the 4.14 measured today it would cost about 48% MORE, not
+      // less. The bet is that 4.14 was suppressed by expiry and rises once the window no
+      // longer closes mid-batch; at 13 reads per write this is ~35% cheaper.
+      //
+      // VERIFY, DO NOT ASSUME. Read cache_creation_input_tokens against
+      // cache_read_input_tokens on the next real batch. If reads per write come back
+      // BELOW 7, revert to the default by deleting the ttl field. That number, not the
+      // direction of the argument, is what settles it.
+      //
+      // One thing the TTL cannot fix: at the head of a batch several prospects start
+      // before the first entry commits, so they all write. That is a concurrency race,
+      // not an expiry problem, and it sets a floor on writes at any TTL. The lever for it
+      // is a single cheap pre-warm call before fanning out. See docs/BACKLOG.md.
       {
         model: SYNTHESIS_MODEL,
         max_tokens: 16000,
-        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral', ttl: '1h' } }],
         messages: [{ role: 'user', content: userMessage }],
       } satisfies MessageCreateParamsNonStreaming,
       prospect.id,

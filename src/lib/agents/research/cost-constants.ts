@@ -66,37 +66,79 @@ export const BRAVE_PAID_PER_CALL = 0.003
 // ═════════════════════════════════════════════════════════════════════════════
 // WHY THIS MATTERS BEYOND ACCOUNTING
 //
-// Web search is $1.09 of $3.15, or 35% of Anthropic cost per prospect: the second-largest
+// Web search WAS $1.09 of $3.15, or 35% of Anthropic cost per prospect: the second-largest
 // line after Sonnet. Every earlier argument about it was conducted at roughly 21%.
-// See docs/BACKLOG.md for the decision this number triggered.
+//
+// That number triggered the 2026-08-25 reduction to one query capped at one search, which
+// should take it to roughly 16% and the all-in per-prospect figure from $0.245 to $0.192.
+// Both are ESTIMATES until a real run is reconciled against the console.
 
 /** Per search, confirmed against the console 2026-08-25: 54 searches billed $0.54. */
 export const COST_WEB_SEARCH_PER_SEARCH = 0.01
-export const WEB_SEARCH_QUERIES_PER_PROSPECT = 2
 
-/** Measured searches per prospect on the 2026-08-25 run: 54 over 13. */
-export const WEB_SEARCH_SEARCHES_PER_PROSPECT_MEASURED = 4.15
+// ═════════════════════════════════════════════════════════════════════════════
+// THE SHAPE CHANGED ON 2026-08-25: 2 QUERIES x UP TO 3 SEARCHES -> 1 QUERY x 1 SEARCH
+//
+// Everything below the line is an ESTIMATE of the new shape, derived from the measured
+// old one. The measured figures for the OLD shape are kept alongside, because they are
+// the only numbers here that came off an invoice and they are what the new run gets
+// checked against.
+//
+// Why it changed: web search was 35% of Anthropic cost per prospect and won 0 of 11 clean
+// shipped openings. It was REDUCED rather than deleted because it is the only source
+// covering what the outside world says about a prospect. See
+// src/lib/agents/research/sources/web-search.ts for the full argument.
 
 /**
- * Haiku TOKENS spent performing the searches, per prospect. $0.55 / 13.
+ * Queries fired per prospect. ONE since 2026-08-25.
+ *
+ * A MIRROR, NOT A CONTROL. The real count is structural: it is however many webSearch
+ * calls sources/web-search.ts makes. Nothing enforces that these agree, and before the
+ * reduction this constant read 2 while the call site fired 2 by having two lines. If the
+ * call site changes, change this too.
+ */
+export const WEB_SEARCH_QUERIES_PER_PROSPECT = 1
+
+/**
+ * Searches per prospect.
+ *
+ * Now EXACTLY 1, because the per-prospect caller passes { maxUses: 1 } and one query
+ * cannot exceed its own cap. This is the first figure here that is a hard bound rather
+ * than an average. The old shape MEASURED 4.15 (54 searches over 13 prospects).
+ */
+export const WEB_SEARCH_SEARCHES_PER_PROSPECT = 1
+/** The measured average under the OLD 2-query shape. Kept as the baseline to beat. */
+export const WEB_SEARCH_SEARCHES_PER_PROSPECT_OLD_MEASURED = 4.15
+
+/**
+ * Haiku TOKENS spent performing the searches, per prospect. ESTIMATE.
  *
  * SEPARATE CONSTANT, NOT FOLDED INTO A RANGE. Folding it in is exactly how it stayed
  * invisible and 10x understated: a single blended figure cannot be checked against a
  * console line, and this one never was.
+ *
+ * Old shape MEASURED $0.042 ($0.55 over 13 prospects). Halved to $0.021 because the
+ * REQUEST count halves from 2 to 1. Deliberately conservative: the search results injected
+ * into each request also fall from ~4.15 searches to 1, so the true figure is likely lower
+ * than this. Estimating the smaller saving is the safer direction to be wrong in.
  */
-export const COST_WEB_SEARCH_HAIKU_TOKENS = 0.042
+export const COST_WEB_SEARCH_HAIKU_TOKENS = 0.021
 
 /**
  * Total web search cost per prospect: search fees PLUS the Haiku tokens that buy them.
- * $1.09 / 13. Both halves, which is the whole point.
+ * $0.010 fee + $0.021 tokens. Both halves, which is the whole point.
+ *
+ * Old shape MEASURED $0.084. If the next run does not land near $0.031, this estimate is
+ * wrong and the console is right.
  */
-export const COST_WEB_SEARCH_TOTAL = 0.084
+export const COST_WEB_SEARCH_TOTAL = 0.031
+export const COST_WEB_SEARCH_TOTAL_OLD_MEASURED = 0.084
 
-// Bounds kept for estimating a run whose search count is not yet known. Both now carry the
-// token half. Low: 2 searches (one per query, answered first time) + tokens.
-// High: 2 queries x WEB_SEARCH_MAX_USES (3) = 6 searches + tokens.
-export const COST_WEB_SEARCH_LOW  = 0.062
-export const COST_WEB_SEARCH_HIGH = 0.102
+// The range is now NARROW, because the cap makes the search count exact rather than a
+// distribution. The only variance left is Haiku tokens, which move with how much text the
+// single search returns.
+export const COST_WEB_SEARCH_LOW  = 0.025
+export const COST_WEB_SEARCH_HIGH = 0.040
 
 // DEAD. NOT A LIVE COST. Composition makes ZERO model calls.
 //
