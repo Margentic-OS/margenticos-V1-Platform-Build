@@ -173,11 +173,26 @@ export interface IcpDocument {
 
 // ─── Default spec values ──────────────────────────────────────────────────────
 // Applied universally for English-speaking B2B consulting ICPs unless overridden.
-// DE and NL included: meaningful pockets of English-operating consulting founders.
 // Modify per-client in the filter spec approval UI when needed.
+//
+// These three MATCH the sourcing filter in adapter-apollo.ts, and they have to.
+// The filter is the enforcement: it is hardcoded and nothing in this spec can
+// widen it. But a default that lists a country the filter refuses is a document
+// that lies, and it made the adapter log a divergence on every single run, which
+// is the kind of noise a team learns to scroll past.
+//
+// CA and DE are gone on legal grounds, not preference. Canada is out on CASL,
+// which requires consent before first contact. Germany is out because two GmbHs
+// were mailed against an exclusion that lived in convention and had nothing to
+// read it. AU and NL are gone for the narrower reason that the filter does not
+// source them, so listing them here claimed reach that did not exist.
+//
+// Widening this list alone changes NOTHING about who gets sourced. Both this and
+// APOLLO_FILTER have to change together, and the legal reasons above have to be
+// answered first.
 
-const DEFAULT_PERSON_COUNTRIES = ['GB', 'IE', 'US', 'CA', 'AU', 'DE', 'NL']
-const DEFAULT_COMPANY_COUNTRIES = ['GB', 'IE', 'US', 'CA', 'AU', 'DE', 'NL']
+const DEFAULT_PERSON_COUNTRIES = ['GB', 'IE', 'US']
+const DEFAULT_COMPANY_COUNTRIES = ['GB', 'IE', 'US']
 
 // "agency" removed: many solo consultants self-describe as "boutique agency"
 // and would be incorrectly excluded. "staffing" and "recruitment" are kept

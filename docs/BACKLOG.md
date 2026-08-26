@@ -6071,3 +6071,113 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   RESEND_API_KEY and no database at all. Verified in session: setting it recovers 36 real
   tests, including genuine HMAC and parsing assertions, in 351ms. One line in
   vitest.config.ts (test.env). Not built on instruction.
+
+## Apollo sourcing filter (2026-08-26, branch sourcing-filter)
+
+- [DONE 2026-08-26] Apollo search filter replaced and HARDCODED in
+  src/lib/sourcing/handlers/adapter-apollo.ts. Live total_entries 61,524, against 61,492
+  measured 2026-08-24 with the same spec. The 32-row difference is Apollo's index moving
+  over two days. Verified by calling Apollo with the request the adapter itself builds,
+  not with a hand-written body.
+
+  The two defects it fixes were both SILENT: the query ran, returned results, and looked
+  healthy while filtering on the wrong thing.
+    - q_keywords is AND over free text, matched against person and company NAMES, so it
+      only ever found firms with the literal word in their name. Measured on the shipped
+      base: 4,924 against 72,458 for NAICS alone. Replaced by q_organization_keyword_tags,
+      which is OR and is the correct parameter for sourcing by category.
+    - Apollo seniority is derived from job TITLE, not ownership. In professional services
+      the owner is usually titled Partner or Managing Partner. Measured on the shipped
+      base: 29,139 with owner+founder, 72,458 once c_suite and partner were added.
+
+  A third trap worth recording, found while building this. APOLLO IGNORES AN UNRECOGNISED
+  PARAMETER SILENTLY INSTEAD OF ERRORING. naics_codes and q_organization_naics_codes both
+  returned 770,753, the completely unfiltered count. Only organization_naics_codes is read.
+  Any new Apollo parameter must be proved by MEASURING that the total changes, never by
+  reading the docs and assuming. A parameter name typo here does not fail, it ships a
+  filter that filters nothing.
+
+  WORKED EXAMPLE OF THE SAME MISTAKE, MADE WHILE FIXING IT. Recorded because it is the
+  more useful half of the finding above, and because it was caught by luck of a second
+  look rather than by process.
+
+  The task was to prove that adding person_locations actually excluded the 545 Canadians.
+  The first check built the probe like this:
+
+      { ...shippedFilter, person_locations: ['canada'] }      // WRONG
+
+  That REPLACES the filter's ['united states','united kingdom','ireland'] with ['canada']
+  rather than testing against it. So it measured "how many Canadians are at in-scope
+  firms", which is 545 whether or not person_locations is in the shipped filter. It
+  returned 545 before the fix and 545 after it. THE CHECK COULD NOT FAIL, so passing it
+  meant nothing, and it was one read-through away from being quoted as proof the gap was
+  closed.
+
+  The correct form ADDS instead of replacing, and is falsifiable:
+
+      { ...shippedFilter, person_locations: [...shipped, 'canada'] }   // RIGHT
+      55,975 + canada  = 56,520, delta exactly 545
+      55,975 + germany = 56,213, delta exactly 238
+
+  If person_locations were being ignored, both deltas would have been zero and the total
+  would have stayed at 61,523. The check can fail, therefore passing it is worth something.
+
+  THE RULE, which generalises past Apollo: A CHECK THAT PASSES REGARDLESS IS WORSE THAN NO
+  CHECK, because it manufactures confidence. No check leaves you knowing you are ignorant.
+  Before trusting any verification, ask what result would have made it FAIL, and if there
+  is no such result, the check is decoration. This is the same family as the MON-019
+  parallel arrays, the validated-then-discarded opt-out footer, and the REVOKE that read
+  back only the role it hoped to see: in every case the check ran, reported success, and
+  never touched the thing it was supposed to protect.
+
+- [RESOLVED 2026-08-26, was DECISION NEEDED] RESIDUAL CANADA AND GERMANY EXPOSURE. NOW
+  CLOSED at Doug's instruction: person_locations added, same three countries as
+  organization_locations. Shipped total 55,975, down from 61,523, which is 5,548 rows or
+  about 9 percent of inventory. Doug's reasoning, recorded because it is the precedent for
+  the next one of these: nine percent of inventory is affordable, a complaint is not, and
+  Canada was removed on legal grounds rather than preference.
+  Proof the gap is actually shut, rather than the parameter being silently ignored:
+  adding a country BACK returns precisely the people it was excluding. +canada gives
+  56,520, which is 55,975 plus exactly the 545. +germany gives 56,213, which is 55,975
+  plus exactly the 238. See ADR-032.
+  The original finding, kept for the reasoning:
+  The filter constrains organization_locations only, so it removes German and Canadian
+  FIRMS. It does not constrain where the PERSON is. Measured live:
+    - 545 people located in Canada at in-scope US/UK/IE firms
+    - 238 people located in Germany at in-scope US/UK/IE firms
+  CASL attaches to the recipient, not to the firm's registration, so those 545 are the
+  live exposure, and it is the same class of gap as the two GmbHs that were mailed.
+  Closing it means adding person_locations US/UK/IE, which measures 55,976 against 61,524.
+  Cost of closing: 5,548 rows of inventory, about 9 percent. Not applied on instruction.
+
+- [pre-c1, 2026-08-26] CONFIG LAYER FOR THE SOURCING FILTER, deliberately deferred until
+  client two needs a different filter. Confirmed as a deferral in-session, not an oversight.
+  The ICPFilterSpec no longer builds the Apollo query at all. What that costs today:
+    - The orchestrator's manifest check (step 4) still compares spec fields against
+      handler.supported_fields and still passes. It no longer says anything about the query
+      that gets sent. It was left in place on purpose: narrowing supported_fields would make
+      the orchestrator throw for any client whose spec populates a field, which would stop
+      sourcing rather than improve it. This is the "check runs, reports success, thing it
+      protected was never reached" shape from CLAUDE.md, held knowingly and with a comment
+      at the call site rather than left to be rediscovered.
+    - The ISO-3166 to Apollo location table and the seniority map are deleted, not kept as
+      dead code. Recover them from git history at bc05658 when the config layer returns.
+    - spec.job_titles_excluded and spec.keywords_excluded ARE still honoured. They are
+      post-filters applied to results in execute(), not search parameters.
+  Hardcoding the filter is an architectural decision and is now written up as ADR-032,
+  which also carries the manifest-check reasoning verbatim.
+
+- [RESOLVED 2026-08-26, was pre-c1] ICP SPEC DEFAULTS NO LONGER LIST DE AND CA. Both
+  DEFAULT_PERSON_COUNTRIES and DEFAULT_COMPANY_COUNTRIES are now ['GB', 'IE', 'US'].
+  AU and NL were removed in the same edit, beyond the DE and CA that were asked for: the
+  filter does not source them either, so leaving them would have kept the divergence log
+  firing on every run, and that noise was half the reason for the change. Enforcement
+  still lives at the filter, which is hardcoded and which no spec value can widen. The
+  defaults now agree with it instead of contradicting it. Original finding below: DEFAULT_PERSON_COUNTRIES and
+  DEFAULT_COMPANY_COUNTRIES in src/lib/agents/icp-filter-spec.ts still contain DE, CA, AU
+  and NL, and the comment above them still recommends DE and NL. Not changed: the
+  instruction was to remove Germany and Canada at the FILTER layer, and changing the
+  defaults as well would have moved the fix back into convention. The stored spec and the
+  live filter therefore disagree by design. The adapter logs that divergence on every run
+  (ignored_spec_countries) so it is visible rather than silent. Reconcile when the config
+  layer lands, or the defaults will quietly come back into force with it.

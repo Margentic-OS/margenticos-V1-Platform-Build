@@ -7,105 +7,42 @@
 // Credits consumed: None (People API Search is free, plan-gated above free tier)
 //
 // Handler workflow:
-//   1. adapter(): Translate ICPFilterSpec to Apollo api_search request parameters
+//   1. adapter(): Return the hardcoded Apollo search filter (APOLLO_FILTER below)
 //   2. execute(): Call Apollo, paginate results, return ProspectCandidate array
 //   3. Post-filter: Drop candidates by job_titles_excluded and keywords_excluded
+//
+// ─── The search filter is HARDCODED, deliberately ────────────────────────────
+// The ICPFilterSpec no longer builds the Apollo query. Every client sourced
+// through this handler gets the one filter below. That is a conscious trade-off
+// taken while MargenticOS runs as client zero (ADR-009): one filter that has
+// been measured against the live index beats a config layer that produced two
+// silent defects. Reinstate spec-driven translation when client two actually
+// needs a different filter, not before. The ISO-3166 to Apollo location table
+// and the seniority map that used to live here are recoverable from git history
+// (the commit before this one) when that day comes.
+//
+// Two consequences worth knowing, neither hidden:
+//   - The orchestrator's manifest check (step 4) still compares spec fields
+//     against supported_fields below and still passes. It no longer describes
+//     the query that gets sent. Logged in docs/BACKLOG.md.
+//   - spec.job_titles_excluded and spec.keywords_excluded are still honoured,
+//     because those are post-filters applied to RESULTS in execute(), not
+//     search parameters.
 
 import { logger } from '@/lib/logger'
-import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import { normaliseLinkedInUrl } from '@/lib/sourcing/normalise-linkedin'
 import type { ProspectCandidate } from '@/lib/sourcing/dedupe'
 
-// ─── Seniority mapping: ICPFilterSpec → Apollo enum ──────────────────────────
-// Critical: when spec requests c_suite, Apollo request includes owner + founder
-// because Apollo separates these and our ICP targets founder-led firms where
-// owner/founder is the primary decision-maker.
-
-const SENIORITY_MAP: Record<ICPFilterSpec['seniority_levels'][number], string[]> = {
-  founder: ['founder'],
-  owner: ['owner'],
-  c_suite: ['c_suite'],
-  vp: ['vp', 'partner'],                      // Partner maps to VP-level authority
-  director: ['director', 'head'],             // Head = director-level
-  manager: ['manager'],
-  senior: ['senior'],
-  entry: ['entry'],
-}
-
-// Reverse map: which Apollo seniorities we support
-const SUPPORTED_APOLLO_SENIORITIES = new Set([
-  'owner', 'founder', 'c_suite', 'partner', 'vp', 'head',
-  'director', 'manager', 'senior', 'entry', 'intern',
-])
-
-// ─── ISO-3166-alpha-2 → Apollo location name mapping ────────────────────────
-// Apollo's location parameters expect place names (e.g. "california", "ireland"),
-// not ISO codes. This map translates canonical spec ISO codes to Apollo names.
-// Unknown codes are passed through lowercased with a warning; never dropped silently.
-const ISO_TO_APOLLO_LOCATION: Record<string, string> = {
-  // North America
-  'US': 'united states',
-  'CA': 'canada',
-  'MX': 'mexico',
-  // Europe
-  'GB': 'united kingdom',
-  'IE': 'ireland',
-  'DE': 'germany',
-  'FR': 'france',
-  'NL': 'netherlands',
-  'BE': 'belgium',
-  'CH': 'switzerland',
-  'AT': 'austria',
-  'SE': 'sweden',
-  'NO': 'norway',
-  'DK': 'denmark',
-  'FI': 'finland',
-  'PL': 'poland',
-  'CZ': 'czechia',
-  'IT': 'italy',
-  'ES': 'spain',
-  'PT': 'portugal',
-  'GR': 'greece',
-  // Asia-Pacific
-  'AU': 'australia',
-  'NZ': 'new zealand',
-  'JP': 'japan',
-  'CN': 'china',
-  'IN': 'india',
-  'SG': 'singapore',
-  'HK': 'hong kong',
-  'KR': 'south korea',
-  'TH': 'thailand',
-  // Middle East & Africa
-  'AE': 'united arab emirates',
-  'SA': 'saudi arabia',
-  'ZA': 'south africa',
-}
-
-function translateIsoToApolloLocation(isoCode: string): string {
-  const translated = ISO_TO_APOLLO_LOCATION[isoCode]
-  if (translated) {
-    return translated
-  }
-  // Unknown codes: pass through lowercased with warning
-  logger.warn('Apollo adapter: unknown ISO-3166 location code, passing through lowercased', {
-    iso_code: isoCode,
-  })
-  return isoCode.toLowerCase()
-}
-
 interface ApolloApiSearchRequest {
-  person_titles?: string[]
-  include_similar_titles?: boolean
-  q_keywords?: string
-  person_locations?: string[]
-  person_seniorities?: string[]
-  organization_locations?: string[]
-  organization_num_employees_ranges?: string[]
-  revenue_range?: { min?: number; max?: number }
-  contact_email_status?: string[]
-  page?: number
-  per_page?: number
+  organization_naics_codes: string[]
+  q_organization_keyword_tags: string[]
+  organization_num_employees_ranges: string[]
+  organization_locations: string[]
+  person_locations: string[]
+  person_seniorities: string[]
+  contact_email_status: string[]
+  page: number
+  per_page: number
 }
 
 interface ApolloApiSearchResponse {
@@ -135,14 +72,98 @@ interface ApolloApiSearchResponse {
   total_entries: number
 }
 
+// ─── The filter ──────────────────────────────────────────────────────────────
+// Live total_entries with exactly these values: 55,975, measured 2026-08-26.
+//
+// Without the person_locations line below it measures 61,523, against 61,492 for
+// the same filter on 2026-08-24. Those 31 rows are Apollo's index moving over two
+// days, not a change in the filter.
+//
+// Every number quoted below was measured on this exact base, changing one
+// parameter at a time. They are here so the next person does not have to
+// re-derive why each value is what it is.
+
+const APOLLO_FILTER: Omit<ApolloApiSearchRequest, 'page' | 'per_page'> = {
+  // NAICS 5416: Management, Scientific and Technical Consulting Services.
+  //
+  // `organization_naics_codes` is the parameter Apollo actually reads. That was
+  // established by measurement rather than from the docs, because Apollo IGNORES
+  // an unrecognised parameter silently instead of erroring: both `naics_codes`
+  // and `q_organization_naics_codes` returned 770,753, the completely unfiltered
+  // count, and would have shipped as a filter that filtered nothing.
+  //
+  // 5418 (Advertising, PR and related services) is deliberately NOT excluded.
+  // A firm carries more than one NAICS code, so a marketing consultancy coded
+  // both 5416 and 5418 is in scope, and an exclusion rule would drop it.
+  // Adding 5418 to this include list is a different thing and is not wanted:
+  // it measured 66,134 against the 61,524 above.
+  organization_naics_codes: ['5416'],
+
+  // OR semantics across the tags, and the correct parameter for sourcing by
+  // category. It replaces q_keywords, which was the first silent defect:
+  // q_keywords is AND over free text, matched against person and company NAMES,
+  // so it only ever found firms with the literal word in their name. Measured on
+  // this base, q_keywords 'consulting' returns 4,924 against 72,458 for NAICS
+  // alone. The two parameters look interchangeable and are not.
+  q_organization_keyword_tags: [
+    'management consulting',
+    'business consulting',
+    'strategy consulting',
+  ],
+
+  // 5 to 50 employees.
+  organization_num_employees_ranges: ['5,50'],
+
+  // United States, United Kingdom and Ireland only. Apollo expects place names
+  // here, not ISO codes.
+  //
+  // Germany and Canada are removed HERE, at the filter, rather than by a
+  // downstream convention. Two GmbHs were mailed against a standing exclusion
+  // that had nothing to read it, which is what a convention is worth. Canada is
+  // out on CASL: consent is required before first contact.
+  organization_locations: ['united states', 'united kingdom', 'ireland'],
+
+  // The SAME three countries again, applied to where the PERSON is.
+  //
+  // organization_locations alone removes German and Canadian FIRMS. It does not
+  // remove a person sitting in Toronto who works for a US-registered company, and
+  // measured against the org-only filter there were 545 of them in Canada and 238
+  // in Germany. CASL attaches to the RECIPIENT, not to where the firm is
+  // registered, so those 545 were the same exposure as the two GmbHs and not a
+  // smaller version of it.
+  //
+  // This costs inventory and is worth it: 61,523 to 55,975, which is 5,548 rows or
+  // about 9 percent. A complaint is not affordable; 9 percent is.
+  //
+  // Proved by arithmetic rather than asserted, because Apollo silently ignores a
+  // parameter it does not recognise and an ignored person_locations would look
+  // exactly like a working one. Adding a country BACK to this list returns
+  // precisely the people it was excluding: +canada gives 56,520, which is 55,975
+  // plus exactly the 545, and +germany gives 56,213, which is 55,975 plus exactly
+  // the 238. Both residuals are therefore outside the shipped set.
+  person_locations: ['united states', 'united kingdom', 'ireland'],
+
+  // Second silent defect. Apollo derives seniority from job TITLE, not from
+  // ownership, and in professional services the owner is usually titled Partner
+  // or Managing Partner. owner+founder alone therefore missed most of the
+  // population it was meant to target. Measured on this base: 29,139 with
+  // owner+founder, 72,458 once c_suite and partner were added.
+  person_seniorities: ['owner', 'founder', 'c_suite', 'partner'],
+
+  // Only candidates Apollo claims have a verified email.
+  contact_email_status: ['verified'],
+}
+
+// ISO-3166 codes the hardcoded filter covers. Used only to report divergence.
+const FILTER_COUNTRY_CODES = new Set(['US', 'GB', 'IE'])
+
 export const apolloHandler = {
   name: 'Apollo',
 
-  // Supported fields: what this handler can genuinely apply as filters.
-  // Note: job_titles_excluded and keywords_excluded are satisfied via post-filtering,
-  // not API parameters, but the handler satisfies them so they're listed here.
-  // technologies_used is supported by Apollo via tech UIDs but requires external
-  // CSV mapping (deferred); omitted from supported_fields so unsupported specs fail loudly.
+  // Supported fields: left as it was, and now describes the handler's post-filters
+  // and history rather than the search query, which is hardcoded above. Narrowing
+  // this list would make the orchestrator throw for any client whose spec
+  // populates a field, which would stop sourcing rather than improve it.
   supported_fields: [
     'job_titles',
     'job_titles_excluded',
@@ -159,90 +180,45 @@ export const apolloHandler = {
     'company_revenue_max',
   ],
 
-  // Adapter: translate ICPFilterSpec → Apollo api_search request
+  // Adapter: return the hardcoded request.
+  //
+  // `spec` is accepted to satisfy the SourcingHandler interface and is not used
+  // to build the query. It is read for exactly one thing: to say out loud when
+  // the stored spec disagrees with the filter, so that gap is visible in the
+  // logs instead of silent. Client zero's stored spec still lists DE and CA,
+  // so this will fire until the spec defaults are changed.
   adapter: (spec: Record<string, unknown>): ApolloApiSearchRequest => {
-    const request: ApolloApiSearchRequest = {}
+    const specCountries = [
+      ...((spec.company_countries as string[] | undefined) ?? []),
+      ...((spec.person_countries as string[] | undefined) ?? []),
+    ]
+    const ignored = Array.from(new Set(specCountries))
+      .filter(code => !FILTER_COUNTRY_CODES.has(code.toUpperCase()))
 
-    // Person titles
-    const jobTitles = spec.job_titles as string[] | undefined
-    if (jobTitles?.length) {
-      request.person_titles = jobTitles
+    if (ignored.length > 0) {
+      logger.info('Apollo adapter: hardcoded filter in force, spec countries not honoured', {
+        ignored_spec_countries: ignored,
+        filter_locations: APOLLO_FILTER.organization_locations,
+      })
     }
 
-    // Seniority: expand c_suite to include owner + founder (founder-led firm decision-makers)
-    const seniorityLevels = spec.seniority_levels as ICPFilterSpec['seniority_levels'] | undefined
-    if (seniorityLevels?.length) {
-      const seniorities = new Set<string>()
-      for (const level of seniorityLevels) {
-        const mapped = SENIORITY_MAP[level]
-        if (mapped) {
-          mapped.forEach(s => seniorities.add(s))
-        } else {
-          logger.warn('Apollo adapter: unknown seniority level, dropping', {
-            seniority: level,
-            known_levels: Object.keys(SENIORITY_MAP),
-          })
-        }
-      }
-      if (seniorities.size > 0) {
-        request.person_seniorities = Array.from(seniorities)
-      }
+    // Copy the arrays out rather than spreading the references. A shallow spread
+    // hands every caller the SAME array instances as the module-level constant, so
+    // one caller appending a location would silently change the filter for every
+    // client sourced afterwards in that process. Nothing mutates them today. This
+    // makes it impossible to start, because that failure would be a cross-client
+    // one and would not raise an error when it happened.
+    return {
+      organization_naics_codes: [...APOLLO_FILTER.organization_naics_codes],
+      q_organization_keyword_tags: [...APOLLO_FILTER.q_organization_keyword_tags],
+      organization_num_employees_ranges: [...APOLLO_FILTER.organization_num_employees_ranges],
+      organization_locations: [...APOLLO_FILTER.organization_locations],
+      person_locations: [...APOLLO_FILTER.person_locations],
+      person_seniorities: [...APOLLO_FILTER.person_seniorities],
+      contact_email_status: [...APOLLO_FILTER.contact_email_status],
+      page: 1,
+      per_page: 100,
     }
-
-    // Person countries (ISO-3166 alpha-2 → Apollo locations)
-    const personCountries = spec.person_countries as string[] | undefined
-    if (personCountries?.length) {
-      request.person_locations = personCountries.map(translateIsoToApolloLocation)
-    }
-
-    // Company countries (ISO-3166 alpha-2 → Apollo locations)
-    const companyCountries = spec.company_countries as string[] | undefined
-    if (companyCountries?.length) {
-      request.organization_locations = companyCountries.map(translateIsoToApolloLocation)
-    }
-
-    // Company headcount range: fold min/max into single range string "min,max"
-    const headcountMin = spec.company_headcount_min as number | undefined
-    const headcountMax = spec.company_headcount_max as number | undefined
-    if (headcountMin !== undefined || headcountMax !== undefined) {
-      const min = headcountMin ?? 1
-      const max = headcountMax ?? 10000
-      request.organization_num_employees_ranges = [`${min},${max}`]
-    }
-
-    // Keywords: spec.keywords[0] only (first keyword).
-    // Apollo's q_keywords uses AND semantics: all words in the string must appear.
-    // Multi-word queries collapse results dramatically (bisection 2026-08-09: "consulting" = 28,390
-    // vs "consulting consultant advisory consultancy" = 0). Using single best keyword instead.
-    // Remaining keywords stay in spec for future multi-keyword union build (backlogged) and
-    // for post-enrichment annotation. Industries have no dedicated API parameter (docs-confirmed).
-    // industries_excluded is also applied post-enrichment (previously unenforced).
-    const keywords = spec.keywords as string[] | undefined
-    if (keywords?.length) {
-      request.q_keywords = keywords[0]
-    }
-
-    // Company revenue range (optional extended fields)
-    const revenueMin = spec.company_revenue_min as number | undefined
-    const revenueMax = spec.company_revenue_max as number | undefined
-    if (revenueMin !== undefined || revenueMax !== undefined) {
-      request.revenue_range = {}
-      if (revenueMin !== undefined) {
-        request.revenue_range.min = revenueMin
-      }
-      if (revenueMax !== undefined) {
-        request.revenue_range.max = revenueMax
-      }
-    }
-
-    // Pre-filter: only return candidates Apollo claims have verified email
-    request.contact_email_status = ['verified']
-
-    // Pagination: will be set by execute()
-    request.page = 1
-    request.per_page = 100
-
-    return request
   },
 
   // Execute: call Apollo api_search, paginate, return ProspectCandidate array
