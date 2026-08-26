@@ -119,6 +119,23 @@ describe('apolloHandler.adapter', () => {
     expect(request.organization_num_employees_ranges).toEqual(['5,50'])
   })
 
+  it('cannot be contaminated by a caller mutating a previous request', () => {
+    // A shallow spread would share array instances with the module-level constant,
+    // so this mutation would leak into every later client in the same process.
+    const first = apolloHandler.adapter({} as Record<string, unknown>)
+    first.organization_locations.push('germany')
+    first.person_seniorities.push('entry')
+
+    const second = apolloHandler.adapter({} as Record<string, unknown>)
+
+    expect(second.organization_locations).toEqual([
+      'united states',
+      'united kingdom',
+      'ireland',
+    ])
+    expect(second.person_seniorities).toEqual(['owner', 'founder', 'c_suite', 'partner'])
+  })
+
   it('returns an identical request for any two specs', () => {
     const fromEmpty = apolloHandler.adapter({} as Record<string, unknown>)
     const fromHostile = apolloHandler.adapter(HOSTILE_SPEC)

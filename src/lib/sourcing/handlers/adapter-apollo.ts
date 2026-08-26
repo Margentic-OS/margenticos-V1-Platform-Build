@@ -179,8 +179,19 @@ export const apolloHandler = {
       })
     }
 
+    // Copy the arrays out rather than spreading the references. A shallow spread
+    // hands every caller the SAME array instances as the module-level constant, so
+    // one caller appending a location would silently change the filter for every
+    // client sourced afterwards in that process. Nothing mutates them today. This
+    // makes it impossible to start, because that failure would be a cross-client
+    // one and would not raise an error when it happened.
     return {
-      ...APOLLO_FILTER,
+      organization_naics_codes: [...APOLLO_FILTER.organization_naics_codes],
+      q_organization_keyword_tags: [...APOLLO_FILTER.q_organization_keyword_tags],
+      organization_num_employees_ranges: [...APOLLO_FILTER.organization_num_employees_ranges],
+      organization_locations: [...APOLLO_FILTER.organization_locations],
+      person_seniorities: [...APOLLO_FILTER.person_seniorities],
+      contact_email_status: [...APOLLO_FILTER.contact_email_status],
       page: 1,
       per_page: 100,
     }
