@@ -71,4 +71,25 @@ describe('monitor-sweep monitor registry', () => {
   it('includes MON-019, the verification sweep, which was dark until 2026-08-25', () => {
     expect(MONITORS.some(([code]) => code === 'MON-019')).toBe(true)
   })
+
+  it('includes MON-021 and MON-022, the batch research path', () => {
+    // Registered together on purpose. MON-021 is operational and MON-022 is structural,
+    // and MON-022 is the AUTHORITATIVE check for the indexes this suite can only scan the
+    // migrations for. A migration scan proves history; only the live catalog proves now.
+    expect(MONITORS.some(([code]) => code === 'MON-021')).toBe(true)
+    expect(MONITORS.some(([code]) => code === 'MON-022')).toBe(true)
+  })
+
+  it('MON-022 is what makes the migration scans in this repo trustworthy', () => {
+    // Several tests assert that a migration still CREATEs an index. Migrations are
+    // append-only, so those prove a migration once created it and nothing more: a later
+    // DROP leaves the CREATE sitting there, green for ever. Found by mutation-testing the
+    // test rather than the code. MON-022 reads pg_indexes live, so if it is ever removed
+    // from the registry, those scans quietly become the only check again.
+    expect(
+      MONITORS.some(([, view]) => view === 'mon_022'),
+      'mon_022 is the live catalog check behind the migration-scanning tests. Removing it ' +
+      'leaves those tests as the only guard, and they cannot see a DROP in a later migration.',
+    ).toBe(true)
+  })
 })

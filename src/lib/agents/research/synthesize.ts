@@ -32,7 +32,20 @@ function getServiceClient() {
 
 // ─── Client document loading ─────────────────────────────────────────────────
 
-interface ClientDocContext {
+/**
+ * The deterministic recency check, as of the moment the request was built.
+ *
+ * Named and exported because the batch path snapshots it. It is a pure function of the
+ * sources AND THE CLOCK, so recomputing it when a batch result comes back 24 hours later
+ * can flip has_dateable_signal for a prospect whose LinkedIn post sat near the
+ * SIGNAL_THRESHOLDS_DAYS boundary.
+ */
+export interface DetectedSignal {
+  has_dateable_signal: boolean
+  signal_observation:  string | null
+}
+
+export interface ClientDocContext {
   clientName:         string
   icpSummary:         string
   positioningSummary: string
@@ -235,7 +248,7 @@ function extractDatedSignalFromText(text: string, now: Date): string | null {
 function detectRecencySignal(
   rawData: RawSourceData,
   now: Date,
-): { has_dateable_signal: boolean; signal_observation: string | null } {
+): DetectedSignal {
   const posts = rawData.linkedin.available ? (rawData.linkedin.recent_posts ?? []) : []
 
   if (posts.length > 0) {
@@ -544,7 +557,7 @@ function parseSynthesisResponse(
   raw: string,
   prospect: ProspectContext,
   icpSummary: string,
-  detectedSignal: { has_dateable_signal: boolean; signal_observation: string | null },
+  detectedSignal: DetectedSignal,
 ): SynthesisOutput {
   const reasoning = parseReasoningBlock(raw)
   const jsonStr   = extractJson(raw)
@@ -675,7 +688,7 @@ function buildFallbackSynthesis(
   icpSummary: string,
   reasoning: string,
   errorNote: string,
-  detectedSignal: { has_dateable_signal: boolean; signal_observation: string | null },
+  detectedSignal: DetectedSignal,
 ): SynthesisOutput {
   // A fallback means the run did not produce a usable candidate, so the prospect gets no
   // trigger at all and composition ships the variant's authored opener. The proxy is
@@ -742,16 +755,87 @@ async function callWithRetry(
 
 // ─── Public function ──────────────────────────────────────────────────────────
 
-export async function synthesizeResearch(
+/**
+ * The recency signal and the client documents, as they were when the request was built.
+ *
+ * Returned alongside the request because parsing the RESPONSE needs both, and on the
+ * batch path the response arrives up to 24 hours later in a different process. Both are
+ * snapshotted onto synthesis_batch_entries rather than re-derived there. See
+ * buildSynthesisRequest for why each one cannot be recomputed.
+ */
+export interface SynthesisRequestContext {
+  clientCtx:      ClientDocContext
+  detectedSignal: DetectedSignal
+}
+
+export interface SynthesisRequest extends SynthesisRequestContext {
+  params: MessageCreateParamsNonStreaming
+}
+
+/**
+ * Build the synthesis request WITHOUT sending it.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THIS IS THE SEAM, AND IT IS THE WHOLE BASIS FOR "NO QUALITY TRADE".
+ *
+ * synthesizeResearch is a sandwich: pure preparation, ONE api call, pure
+ * post-processing. Splitting it for the Batch API means the two halves run in
+ * different processes up to 24 hours apart. The only way that is safe is if both the
+ * inline path and the batch path run THE SAME CODE, not equivalent code.
+ *
+ * So this function and synthesisFromMessage below are the two halves, and
+ * synthesizeResearch is now defined in terms of them. There is exactly one
+ * implementation of each. Byte-identity between the paths is therefore structural, not
+ * something a test has to keep verifying: the batch path cannot drift from the inline
+ * path without changing the inline path too.
+ *
+ * ── ttl ──
+ * Defaults to Anthropic's 5-minute cache. The BATCH call site passes '1h' because a
+ * batch can take up to 24 hours and the docs recommend the longer window for shared
+ * context. cache_control is per-call-site, so the two coexist with no flag.
+ *
+ * PROVISIONAL. Anthropic documents in-batch cache hits as best-effort at 30% to 98%,
+ * and a 1-hour write costs 2x base input against 1.25x for 5 minutes. At the bottom of
+ * that range the longer TTL is a LOSS. cache_read_input_tokens on the first real batch
+ * decides whether it stays.
+ */
+export async function buildSynthesisRequest(
   prospect: ProspectContext,
   rawData: RawSourceData,
   clientId: string,
-): Promise<SynthesisOutput> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) throw new Error('research/synthesize: ANTHROPIC_API_KEY not set')
-
+  opts: { ttl?: '5m' | '1h' } = {},
+): Promise<SynthesisRequest> {
+  // TAKES THE CLOCK, which is why the result is returned and snapshotted rather than
+  // recomputed when the response comes back. A LinkedIn post sitting just inside
+  // SIGNAL_THRESHOLDS_DAYS at build time can be outside it 24 hours later, and
+  // has_dateable_signal would flip for a reason that has nothing to do with the research.
   const detectedSignal = detectRecencySignal(rawData, new Date())
+
+  // READS THE DATABASE, and strategy documents can be re-versioned during a batch wait.
+  // Returned whole rather than as icpSummary alone so that a RESUBMISSION after a batch
+  // expiry rebuilds a byte-identical system prompt. A drifting system prompt would also
+  // lose the prompt cache, which is half the reason for batching at all.
   const clientCtx = await loadClientContext(clientId, prospect.segment_id)
+
+  return {
+    clientCtx,
+    detectedSignal,
+    params: buildSynthesisParams(prospect, rawData, clientCtx, detectedSignal, opts.ttl ?? '5m'),
+  }
+}
+
+/**
+ * The request body itself. Pure: same inputs, byte-identical output, no clock and no
+ * database. That is what lets a resubmission after a batch expiry reproduce the exact
+ * bytes, and therefore hit the same cache entry.
+ */
+export function buildSynthesisParams(
+  prospect: ProspectContext,
+  rawData: RawSourceData,
+  clientCtx: ClientDocContext,
+  detectedSignal: DetectedSignal,
+  ttl: '5m' | '1h' = '5m',
+): MessageCreateParamsNonStreaming {
   // Per-client only. The per-prospect signal moved to the user message so this string is
   // byte-identical across a batch and can therefore be cached. See buildSignalBlock.
   const systemPrompt = buildSynthesisPrompt(clientCtx)
@@ -760,129 +844,175 @@ export async function synthesizeResearch(
   const fullName = [prospect.first_name, prospect.last_name].filter(Boolean).join(' ') || 'Unknown'
   const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${prospect.role ?? 'Unknown'}\nCompany: ${prospect.company_name ?? 'Unknown'}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n## Recency check\n\n${buildSignalBlock(detectedSignal.signal_observation)}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
 
+  return {
+    model: SYNTHESIS_MODEL,
+    // 16000, not 8000. Truncation is not a theoretical risk: three of twelve prospects
+    // in the 2026-08-19 batch hit exactly 8000 output tokens, lost their JSON, fell
+    // through to the ICP proxy and were recorded as "no_signal" when the run had in
+    // fact failed. Each candidate now carries an opposite_reading and a seventh test,
+    // so the array outgrew the old ceiling.
+    max_tokens: 16000,
+    // CACHED. The system prompt is ~6,700 tokens of instruction that does not vary
+    // within a client's batch, and every prospect paid full input price for it. The
+    // breakpoint sits on the system block, so the per-prospect user message below is
+    // outside the cached prefix, which is the whole reason buildSignalBlock moved there.
+    //
+    // Cache reads are ~10% of input price, so this is a loss on a single-prospect run
+    // and a gain from the second prospect onwards. Batches are the normal case.
+    //
+    // ── CACHE TTL ────────────────────────────────────────────────────────────
+    // The LIVE path keeps the 5-minute default. Measured on the console at 4.14
+    // reads per write, where the arithmetic favours it:
+    //     5-minute at 4.14 reads/write : (1.25 + 0.1*3.14) / 4.14 = 0.378x
+    //     1-hour   at B    reads/write : (2.00 + 0.1*(B-1)) / B
+    // Equal at B = 6.84, so live would need 6.84 reads per write to justify 1h and
+    // gets 4.14. A 1-hour TTL was tried on the live path on 2026-08-25 and reverted
+    // on 2026-08-26 before any batch ran on it.
+    //
+    // The BATCH call site passes '1h', because a batch can exceed the 5-minute window
+    // outright and a 13-call probe measured 85% at 1h against 69% at 5m in-batch.
+    // Still provisional: see buildSynthesisRequest.
+    system: [{
+      type: 'text',
+      text: systemPrompt,
+      cache_control: ttl === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' },
+    }],
+    messages: [{ role: 'user', content: userMessage }],
+  } satisfies MessageCreateParamsNonStreaming
+}
+
+/**
+ * Turn a finished Anthropic Message into a SynthesisOutput.
+ *
+ * ── TAKES A Message, NOT A STRING, ON PURPOSE ──
+ *
+ * The Batch API returns `result.message`, which is the same Message shape the Messages
+ * API returns. Passing the whole object means the batch path reconstructs nothing: the
+ * no-text-block fallback, the max_tokens truncation check and the usage read are all one
+ * implementation serving both paths. A string signature would have forced the batch side
+ * to rebuild a partial Message and the two would have drifted at the first edge case.
+ *
+ * PURE. No clock, no database, no network. Given the same Message, prospect, clientCtx
+ * and detectedSignal it returns the same SynthesisOutput, which is exactly the guarantee
+ * the split rests on. Candidate selection is arithmetic (selectCandidate), the trigger
+ * gate is arithmetic (applyTriggerReadabilityGate), and scrubAITells is deterministic.
+ */
+export function synthesisFromMessage(
+  response: Message,
+  prospect: ProspectContext,
+  clientCtx: ClientDocContext,
+  detectedSignal: DetectedSignal,
+): SynthesisOutput {
+  // THE ONE PLACE THAT HAS THE RESPONSE. Every SynthesisOutput producer below defaults
+  // usage to zero; this is what makes it true. Read before any early return, so a
+  // no-text-block or parse-failure fallback still reports the tokens the call cost.
+  const callUsage = readTokenUsage(response.usage)
+
+  const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
+  if (!textBlock || textBlock.type !== 'text') {
+    logger.warn('research/synthesize: no text block in response')
+    return { ...buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', 'No text block in response', detectedSignal), usage: callUsage }
+  }
+
+  // A truncated response is the most likely cause of a JSON parse failure, and it
+  // looks identical to a model error unless stop_reason is checked.
+  if (response.stop_reason === 'max_tokens') {
+    logger.error('research/synthesize: response truncated at max_tokens — candidates will be lost', {
+      prospect_id: prospect.id,
+      output_tokens: response.usage?.output_tokens,
+    })
+  }
+
+  const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal)
+
+  // Scrubbing rewrites the trigger (em dashes become full stops, AI tells are replaced),
+  // so the readability verdict is recomputed on the text that actually ships.
+  const scrubbedTrigger = result.trigger_text === null
+    ? null
+    : scrubAITells(result.trigger_text, `research/prospect/${prospect.id}`)
+  const rescored = applyTriggerReadabilityGate(
+    scrubbedTrigger ?? '',
+    result.signal_relevance,
+    result.demotion_reason,
+  )
+
+  const scrubbedResult = {
+    ...result,
+    usage: callUsage,
+    trigger_text:        scrubbedTrigger,
+    signal_relevance:    rescored.signal_relevance,
+    demotion_reason:     rescored.demotion_reason,
+    trigger_readability: rescored.trigger_readability,
+  }
+
+  if (scrubbedResult.demotion_reason) {
+    logger.warn('research/synthesize: signal demoted below hook use', {
+      prospect_id:      prospect.id,
+      signal_relevance: scrubbedResult.signal_relevance,
+      reason:           scrubbedResult.demotion_reason,
+    })
+  }
+
+  logger.debug('research/synthesize: complete', {
+    icp_fit:             scrubbedResult.icp_fit,
+    has_dateable_signal: scrubbedResult.has_dateable_signal,
+    signal_relevance:    scrubbedResult.signal_relevance,
+    qualification:       scrubbedResult.qualification_status,
+    confidence:          scrubbedResult.confidence,
+    candidate_count:     scrubbedResult.candidates.length,
+    selected_candidate:  scrubbedResult.selected_candidate_id,
+    trigger_max_sentence_words: scrubbedResult.trigger_readability.max_sentence_words,
+    trigger_hedges:             scrubbedResult.trigger_readability.hedges,
+    trigger_nominalisation:     scrubbedResult.trigger_readability.nominalisation_density.toFixed(3),
+  })
+
+  // Fewer than three candidates means the sweep did not run properly. Visible,
+  // not silent, so a prompt regression shows up in logs rather than in the copy.
+  if (scrubbedResult.candidates.length < 3) {
+    logger.warn('research/synthesize: thin candidate set', {
+      prospect_id: prospect.id,
+      candidate_count: scrubbedResult.candidates.length,
+    })
+  }
+
+  return scrubbedResult
+}
+
+/**
+ * The fallback for a synthesis that never produced a Message at all.
+ *
+ * Exported because the batch path needs it: an entry that comes back `errored` from
+ * Anthropic has no Message to parse, and inventing an empty one would send it down
+ * synthesisFromMessage's no-text-block branch with a misleading reason string.
+ */
+export function synthesisFallback(
+  prospect: ProspectContext,
+  clientCtx: ClientDocContext,
+  detectedSignal: DetectedSignal,
+  reason: string,
+): SynthesisOutput {
+  return buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', reason, detectedSignal)
+}
+
+export async function synthesizeResearch(
+  prospect: ProspectContext,
+  rawData: RawSourceData,
+  clientId: string,
+): Promise<SynthesisOutput> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('research/synthesize: ANTHROPIC_API_KEY not set')
+
+  const { params, clientCtx, detectedSignal } = await buildSynthesisRequest(prospect, rawData, clientId)
+
   const client = new Anthropic({ apiKey })
 
   try {
-    const response = await callWithRetry(
-      client,
-      // 16000, not 8000. Truncation is not a theoretical risk: three of twelve prospects
-      // in the 2026-08-19 batch hit exactly 8000 output tokens, lost their JSON, fell
-      // through to the ICP proxy and were recorded as "no_signal" when the run had in
-      // fact failed. Each candidate now carries an opposite_reading and a seventh test,
-      // so the array outgrew the old ceiling.
-      // CACHED. The system prompt is ~6,700 tokens of instruction that does not vary
-      // within a client's batch, and every prospect paid full input price for it. The
-      // breakpoint sits on the system block, so the per-prospect user message below is
-      // outside the cached prefix, which is the whole reason buildSignalBlock moved there.
-      //
-      // Cache reads are ~10% of input price, so this is a loss on a single-prospect run
-      // and a gain from the second prospect onwards. Batches are the normal case.
-      // ─── CACHE TTL: THE 5-MINUTE DEFAULT. A 1-HOUR TTL WAS TRIED AND REVERTED ────
-      //
-      // Tried 2026-08-25, reverted 2026-08-26 BEFORE any batch ran on it, because the
-      // arithmetic was against it on current behaviour and the case for it was a forecast.
-      //
-      // A 1-hour cache write costs 2x base input; a 5-minute write costs 1.25x. Reads are
-      // 0.1x either way. Per request, for the cached prefix:
-      //
-      //     5-minute at 4.14 reads/write : (1.25 + 0.1*3.14) / 4.14 = 0.378x
-      //     1-hour   at B    reads/write : (2.00 + 0.1*(B-1)) / B
-      //
-      // Equal at B = 6.84. Console-measured amortisation is 4.14, where the 1-hour TTL
-      // costs about 48% MORE, not less. The argument for switching was that 4.14 is
-      // suppressed by entries expiring mid-batch, so it would rise once the window stopped
-      // closing. That may well be true. It is still a bet, and shipping a change that is
-      // measurably worse today in the hope the next batch rescues it is the wrong trade.
-      //
-      // TO REVISIT: measure cache_read_input_tokens / cache_creation_input_tokens on a real
-      // batch. ABOVE 7, add `ttl: '1h'` here and at write-opening.ts. At or below 7, leave
-      // it alone. That number decides it, not the direction of the argument.
-      //
-      // Separately, and NOT fixed by any TTL: at the head of a batch several prospects
-      // start before the first cache entry commits, so they all write rather than read.
-      // That is a concurrency race and it sets a floor on writes at any TTL. The lever for
-      // it is a single cheap pre-warm call before fanning out. See docs/BACKLOG.md.
-      {
-        model: SYNTHESIS_MODEL,
-        max_tokens: 16000,
-        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-        messages: [{ role: 'user', content: userMessage }],
-      } satisfies MessageCreateParamsNonStreaming,
-      prospect.id,
-    )
-
-    // THE ONE PLACE THAT HAS THE RESPONSE. Every SynthesisOutput producer below defaults
-    // usage to zero; this is what makes it true. Read before any early return, so a
-    // no-text-block or parse-failure fallback still reports the tokens the call cost.
-    const callUsage = readTokenUsage(response.usage)
-
-    const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
-    if (!textBlock || textBlock.type !== 'text') {
-      logger.warn('research/synthesize: no text block in response')
-      return { ...buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', 'No text block in response', detectedSignal), usage: callUsage }
-    }
-
-    // A truncated response is the most likely cause of a JSON parse failure, and it
-    // looks identical to a model error unless stop_reason is checked.
-    if (response.stop_reason === 'max_tokens') {
-      logger.error('research/synthesize: response truncated at max_tokens — candidates will be lost', {
-        prospect_id: prospect.id,
-        output_tokens: response.usage?.output_tokens,
-      })
-    }
-
-    const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal)
-
-    // Scrubbing rewrites the trigger (em dashes become full stops, AI tells are replaced),
-    // so the readability verdict is recomputed on the text that actually ships.
-    const scrubbedTrigger = result.trigger_text === null
-      ? null
-      : scrubAITells(result.trigger_text, `research/prospect/${prospect.id}`)
-    const rescored = applyTriggerReadabilityGate(
-      scrubbedTrigger ?? '',
-      result.signal_relevance,
-      result.demotion_reason,
-    )
-
-    const scrubbedResult = {
-      ...result,
-      usage: callUsage,
-      trigger_text:        scrubbedTrigger,
-      signal_relevance:    rescored.signal_relevance,
-      demotion_reason:     rescored.demotion_reason,
-      trigger_readability: rescored.trigger_readability,
-    }
-
-    if (scrubbedResult.demotion_reason) {
-      logger.warn('research/synthesize: signal demoted below hook use', {
-        prospect_id:      prospect.id,
-        signal_relevance: scrubbedResult.signal_relevance,
-        reason:           scrubbedResult.demotion_reason,
-      })
-    }
-
-    logger.debug('research/synthesize: complete', {
-      icp_fit:             scrubbedResult.icp_fit,
-      has_dateable_signal: scrubbedResult.has_dateable_signal,
-      signal_relevance:    scrubbedResult.signal_relevance,
-      qualification:       scrubbedResult.qualification_status,
-      confidence:          scrubbedResult.confidence,
-      candidate_count:     scrubbedResult.candidates.length,
-      selected_candidate:  scrubbedResult.selected_candidate_id,
-      trigger_max_sentence_words: scrubbedResult.trigger_readability.max_sentence_words,
-      trigger_hedges:             scrubbedResult.trigger_readability.hedges,
-      trigger_nominalisation:     scrubbedResult.trigger_readability.nominalisation_density.toFixed(3),
-    })
-
-    // Fewer than three candidates means the sweep did not run properly. Visible,
-    // not silent, so a prompt regression shows up in logs rather than in the copy.
-    if (scrubbedResult.candidates.length < 3) {
-      logger.warn('research/synthesize: thin candidate set', {
-        prospect_id: prospect.id,
-        candidate_count: scrubbedResult.candidates.length,
-      })
-    }
-    return scrubbedResult
+    // The request body, the retry policy and the parse all live elsewhere now, so the
+    // batch path runs exactly these lines' logic with the api call swapped out. What
+    // remains here is what is genuinely inline-only: holding an HTTP connection open,
+    // retrying a 429 in-process, and aborting on a fatal account error.
+    const response = await callWithRetry(client, params, prospect.id)
+    return synthesisFromMessage(response, prospect, clientCtx, detectedSignal)
 
   } catch (err) {
     // A spent credit balance or a rejected key is not a per-prospect condition. Falling

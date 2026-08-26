@@ -46,4 +46,12 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   ['MON-018', 'mon_018'],
   ['MON-019', 'mon_019'],
   ['MON-020', 'mon_020'],
+  // The batch research path, added 2026-08-26.
+  //   MON-021 operational: is the sweep running, are batches moving, are entries failing
+  //   MON-022 structural:  do the guarantees the path depends on still exist in the catalog
+  // Two monitors rather than one because the remedies differ. MON-021 red means check
+  // Anthropic and the sweep; MON-022 red means a migration removed a safety guarantee and
+  // nothing has broken yet.
+  ['MON-021', 'mon_021'],
+  ['MON-022', 'mon_022'],
 ] as const

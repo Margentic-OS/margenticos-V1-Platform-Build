@@ -49,6 +49,86 @@ export async function enqueueJob(
 }
 
 /**
+ * Add one job for a research BATCH PHASE. Returns the row when it was created, null when
+ * a live research job of any kind already exists for this prospect.
+ *
+ * ── WHY THIS IS NOT enqueueJob ──
+ *
+ * enqueue_job absorbs duplicates with `ON CONFLICT (job_type, prospect_id) DO NOTHING`.
+ * That clause names ONE index, and the protection the batch phases need spans job types:
+ * a prospect waiting 24 hours in research_collect must not accept a new
+ * research_sources job, and the two rows differ in job_type so the per-type index does
+ * not see them as duplicates.
+ *
+ * The database enforces the wider rule with job_queue_one_live_research_per_prospect.
+ * Because enqueue_job's ON CONFLICT does not name that index, a violation of it raises
+ * out of enqueue_job rather than being absorbed, which would abort a whole enqueue loop
+ * part-way through. So the batch phases call enqueue_research_phase instead, which
+ * catches unique_violation and returns zero rows.
+ *
+ * enqueue_job itself is deliberately UNCHANGED. The single-job research path depends on
+ * it and that path is the rollback.
+ */
+export async function enqueueResearchPhaseJob(
+  supabase: SupabaseClient,
+  params: {
+    jobType: 'research_sources' | 'research_collect'
+    organisationId: string
+    prospectId: string
+    enqueuedBy: string
+    maxAttempts?: number
+  },
+): Promise<JobRow | null> {
+  const { data, error } = await supabase.rpc('enqueue_research_phase', {
+    p_job_type:        params.jobType,
+    p_organisation_id: params.organisationId,
+    p_prospect_id:     params.prospectId,
+    p_enqueued_by:     params.enqueuedBy,
+    p_max_attempts:    params.maxAttempts ?? QUEUE_CONFIG[params.jobType].maxAttempts,
+  })
+
+  if (error) throw new Error(`enqueue_research_phase failed: ${error.message}`)
+
+  // Same contract as enqueueJob: an empty result means a live research job already
+  // exists for this prospect. A successful no-op, never an error.
+  const rows = (data ?? []) as JobRow[]
+  return rows.length > 0 ? rows[0] : null
+}
+
+/**
+ * Which prospects already have a live job somewhere in the research family.
+ *
+ * Used to give an operator a sentence instead of a 23505. The database index is the
+ * guarantee; this is the courtesy. Both are needed: without the index a race gets
+ * through, and without this the abort message is a Postgres error code.
+ */
+export async function prospectsWithLiveResearchJob(
+  supabase: SupabaseClient,
+  organisationId: string,
+  prospectIds: string[],
+): Promise<Set<string>> {
+  if (prospectIds.length === 0) return new Set()
+
+  const { data, error } = await supabase
+    .from('job_queue')
+    .select('prospect_id, job_type')
+    .eq('organisation_id', organisationId)
+    .in('job_type', ['research', 'research_sources', 'research_collect'])
+    .in('state', ['queued', 'claimed'])
+    .in('prospect_id', prospectIds)
+
+  if (error) {
+    // FAIL LOUD. Returning an empty set on error would silently disable the guard and
+    // let an enqueue proceed straight into a duplicate-paid-work situation, which is the
+    // exact thing the guard exists to stop. A thrown error is recoverable; a silent
+    // re-spend on Apify, Apollo and Brave is not.
+    throw new Error(`Could not check for live research jobs: ${error.message}`)
+  }
+
+  return new Set((data ?? []).map(row => row.prospect_id as string))
+}
+
+/**
  * Enqueue many prospects for one organisation.
  *
  * Reports created and alreadyQueued separately, because "nothing happened because it

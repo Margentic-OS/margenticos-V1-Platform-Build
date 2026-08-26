@@ -14,11 +14,38 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import type { JobType } from './types'
 
-/** One flag key per job type. The rows are seeded by 20260824160000_job_queue.sql. */
+/**
+ * One flag key per job type.
+ *
+ * enrich/research/compose are seeded by 20260824160000_job_queue.sql; the two research
+ * batch phases by 20260826130000_research_batch_job_types.sql.
+ *
+ * ── THE TWO BATCH KEYS ARE NOT SYMMETRIC. READ THIS BEFORE FLIPPING EITHER. ──
+ *
+ * queue_research_sources is THE SWITCH. It decides, at ENQUEUE time, whether new work
+ * goes down the batch path or the existing single-job 'research' path. It is mutually
+ * exclusive with queue_research, enforced by system_flags_research_path_exclusive, so
+ * turning it on requires turning the old one off and vice versa. That exclusion is also
+ * what keeps Apify actor concurrency inside its measured ceiling of 25.
+ *
+ * queue_research_collect is A DRAIN VALVE, and turning it off is NOT how you roll back.
+ * Phase 2 collects synthesis results that have ALREADY BEEN PAID FOR. Turning this off
+ * while batches are in flight strands them: the money is spent, the results sit in
+ * Anthropic's store for 29 days, and no job will ever read them.
+ *
+ * TO ROLL BACK: set queue_research_sources false and queue_research true. Leave
+ * queue_research_collect ON until every in-flight batch has drained. New work goes down
+ * the proven path immediately; work already paid for still finishes.
+ *
+ * The flag is read at ENQUEUE, not at claim, precisely so a mid-batch flip cannot
+ * strand a prospect between phases with no path forward.
+ */
 export const QUEUE_FLAG_KEYS: Record<JobType, string> = {
-  enrich:   'queue_enrich',
-  research: 'queue_research',
-  compose:  'queue_compose',
+  enrich:           'queue_enrich',
+  research:         'queue_research',
+  compose:          'queue_compose',
+  research_sources: 'queue_research_sources',
+  research_collect: 'queue_research_collect',
 }
 
 /**

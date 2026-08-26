@@ -14,22 +14,16 @@ import pLimit from 'p-limit'
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
-import { fetchLinkedInSource } from './research/sources/linkedin'
-import { fetchApolloSource, apolloSourceFromRow } from './research/sources/apollo'
-import { fetchWebsiteSource }  from './research/sources/website'
-import { fetchWebSearchSource } from './research/sources/web-search'
+import { fetchAllSources } from './research/fetch-sources'
 import { synthesizeResearch }  from './research/synthesize'
 import { FrameRegistry, frameShingles, sentenceKey } from '@/lib/style/sentence-frames'
 import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
 import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nouns'
 import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
-import {
-  fetchApprovedMessagingDoc,
-  composeEmail1WithOpening,
-  getVariantEmail1Frame,
-} from '@/lib/composition/compose-sequence'
-import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
-import { writeAndJudgeOpening, type OpeningResult } from './research/write-opening'
+import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
+import { produceOpening, resolveVariantId, loadClientName } from './research/produce-opening'
+import { loadProspectContext } from './research/prospect-context'
+import type { OpeningResult } from './research/write-opening'
 import type {
   ProspectContext,
   RawSourceData,
@@ -97,12 +91,32 @@ export function buildSourceTracking(rawData: RawSourceData): {
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
 
-async function storeResearchResult(
+/**
+ * EXPORTED for phase 2 of the batch path. Not otherwise part of this module's contract.
+ *
+ * Phase 2 calls THIS function rather than writing its own insert, because the column set
+ * here encodes decisions that are easy to get subtly wrong: signal_relevance derived from
+ * the judge verdict rather than the model's, trigger_text falling back to the proxy for
+ * the audit row only, and sources_attempted/sources_successful derived from rawData by
+ * buildSourceTracking rather than restated.
+ */
+export async function storeResearchResult(
   prospect: ProspectContext,
   rawData: RawSourceData,
   synthesis: Awaited<ReturnType<typeof synthesizeResearch>>,
   runId: string | null,
   opening: OpeningResult,
+  /**
+   * When synthesis actually happened. NULL means now, which is right for an inline run
+   * where the call just returned.
+   *
+   * The BATCH path passes the batch's completion time. The column defaults to now(), and
+   * a batch collected hours after it finished would otherwise stamp collection time.
+   * loadStoredFindings reads this column and hands it to updateProspect as classifiedAt,
+   * precisely so an untouched classification does not look freshly confirmed, so a wrong
+   * value here propagates into how fresh a prospect's verdict appears.
+   */
+  synthesizedAt: string | null = null,
 ): Promise<string> {
   const supabase = getServiceClient()
   const { sources_attempted, sources_successful } = buildSourceTracking(rawData)
@@ -139,6 +153,9 @@ async function storeResearchResult(
       // Rejected candidates are kept deliberately so selection is auditable.
       candidates:            synthesis.candidates,
       selected_candidate_id: synthesis.selected_candidate_id,
+      // Omitted entirely when null so the column's own DEFAULT now() applies. Passing
+      // null explicitly would violate NOT NULL.
+      ...(synthesizedAt ? { synthesized_at: synthesizedAt } : {}),
     })
     .select('id')
     .single()
@@ -150,7 +167,8 @@ async function storeResearchResult(
   return data.id as string
 }
 
-async function updateProspect(
+/** EXPORTED for phase 2 of the batch path. See storeResearchResult above. */
+export async function updateProspect(
   prospect: ProspectContext,
   synthesis: Awaited<ReturnType<typeof synthesizeResearch>>,
   resultId: string,
@@ -391,52 +409,16 @@ export async function runProspectResearchAgentV2({
   const agentRun = await startAgentRun({ organisation_id: client_id, agent_name: 'prospect-research-v2' })
 
   try {
-    // Load prospect.
+    // Load prospect and resolve its segment.
+    //
+    // EXTRACTED to research/prospect-context.ts on 2026-08-26 so the batch path's phase 1
+    // runs the same code rather than a copy. Behaviour is unchanged: same columns, same
+    // segment fallback, same stamp-when-null side effect, same throw when the prospect
+    // does not belong to this client. The extraction exists precisely BECAUSE of that
+    // side effect: two copies of this would not merely return different things, they
+    // would write different things.
     const supabase = getServiceClient()
-    const { data: prospect, error: fetchError } = await supabase
-      .from('prospects')
-      .select('id, first_name, last_name, company_name, role, email, linkedin_url, website_url, organisation_id, segment_id, variant_id, apollo_enrichment_data')
-      .eq('id', prospect_id)
-      .eq('organisation_id', client_id)
-      .single()
-
-    if (fetchError || !prospect) {
-      throw new Error(`Prospect not found: ${prospect_id} for client ${client_id}`)
-    }
-
-    // Part C: if segment_id is null (prospect created before backfill or outside the
-    // sourcing path), stamp it with the org's primary segment now. This ensures every
-    // prospect has a segment before research and compose run.
-    let segmentId: string | null = prospect.segment_id ?? null
-    if (!segmentId) {
-      const { data: primarySeg } = await supabase
-        .from('segments')
-        .select('id')
-        .eq('organisation_id', client_id)
-        .eq('is_default', true)
-        .single()
-      segmentId = primarySeg?.id ?? null
-      if (segmentId) {
-        await supabase
-          .from('prospects')
-          .update({ segment_id: segmentId })
-          .eq('id', prospect_id)
-          .eq('organisation_id', client_id)
-      }
-    }
-
-    const ctx: ProspectContext = {
-      id:              prospect.id,
-      organisation_id: prospect.organisation_id,
-      segment_id:      segmentId,
-      first_name:      prospect.first_name,
-      last_name:       prospect.last_name,
-      company_name:    prospect.company_name,
-      role:            prospect.role,
-      email:           prospect.email,
-      linkedin_url:    prospect.linkedin_url,
-      website_url:     prospect.website_url,
-    }
+    const { ctx, extras } = await loadProspectContext(supabase, prospect_id, client_id)
 
     const fullName = [ctx.first_name, ctx.last_name].filter(Boolean).join(' ') || 'Unknown'
     logger.debug('prospect-research-v2: starting', { prospect_id, name: fullName })
@@ -454,63 +436,29 @@ export async function runProspectResearchAgentV2({
       })
     }
 
-    // Run all four sources in parallel — failures are isolated per source.
-    const [linkedIn, apollo, website, webSearch] = stored
-      ? [
-          { available: false, profile_data: null, recent_posts: null, formatted: null, error: SOURCE_SKIPPED_REUSE },
-          { available: false, formatted: null, raw: null, error: SOURCE_SKIPPED_REUSE },
-          { available: false, url: null, content: null, fetch_method: null, error: SOURCE_SKIPPED_REUSE },
+    // A reuse run makes NO source calls at all: these four stubs stand in for them, and
+    // buildSourceTracking reads the error string to tell a deliberate skip apart from a
+    // real failure. A fetching run leaves this null and calls fetchAllSources below.
+    const fetched: RawSourceData | null = stored
+      ? {
+          linkedin:   { available: false, profile_data: null, recent_posts: null, formatted: null, error: SOURCE_SKIPPED_REUSE },
+          apollo:     { available: false, formatted: null, raw: null, error: SOURCE_SKIPPED_REUSE },
+          website:    { available: false, url: null, content: null, fetch_method: null, error: SOURCE_SKIPPED_REUSE },
           // Zero here is a FACT, not a floor: a reuse run never calls the provider. This
           // is the row that makes reuse legible in the spend data. Counting web search
           // calls from sources_attempted instead overcounts a reuse run by two phantom
           // requests, and 101 stored rows on file carry exactly that shape.
-          {
+          web_search: {
             available: false, person_search: null, company_search: null, combined: null,
             error: SOURCE_SKIPPED_REUSE,
             providers: [], search_count: 0, result_count: 0,
           },
-        ] as const
-      : await Promise.all([
-          fetchLinkedInSource(ctx),
-          // ── APOLLO: ROW FIRST, LIVE CALL ONLY AS FALLBACK ──────────────────
-          //
-          // Enrichment already bought this person via bulk_match and, since
-          // 2026-08-24, stores the named subset on the prospect row. Calling
-          // people/match here as well bought the SAME person a second time,
-          // largely to recover employment_history, which enrichment had parsed
-          // and thrown away.
-          //
-          // Measured: employment_history produces 38 of research's 40 winning
-          // Apollo candidates, and Apollo is the strongest source in the system
-          // at 40 of 92 wins against Apify's 8. So the call could not be removed,
-          // only served from the row. About 113 duplicate paid calls per 244
-          // researched prospects.
-          //
-          // The fallback stays for prospects enrichment never matched: the live
-          // match rate is 46.3%, so a live call is still the only route for the
-          // rest, and for anything enriched before this change shipped.
-          (async () => {
-            const stored = apolloSourceFromRow(
-              prospect.apollo_enrichment_data as Record<string, unknown> | null,
-            )
-            if (stored) {
-              logger.debug('prospect-research-v2: Apollo served from the prospect row, no call made', {
-                prospect_id: prospect.id,
-              })
-              return stored
-            }
-            return fetchApolloSource(ctx)
-          })(),
-          fetchWebsiteSource(ctx),
-          fetchWebSearchSource(ctx),
-        ])
+        }
+      : null
 
-    const rawData: RawSourceData = {
-      linkedin:   linkedIn,
-      apollo:     apollo,
-      website:    website,
-      web_search: webSearch,
-    }
+    // EXTRACTED to research/fetch-sources.ts so phase 1 of the batch path fetches with
+    // the same code, not a copy. This is where every source-side pound is spent.
+    const rawData: RawSourceData = fetched ?? await fetchAllSources(ctx, extras)
 
     const { sources_attempted, sources_successful } = buildSourceTracking(rawData)
     logger.debug('prospect-research-v2: sources complete', { sources_attempted, sources_successful })
@@ -523,39 +471,28 @@ export async function runProspectResearchAgentV2({
 
     // ── Write the opening FOR the email it lands in, then judge the finished artifact ──
     //
-    // The variant matters because the opening has to lead into THAT variant's P3 and CTA.
-    // Read the assigned variant when there is one, otherwise resolve it with the same
-    // deterministic hash composition uses, so the writer targets the variant that will
-    // actually ship. Nothing is written back here: assignment stays composition's job.
+    // EXTRACTED to research/produce-opening.ts so phase 2 of the batch path writes and
+    // judges with the same code, not a copy. This block decides what a prospect actually
+    // receives, so a drifting second copy would show up as different copy rather than as
+    // an error.
+    //
+    // THE DIFFERENCE BETWEEN THE PATHS IS WHERE THE DOCUMENT COMES FROM, and it is the
+    // whole reason for the split's care: this path fetches the currently approved
+    // document moments before writing, and phase 2 reads a snapshot taken up to 24 hours
+    // earlier. Both then run identical code over it.
     const messaging = await fetchApprovedMessagingDoc(supabase, client_id, ctx.segment_id)
-    const availableVariants = messaging.content.variants
-      ? Object.keys(messaging.content.variants).sort()
-      : ['A', 'B', 'C', 'D']
-    const variantId = prospect.variant_id ?? assignVariantDeterministically(ctx.id, availableVariants)
-    const frame = getVariantEmail1Frame(messaging.content, variantId)
+    const variantId = resolveVariantId(ctx.id, extras.variant_id, messaging.content)
 
     const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) throw new Error('prospect-research-v2: ANTHROPIC_API_KEY not set')
 
-    const { data: org } = await supabase.from('organisations').select('name').eq('id', client_id).single()
-
-    const opening = await writeAndJudgeOpening({
+    const opening = await produceOpening({
       apiKey,
-      clientName: (org?.name as string | null) ?? 'the client',
-      prospectFirstName: ctx.first_name,
+      clientName: await loadClientName(supabase, client_id),
+      ctx,
       candidates: synthesis.candidates,
-      p3: frame.p3,
-      cta: frame.cta,
-      // The version the written opening has to beat: the variant's own approved opener.
-      templateOpening: frame.authoredOpening,
-      // The judge must read the real artifact, so this calls the exact production path.
-      // first_name resolved so the judge reads exactly what the prospect receives.
-      // question omitted keeps the variant's approved CTA, which is how the template side
-      // of the comparison stays a complete, genuinely sendable email.
-      composeEmail1: (text: string, question?: string | null) =>
-        composeEmail1WithOpening(messaging.content, variantId, text, question ?? null, ctx.first_name).body,
-      prospectId: ctx.id,
-      // Batch-scoped. Absent on a single-prospect run, where there is nothing to collide with.
+      messagingContent: messaging.content,
+      variantId,
       uniqueness,
     })
 
@@ -587,10 +524,10 @@ export async function runProspectResearchAgentV2({
     // the whole opening here would re-report frames the gate has already guaranteed are
     // unique and drown the half that is genuinely report-only.
     if (frameRegistry && opening.observation) {
-      const collisions = frameRegistry.register(prospect.id, opening.observation)
+      const collisions = frameRegistry.register(ctx.id, opening.observation)
       for (const collision of collisions) {
         logger.warn('prospect-research-v2: repeated sentence frame across batch', {
-          prospect_id:            prospect.id,
+          prospect_id:            ctx.id,
           first_seen_prospect_id: collision.firstSeenId,
           frame:                  collision.frame,
           trigger_text:           opening.observation,

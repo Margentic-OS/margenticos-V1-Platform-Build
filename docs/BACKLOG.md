@@ -6181,3 +6181,59 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   live filter therefore disagree by design. The adapter logs that divergence on every run
   (ignored_spec_countries) so it is visible rather than silent. Reconcile when the config
   layer lands, or the defaults will quietly come back into force with it.
+## Batch synthesis (2026-08-26, branch batch-synthesis)
+
+- [pre-c1] The older mon_* views are readable by anon, and a Postgres view runs with its
+  OWNER's privileges rather than the caller's unless security_invoker is set.
+
+  Found while adding MON-021 and MON-022. The two new views were deliberately locked down
+  (REVOKE from anon and authenticated by name, GRANT SELECT to service_role only) because
+  they read synthesis_batches and synthesis_batch_entries, which this build revoked from
+  anon two migrations earlier. An anon-readable view over a revoked table hands anon
+  AGGREGATED ACCESS to exactly the data the revoke was for, and it does so without any
+  grant appearing on the table itself, so the standard audit query
+
+      SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relkind = 'r'
+         AND has_table_privilege('anon', c.oid, 'SELECT') AND NOT c.relrowsecurity;
+
+  does NOT find it. That query filters on relkind = 'r', tables only. Views are 'v'.
+
+  MEASURED 2026-08-26 with the widened query. TEN views are anon-readable while the
+  current audit returns zero rows:
+
+      client_organisation_view
+      mon_001  mon_002  mon_003  mon_004  mon_005  mon_007  mon_010  mon_019  mon_020
+
+  Note what is NOT in that list: mon_006, mon_011 through mon_018, and the new mon_021 and
+  mon_022. So some monitor views are already locked down and some are not, which means
+  this was never a deliberate policy either way. That is worth knowing before "fixing" it:
+  the inconsistency suggests grants were inherited from whatever the default was on the
+  day each view was created, not chosen.
+
+  client_organisation_view is the one to look at first and the one to be most careful
+  with. It is named as client-facing, so anon access may be load-bearing for something,
+  or it may be RLS-backed at the base tables. Either way it is not a mon_* view and it
+  should not be swept up in the same migration without being understood on its own.
+
+  Not fixed here, deliberately. Each of these is a fresh SELECT over other tables, I have
+  not traced what each exposes or who reads it, and changing grants on paths I have not
+  traced is how a working dashboard breaks quietly. It is also not urgent: the sweep and
+  the operator dashboard both read as service_role, so revoking is EXPECTED to be inert,
+  but "expected to be" is the phrase this project keeps getting caught by.
+
+  NEXT ACTION, in this order:
+    1. Widen the CLAUDE.md audit query to cover views as well as tables:
+       relkind IN ('r','v','m'). The current one cannot see this class at all, and it has
+       been returning zero rows reassuringly since the day it was written.
+    2. Handle client_organisation_view separately and first. Different object, different
+       question, and possibly a legitimate grant.
+    3. For each mon_* view, read what it selects from and confirm nothing client-facing
+       reads it. The operator dashboard reads monitor_checks and monitor_events, not the
+       views, so this is expected to be a short list.
+    4. Revoke by name and grant service_role, one migration, with a live read-back in
+       both directions.
+
+  Related: the 2026-08-25 verification_calls incident, where RLS held and the grant
+  underneath it did not. This is the same lesson one level out: the grant you did not
+  think to look at is on a different object than the one you secured.
