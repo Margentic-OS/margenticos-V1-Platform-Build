@@ -29,8 +29,16 @@
   /dashboard/operator/clients/[id]/replies ALREADY EXISTED and already avoided the client
   chokepoint. Two things were actually wrong with it: NOTHING LINKED TO IT anywhere, so it
   was reachable only by typing an organisation UUID into the URL bar, and it did not group
-  or count. At the time of the fix the database held 12 classified replies of which 6
-  (3 unclear, 2 opt_out, 1 out_of_office) appeared on no screen in the product at all.
+  or count.
+
+  THE NUMBER, CHECKED RATHER THAN QUOTED. The database holds 12 classified replies, but
+  11 of those are DRY RUN / test-fixture rows belonging to Test Org A, Test Org B and
+  Write Test Org B. Exactly ONE reply exists in a real organisation: MargenticOS has a
+  single reply and its intent is opt_out, which is client-hidden. So the honest statement
+  is not "6 of 12 were invisible", it is sharper: the only reply the real org has ever
+  received appeared on no screen in the product at all. The commit message for ceef8d3
+  quotes the looser 6-of-12 figure, which counts fixtures as production data. Corrected
+  here per the standing rule that a figure is checked before it is quoted.
   Now: operator sidebar entry that follows the selected client, grouped by intent with
   counts, a summary line carrying "hidden from the client", full verbatim bodies, the
   prompting email, and drafts at every status. Read-only. New service-role read in

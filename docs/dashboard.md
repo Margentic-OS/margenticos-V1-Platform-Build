@@ -111,9 +111,12 @@ card shows and what it must never show is in reply-handling.md, "What a client s
 
 **What it is for.** The client replies page exists to filter negative replies OUT. That
 left no surface anywhere showing them IN, so an opt-out or a hostile reply was invisible
-inside our own product to the person running it. At the time this was built the database
-held 12 classified replies and 6 of them (3 unclear, 2 opt_out, 1 out_of_office) appeared
-on no screen at all.
+inside our own product to the person running it.
+
+The scale of it, checked against the live database rather than estimated: 12 classified
+replies exist, but 11 are DRY RUN and test-fixture rows. Exactly one sits in a real
+organisation, MargenticOS, and its intent is `opt_out`. The only reply the real org has
+ever received was therefore visible nowhere in the product.
 
 The route already existed and **nothing linked to it**, the same fault the client replies
 page had. It now has an operator sidebar entry that follows the selected client, so it is
@@ -138,6 +141,12 @@ files, and no shared switch:
 asserts the intent filter is PRESENT, this one asserts it is ABSENT, so a future tidy-up
 that routes this through the chokepoint fails a test instead of quietly hiding half the
 replies again.
+
+**The context panel is often empty, and that is the data, not a bug.**
+`signals.original_outbound_body` is populated on 2 of 14 signals and only 3 `reply_drafts`
+rows exist at all, so most cards have no "what we sent them" and no drafted reply to show.
+The "Show context" control is hidden entirely when a reply has neither. Note that
+`original_outbound_body` lives on `signals`, NOT on `reply_drafts`.
 
 **Grouped by intent, with counts.** Positive intents first, the ones that end a
 conversation last, and a summary line carrying the total plus how many are hidden from the
