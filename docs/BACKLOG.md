@@ -293,6 +293,94 @@
   Production is what the cron uses, so this is cosmetic, but a preview deployment cannot run
   the second pass until it is added. Add it from the Vercel dashboard when convenient.
 
+## Pre-ramp batch: MON-016 and the dead middleware (2026-08-26)
+
+- [CLOSED 2026-08-26] MON-016 was registered as "Prospects stuck at uploading" while the
+  mon_016 VIEW checks queue-worker health. The queue seed used ON CONFLICT (code) DO NOTHING
+  and an out-of-band row won. So a dead queue worker correctly went PROBLEM and then told the
+  operator to reset outbound_upload_status, which fixes nothing and hides the real cause.
+  Fixed with an upsert, applied and verified live: Queue worker health | liveness | 1 | t | 1.
+
+  THE LOSING ROW WAS NEVER IN THIS REPO. No migration creates it; repo seeds stop at MON-015.
+  So a database rebuilt from migrations would NOT reproduce the drift, which is why the fix
+  is an upsert rather than an UPDATE: the UPDATE would be a silent no-op on a clean rebuild.
+
+  NOTHING WAS LOST replacing the old meaning: monitor_events holds exactly ONE MON-016 row
+  ever, state OK at 2026-08-24 23:00, which post-dates the queue migration. The old
+  "uploading" check never produced an event under this code.
+
+- [post-build, LATENT NOT ACTIVE] Three monitor_checks seeds still use ON CONFLICT DO NOTHING:
+  20260807T000000_create_monitor_tables.sql (MON-001..010), 20260807_add_detection_checks.sql
+  (MON-011..015), and 20260824180000_queue_monitoring.sql. All 20 live rows were diffed
+  against their seeds: MON-016 was the ONLY code that actually drifted. MON-007 and MON-010
+  differ too but by deliberate later UPDATE migrations, which is intended.
+  Not rewritten speculatively. The rule for NEW seeds is DO UPDATE, always: DO NOTHING means
+  "whatever is already there wins", which is not idempotence, it is a coin toss decided by
+  history nobody can see. MON-019 and MON-020 already follow it.
+
+- [CORRECTION TO A PREMISE] The queue monitors are NOT invisible on the dashboard. They are
+  missing from the standing per-category sections, which is a narrower thing.
+  src/app/dashboard/operator/monitor/page.tsx builds three category lists (liveness, tier1,
+  unscheduled) AND a separate `allProblems` list filtered ONLY on
+  `current_state === 'PROBLEM' && resolved_at === null`, with no category test. So a check in
+  any category DOES surface in Active Problems the moment it fails. Neither the monitor-data
+  API route nor the sidebar badge count filters by category either, so the filter exists in
+  exactly one place.
+  Practical effect: MON-016/017/018 were never silent when failing. They were absent from the
+  steady-state list where an operator confirms things are alive.
+  MON-016 is now category 'liveness' and therefore listed. MON-017 and MON-018 are
+  'blind-spot' and still unlisted; see the next item.
+
+- [ACTION, SMALL, NOT DONE] Surfacing MON-017 and MON-018 in the standing sections takes ONE
+  line: add a fourth category list in page.tsx and render it. Do NOT do it by re-categorising
+  the rows to 'tier1', which is the other obvious route: MON-018 is tier 2, so it would be
+  filed under a heading that literally reads "Tier 1 Checks (Signal-Based)" and the heading
+  would then be lying. 'blind-spot' is the semantically correct category and the dashboard
+  should learn it, rather than the data being bent to fit the dashboard.
+
+- [CLOSED 2026-08-26] middleware.ts sat at the repo root and was never compiled, because Next
+  resolves middleware relative to the PARENT OF THE APP DIR and this project uses src/app.
+  Moved to src/middleware.ts. Verified by build output, before and after:
+    before: .next/server/middleware-manifest.json -> middleware {}, sortedMiddleware []
+    after:  middleware { "/" }, sortedMiddleware [ "/" ]
+
+  IT LOOKED LIKE IT WORKED BECAUSE DEV AND PRODUCTION DISAGREED. Turbopack's dev build DID
+  compile the root file (.next/dev/server/middleware-manifest.json holds "/" with the matcher
+  compiled). Local testing therefore showed working middleware while production had none.
+  Worth remembering as a shape: a dev/prod build discrepancy is invisible to every local
+  check including npm run build's own output, and only the manifest shows it.
+
+- [SAFETY, THE REASON THE MOVE WAS NOT A ONE-LINER] Enabling the middleware AS WRITTEN would
+  have been a platform-wide outage of all automation. Its matcher matched everything except
+  static assets, including all 12 /api/cron/* routes and the webhooks. Those authenticate by
+  `Bearer CRON_SECRET` or signature and carry NO user session, so `if (!user) return 401`
+  would have fired before the route ran: queue-worker every minute, verify-pending,
+  verify-catch-all, monitor-sweep, auto-approve, process-replies, instantly-poll,
+  reap-agent-runs, and the rest, all dead.
+  The matcher now excludes /api entirely, plus an in-function early return as a second layer,
+  and src/__tests__/middleware-scope.test.ts enumerates the cron directory from disk and
+  asserts none of it is matched. Excluding /api is the CONSERVATIVE choice, not a relaxation:
+  production has never had middleware on /api, so this preserves today's behaviour exactly
+  for all 66 API routes while adding the session refresh for pages that the file was written
+  for.
+
+- [DELETED 2026-08-26] middleware.test.ts at the repo root. It was never collected by vitest,
+  it imported a module that was never compiled, and every assertion was of the form
+  `expect('Verified: ...').toBeTruthy()`, which passes unconditionally regardless of the
+  code. Its documented claim that "/api/* returns 401 JSON" is now deliberately false.
+  Replaced by src/__tests__/middleware-scope.test.ts, which asserts against the real config.
+
+- [research] The middleware's REDIRECT behaviour is still untested: unauthenticated
+  /dashboard/* to /login with a next param. Testing it needs createServerClient and
+  auth.getUser mocked to control auth state, which the deleted file admitted it never did.
+  Worth adding now that the middleware actually runs.
+
+- [post-build] Next 16 deprecation, emitted by every build: 'The "middleware" file convention
+  is deprecated. Please use "proxy" instead.' The build output already labels it
+  "ƒ Proxy (Middleware)". Rename src/middleware.ts to src/proxy.ts when convenient. Not done
+  in the same change as switching it on, so that if anything misbehaves there is one variable
+  and not two.
+
 ## A monitor stuck at UNKNOWN raises nothing, ever (found 2026-08-26)
 
 - [monitor, NOT A REGRESSION, found while verifying MON-020] monitor-sweep computes
