@@ -92,3 +92,34 @@ name, text nobody has approved.
 - The count on the overview disagrees with the number of cards: both read
   `reply_handling_actions` filtered by `CLIENT_VISIBLE_INTENTS`, imported from this
   module. If they disagree, someone has made a second copy of that list.
+
+## What an operator sees
+
+The mirror of the section above. `getOperatorRepliesForOrg` in
+`src/lib/reply-handling/get-operator-replies.ts`, rendered at
+`/dashboard/operator/clients/[id]/replies`, reachable from the operator sidebar.
+
+All eight intents, no filter, grouped with counts. It carries what the client view is
+built to withhold: the raw intent, the classification confidence, the tier, and drafts at
+every status rather than only `sent`. The reply body is verbatim in both views.
+
+**Why it is a separate file and not a flag.** `getClientVisibleReplies` enforces one rule
+at one place: a client never sees a reply outside `CLIENT_VISIBLE_INTENTS`. A parameter
+that turns that filter off would live inside the function whose entire purpose is applying
+it, one wrong argument away from showing a client the reply telling them to get lost. Two
+functions, two files, no shared switch.
+
+`get-operator-replies.unit.test.ts` asserts the intent filter is absent, that all three
+client-hidden intents come back, and that the drafts query carries no `status = 'sent'`.
+Those are the assertions that fail loudly if someone ever merges the two reads.
+
+### What to check if it breaks
+
+- Empty for an operator too: `SUPABASE_SERVICE_ROLE_KEY`. This function throws on its
+  absence rather than returning an empty result, for the same reason as the client one.
+- A reply shows no draft: `log_only` and `tier_1_handled` routes never create one. See
+  `route-intent.ts`. That is correct, not a missing row.
+- An intent appears under a raw name like `something_new`: the classifier produced an
+  intent this module has no label for. It is appended rather than dropped on purpose, so a
+  new intent shows up looking odd instead of vanishing from the operator's count. Add it
+  to `INTENT_ORDER` and `INTENT_LABELS`, and to `KNOWN_INTENTS` in `route-intent.ts`.

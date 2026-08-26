@@ -110,25 +110,6 @@ export interface ClientVisibleReply {
   meeting: { scheduled_for: string | null } | null
 }
 
-// The operator's view keeps the classification. This is the shape it always had; it is
-// named apart from ClientVisibleReply so that adding a field to one cannot silently add
-// it to the other.
-export interface OperatorVisibleReply {
-  id: string
-  created_at: string
-  prospect: {
-    first_name: string | null
-    last_name: string | null
-    company_name: string | null
-    email: string | null
-  }
-  classified_intent: ClientVisibleIntent
-  classification_confidence: number
-  reply_subject: string | null
-  reply_body_snippet: string
-  action_taken: string
-}
-
 function serviceRoleClient(): SupabaseServiceClient {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     // Loud rather than empty. Silence here reads as "you have had no replies", which is
@@ -304,80 +285,5 @@ export async function getClientVisibleReplies(
       sent_on_their_behalf: sentOnTheirBehalf,
       meeting,
     } satisfies ClientVisibleReply
-  })
-}
-
-/**
- * Fetches ALL replies for an organisation (operator only, no intent filtering).
- * Used by the operator per-client reply view.
- * Returns all intents so the operator can see the full picture (opt_out, hostile, etc.).
- *
- * Still takes a client: operators have RLS access through operators_read_reply_handling_actions,
- * and the forced-service-role treatment above exists for CLIENT sessions, which read
- * nothing at all from this table.
- */
-export async function getAllRepliesForOrg(
-  supabase: SupabaseServiceClient,
-  orgId: string,
-): Promise<OperatorVisibleReply[]> {
-  const { data, error } = await supabase
-    .from('reply_handling_actions')
-    .select(
-      `
-      id,
-      created_at,
-      classified_intent,
-      classification_confidence,
-      action_taken,
-      prospect:prospects (
-        first_name,
-        last_name,
-        company_name,
-        email
-      ),
-      signal:signals (
-        raw_data
-      )
-      `,
-    )
-    .eq('organisation_id', orgId)
-    .order('created_at', { ascending: false })
-    .limit(500)
-
-  if (error) {
-    throw new Error(`Failed to fetch all replies for org: ${error.message}`)
-  }
-
-  return (data ?? []).map((row) => {
-    const signal = row.signal as { raw_data: Record<string, unknown> } | null
-    const rawData = signal?.raw_data ?? {}
-
-    const snippet = extractBody(rawData)
-      .replace(/\n+/g, ' ')
-      .substring(0, 300)
-      .trim()
-
-    const prospect = row.prospect as {
-      first_name: string | null
-      last_name: string | null
-      company_name: string | null
-      email: string | null
-    } | null
-
-    return {
-      id: row.id,
-      created_at: row.created_at,
-      prospect: prospect ?? {
-        first_name: null,
-        last_name: null,
-        company_name: null,
-        email: null,
-      },
-      classified_intent: row.classified_intent as string as ClientVisibleIntent,
-      classification_confidence: row.classification_confidence ?? 0,
-      reply_subject: (typeof rawData.subject === 'string' ? rawData.subject : null) ?? null,
-      reply_body_snippet: snippet,
-      action_taken: row.action_taken,
-    }
   })
 }

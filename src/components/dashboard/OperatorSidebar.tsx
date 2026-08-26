@@ -69,6 +69,20 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
   const selectedId = searchParams.get('client') ?? clients[0]?.id ?? null
   const selectedClient = clients.find(c => c.id === selectedId) ?? clients[0] ?? null
 
+  // Replies had no nav entry anywhere. The route existed, the operator read behind it
+  // existed, and nothing linked to it, so it was reachable only by typing a URL with an
+  // organisation UUID in it. Every reply a client is not allowed to see (opt-outs,
+  // out-of-office, unclear) was therefore invisible inside our own product to the person
+  // running it. It takes the selected client in its path, so it is built here rather than
+  // in the static list above.
+  const navOperator = selectedId
+    ? [
+        NAV_OPERATOR[0],
+        { label: 'Replies', href: `/dashboard/operator/clients/${selectedId}/replies` },
+        ...NAV_OPERATOR.slice(1),
+      ]
+    : NAV_OPERATOR
+
   function isActive(href: string) {
     if (href === '/dashboard/operator') return pathname === '/dashboard/operator'
     return pathname.startsWith(href)
@@ -78,7 +92,15 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
     setDropdownOpen(false)
     const params = new URLSearchParams(searchParams.toString())
     params.set('client', id)
-    router.push(`${pathname}?${params.toString()}`)
+
+    // On a client-scoped route the organisation is in the PATH, not in ?client=, so
+    // setting the query param alone left the page showing the previous client while the
+    // sidebar claimed the new one. Swap the id segment instead. Exposed by giving Replies
+    // a nav entry: before that, no sidebar link reached a /clients/[id]/ route at all.
+    const scoped = pathname.match(/^(\/dashboard\/operator\/clients\/)[^/]+(\/.*)?$/)
+    const nextPath = scoped ? `${scoped[1]}${id}${scoped[2] ?? ''}` : pathname
+
+    router.push(`${nextPath}?${params.toString()}`)
   }
 
   return (
@@ -100,7 +122,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
 
       {/* Client selector */}
       <div className="px-5 pb-5 relative">
-        <p className="text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)] mb-[4px]">
+        <p className="text-[10px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)] mb-[4px]">
           Viewing
         </p>
         <button
@@ -158,7 +180,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 px-3 overflow-y-auto">
         {/* Results */}
-        <p className="px-2 mb-2 text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
+        <p className="px-2 mb-2 text-[10px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
           Results
         </p>
         <ul className="space-y-0.5 mb-6">
@@ -167,7 +189,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
               <Link
                 href={appendClientParam(item.href, selectedId)}
                 className={[
-                  'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
+                  'flex items-center px-2 py-[6px] rounded-[6px] text-[13px] transition-colors',
                   isActive(item.href)
                     ? 'bg-[rgba(245,240,232,0.08)] border-l-2 border-brand-green-accent text-[#F5F0E8] font-medium'
                     : 'text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]',
@@ -180,7 +202,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
         </ul>
 
         {/* Strategy */}
-        <p className="px-2 mb-2 text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
+        <p className="px-2 mb-2 text-[10px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
           Strategy
         </p>
         <ul className="space-y-0.5 mb-6">
@@ -189,7 +211,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
               <Link
                 href={appendClientParam(item.href, selectedId)}
                 className={[
-                  'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
+                  'flex items-center px-2 py-[6px] rounded-[6px] text-[13px] transition-colors',
                   isActive(item.href)
                     ? 'bg-[rgba(245,240,232,0.08)] border-l-2 border-brand-green-accent text-[#F5F0E8] font-medium'
                     : 'text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]',
@@ -202,16 +224,16 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
         </ul>
 
         {/* Operator only — amber-tinted to visually distinguish from client nav */}
-        <p className="px-2 mb-2 text-[8px] font-normal uppercase tracking-[0.09em] text-brand-amber opacity-60">
+        <p className="px-2 mb-2 text-[10px] font-normal uppercase tracking-[0.09em] text-brand-amber opacity-60">
           Operator only
         </p>
         <ul className="space-y-0.5">
-          {NAV_OPERATOR.map((item) => (
+          {navOperator.map((item) => (
             <li key={item.href}>
               <Link
                 href={item.href}
                 className={[
-                  'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
+                  'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[13px] transition-colors',
                   isActive(item.href)
                     ? 'bg-[rgba(239,159,39,0.10)] border-l-2 border-brand-amber text-brand-amber font-medium'
                     : 'text-brand-amber opacity-60 hover:opacity-100 hover:bg-[rgba(239,159,39,0.07)]',
@@ -231,7 +253,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
 
       {/* Compact client list */}
       <div className="px-5 py-5 border-t border-[rgba(245,240,232,0.08)]">
-        <p className="text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)] mb-3">
+        <p className="text-[10px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)] mb-3">
           All clients
         </p>
         {clients.length === 0 ? (

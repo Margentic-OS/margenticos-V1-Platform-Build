@@ -23,6 +23,44 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## Client-facing UX batch (2026-08-25, branch client-facing-ux)
+
+- [DONE 2026-08-25] Operator replies view. The route
+  /dashboard/operator/clients/[id]/replies ALREADY EXISTED and already avoided the client
+  chokepoint. Two things were actually wrong with it: NOTHING LINKED TO IT anywhere, so it
+  was reachable only by typing an organisation UUID into the URL bar, and it did not group
+  or count. At the time of the fix the database held 12 classified replies of which 6
+  (3 unclear, 2 opt_out, 1 out_of_office) appeared on no screen in the product at all.
+  Now: operator sidebar entry that follows the selected client, grouped by intent with
+  counts, a summary line carrying "hidden from the client", full verbatim bodies, the
+  prompting email, and drafts at every status. Read-only. New service-role read in
+  src/lib/reply-handling/get-operator-replies.ts, with a unit test that asserts the intent
+  filter is ABSENT so a future tidy-up cannot quietly merge it back into the chokepoint.
+
+- [post-build] getAllRepliesForOrg IS DELETED. It lived in the client chokepoint file,
+  took a caller-supplied Supabase client, and truncated bodies to 300 characters. Its one
+  production caller now uses getOperatorRepliesForOrg. The live integration test in
+  get-client-visible-replies.test.ts was repointed at the new function, but that file only
+  runs where SUPABASE_SERVICE_ROLE_KEY is configured and it did NOT run in this session.
+  Next action: run it once with live credentials to confirm the repointed assertions
+  (total 8, hiddenFromClientCount 3) hold against real data.
+
+- [monitor] THE NINETY-DAYS BLOCK ON /dashboard/benchmarks IS NOW COLLAPSED BY DEFAULT.
+  The trade-off is recorded above the copy in BenchmarksView.tsx and is worth repeating
+  here: BACKLOG already notes that this block is the answer to the question the sample gate
+  creates, because at current volume every rate card reads as a dash and the first client
+  to see that WILL ask why. Collapsing it puts that answer one click away. Accepted because
+  four paragraphs above the cards is why nobody read it, and the lead line stays visible.
+  Next action: if a client asks why the cards are blank, this default is the first thing to
+  revisit, not the sample gate.
+
+- [post-build] The operator client switcher now rewrites the id SEGMENT on
+  /dashboard/operator/clients/<id>/... routes instead of only setting ?client=. Before, the
+  page kept showing the previous client while the sidebar claimed the new one. This was
+  invisible until Replies got a nav entry, because no sidebar link reached a
+  /clients/[id]/ route at all. It affects the intake and client-detail routes too, which
+  were not otherwise in scope for this session.
+
 ## Country exclusion — FIXED, with two prospects already mailed (2026-08-25)
 
 - [CLOSED 2026-08-25, code + migration applied and verified live] The DE exclusion never

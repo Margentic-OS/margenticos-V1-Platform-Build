@@ -1,19 +1,27 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
-import { getAllRepliesForOrg } from '@/lib/reply-handling/get-client-visible-replies'
+import { getOperatorRepliesForOrg } from '@/lib/reply-handling/get-operator-replies'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { OperatorRepliesView } from './components/OperatorRepliesView'
 import { OperatorRepliesSkeleton } from './components/OperatorRepliesSkeleton'
 import { logger } from '@/lib/logger'
+import type { OperatorRepliesForOrg } from '@/lib/reply-handling/get-operator-replies'
 
-async function loadAllReplies(orgId: string) {
-  const supabase = await createClient()
+const EMPTY: OperatorRepliesForOrg = { total: 0, hiddenFromClientCount: 0, groups: [] }
+
+async function loadReplies(orgId: string): Promise<OperatorRepliesForOrg> {
   try {
-    return await getAllRepliesForOrg(supabase, orgId)
+    // No Supabase client is passed in. getOperatorRepliesForOrg builds its own
+    // service-role client so the session client cannot be handed to it by mistake and
+    // return zero rows in silence. See ADR-027 and the header of that file.
+    return await getOperatorRepliesForOrg(orgId)
   } catch (err) {
-    logger.error('Failed to load operator replies', { error: err instanceof Error ? err.message : String(err) })
-    return []
+    logger.error('Failed to load operator replies', {
+      orgId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return EMPTY
   }
 }
 
@@ -25,6 +33,8 @@ export default async function OperatorClientRepliesPage({
   const { id } = await params
   const supabase = await createClient()
 
+  // The session client's only job here: prove who this is and that they are an operator.
+  // It reads none of the reply data.
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
@@ -36,7 +46,6 @@ export default async function OperatorClientRepliesPage({
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
-  // Fetch the client org so we can show their name
   const { data: org } = await supabase
     .from('organisations')
     .select('id, name')
@@ -47,14 +56,14 @@ export default async function OperatorClientRepliesPage({
     redirect('/dashboard/operator')
   }
 
-  const replies = await loadAllReplies(id)
+  const replies = await loadReplies(id)
 
   return (
     <>
       <OperatorTopbar
         eyebrow="Operator view"
         title={`Replies — ${org.name}`}
-        subtitle="All reply activity, all intents"
+        subtitle="Every reply, every intent, including the ones the client never sees"
         userEmail={user.email}
       />
       <Suspense fallback={<OperatorRepliesSkeleton />}>

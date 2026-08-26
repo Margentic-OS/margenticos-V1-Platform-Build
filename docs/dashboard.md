@@ -107,6 +107,51 @@ with a running sequence that their campaigns were not live yet.
 Nav entry added; the route had existed with nothing linking to it. Full detail of what the
 card shows and what it must never show is in reply-handling.md, "What a client sees".
 
+### Operator replies — /dashboard/operator/clients/[id]/replies
+
+**What it is for.** The client replies page exists to filter negative replies OUT. That
+left no surface anywhere showing them IN, so an opt-out or a hostile reply was invisible
+inside our own product to the person running it. At the time this was built the database
+held 12 classified replies and 6 of them (3 unclear, 2 opt_out, 1 out_of_office) appeared
+on no screen at all.
+
+The route already existed and **nothing linked to it**, the same fault the client replies
+page had. It now has an operator sidebar entry that follows the selected client, so it is
+reachable without typing an organisation UUID into the URL bar.
+
+**It does not go through the client chokepoint, on purpose.** `getClientVisibleReplies`
+exists to enforce the intent filter at one place; this view exists to bypass exactly that
+filter. Adding a flag to the chokepoint would put the switch that disables the filter
+inside the function whose whole job is applying it. So there are two functions in two
+files, and no shared switch:
+
+| | client | operator |
+|---|---|---|
+| function | `getClientVisibleReplies` | `getOperatorRepliesForOrg` |
+| file | `get-client-visible-replies.ts` | `get-operator-replies.ts` |
+| intents | 5, filtered in SQL | all 8, no filter |
+| reply body | verbatim | verbatim |
+| drafts shown | `status = 'sent'` only | every status, including `pending` |
+| intent label leaves the file | never | yes, that is the point |
+
+`get-operator-replies.unit.test.ts` is the mirror of the client unit test: where that one
+asserts the intent filter is PRESENT, this one asserts it is ABSENT, so a future tidy-up
+that routes this through the chokepoint fails a test instead of quietly hiding half the
+replies again.
+
+**Grouped by intent, with counts.** Positive intents first, the ones that end a
+conversation last, and a summary line carrying the total plus how many are hidden from the
+client. Grouping and counting are deterministic code per ADR-018. Read-only: no approve,
+reject or send from this page.
+
+**Service-role read, though RLS would have allowed a session read.** Operator policies do
+exist on all three tables (`operators_read_reply_handling_actions`,
+`operators_full_access_signals`, `operators_full_access_reply_drafts`), so an operator
+session client can read them today. It still builds its own service-role client, because
+RLS returns zero rows without an error and a page whose failure mode is "you have had no
+replies" must not depend on three policies staying correct. ADR-027 two-client pattern:
+the session client proves the operator role in the route, the service client reads.
+
 ### Client benchmarks — /dashboard/benchmarks
 
 **No targets. Ranges only.** The page used to render "Target ≥ 2%" under a meeting
@@ -131,6 +176,13 @@ true from the first email; only the rate has to wait.
 |---|---|---|
 | Send-denominated rates (reply, meeting, bounce, opt-out) | 400 emails | standard error of a proportion under 1 point at a 4% rate needs n ≈ 384; at a 1% rate, under half a point needs n ≈ 396 |
 | Positive reply share | 25 replies | denominator is replies and the proportion sits near half, where the error is widest: a 10-point standard error needs n = 25 |
+
+**The ninety-days block is collapsed by default.** It was four paragraphs above the
+cards, which is why nobody read it. It is now a disclosure with the lead line
+("Cold outreach is slow before it is fast.") visible collapsed. The trade-off is named in
+the code: this block is the answer to the question the sample gate creates, because at
+current volume every rate card reads as a dash and the first client to see that will ask
+why. If a client asks anyway, this default is the first thing to revisit.
 
 The number this exists to stop showing: 1 reply from 26 emails renders as 3.8%, sits
 neatly inside the published industry range, and looks exactly like a measurement. The next

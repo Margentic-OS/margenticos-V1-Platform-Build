@@ -12,7 +12,7 @@
 //      own published production figure is 0.16 meetings per 1,000 emails: 0.016%.
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { BenchmarksView } from '../BenchmarksView'
 import type { ClientVisibleCampaignMetrics } from '@/lib/metrics/get-client-visible-campaign-metrics'
@@ -169,12 +169,34 @@ describe('the Belkins citation', () => {
 })
 
 describe('what the first ninety days look like', () => {
-  it('is a plain paragraph block on the page', () => {
+  it('starts collapsed, showing the heading and the first line only', () => {
     render(<BenchmarksView metrics={metrics()} />)
 
     expect(screen.getByText('What the first ninety days look like')).toBeInTheDocument()
+    // The lead line is what makes the rest worth opening, so it stays on screen.
     expect(screen.getByText(/Cold outreach is slow before it is fast/)).toBeInTheDocument()
+    // The other three paragraphs are behind the disclosure.
+    expect(screen.queryByText(/Month two is where the messaging starts earning its keep/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Replies arrive in ones and twos/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Meetings do not arrive evenly/)).not.toBeInTheDocument()
+  })
+
+  it('opens on click and closes again', () => {
+    render(<BenchmarksView metrics={metrics()} />)
+    const toggle = screen.getByRole('button', { name: /What the first ninety days look like/ })
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText(/Month two is where the messaging starts earning its keep/)).toBeInTheDocument()
+    expect(screen.getByText(/Meetings do not arrive evenly/)).toBeInTheDocument()
+    // The lead line is not duplicated once the rest is revealed.
+    expect(screen.getAllByText(/Cold outreach is slow before it is fast/)).toHaveLength(1)
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText(/Month two is where the messaging starts earning its keep/)).not.toBeInTheDocument()
   })
 
   it('promises no number', () => {

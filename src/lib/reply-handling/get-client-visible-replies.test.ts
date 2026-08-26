@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
-import { getClientVisibleReplies, getAllRepliesForOrg } from './get-client-visible-replies'
+import { getClientVisibleReplies } from './get-client-visible-replies'
+import { getOperatorRepliesForOrg } from './get-operator-replies'
 
 /**
  * Tests for the client-visible replies chokepoint function.
@@ -480,14 +481,17 @@ describe('getClientVisibleReplies (client-visible chokepoint)', () => {
   })
 
   describe('TEST 4: Operator view returns ALL intents', () => {
-    it('getAllRepliesForOrg returns all 8 intents (no filtering)', async () => {
-      const allReplies = await getAllRepliesForOrg(supabase, TEST_ORG_A_ID)
+    it('getOperatorRepliesForOrg returns all 8 intents (no filtering)', async () => {
+      const result = await getOperatorRepliesForOrg(TEST_ORG_A_ID)
 
       // Should have 8 replies (all intents)
-      expect(allReplies.length).toBe(8)
+      expect(result.total).toBe(8)
+
+      // Three of the eight are ones a client may never see.
+      expect(result.hiddenFromClientCount).toBe(3)
 
       // Collect all intents
-      const returnedIntents = new Set(allReplies.map(r => r.classified_intent))
+      const returnedIntents = new Set(result.groups.map(g => g.intent))
 
       // Verify: all 8 intents present
       const expectedIntents = new Set([

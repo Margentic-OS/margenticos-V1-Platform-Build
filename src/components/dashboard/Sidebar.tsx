@@ -116,7 +116,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
 
       {/* Viewing label + org name */}
       <div className="px-5 pb-5">
-        <p className="text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)] mb-[3px]">
+        <p className="text-[10px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)] mb-[3px]">
           Viewing
         </p>
         {clientId && allOrgs && allOrgs.length > 0 ? (
@@ -142,7 +142,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
             <Link
               href={appendClientParam('/dashboard', clientId)}
               className={[
-                'flex items-center px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
+                'flex items-center px-2 py-[6px] rounded-[6px] text-[13px] transition-colors',
                 pathname === '/dashboard'
                   ? 'bg-[rgba(245,240,232,0.08)] border-l-2 border-brand-green-accent text-[#F5F0E8] font-medium'
                   : 'text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]',
@@ -154,7 +154,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
         </ul>
 
         {/* Results section */}
-        <p className="px-2 mb-2 text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
+        <p className="px-2 mb-2 text-[10px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
           Results
         </p>
         <ul className="space-y-0.5 mb-6">
@@ -168,7 +168,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
                   href={locked ? '#' : appendClientParam(item.href, clientId)}
                   aria-disabled={locked}
                   className={[
-                    'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
+                    'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[13px] transition-colors',
                     active
                       ? 'bg-[rgba(245,240,232,0.08)] border-l-2 border-brand-green-accent text-[#F5F0E8] font-medium'
                       : locked
@@ -191,7 +191,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
         {/* Prospects section */}
         {pendingProspectsCount > 0 && (
           <>
-            <p className="px-2 mb-2 text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
+            <p className="px-2 mb-2 text-[10px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
               Prospects
             </p>
             <ul className="space-y-0.5 mb-6">
@@ -199,7 +199,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
                 <Link
                   href={appendClientParam('/dashboard/prospect-tiers', clientId)}
                   className={[
-                    'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
+                    'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[13px] transition-colors',
                     pathname.startsWith('/dashboard/prospect-tiers')
                       ? 'bg-[rgba(245,240,232,0.08)] border-l-2 border-brand-green-accent text-[#F5F0E8] font-medium'
                       : 'text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]',
@@ -220,29 +220,35 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
             While a document is unapproved it stays open, because that is the state
             blocking the lead upload and hiding it behind a chevron would leave the client
             waiting on us while we wait on them. */}
+        {/* The control collapsed correctly but did not look like a control: a 7px chevron
+            at 28% opacity, inside what otherwise reads as a section label. The arrow is
+            now 12px in its own contrasting hit area, and the whole row takes a hover
+            background, so it is discoverable as a button rather than by accident. */}
         <button
           type="button"
           onClick={() => setStrategyOpen(o => !o)}
           aria-expanded={strategyExpanded}
           aria-controls="sidebar-strategy-nav"
           disabled={onStrategyRoute}
-          className="w-full flex items-center justify-between px-2 mb-2 text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)] hover:text-[rgba(245,240,232,0.50)] transition-colors disabled:cursor-default disabled:hover:text-[rgba(245,240,232,0.28)]"
+          className="group w-full flex items-center justify-between gap-2 px-2 py-1.5 mb-2 rounded-[6px] text-[10px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.45)] hover:text-[rgba(245,240,232,0.85)] hover:bg-[rgba(245,240,232,0.05)] transition-colors disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-[rgba(245,240,232,0.45)]"
         >
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-1.5 min-w-0">
             Strategy
             {strategyNav.needsAttention.length > 0 && (
-              <span className="text-[8px] font-medium text-[#F5F0E8] bg-brand-green-accent px-1 py-px rounded-[3px] normal-case tracking-normal">
+              <span className="text-[9px] font-medium text-[#F5F0E8] bg-brand-green-accent px-1.5 py-px rounded-[3px] normal-case tracking-normal shrink-0">
                 {strategyNav.reason === 'blocking_upload' ? 'Approval needed' : 'New version'}
               </span>
             )}
           </span>
           {!onStrategyRoute && (
-            <svg
-              width="7" height="7" viewBox="0 0 8 8" fill="none" aria-hidden="true"
-              className={strategyExpanded ? 'rotate-90 transition-transform' : 'transition-transform'}
-            >
-              <path d="M2 1L6 4L2 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <span className="flex items-center justify-center w-5 h-5 rounded-[4px] bg-[rgba(245,240,232,0.07)] group-hover:bg-[rgba(245,240,232,0.14)] transition-colors shrink-0">
+              <svg
+                width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"
+                className={strategyExpanded ? 'rotate-90 transition-transform' : 'transition-transform'}
+              >
+                <path d="M4.5 2L8.5 6L4.5 10" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
           )}
         </button>
         {strategyExpanded && (
@@ -255,7 +261,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
                   <Link
                     href={appendClientParam(item.href, clientId)}
                     className={[
-                      'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[12px] transition-colors',
+                      'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[13px] transition-colors',
                       active
                         ? 'bg-[rgba(245,240,232,0.08)] border-l-2 border-brand-green-accent text-[#F5F0E8] font-medium'
                         : 'text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]',
@@ -274,7 +280,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
       {/* Setup progress steps — shown until pipeline unlocked */}
       {!pipelineUnlocked && (
         <div className="px-5 py-5 border-t border-[rgba(245,240,232,0.08)]">
-          <p className="text-[8px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)] mb-3">
+          <p className="text-[10px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)] mb-3">
             Setup progress
           </p>
           <ol className="space-y-2.5">
