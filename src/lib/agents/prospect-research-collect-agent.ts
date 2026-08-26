@@ -53,7 +53,8 @@ import { produceOpening, loadClientName, type MessagingContent } from './researc
 import { storeResearchResult, updateProspect } from './prospect-research-agent-v2'
 import { checkResearchEligibility } from '@/lib/sourcing/send-eligibility-policy'
 import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nouns'
-import type { RawSourceData } from './research/types'
+import { ZERO_TOKEN_USAGE, type RawSourceData } from './research/types'
+import type { OpeningResult } from './research/write-opening'
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -320,6 +321,13 @@ export async function runProspectResearchCollect({
  * source 'none' and ships the variant's approved opener. That is a correct outcome, not a
  * degraded one.
  */
+//
+// TYPED, NOT CAST. This was `as unknown as Parameters<typeof storeResearchResult>[4]`,
+// which is the shape CLAUDE.md now names as its own failure mode: a cast on an object
+// literal switches off the check that would have caught a missing or misspelled field.
+// If OpeningResult ever gains a field, `satisfies OpeningResult` makes that a compile
+// error here; the cast would have silently produced an object missing it, and the first
+// symptom would have been a column written as undefined.
 const EMPTY_OPENING = {
   opening: null,
   question: null,
@@ -330,8 +338,15 @@ const EMPTY_OPENING = {
   retries_used: 0,
   strong_material: false,
   judge_reasoning: 'Not written: the prospect was no longer mailable when the batch was collected.',
-  usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, calls: 0 },
-} as unknown as Parameters<typeof storeResearchResult>[4]
+  usage: ZERO_TOKEN_USAGE,
+  // FOUND BY THE `satisfies` ABOVE, not by a test. The cast this replaced omitted both,
+  // and updateProspect writes `trigger_data: { ...synthesis, judge: opening }`, so every
+  // skipped prospect would have stored a judge record with two undefined fields. Empty
+  // arrays are the honest values: no comparison was run and no gate was reached, because
+  // the writer never ran at all.
+  comparisons: [],
+  gate_failures: [],
+} satisfies OpeningResult
 
 /** When the batch finished, or null when that is unknown and now() should apply. */
 async function batchEndedAt(
