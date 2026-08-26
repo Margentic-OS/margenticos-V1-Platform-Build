@@ -6199,6 +6199,40 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
 
   does NOT find it. That query filters on relkind = 'r', tables only. Views are 'v'.
 
+  CORRECTED 2026-08-26 AFTER MEASURING RATHER THAN READING GRANTS. The severity ran the
+  OPPOSITE WAY to how it was first reported, and that inversion is the useful part.
+
+      as anon:  SELECT count(*) FROM cron_heartbeats;              ->  0 rows (RLS holds)
+      as anon:  SELECT * FROM mon_019;                             ->  RETURNS DATA
+      as anon:  SELECT * FROM client_organisation_view;
+                ERROR 42501: permission denied for function get_my_organisation_id
+
+  So the nine mon_* views really do bypass RLS, and client_organisation_view does NOT.
+  It was reported as exposing every organisation's name, contract_start_date and
+  meetings_count to anyone with the anon key. It does not: its definition ends
+  `WHERE id = get_my_organisation_id()`, so it self-scopes to the caller's own
+  organisation, and that function is SECURITY DEFINER with EXECUTE denied to anon. It
+  also fails CLOSED if that changes, because auth.uid() is NULL for anon, so the
+  predicate becomes `id = NULL` and matches nothing.
+
+  What the nine mon_* views leak is operational telemetry: which scheduled jobs exist,
+  when each last ran, whether it is failing, and a free-text detail line with counts.
+  Sampled live: "Processed 0 replies", "Checked 18 monitors, recorded 0 state change(s)",
+  "Nothing pending: every enriched prospect has a verdict." No client data, no
+  organisation data, no prospect data. Low severity, free to close.
+
+  A migration closing the nine is WRITTEN AND NOT APPLIED at
+  supabase/migrations/20260826170000_revoke_anon_on_views.sql, awaiting a decision,
+  because the instruction was to report rather than batch-revoke.
+
+  STILL OPEN, as its own decision: client_organisation_view's anon grant is useless
+  today, so removing it is defence in depth rather than a fix. It is a client-facing view
+  whose purpose is to serve an authenticated user their own organisation, and nothing
+  reads it yet. Changing grants or setting security_invoker on a client-facing view is
+  not something to do on the back of a premise that turned out to be wrong.
+
+  The original (uncorrected) survey follows, kept because the count is still right.
+
   MEASURED 2026-08-26 with the widened query. TEN views are anon-readable while the
   current audit returns zero rows:
 

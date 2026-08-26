@@ -58,7 +58,33 @@
 -- from the queue-worker job and rewrites only the URL path. The secret is never read,
 -- never printed, and never committed.
 --
--- Status: NOT APPLIED. Awaiting the production deploy above and Doug's go-ahead.
+-- Status: APPLIED (verified live 2026-08-26, on Doug's explicit go-ahead)
+--
+-- Prerequisites were met in order before applying, as this header required:
+--   1. Merged to main and deployed. origin/main = 78a2025, Vercel production READY,
+--      target=production, deployment SHA matching HEAD exactly.
+--   2. POST https://app.margenticos.com/api/cron/synthesis-batch-sweep -> 401, not 404.
+--      Checked against /api/cron/queue-worker as a known-good control, also 401.
+--      It returned 404 immediately before the push, which is what made the check mean
+--      something rather than being a formality.
+--   3. Applied.
+--
+-- FIRST FIRING, 2026-08-26 21:45:01 UTC, ok = true:
+--   "submitted 0 in 0 batch(es), polled 0, collected 0, entry failures 0, aged out 0,
+--    requeued 0, reconciled 0"
+--
+-- That is the whole idle path having run, not a short-circuit: queue_research_collect was
+-- turned on first precisely so the sweep would reconcile, poll and look for pending
+-- entries rather than returning early at the flag check. Proving it idle means proving
+-- the parts that will later spend money find nothing, not that the route responds.
+--
+-- MON-021 moved UNKNOWN -> OK on that heartbeat, and monitor_events now holds rows for
+-- MON-021 and MON-022, which is the check that MON-019 failed for a day: a monitor whose
+-- view returns OK while monitor_events holds nothing for it is dark, and dark reads as
+-- healthy.
+--
+-- Still zero cost: queue_research_sources is false, so nothing creates a pending entry,
+-- so the sweep has nothing to submit. The money switch has NOT been thrown.
 
 -- Idempotent: unschedule any previous version of this job.
 SELECT cron.unschedule('synthesis-batch-sweep')

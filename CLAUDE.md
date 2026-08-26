@@ -1114,6 +1114,91 @@ To audit every table in the database for this class:
 Any row there is a table anon can read outright. A table with RLS on is protected today
 but still worth revoking, per the incident above.
 
+### Rule: THAT QUERY IS NOT ENOUGH EITHER. A VIEW BYPASSES RLS AND THE QUERY CANNOT SEE IT.
+
+Read this immediately after the query above, because the query above is the one that has
+been giving false reassurance.
+
+`relkind = 'r'` means ORDINARY TABLES. A view is `'v'` and a materialised view is `'m'`.
+So that audit has never once looked at a view, and it has been returning zero rows,
+reassuringly, since the day it was written.
+
+**Views are worse than tables here, not better.** A Postgres view executes with the
+privileges of its OWNER unless it is created with `security_invoker = true`. Every view in
+this database is owned by `postgres`. So an anon-readable view over a table that anon
+cannot read **hands anon the contents of that table anyway, through the view**, and RLS on
+the base table is never consulted, because the query is not running as the caller.
+
+That means a view can undo a table's protection completely while the table's own
+privileges still read back as correctly locked down.
+
+**The 2026-08-26 finding, stated as measured rather than as first reported.**
+
+The bypass is real and was demonstrated end to end:
+
+    -- as anon, reading the TABLE directly: RLS holds
+    SELECT count(*) FROM public.cron_heartbeats;   ->  0 rows
+
+    -- as anon, reading a VIEW over the same table: RLS is never consulted
+    SELECT * FROM public.mon_019;                  ->  returns data
+
+Nine `mon_*` views (001, 002, 003, 004, 005, 007, 010, 019, 020) are anon-readable,
+owned by `postgres`, `security_invoker = false`, and each selects from `cron_heartbeats`,
+which has RLS enabled and denies anon directly. What leaks is operational telemetry:
+which scheduled jobs exist, when each last ran, whether it is failing, and the free-text
+detail line with its counts. No client data, no organisation data, no prospect data.
+
+`client_organisation_view` was ALSO anon-readable and `security_invoker = false`, and it
+selects id, name, slug, contract_start_date, pipeline_unlocked, pipeline_unlock_at,
+meetings_count, created_at and updated_at from `organisations`. It was initially reported
+as exposing all of that for every organisation. **It does not, and checking rather than
+acting on the report is the point of this entry.** Its definition ends
+`WHERE id = get_my_organisation_id()`, so it self-scopes to the caller's own
+organisation, and `get_my_organisation_id()` is SECURITY DEFINER with EXECUTE denied to
+anon. Measured: an anon read of that view fails outright with
+`42501 permission denied for function get_my_organisation_id`. It also fails closed if
+that ever changes, because the function returns `organisation_id FROM users WHERE id =
+auth.uid()`, and `auth.uid()` is NULL for anon, so the predicate becomes `id = NULL` and
+matches nothing.
+
+So the severity ran the opposite way to the initial report: the harmless-looking
+monitoring views are the ones actually bypassing RLS, and the alarming-looking client
+view is self-scoped and denied. Both facts came from running the query as anon rather
+than from reading the grants.
+
+The correct pattern already existed in the same database: `client_prospects_view` has
+`security_invoker = true` and denies anon. So this was never a policy decision in either
+direction. Grants and options were whatever the default was on the day each view happened
+to be created, and the audit could not see the difference.
+
+**The audit query, corrected. Use this one.**
+
+    SELECT c.relname,
+           c.relkind,
+           pg_get_userbyid(c.relowner) AS owner,
+           COALESCE((SELECT option_value FROM pg_options_to_table(c.reloptions)
+                      WHERE option_name = 'security_invoker'), 'false') AS security_invoker,
+           has_table_privilege('anon',          c.oid, 'SELECT') AS anon,
+           has_table_privilege('authenticated', c.oid, 'SELECT') AS authenticated
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relkind IN ('r', 'v', 'm')
+       AND (has_table_privilege('anon', c.oid, 'SELECT')
+         OR has_table_privilege('authenticated', c.oid, 'SELECT'));
+
+Read every row. For a TABLE, RLS is the mitigation. For a VIEW, RLS on the base tables is
+NOT a mitigation unless `security_invoker` is `true`, so a view row with
+`security_invoker = false` and `anon = true` is an outright read of whatever it selects.
+
+**Why this is in the security section and not in a backlog file.** The bug was not in the
+database. It was IN THE AUDIT. A check that runs, returns zero rows, and cannot see the
+class it was written to find is the same shape as the opt-out footer that was validated and
+then discarded, and as the monitor sweep whose loop was bounded by the shorter of two
+arrays. When a check is the thing that is wrong, nothing downstream of it can notice.
+
+MON-022 now reads this class live for the synthesis tables. Extending it to cover every
+public view is the obvious next step and is in BACKLOG.
+
 **The generalisation, which is the part worth carrying:** the mistake in both the
 2026-06-05, 2026-08-24 and 2026-08-25 incidents is identical, and it is not about
 functions or tables. It is ASSUMING THE EFFECT OF A GRANT INSTEAD OF READING IT BACK.
