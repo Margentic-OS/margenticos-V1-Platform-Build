@@ -205,6 +205,49 @@
   CLAUDE.md's standing rule is written about SECURITY DEFINER functions. The trap is wider:
   assuming the effect of a grant rather than reading it back is the mistake, on tables too.
 
+## Catch-all second pass — LIVE RESULT, 2026-08-26 02:30 UTC
+
+- [DONE] The sweep ran and drained the entire backlog in ONE firing.
+
+    verified 11, recovered 10, still unusable 1, failed 0, paid calls 11, daily used 11
+    cost 11 x $0.008 = $0.088
+    send-eligible 13 -> 23
+    newly claimable (eligible + approved + has copy + upload pending): 8
+    still awaiting a second pass: 0
+
+  Every firing since reports "Nothing pending" and spends nothing, because the selector
+  requires second_pass_status IS NULL. The idle case works.
+
+  RECOVERY ON CATCH-ALLS ALONE: 9 of 10 deliverable = 90%, against 80% in the 2026-08-25
+  sample. The 11th address was an 'Unknown' rather than a catch-all and came back
+  deliverable at score 100 with accept_all=false, which the sample never covered.
+
+- [research, IMPORTANT AND NOT PREDICTED] THE VENDOR'S VERDICT IS NOT STABLE OVER TIME.
+  sohail@thesouthstarconsulting.com returned RISKY at score 75 in the 2026-08-25 sample and
+  DELIVERABLE at score 90 in the live run about 28 hours later. Same address, same vendor,
+  different answer.
+
+  This matters for how every recovery figure here should be read. The 80% and 90% numbers
+  carry VENDOR VARIANCE on top of sampling variance, so the true confidence interval is
+  wider than binomial arithmetic on n=10 suggests. It also means a risky verdict is not
+  necessarily final: re-probing a risky address later may resolve it. Do NOT build an
+  automatic re-probe on that basis without measuring first, because each retry bills and
+  MAX_SECOND_PASS_ATTEMPTS = 2 exists precisely to stop open-ended re-billing.
+
+- [pre-c1] olympus.com is the one address that did not recover: risky, score 15, against 90
+  for everything else. Flagged and not chased per Doug 2026-08-25. It remains the strongest
+  candidate for a SOURCING miss rather than a verification one: a large corporate domain in
+  a list of small consulting firms. If more like it appear, look at the ICP filter spec.
+
+- [monitor] Integrity checks after the run, all clean: 0 stranded second-pass locks, 0
+  recorded second-pass errors, 0 ledger rows stuck at 'attempted', 0 ledger rows without
+  completed_at, 0 prospects with attempt_count > 1 (nothing was re-billed), 3 DE prospects
+  still excluded and 0 DE prospects wrongly eligible, second_pass_provider = 'bouncer' on
+  every row. Median call latency 0.23s.
+
+- [DONE] MON-020 now holds 2 events and reads OK, so the monitor is genuinely being swept
+  rather than merely registered. That is the check MON-019 failed for a day.
+
 ## First firing of the paid sweep failed closed on a missing key (2026-08-26)
 
 - [CLOSED 2026-08-26] The cron fired on schedule at 02:00:01 UTC and reported

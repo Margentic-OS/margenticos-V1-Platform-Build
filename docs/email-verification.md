@@ -24,11 +24,18 @@ Pass one reporting "Catch All" is therefore honest, not a failure. It is telling
 cannot know.
 
 Pass two uses a different method (asking the mail provider directly, for Google and Microsoft
-hosted domains) rather than a better probe. On 10 real addresses from the live client-zero
-list on 2026-08-25, it resolved 8 of them as deliverable.
+hosted domains) rather than a better probe.
 
-**Treat 80% as close to a best case, not a forecast.** Ten addresses on one day, all on
-Google or Microsoft, which is exactly where this vendor claims to be strongest.
+**It has now run for real.** On 2026-08-26 it processed the whole live backlog in one firing:
+11 addresses, 10 recovered, 1 still unusable, 0 failures, 11 paid calls costing $0.088. On
+the catch-alls alone that is 9 of 10, or 90%. Send-eligible prospects went from 13 to 23.
+
+**Still treat that as a best case, not a forecast.** Small numbers, one client, and every
+domain on Google or Microsoft, which is exactly where this vendor claims to be strongest.
+
+**And the vendor does not always give the same answer twice.** One address came back "risky"
+in the trial run and "deliverable" 28 hours later. Same address, same vendor. So these
+percentages carry the vendor's own inconsistency on top of ordinary small-sample noise.
 
 ---
 
