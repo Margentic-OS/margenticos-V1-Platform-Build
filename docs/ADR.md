@@ -2496,3 +2496,91 @@ is why compose was never migrated to the queue.
 - **Dropping `research.maxInFlight` from 20 to 15 to make room for the batch path.**
   Would have been necessary if the Apify assertion summed across paths. Proving the
   exclusion instead leaves a proven number alone.
+
+---
+
+## ADR-034: Send eligibility is evaluated once, at verification, and frozen on the row
+
+**Date:** 2026-08-26
+**Status:** Accepted as a description of what the system does. The consequences are
+accepted; the retroactivity gap is NOT, and is tracked in BACKLOG.
+
+### The fact, stated plainly
+
+`prospects.email_send_eligible` is a MATERIALISED VERDICT, not an evaluated predicate.
+
+It is written in exactly two places, both at verification time:
+
+- `verification-trigger.ts:490` — `eligibilityCheck.is_eligible && result.send_eligible`
+- `second-pass-trigger.ts:557` — `decision.eligible`, from `resolveSendEligibility`
+
+`checkSendEligibility`, which owns the country rule and `EXCLUDED_COUNTRIES`, is called
+in exactly two places, and both are those same verification paths:
+
+- `verification-trigger.ts:484`
+- `send-eligibility-resolver.ts:97`
+
+**It is never called in the send path.** `handleUploadLeads` gates on the stored column
+at `actions.ts:288` and `actions.ts:329`.
+
+### Therefore
+
+**Adding a country to `EXCLUDED_COUNTRIES` is NOT retroactive.** A prospect verified
+before the change keeps `email_send_eligible = true` until it is verified again, and
+verification costs money. The exclusion list governs prospects verified from that moment
+on, and nothing else.
+
+The same applies to any change in `CATCH_ALL_IS_RESEARCH_WORTHY`'s send-side counterpart,
+to the Bouncer status mapping, and to any future rule that feeds either write site.
+
+### Why it is like this, because the design is defensible
+
+The column is the last word at send time on purpose. Re-evaluating the full predicate
+during the upload claim would mean joining verification state into a hot path that
+currently claims rows with a single conditional UPDATE, and the claim is what makes the
+send path race-safe. `send-eligibility-policy.ts:20-40` documents the mirror-image
+decision for the research spend filter, and reaches the opposite answer for good reasons:
+that filter reads the RAW verdict precisely because it needs policy to be changeable
+without re-verifying.
+
+So the split is deliberate. What was not deliberate is that nobody wrote down that the
+send side is frozen.
+
+### The consequence, and it is not hypothetical
+
+This is the mechanism behind the German-prospect incident.
+
+`country` was normalised to ISO-2 and `EXCLUDED_COUNTRIES` was taught to match aliases on
+2026-08-25. Both fixes are correct. Neither one reached the two prospects already
+verified, already uploaded, and already mid-sequence in the outbound provider. Their rows
+now read `email_send_eligible = false, country_excluded_de` and that changed nothing about
+what the provider was going to do next, because our gate governs UPLOAD and the provider
+owns the SEQUENCE.
+
+Four emails reached German recipients, not the two the incident record captured: step
+`0_0_0` on 2026-08-21 and step `0_1_0` on 2026-08-24, verified against the provider's own
+sent-email log. The second went out one day before the fix landed.
+
+### What follows from it, for anyone changing an eligibility rule
+
+1. **Changing a rule does not change a prospect.** If a rule change must apply to existing
+   prospects, it needs an explicit re-evaluation pass, and if that pass calls a paid
+   verifier it needs a budget decision. There is no code path today that re-evaluates
+   eligibility without re-verifying.
+2. **Our gates govern upload, not delivery.** Once a prospect is uploaded, the outbound
+   provider owns the sequence. Marking a row ineligible afterwards is a no-op with respect
+   to email that has not been sent yet. Stopping in-flight sends is a provider-side action
+   and there is no code for it.
+3. **A compliance rule therefore needs a third layer**, and does not have one: the write
+   path (normalise), the evaluation (rule), and a REMOVAL path for prospects already in
+   flight. Only the first two exist.
+
+### Rejected
+
+- **Re-evaluating in the send claim.** Would make the rule live, and would put verification
+  state into the conditional UPDATE that makes the claim race-safe. Not taken now because
+  it is a change to the one path where a race sends duplicate email, and it should not be
+  made in the same change as anything else.
+- **Treating the column as authoritative and saying nothing.** That is the status quo this
+  ADR exists to end. The behaviour is defensible; being undocumented is what let it
+  surprise us.

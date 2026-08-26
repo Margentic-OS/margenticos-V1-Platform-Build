@@ -977,6 +977,43 @@ true in the database gets a LIVE check that reads `pg_indexes`, `pg_constraint`,
 running after the day it was written. State the limit in the test itself, so the next
 reader does not over-trust it.
 
+### A rule change that does not change any row, because the verdict was frozen
+
+A predicate evaluated once and stored is not the same thing as a rule. Editing the rule
+feels like changing behaviour and changes nothing that already exists.
+
+**`prospects.email_send_eligible` is a materialised verdict.** `checkSendEligibility`, which
+owns `EXCLUDED_COUNTRIES`, is called ONLY at verification time
+(`verification-trigger.ts:484`, `send-eligibility-resolver.ts:97`) and written to the column
+there. The send path reads the column (`actions.ts:288`, `actions.ts:329`) and never
+re-evaluates.
+
+**So adding a country to `EXCLUDED_COUNTRIES` is NOT retroactive.** Prospects verified
+before the edit keep their old verdict until re-verified, and re-verifying costs money.
+There is no code path that re-evaluates eligibility without paying a verifier.
+
+**And our gates govern UPLOAD, not DELIVERY.** Once a prospect is uploaded, the outbound
+provider owns the sequence. Setting `email_send_eligible = false` afterwards does nothing to
+email the provider has not sent yet. That is not a bug in the column; it is the boundary of
+what the column can do.
+
+**The 2026-08-26 finding.** Country normalisation and alias matching both landed on
+2026-08-25 and both are correct. Neither reached two German prospects already verified,
+already uploaded, and mid-sequence. Their rows read `false / country_excluded_de` while the
+provider had two more emails scheduled for them. Four emails had already been delivered, not
+the two the incident record captured, and the second went out one day before the fix.
+
+**The rule when changing any eligibility or compliance rule, in order:**
+
+1. Change the rule.
+2. Ask what it does to rows ALREADY EVALUATED. Usually nothing. If it must apply to them,
+   that is a separate re-evaluation pass with its own cost.
+3. Ask what it does to prospects ALREADY UPLOADED. Always nothing. Stopping those is a
+   provider-side action and no code does it.
+
+A compliance rule needs three layers and this codebase has two: normalise on write, evaluate
+on verification, and REMOVE what is already in flight. The third does not exist. See ADR-034.
+
 ### Related shapes already documented elsewhere in this file
 
 - Validating one value and returning another. The generation-time opt-out footer was
@@ -1364,6 +1401,9 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-032  Sourcing filter hardcoded in the handler; both location axes constrained
   ADR-033  Research synthesis on the Batch API, split into research_sources +
            research_collect with the intermediate state in synthesis_batch_entries
+  ADR-034  Send eligibility is evaluated once at verification and frozen on the row;
+           changing EXCLUDED_COUNTRIES is NOT retroactive, and our gates govern
+           UPLOAD, not delivery
 
 ---
 
