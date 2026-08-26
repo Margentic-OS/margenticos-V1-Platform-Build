@@ -1139,15 +1139,16 @@ async function callModel(
     const res = await client.messages.create({
       model,
       max_tokens: maxTokens,
-      // 1-HOUR TTL, matching synthesize.ts. The full economics, including the exact
-      // break-even at ~7 reads per write and what to check before keeping it, are written
-      // out once at the synthesis call site rather than duplicated here.
+      // DEFAULT 5-MINUTE TTL, matching synthesize.ts. A 1-hour TTL was tried and reverted
+      // on 2026-08-26: it doubles the write cost and only pays above ~7 reads per write,
+      // against a measured 4.14. The full arithmetic and the condition for revisiting are
+      // written out once at the synthesis call site rather than duplicated here.
       //
       // Only the WRITER passes cacheSystem. The floor judge and judge are ~124 tokens
       // each, far below Sonnet's 1,024-token minimum cacheable prefix, so a breakpoint on
       // them would be silently ignored while consuming one of the four allowed per request.
       system: cacheSystem
-        ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral', ttl: '1h' } }]
+        ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
         : system,
       messages: [{ role: 'user', content: user }],
     })

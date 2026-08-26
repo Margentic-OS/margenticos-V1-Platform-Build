@@ -69,10 +69,16 @@
   /clients/[id]/ route at all. It affects the intake and client-detail routes too, which
   were not otherwise in scope for this session.
 
-## Web search reduced and cache TTL raised (2026-08-25) — BOTH NEED CONSOLE CONFIRMATION
+## Web search reduced (kept) and cache TTL raised then reverted (2026-08-25 / 26)
 
-- [monitor, ACTION REQUIRED AFTER NEXT RESEARCH RUN] Web search cut from 2 queries x up to
-  3 searches to ONE query capped at ONE search, on the PER-PROSPECT path only.
+- [standing] DO NOT RUN A RESEARCH BATCH PURELY TO MEASURE EITHER OF THESE. Doug, 2026-08-26.
+  Both verify naturally on the first ramp batch. A batch run only to produce a number spends
+  real Anthropic and Apollo money to answer a question that answers itself for free.
+
+- [ACCEPTED 2026-08-26 by Doug. Still needs console confirmation on the first ramp batch.]
+  Web search cut from 2 queries x up to 3 searches to ONE query capped at ONE search, on the
+  PER-PROSPECT path only. Merging the two queries rather than dropping one was confirmed as
+  the right call: it keeps both the person signal and the company signal.
   Threaded per caller via `webSearch(query, { maxUses })`. The ICP and positioning document
   agents call `runResearchQueries` and are UNCHANGED at the default of 3, because they run
   once per client and richer search is worth paying for there.
@@ -89,33 +95,47 @@
   Trade-off accepted knowingly: one search cannot cover as much as six. Expect fewer
   findings. The 92.3% write-rate baseline is the regression signal.
 
-- [monitor, ACTION REQUIRED, AND IT MAY NEED REVERTING] Cache TTL moved from the 5-minute
-  default to 1 hour on the synthesis and writer system prompts.
+- [REVERTED 2026-08-26 BEFORE ANY BATCH RAN ON IT. Condition to revisit is exact and below.]
+  The 1-hour cache TTL was tried on the synthesis and writer system prompts and reverted the
+  same day. Both are back on the 5-minute default.
 
-  THE CONDITION IS EXACT AND IT IS NOT CURRENTLY MET. A 1-hour cache write costs 2x base
-  input; a 5-minute write costs 1.25x. Reads are 0.1x either way. Per request, for the
-  cached prefix:
+  WHY REVERTED. A 1-hour cache write costs 2x base input; a 5-minute write costs 1.25x.
+  Reads are 0.1x either way. Per request, for the cached prefix:
 
       5-minute at 4.14 reads/write : (1.25 + 0.1*3.14) / 4.14 = 0.378x
       1-hour   at B    reads/write : (2.00 + 0.1*(B-1)) / B
 
-  Equal at B = 6.84. So the 1-hour TTL only pays off ABOVE ROUGHLY SEVEN reads per write.
-  At the 4.14 measured on the console today it costs about 48% MORE, not less.
+  Equal at B = 6.84. Console-measured amortisation is 4.14, where the 1-hour TTL costs about
+  48% MORE. The case for switching was that 4.14 is suppressed by entries expiring mid-batch
+  (13 prospects at ~170s with concurrency 5 runs ~7 minutes, past the 5-minute window) and
+  would rise once the window stopped closing. That may well be true. It is still a forecast,
+  and shipping a change that is measurably worse on current behaviour in the hope the next
+  batch rescues it is the wrong trade. Doug's call, 2026-08-26.
 
-  The bet is that 4.14 was suppressed by entries expiring mid-batch: 13 prospects at ~170s
-  with concurrency 5 runs about 7 minutes, so the 5-minute window closed during the run. At
-  13 reads per write the 1-hour TTL is ~35% cheaper.
+  THE CONDITION TO REVISIT, and nothing else reopens this: measure
+  cache_read_input_tokens / cache_creation_input_tokens on a REAL batch.
+    ABOVE 7  -> add `ttl: '1h'` at synthesize.ts and write-opening.ts, both in one commit.
+    7 OR BELOW -> leave it on the default.
+  Do not reopen on the argument that expiry is capping amortisation. That argument is
+  already accounted for: it is precisely why B might exceed 7, and B is what settles it.
 
-  AFTER THE NEXT BATCH, compute cache_read_input_tokens / cache_creation_input_tokens.
-  Above 7: keep it. Below 7: revert by deleting the `ttl` field at both sites. That number
-  settles it, not the direction of the argument.
+- [research, SEPARATE ITEM FROM THE TTL] Pre-warming is the lever for the head-of-batch
+  concurrency race, and NO TTL fixes that race.
 
-- [research] A floor on cache writes that the TTL cannot fix. At the head of a batch several
-  prospects start before the first cache entry commits, so they all write rather than read.
-  That is a concurrency race, not expiry, and it caps amortisation at any TTL. The lever is
-  a single cheap pre-warm call (max_tokens: 0 against the same prefix) before fanning out.
-  Worth doing only if the measurement above comes back between about 4 and 7, where the race
-  is what is holding it under break-even.
+  At the head of a batch several prospects start before the first cache entry commits, so
+  they all WRITE rather than read. Measured on 2026-08-25: prospects 2, 3 and 6 wrote the
+  synthesis prompt as well as reading it. That is a race, not expiry, so it sets a floor on
+  writes at any TTL and it is part of why amortisation sits at 4.14 rather than near the
+  batch size.
+
+  The fix is one cheap call against the same prefix BEFORE fanning out, using max_tokens: 0,
+  which creates the cache entry without billing output tokens. Costs one 1.25x write and
+  removes the concurrent head writes.
+
+  Worth doing if the measurement above comes back between roughly 4 and 7, because that is
+  the band where the race is what holds amortisation under the 1-hour break-even. Fixing the
+  race could then move both levers at once. Not worth doing on its own at current batch
+  sizes: it saved well under a cent on the 13-prospect run.
 
 - [DECIDED, DO NOT ACTION] Caching the web search Haiku call was considered and is
   IMPOSSIBLE, not merely unprofitable. Haiku 4.5's minimum cacheable prefix is 4,096 tokens.

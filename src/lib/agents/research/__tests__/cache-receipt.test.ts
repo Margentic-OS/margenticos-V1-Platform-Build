@@ -80,10 +80,11 @@ describe.runIf(process.env.RUN_CACHE_PROBE)('prompt cache receipt (live API)', (
       const s = await client.messages.create({
         model: MODEL,
         max_tokens: 16,
-        // ttl MUST TRACK THE SHIPPED CODE. This probe builds its own request rather than
-        // calling synthesize.ts, so a TTL change there does not propagate here. If these
-        // drift, the probe measures a cache configuration nobody ships.
-        system: [{ type: 'text', text: synthesisSystem, cache_control: { type: 'ephemeral', ttl: '1h' } }],
+        // cache_control MUST TRACK THE SHIPPED CODE. This probe builds its own request rather
+        // than calling synthesize.ts, so a change there does not propagate here. If these
+        // drift, the probe measures a cache configuration nobody ships. Currently the
+        // 5-minute default: the 1-hour TTL was tried and reverted on 2026-08-26.
+        system: [{ type: 'text', text: synthesisSystem, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: synthesisUser }],
       })
       synthesisRead = line('synthesis', n, s.usage as Usage)
@@ -95,7 +96,7 @@ describe.runIf(process.env.RUN_CACHE_PROBE)('prompt cache receipt (live API)', (
       const w = await client.messages.create({
         model: MODEL,
         max_tokens: 16,
-        system: [{ type: 'text', text: writerSystem, cache_control: { type: 'ephemeral', ttl: '1h' } }],
+        system: [{ type: 'text', text: writerSystem, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: writerUser }],
       })
       writerRead = line('writer', n, w.usage as Usage)

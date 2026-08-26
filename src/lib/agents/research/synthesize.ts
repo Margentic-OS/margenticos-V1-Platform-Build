@@ -777,38 +777,35 @@ export async function synthesizeResearch(
       //
       // Cache reads are ~10% of input price, so this is a loss on a single-prospect run
       // and a gain from the second prospect onwards. Batches are the normal case.
-      // ─── CACHE TTL: 1 HOUR, NOT THE 5-MINUTE DEFAULT ───────────────────────────
+      // ─── CACHE TTL: THE 5-MINUTE DEFAULT. A 1-HOUR TTL WAS TRIED AND REVERTED ────
       //
-      // Changed 2026-08-25. The reason is that entries were expiring BETWEEN prospects:
-      // a batch of 13 at ~170s each with concurrency 5 runs about 7 minutes, so the
-      // 5-minute window closed mid-batch and the prompt was re-written to cache more than
-      // once. Console write amortisation was 4.14 reads per write.
+      // Tried 2026-08-25, reverted 2026-08-26 BEFORE any batch ran on it, because the
+      // arithmetic was against it on current behaviour and the case for it was a forecast.
       //
-      // THIS IS NOT A FREE WIN, AND THE CONDITION IS EXACT. A 1-hour write costs 2x base
-      // input; a 5-minute write costs 1.25x. Reads are 0.1x either way. Per request, for
-      // the cached prefix:
+      // A 1-hour cache write costs 2x base input; a 5-minute write costs 1.25x. Reads are
+      // 0.1x either way. Per request, for the cached prefix:
       //
       //     5-minute at 4.14 reads/write : (1.25 + 0.1*3.14) / 4.14 = 0.378x
       //     1-hour   at B    reads/write : (2.00 + 0.1*(B-1)) / B
       //
-      // Those are equal at B = 6.84. So the 1-hour TTL only pays off ABOVE roughly SEVEN
-      // reads per write. At the 4.14 measured today it would cost about 48% MORE, not
-      // less. The bet is that 4.14 was suppressed by expiry and rises once the window no
-      // longer closes mid-batch; at 13 reads per write this is ~35% cheaper.
+      // Equal at B = 6.84. Console-measured amortisation is 4.14, where the 1-hour TTL
+      // costs about 48% MORE, not less. The argument for switching was that 4.14 is
+      // suppressed by entries expiring mid-batch, so it would rise once the window stopped
+      // closing. That may well be true. It is still a bet, and shipping a change that is
+      // measurably worse today in the hope the next batch rescues it is the wrong trade.
       //
-      // VERIFY, DO NOT ASSUME. Read cache_creation_input_tokens against
-      // cache_read_input_tokens on the next real batch. If reads per write come back
-      // BELOW 7, revert to the default by deleting the ttl field. That number, not the
-      // direction of the argument, is what settles it.
+      // TO REVISIT: measure cache_read_input_tokens / cache_creation_input_tokens on a real
+      // batch. ABOVE 7, add `ttl: '1h'` here and at write-opening.ts. At or below 7, leave
+      // it alone. That number decides it, not the direction of the argument.
       //
-      // One thing the TTL cannot fix: at the head of a batch several prospects start
-      // before the first entry commits, so they all write. That is a concurrency race,
-      // not an expiry problem, and it sets a floor on writes at any TTL. The lever for it
-      // is a single cheap pre-warm call before fanning out. See docs/BACKLOG.md.
+      // Separately, and NOT fixed by any TTL: at the head of a batch several prospects
+      // start before the first cache entry commits, so they all write rather than read.
+      // That is a concurrency race and it sets a floor on writes at any TTL. The lever for
+      // it is a single cheap pre-warm call before fanning out. See docs/BACKLOG.md.
       {
         model: SYNTHESIS_MODEL,
         max_tokens: 16000,
-        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral', ttl: '1h' } }],
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: userMessage }],
       } satisfies MessageCreateParamsNonStreaming,
       prospect.id,
