@@ -6071,3 +6071,41 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   RESEND_API_KEY and no database at all. Verified in session: setting it recovers 36 real
   tests, including genuine HMAC and parsing assertions, in 351ms. One line in
   vitest.config.ts (test.env). Not built on instruction.
+
+## Batch synthesis (2026-08-26, branch batch-synthesis)
+
+- [pre-c1] The older mon_* views are readable by anon, and a Postgres view runs with its
+  OWNER's privileges rather than the caller's unless security_invoker is set.
+
+  Found while adding MON-021 and MON-022. The two new views were deliberately locked down
+  (REVOKE from anon and authenticated by name, GRANT SELECT to service_role only) because
+  they read synthesis_batches and synthesis_batch_entries, which this build revoked from
+  anon two migrations earlier. An anon-readable view over a revoked table hands anon
+  AGGREGATED ACCESS to exactly the data the revoke was for, and it does so without any
+  grant appearing on the table itself, so the standard audit query
+
+      SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relkind = 'r'
+         AND has_table_privilege('anon', c.oid, 'SELECT') AND NOT c.relrowsecurity;
+
+  does NOT find it. That query filters on relkind = 'r', tables only. Views are 'v'.
+
+  Measured 2026-08-26: mon_019 and mon_020 both return true for
+  has_table_privilege('anon', ..., 'SELECT'). Not fixed here, deliberately. Every mon_*
+  view is a fresh SELECT over other tables and I have not traced what each one exposes or
+  who reads them, and changing grants on paths I have not traced is how a working
+  dashboard breaks quietly. It is also not urgent: the sweep and the operator dashboard
+  both read as service_role, so revoking is expected to be inert, but "expected to be" is
+  the phrase this project keeps getting caught by.
+
+  NEXT ACTION, in this order:
+    1. Widen the CLAUDE.md audit query to cover views as well as tables:
+       relkind IN ('r','v','m'). The current one cannot see this class at all.
+    2. Run it and list every anon-readable view.
+    3. For each, read what it selects from and confirm nothing client-facing reads it.
+    4. Revoke by name and grant service_role, one migration, with a live read-back in
+       both directions.
+
+  Related: the 2026-08-25 verification_calls incident, where RLS held and the grant
+  underneath it did not. This is the same lesson one level out: the grant you did not
+  think to look at is on a different object than the one you secured.
