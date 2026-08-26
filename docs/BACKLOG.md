@@ -205,6 +205,54 @@
   CLAUDE.md's standing rule is written about SECURITY DEFINER functions. The trap is wider:
   assuming the effect of a grant rather than reading it back is the mistake, on tables too.
 
+## First firing of the paid sweep failed closed on a missing key (2026-08-26)
+
+- [CLOSED 2026-08-26] The cron fired on schedule at 02:00:01 UTC and reported
+  `BOUNCER_API_KEY is not set, so no second-pass verification can run.`
+
+  The key was in .env.local for local development and had never been added to Vercel.
+  MYEMAILVERIFIER_API_KEY was there (Preview + Production); BOUNCER_API_KEY was absent from
+  every scope. Added to Production, which is what the cron needs, since it POSTs to
+  app.margenticos.com.
+
+  THE GUARD DID ITS JOB, and this is the part worth keeping. The route checks for the key
+  BEFORE selecting or locking any prospects. Without that check the sweep would have
+  selected 11 addresses, locked them, failed on every probe, and incremented
+  second_pass_attempt_count on each one. At MAX_SECOND_PASS_ATTEMPTS = 2, two such firings
+  an hour apart would have burned the entire backlog to its retry cap and made all 11
+  permanently unprocessable without a manual reset. Instead: one honest heartbeat, ok=false,
+  zero rows touched, zero ledger rows, zero spend.
+
+  Confirmed after the fix by the next firing.
+
+- [post-build] BOUNCER_API_KEY is in the Production scope only. `vercel env add ... preview`
+  refused non-interactively even with --yes and --force, asking for a per-branch choice.
+  Production is what the cron uses, so this is cosmetic, but a preview deployment cannot run
+  the second pass until it is added. Add it from the Vercel dashboard when convenient.
+
+## A monitor stuck at UNKNOWN raises nothing, ever (found 2026-08-26)
+
+- [monitor, NOT A REGRESSION, found while verifying MON-020] monitor-sweep computes
+  `const lastState = lastEvent?.state ?? 'UNKNOWN'` and records an event only when
+  `currentState !== lastState`. So a check whose view returns UNKNOWN and which has never
+  had an event records NOTHING, forever, because UNKNOWN equals the default.
+
+  For a scheduled job, a view returns UNKNOWN when `max(ran_at) IS NULL`, i.e. the job has
+  NEVER written a heartbeat. That is exactly the state of a cron that was registered in
+  monitor_checks but never actually scheduled, or scheduled against a route that 404s.
+
+  So the case "someone added the monitor and forgot to schedule the job" produces no event
+  and no alarm. It is visible on the operator dashboard as UNKNOWN if the dashboard renders
+  current view state, and invisible to anything driven by monitor_events.
+
+  This is NOT the MON-019 bug and was not introduced by it. MON-019 was worse: the view was
+  never queried at all. This one is a narrower gap: the view IS queried, and the silence is
+  correct by the state machine's own rules.
+
+  Fix if it ever matters: treat UNKNOWN-on-a-scheduled-check as PROBLEM after some grace
+  period, or seed an event when a check_code is first seen. Not done now because every
+  scheduled check currently has a live heartbeat, so nothing is sitting in this state.
+
 ## Monitor sweep — MON-019 was dark, and its own fix did not fix it (2026-08-25)
 
 - [CLOSED 2026-08-25] monitor-sweep held two parallel arrays, checkCodes (16) and viewNames
