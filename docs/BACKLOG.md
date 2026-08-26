@@ -69,6 +69,53 @@
   /clients/[id]/ route at all. It affects the intake and client-detail routes too, which
   were not otherwise in scope for this session.
 
+## MEASURED: prompt caching works inside the Batch API (2026-08-26)
+
+- [MEASURED, throwaway probe, $0.12, script deliberately NOT in the repo] The question that
+  gated batch synthesis: does the prompt cache actually hit when N calls sharing one system
+  prefix go through the Batch API? Two arms, 13 calls each, claude-sonnet-4-6, prefix
+  calibrated with count_tokens to ~6,800 tokens, DISTINCT prefixes per arm so neither could
+  read the other's entries.
+
+    ARM A, 5-minute default TTL     13/13 ok   4 wrote, 9 read   hit rate 69.2%
+                                    creation 27,284  read 61,389   reads/write 2.25
+                                    batch took 292s
+
+    ARM B, 1-hour TTL               13/13 ok   2 wrote, 11 read  hit rate 84.6%
+                                    creation 13,412  read 73,766   reads/write 5.50
+                                    batch took 169s
+
+  CONCLUSION 1: THE 20% DOWNSIDE IS REFUTED. That figure assumed a 0% cache hit rate inside
+  a batch. The measured floor is 69%. Caching and batching stack, as the SDK docs claim.
+  The ~31% saving estimate for batching synthesis therefore stands.
+
+  CONCLUSION 2: ARM A TOOK 292 SECONDS, essentially exactly the 5-minute TTL. Some of its
+  4 writes were expiry-driven rather than concurrency-driven, which is the mechanism that
+  was hypothesised and is now observed rather than argued.
+
+- [DECIDED 2026-08-26] THE 1-HOUR TTL IS RIGHT FOR BATCHED CALLS AND STILL WRONG FOR
+  TODAY'S. This is not a contradiction and the revert stays correct.
+
+  The break-even ratio does NOT move under batching: the 50% discount multiplies writes,
+  reads and uncached input equally, so it is a common factor and cancels. What moves is the
+  ratio each TTL actually ACHIEVES.
+
+    non-batched today : 5m achieves 4.14-4.50 reads/write. 1h must beat 6.84. It does not.
+    in-batch measured : 5m achieves only 2.25. 1h must beat 3.72. It measured 5.50.
+
+  So in-batch, 1h costs 0.4455x base against 5m's 0.6111x, and on the arms' actual measured
+  totals the whole input side was 14.9% cheaper ($0.0517 vs $0.0607).
+
+  cache_control is already a per-call-site decision, so this needs no global flag: keep the
+  default at the live synthesis call, set ttl '1h' on the batched one when it is built.
+
+- [monitor, UNVERIFIED FOR THE REAL WORKLOAD] The probe used max_tokens 16. Production
+  synthesis uses 16,000 and generates ~6,200 output tokens per call, so each request occupies
+  far more wall-clock. Whether that spreads a real batch out more (worse hit rate) or simply
+  overlaps more (same or better) is NOT determined by this probe. Re-read
+  cache_read_input_tokens on the first real batched run before treating 69-85% as the
+  production number.
+
 ## Web search reduced (kept) and cache TTL raised then reverted (2026-08-25 / 26)
 
 - [standing] DO NOT RUN A RESEARCH BATCH PURELY TO MEASURE EITHER OF THESE. Doug, 2026-08-26.
