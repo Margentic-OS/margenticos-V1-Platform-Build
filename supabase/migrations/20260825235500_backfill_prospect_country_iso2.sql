@@ -127,5 +127,17 @@ COMMIT;
 -- an operator action against a live external system and is deliberately left to a human.
 -- See docs/BACKLOG.md.
 --
--- Status: PENDING (apply via Supabase MCP apply_migration, then verify with a live read-back
---         and mark APPLIED here)
+-- Status: APPLIED (verified live 2026-08-25)
+--
+-- Live read-back immediately after apply, client-zero, suppressed = false:
+--
+--   country | n  | eligible | flagged country_excluded_de | uploaded
+--   --------+----+----------+-----------------------------+---------
+--   AU      |  1 |        1 |                           0 |        1
+--   CA      |  2 |        2 |                           0 |        1
+--   DE      |  3 |        0 |                           3 |        2
+--   US      | 22 |       10 |                           0 |       10
+--
+-- 28 of 28 now carry a country, against 0 of 28 before. All three German prospects are
+-- excluded, where previously only craid.de was. Send-eligible went 15 to 13: exactly the
+-- two flips predicted by the dry run, and no other row moved in either direction.

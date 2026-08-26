@@ -721,7 +721,9 @@ function printCostEstimate(totalProspects: number): void {
     console.log(`  Brave Search     : $0 (key not set — Anthropic native search only)`)
   }
   console.log(`  Anthropic Sonnet : ~$${anthropicLow.toFixed(2)}–$${anthropicHigh.toFixed(2)}`)
-  console.log(`  Anthropic search : ~$${webSearchLow.toFixed(2)}–$${webSearchHigh.toFixed(2)} (${totalProspects}×${WEB_SEARCH_QUERIES_PER_PROSPECT} queries, 1–${WEB_SEARCH_MAX_USES} searches each @ $${COST_WEB_SEARCH_PER_SEARCH})`)
+  // The label names BOTH halves on purpose. Reading "@ $0.01" against a range that also
+  // carries Haiku tokens is how the token half stayed invisible for a month.
+  console.log(`  Anthropic search : ~$${webSearchLow.toFixed(2)}–$${webSearchHigh.toFixed(2)} (${totalProspects}×${WEB_SEARCH_QUERIES_PER_PROSPECT} queries, 1–${WEB_SEARCH_MAX_USES} searches each @ $${COST_WEB_SEARCH_PER_SEARCH} + Haiku tokens)`)
   console.log(`  Apollo           : $0 (included in plan)`)
   console.log('  ─────────────────────────────────────────────────')
   console.log(`  Estimated total  : ~$${totalLow.toFixed(2)}–$${totalHigh.toFixed(2)}`)

@@ -23,6 +23,112 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## Country exclusion — FIXED, with two prospects already mailed (2026-08-25)
+
+- [CLOSED 2026-08-25, code + migration applied and verified live] The DE exclusion never
+  matched, and it is not the "country is unpopulated" gap the catch-all handover recorded.
+
+  WHAT IT ACTUALLY WAS. adapter-apollo-enrichment.ts wrote Apollo's country string
+  verbatim ("Germany"). send-eligibility-rules.ts matched EXCLUDED_COUNTRIES = {'DE'}.
+  "Germany" is not 'DE', so checkSendEligibility returned ELIGIBLE. Both sides were
+  individually correct and individually tested. send-eligibility-rules.test.ts asserts 'DE'
+  and 'US' and passed throughout. NOTHING TESTED THE SEAM between the producer and the
+  consumer, and the entire defect lived there.
+
+  The handover's line that "new prospects are unaffected, the adapter writes country on
+  every new enrichment" was wrong in the direction that mattered: it wrote a value the rule
+  could not read, so every future German prospect on a non-.de domain would have gone the
+  same way. Populating the column without fixing the format would have achieved nothing.
+
+  WORSE: A NAIVE BACKFILL WOULD HAVE MADE IT WORSE. checkSendEligibility short-circuits on
+  a populated non-excluded country, so writing "Germany" into the column would have flipped
+  craid.de from excluded to ELIGIBLE, switching off the one exclusion that worked.
+
+  THE FIX. src/lib/sourcing/country-code.ts, canonical ISO-2, handler owns the translation
+  per CLAUDE.md. Unmapped countries preserved verbatim and logged, never nulled. The rule
+  also matches aliases, deliberate redundancy because a geography exclusion is a legal
+  constraint and should not rest on one layer. 13 new tests, four on the seam.
+  Migration 20260825235500 backfilled 29 rows from raw_apollo at ZERO Apollo credits
+  (do not confuse with the declined apollo_enrichment_data backfill above).
+  Verified live: 28 of 28 carry a country, all 3 DE excluded, eligible went 15 to 13.
+
+- [commercial, DECIDED 2026-08-25, DO NOT RELITIGATE] Two German prospects were mailed and
+  their sequences are being LEFT RUNNING.
+
+    broeskamp.udo@broeskamp.com   Bröskamp Consulting GmbH, Frankfurt
+    jochen@knot-consulting.com    Knot Consulting GmbH, Waren
+
+  Both are now email_send_eligible = false with reason country_excluded_de in this
+  database. THAT DOES NOT STOP THE SENDING TOOL. They are outbound_upload_status =
+  'uploaded' and, as far as this repo can tell, in an active sequence.
+
+  Doug's call, 2026-08-25, consistent with the call he made on 2026-08-21 when these were
+  first seen: leave the two sequences running, change nothing outside the repo. Recorded
+  here as a deliberate decision rather than an oversight, because Germany is excluded for a
+  compliance reason and a future session finding two German prospects mid-sequence would
+  otherwise reasonably treat it as a live incident.
+
+  The addresses are recorded here so the decision is attached to the specific rows. If the
+  position changes, suppression is pushed at the sending tool, not in this database.
+
+## Web search — DELETE fetchWebSearchSource, DECIDED 2026-08-25, NOT YET DONE
+
+- [DECIDED 2026-08-25 by Doug, DO NOT RELITIGATE ON THE OLD NUMBERS] Remove
+  fetchWebSearchSource from the Promise.all in the research agent.
+
+  SEQUENCING, EXPLICIT: do this AFTER the Bouncer second-verifier build, not before, and
+  not in the session that decided it.
+
+  THE NUMBER THAT TRIGGERED IT, now measured rather than estimated. Anthropic console for
+  2026-08-25 filtered to that day alone, 13 prospects:
+
+    Total cost        $3.15
+    Token cost        $2.61   ($2.07 Sonnet + $0.55 Haiku)
+    Web search fee    $0.54
+
+  cost-constants.ts priced web search as a $0.01/search FEE WITH NO TOKENS. But each search
+  is a full Haiku request carrying the server-side web_search tool, and that request bills
+  tokens like any other. The $0.55 of Haiku is the missing half.
+
+  So the web search line is $0.54 + $0.55 = $1.09, which is 35% of Anthropic cost, not the
+  ~21% every previous argument about it assumed. Per prospect: $0.242 actual, against
+  $0.197 modelled.
+
+  THE ATTRIBUTION WAS VERIFIED, not assumed. Five things call Haiku. On 2026-08-25 the
+  database shows 0 FAQ extractions, 0 reply drafts, 0 reply-handling actions; the v1
+  research agent is imported by nothing outside test fixtures; composition's only Haiku
+  call is the bridge, disabled since 5047e24. Web search was the sole Haiku consumer.
+
+  AND THE PER-SEARCH PRICE NOW RECONCILES EXACTLY. This file previously flagged $0.01/search
+  as the one unverified number in the cost model. 54 searches billed $0.54. It is verified.
+
+  THE CASE FOR DELETION: 35% of cost, 0 of 11 clean shipped openings, its one composite
+  touch also cites LinkedIn, and the worst six-test pass rate of the five sources at 11.4%.
+
+  THE RISK DOUG IS KNOWINGLY ACCEPTING: n=11 is small, and the contaminated cohort implied
+  a 22.8% touch rate. Accepted because it is one line to restore and there is a 92.3%
+  write-rate baseline to detect a regression against.
+
+  WHAT WOULD REOPEN IT: a measured drop in write rate against that 92.3% baseline after
+  removal. Not the old cost figures, which are superseded.
+
+- [standing rule, set 2026-08-25] THE ANTHROPIC CONSOLE IS THE GROUND TRUTH for cost.
+  Any per-prospect figure in cost-constants.ts or anywhere else is checked against a console
+  day, filtered to that day alone, before it is quoted to anyone. Two separate order-of-
+  magnitude errors survived for weeks because published rates were multiplied by estimated
+  token counts and never reconciled: Sonnet was 8x low (it priced one call, not four), and
+  the web search token half was 10x low (it was folded into a blended range, where it could
+  not be checked against a console line). Do not fold a cost into a range if that makes it
+  uncheckable.
+
+- [FIXED 2026-08-25] scripts/estimate-batch-cost.ts had NO web search line at all.
+  prospect-research-agent-v2.ts got the line when the omission was found earlier the same
+  day; this CLI reads the same constants file and did not. It is the thing actually run
+  BEFORE deciding to spend, so it understated the decision number by the largest non-Sonnet
+  line. Two consumers of one constants file drifted because only one was updated. For 13
+  prospects it now reports $2.50-$3.80 against an actual $3.15; on the old constants it
+  would have said $0.20-$0.33.
+
 ## Apollo backfill — MEASURED AND DECLINED (2026-08-25)
 
 - [DECLINED 2026-08-25, DO NOT REVIVE ON THE SWEEP'S FRAMING] Backfilling

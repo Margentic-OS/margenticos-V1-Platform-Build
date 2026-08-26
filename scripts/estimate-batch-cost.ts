@@ -11,6 +11,8 @@ import {
   COST_APIFY,
   BRAVE_FREE_MONTHLY,
   BRAVE_PAID_PER_CALL,
+  COST_WEB_SEARCH_LOW,
+  COST_WEB_SEARCH_HIGH,
 } from '../src/lib/agents/research/cost-constants'
 
 function printEstimate(totalProspects: number): void {
@@ -23,11 +25,19 @@ function printEstimate(totalProspects: number): void {
   const anthropicLow  = totalProspects * COST_ANTHROPIC_LOW
   const anthropicHigh = totalProspects * COST_ANTHROPIC_HIGH
 
+  // NATIVE WEB SEARCH WAS MISSING FROM THIS FILE ENTIRELY until 2026-08-25.
+  // prospect-research-agent-v2.ts got the line when the omission was found; this CLI, which
+  // reads the same constants and is the thing actually run BEFORE deciding to spend, did
+  // not. It therefore understated every estimate by the largest non-Sonnet line, 35% of
+  // measured Anthropic cost. Two consumers of one constants file drifted because only one
+  // was updated.
+  const webSearchLow  = totalProspects * COST_WEB_SEARCH_LOW
+  const webSearchHigh = totalProspects * COST_WEB_SEARCH_HIGH
 
   // Haiku personalisation removed 2026-08-24: composition makes zero model calls while
   // BRIDGE_ENABLED is false. Including it inflated every estimate.
-  const totalLow  = apifyCost + anthropicLow
-  const totalHigh = apifyCost + braveCost + anthropicHigh
+  const totalLow  = apifyCost + anthropicLow + webSearchLow
+  const totalHigh = apifyCost + braveCost + anthropicHigh + webSearchHigh
 
   console.log('')
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
@@ -41,6 +51,7 @@ function printEstimate(totalProspects: number): void {
     console.log(`  Brave Search     : $0 (key not set — Anthropic native search only)`)
   }
   console.log(`  Anthropic Sonnet : ~$${anthropicLow.toFixed(2)}–$${anthropicHigh.toFixed(2)}`)
+  console.log(`  Anthropic search : ~$${webSearchLow.toFixed(2)}–$${webSearchHigh.toFixed(2)} (search fees + Haiku tokens)`)
   console.log(`  Apollo           : $0 (included in plan)`)
   console.log('  ─────────────────────────────────────────────────')
   console.log(`  Estimated total  : ~$${totalLow.toFixed(2)}–$${totalHigh.toFixed(2)}`)
