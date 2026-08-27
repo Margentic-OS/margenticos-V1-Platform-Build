@@ -38,6 +38,7 @@ function capturedCheckInStatuses(): string[] {
 
 // Captures every row the route writes, across all tables.
 const db = vi.hoisted(() => ({
+  sendingHealthTool: null as null | { tool_name: string; is_active: boolean },
   heartbeats: [] as Record<string, unknown>[],
   cursorUpserts: [] as Record<string, unknown>[],
   campaigns: [] as Array<{ id: string; organisation_id: string; external_id: string }>,
@@ -83,6 +84,32 @@ vi.mock('@supabase/supabase-js', () => ({
           },
         }
       }
+      // ── Sending health (MON-023) ────────────────────────────────────────
+      // The route reads the capability registry and, when a tool is registered, writes
+      // these two tables. Default here is NO tool registered, which makes the sync an
+      // explicit no-op and leaves these tests measuring what they were written to measure.
+      // db.sendingHealthTool flips it on for the test that asserts a sending-health
+      // failure drags ok to false.
+      if (table === 'integrations_registry') {
+        const builder: any = {
+          select: () => builder,
+          eq: () => builder,
+          maybeSingle: async () => ({ data: db.sendingHealthTool, error: null }),
+        }
+        return builder
+      }
+      if (table === 'sending_mailbox_daily_stats') {
+        const builder: any = {
+          select: () => builder,
+          gte: () => builder,
+          lte: () => Promise.resolve({ data: [], error: null }),
+          upsert: async () => ({ error: null }),
+        }
+        return builder
+      }
+      if (table === 'sending_health_snapshot') {
+        return { upsert: async () => ({ error: null }) }
+      }
       throw new Error(`fake supabase: unexpected table ${table}`)
     },
   }),
@@ -115,6 +142,7 @@ describe('POST /api/cron/instantly-poll — the ok rule', () => {
     db.campaigns = [
       { id: 'internal-a', organisation_id: 'org-a', external_id: 'instantly-campaign-a' },
     ]
+    db.sendingHealthTool = null
     process.env.CRON_SECRET = CRON_SECRET
     process.env.INSTANTLY_API_ACTIVE = 'true'
     process.env.INSTANTLY_API_KEY_OVERRIDE = 'test-key'
@@ -240,6 +268,73 @@ describe('POST /api/cron/instantly-poll — the ok rule', () => {
     expect(body.results.bounces.attempted).toBe(false)
     expect(body.results.bounces.polled).toBe(false)
     expect(body.results.bounces.errors).toBe(0)
+    expect(body.ok).toBe(true)
+  })
+  // ── Sending health is part of the ok rule ──────────────────────────────────
+  //
+  // Added 2026-08-27 with MON-023. The per-domain fetch rides along with this cron, and
+  // an error in it MUST drag ok to false. Campaign stats were once outside the ok rule
+  // for exactly this reason and a refresh that resolved nothing still reported green.
+
+  it('a sending-health failure makes the run not ok', async () => {
+    // A tool is registered but no handler is wired for it, so the capability lookup
+    // throws inside syncSendingHealth and is captured as an error rather than escaping.
+    db.sendingHealthTool = { tool_name: 'a-tool-with-no-handler', is_active: true }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).includes('/campaigns/analytics')) return jsonResponse([])
+        return jsonResponse({ items: [], pagination: {} })
+      })
+    )
+
+    const response = await POST(cronRequest())
+    const body = await response.json()
+
+    expect(body.sending_health.errors.length).toBeGreaterThan(0)
+    expect(body.ok).toBe(false)
+  })
+
+  it('does not abort the poll when sending health fails', async () => {
+    // Signals already written must survive a later failure in a different resource.
+    db.sendingHealthTool = { tool_name: 'a-tool-with-no-handler', is_active: true }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).includes('/campaigns/analytics')) return jsonResponse([])
+        return jsonResponse({ items: [], pagination: {} })
+      })
+    )
+
+    const response = await POST(cronRequest())
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.results.replies.polled).toBe(true)
+  })
+
+  it('leaves ok true when no tool is registered for sending health', async () => {
+    // Not-configured is not a failure. Otherwise the cron would be permanently red on any
+    // deployment that has not registered the capability.
+    //
+    // No campaigns registered, so nothing else in the run can fail either. A registered
+    // external_id with no analytics row IS a named failure, so leaving one here would
+    // make ok false for a reason that has nothing to do with sending health.
+    db.campaigns = []
+    db.sendingHealthTool = null
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).includes('/campaigns/analytics')) return jsonResponse([])
+        return jsonResponse({ items: [], pagination: {} })
+      })
+    )
+
+    const response = await POST(cronRequest())
+    const body = await response.json()
+
+    expect(body.sending_health.attempted).toBe(false)
+    expect(body.sending_health.errors).toEqual([])
     expect(body.ok).toBe(true)
   })
 })

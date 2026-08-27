@@ -54,4 +54,10 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   // nothing has broken yet.
   ['MON-021', 'mon_021'],
   ['MON-022', 'mon_022'],
+  // Per-domain sending health, added 2026-08-27. Unlike every monitor above it, mon_023
+  // does NOT compute its own thresholds: it reads a verdict written by the instantly-poll
+  // cron and checks that verdict is still fresh. The thresholds live in
+  // src/lib/sending-health/ so vitest can reach them without a database, which no view
+  // can offer. MON-016 already reads a stored verdict, so the sweep needs no special case.
+  ['MON-023', 'mon_023'],
 ] as const

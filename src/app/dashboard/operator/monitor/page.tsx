@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { blindSpots } from '@/lib/monitor/blind-spots'
+import { SendingDomainHealthPanel } from '@/components/dashboard/operator/SendingDomainHealthPanel'
 
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }): string {
   const now = new Date()
@@ -357,6 +358,12 @@ export default function MonitorPage() {
               </div>
             ))}
           </div>
+        </section>
+
+        {/* Sending domain health — the detail behind MON-023 */}
+        <section>
+          <h2 className="text-xl font-bold mb-4">Sending Domain Health</h2>
+          <SendingDomainHealthPanel />
         </section>
 
         {/* Tier 1 Checks */}

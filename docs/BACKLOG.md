@@ -23,6 +23,221 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## The commit gate is now executable (2026-08-27)
+
+- [DONE 2026-08-27] CLAUDE.md's "Hooks — three checks always active" was PROSE for the
+  whole life of the project. Nothing ran it. That is why a live secret sat in a public
+  repo for a day: the .env check and the vendor-name check were real rules that executed
+  only when someone remembered, and nobody had written a secret check at all.
+  Now wired in .claude/settings.json as real hooks:
+    PreToolUse  Bash        -> .claude/hooks/pre-commit-gate.sh   BLOCKS (exit 2)
+    PostToolUse Edit/Write  -> .claude/hooks/post-edit-tsc.sh     advisory
+  Four checks: secrets, .env, vendor names, plus post-edit tsc.
+  Self-test: bash .claude/hooks/__test__/gate-selftest.sh, 11 cases, 11 passing.
+  Proven live in the same session: the gate blocked a staged file containing a fake
+  64-hex string, and then blocked one of Claude's own compound commands because the
+  command string contained "git commit" while the probe was still staged.
+
+- [post-build, small but it wastes time every session] supabase/.temp/cli-latest IS
+  TRACKED and the Supabase CLI rewrites it on every invocation as a version check. So the
+  working tree goes dirty after any `supabase` or `npm run gen-types` command, with a
+  one-line diff that is never meaningful. The session-start ritual says a dirty tree means
+  STOP AND ASK whether another session is active, so this manufactures a false alarm at
+  the start of every session that follows a CLI command.
+  Fix: `git rm --cached supabase/.temp/cli-latest` and add `supabase/.temp/` to
+  .gitignore. Not done here to keep this session's commits to their stated scope.
+
+- [post-build] THE POST-EDIT TSC HOOK IS ADVISORY, NOT BLOCKING, and that is deliberate.
+  tsc is whole-project, so a legitimate mid-refactor state reports errors that are not
+  defects. Blocking there forces work into an unnatural order or gets the hook disabled,
+  and a disabled hook checks nothing. The commit gate is the hard stop. Revisit only if
+  type errors start reaching commits despite it.
+
+- [monitor] THE VENDOR-NAME CHECK EXEMPTS COMMENTS. Naming a vendor while EXPLAINING a
+  decision is good practice and the codebase does it deliberately throughout; a check that
+  forbade it would produce worse comments rather than better code. It also exempts
+  src/lib/integrations/**, src/lib/sourcing/handlers/**, tests, and .md/.sql/.json/.sh.
+  If a vendor name ever reaches production code through one of those exemptions, narrow
+  the exemption rather than deleting the check.
+
+## A DATABASE DUMP IS NOT SAFE TO COMMIT BY DEFAULT (2026-08-27, standing rule)
+
+- [standing rule, learned the hard way] POSTGRES STORES CREDENTIALS IN THE CATALOG, AND A
+  DUMP CAPTURES THEM. Two places in this project, both real, both already bitten or
+  narrowly avoided:
+
+    1. TRIGGERS. A Supabase Database Webhook is a trigger calling
+       supabase_functions.http_request(url, method, headers, body, timeout). THE HEADERS
+       ARGUMENT IS A LITERAL inside the trigger definition, so pg_get_triggerdef returns
+       the secret verbatim. This is what leaked SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET to
+       a public repo on 2026-08-26 in commit 04572fd.
+
+    2. pg_cron. Every scheduled job's command embeds CRON_SECRET as a literal bearer
+       token, because Supabase's postgres role cannot ALTER DATABASE SET so
+       current_setting() returns NULL. cron.job is excluded from the baseline entirely.
+
+  THE BITTER PART, worth recording because it is the actual lesson: the original baseline
+  EXCLUDED pg_cron on purpose and said so in its own header, naming the exact reason. The
+  author thought carefully about one credential-in-catalog vector and did not ask whether
+  there were siblings. Triggers are the sibling. Whenever a rule is written for one case,
+  ask what else is in that class.
+
+  RULE: any future database dump, baseline or schema capture must be scrubbed BEFORE it is
+  committed, and the scrub must live in the generator rather than in someone's memory.
+  scripts/regen-schema-baseline.ts is now committed and does both:
+    - scrub() replaces secret-shaped header VALUES before the file is assembled, so no
+      unscrubbed copy ever touches disk;
+    - assertNoSecrets() scans the finished file for 32/64-char hex, JWTs, sk-/re_ keys and
+      bearer literals and REFUSES TO WRITE if any survive.
+  Regenerated 2026-08-27: 64-hex matches = 0, old value = 0, pg_cron still excluded.
+
+- [DONE 2026-08-27] The leaked webhook secret was rotated by Doug in Supabase and Vercel,
+  production redeployed, endpoint verified 200 where it previously returned 403. The
+  exposed value is now worthless. Git history on the public repo still contains it and is
+  deliberately NOT rewritten, because rotation makes the old value inert and history
+  rewriting on a public repo has its own costs.
+
+## users-pending-review-notify reports success it has not earned (2026-08-27)
+
+- [pre-c2] THE ROUTE RETURNS {"status":"ok"} WHETHER OR NOT RESEND DELIVERED.
+  Verified by Doug 2026-08-27: the endpoint returned 200 and no email arrived.
+
+  This is the validate-one-thing-return-another shape already named in CLAUDE.md, the same
+  family as the generation-time opt-out footer that was validated and then discarded by a
+  return-value bug. The route does the send and then reports on having reached the end of
+  the function, not on what the send returned.
+
+  FIX (not now): the route should return ok ONLY when Resend accepts the message, and
+  should surface the Resend error otherwise. A 200 that means "I ran" rather than "it
+  worked" is worse than a 500, because it actively suppresses the retry and the alert.
+
+  PRIORITY pre-c2 rather than sooner: the path only fires when a SECOND user from an
+  existing client organisation accepts an invite, which cannot happen before there are
+  client organisations with multiple users.
+
+- [OPEN QUESTION, attached to the above, and higher stakes than its parent]
+  ARE docs_ready AND version_pending EMAILS ACTUALLY DELIVERING? They share the same
+  Resend setup as the notification that silently failed above, and unlike it they are
+  CLIENT-FACING. If the same failure mode applies, clients have been told nothing while
+  the system recorded success.
+  Next action: check Resend's delivery log for the last docs_ready and version_pending
+  sends against what the application recorded, and confirm whether they use the same
+  send path (src/lib/email/send.ts) and therefore the same return-value handling.
+  Note the existing related entry: transactional email junks on Outlook (pre-c0, HIGH) is
+  a DIFFERENT problem (placement, not delivery) and both may be live at once.
+
+## LIVE SECRET EXPOSED IN A PUBLIC REPO (found 2026-08-27, ROTATED 2026-08-27)
+
+- [RESOLVED 2026-08-27] THE SUPABASE PENDING-REVIEW WEBHOOK SECRET WAS PUBLIC ON GITHUB.
+  Rotated by Doug in Supabase and Vercel, production redeployed, endpoint verified 200
+  where it previously returned 403. Baseline regenerated with the value scrubbed. The
+  history below is kept because the failure mode is the point.
+
+  Found by the pre-push secret scan on 2026-08-27, before pushing branch sourcing-filter.
+  The push was STOPPED and has not happened.
+
+  WHAT: the value of SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET, embedded as a literal in a
+  CREATE TRIGGER statement.
+  WHERE: supabase/baseline/schema.sql, in the `users-pending-review-notify` trigger
+  definition (the x-webhook-secret header of the supabase_functions.http_request call).
+  INTRODUCED BY: commit 04572fd, "fix: recover 36 invisible tests, and capture the schema
+  baseline the repo cannot rebuild". The baseline was produced by dumping the live schema,
+  and a Supabase Database Webhook stores its headers, secret included, INSIDE the trigger
+  definition. So the dump captured a credential and nobody looked.
+  ALREADY PUBLIC: the commit is on origin/main, origin/batch-parity-harness and
+  origin/test-env-and-baseline. The repo is PUBLIC
+  (github.com/Margentic-OS/margenticos-V1-Platform-Build). Exposure is not hypothetical
+  and is not created by any future push; it is already done.
+  STILL LIVE: verified against the production database on 2026-08-27. The trigger still
+  carries this exact value, so the leaked secret is the working one.
+
+  BLAST RADIUS, stated accurately rather than alarmingly. The secret authenticates POSTs to
+  /api/webhooks/users-pending-review-notify. Holding it lets an unauthenticated caller
+  forge "a second user tried to sign up for this organisation" events, which causes the
+  operator to be emailed a fabricated notification. It does NOT grant database access, does
+  not read or write client data, and the route does not act on the payload beyond an
+  organisation-name lookup and an email. So: a spoofable operator notification and an email
+  amplification vector, not a data breach. Worth fixing promptly, not a fire drill.
+
+  REMEDIATION, all steps needed, none done yet. Requires Doug: it changes a credential and
+  touches Vercel and Supabase config.
+    1. Generate a new secret:  openssl rand -hex 32
+    2. Supabase Dashboard -> Database -> Webhooks -> users-pending-review-notify ->
+       update the x-webhook-secret header to the new value.
+    3. Vercel -> project env vars -> update SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET in every
+       scope that has it, then redeploy so the route validates against the new value.
+    4. Regenerate supabase/baseline/schema.sql AND scrub the header value before committing,
+       or exclude trigger definitions from the baseline entirely. Otherwise the next dump
+       re-leaks the NEW secret and this repeats.
+    5. Decide about history. The old value stays in git history on a public repo forever
+       unless the history is rewritten. Rotating (steps 1 to 3) makes the exposed value
+       worthless, which is the cheaper and usually sufficient answer.
+
+  THE GENERALISATION, which is the part worth carrying: A SCHEMA DUMP IS NOT SAFE TO COMMIT
+  BY DEFAULT. Anything the database stores that contains a credential comes out in the dump.
+  Supabase Database Webhooks store their headers in the trigger definition. pg_cron commands
+  store their bearer tokens in cron.job.command, which this build already hardcodes for
+  documented reasons, so a dump that ever includes cron.job would leak CRON_SECRET the same
+  way. Any future schema baseline must be scanned before it is committed, not after.
+
+  NEXT ACTION: add the secret scan to the pre-commit hooks in CLAUDE.md alongside the .env
+  check and the tool-name check. A grep for 64-hex and JWT shapes in the staged diff would
+  have caught this at the commit that introduced it.
+
+## Per-domain sending health / MON-023 (2026-08-27, branch sourcing-filter)
+
+- [pre-ramp, HIGH] MON-023's SECOND TRIGGER IS DORMANT AND WILL STAY DORMANT until the
+  campaign daily limit rises. The rate rule needs 50 sends per domain per 7 days. The
+  campaign's daily_limit is 20 across five domains, which is ~28 per domain per week, so
+  the floor is never cleared and only the 3-bounce absolute rule is live. At 28 sends the
+  absolute rule is an effective threshold of ~10.7%, not 2%.
+  Confirmed with Doug 2026-08-27: the floor is calibrated for ramp volume (~450 per domain
+  per week) and raising the campaign daily limit is a separate pre-ramp change already on
+  the board. Recorded here because the dormancy is invisible in the code and someone will
+  otherwise read "2% rule" and assume it is enforcing.
+  Next action: when the daily limit rises, confirm MON-023 moves off insufficient_sends.
+
+- [next-build, HIGH] A NON-PRODUCTION DATABASE. This is now blocking real coverage, not
+  just tidiness. vitest.config.ts withholds Supabase credentials because the only database
+  is production, so 38 tests are blocked INCLUDING mon_006_per_row.test.ts, the only
+  existing test of a monitor view's threshold logic, which has never executed a single
+  assertion. That is why MON-023's thresholds were put in TypeScript rather than in the
+  view (agreed with Doug 2026-08-27, and the reasoning is in the migration header and in
+  docs/sending-domain-health.md). Options were costed 2026-08-26: Supabase branch at
+  $0.01344/hour, a second project at $0/month, local Docker.
+  Doug 2026-08-27: "not cancelled, it is the next build after this one."
+
+- [post-build] THE SQL/TS DUPLICATION THAT REMAINS. The 60-minute staleness interval and
+  the four-state to three-state mapping exist in both src/lib/sending-health/ and the
+  mon_023 view, because freshness must be evaluated at READ time and a view cannot call
+  TypeScript. Guarded by sql-parity.test.ts, which reads the migration and fails if they
+  disagree, and the guard is itself mutation-tested (P1, P2, P3 in
+  scripts/mutation-test-sending-health.sh). If a non-production database ever arrives, this
+  duplication can be removed by moving the thresholds back into SQL.
+
+- [post-build] src/types/database.ts WAS BADLY STALE and is now regenerated. It was missing
+  job_queue, verification_calls, synthesis_batches, system_flags and all the queue
+  functions entirely, so code has been running against tables the type file did not know
+  about. Purely additive apart from a PostgrestVersion string. Worth a periodic
+  `npm run gen-types` rather than only regenerating when a new table is added.
+
+- [post-build] MON-023 READS A STORED VERDICT, unlike every other monitor, so it is the
+  first one whose freshness is a real concern. If more monitors follow this shape, the
+  staleness guard is worth extracting rather than copying.
+
+- [monitor] BOUNCE TYPE IS STILL INVISIBLE. The source reports one bounce count and does
+  not split hard from soft from spam-trap, so a full mailbox and a dead domain look
+  identical to MON-023. Recorded in blind-spots.ts where the operator can see it. Revisit
+  if the first real bounces turn out to need different responses.
+
+- [post-build] THE UNPUSHED COMMIT. 9977bf8 "feat: synthesis_batches, the two tables the
+  batch wait has to survive" predates the merge and is preserved in history, not discarded
+  and not pushed, per Doug's instruction 2026-08-27. main already carries the same
+  migration file in fuller form via a different commit, so merging this branch back will
+  bring 9977bf8 along as history noise but no content conflict. The one file that did
+  conflict (20260826120000_synthesis_batches.sql) was resolved to main's version, a
+  comment-only difference.
+
 ## Client-facing UX batch (2026-08-25, branch client-facing-ux)
 
 - [DONE 2026-08-25] Operator replies view. The route

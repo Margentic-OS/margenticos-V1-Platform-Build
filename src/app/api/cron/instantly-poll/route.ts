@@ -14,6 +14,12 @@
 // Uses service_role — acts as a system process, not a user. Required to write
 // to signals and read integration_credentials without RLS interference.
 //
+// It also refreshes campaign aggregates and, since 2026-08-27, PER-DOMAIN SENDING HEALTH:
+// daily sends and bounces per sending mailbox, rolled up per sending domain and written
+// as the verdict MON-023 reads. That rides here rather than in its own cron because the
+// 15-minute cadence is what MON-023's 60-minute freshness limit is calibrated against.
+// It is dispatched through the can_report_sending_health capability, not a named tool.
+//
 // Failures are isolated per event type: a bounce polling failure does not abort
 // reply polling. Each type reports independently in the response.
 
@@ -31,6 +37,7 @@ import {
 import { fetchCampaignStats, INSTANTLY_ABNORMAL_STOP_STATUSES } from '@/lib/integrations/handlers/instantly/campaign-analytics'
 import { fetchCampaignSendingStatus, SENDING_STATES_NEEDING_ATTENTION } from '@/lib/integrations/handlers/instantly/campaign-sending-status'
 import { getInstantlyApiKey, getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
+import { syncSendingHealth } from '@/lib/sending-health/sync'
 import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
 
 const MONITOR_SLUG = 'instantly-poll'
@@ -333,11 +340,32 @@ export async function POST(request: NextRequest) {
     if (firstCampaignStatsError === null) firstCampaignStatsError = `campaign stats threw: ${msg}`
   }
 
+  // ── Per-domain sending health ──────────────────────────────────────────────
+  //
+  // Rides along with this cron rather than getting its own, because everything it needs
+  // is already resolved here and the 15-minute cadence is what MON-023's 60-minute
+  // freshness limit is calibrated against: four consecutive misses before the monitor
+  // stops trusting the verdict.
+  //
+  // Isolated like every other resource in this route. syncSendingHealth never throws, so
+  // a sending-health failure cannot abort a poll that has already written signals, but
+  // its errors DO count toward totalErrors so a silent failure cannot report ok: true.
+  //
+  // Tool-agnostic: this calls the capability, not a vendor. See sync.ts.
+  const sendingHealthResult = await syncSendingHealth(supabase)
+  if (sendingHealthResult.errors.length > 0) {
+    logger.error('Sending health: sync reported errors', { errors: sendingHealthResult.errors })
+    if (firstCampaignStatsError === null) {
+      firstCampaignStatsError = `sending health: ${sendingHealthResult.errors[0]}`
+    }
+  }
+
   // ── Summary log ────────────────────────────────────────────────────────────
   const totalErrors =
     results.replies.errors +
     results.bounces.errors +
     results.unsubscribes.errors +
+    sendingHealthResult.errors.length +
     // Campaign stats failures now count. They did not before, so a refresh that could not
     // resolve a single campaign still returned ok: true and stamped the Sentry check-in
     // 'ok'. That is the same silence the poller instrumentation removed, left behind in
@@ -380,6 +408,7 @@ export async function POST(request: NextRequest) {
     resources_failed_to_poll: resourcesThatFailedToPoll,
     ...results,
     campaign_stats: campaignStatsResult,
+    sending_health: sendingHealthResult,
   })
 
   // ── Record heartbeat ───────────────────────────────────────────────────────────
@@ -420,5 +449,6 @@ export async function POST(request: NextRequest) {
     ok: runOk,
     results,
     campaign_stats: campaignStatsResult,
+    sending_health: sendingHealthResult,
   })
 }
