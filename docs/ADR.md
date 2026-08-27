@@ -2141,6 +2141,93 @@ Rejected alternatives.
   'disconnected'. Every integration in this repo bypasses it identically. Closing that gap is
   a deliberate repo-wide change, not a rider on this build.
 
+## ADR-035: A four-state monitor collapsed onto the sweep's three, and why `insufficient_sends` reads OK
+
+**Date:** 2026-08-27
+**Status:** Accepted. Proposed during the MON-023 build, questioned by Doug against live
+output, the alternative was costed, and Doug confirmed "keep the mapping as built."
+
+### The thing that looks like a bug and is not
+
+MON-023 reports **`state = OK`** while its verdict says **`insufficient_sends`**. On the
+operator dashboard the same moment renders as five domains all reading "not enough sends".
+
+That looks wrong at a glance, and the first instinct on reading it is to change it. This
+ADR exists so that instinct meets an argument instead of an empty comment.
+
+### The constraint
+
+`monitor_events.state` accepts exactly three values: `OK`, `PROBLEM`, `UNKNOWN`. MON-023
+has four answers, because two would lie:
+
+    healthy             judged by both rules, clean
+    insufficient_sends  nothing breached, but no domain cleared the 50-send floor, so the
+                        rate rule judged NOTHING
+    stale               the verdict is too old to trust, whatever it says
+    failing             a domain breached
+
+Four onto three needs a collapse. The only real question is where `insufficient_sends`
+goes.
+
+### The mapping, and the cost of each alternative
+
+    failing            -> PROBLEM
+    stale              -> PROBLEM
+    no_data            -> UNKNOWN
+    insufficient_sends -> OK          <- the decision
+    healthy            -> OK
+
+**`insufficient_sends -> UNKNOWN` is the intuitive answer and it makes the check DARK.**
+The sweep writes an event only on a state CHANGE, and it treats "no prior event" as
+`UNKNOWN`. A check whose natural resting state is `UNKNOWN` therefore never writes its
+first row: `currentState === lastState`, so `shouldRecord` is false, forever. It renders
+identically to MON-008 — registered, silent, and impossible to distinguish from a monitor
+nothing queries. That is the exact defect the MON-019 incident was about, and the pair
+registry was rebuilt to prevent. Choosing it here would reintroduce it by the front door.
+
+**`insufficient_sends -> PROBLEM` is permanently red.** Trigger 2 cannot fire until
+sending throughput rises, so MON-023 would alarm continuously for weeks about a condition
+nobody can act on. A monitor that is always red is a monitor that gets ignored, and it
+would drag the whole sweep's `ok` down with it.
+
+**`OK` is honest, because the check IS passing.** The absolute rule (3 bounces on one
+domain, any rate) runs at every volume, ran, and found nothing. Half the check genuinely
+judged and genuinely passed. What did not run is the rate rule, and that fact is not
+swallowed: it is stated in words in the `detail` line the operator reads, carried in
+`sending_health_snapshot.overall_state`, and rendered per domain on the dashboard in grey
+with the words "not enough sends", never in green.
+
+### The distinction this preserves
+
+**The traffic light answers "should you act". The detail answers "what is known".** They
+are different questions and collapsing them is what forces the four-into-three problem in
+the first place. Nothing that matters is lost, because nothing about
+`insufficient_sends` requires action.
+
+### Consequences
+
+- Anything reading `monitor_events.state` alone cannot tell `healthy` from
+  `insufficient_sends`. That is accepted. `sending_health_snapshot.overall_state` is the
+  field to read when the difference matters, and the operator panel reads it.
+- Any FUTURE monitor with more than three states inherits this problem. The rule to carry:
+  a state whose resting value would be `UNKNOWN` must not be mapped there, or the check is
+  born dark. Fixing that properly means changing the shared sweep to write an event on
+  first sight regardless of state, which touches all 21 monitors and was not in scope.
+- The mapping is locked by tests (`monitor-state.test.ts`) and covered by the mutation
+  suite (`scripts/mutation-test-sending-health.sh`, cases S3 and S4), so changing it
+  breaks something loudly rather than quietly.
+
+### Verified live
+
+2026-08-27, first production sweeps after the merge:
+
+    16:00:03  PROBLEM  verdict 113 minutes old, past the 60-minute limit   (staleness guard)
+    16:15:05  OK       "No domain reached 50 sends ... so the rate rule judged nothing.
+                        The 3-bounce rule was applied and found nothing."
+
+Both the guard and the mapping behaved as designed on real data.
+
+
 ## ADR-030 — Client reply view: org-scoping RLS-backed, intent-filtering chokepoint-enforced
 <!-- Renumbered from ADR-026 on 2026-08-24. Two entries carried that number: this one and
      "Per-lead custom variables for sequence content delivery" earlier in this file. The

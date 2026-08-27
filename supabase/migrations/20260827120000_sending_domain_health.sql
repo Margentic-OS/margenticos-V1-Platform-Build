@@ -149,7 +149,8 @@ COMMENT ON TABLE public.sending_health_snapshot IS
 --   insufficient_sends -> OK        the absolute rule ran and passed
 --   healthy            -> OK
 --
--- insufficient_sends maps to OK on purpose. Mapping it to UNKNOWN would be more literal
+-- insufficient_sends maps to OK on purpose. See ADR-035; ratified by Doug 2026-08-27
+-- against live output. Mapping it to UNKNOWN would be more literal
 -- and would make this check DARK: the sweep writes an event only on a state CHANGE and
 -- treats "no prior event" as UNKNOWN, so a check sitting at UNKNOWN from birth never
 -- writes a row and renders exactly like MON-008 — registered, silent, and impossible to

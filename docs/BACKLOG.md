@@ -186,6 +186,19 @@
 
 ## Per-domain sending health / MON-023 (2026-08-27, branch sourcing-filter)
 
+- [RATIFIED 2026-08-27, do not re-litigate] MON-023 REPORTS state = OK WHILE ITS VERDICT
+  SAYS insufficient_sends. This looks like a bug and is not. Doug questioned it against
+  live production output, the UNKNOWN alternative was costed, and the decision was "keep
+  the mapping as built". Reasoning is in ADR-035.
+  Short version: monitor_events.state has three values and MON-023 has four answers.
+  Mapping insufficient_sends to UNKNOWN makes the check DARK from birth, because the sweep
+  writes only on a state CHANGE and treats "no prior event" as UNKNOWN, so it would render
+  exactly like MON-008. Mapping it to PROBLEM makes it permanently red until throughput
+  rises. OK is honest, because the absolute 3-bounce rule DID run and DID pass; the half
+  that did not run is stated in the detail line and rendered per domain in grey on the
+  dashboard, never green.
+  Locked by monitor-state.test.ts and mutation cases S3/S4, so a change breaks loudly.
+
 - [pre-ramp, HIGH] MON-023's SECOND TRIGGER IS DORMANT AND WILL STAY DORMANT until the
   campaign daily limit rises. The rate rule needs 50 sends per domain per 7 days. The
   campaign's daily_limit is 20 across five domains, which is ~28 per domain per week, so
