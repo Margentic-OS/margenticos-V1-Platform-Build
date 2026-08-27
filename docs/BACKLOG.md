@@ -23,9 +23,78 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
-## LIVE SECRET EXPOSED IN A PUBLIC REPO (found 2026-08-27, NOT YET REMEDIATED)
+## A DATABASE DUMP IS NOT SAFE TO COMMIT BY DEFAULT (2026-08-27, standing rule)
 
-- [c0-BLOCKER, URGENT] THE SUPABASE PENDING-REVIEW WEBHOOK SECRET IS PUBLIC ON GITHUB.
+- [standing rule, learned the hard way] POSTGRES STORES CREDENTIALS IN THE CATALOG, AND A
+  DUMP CAPTURES THEM. Two places in this project, both real, both already bitten or
+  narrowly avoided:
+
+    1. TRIGGERS. A Supabase Database Webhook is a trigger calling
+       supabase_functions.http_request(url, method, headers, body, timeout). THE HEADERS
+       ARGUMENT IS A LITERAL inside the trigger definition, so pg_get_triggerdef returns
+       the secret verbatim. This is what leaked SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET to
+       a public repo on 2026-08-26 in commit 04572fd.
+
+    2. pg_cron. Every scheduled job's command embeds CRON_SECRET as a literal bearer
+       token, because Supabase's postgres role cannot ALTER DATABASE SET so
+       current_setting() returns NULL. cron.job is excluded from the baseline entirely.
+
+  THE BITTER PART, worth recording because it is the actual lesson: the original baseline
+  EXCLUDED pg_cron on purpose and said so in its own header, naming the exact reason. The
+  author thought carefully about one credential-in-catalog vector and did not ask whether
+  there were siblings. Triggers are the sibling. Whenever a rule is written for one case,
+  ask what else is in that class.
+
+  RULE: any future database dump, baseline or schema capture must be scrubbed BEFORE it is
+  committed, and the scrub must live in the generator rather than in someone's memory.
+  scripts/regen-schema-baseline.ts is now committed and does both:
+    - scrub() replaces secret-shaped header VALUES before the file is assembled, so no
+      unscrubbed copy ever touches disk;
+    - assertNoSecrets() scans the finished file for 32/64-char hex, JWTs, sk-/re_ keys and
+      bearer literals and REFUSES TO WRITE if any survive.
+  Regenerated 2026-08-27: 64-hex matches = 0, old value = 0, pg_cron still excluded.
+
+- [DONE 2026-08-27] The leaked webhook secret was rotated by Doug in Supabase and Vercel,
+  production redeployed, endpoint verified 200 where it previously returned 403. The
+  exposed value is now worthless. Git history on the public repo still contains it and is
+  deliberately NOT rewritten, because rotation makes the old value inert and history
+  rewriting on a public repo has its own costs.
+
+## users-pending-review-notify reports success it has not earned (2026-08-27)
+
+- [pre-c2] THE ROUTE RETURNS {"status":"ok"} WHETHER OR NOT RESEND DELIVERED.
+  Verified by Doug 2026-08-27: the endpoint returned 200 and no email arrived.
+
+  This is the validate-one-thing-return-another shape already named in CLAUDE.md, the same
+  family as the generation-time opt-out footer that was validated and then discarded by a
+  return-value bug. The route does the send and then reports on having reached the end of
+  the function, not on what the send returned.
+
+  FIX (not now): the route should return ok ONLY when Resend accepts the message, and
+  should surface the Resend error otherwise. A 200 that means "I ran" rather than "it
+  worked" is worse than a 500, because it actively suppresses the retry and the alert.
+
+  PRIORITY pre-c2 rather than sooner: the path only fires when a SECOND user from an
+  existing client organisation accepts an invite, which cannot happen before there are
+  client organisations with multiple users.
+
+- [OPEN QUESTION, attached to the above, and higher stakes than its parent]
+  ARE docs_ready AND version_pending EMAILS ACTUALLY DELIVERING? They share the same
+  Resend setup as the notification that silently failed above, and unlike it they are
+  CLIENT-FACING. If the same failure mode applies, clients have been told nothing while
+  the system recorded success.
+  Next action: check Resend's delivery log for the last docs_ready and version_pending
+  sends against what the application recorded, and confirm whether they use the same
+  send path (src/lib/email/send.ts) and therefore the same return-value handling.
+  Note the existing related entry: transactional email junks on Outlook (pre-c0, HIGH) is
+  a DIFFERENT problem (placement, not delivery) and both may be live at once.
+
+## LIVE SECRET EXPOSED IN A PUBLIC REPO (found 2026-08-27, ROTATED 2026-08-27)
+
+- [RESOLVED 2026-08-27] THE SUPABASE PENDING-REVIEW WEBHOOK SECRET WAS PUBLIC ON GITHUB.
+  Rotated by Doug in Supabase and Vercel, production redeployed, endpoint verified 200
+  where it previously returned 403. Baseline regenerated with the value scrubbed. The
+  history below is kept because the failure mode is the point.
 
   Found by the pre-push secret scan on 2026-08-27, before pushing branch sourcing-filter.
   The push was STOPPED and has not happened.
