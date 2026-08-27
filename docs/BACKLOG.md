@@ -38,6 +38,15 @@
   64-hex string, and then blocked one of Claude's own compound commands because the
   command string contained "git commit" while the probe was still staged.
 
+- [post-build, small but it wastes time every session] supabase/.temp/cli-latest IS
+  TRACKED and the Supabase CLI rewrites it on every invocation as a version check. So the
+  working tree goes dirty after any `supabase` or `npm run gen-types` command, with a
+  one-line diff that is never meaningful. The session-start ritual says a dirty tree means
+  STOP AND ASK whether another session is active, so this manufactures a false alarm at
+  the start of every session that follows a CLI command.
+  Fix: `git rm --cached supabase/.temp/cli-latest` and add `supabase/.temp/` to
+  .gitignore. Not done here to keep this session's commits to their stated scope.
+
 - [post-build] THE POST-EDIT TSC HOOK IS ADVISORY, NOT BLOCKING, and that is deliberate.
   tsc is whole-project, so a legitimate mid-refactor state reports errors that are not
   defects. Blocking there forces work into an unnatural order or gets the hook disabled,
