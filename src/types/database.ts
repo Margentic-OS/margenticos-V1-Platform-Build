@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -819,6 +819,98 @@ export type Database = {
         }
         Relationships: []
       }
+      job_queue: {
+        Row: {
+          attempts: number
+          claimed_by: string | null
+          created_at: string
+          enqueued_by: string | null
+          id: string
+          job_type: string
+          last_error: string | null
+          last_error_class: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          organisation_id: string
+          prospect_id: string
+          result_summary: string | null
+          run_after: string
+          spend_detail: Json | null
+          spend_recorded_at: string | null
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_by?: string | null
+          created_at?: string
+          enqueued_by?: string | null
+          id?: string
+          job_type: string
+          last_error?: string | null
+          last_error_class?: string | null
+          lease_expires_at?: string | null
+          max_attempts?: number
+          organisation_id: string
+          prospect_id: string
+          result_summary?: string | null
+          run_after?: string
+          spend_detail?: Json | null
+          spend_recorded_at?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          claimed_by?: string | null
+          created_at?: string
+          enqueued_by?: string | null
+          id?: string
+          job_type?: string
+          last_error?: string | null
+          last_error_class?: string | null
+          lease_expires_at?: string | null
+          max_attempts?: number
+          organisation_id?: string
+          prospect_id?: string
+          result_summary?: string | null
+          run_after?: string
+          spend_detail?: Json | null
+          spend_recorded_at?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_queue_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_queue_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_queue_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "client_prospects_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_queue_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "prospects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       meetings: {
         Row: {
           billed_at: string | null
@@ -1372,6 +1464,7 @@ export type Database = {
       }
       prospects: {
         Row: {
+          apollo_enrichment_data: Json | null
           campaign_id: string | null
           classified_at: string | null
           client_review_auto_approved_at: string | null
@@ -1421,6 +1514,15 @@ export type Database = {
           research_ran_at: string | null
           research_source: string | null
           role: string | null
+          second_pass_accept_all: boolean | null
+          second_pass_attempt_count: number
+          second_pass_error: string | null
+          second_pass_locked_at: string | null
+          second_pass_provider: string | null
+          second_pass_reason: string | null
+          second_pass_score: number | null
+          second_pass_status: string | null
+          second_pass_verified_at: string | null
           segment_id: string | null
           signal_observation: string | null
           signal_relevance: string
@@ -1442,6 +1544,7 @@ export type Database = {
           website_url: string | null
         }
         Insert: {
+          apollo_enrichment_data?: Json | null
           campaign_id?: string | null
           classified_at?: string | null
           client_review_auto_approved_at?: string | null
@@ -1491,6 +1594,15 @@ export type Database = {
           research_ran_at?: string | null
           research_source?: string | null
           role?: string | null
+          second_pass_accept_all?: boolean | null
+          second_pass_attempt_count?: number
+          second_pass_error?: string | null
+          second_pass_locked_at?: string | null
+          second_pass_provider?: string | null
+          second_pass_reason?: string | null
+          second_pass_score?: number | null
+          second_pass_status?: string | null
+          second_pass_verified_at?: string | null
           segment_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string
@@ -1512,6 +1624,7 @@ export type Database = {
           website_url?: string | null
         }
         Update: {
+          apollo_enrichment_data?: Json | null
           campaign_id?: string | null
           classified_at?: string | null
           client_review_auto_approved_at?: string | null
@@ -1561,6 +1674,15 @@ export type Database = {
           research_ran_at?: string | null
           research_source?: string | null
           role?: string | null
+          second_pass_accept_all?: boolean | null
+          second_pass_attempt_count?: number
+          second_pass_error?: string | null
+          second_pass_locked_at?: string | null
+          second_pass_provider?: string | null
+          second_pass_reason?: string | null
+          second_pass_score?: number | null
+          second_pass_status?: string | null
+          second_pass_verified_at?: string | null
           segment_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string
@@ -1615,6 +1737,39 @@ export type Database = {
             columns: ["segment_id"]
             isOneToOne: false
             referencedRelation: "segments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      queue_rotation: {
+        Row: {
+          job_type: string
+          last_organisation_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          job_type: string
+          last_organisation_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          job_type?: string
+          last_organisation_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "queue_rotation_last_organisation_id_fkey"
+            columns: ["last_organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "queue_rotation_last_organisation_id_fkey"
+            columns: ["last_organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
             referencedColumns: ["id"]
           },
         ]
@@ -1879,6 +2034,66 @@ export type Database = {
           },
         ]
       }
+      sending_health_snapshot: {
+        Row: {
+          computed_at: string
+          detail: string
+          domains: Json
+          id: number
+          overall_state: string
+          window_end: string
+          window_start: string
+        }
+        Insert: {
+          computed_at?: string
+          detail: string
+          domains?: Json
+          id?: number
+          overall_state: string
+          window_end: string
+          window_start: string
+        }
+        Update: {
+          computed_at?: string
+          detail?: string
+          domains?: Json
+          id?: number
+          overall_state?: string
+          window_end?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
+      sending_mailbox_daily_stats: {
+        Row: {
+          bounces: number
+          fetched_at: string
+          id: string
+          mailbox: string
+          sending_domain: string
+          sends: number
+          stat_date: string
+        }
+        Insert: {
+          bounces?: number
+          fetched_at?: string
+          id?: string
+          mailbox: string
+          sending_domain: string
+          sends?: number
+          stat_date: string
+        }
+        Update: {
+          bounces?: number
+          fetched_at?: string
+          id?: string
+          mailbox?: string
+          sending_domain?: string
+          sends?: number
+          stat_date?: string
+        }
+        Relationships: []
+      }
       signals: {
         Row: {
           campaign_id: string | null
@@ -2112,6 +2327,225 @@ export type Database = {
           },
         ]
       }
+      synthesis_batch_entries: {
+        Row: {
+          batch_id: string | null
+          client_context: Json
+          client_name: string
+          created_at: string
+          detected_signal: Json
+          doc_superseded: boolean
+          error: string | null
+          id: string
+          messaging_content: Json
+          messaging_doc_id: string
+          messaging_doc_version: string
+          organisation_id: string
+          phase1_run_id: string | null
+          prospect_id: string
+          raw_sources: Json
+          response_message: Json | null
+          result_type: string | null
+          segment_id: string | null
+          state: string
+          stop_reason: string | null
+          submit_attempts: number
+          updated_at: string
+          usage: Json | null
+          variant_id: string
+        }
+        Insert: {
+          batch_id?: string | null
+          client_context: Json
+          client_name: string
+          created_at?: string
+          detected_signal: Json
+          doc_superseded?: boolean
+          error?: string | null
+          id?: string
+          messaging_content: Json
+          messaging_doc_id: string
+          messaging_doc_version: string
+          organisation_id: string
+          phase1_run_id?: string | null
+          prospect_id: string
+          raw_sources: Json
+          response_message?: Json | null
+          result_type?: string | null
+          segment_id?: string | null
+          state?: string
+          stop_reason?: string | null
+          submit_attempts?: number
+          updated_at?: string
+          usage?: Json | null
+          variant_id: string
+        }
+        Update: {
+          batch_id?: string | null
+          client_context?: Json
+          client_name?: string
+          created_at?: string
+          detected_signal?: Json
+          doc_superseded?: boolean
+          error?: string | null
+          id?: string
+          messaging_content?: Json
+          messaging_doc_id?: string
+          messaging_doc_version?: string
+          organisation_id?: string
+          phase1_run_id?: string | null
+          prospect_id?: string
+          raw_sources?: Json
+          response_message?: Json | null
+          result_type?: string | null
+          segment_id?: string | null
+          state?: string
+          stop_reason?: string | null
+          submit_attempts?: number
+          updated_at?: string
+          usage?: Json | null
+          variant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "synthesis_batch_entries_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "synthesis_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "synthesis_batch_entries_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "synthesis_batch_entries_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "synthesis_batch_entries_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "client_prospects_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "synthesis_batch_entries_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "prospects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      synthesis_batches: {
+        Row: {
+          anthropic_batch_id: string | null
+          cache_ttl: string
+          collected_at: string | null
+          counts: Json | null
+          created_at: string
+          ended_at: string | null
+          error: string | null
+          expires_at: string
+          id: string
+          last_polled_at: string | null
+          model: string
+          organisation_id: string
+          poll_count: number
+          request_count: number
+          requested_at: string
+          state: string
+          submitted_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          anthropic_batch_id?: string | null
+          cache_ttl: string
+          collected_at?: string | null
+          counts?: Json | null
+          created_at?: string
+          ended_at?: string | null
+          error?: string | null
+          expires_at?: string
+          id?: string
+          last_polled_at?: string | null
+          model: string
+          organisation_id: string
+          poll_count?: number
+          request_count?: number
+          requested_at?: string
+          state?: string
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          anthropic_batch_id?: string | null
+          cache_ttl?: string
+          collected_at?: string | null
+          counts?: Json | null
+          created_at?: string
+          ended_at?: string | null
+          error?: string | null
+          expires_at?: string
+          id?: string
+          last_polled_at?: string | null
+          model?: string
+          organisation_id?: string
+          poll_count?: number
+          request_count?: number
+          requested_at?: string
+          state?: string
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "synthesis_batches_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "synthesis_batches_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      system_flags: {
+        Row: {
+          enabled: boolean
+          key: string
+          note: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          enabled?: boolean
+          key: string
+          note?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          enabled?: boolean
+          key?: string
+          note?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       users: {
         Row: {
           created_at: string
@@ -2192,6 +2626,74 @@ export type Database = {
             columns: ["attempted_org_id"]
             isOneToOne: false
             referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      verification_calls: {
+        Row: {
+          completed_at: string | null
+          error: string | null
+          id: string
+          organisation_id: string
+          outcome: string
+          prospect_id: string | null
+          provider: string
+          requested_at: string
+          score: number | null
+          verdict: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          error?: string | null
+          id?: string
+          organisation_id: string
+          outcome?: string
+          prospect_id?: string | null
+          provider: string
+          requested_at?: string
+          score?: number | null
+          verdict?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          error?: string | null
+          id?: string
+          organisation_id?: string
+          outcome?: string
+          prospect_id?: string | null
+          provider?: string
+          requested_at?: string
+          score?: number | null
+          verdict?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "verification_calls_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "verification_calls_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "verification_calls_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "client_prospects_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "verification_calls_prospect_id_fkey"
+            columns: ["prospect_id"]
+            isOneToOne: false
+            referencedRelation: "prospects"
             referencedColumns: ["id"]
           },
         ]
@@ -2429,6 +2931,107 @@ export type Database = {
         }
         Relationships: []
       }
+      mon_016: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_017: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_018: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_019: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_020: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_021: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_022: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_023: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      queue_depth: {
+        Row: {
+          claimed: number | null
+          done_24h: number | null
+          failed_24h: number | null
+          failed_total: number | null
+          job_type: string | null
+          last_completion_at: string | null
+          oldest_queued_age_seconds: number | null
+          organisation_id: string | null
+          queued: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_queue_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_queue_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       append_faq_variant: {
@@ -2439,8 +3042,178 @@ export type Database = {
         Args: { p_reviewer_id: string; p_suggestion_id: string }
         Returns: Json
       }
+      claim_jobs: {
+        Args: {
+          p_job_type: string
+          p_lease_seconds: number
+          p_limit: number
+          p_organisation_id: string
+          p_worker: string
+        }
+        Returns: {
+          attempts: number
+          claimed_by: string | null
+          created_at: string
+          enqueued_by: string | null
+          id: string
+          job_type: string
+          last_error: string | null
+          last_error_class: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          organisation_id: string
+          prospect_id: string
+          result_summary: string | null
+          run_after: string
+          spend_detail: Json | null
+          spend_recorded_at: string | null
+          state: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "job_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      complete_job: {
+        Args: { p_job_id: string; p_summary: string; p_worker: string }
+        Returns: {
+          attempts: number
+          claimed_by: string | null
+          created_at: string
+          enqueued_by: string | null
+          id: string
+          job_type: string
+          last_error: string | null
+          last_error_class: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          organisation_id: string
+          prospect_id: string
+          result_summary: string | null
+          run_after: string
+          spend_detail: Json | null
+          spend_recorded_at: string | null
+          state: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "job_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      enqueue_job: {
+        Args: {
+          p_enqueued_by: string
+          p_job_type: string
+          p_max_attempts?: number
+          p_organisation_id: string
+          p_prospect_id: string
+        }
+        Returns: {
+          attempts: number
+          claimed_by: string | null
+          created_at: string
+          enqueued_by: string | null
+          id: string
+          job_type: string
+          last_error: string | null
+          last_error_class: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          organisation_id: string
+          prospect_id: string
+          result_summary: string | null
+          run_after: string
+          spend_detail: Json | null
+          spend_recorded_at: string | null
+          state: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "job_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      enqueue_research_phase: {
+        Args: {
+          p_enqueued_by: string
+          p_job_type: string
+          p_max_attempts: number
+          p_organisation_id: string
+          p_prospect_id: string
+        }
+        Returns: {
+          attempts: number
+          claimed_by: string | null
+          created_at: string
+          enqueued_by: string | null
+          id: string
+          job_type: string
+          last_error: string | null
+          last_error_class: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          organisation_id: string
+          prospect_id: string
+          result_summary: string | null
+          run_after: string
+          spend_detail: Json | null
+          spend_recorded_at: string | null
+          state: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "job_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      fail_job: {
+        Args: {
+          p_error: string
+          p_error_class: string
+          p_force_terminal?: boolean
+          p_job_id: string
+          p_worker: string
+        }
+        Returns: {
+          attempts: number
+          claimed_by: string | null
+          created_at: string
+          enqueued_by: string | null
+          id: string
+          job_type: string
+          last_error: string | null
+          last_error_class: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          organisation_id: string
+          prospect_id: string
+          result_summary: string | null
+          run_after: string
+          spend_detail: Json | null
+          spend_recorded_at: string | null
+          state: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "job_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       get_my_organisation_id: { Args: never; Returns: string }
       is_operator: { Args: never; Returns: boolean }
+      job_queue_backoff: { Args: { p_attempts: number }; Returns: string }
       promote_strategy_doc_version: {
         Args: {
           p_change_summary?: string
@@ -2452,6 +3225,47 @@ export type Database = {
           p_update_trigger: string
         }
         Returns: Json
+      }
+      queue_next_organisations: {
+        Args: { p_job_type: string }
+        Returns: {
+          depth: number
+          oldest: string
+          organisation_id: string
+        }[]
+      }
+      reclaim_expired_jobs: {
+        Args: { p_limit?: number }
+        Returns: {
+          attempts: number
+          claimed_by: string | null
+          created_at: string
+          enqueued_by: string | null
+          id: string
+          job_type: string
+          last_error: string | null
+          last_error_class: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          organisation_id: string
+          prospect_id: string
+          result_summary: string | null
+          run_after: string
+          spend_detail: Json | null
+          spend_recorded_at: string | null
+          state: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "job_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      record_job_spend: {
+        Args: { p_detail: Json; p_job_id: string }
+        Returns: undefined
       }
     }
     Enums: {

@@ -23,6 +23,60 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## Per-domain sending health / MON-023 (2026-08-27, branch sourcing-filter)
+
+- [pre-ramp, HIGH] MON-023's SECOND TRIGGER IS DORMANT AND WILL STAY DORMANT until the
+  campaign daily limit rises. The rate rule needs 50 sends per domain per 7 days. The
+  campaign's daily_limit is 20 across five domains, which is ~28 per domain per week, so
+  the floor is never cleared and only the 3-bounce absolute rule is live. At 28 sends the
+  absolute rule is an effective threshold of ~10.7%, not 2%.
+  Confirmed with Doug 2026-08-27: the floor is calibrated for ramp volume (~450 per domain
+  per week) and raising the campaign daily limit is a separate pre-ramp change already on
+  the board. Recorded here because the dormancy is invisible in the code and someone will
+  otherwise read "2% rule" and assume it is enforcing.
+  Next action: when the daily limit rises, confirm MON-023 moves off insufficient_sends.
+
+- [next-build, HIGH] A NON-PRODUCTION DATABASE. This is now blocking real coverage, not
+  just tidiness. vitest.config.ts withholds Supabase credentials because the only database
+  is production, so 38 tests are blocked INCLUDING mon_006_per_row.test.ts, the only
+  existing test of a monitor view's threshold logic, which has never executed a single
+  assertion. That is why MON-023's thresholds were put in TypeScript rather than in the
+  view (agreed with Doug 2026-08-27, and the reasoning is in the migration header and in
+  docs/sending-domain-health.md). Options were costed 2026-08-26: Supabase branch at
+  $0.01344/hour, a second project at $0/month, local Docker.
+  Doug 2026-08-27: "not cancelled, it is the next build after this one."
+
+- [post-build] THE SQL/TS DUPLICATION THAT REMAINS. The 60-minute staleness interval and
+  the four-state to three-state mapping exist in both src/lib/sending-health/ and the
+  mon_023 view, because freshness must be evaluated at READ time and a view cannot call
+  TypeScript. Guarded by sql-parity.test.ts, which reads the migration and fails if they
+  disagree, and the guard is itself mutation-tested (P1, P2, P3 in
+  scripts/mutation-test-sending-health.sh). If a non-production database ever arrives, this
+  duplication can be removed by moving the thresholds back into SQL.
+
+- [post-build] src/types/database.ts WAS BADLY STALE and is now regenerated. It was missing
+  job_queue, verification_calls, synthesis_batches, system_flags and all the queue
+  functions entirely, so code has been running against tables the type file did not know
+  about. Purely additive apart from a PostgrestVersion string. Worth a periodic
+  `npm run gen-types` rather than only regenerating when a new table is added.
+
+- [post-build] MON-023 READS A STORED VERDICT, unlike every other monitor, so it is the
+  first one whose freshness is a real concern. If more monitors follow this shape, the
+  staleness guard is worth extracting rather than copying.
+
+- [monitor] BOUNCE TYPE IS STILL INVISIBLE. The source reports one bounce count and does
+  not split hard from soft from spam-trap, so a full mailbox and a dead domain look
+  identical to MON-023. Recorded in blind-spots.ts where the operator can see it. Revisit
+  if the first real bounces turn out to need different responses.
+
+- [post-build] THE UNPUSHED COMMIT. 9977bf8 "feat: synthesis_batches, the two tables the
+  batch wait has to survive" predates the merge and is preserved in history, not discarded
+  and not pushed, per Doug's instruction 2026-08-27. main already carries the same
+  migration file in fuller form via a different commit, so merging this branch back will
+  bring 9977bf8 along as history noise but no content conflict. The one file that did
+  conflict (20260826120000_synthesis_batches.sql) was resolved to main's version, a
+  comment-only difference.
+
 ## Client-facing UX batch (2026-08-25, branch client-facing-ux)
 
 - [DONE 2026-08-25] Operator replies view. The route

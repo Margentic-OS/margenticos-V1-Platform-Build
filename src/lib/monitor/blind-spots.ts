@@ -32,14 +32,22 @@ export const blindSpots = {
   },
 
   deliverability: {
-    title: 'Deliverability (entirely unmonitored)',
-    description: 'Email delivery is a black box. These metrics are invisible.',
+    // Was 'Deliverability (entirely unmonitored)' until 2026-08-27. Bounce rate per
+    // sending domain is now covered by MON-023 and the Sending Domain Health panel above,
+    // so "entirely" became untrue and the bounce line had to come off this list. Leaving
+    // it would have put "bounce rate is invisible" on the same screen as a table of
+    // bounce rates. Everything else here is still genuinely unmonitored.
+    title: 'Deliverability (mostly unmonitored)',
+    description:
+      'Bounce rate per sending domain is now monitored: see Sending Domain Health above, ' +
+      'and MON-023. The rest of email delivery is still a black box.',
     gaps: [
-      'Bounce rate (hard bounces, soft bounces, spam traps)',
       'Spam folder placement (Gmail, Outlook, Yahoo, corporate filters)',
       'Reply rate collapse (sudden drop in replies signals domain reputation damage)',
       'Domain reputation score (sender reputation across major ISPs)',
       'Authentication failures (SPF, DKIM, DMARC alignment per ISP)',
+      'Bounce TYPE: hard versus soft versus spam trap. The source reports one bounce count ' +
+        'and does not break it down, so a full mailbox and a dead domain look identical.',
     ],
   },
 

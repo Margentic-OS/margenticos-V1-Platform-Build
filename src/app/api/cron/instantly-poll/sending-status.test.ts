@@ -41,6 +41,7 @@ interface CampaignRow {
 }
 
 const db = vi.hoisted(() => ({
+  sendingHealthTool: null as null | { tool_name: string; is_active: boolean },
   heartbeats: [] as Record<string, unknown>[],
   campaigns: [] as Array<{
     id: string
@@ -96,6 +97,32 @@ vi.mock('@supabase/supabase-js', () => ({
             return { throwOnError: async () => ({ error: null }) }
           },
         }
+      }
+      // ── Sending health (MON-023) ────────────────────────────────────────
+      // The route reads the capability registry and, when a tool is registered, writes
+      // these two tables. Default here is NO tool registered, which makes the sync an
+      // explicit no-op and leaves these tests measuring what they were written to measure.
+      // db.sendingHealthTool flips it on for the test that asserts a sending-health
+      // failure drags ok to false.
+      if (table === 'integrations_registry') {
+        const builder: any = {
+          select: () => builder,
+          eq: () => builder,
+          maybeSingle: async () => ({ data: db.sendingHealthTool, error: null }),
+        }
+        return builder
+      }
+      if (table === 'sending_mailbox_daily_stats') {
+        const builder: any = {
+          select: () => builder,
+          gte: () => builder,
+          lte: () => Promise.resolve({ data: [], error: null }),
+          upsert: async () => ({ error: null }),
+        }
+        return builder
+      }
+      if (table === 'sending_health_snapshot') {
+        return { upsert: async () => ({ error: null }) }
       }
       throw new Error(`fake supabase: unexpected table ${table}`)
     },
