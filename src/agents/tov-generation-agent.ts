@@ -511,7 +511,10 @@ function buildUserMessage(params: {
 
   const websiteBlock = formatWebsiteContextForPrompt(websitePages)
 
-  return `You are generating a Tone of Voice guide for a founder-led B2B consulting firm.
+  return `You are generating a Tone of Voice guide for the B2B business described below.
+Derive what this business does and who it sells to from the intake responses, voice samples
+and website content in this message. Do not assume an industry, a service type, or a buyer
+archetype that those sources do not support.
 ${completenessNote}
 
 ## INTAKE QUESTIONNAIRE RESPONSES (excluding voice fields — those are below)

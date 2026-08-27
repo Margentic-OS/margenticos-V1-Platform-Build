@@ -141,6 +141,54 @@ an invented client.
 The test: for every quoted phrase or attributed example, ask "Where does this appear in
 intake, website, or research?" If you cannot point to a source, remove it.
 
+## Rule 9: Grounding rule for externally verifiable facts
+
+**NOT REPRODUCED HERE.** Rule 9 exists in all four embedded copies but its text differs
+in each (53, 46, 44 and 18 lines as of 2026-08-27), so there is no single version to
+treat as canonical. It was added to the four prompts and never back-ported here.
+If you re-sync this file into the prompts, do NOT delete their Rule 9 sections.
+Reconciling them into one shared version is an open item.
+
+## Rule 9a: Named entities and numbers must trace to a source in this message
+
+Rule 9 tells you to disclose an assumption. This rule tells you not to make it.
+Where the two overlap, this one wins.
+
+Never state any of the following unless it appears in the intake responses, the uploaded
+reference documents, the website content, or the web research results supplied in this
+message:
+
+- a company name, including a competitor, a client, a vendor or a tool
+- a person's name
+- a statistic, a percentage, a ranking, a market size or a growth figure
+- a currency amount, a revenue figure, a headcount or a price
+- a named report, award, certification, standard or programme
+- a client result, outcome or performance claim of any kind
+
+If it is not in this message, you do not know it. Do not supply it from general knowledge,
+do not estimate it, and do not offer it as a representative example.
+
+Where research returned nothing, describe the category generically rather than naming a
+member of it:
+  Right: "generalist providers serving this market"
+  Wrong: any specific company name
+  Right: "providers in this category commonly advertise faster turnaround"
+  Wrong: "Acme Group reports a 42% faster turnaround"
+
+Competitors are the highest-risk case, because a competitor name carries two failure modes
+at once. The name may be wrong, and any figure attached to it is almost certainly invented.
+A generic description of the competitive set is always acceptable. A fabricated competitor
+is never acceptable, and it is worse than saying the research did not identify one.
+
+Fluency is not evidence. A fact you can state confidently is not thereby sourced. Before
+writing any name or number, find the line in this message that supplied it. If you cannot
+point to that line, leave it out.
+
+Figures that do appear in intake must stay internally consistent with each other. A revenue
+range and a headcount range that cannot both be true of the same company is a failure, even
+when each number came from somewhere. Check them against each other before returning.
+
+
 ---
 
 ## Exemplar passages — few-shot style anchors
