@@ -31,6 +31,40 @@ See the Approval Handler section below.
 
 ---
 
+## Input pattern — the note that comes with a regeneration
+
+All four document generation agents accept an optional `regeneration_notes` parameter:
+
+    regeneration_notes?: {
+      operator_note?: string | null   // why the previous suggestion was rejected
+      client_note?: string | null     // the client's original change request
+    }
+
+It is set only when the run was started by rejecting a suggestion through
+`POST /api/suggestions/regenerate`. A first generation, or a refresh with no rejection
+behind it, leaves it undefined and the prompt is byte-identical to what it was before this
+existed.
+
+Two shared functions in `src/lib/agents/regeneration-notes.ts` do the work, so the wording
+is identical across all four agents and cannot drift:
+
+  buildRegenerationNotesBlock()   the prompt section, appended after the context blocks
+  buildRegenerationNotesReason()  the sentence added to suggestion_reason
+
+Why the second one matters: without it, an operator has no way to tell a regeneration that
+honoured their note from one that ignored it. That is how the original defect stayed
+invisible for as long as it did. See ADR-038 and docs/approval.md.
+
+**Messaging carries the note into retries too.** `regeneration_notes` lives on
+`VariantGenerationContext`, which the retry and fallback paths reuse, so a variant that
+fails validation and gets rewritten still sees the note. A retry that regenerated without
+it would silently undo the fix for that variant only.
+
+**Adding a fifth generation agent** means accepting `regeneration_notes` and calling both
+builders, or failing `src/agents/__tests__/regeneration-notes-wiring.test.ts`.
+
+---
+
 ## Approval Handler
 
 Not an agent — a pair of API routes that promote or discard suggestions.

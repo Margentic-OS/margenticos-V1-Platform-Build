@@ -3024,3 +3024,116 @@ A client-facing view is genuinely needed that must read something the caller's o
 cannot reach. That is a real case, and the answer then is a SECURITY DEFINER function with
 EXECUTE granted to exactly one role and the privilege read back in both directions, not an
 owner-executing view with a permissive grant.
+## ADR-038: An operator's rejection note is an instruction to the next run, not an audit record
+
+**Date:** 2026-08-27
+**Status:** Accepted
+
+### The defect
+
+Measured live on 27 August, organisation `0ed34697-0fa9-4f08-ac15-d3504ac45caf`:
+
+    20:54:21  an ICP suggestion was created
+    20:57:02  an operator rejected it with a note instructing removal of Canada,
+              Australia and Western Europe from the geography in all three tiers.
+              The note was stored in document_suggestions.rejection_reason.
+              revision_note was NULL.
+    20:59:15  a new ICP suggestion was created. Its suggestion_reason said the
+              existing document was used as context and mentioned no note. The
+              regenerated document still named all three regions.
+
+Two controls accept a free-text note, two columns store one, and only one was read again:
+
+| Control | Column written | Reached an agent before this ADR |
+|---|---|---|
+| Client "Request changes" | `revision_note` | yes, `runDocumentRevisionAgent` |
+| Operator "Reject and regenerate" | `rejection_reason` | no |
+
+`/api/suggestions/regenerate` persisted `rejection_reason` on the row it rejected and
+then called the generation agent with `{ organisation_id, supabase, is_refresh }`. There
+was no parameter for a note to travel in. Nothing logged, warned or displayed that the
+instruction had been dropped, and the regenerated suggestion's reasoning line asserted
+only that the existing document had been used as context, which was true and beside the
+point.
+
+### Decision
+
+A note attached to a rejected suggestion is carried into the run that replaces it.
+
+One shared module, `src/lib/agents/regeneration-notes.ts`, owns both the prompt block and
+the sentence appended to `suggestion_reason`. All four generation agents accept
+`regeneration_notes` and call the same two builders. The route passes them.
+
+**Both notes travel when both exist, and the rejection note wins on conflict.** They are
+not competing instructions for the same thing. The client note is the REQUEST ("mention
+the onboarding guarantee in email two"); the operator note is the CORRECTION to the
+attempt that answered it ("email two is now longer than email one"). Dropping the client
+note loses the reason the document was being changed at all, which is this same defect one
+level up. Dropping the operator note is the defect itself. Where they genuinely conflict
+the operator note wins, because it is the later judgement and it was made against the
+version that was actually produced.
+
+`suggestion_reason` now names the note that was supplied. Without that an operator cannot
+tell a regeneration that honoured the note from one that ignored it, which is the half of
+the defect that hid the other half.
+
+### What was deliberately not built
+
+**The rejected document itself is still not shown to the agent.** The generation agents
+refresh from the live approved document in `strategy_documents`, not from the
+`suggested_value` that was just rejected. So the note reads as "the geography is too
+broad", not as "here is what you produced and here is what is wrong with it". This is
+enough for the measured case and for any note that describes the target rather than the
+diff. It is not enough for a note like "the second paragraph contradicts the third".
+
+**A plain rejection with no regeneration still goes nowhere.** `POST
+/api/suggestions/[id]/reject` records the note and stops, which is correct: there is no
+run to carry it into. But an operator who rejects with a note, and later regenerates
+through the no-`suggestion_id` path, gets no note. Reading the most recent rejected
+suggestion's note back would be guessing at intent across an unbounded time gap, so it
+was not built.
+
+**Direct agent triggers bypass notes entirely.** `/api/agents/{icp,positioning,tov,
+messaging}` call the agents without a suggestion in the picture.
+
+### Consequences
+
+- Adding a fifth generation agent means wiring `regeneration_notes` or failing
+  `src/agents/__tests__/regeneration-notes-wiring.test.ts`.
+- A regenerated document that ignores a note is now a model failure, visible in the
+  reasoning line, rather than a silent plumbing failure.
+- The block is empty when there is no note, so a first generation, or a refresh with no
+  rejection behind it, produces a prompt byte-identical to the one before this change.
+  (These four agents do not use prompt caching, so there is no cache prefix to preserve;
+  the point is only that unrelated runs are untouched.)
+
+### The optional parameter that reopened the hole one level down
+
+The first version of this change shipped with the defect it was fixing, in miniature.
+`positioning` and `tov` called `buildRegenerationNotesReason(params.regeneration_notes)`
+inside `writeDocumentSuggestion`, and their call sites never passed `regeneration_notes`.
+The value was `undefined`, the reason sentence was silently empty, and the note still
+reached the prompt, so the visible half worked and the receipt half did not. `tsc` said
+nothing because the parameter was optional. The wiring test said nothing because it
+checked that the builder was CALLED, not that a value was THREADED to it.
+
+Caught while verifying a rebase, not by any check that was written for it.
+
+The fix is structural rather than another assertion. Internal parameter types now declare
+`regeneration_notes: RegenerationNotes | undefined` instead of `regeneration_notes?:`, so
+an object literal that omits the field is a compile error. Reintroducing the bug now
+produces `TS2345` at the call site. The PUBLIC agent inputs (`IcpAgentInput` and friends)
+stay optional on purpose, because external callers legitimately omit the field; it is only
+the plumbing between an agent's own functions that is required.
+
+This is the same lesson as the `as Record<JobType, JobTypeResult>` cast in CLAUDE.md: the
+dangerous place for `?` is exactly where a required type was about to do useful work.
+
+### The shape this belongs to
+
+CLAUDE.md already documents "validating one thing and returning another" and "a producer
+and a consumer that are each correct and disagree". This is a third variant: **a value
+that is correctly captured, correctly persisted, and never read.** The write side has a
+test, the column has a value, the UI has a control, and the only missing piece is the one
+nobody can see. The general guard is the one applied here: when a control captures an
+instruction, something downstream must either act on it or say out loud that it did not.

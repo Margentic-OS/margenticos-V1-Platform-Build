@@ -1556,12 +1556,15 @@ export default function ApprovalCard({ suggestion, onResolved }: Props) {
         {/* Inline rejection form */}
         {showRejectForm && !confirmedMessage && (
           <div className="bg-[#FEF7E6] border border-[#F0D080] rounded-[8px] px-4 py-3 space-y-3">
-            <p className="text-[11px] text-[#7A4800] font-medium">Reason for rejection (optional)</p>
+            <p className="text-[11px] text-[#7A4800] font-medium">What should change? (optional)</p>
+            <p className="text-[10px] text-[#7A4800] opacity-80 leading-relaxed">
+              Reject and regenerate passes this to the agent as an instruction. Confirm rejection only records it.
+            </p>
             <input
               type="text"
               value={rejectionReason}
               onChange={e => setRejectionReason(e.target.value)}
-              placeholder="e.g. tone is off, variant B opener too salesy"
+              placeholder="e.g. narrow the geography and drop the third tier"
               disabled={isLoading}
               className="w-full bg-white border border-[#E8E2D8] rounded-[10px] px-3 py-2 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-[#A8D4B8] disabled:opacity-50"
             />
