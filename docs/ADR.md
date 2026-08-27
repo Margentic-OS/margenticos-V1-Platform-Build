@@ -2619,15 +2619,36 @@ look reasonable can.
 So the narrowing gives up about 34 percent of reachable inventory. 36,818 is ample for
 the ramp at current send volumes, which is the only reason this is affordable.
 
-**One figure from the briefing did not reproduce, and is recorded as measured instead.**
-The narrowing was specified with 36,820 at 5-20 and 20,269 at 21-50. The first is
-confirmed: 36,818 is two rows off, which is Apollo's index moving, the same order of
-drift ADR-032 records over two days. The second is not. 21-50 measures 19,162 on the
-full filter and 21,247 with `person_locations` removed, so 20,269 is not the org-only
-base either, and it re-measured stable. The decision does not turn on it: 20,269 and
-19,162 both say the same thing about whether the ramp can afford the band. It is
-flagged because the figure is now the record of what tier_2 is worth, and a number
-nobody can reproduce is worse than one that is slightly inconvenient.
+**The two briefing figures came from different filter bases. Resolved, and worth
+keeping.** The narrowing was specified with 36,820 at 5-20 and 20,269 at 21-50. The
+first reproduced against the shipped filter and the second did not, which is what
+prompted measuring all three bases:
+
+  band     both axes    person_locations only    organization_locations only
+  5,20       36,818            39,867                      40,293
+  21,50      19,160            20,268                      21,245
+  5,50       55,978            60,135                      61,538
+
+36,820 is the BOTH-AXES figure (36,818, two rows of index drift). 20,269 is the
+PERSON-LOCATIONS-ONLY figure (20,268, one row). Both were correct measurements of
+different queries, and the pair was mixed.
+
+That table is a SECOND pass, taken a few minutes after the three figures quoted above
+it, which is why its both-axes column reads 19,160 and 55,978 rather than 19,162 and
+55,980. Both passes partition exactly (36,818 + 19,160 = 55,978). Two rows in minutes
+is the drift scale to expect from Apollo's index, and it is the reason every figure
+here is quoted with the date and the base it came from rather than on its own.
+
+It is recorded because the mix biases the one judgement the numbers exist to support.
+Read as a pair, 36,820 against 20,269 says the narrowing gives up 35.5 percent. On a
+single consistent base it gives up 34.2 percent. That difference does not change the
+decision, and would have changed nothing if it had gone the other way by the same
+margin, which is exactly why it would never have been caught by whether the conclusion
+still looked right.
+
+**The shipped filter constrains both axes**, per ADR-032, because CASL attaches to the
+recipient. So the both-axes column is the only one describing prospects this system can
+actually source, and it is the column every figure in this ADR is quoted from.
 
 The awkward part is not the number. It is WHERE the number lives. Under ADR-032 the
 Apollo query is hardcoded in the handler and the ICPFilterSpec no longer builds it.
@@ -2646,9 +2667,38 @@ nothing else needs to change to widen it again. That was deliberate: a stopgap t
 takes six coordinated edits to undo is not a stopgap, it is a migration.
 
 **2. The 21-50 band is declared in the ICP document as `tier_2`, and is DELIBERATELY
-NOT SOURCED.** Those 19,162 firms are in the ICP and out of the query. This is a
+NOT SOURCED.** Those 19,160 firms are in the ICP and out of the query. This is a
 decision, not an oversight, and it is recorded here precisely so that the next person
 to notice the gap finds an answer instead of a bug.
+
+**`tier_2` MEANS TWO UNRELATED THINGS IN THIS CODEBASE, and this ADR is about the
+first one only.** The collision is real, it predates this decision, and reading the
+wrong one turns everything below into nonsense.
+
+  IcpDocument.tier_2          A DECLARED MARKET SEGMENT. A band of the addressable
+  (icp-filter-spec.ts:162)    market, defined before any prospect exists, describing
+                              WHO WE WOULD SELL TO. Population-level. This is the
+                              tier_2 this ADR narrows out of the query.
+
+  prospects.sourced_tier      A PER-PROSPECT FIT SCORE, assigned after sourcing and
+  = 'tier_2'                  enrichment by calculateFitScore in
+  (tier-classification.ts)    tier-classification.ts. Points for industry, seniority
+                              and headcount, bucketed into tier_1/2/3, describing HOW
+                              WELL THIS ONE PERSON MATCHES. Row-level. Nothing to do
+                              with the ICP document's tiers.
+
+They are different axes, not two views of one thing. A prospect from the ICP's tier_1
+segment can score `sourced_tier = 'tier_3'` and frequently will, because the score is
+dominated by seniority and industry rather than by headcount. Narrowing the sourced
+headcount band does NOT empty the `sourced_tier = 'tier_2'` bucket, and nothing in the
+sourcing-review UI changes meaning because of this decision.
+
+A third thing is worth knowing while looking at this: `icp-filter-spec.ts:220` builds
+the headcount range as the UNION of the ICP's tier_1 and tier_2, commented "Both tiers
+are sourced". That comment described the spec-driven query, which ADR-032 removed. The
+spec no longer builds the Apollo query, so the union is computed and discarded. It is
+not wrong, it is unreached, and it is the clearest single illustration of what
+ADR-032's hardcoding costs.
 
 **3. ADR-032's hardcoded filter is hereby SUPERSEDED IN PRINCIPLE by spec-driven
 sourcing, WHICH DOES NOT EXIST YET.** This is the honest statement of where the
@@ -2663,10 +2713,40 @@ this handler gets it, whatever their spec says.
 
 ### Consequences
 
-**The tier_2 declaration is the only record that 19,162 firms were chosen against
-rather than missed.** There is no code path that reads `tier_2` and nothing in the
+**The tier_2 declaration is the only record that roughly 19,160 firms were chosen
+against rather than missed.** There is no code path that reads `tier_2` and nothing in the
 system behaves differently because it exists. It is a document making a promise the
 query cannot keep. Stated plainly here so it is not later mistaken for a feature.
+
+**THE `sourced_tier` MIX SHIFTS SLIGHTLY TOWARD tier_1 FROM 2026-08-27, and this is
+the cause.** Not a defect and not a change in what any tier means. It is written down
+so a discontinuity dated today is not investigated as one.
+
+The mechanism is COMPOSITIONAL, not a rescoring. No prospect scores differently than it
+would have yesterday. A 5-20 firm scored 20 headcount points before and scores 20 now.
+What changed is that the 21-50 firms, which scored 10, are no longer in the population
+at all. Removing a systematically lower-scoring subpopulation raises the SHARE of
+tier_1 while lowering the ABSOLUTE count of every tier, because 34 percent less is
+sourced in total. Anyone reading absolute tier counts will see all three fall.
+
+The effect on the mix is smaller than the 10-point gap suggests, and the arithmetic
+says why. The score is industry (0/20/45) plus seniority (0/25/30/35) plus headcount
+(0/5/10/20, unknown 10), against thresholds of 80 for tier_1 and 50 for tier_2. Only
+eleven industry-plus-seniority bases are reachable: 0, 20, 25, 30, 35, 45, 50, 55, 70,
+75, 80. For a 10-point headcount difference to cross the 80 threshold a base of 60 to
+69 would be needed, and none exists, so **the tier_1 boundary never turns on headcount
+at all**. The 50 threshold does turn on it, at bases 30 and 35 only: no industry match
+plus a chief-executive or founder title. Those are the prospects that would have been
+tier_3 at 21-50 and are tier_2 at 5-20.
+
+So the honest prediction is a modest rise in the tier_1 share, driven by dropping a
+population that skewed tier_3 in one narrow profile, not a step change across the
+board. Prospects with unknown headcount score 10 either way and are unaffected, which
+damps it further wherever Apollo's headcount coverage is thin.
+
+Nothing was retuned to compensate, deliberately, for the same reason nothing else in
+the filter was: this decision must stay reversible by one constant, and moving the
+score thresholds to hold the old distribution would make reverting a multi-file change.
 
 **Widening back is safe and cheap; widening in stages is not.** Changing the constant
 to `'5,50'` restores the previous measured filter exactly. Introducing a SECOND range

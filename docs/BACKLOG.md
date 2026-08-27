@@ -6523,3 +6523,54 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   gated behind the paid trigger. A `recomputeSendEligibility(prospect_ids)` that reruns
   `resolveSendEligibility` over stored columns and updates the verdict would make rule
   changes retroactive for free. Deliberately not built during the audit.
+
+## Sourcing narrowed to 5-20, and two things it left behind (2026-08-27)
+
+- [post-build] `tier_2` NAMES TWO UNRELATED THINGS, and nothing in the code says so.
+
+  `IcpDocument.tier_2` (src/lib/agents/icp-filter-spec.ts:162) is a DECLARED MARKET
+  SEGMENT: a band of the addressable market, defined before any prospect exists,
+  describing who we would sell to. Population-level.
+
+  `prospects.sourced_tier = 'tier_2'` (src/lib/sourcing/tier-classification.ts) is a
+  PER-PROSPECT FIT SCORE: industry plus seniority plus headcount points, bucketed
+  80/50, describing how well one person matches. Row-level.
+
+  Different axes, not two views of one thing. A prospect from the ICP's tier_1 segment
+  routinely scores `sourced_tier = 'tier_3'`, and that is correct behaviour that reads
+  as a bug. ADR-036 now spells the distinction out, which is the cheap half of the fix.
+
+  What is NOT done, and why it is here: the names are still identical in the code, the
+  database column, and the operator UI. `sourced_tier` is a persisted column with live
+  rows, and the sourcing-review UI keys off the string, so renaming is a migration plus
+  a UI change plus a backfill, not a rename. Not attempted inside a ramp change.
+
+  Next action when picked up: rename the FIT SCORE axis, not the ICP one, because the
+  ICP tiers are client-facing language in the strategy documents. Something like
+  `fit_band` / `fit_a|fit_b|fit_c`. Keep `sourced_tier` readable during the transition
+  rather than doing a hard cutover on a column the operator UI reads.
+
+  Related: src/lib/agents/icp-filter-spec.ts:220 computes the headcount range as the
+  UNION of ICP tier_1 and tier_2, commented "Both tiers are sourced". That comment
+  described the spec-driven query ADR-032 removed. The union is still computed and now
+  discarded, because the Apollo query is hardcoded. Not wrong, unreached. It is the
+  clearest single illustration of what the hardcoding costs, and it should be deleted
+  or revived by whoever builds spec-driven sourcing (see ADR-036).
+
+- [post-build] CLAUDE.md's ADR REFERENCE LIST IS MISSING ADR-035 AND ADR-036.
+
+  The list under "ADR reference list — as of August 2026" stops at ADR-034. ADR-035
+  (the MON-023 monitor state mapping) and ADR-036 (the 5-20 headcount narrowing, and
+  ADR-032 superseded in principle by spec-driven sourcing) are both in docs/ADR.md and
+  neither is listed.
+
+  Left deliberately rather than fixed in passing: several sessions were running in
+  parallel on 2026-08-27 and CLAUDE.md is the one file every one of them reads, so
+  editing it mid-flight buys a merge conflict in the worst possible place. ADR-035 also
+  still sits unmerged on the sourcing-filter branch, so the list cannot be made correct
+  and stay correct in the same edit.
+
+  Next action: after the parallel branches land, add both lines in ONE commit that
+  touches only CLAUDE.md, and check the numbering against docs/ADR.md rather than
+  against this note. ADR-033 was already renumbered once because two branches claimed
+  032 independently, so the list is not a reliable source for the next free number.
