@@ -23,6 +23,65 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## Production test data removed (2026-08-27)
+
+- [DONE 2026-08-27] TRACK A item 5. Test and mock data deleted from the production
+  database. All destructive statements ran BEGIN ... ROLLBACK first to show the row counts
+  they would affect, then re-ran for real, each transaction carrying a guard that raises an
+  exception if a protected organisation appears in the target set or goes missing before
+  commit. The guards never tripped.
+
+    organisations           19 -> 5    (14 test orgs)
+    campaigns                5 -> 1    (2 Write Test drafts, 1 Compliance Test, 1 mock)
+    prospects               51 -> 47   (2 test, 2 seeded fixtures)
+    signals                 14 -> 1    (13 test)
+    agent_runs             653 -> 645  (8 test)
+    reply_handling_actions  12 -> 1    (11 test)
+    reply_drafts             3 -> 0    (1 test, 2 seeded fixtures)
+    strategy_documents      47 -> 47   (unchanged)
+    prospect_research_results 305 -> 305 (unchanged)
+
+  Scope was discovered by sweeping organisations on a regex over BOTH name and slug
+  (test|mock|demo|dummy|sample|staging|dry-run|example, plus timestamp-suffixed slugs)
+  rather than working from the list in the task, which was a floor. The sweep found 15,
+  being the 14 deleted plus DRY RUN TEST. Post-clean sweeps: 0 test-named campaigns,
+  0 seeded-UUID rows, 0 campaigns holding a non-live external_id.
+
+  🔒 DRY RUN TEST (a2b621fc-4c9d-43d9-9af4-1253ff49d12d) DELIBERATELY LEFT IN PLACE, and
+  it is the reason 6 of the 8 mock.invalid/example.com prospects still exist. It is needed
+  for an imminent bounce test. Its 6 prospects, 11 documents, 20 intake responses, 24 agent
+  runs and its enrich job with spend recorded are all untouched, INCLUDING the
+  un-normalised country value "Germany" on alice_000_ec4ja9@mock.invalid. Do not "tidy"
+  that value or that org without checking whether the bounce test has happened.
+
+  FK ordering that this needed, for whoever does the next cleanup: four constraints are
+  NO ACTION and block a parent delete, so they must be cleared first, in this order:
+  reply_handling_actions (blocks organisations, campaigns AND prospects), then
+  reply_drafts.prospect_id, then prospect_research_results.run_id (blocks agent_runs),
+  then agent_runs and enrichment_runs (block organisations). Everything else cascades from
+  organisations. prospects.campaign_id and signals.campaign_id are SET NULL, not cascade,
+  which is why deleting the mock campaign detached its prospects instead of deleting them.
+
+- [pre-c1] GINNY HUDGENS IS A REAL PROSPECT SITTING IN THE ARCHIVED ORG. Decide where she
+  belongs. prospect 7cd92532-55e0-45d4-9d99-4a7c2ae0a12d, ginny@thestrategicimplementer.com,
+  Founder, The Strategic Implementer, in the old MargenticOS org
+  74243c62-f42d-4f3f-b93e-bd5e51f0b6c0, now with campaign_id NULL after the mock campaign
+  was deleted.
+
+  She was swept into the staging mock campaign and NEVER CONTACTED. The row already knew:
+  outbound_upload_status is 'uploaded' but outbound_lead_id is 'mock-lead-0-1780586487684',
+  a mock-dispatch id rather than an Instantly lead id, so the upload went to the mock
+  dispatcher. suppressed = true with suppression_reason 'staging-test-artifact',
+  email_send_eligible = false, and zero signals, replies, drafts, meetings or verification
+  calls. She is not on the global suppression list. Her 7 research result rows from
+  24 April are intact.
+
+  So moving her to the live org is clean: there is no delivery history to reconcile. What
+  needs deciding is whether she is still ICP and whether her research is stale enough to
+  re-run. Kept rather than deleted because she is a real person and a data-hygiene
+  accident, not test data.
+  Trigger: next time the live org's prospect list is being built.
+
 ## The commit gate is now executable (2026-08-27)
 
 - [DONE 2026-08-27] CLAUDE.md's "Hooks — three checks always active" was PROSE for the
@@ -1298,18 +1357,61 @@
   string sorts highest rather than the latest one. After the mock campaigns are cleaned,
   MON-002's detail will keep displaying the mock external_id indefinitely.
 
-  Next action: give MON-002 a state that reflects the most recent run's ok, and bound the
-  detail to that same run, something like ordering by ran_at desc limit 1 instead of max()
-  over all history. Check the sibling views (mon_003 and any others built from the same
-  template) for the identical pattern before fixing just this one.
-  NOT done here: this change was scoped to campaign stats, and monitor views were out of
-  scope. Flagged rather than fixed.
+  DETAIL DEFECT: FIXED 2026-08-27, migration
+  20260827210000_mon_002_003_detail_follows_latest_run.sql (remote version 20260827201940).
+  Both mon_002 and mon_003 now bind detail to the most recent heartbeat via
+  LEFT JOIN LATERAL ... ORDER BY ran_at DESC LIMIT 1. mon_003 was fixed in the same change
+  because it is the identical template and had never failed in 5,682 ticks, so it was one
+  bad run away from freezing the same way. The prediction two paragraphs above was correct
+  and was measured before the fix: MON-002 was still naming the mock external_id four days
+  after the last failed tick and after the campaign itself had been cleaned up.
+  Receipts: detail went from the frozen mock string to 'Last run: 2026-08-27 20:15:04 UTC'.
+  Behaviour proved with synthetic heartbeats in BEGIN ... ROLLBACK, because real data
+  cannot exercise it: an old failure followed by an OK run is now ignored, a failure on the
+  LATEST run still shows, and with two failures the most recent wins where the old lexical
+  max() picked the alphabetically highest. Also set security_invoker = true on both views
+  and read the privileges back in both directions (service_role true, anon and
+  authenticated false), plus SET ROLE tests: service_role returns the row, anon gets
+  42501 permission denied.
+  The single failed heartbeat from 2026-08-23 was deliberately NOT deleted. Deleting a
+  heartbeat to make a monitor read clean is destroying the evidence of an incident to
+  silence the alarm, which is the exact instinct CLAUDE.md warns against.
+
+  STATE DEFECT: STILL OPEN. state still depends only on how stale max(ran_at) is and never
+  consults ok, so a cron that fails while completing on time still reads OK. Deliberately
+  out of scope on 2026-08-27: it changes when the monitor page goes red, which is a change
+  to alerting behaviour and wants its own decision rather than being bundled into a detail
+  fix. Check the other liveness views (mon_001, mon_004, mon_005, mon_007, mon_010,
+  mon_016, mon_019, mon_020, mon_021) for the same template when this is picked up.
   Trigger: before relying on the monitor page for anything, and before the first paying
   client.
 
 ## Campaign stats and status — follow-ups after making the panel real (2026-08-23)
 
-- [pre-c0] TWO MOCK CAMPAIGN ROWS MUST BE CLEANED. The cron is RED until they are.
+- [DONE 2026-08-27] TWO MOCK CAMPAIGN ROWS MUST BE CLEANED. The cron is RED until they are.
+
+  ⚠️ THIS ENTRY WAS STALE FOR FOUR DAYS AND READ AS A LIVE BLOCKER. The headline is wrong.
+  Measured on 2026-08-27 before touching anything: instantly-poll had written 1,894
+  heartbeats and exactly ONE had ever failed, on 2026-08-23 21:15:03. Every tick for the
+  four days since was ok = true. The two mock external_ids had ALREADY been NULLed on or
+  shortly after 23 August. The cron was green and had been green the whole time.
+  What still looked broken was MON-002's detail line, which was frozen on that single
+  four-day-old failure by the max()-over-all-history bug recorded in the entry above. So
+  the visible symptom had outlived its cause, the fix was in a different place entirely
+  (the view, not the campaigns table), and no amount of deleting rows would have changed
+  what was on screen.
+
+  THE LESSON, which is the part worth carrying: a backlog item that outlives its cause is
+  a FALSE BLOCKER, and it is more expensive than no entry at all, because it is trusted.
+  This one asserted "the cron is RED", named a next action that would not have fixed the
+  symptom, and nearly cost a whole session working the wrong problem. Whoever fixes the
+  cause is the person who has to come back and close the entry; the fix and the closure
+  are one task, not two. When closing any [pre-c0] item that names a live symptom, re-read
+  the symptom against live data first rather than trusting the entry's own description.
+
+  RESOLVED: the mock campaign and the surrounding test data were deleted on 2026-08-27,
+  and MON-002's detail was fixed in the same session (see the entry above). Details below
+  are kept as the historical record of what was found at the time.
   Reported, deliberately NOT deleted: this is operator data, and the decision about what
   to do with a campaigns row is Doug's, not a build session's.
   The rows, both with external_ids that were never real Instantly campaigns:
