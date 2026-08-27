@@ -23,6 +23,122 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## TRACK B GROUP 2, TOP ITEM: the mandated consulting pain vocabulary (2026-08-27, branch trackb-g1-industry-agnostic)
+
+- [pre-c1] Rule 5's ban list does not just illustrate with consulting language. It
+  PRESCRIBES it, in all four document generation agents and in the shared spec they are
+  copied from. Deferred out of Group 1 deliberately: replacing it is a copy-quality
+  decision on the document that produces every email this business sends, and it needs
+  its own pass with its own review rather than a tail-end change to a session already
+  carrying nine files.
+
+  WHAT IT SAYS. In docs/prompts/messaging-agent.md at L118-123, inside "Rule 5: The full
+  ban list":
+
+      - "revenue rollercoaster": banned entirely. Use "referral ceiling", "revenue swings
+        month to month", or "pipeline resets to zero when a client ends" instead.
+      - "feast-or-famine" more than once per document. Use specific alternatives on
+        subsequent mentions: "revenue swings month to month", "referral ceiling",
+        "pipeline resets to zero when a client ends"
+
+  WHY IT IS DIFFERENT FROM THE OTHER CONSULTING ARTEFACTS. Everything else flagged in the
+  27 August scan is a worked EXAMPLE: a passage that teaches sentence rhythm or specificity
+  and happens to use consulting subject matter as its carrier. Those leak, and they are
+  logged below, but the model can take the lesson and leave the vocabulary. This one is an
+  INSTRUCTION. "Use X instead" is a directive with named replacement strings. There is no
+  lesson to separate from the vocabulary, because the vocabulary IS the instruction.
+
+  WHAT IT DOES TO A REAL CLIENT. "Referral ceiling" is meaningless to 360 Bia Og, which
+  sells hot meals to Irish primary schools. A school does not have a referral ceiling, and
+  its pipeline does not reset to zero when a client ends. The agent is being told to reach
+  for those exact phrases when it wants to describe recurring revenue pressure, whoever
+  the client is.
+
+  MEASURED SPREAD, 2026-08-27:
+
+      shared-voice-spec.md    "referral ceiling" x3    rollercoaster rule x1
+      icp-agent.md            "referral ceiling" x4    rollercoaster rule x2
+      positioning-agent.md    "referral ceiling" x4    rollercoaster rule x1
+      tov-agent.md            "referral ceiling" x3    rollercoaster rule x1
+      messaging-agent.md      "referral ceiling" x4    rollercoaster rule x1
+
+  So it is not a messaging-agent problem. It is in the shared voice rules, which means all
+  four generation agents carry it, including the ICP and positioning agents whose live
+  output for two non-consulting clients is otherwise genuinely industry-specific.
+
+  WHY IT WAS NOT FIXED IN GROUP 1. Deleting the substitutions is easy. Replacing them is
+  not. "Revenue rollercoaster" is banned for a good reason and the ban should survive; what
+  has to change is that the replacement guidance must come from the client's own ICP and
+  TOV documents rather than from a fixed list. That is a prompt design decision about how
+  an agent sources pain vocabulary at runtime, and it wants a reviewer looking at generated
+  copy, not a typecheck.
+
+  NEXT ACTION. Group 2, first item. Decide whether the replacement guidance becomes
+  (a) a pointer to the ICP document's four_forces.push entries, (b) a general instruction
+  to name the specific mechanism rather than the category, with no worked vocabulary, or
+  (c) something else. Then re-sync all four prompts and the shared spec in one commit.
+
+  THE OTHER CONSULTING EXAMPLES, ranked, for the same pass. Load-bearing means the teaching
+  point needs the example; decorative means the consulting content is only the carrier.
+
+    messaging-agent.md L79-82   category vs specific claim. STRUCTURE LOAD-BEARING,
+      EXAMPLE ACTIVELY HARMFUL. It teaches specificity by demonstrating it with invented
+      figures ("3K to 15K per month", "150K annual revenue"). It models the exact
+      fabrication that Rule 9a now forbids, in the same prompt.
+    messaging-agent.md L244-256 exemplar passages. ANNOTATIONS LOAD-BEARING, CONTENT
+      DECORATIVE. The "why this works" notes name the real properties. Labelling the
+      passages "style targets" invites copying the consulting content wholesale.
+    messaging-agent.md L555-567 describe-then-label trap. STRUCTURE LOAD-BEARING, MODEL
+      SENTENCE COPYABLE. The lesson is antecedent survival and it is code-enforced by the
+      back-reference validator. The "Right" answer hands over a consulting sentence verbatim.
+    messaging-agent.md L51-58   sentence rhythm. RHYTHM LOAD-BEARING, VOCABULARY DECORATIVE.
+    icp-agent.md L256           "what job is the client actually hiring this consulting
+      firm to do?" This one ASSERTS the client's industry inside a framework instruction,
+      which is the same defect Group 1 fixed at the user-message opening. Cheapest fix in
+      the list.
+
+  OUT OF SCOPE AND CORRECTLY SO: the CANONICAL_INDUSTRIES taxonomy in icp-agent.md. Of the
+  22 lines in that file matching consulting or coaching, 11 are the NAICS list, which is
+  meant to name consulting industries because they are real industries.
+
+## shared-voice-spec.md HAS ALREADY DRIFTED, AND A NAIVE RE-SYNC DELETES RULE 9 (2026-08-27)
+
+- [post-build] docs/prompts/shared-voice-spec.md opens by describing itself as embedded
+  verbatim in all four generation agents, with a sync rule saying any edit must be manually
+  re-synced to the four prompt files or "the spec and the embedded copies silently diverge."
+
+  They have already diverged, in the direction the warning does not cover.
+
+  THE STATE, MEASURED 2026-08-27. The spec contains Rules 1 to 8. All four prompt files
+  contain a "Rule 9: Grounding rule for externally verifiable facts" that the spec does
+  not have at all. It was added to the four prompts and never back-ported.
+
+  Worse, Rule 9's text is NOT THE SAME in the four copies:
+
+      icp-agent.md          53 lines
+      positioning-agent.md  46 lines
+      tov-agent.md          44 lines
+      messaging-agent.md    18 lines
+
+  THE TRAP. Anyone who reads the sync rule at the top of the spec and does the obvious
+  thing, copying the spec's shared-rules block over the four prompts, DELETES RULE 9 FROM
+  ALL FOUR. That removes the only grounding instruction those agents have, and it removes
+  it from four files at once, in a commit whose message will honestly say it was a re-sync.
+
+  WHY IT CANNOT JUST BE BACK-PORTED. There is no canonical version to promote. The four
+  differ by more than formatting, and picking one silently changes behaviour in the other
+  three. Reconciling them is a decision, not a copy.
+
+  WHAT WAS DONE ON 2026-08-27, and what was not. Group 1 added Rule 9a (named entities and
+  numbers must trace to a source) to the spec AND to all four prompts, so that change did
+  not widen the drift. A placeholder section was added to the spec at the Rule 9 position
+  recording that Rule 9 is not reproduced there and must not be deleted on re-sync. The
+  reconciliation itself was NOT done.
+
+  NEXT ACTION. Decide which Rule 9 variant is canonical, or write a fifth version that
+  supersedes all four, then re-sync in one commit. Until then the placeholder is the only
+  thing standing between a tidy-up and a four-file regression.
+
 ## SKIPPED AND UNREGISTERED ARE DIFFERENT STATES THAT SHARE A NUMBER (2026-08-27)
 
 - [note] A test-count summary collapses distinct states into one integer, and reading a
