@@ -1,0 +1,107 @@
+-- client_organisation_view: stop it running as its owner, and take away the write grants.
+--
+-- Status: APPLIED (verified live 2026-08-27)
+--
+-- Applied via Supabase MCP apply_migration, which records its own timestamp, so the
+-- remote version will not match this filename. That is expected on this project and is
+-- why `supabase db push` is forbidden here. It went up as TWO remote migrations:
+-- client_organisation_view_security_invoker, then
+-- client_organisation_view_authenticated_select_only, because naming privileges
+-- individually missed MAINTAIN. This file carries the corrected single form, which is
+-- idempotent and produces the same end state if replayed.
+--
+-- READ-BACK AFTER APPLY, BOTH DIRECTIONS, PER ROLE:
+--   security_invoker                     = true
+--   relacl  {postgres=arwdDxtm/postgres,authenticated=r/postgres,service_role=arwdDxtm/postgres}
+--   anon           SELECT f  UPDATE f     (anon removed from the ACL entirely)
+--   authenticated  SELECT t  UPDATE f  INSERT f  DELETE f
+--   service_role   SELECT t
+--
+-- AND TESTED BY SET ROLE, NOT INFERRED FROM THE GRANT TABLE:
+--   anon     SELECT       -> DENIED 42501 permission denied for view
+--   client   SELECT       -> own org row (correct, unchanged)
+--   client   UPDATE       -> BLOCKED 42501 permission denied for view   (was: 1 row changed)
+--   operator SELECT       -> 1 row, own org (correct, unchanged)
+-- Every probe ran in a transaction forced to abort. organisations.updated_at on the
+-- probed row still reads 2026-08-21, so nothing committed.
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHAT WAS MEASURED BEFORE THIS MIGRATION WAS WRITTEN
+--
+-- Advisor ERROR 0010_security_definer_view, production, 2026-08-27.
+--
+-- The view is owned by postgres and carried reloptions {security_invoker=false}, so it
+-- executed with the OWNER's privileges and RLS on public.organisations was never
+-- consulted. 20260826170000 saw this, measured the READ path, found it self-scoped by
+-- `WHERE id = get_my_organisation_id()`, and deliberately left it alone pending a
+-- decision. That read-path finding was correct and still is.
+--
+-- THE READ PATH WAS NEVER THE PROBLEM. THE WRITE PATH IS.
+--
+-- This view is auto-updatable (information_schema.views.is_updatable = YES), and the
+-- grants on it were the Supabase defaults: anon and authenticated both held the full
+-- arwdDxtm set, INSERT/UPDATE/DELETE included. A SECURITY DEFINER auto-updatable view
+-- is a write path that bypasses RLS just as thoroughly as it bypasses it on read.
+--
+-- Measured as a real signed-in client (role=client, own organisation), the whole probe
+-- wrapped so it could only abort, never commit:
+--
+--   baseline pipeline_unlocked = false
+--   SELECT via view        -> own org row (correct, and this is what 170000 measured)
+--   UPDATE via view        -> SUCCEEDED, 1 row changed        <-- RLS bypassed
+--   UPDATE via base table  -> SUCCEEDED, 0 rows               <-- RLS holding, correctly
+--
+-- Same role, same transaction, same target row. The base table refuses the write because
+-- clients_read_own_organisation is a SELECT-only policy and there is no UPDATE policy for
+-- a client. The view performs it because the view is not running as the client.
+--
+-- So a signed-in client could set pipeline_unlocked on their own organisation, which is
+-- the operator-controlled phased unlock in CLAUDE.md, and could equally rewrite name,
+-- slug, contract_start_date and meetings_count. Scoped to their OWN organisation by the
+-- WHERE clause, so this is privilege escalation within one tenant, not cross-tenant
+-- leakage. No evidence it was ever exercised: the probe rolled back, and
+-- organisations.updated_at on the probed row still reads 2026-08-21.
+--
+-- ── ANON ──
+-- anon also held the full grant set, but an anon read fails 42501 on
+-- get_my_organisation_id, which denies EXECUTE to anon. Revoked here anyway: the grant is
+-- useless, and leaving a useless grant on a client-facing view is how the next person
+-- inherits a hole when one predicate changes.
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHY ALTER VIEW AND NOT DROP/CREATE
+--
+-- DROP loses the ACL, and Supabase's ALTER DEFAULT PRIVILEGES on the public schema
+-- re-grants anon and authenticated by name at creation time. A drop/create would silently
+-- reopen precisely what 20260826170000 closed. ALTER VIEW preserves the ACL, so the
+-- REVOKEs below are the only thing that moves it.
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHY THIS IS SAFE FOR THE LEGITIMATE CALLER
+--
+-- The RLS policy on the base table is byte-identical to the view's own predicate:
+--   clients_read_own_organisation  SELECT  authenticated  qual: (id = get_my_organisation_id())
+-- so once RLS is consulted it selects the same single row the WHERE clause already
+-- selected. Operators additionally match operators_full_access_organisations
+-- (qual: is_operator()), and the view's WHERE still narrows them to their own row, which
+-- is what it did before. Read behaviour is unchanged for every role.
+--
+-- Nothing in the application reads this view today: no `.from('client_organisation_view')`
+-- anywhere in src/, only generated FK metadata in the two database.types files. So the
+-- write revoke cannot break a caller, because there is no caller.
+
+ALTER VIEW public.client_organisation_view SET (security_invoker = true);
+
+REVOKE ALL ON public.client_organisation_view FROM PUBLIC;
+REVOKE ALL ON public.client_organisation_view FROM anon;
+
+-- Leave authenticated exactly one privilege: the read this view exists to serve.
+-- REVOKE ALL then GRANT SELECT rather than naming each privilege to drop. Naming them
+-- missed MAINTAIN on the first pass (Postgres 17 adds it, and the default grant includes
+-- it), which left the ACL reading authenticated=rm while this comment claimed one
+-- privilege. Revoking the whole set and granting back the one cannot drift that way.
+REVOKE ALL ON public.client_organisation_view FROM authenticated;
+GRANT SELECT ON public.client_organisation_view TO authenticated;
+
+-- service_role is deliberately untouched. It bypasses RLS by role attribute regardless,
+-- and narrowing it here would be an unrelated change.

@@ -42,11 +42,23 @@ Fields:
   meetings_count      — running count of qualified meetings booked
   created_at / updated_at
 
-RLS:
-  Operator: full access (read, write, update all rows) — queries organisations directly.
-  Client:   NO direct SELECT access. Must use client_organisation_view (see below).
-            The client SELECT policy (clients_read_own_organisation) was dropped so
-            that sensitive fields are blocked at the database layer, not just in code.
+RLS (read back from pg_policies live on 2026-08-27, not from the migration files):
+  Operator: operators_full_access_organisations — ALL, authenticated, qual is_operator().
+  Client:   clients_read_own_organisation — SELECT, authenticated,
+            qual (id = get_my_organisation_id()).
+
+  CORRECTED 2026-08-27. This section previously said the client SELECT policy
+  "was dropped" and that clients had NO direct SELECT access on organisations. That is
+  not true and a live read of pg_policies contradicts it: the policy exists, it is a
+  SELECT policy, and it scopes the client to their own row. What clients do NOT have is
+  an UPDATE, INSERT or DELETE policy, so writes match zero rows.
+
+  The stale claim mattered. It was the stated justification for running
+  client_organisation_view as its owner, and anyone reasoning from it would conclude that
+  setting security_invoker = true must break every client read. It does not, because the
+  policy is there and its predicate is identical to the view's own WHERE clause.
+  Verified by SET ROLE with a real client's JWT, before and after the change: one row,
+  own organisation, both times.
 
 ---
 
@@ -63,22 +75,56 @@ Columns exposed (all others excluded):
   pipeline_unlocked, pipeline_unlock_at, meetings_count,
   created_at, updated_at
 
-How it works:
-  The view is security_invoker=false (runs as postgres superuser), so it can read from
-  organisations even though clients have no direct SELECT policy on that table.
-  The WHERE clause (id = get_my_organisation_id()) is the security boundary —
-  each client user sees only their own organisation row.
+How it works (CHANGED 2026-08-27, migration 20260827220000):
+  The view is security_invoker = TRUE. It runs as the CALLER, so RLS on organisations is
+  consulted normally. The WHERE clause (id = get_my_organisation_id()) and the RLS policy
+  clients_read_own_organisation carry the identical predicate, so the caller sees exactly
+  their own organisation row. Two independent gates now agree instead of one gate
+  standing alone.
 
-Permissions:
-  SELECT granted to: authenticated (operators and clients)
+  It was previously security_invoker = false, meaning it ran as its postgres owner and RLS
+  was never consulted. On the READ path that was survivable, because the WHERE clause
+  self-scopes and get_my_organisation_id() denies EXECUTE to anon.
+
+  THE WRITE PATH WAS NOT SURVIVABLE, and that is what the change actually fixed.
+  This view is auto-updatable (is_updatable = YES), and anon and authenticated both held
+  the full default arwdDxtm grant set on it. Measured as a real signed-in client:
+
+      UPDATE via the view       -> SUCCEEDED, 1 row changed   (RLS bypassed)
+      UPDATE via organisations  -> SUCCEEDED, 0 rows          (RLS holding, correctly)
+
+  A client could therefore set pipeline_unlocked on their own organisation, defeating the
+  operator-controlled phased unlock, and could rewrite name, slug, contract_start_date and
+  meetings_count. Scoped to their own organisation by the WHERE clause, so it was
+  escalation within one tenant, never cross-tenant. Closed by making the view run as the
+  caller AND by reducing the grant to SELECT.
+
+Permissions (read back live after the change):
+  relacl  {postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}
+  authenticated  SELECT only. No INSERT, UPDATE, DELETE or MAINTAIN.
+  anon           removed from the ACL entirely.
+  service_role   unchanged; it bypasses RLS by role attribute regardless.
+
   Operators will typically query organisations directly for full field access.
   Only clients are restricted to this view.
+
+  Nothing in src/ reads this view today. There is no `.from('client_organisation_view')`
+  anywhere in the application, only generated FK metadata in the two database.types
+  files. If you wire a client-facing organisation read, this is the path to use.
 
 If you add a new operator-only field to organisations:
   Do not add it to this view. It will remain invisible to clients automatically.
 
 If you add a new client-safe field to organisations:
-  Add it to the SELECT list in the view definition (re-run the CREATE OR REPLACE VIEW).
+  Add it to the SELECT list in the view definition.
+
+  DO NOT do that with a bare DROP + CREATE. A drop loses the ACL, and Supabase's
+  ALTER DEFAULT PRIVILEGES on the public schema re-grants anon and authenticated the full
+  arwdDxtm set by name at creation time. That is how the write grant got here in the first
+  place. CREATE OR REPLACE VIEW preserves both the ACL and the reloptions; if you ever do
+  have to drop it, re-apply the REVOKE/GRANT block from 20260827220000 in the same
+  migration and read the privileges back for anon, authenticated and service_role before
+  committing.
 
 ---
 

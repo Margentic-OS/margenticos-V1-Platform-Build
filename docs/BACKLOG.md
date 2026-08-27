@@ -6976,3 +6976,129 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   touches only CLAUDE.md, and check the numbering against docs/ADR.md rather than
   against this note. ADR-033 was already renumbered once because two branches claimed
   032 independently, so the list is not a reliable source for the next free number.
+
+- [security] THE CORRECTED VIEW AUDIT IN CLAUDE.md STILL ONLY READS `SELECT`, AND THAT
+  IS WHY THE REAL EXPOSURE ON client_organisation_view SURVIVED 2026-08-26.
+
+  Found 2026-08-27 while clearing the Supabase advisor ERROR on that view.
+
+  The 2026-08-26 work corrected the audit from `relkind = 'r'` to `relkind IN ('r','v','m')`,
+  which was right and found the nine leaking mon_* views. The corrected query reads:
+
+      has_table_privilege('anon',          c.oid, 'SELECT') AS anon,
+      has_table_privilege('authenticated', c.oid, 'SELECT') AS authenticated
+
+  It asks who can READ. It never asks who can WRITE. client_organisation_view appeared in
+  its output, was reasoned about carefully on the read path, correctly found to be
+  self-scoped by `WHERE id = get_my_organisation_id()`, and left in place by decision.
+
+  That reasoning was sound and the conclusion was still wrong, because the view is
+  auto-updatable (information_schema.views.is_updatable = YES) and anon and authenticated
+  both held the full default `arwdDxtm` set on it. A SECURITY DEFINER auto-updatable view
+  bypasses RLS on WRITE exactly as it does on read. Measured as a real signed-in client:
+
+      UPDATE via view        -> SUCCEEDED, 1 row changed     (RLS bypassed)
+      UPDATE via base table  -> SUCCEEDED, 0 rows            (RLS holding, correctly)
+
+  So a client could set their own organisations.pipeline_unlocked, which is the
+  operator-controlled phased unlock, plus name, slug, contract_start_date and
+  meetings_count. Closed by 20260827220000. No evidence it was ever exercised.
+
+  This is the same shape as the two entries above it in CLAUDE.md: the bug was IN THE
+  AUDIT, not in the database, and an audit that cannot see the class it was written to
+  find reports zero rows reassuringly forever. Third time this exact shape has cost real
+  time on this build.
+
+  Next action, TWO parts, and the second is the one that lasts:
+  1. Extend the audit query in CLAUDE.md to select INSERT/UPDATE/DELETE alongside SELECT,
+     and to surface is_updatable for views, so a write grant on a view cannot be read past.
+  2. Put it in a MONITOR. MON-022 already reads this class live for the synthesis tables.
+     A query in a markdown file only runs when someone remembers to run it, which is the
+     same reason the commit gate was made executable on 2026-08-27.
+
+  NOT done in this session deliberately: CLAUDE.md is the one file every parallel session
+  reads, and several were running on 2026-08-27. Same reasoning as the ADR-035/036 entry
+  above. Do it in ONE commit touching only CLAUDE.md once the parallel branches land.
+
+- [tooling] scripts/regen-schema-baseline.ts MISREPORTS security_invoker ON EVERY VIEW
+  THAT HAS IT SET TO FALSE.
+
+  Found 2026-08-27. The view-capture query tests only whether the option is PRESENT:
+
+      CASE WHEN EXISTS (SELECT 1 FROM unnest(COALESCE(c.reloptions,'{}')) o
+                         WHERE o LIKE 'security_invoker=%')
+           THEN ' WITH (security_invoker = true)' ELSE '' END
+
+  `LIKE 'security_invoker=%'` matches `security_invoker=false` just as happily as
+  `=true`, and the THEN branch then hardcodes `true`. So a view carrying
+  `{security_invoker=false}` is written into the tracked baseline as
+  `WITH (security_invoker = true)`.
+
+  That is exactly what had happened: supabase/baseline/schema.sql line 1533 asserted
+  `client_organisation_view WITH (security_invoker = true)` while production carried
+  `{security_invoker=false}` and the advisor was raising an ERROR about it. The baseline
+  is the artefact the repo keeps as its record of schema state, and on the one property
+  the advisor flagged, it said the opposite of the truth.
+
+  The 20260827220000 fix makes this particular row true, so the discrepancy self-heals and
+  will not be visible next regeneration. THE GENERATOR BUG REMAINS and will misreport the
+  next view created with security_invoker false. Fix the CASE to read the option's VALUE,
+  not its presence, and emit `= false` rather than omitting the clause, so the baseline
+  distinguishes "explicitly false" from "never set" (those are different: an unset view
+  also runs as owner, and mon_019 is unset).
+
+  NOT fixed in this session because scripts/regen-schema-baseline.ts had uncommitted
+  changes in another session's working tree at the time.
+
+- [security] ALIGN get_my_organisation_id() AND is_operator() TO `search_path = public, pg_temp`.
+
+  Both already set `search_path TO 'public'` so neither is advisor-flagged, and both are
+  SECURITY DEFINER. Naming only `public` leaves pg_temp searched FIRST for relation names,
+  which is the shadowing route the 20260827230000 migration closed on the other five.
+
+  Low priority and deliberately not bundled: both functions are load-bearing for 27 RLS
+  policies across 17 tables (9 use get_my_organisation_id, 18 use is_operator), so they
+  should move on their own change with their own read-back rather than ride along with an
+  unrelated migration.
+
+- [security] pg_net LIVES IN public AND CANNOT BE MOVED. RECORD IT AS AN ACCEPTED
+  EXCEPTION SO THE ADVISOR WARN STOPS READING AS UNTRIAGED.
+
+  Advisor WARN 0014_extension_in_public, standing. Investigated 2026-08-27, not actioned.
+  Detail in the session report; short version is that the extension's registration sits in
+  public while all twelve of its functions live in schema `net`, and 11 active pg_cron
+  jobs plus the users_pending_review webhook resolve them as `net.http_post`. Supabase
+  manages this extension and does not support relocating it.
+
+  Next action is a decision, not a migration: record it as a documented accepted exception
+  (ADR or a line in deployment.md) so the next person reading the advisor does not spend
+  the investigation again.
+
+- [ops] TWO AUTH ADVISOR WARNS ARE DASHBOARD SETTINGS, NOT MIGRATIONS.
+
+  auth_otp_long_expiry (OTP expiry set above one hour) and auth_leaked_password_protection
+  (HaveIBeenPwned checking disabled). Both were present in the 2026-08-27 advisor pull and
+  neither was in the session's brief. Neither can be fixed by SQL: they are toggles in the
+  Supabase dashboard under Authentication.
+
+  The OTP one is worth a look given auth here is magic-link, so the OTP lifetime is the
+  window in which a captured link stays usable.
+
+- [docs] THE 2026-08-27 VIEW DECISION NEEDS AN ADR NUMBER ASSIGNED AT MERGE TIME.
+
+  The decision itself: a client-facing view runs as the CALLER (security_invoker = true)
+  and carries SELECT only. Owner-executing views are reserved for service-role-only paths
+  where RLS is deliberately not the gate, and even those get their grants read back per
+  role in both directions before the migration commits. The corollary is that
+  auto-updatable views are a WRITE surface, so the grant is the control, not the WHERE
+  clause.
+
+  Fully written up already in supabase/migrations/20260827220000_client_organisation_view_
+  security_invoker.sql and in the client_organisation_view section of docs/data-model.md,
+  so nothing is lost if this sits a while.
+
+  NO NUMBER CLAIMED ON PURPOSE. docs/ADR.md on this branch runs to ADR-037 with ADR-035
+  absent because it is still unmerged on sourcing-filter, and several sessions were live
+  on 2026-08-27. ADR-033 was already renumbered once after two branches both claimed 032.
+  Assign the next genuinely free number by reading docs/ADR.md after the branches land,
+  not by incrementing whatever this note says.
