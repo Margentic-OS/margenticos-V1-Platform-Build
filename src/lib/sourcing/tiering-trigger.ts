@@ -1,6 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { classifyTier, logClassificationStats, type EnrichedProspect } from '@/lib/sourcing/tier-classification'
+import {
+  loadIndustryTagMappings,
+  mapApolloToSpecIndustryWithDatabase,
+} from '@/lib/sourcing/industry-mapping'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 
 interface TieringRunResult {
@@ -219,6 +223,101 @@ export async function tierEnrichedBatch(
 
     // ── Step 6: Log classification stats ────────────────────────────────────
     logClassificationStats(results, organisationId)
+
+    // ── Step 6.5: Returned-industry assertion ───────────────────────────────
+    //
+    // THE OTHER HALF OF THE ORCHESTRATOR'S PRE-SEARCH GATE. That gate proves what
+    // the query ASKED FOR. This one proves what CAME BACK, and the two are not the
+    // same claim: Apollo silently ignores a parameter it does not recognise, so a
+    // filter that reads correctly and passes the pre-search gate can still return
+    // an unfiltered result. A parameter that stopped being honoured would look
+    // exactly like one that never existed.
+    //
+    // THIS IS THE FIRST POINT IT CAN BE ASKED AT ALL. Sourcing candidates carry no
+    // industry: the free api_search response carries `has_industry` as a boolean
+    // and never the value (verified against the live API 2026-08-23, docs/BACKLOG.md),
+    // and the orchestrator writes company_industry as NULL. The value arrives at
+    // enrichment, from people/match, which is why this check lives here and not
+    // upstream. The cost of that is real and worth stating: enrichment has already
+    // been paid for by the time this fires.
+    //
+    // THE TRADE-OFF, DELIBERATE. There is no minimum batch size. A batch of one
+    // off-specification prospect fails the run. That is noisier than a threshold
+    // would be, and it is chosen because any threshold would be a number nobody has
+    // measured, and a check that stays quiet below an invented floor is the shape
+    // this whole change exists to remove.
+    const specIndustries = Array.isArray(spec.industries) ? spec.industries : []
+
+    if (specIndustries.length === 0) {
+      logger.warn('tiering-trigger: ICP names no industries, returned rows are unchecked', {
+        operation_id: operationId,
+        organisation_id: organisationId,
+        prospects_classified: results.length,
+      })
+    } else {
+      let industryMappings: Record<string, string> = {}
+      try {
+        industryMappings = await loadIndustryTagMappings(supabase)
+      } catch {
+        // Static mappings only. The assertion still runs: falling back to a smaller
+        // mapping table can only make a match HARDER to find, so it cannot turn a
+        // real mismatch into a pass.
+        industryMappings = {}
+      }
+
+      const specLower = new Set(specIndustries.map(i => String(i).toLowerCase()))
+
+      // What actually came back, counted, so the failure message names it rather
+      // than asserting a mismatch the operator then has to go and look up.
+      const seen: Record<string, number> = {}
+      let onSpecCount = 0
+      let noIndustryCount = 0
+
+      for (const prospect of prospects as EnrichedProspect[]) {
+        const raw = prospect.company_industry
+        if (!raw) {
+          noIndustryCount++
+          seen['(no industry)'] = (seen['(no industry)'] ?? 0) + 1
+          continue
+        }
+
+        const mapped = mapApolloToSpecIndustryWithDatabase(raw, industryMappings)
+        const label = mapped ?? `(unmapped) ${raw}`
+        seen[label] = (seen[label] ?? 0) + 1
+
+        if (mapped && specLower.has(mapped.toLowerCase())) {
+          onSpecCount++
+        }
+      }
+
+      if (onSpecCount === 0) {
+        logger.error('tiering-trigger: no returned prospect matches a spec industry', {
+          operation_id: operationId,
+          organisation_id: organisationId,
+          prospects_classified: results.length,
+          spec_industries: specIndustries,
+          returned_industries: seen,
+          no_industry_count: noIndustryCount,
+        })
+        throw new Error(
+          `Tiering failed for client ${organisationId}: not one of the ${results.length} enriched ` +
+          'prospects in this batch has an industry the ICP asked for, so the sourcing query returned ' +
+          'nothing on specification. ' +
+          `ICP asked for: ${specIndustries.join(', ')}. ` +
+          `Batch came back as: ${Object.entries(seen).map(([k, n]) => `${k} (${n})`).join(', ')}. ` +
+          'Either the sourcing handler is searching for something other than what this ICP asks for, ' +
+          'or a search parameter stopped being honoured and the query is no longer filtering.'
+        )
+      }
+
+      logger.info('tiering-trigger: returned-industry assertion passed', {
+        operation_id: operationId,
+        organisation_id: organisationId,
+        on_spec_count: onSpecCount,
+        off_spec_count: results.length - onSpecCount,
+        returned_industries: seen,
+      })
+    }
 
     const tier1Count = results.filter(r => r.sourced_tier === 'tier_1').length
     const tier2Count = results.filter(r => r.sourced_tier === 'tier_2').length

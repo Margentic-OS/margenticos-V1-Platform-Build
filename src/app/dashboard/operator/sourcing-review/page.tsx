@@ -57,7 +57,7 @@ export default async function SourcingReviewPage({
     orgs.map(async (org) => {
       const result = await supabase
         .from('prospects')
-        .select('id, sourcing_review_status, enrichment_status, sourced_tier, current_research_result_id, suppressed', { count: 'exact' })
+        .select('id, sourcing_review_status, enrichment_status, sourced_tier, tiering_reason, current_research_result_id, suppressed', { count: 'exact' })
         .eq('organisation_id', org.id)
 
       if (!result.data) {
@@ -71,6 +71,7 @@ export default async function SourcingReviewPage({
           tier_3_count: 0,
           enriched_untiered_count: 0,
           unresearched_count: 0,
+          removed_count: 0,
         }
       }
 
@@ -84,6 +85,12 @@ export default async function SourcingReviewPage({
       const tier3 = prospects.filter(p => p.sourced_tier === 'tier_3').length
       const enrichedUntiered = prospects.filter(
         p => p.enrichment_status === 'enriched' && p.sourced_tier === null
+      ).length
+      // Removed by the tiering disqualifiers, as opposed to not yet tiered. Both
+      // have sourced_tier NULL; tiering_reason is the discriminator, because
+      // classifyTier writes one on every path and nothing else sets it.
+      const removed = prospects.filter(
+        p => p.enrichment_status === 'enriched' && p.sourced_tier === null && p.tiering_reason !== null
       ).length
       // Matches the 'unresearched' scope the research entry point selects: never researched
       // and not suppressed. Suppressed prospects are excluded because researching copy that
@@ -102,6 +109,7 @@ export default async function SourcingReviewPage({
         tier_3_count: tier3,
         enriched_untiered_count: enrichedUntiered,
         unresearched_count: unresearched,
+        removed_count: removed,
       }
     })
   )

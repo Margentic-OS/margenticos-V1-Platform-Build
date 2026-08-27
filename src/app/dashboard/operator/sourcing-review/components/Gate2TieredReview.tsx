@@ -31,6 +31,22 @@ interface Gate2TieredReviewProps {
     tier_2: Prospect[]
     tier_3: Prospect[]
   }
+  /** tiering_reason -> count, for the prospects tiering removed. Counted server-side. */
+  removedByReason: Record<string, number>
+  removedCount: number
+}
+
+// Plain-English gloss for each removal reason the classifier writes. A reason with
+// no entry here still renders, under its raw code: an unglossed reason must show up
+// as an odd-looking row rather than vanish, because a reason this map has not caught
+// up with is exactly the one worth seeing.
+const REMOVAL_REASON_LABELS: Record<string, string> = {
+  email_unverified: 'Email not verified',
+  no_title: 'No job title',
+  not_decision_maker: 'Not a decision-maker',
+  company_too_large: 'Company over 100 people',
+  industry_excluded: 'Industry excluded by the ICP',
+  industry_not_consulting: 'Industry off-specification',
 }
 
 const tierConfig = {
@@ -212,6 +228,8 @@ export function Gate2TieredReview({
   organisationId,
   organisationName,
   tiering,
+  removedByReason,
+  removedCount,
 }: Gate2TieredReviewProps) {
   const [, startTransition] = useTransition()
   const [publishError, setPublishError] = useState<string | null>(null)
@@ -287,6 +305,43 @@ export function Gate2TieredReview({
         </p>
       </div>
 
+      {/* Removed before tiering.
+          The three tier counts above are survivors. Without this block the screen
+          reports a short list and gives no indication of what it is short OF, which
+          is how a filter that removes most of a batch stays invisible. */}
+      {removedCount > 0 && (
+        <div className="bg-white rounded-[10px] border border-border-card p-6">
+          <div className="flex items-baseline justify-between mb-4">
+            <h2 className="text-base font-medium text-text-primary">
+              {removedCount} removed before tiering
+            </h2>
+            <span className="text-xs text-text-secondary">
+              Not shown in the tiers above
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {Object.entries(removedByReason)
+              .sort((a, b) => b[1] - a[1])
+              .map(([reason, count]) => (
+                <div key={reason} className="bg-[#FAEEDA] rounded-[8px] p-3 border border-[#F0D080]">
+                  <p className="text-xs uppercase font-normal tracking-[0.07em] text-[#7A4800] mb-2">
+                    {REMOVAL_REASON_LABELS[reason] ?? reason}
+                  </p>
+                  <p className="text-2xl font-medium text-text-primary">{count}</p>
+                  <p className="text-xs text-text-secondary mt-1 font-mono">{reason}</p>
+                </div>
+              ))}
+          </div>
+
+          <p className="text-xs text-text-secondary mt-4">
+            These prospects were enriched and then removed by the tiering disqualifiers. They are
+            counted here rather than listed: the count is what tells you whether the filter is
+            behaving, and a long list of rejects is not what this screen is for.
+          </p>
+        </div>
+      )}
+
       {/* Tier sections */}
       <div className="space-y-4">
         {tiering.tier_1.length > 0 && (
@@ -300,9 +355,21 @@ export function Gate2TieredReview({
         )}
       </div>
 
-      {totalEnriched === 0 && (
+      {totalEnriched === 0 && removedCount === 0 && (
         <div className="bg-[#FEF7E6] rounded-[10px] border border-[#F0D080] p-6 text-center">
           <p className="text-sm text-[#7A4800]">No enriched prospects yet. Run the enrich-and-tier action to proceed.</p>
+        </div>
+      )}
+
+      {/* Every prospect in the batch was removed. Previously this rendered as
+          "No enriched prospects yet", which reads as "nothing has run" and is the
+          opposite of what happened. */}
+      {totalEnriched === 0 && removedCount > 0 && (
+        <div className="bg-[#FDEEE8] rounded-[10px] border border-[#EFBCAA] p-6">
+          <p className="text-sm text-[#8B2020]">
+            All {removedCount} enriched prospects were removed by the tiering disqualifiers. None
+            reached a tier. The breakdown above says which gate they went out on.
+          </p>
         </div>
       )}
 

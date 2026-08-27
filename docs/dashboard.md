@@ -46,6 +46,41 @@ What to check if it breaks:
   handler and the service-role client into the browser bundle. The batch-size cap is passed
   down as a prop from the server page for that reason.
 
+### Operator quality review — /dashboard/operator/sourcing-review/review
+
+What it shows: the enriched prospects grouped into tier 1, 2 and 3, AND, since 2026-08-27,
+the prospects tiering removed, counted by reason.
+
+**Why the removal counts are here.** The three tier sections are survivors. Until this was
+added the screen fetched only rows with a non-null `sourced_tier`, so an operator looking at
+twelve tier-1 rows had no way to tell whether the batch was twelve prospects or two hundred,
+and no way at all to see that forty-seven went out on `industry_not_consulting`. A filter
+that removes most of a batch looked identical to a batch that was simply small.
+
+**How removed is distinguished from not-yet-tiered.** Both have `sourced_tier` NULL.
+`tiering_reason` is the discriminator: `classifyTier` writes one on every path, survivors
+included, and nothing else in the codebase sets that column. The review page counts rows
+where `sourced_tier IS NULL AND tiering_reason IS NOT NULL`.
+
+**Counts, not a list.** The removed prospects are aggregated by reason server-side and only
+the counts are sent to the browser. The count is what says whether the filter is behaving. A
+long list of rejects is not what this screen is for.
+
+**The Review quality link is reachable when everything was removed.** It used to appear only
+when at least one prospect reached a tier, which hid this screen in exactly the case where
+its breakdown is the only thing explaining where the batch went. When nothing survived, the
+link reads "See why all were removed" and the screen leads with a red panel saying so,
+rather than the old "No enriched prospects yet", which reads as "nothing has run".
+
+What to check if it breaks:
+- The reason codes are the raw `tiering_reason` values. `REMOVAL_REASON_LABELS` in
+  `Gate2TieredReview.tsx` glosses them into English; a reason with no gloss still renders,
+  under its raw code, on purpose. A row showing a bare code means the classifier has a
+  reason the label map has not caught up with, which is worth seeing rather than hiding.
+- The same counts are logged at `warn` by `logClassificationStats`, with flat keys such as
+  `removed_industry_not_consulting`. Screen and log disagreeing means one of them is reading
+  a stale batch.
+
 ### Client overview — /dashboard
 
 Two entirely different pages behind one route, chosen by whether a single email has gone

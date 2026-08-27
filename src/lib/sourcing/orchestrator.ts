@@ -43,6 +43,7 @@ function serializeError(err: unknown): string {
  * 2. Validate spec exists
  * 3. Get active handler
  * 4. Manifest check (handler.supported_fields vs spec fields)
+ * 4.5 Industry reachability gate (spec.industries vs handler.targeted_industries)
  * 5. Call handler to search
  * 6. Dedupe candidates (suppressed, duplicate person_key, linkedin, email)
  * 7. Write survivors as pending_review prospect rows (untiered)
@@ -196,6 +197,91 @@ export async function runSourcing(
       handler_name: capabilityRow.tool_name,
       populated_fields: populatedFields,
     })
+
+    // ── Step 4.5: Industry reachability gate ────────────────────────────────
+    //
+    // WHAT THIS CATCHES. The manifest check above asks whether the handler
+    // SUPPORTS a field. It does not ask whether the query the handler actually
+    // sends has anything to do with what the client asked for. Since the Apollo
+    // query became hardcoded, those are different questions: the manifest check
+    // passes for every client, and a client whose ICP names schools would be
+    // handed management consultancies with no error, no warning and a run
+    // recorded as completed. That is the shape this gate exists to end.
+    //
+    // WHY IT RUNS HERE, BEFORE handler.execute(). Failing after the search would
+    // still be loud, but it would be loud after the Apollo call, the pagination
+    // and the runtime have been spent. Everything this gate reads is available
+    // before the first request, so it costs nothing to ask first.
+    //
+    // WHAT IT CANNOT DO. This proves what we ASKED FOR, not what came back.
+    // Apollo silently ignores a parameter it does not recognise, so a filter
+    // that reads correctly here can still return an unfiltered result. Candidates
+    // at this stage carry no industry to check against: the free api_search
+    // response carries `has_industry` as a boolean and never the value, so there
+    // is nothing here to compare. The returned rows are checked after enrichment,
+    // in tiering-trigger.ts, which is the first point an industry value exists.
+    const specIndustries = Array.isArray(spec.industries) ? spec.industries : []
+    const targetedIndustries = handler.targeted_industries ?? []
+
+    if (specIndustries.length === 0) {
+      // Not a failure, and deliberately so. An empty industries list is the spec
+      // declining to constrain industry, not a spec that disagrees with the query,
+      // and there is no intersection to be empty. It is still worth saying out
+      // loud, because the practical result is the same: the client takes whatever
+      // the hardcoded filter targets and nothing recorded that they chose it.
+      logger.warn('Sourcing orchestrator: ICP names no industries, handler targeting is unchecked', {
+        operation_id: operationId,
+        client_id,
+        handler_name: capabilityRow.tool_name,
+        handler_targets: targetedIndustries,
+      })
+    } else {
+      const targetedLower = new Set(targetedIndustries.map(i => i.toLowerCase()))
+      const reachable = specIndustries.filter(i => targetedLower.has(String(i).toLowerCase()))
+      const unreachable = specIndustries.filter(i => !targetedLower.has(String(i).toLowerCase()))
+
+      if (reachable.length === 0) {
+        logger.error('Sourcing orchestrator: spec industries unreachable by handler query', {
+          operation_id: operationId,
+          client_id,
+          handler_name: capabilityRow.tool_name,
+          spec_industries: specIndustries,
+          handler_targets: targetedIndustries,
+        })
+        throw new Error(
+          `Sourcing refused for client ${client_id}: not one of the industries this ICP asks for is ` +
+          `targeted by the ${capabilityRow.tool_name} handler's search query, so every prospect it ` +
+          'returned would be off-specification. ' +
+          `ICP asked for: ${specIndustries.join(', ')}. ` +
+          `Handler targets: ${targetedIndustries.join(', ')}. ` +
+          'The query is hardcoded rather than derived from the spec, so this cannot be fixed by ' +
+          'editing the ICP: either the handler needs a query that serves this client, or this client ' +
+          'needs a different handler.'
+        )
+      }
+
+      if (unreachable.length > 0) {
+        // Partial coverage is not a failure: the run can still return prospects in
+        // the industries that ARE targeted. It is reported because the difference
+        // between "we searched for the 15 industries you named" and "we searched
+        // for 12 of them" is invisible in the results and matters to the operator.
+        logger.warn('Sourcing orchestrator: some spec industries are not targeted by the handler query', {
+          operation_id: operationId,
+          client_id,
+          handler_name: capabilityRow.tool_name,
+          reachable_count: reachable.length,
+          unreachable_count: unreachable.length,
+          unreachable_industries: unreachable,
+        })
+      }
+
+      logger.info('Sourcing orchestrator: industry reachability gate passed', {
+        operation_id: operationId,
+        client_id,
+        handler_name: capabilityRow.tool_name,
+        reachable_industries: reachable,
+      })
+    }
 
     // ── Step 5: Call handler to search ──────────────────────────────────────
     logger.info('Sourcing orchestrator: calling handler to search', {

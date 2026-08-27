@@ -56,12 +56,44 @@ export default async function ReviewPage({
   const tier2 = prospects.filter(p => p.sourced_tier === 'tier_2')
   const tier3 = prospects.filter(p => p.sourced_tier === 'tier_3')
 
+  // ── 6. Fetch the prospects tiering REMOVED ─────────────────────────────────
+  //
+  // The query above ends `.not('sourced_tier', 'is', null)`, so until now this
+  // screen could only ever show survivors. An operator looking at 12 tier-1 rows
+  // had no way to tell whether the batch was 12 prospects or 200, and no way at
+  // all to see that 47 of them went in industry_not_consulting.
+  //
+  // `sourced_tier IS NULL` alone does not mean removed: it is also every prospect
+  // that has not been through tiering yet. tiering_reason is what separates them,
+  // because classifyTier writes one on every path and nothing else sets it.
+  const { data: removedRows } = await supabase
+    .from('prospects')
+    .select('tiering_reason')
+    .eq('organisation_id', organisationId)
+    .eq('enrichment_status', 'enriched')
+    .is('sourced_tier', null)
+    .not('tiering_reason', 'is', null)
+
+  // Counted here, on the server, because the reason is all this screen needs and
+  // shipping whole prospect rows to the browser to count them would be wasteful.
+  const removedByReason = (removedRows ?? []).reduce<Record<string, number>>((acc, row) => {
+    const reason = row.tiering_reason ?? 'unknown'
+    acc[reason] = (acc[reason] ?? 0) + 1
+    return acc
+  }, {})
+
+  const removedCount = removedRows?.length ?? 0
+
   return (
     <>
       <OperatorTopbar
         eyebrow="Operator view"
         title="Quality review"
-        subtitle={`${tier1.length + tier2.length + tier3.length} enriched prospects`}
+        subtitle={
+          removedCount > 0
+            ? `${tier1.length + tier2.length + tier3.length} enriched prospects, ${removedCount} removed`
+            : `${tier1.length + tier2.length + tier3.length} enriched prospects`
+        }
         userEmail={user.email}
       />
       <div className="flex-1 overflow-y-auto bg-surface-content">
@@ -75,6 +107,8 @@ export default async function ReviewPage({
               tier_2: tier2,
               tier_3: tier3,
             }}
+            removedByReason={removedByReason}
+            removedCount={removedCount}
           />
         </div>
       </div>

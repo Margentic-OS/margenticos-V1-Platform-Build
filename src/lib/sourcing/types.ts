@@ -39,6 +39,24 @@ export interface SourcingRunResult {
 export interface SourcingHandler {
   name: string
   supported_fields: string[]
+
+  // The canonical industries this handler's query actually targets.
+  //
+  // REQUIRED, not optional, and that is the point. A handler cannot be added
+  // without saying what it goes looking for, so the orchestrator's pre-search
+  // gate can never be handed `undefined` and quietly pass. Optional here would
+  // mean a new handler skips the gate by omission, which is the silent-default
+  // shape this field exists to close.
+  //
+  // Canonical names only (CANONICAL_INDUSTRIES in icp-filter-spec.ts), never a
+  // tool's own taxonomy, so it compares directly against ICPFilterSpec.industries.
+  //
+  // A future spec-driven handler, whose query IS the spec and therefore targets
+  // whatever it is asked for, does not fit this shape. That is deliberately not
+  // modelled yet: nothing needs it, and the type will force whoever builds it to
+  // say so out loud rather than default their way past the gate.
+  targeted_industries: readonly string[]
+
   adapter: (spec: unknown) => unknown
   execute: (spec: unknown, cap?: number) => Promise<unknown[]>
 }

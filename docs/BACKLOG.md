@@ -134,6 +134,58 @@
   re-run. Kept rather than deleted because she is a real person and a data-hygiene
   accident, not test data.
   Trigger: next time the live org's prospect list is being built.
+## Silent sourcing defaults are now loud, and what was found while making them loud (2026-08-27)
+
+Track B item 8. Three things were BUILT: a pre-search industry reachability gate in the
+sourcing orchestrator (step 4.5), a returned-industry assertion after enrichment
+(tiering-trigger step 6.5), and a removal breakdown on the operator sourcing review
+screen. Nothing underlying was fixed, deliberately. The items below are what was seen
+while in there and consciously left alone.
+
+- [post-build] REMOVED PROSPECTS ARE RE-CLASSIFIED ON EVERY TIERING RUN. tierEnrichedBatch
+  selects `enrichment_status = 'enriched' AND sourced_tier IS NULL`, and a prospect removed
+  by a disqualifier keeps `sourced_tier = NULL` forever. So every subsequent run picks it up
+  again, re-runs classifyTier on it, and rewrites the same tiering_reason. It costs no money
+  (no API call) but it consumes the batch cap: a client with 200 removed prospects and a cap
+  of 100 will never reach a newly enriched one. `tiering_reason IS NOT NULL` is the
+  discriminator and the fix is a filter, but it is a behaviour change and was out of scope.
+
+- [post-build] `src/app/dashboard/operator/sourcing-review/components/FlaggedIndustryTagsSection.tsx`
+  IS NOT IMPORTED ANYWHERE. 296 lines, a live POST to /api/operator/industry-tag-mappings,
+  and no route renders it. The operator-facing way to map an unmapped Apollo tag to a
+  canonical industry therefore exists in code and is unreachable in the product. Flagged,
+  not deleted, per CLAUDE.md's rule on pre-existing dead code.
+
+- [post-build] `src/lib/sourcing/industry-mapping.ts:76` calls `console.error` directly,
+  against the CLAUDE.md rule that all log output goes through the logger module. It is on
+  the failure path of loadIndustryTagMappings, so a database mapping failure is invisible to
+  Sentry and to structured log search. One-line fix, deliberately not taken in this session.
+
+- [post-build] THE PRE-SEARCH GATE READS A HAND-DECLARED LIST. `APOLLO_TARGETED_INDUSTRIES`
+  in adapter-apollo.ts is canonical names derived from NAICS 5416 plus four names measured
+  coming back from the live filter. It is exported so the orchestrator reads one list rather
+  than keeping a copy, but it is still a human statement about what the query targets, not
+  something derived from the query. If the filter constants change and this list does not,
+  the gate measures the wrong thing. It is beside the filter it describes, which is the best
+  available mitigation short of a NAICS-to-canonical table nobody needs yet.
+
+- [post-build] `SourcingHandler.targeted_industries` IS REQUIRED, AND A SPEC-DRIVEN HANDLER
+  DOES NOT FIT IT. A handler whose query IS the spec targets whatever it is asked for, and
+  cannot name a fixed set. Required rather than optional on purpose: optional would let a
+  new handler skip the gate by omission. Whoever builds the spec-driven handler has to
+  confront the shape rather than default past it.
+
+- [post-build] THE POST-ENRICHMENT ASSERTION HAS NO MINIMUM BATCH SIZE. A batch of one
+  off-specification prospect fails the whole tiering run. Chosen over a threshold because
+  any threshold would be a number nobody has measured, and a check that stays quiet below an
+  invented floor is the shape this work exists to remove. If it proves noisy in practice,
+  the fix is a measured floor, not a silent one.
+
+- [post-build] THE MANIFEST CHECK (orchestrator step 4) STILL DESCRIBES NOTHING. Already
+  logged when the Apollo query was hardcoded, repeated here because step 4.5 now sits
+  directly beneath it and the two are easy to confuse. Step 4 asks whether the handler
+  SUPPORTS a field. Step 4.5 asks whether the query it actually sends has anything to do
+  with what the client asked for. Only the second one is currently true of the query.
 
 ## The commit gate is now executable (2026-08-27)
 

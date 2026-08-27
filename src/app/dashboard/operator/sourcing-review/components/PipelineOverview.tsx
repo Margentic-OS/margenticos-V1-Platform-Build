@@ -16,6 +16,8 @@ interface PipelineMetrics {
   tier_3_count: number
   enriched_untiered_count: number
   unresearched_count: number
+  /** Enriched, then removed by a tiering disqualifier. Not the same as not-yet-tiered. */
+  removed_count: number
 }
 
 interface PipelineOverviewProps {
@@ -125,6 +127,20 @@ export function PipelineOverview({ metrics, selectedClientId, sourcingMaxBatchSi
                   </p>
                 </div>
               )}
+
+              {/* Removed. Shown beside the tiers because the tier counts on their own
+                  are survivors, and a batch that lost most of itself looks identical
+                  to a small batch that did not. */}
+              {org.removed_count > 0 && (
+                <div className="bg-[#FDEEE8] rounded-[8px] p-3 border border-[#EFBCAA]">
+                  <p className="text-xs uppercase font-normal tracking-[0.07em] text-[#8B2020] mb-2">
+                    Removed
+                  </p>
+                  <p className="text-2xl font-medium text-text-primary">
+                    {org.removed_count}
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Run the pipeline: source, then research. Both run inside one request and
@@ -158,16 +174,20 @@ export function PipelineOverview({ metrics, selectedClientId, sourcingMaxBatchSi
                   </>
                 )}
 
-                {enrichedCount > 0 && (
+                {/* Reachable when everything was removed, not only when something
+                    survived. Gating this on enrichedCount alone hid the quality screen
+                    in exactly the case where its removal breakdown is the only thing
+                    that explains where the batch went. */}
+                {(enrichedCount > 0 || org.removed_count > 0) && (
                   <Link
                     href={`/dashboard/operator/sourcing-review/review?client=${org.organisation_id}`}
                     className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-[#1C3A2A] text-white hover:bg-[#152e21] transition-colors"
                   >
-                    Review quality
+                    {enrichedCount > 0 ? 'Review quality' : 'See why all were removed'}
                   </Link>
                 )}
 
-                {org.pending_review_count === 0 && org.approved_unenriched_count === 0 && enrichedCount === 0 && (
+                {org.pending_review_count === 0 && org.approved_unenriched_count === 0 && enrichedCount === 0 && org.removed_count === 0 && (
                   <span className="text-xs text-text-secondary">No prospects to review.</span>
                 )}
               </div>

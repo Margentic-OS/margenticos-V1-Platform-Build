@@ -18,10 +18,33 @@ export interface EnrichedProspect {
   company_name?: string | null
 }
 
+// Every reason a prospect can be REMOVED at stage 1. One list, and the reporting
+// counts are derived from it rather than hand-listed beside it, so a new
+// disqualifier cannot be added without its count appearing in the log.
+//
+// It is a `const` array rather than a bare union type because a type alone would
+// vanish at run time and the counting code would be back to a hand-maintained
+// second list. Anything not in here still gets counted, under `removed_other`,
+// with the raw reasons named: a reason that falls through must be visible rather
+// than silently absent, which is the whole point of this file's changes.
+export const REMOVAL_REASONS = [
+  'email_unverified',
+  'no_title',
+  'not_decision_maker',
+  'company_too_large',
+  'industry_excluded',
+  'industry_not_consulting',
+] as const
+
+export type RemovalReason = typeof REMOVAL_REASONS[number]
+
 interface TierResult {
   prospect_id: string
   sourced_tier: 'tier_1' | 'tier_2' | 'tier_3' | null
   fit_score: number | null
+  // For a removed prospect this is a RemovalReason. For a survivor it is the
+  // free-text score breakdown built at the bottom of classifyTier, which is why
+  // the type stays `string` rather than narrowing to the union.
   tiering_reason: string
 }
 
@@ -194,7 +217,7 @@ export async function classifyTier(
       prospect_id: prospectId,
       sourced_tier: null,
       fit_score: null,
-      tiering_reason: 'email_unverified',
+      tiering_reason: 'email_unverified' satisfies RemovalReason,
     }
   }
 
@@ -204,7 +227,7 @@ export async function classifyTier(
       prospect_id: prospectId,
       sourced_tier: null,
       fit_score: null,
-      tiering_reason: 'no_title',
+      tiering_reason: 'no_title' satisfies RemovalReason,
     }
   }
 
@@ -214,7 +237,7 @@ export async function classifyTier(
       prospect_id: prospectId,
       sourced_tier: null,
       fit_score: null,
-      tiering_reason: 'not_decision_maker',
+      tiering_reason: 'not_decision_maker' satisfies RemovalReason,
     }
   }
 
@@ -224,7 +247,7 @@ export async function classifyTier(
       prospect_id: prospectId,
       sourced_tier: null,
       fit_score: null,
-      tiering_reason: 'company_too_large',
+      tiering_reason: 'company_too_large' satisfies RemovalReason,
     }
   }
 
@@ -246,7 +269,7 @@ export async function classifyTier(
         prospect_id: prospectId,
         sourced_tier: null,
         fit_score: null,
-        tiering_reason: 'industry_excluded',
+        tiering_reason: 'industry_excluded' satisfies RemovalReason,
       }
     }
   }
@@ -273,7 +296,7 @@ export async function classifyTier(
         prospect_id: prospectId,
         sourced_tier: null,
         fit_score: null,
-        tiering_reason: 'industry_not_consulting',
+        tiering_reason: 'industry_not_consulting' satisfies RemovalReason,
       }
     }
   }
@@ -328,13 +351,60 @@ export function logClassificationStats(
     reasons[result.tiering_reason] = (reasons[result.tiering_reason] || 0) + 1
   }
 
-  logger.info('tier-classification: two-stage model run complete', {
+  // ── Flat, greppable removal counts ─────────────────────────────────────────
+  //
+  // WHY FLAT AND NOT NESTED. `breakdown_by_reason` is a nested object, so in the
+  // production log stream the only literal that appears is the outer key. A search
+  // for `industry_not_consulting` finds it inside the JSON blob but nothing can
+  // alert or chart on it without parsing the object first. `removed_industry_not_consulting`
+  // is a key in its own right, always present, always a number.
+  //
+  // ALWAYS PRESENT, including as a zero. A key that only appears when non-zero
+  // makes "no prospects were removed for this reason" and "this reason is no longer
+  // being counted" look identical downstream, which is the failure mode this whole
+  // change exists to remove.
+  //
+  // Derived from REMOVAL_REASONS with Object.fromEntries rather than written out,
+  // so the counts and the reasons cannot drift into the parallel-array shape.
+  const removedCounts = Object.fromEntries(
+    REMOVAL_REASONS.map(reason => [`removed_${reason}`, reasons[reason] ?? 0]),
+  ) as Record<`removed_${RemovalReason}`, number>
+
+  // Anything that removed a prospect without being a registered reason. Counted
+  // and NAMED rather than dropped: an unregistered reason is a defect in this
+  // file, and it must not be the quiet kind.
+  const knownReasons = new Set<string>(REMOVAL_REASONS)
+  const otherRemovalReasons = results
+    .filter(r => r.sourced_tier === null && !knownReasons.has(r.tiering_reason))
+    .map(r => r.tiering_reason)
+  const removedOther = otherRemovalReasons.length
+
+  const payload = {
     organisation_id: organisationId,
     total_classified: results.length,
     tier_1_count: counts.tier_1,
     tier_2_count: counts.tier_2,
     tier_3_count: counts.tier_3,
     removed_count: counts.null,
+    ...removedCounts,
+    removed_other: removedOther,
+    ...(removedOther > 0
+      ? { removed_other_reasons: Array.from(new Set(otherRemovalReasons)) }
+      : {}),
     breakdown_by_reason: reasons,
-  })
+  }
+
+  // warn when the batch lost prospects, info when it did not.
+  //
+  // These were already logger.info, which the logger does NOT suppress in
+  // production (only `debug` is suppressed, src/lib/logger/index.ts). So the
+  // counts did reach the logs. What they did not do is stand out: a batch where
+  // every prospect was removed produced a line indistinguishable in level from a
+  // batch where none were, sitting in a stream of ordinary run-progress info.
+  // warn is what separates them.
+  if (counts.null > 0) {
+    logger.warn('tier-classification: two-stage model run complete, prospects were removed', payload)
+  } else {
+    logger.info('tier-classification: two-stage model run complete', payload)
+  }
 }

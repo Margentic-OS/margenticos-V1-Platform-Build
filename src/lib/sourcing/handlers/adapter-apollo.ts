@@ -32,6 +32,7 @@
 import { logger } from '@/lib/logger'
 import { normaliseLinkedInUrl } from '@/lib/sourcing/normalise-linkedin'
 import type { ProspectCandidate } from '@/lib/sourcing/dedupe'
+import type { CanonicalIndustry } from '@/lib/agents/icp-filter-spec'
 
 interface ApolloApiSearchRequest {
   organization_naics_codes: string[]
@@ -172,6 +173,67 @@ const APOLLO_FILTER: Omit<ApolloApiSearchRequest, 'page' | 'per_page'> = {
   contact_email_status: ['verified'],
 }
 
+// ─── What this query targets, in canonical names ─────────────────────────────
+//
+// EXPORTED so the orchestrator's pre-search gate READS this rather than keeping
+// its own copy. A value copied into a second file is the parallel-array shape
+// CLAUDE.md warns about: the copy and the filter drift apart, nothing errors,
+// and the gate ends up proving something about a query that is no longer sent.
+// There is one list, and it lives beside the filter it describes.
+//
+// Typed as CanonicalIndustry[] on purpose. A name that is not in the canonical
+// taxonomy is a COMPILE ERROR here rather than a silently empty intersection at
+// run time, which is the same class of mistake this gate exists to catch.
+//
+// This declares what the query ASKS FOR. It is not a promise about every row
+// that comes back: a firm carries more than one NAICS code and Apollo's own
+// industry tag is assigned independently of the code we filtered on, so this
+// filter demonstrably also returns apparel, restaurants and biotechnology rows.
+// Those are the tier classifier's problem (industry_not_consulting), not this
+// list's. What this list is for is the question the gate asks: did the client
+// ask for anything this query even TRIES to find?
+//
+// Two sources, both named so the next person does not have to re-derive them:
+//
+//   1. NAICS 5416, Management, Scientific and Technical Consulting Services,
+//      which is the organization_naics_codes value above. Its sub-codes are
+//      541611 general and strategy, 541612 human resources, 541613 marketing
+//      and sales, 541614 process, logistics and procurement, 541618 other
+//      management including risk and compliance, 541620 environmental, and
+//      541690 other scientific and technical.
+//
+//   2. MEASURED. The last four canonical names are not 5416 sub-codes and are
+//      here because this exact filter returns them anyway. Live enriched
+//      prospects sourced through it carry the Apollo tags 'information
+//      technology & services', 'financial services' and 'professional training
+//      & coaching', which APOLLO_TO_SPEC maps to the first three. Leaving them
+//      out would make the partial-coverage warning below report them as
+//      unreachable, which would be false, and a report that cries wolf is the
+//      thing this task exists to stop building.
+export const APOLLO_TARGETED_INDUSTRIES: readonly CanonicalIndustry[] = [
+  // NAICS 5416 sub-codes
+  'Management Consulting',
+  'Operations Consulting',
+  'Strategy Consulting',
+  'Change Management Consulting',
+  'Human Resources Consulting',
+  'Marketing Consulting',
+  'Sales Consulting',
+  'Supply Chain Consulting',
+  'Procurement Consulting',
+  'Risk Management Consulting',
+  'Compliance Consulting',
+  'Environmental Consulting',
+  'Engineering Consulting',
+  'Healthcare Consulting',
+  'Data Analytics Consulting',
+  // Measured coming back from this filter, mapped through APOLLO_TO_SPEC
+  'Information Technology Consulting',
+  'Financial Advisory Services',
+  'Business Coaching',
+  'Executive Coaching',
+] as const
+
 // ISO-3166 codes the hardcoded filter covers. Used only to report divergence.
 const FILTER_COUNTRY_CODES = new Set(['US', 'GB', 'IE'])
 
@@ -229,6 +291,12 @@ export const apolloHandler = {
   // the filter arrays are copied below: one caller mutating this would change what
   // every later client in the process is measured against.
   supported_fields: [...SUPPORTED_FIELDS],
+
+  // What the hardcoded query targets, for the orchestrator's pre-search gate.
+  // Copied out of the exported constant for the same reason supported_fields is:
+  // handing every caller the same array instance means one caller mutating it
+  // changes what every later client in the process is measured against.
+  targeted_industries: [...APOLLO_TARGETED_INDUSTRIES],
 
   // Adapter: return the hardcoded request.
   //
@@ -299,6 +367,17 @@ export const apolloHandler = {
     }
 
     const candidates: ProspectCandidate[] = []
+
+    // Aggregate counts for the two post-filters below. The per-candidate lines are
+    // logger.debug, which the logger SUPPRESSES in production (src/lib/logger/index.ts),
+    // so before these counters existed a run that dropped every candidate it fetched
+    // produced no production evidence of it at all: the only number that reached the
+    // orchestrator was candidates.length, already net of the drops. Counting here and
+    // saying it once per run costs one log line and makes the drop visible.
+    let droppedByExcludedTitle = 0
+    let droppedByExcludedKeyword = 0
+    let droppedByNoEmail = 0
+
     const MAX_PAGES = 500
     const MAX_RESULTS = cap ?? 50000
     const PAGE_SIZE = cap ? Math.min(cap, 100) : 100
@@ -369,6 +448,7 @@ export const apolloHandler = {
         for (const person of data.people) {
           // Pre-filter: only include if Apollo claims verified email
           if (person.has_email === false) {
+            droppedByNoEmail++
             continue
           }
 
@@ -378,6 +458,7 @@ export const apolloHandler = {
             if (jobTitlesExcluded.some(excluded =>
               titleLower.includes(excluded.toLowerCase())
             )) {
+              droppedByExcludedTitle++
               logger.debug('Apollo handler: dropped by job_titles_excluded', {
                 title: person.title,
                 excluded_titles: jobTitlesExcluded,
@@ -392,6 +473,7 @@ export const apolloHandler = {
             if (keywordsExcluded.some(excluded =>
               companyLower.includes(excluded.toLowerCase())
             )) {
+              droppedByExcludedKeyword++
               logger.debug('Apollo handler: dropped by keywords_excluded', {
                 company: person.organization.name,
                 excluded_keywords: keywordsExcluded,
@@ -442,11 +524,26 @@ export const apolloHandler = {
       }
     }
 
-    logger.info('Apollo handler: sourcing complete', {
+    // Flat keys, not a nested object, so `dropped_job_titles_excluded` is greppable
+    // in the production log stream on its own. warn when anything was dropped and
+    // info when nothing was, because a run that silently discards what it fetched is
+    // the case worth noticing and a clean run is not.
+    const droppedTotal = droppedByNoEmail + droppedByExcludedTitle + droppedByExcludedKeyword
+    const dropReport = {
       total_candidates: candidates.length,
       pages_fetched: page - 1,
       max_pages: MAX_PAGES,
-    })
+      dropped_total: droppedTotal,
+      dropped_no_email: droppedByNoEmail,
+      dropped_job_titles_excluded: droppedByExcludedTitle,
+      dropped_keywords_excluded: droppedByExcludedKeyword,
+    }
+
+    if (droppedTotal > 0) {
+      logger.warn('Apollo handler: sourcing complete, candidates were dropped', dropReport)
+    } else {
+      logger.info('Apollo handler: sourcing complete', dropReport)
+    }
 
     return candidates
   },
