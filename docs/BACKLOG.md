@@ -7084,21 +7084,12 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   The OTP one is worth a look given auth here is magic-link, so the OTP lifetime is the
   window in which a captured link stays usable.
 
-- [docs] THE 2026-08-27 VIEW DECISION NEEDS AN ADR NUMBER ASSIGNED AT MERGE TIME.
+- [docs] RESOLVED 2026-08-27: the view decision is ADR-039.
 
-  The decision itself: a client-facing view runs as the CALLER (security_invoker = true)
-  and carries SELECT only. Owner-executing views are reserved for service-role-only paths
-  where RLS is deliberately not the gate, and even those get their grants read back per
-  role in both directions before the migration commits. The corollary is that
-  auto-updatable views are a WRITE surface, so the grant is the control, not the WHERE
-  clause.
+  Doug assigned 039 directly at merge time: 035 is unmerged on sourcing-filter, 036 exists
+  on five branches, 037 is claimed by two, and 038 belongs to operator-rejection-note.
+  Whoever collides after advisor-fixes renumbers. Written up in docs/ADR.md.
 
-  Fully written up already in supabase/migrations/20260827220000_client_organisation_view_
-  security_invoker.sql and in the client_organisation_view section of docs/data-model.md,
-  so nothing is lost if this sits a while.
-
-  NO NUMBER CLAIMED ON PURPOSE. docs/ADR.md on this branch runs to ADR-037 with ADR-035
-  absent because it is still unmerged on sourcing-filter, and several sessions were live
-  on 2026-08-27. ADR-033 was already renumbered once after two branches both claimed 032.
-  Assign the next genuinely free number by reading docs/ADR.md after the branches land,
-  not by incrementing whatever this note says.
+  Still outstanding from this: CLAUDE.md's ADR reference list stops at ADR-034 and now
+  misses 035 through 039. Same parallel-session reason as the entry above, so it is still
+  one commit touching only CLAUDE.md once the branches land.

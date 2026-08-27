@@ -2902,3 +2902,125 @@ the one that will actually happen during the ramp, not because it is the only on
 A second re-queue trigger is needed, or removals grow large enough that a full re-queue on
 spec change is itself the expensive event. At that point the answer is probably a bounded
 re-queue with an operator confirmation, not a threshold.
+
+---
+
+## ADR-039: A client-facing view runs as the caller, and the grant is the control
+
+**Date:** 2026-08-27
+**Status:** Accepted. Applied to production and verified live before this ADR was written.
+**Supersedes:** nothing. It corrects a conclusion reached on 2026-08-26 in migration
+20260826170000, which is left in place because its reasoning about the READ path was
+right and is still worth reading.
+
+**Number:** 039 assigned by Doug on 2026-08-27 because 035 is unmerged on
+sourcing-filter, 036 exists on five branches, 037 is claimed by two, and 038 belongs to
+operator-rejection-note. Whoever collides after this renumbers.
+
+### The problem this solves
+
+`client_organisation_view` was owner-executing (`security_invoker = false`). The Supabase
+advisor raised it as an ERROR. It had already been examined once, on 2026-08-26, during
+the work that closed the nine leaking `mon_*` views. That examination measured the READ
+path, found the view self-scoped by `WHERE id = get_my_organisation_id()`, found
+`get_my_organisation_id()` denies EXECUTE to anon, and left the view alone by decision.
+
+**Every one of those findings was correct. The conclusion was still wrong.**
+
+The view is auto-updatable (`information_schema.views.is_updatable = YES`), and `anon` and
+`authenticated` both held the full Supabase default `arwdDxtm` grant on it. An
+owner-executing auto-updatable view bypasses RLS on WRITE exactly as thoroughly as on
+read. Measured as a real signed-in client, in a transaction forced to abort:
+
+    baseline pipeline_unlocked = false
+    SELECT via view        -> own org row (correct)
+    UPDATE via view        -> SUCCEEDED, 1 row changed     <-- RLS bypassed
+    UPDATE via base table  -> SUCCEEDED, 0 rows            <-- RLS holding, correctly
+
+Same role, same target row, same transaction. `organisations` refuses the write because
+`clients_read_own_organisation` is SELECT-only and no client UPDATE policy exists. The
+view performs it because the view is not running as the client.
+
+A client could therefore set `pipeline_unlocked` on their own organisation, which is the
+operator-controlled phased unlock, and rewrite `name`, `slug`, `contract_start_date` and
+`meetings_count`. Bounded to their OWN organisation by the WHERE clause, so this was
+escalation within one tenant and never cross-tenant leakage. No evidence it was ever
+exercised: `updated_at` on the probed row still read 2026-08-21 afterwards.
+
+### The decision
+
+**A client-facing view runs as the CALLER, and its grant is narrowed to what it is for.**
+
+1. `security_invoker = true` on every view any client role can reach, so RLS on the base
+   tables is consulted as a real second gate rather than assumed to be one.
+2. The GRANT is the control, not the WHERE clause. A view's predicate constrains WHICH
+   rows; only the grant constrains WHAT OPERATIONS. A read-only view gets SELECT and
+   nothing else.
+3. Owner-executing views are permitted only on service-role-only paths where RLS is
+   deliberately not the gate, and those still get their grants read back per role, in
+   both directions, in the migration that creates them.
+4. Changes go via `ALTER VIEW`, never `DROP` + `CREATE`. A drop loses the ACL, and
+   Supabase's `ALTER DEFAULT PRIVILEGES` on the public schema re-grants `anon` and
+   `authenticated` the full set by name at creation time. That default is how the write
+   grant arrived here, and a drop would silently reinstate it.
+
+Applied in 20260827220000. End state, read back live:
+
+    security_invoker = true
+    relacl {postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}
+
+and re-tested by SET ROLE rather than inferred from the grant table: anon denied 42501,
+client reads its own row unchanged, client write blocked 42501, operator reads its own
+row unchanged.
+
+### Why not the alternatives
+
+**Leave it and rely on the WHERE clause.** That is what 2026-08-26 chose, on evidence
+that only covered reads. The predicate does bound the blast radius to one organisation,
+which is why this was escalation and not a breach. It does not make a write path
+read-only.
+
+**Revoke the write grant and leave it owner-executing.** Closes this instance and leaves
+the class open. The next person adding a client-safe column re-runs `CREATE OR REPLACE`,
+or drops and recreates, and inherits the defaults again with no second gate underneath.
+
+**Switch to SECURITY INVOKER but keep the full grant.** Would have been enough here,
+because RLS on `organisations` has no client UPDATE policy, so writes match zero rows. It
+makes the safety of the view depend entirely on the absence of a policy on a different
+table. Adding a legitimate client UPDATE policy to `organisations` later would silently
+re-open the write path through the view. Two gates, not one.
+
+### What this does NOT fix
+
+**The audit that missed it.** The corrected view audit in CLAUDE.md, written on
+2026-08-26, selects `has_table_privilege(..., 'SELECT')` and nothing else. It asks who can
+READ. `client_organisation_view` appeared in its output and was reasoned past. An audit
+that cannot see the class it was written to find reports zero rows reassuringly forever,
+and this is the third time that exact shape has cost real time on this build, after the
+`relkind = 'r'` filter and the monitor-sweep parallel arrays.
+
+The audit needs write privileges added AND needs to live in a monitor rather than a
+markdown file, for the same reason the commit gate was made executable on 2026-08-27: a
+control that runs only when someone remembers it is not a control. Both in BACKLOG, not
+done here because CLAUDE.md is the one file every parallel session reads.
+
+**The baseline generator.** `scripts/regen-schema-baseline.ts` matches `security_invoker`
+by PRESENCE (`LIKE 'security_invoker=%'`) and then hardcodes `= true`, so it wrote
+`WITH (security_invoker = true)` into the tracked baseline for a view that was false, on
+the exact property the advisor was raising an ERROR about. This ADR's change makes that
+row true and the discrepancy self-heals, which is worse rather than better: the generator
+bug survives, invisible, until the next view is created false. In BACKLOG.
+
+**Documentation that asserted the opposite.** `docs/data-model.md` stated the client
+SELECT policy on `organisations` "was dropped", and used that to justify the view running
+as its owner. Live `pg_policies` says the policy exists. Anyone reasoning from the doc
+would conclude this change must break every client read. Corrected against a live read,
+and it is the reason the standing rule is to query `pg_policies` rather than grep the
+migrations.
+
+### Revisit when
+
+A client-facing view is genuinely needed that must read something the caller's own RLS
+cannot reach. That is a real case, and the answer then is a SECURITY DEFINER function with
+EXECUTE granted to exactly one role and the privilege read back in both directions, not an
+owner-executing view with a permissive grant.
