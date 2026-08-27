@@ -84,6 +84,17 @@ handler skip the gate by omission, which is the silent default this field exists
 - **Neither ever fires and you expect one to.** Both gates skip when `spec.industries` is
   empty. Check the stored `icp_filter_spec` first.
 
+## A removal is a frozen verdict
+
+`tierEnrichedBatch` skips any prospect that already carries a `tiering_reason`, so a
+removed prospect is never re-examined by the normal path. That is what stops decided rows
+eating the batch cap, and it means the removal reasons counted on the review screen are
+STABLE between runs rather than rewritten every time.
+
+Removals are put back in the queue when a new ICP filter spec is stored for the
+organisation, and by nothing else. See ADR-037, which also lists the three removal reasons
+that still have no re-evaluation path at all.
+
 ## Related
 
 - `docs/dashboard.md`, "Operator quality review", for the removal counts on screen.

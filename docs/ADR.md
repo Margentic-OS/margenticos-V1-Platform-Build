@@ -2795,3 +2795,110 @@ exactly the kind of gap that gets rediscovered as a defect six weeks later.
 Either one is the trigger for spec-driven sourcing, and at that point ADR-032's
 recovery instructions (the location table and seniority map at `bc05658`) apply, and
 the manifest check must be reinstated as a real gate in the same change.
+
+---
+
+## ADR-037: A tiering verdict is frozen on the row, and ONLY a new ICP filter spec thaws it
+
+**Date:** 2026-08-27
+**Status:** Accepted. This is ADR-034's missing third layer, built for one rule.
+**Supersedes:** nothing.
+
+### The problem this solves
+
+`tierEnrichedBatch` selected `enrichment_status = 'enriched' AND sourced_tier IS NULL`.
+
+`sourced_tier IS NULL` is not "not yet tiered". It is ALSO every prospect a disqualifier
+removed, because a removed prospect keeps a NULL tier forever: nothing in the codebase
+ever sets `sourced_tier` for one. So every tiering run re-fetched every prospect it had
+already rejected, re-classified it, and rewrote the identical reason.
+
+That costs no money. `classifyTier` makes no API call. What it costs is the BATCH CAP.
+
+At roughly 1,730 prospects a month with removals accumulating, a client reaches the point
+where the cap is filled entirely by rows that were already decided, and tiering stops
+reaching newly enriched prospects. **Silently**, because the run still reports
+"completed, N classified". The number is true. They are N of the wrong prospects.
+
+This bites during the ramp, not at client one. At current volume (one client, 31 enriched
+prospects, 1 stuck removal) it is invisible.
+
+### The decision
+
+**Exclude by STATE, not by timestamp.** `tierEnrichedBatch` now also filters
+`.is('tiering_reason', null)`.
+
+`tiering_reason` is the discriminator because `classifyTier` writes one on EVERY path,
+survivors included, and nothing else writes that column except the two operator re-tier
+routes, which set a tier at the same time.
+
+**Why not a timestamp.** `updated_at` is unusable: a `prospects_set_updated_at` trigger
+fires `BEFORE UPDATE` on every row change, so a verification write, a research link or a
+suppression all move it. It cannot answer "when was this tiered". A new `tiered_at`
+column would work, but it would be queried as `WHERE tiered_at IS NULL`, which is a state
+test wearing a timestamp's clothes, and any "re-tier anything older than N days" rule
+would be a threshold nobody has measured. Same objection as the deliberate absence of a
+minimum batch size on the returned-industry assertion (ADR-036 neighbourhood, see
+`docs/sourcing-specification-gates.md`).
+
+**Why not a new terminal state** such as `sourced_tier = 'removed'`. It is clearer, and it
+costs a migration plus every reader of `sourced_tier IS NULL` — three in application code
+and two in the operator UI. Same effect, larger blast radius, and it would have broken
+the industry-tag-mapping re-tier route, which finds its candidates by that exact
+predicate.
+
+### The consequence, which is not free
+
+**This freezes a removal verdict.** ADR-034 named this shape: a predicate evaluated once
+and stored is not a rule, and editing the rule changes nothing that already exists.
+Before this change every tiering run accidentally re-evaluated removals. That was the
+waste, and it was also the only re-evaluation mechanism the system had.
+
+So the filter must never ship alone, not even briefly.
+
+### The third layer
+
+**A new ICP filter spec is the rule changing.** `persistIcpFilterSpec` therefore clears
+`tiering_reason` for that organisation's prospects where `sourced_tier IS NULL` and a
+reason is present, putting them back in the queue to be decided against the spec that is
+actually in force.
+
+Scope is deliberately narrow:
+
+- **This organisation only.** No cross-client write.
+- **Removed rows only.** A survivor keeps its tier. Re-tiering something already published
+  to a client is a different decision with different consequences, and is not this.
+- **On spec persist only.** Not on a cron, not on a timer.
+
+**Removals are re-queued by this and by nothing else.** That sentence is the reason this
+ADR exists. The next person to wonder why a removed prospect never changes needs to find
+it here rather than derive it from two files.
+
+### It is loud on purpose
+
+A non-zero re-queue logs at `warn` with the organisation and the count. It costs no API
+spend at the moment it runs, but it commits the next tiering runs to real work, and each
+re-tiered survivor goes on to cost research money downstream. At ramp volume one spec
+change can re-queue four figures of rows. The operator should see that number when they
+cause it, not infer it later from a bill.
+
+Zero re-queued logs at `info`. A quiet path and a busy path must not look the same.
+
+### What still has no re-evaluation path
+
+- A prospect removed for `email_unverified` whose email later verifies. Nothing re-queues
+  it. The verification path does not clear `tiering_reason`.
+- A prospect removed for `company_too_large` whose headcount is later re-enriched smaller.
+  Same.
+- A change to the disqualifier CODE itself, such as adding a decision-maker title. That is
+  a rule change with no spec change behind it, so nothing thaws.
+
+All three are the ADR-034 shape again, one level down, and none is fixed here. They are in
+BACKLOG. The honest statement is that this ADR closes the ICP-change case because that is
+the one that will actually happen during the ramp, not because it is the only one.
+
+### Revisit when
+
+A second re-queue trigger is needed, or removals grow large enough that a full re-queue on
+spec change is itself the expensive event. At that point the answer is probably a bounded
+re-queue with an operator confirmation, not a threshold.

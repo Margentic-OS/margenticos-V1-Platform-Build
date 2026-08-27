@@ -106,13 +106,37 @@ export async function tierEnrichedBatch(
       organisation_id: organisationId,
     })
 
-    // ── Step 3: Fetch enriched+untiered prospects ────────────────────────────
+    // ── Step 3: Fetch enriched prospects that have never been classified ─────
+    //
+    // `sourced_tier IS NULL` ALONE IS NOT "not yet tiered". It is also every
+    // prospect a disqualifier REMOVED, because a removed prospect keeps a NULL
+    // tier forever: nothing in the codebase ever sets sourced_tier for one.
+    //
+    // Without the tiering_reason filter below, every run re-fetched and
+    // re-classified all of them and rewrote the identical reason. That costs no
+    // money, because classifyTier makes no API call, but it consumes the BATCH
+    // CAP. At roughly 1,730 prospects a month with removals accumulating, a client
+    // reaches the point where the cap is filled entirely by rows that were already
+    // decided and tiering silently stops reaching newly enriched prospects. Silent
+    // because the run still reports "completed, N classified": the number is real,
+    // it is just N of the wrong prospects.
+    //
+    // tiering_reason is the discriminator because classifyTier writes one on EVERY
+    // path, survivors included, and nothing else in the codebase writes that column
+    // except the two operator re-tier routes, which set a tier at the same time.
+    //
+    // THE CONSEQUENCE, WHICH IS NOT FREE. This freezes a removal verdict: a removed
+    // prospect is never re-examined by this path again. That is ADR-034's shape and
+    // it is why this filter must never ship alone. Removals are put back in the
+    // queue by persistIcpFilterSpec when a new ICP filter spec is stored, and by
+    // nothing else. See ADR-037.
     const { data: prospects, error: prospectError } = await supabase
       .from('prospects')
       .select('id, organisation_id, email_status, enrichment_status, job_title, company_headcount, company_industry, company_name')
       .eq('organisation_id', organisationId)
       .eq('enrichment_status', 'enriched')
       .is('sourced_tier', null)
+      .is('tiering_reason', null)
       .limit(maxBatchSize)
 
     if (prospectError) {

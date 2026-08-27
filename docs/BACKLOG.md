@@ -142,13 +142,33 @@ sourcing orchestrator (step 4.5), a returned-industry assertion after enrichment
 screen. Nothing underlying was fixed, deliberately. The items below are what was seen
 while in there and consciously left alone.
 
-- [post-build] REMOVED PROSPECTS ARE RE-CLASSIFIED ON EVERY TIERING RUN. tierEnrichedBatch
+- [DONE 2026-08-27, see ADR-037] REMOVED PROSPECTS ARE RE-CLASSIFIED ON EVERY TIERING RUN. tierEnrichedBatch
   selects `enrichment_status = 'enriched' AND sourced_tier IS NULL`, and a prospect removed
   by a disqualifier keeps `sourced_tier = NULL` forever. So every subsequent run picks it up
   again, re-runs classifyTier on it, and rewrites the same tiering_reason. It costs no money
   (no API call) but it consumes the batch cap: a client with 200 removed prospects and a cap
   of 100 will never reach a newly enriched one. `tiering_reason IS NOT NULL` is the
   discriminator and the fix is a filter, but it is a behaviour change and was out of scope.
+
+- [post-build, 2026-08-27] THREE REMOVAL REASONS STILL HAVE NO RE-EVALUATION PATH.
+  ADR-037 thaws a removal when a new ICP filter spec is stored, because that is the case
+  that will happen during the ramp. It is not the only case. A prospect removed for
+  `email_unverified` whose email later verifies is never re-queued: the verification path
+  does not clear `tiering_reason`. Nor is one removed for `company_too_large` whose
+  headcount is later re-enriched smaller. Nor does changing a disqualifier in CODE, such
+  as adding a decision-maker title, thaw anything, because there is no spec change behind
+  it. All three are the ADR-034 shape one level down. Each needs its own trigger, and none
+  should be a cron that re-queues everything on a timer.
+
+- [post-build, 2026-08-27] THE INDUSTRY TAG MATCH IS EXACT AND CASE-SENSITIVE.
+  /api/operator/industry-tag-mappings finds candidates with
+  `.eq('company_industry', apollo_tag)`, while the mapping table is keyed lowercase and
+  live data holds both `management consulting` and `Marketing Consulting`. An operator
+  typing a tag with different casing to the stored value matches zero rows. The route now
+  returns `candidates_matched` alongside `prospects_retiered` so that zero is at least
+  explicable rather than silent, but the matching itself is unchanged: making it
+  case-insensitive changes which rows a mapping captures, which is a behaviour change and
+  wanted a decision rather than a drive-by fix.
 
 - [post-build] `src/app/dashboard/operator/sourcing-review/components/FlaggedIndustryTagsSection.tsx`
   IS NOT IMPORTED ANYWHERE. 296 lines, a live POST to /api/operator/industry-tag-mappings,

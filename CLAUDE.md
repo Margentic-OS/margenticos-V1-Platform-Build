@@ -1437,6 +1437,8 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-034  Send eligibility is evaluated once at verification and frozen on the row;
            changing EXCLUDED_COUNTRIES is NOT retroactive, and our gates govern
            UPLOAD, not delivery
+  ADR-037  A tiering verdict is frozen on the row; ONLY a new ICP filter spec
+           re-queues removed prospects, and the re-queue count logs at warn
 
 ---
 
