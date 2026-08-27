@@ -134,6 +134,54 @@
   re-run. Kept rather than deleted because she is a real person and a data-hygiene
   accident, not test data.
   Trigger: next time the live org's prospect list is being built.
+## Two observations logged at the close of the loud-defaults session (2026-08-27)
+
+- [post-build] THE VERCEL API REPORTED `BUILDING` FOR A DEPLOYMENT THAT WAS ALREADY READY.
+  Collecting the production receipt for 0d82727, `get_deployment` returned
+  `state: BUILDING` / `readyState: BUILDING` on polls taken roughly four and seven minutes
+  after the push. The same response body carried `buildingAt: 1787865032455` and
+  `ready: 1787865148344`, which is a 116-second build that had finished long before either
+  poll. I reported "still building, slower than the previous one" on the strength of the
+  state field. The opposite was true: it was the FASTER of the two deploys.
+
+  **A poller that treats the state field as ground truth can report the reverse of
+  reality.** The timestamps are the reliable signal, because they are facts about events
+  that happened rather than a status that has to be propagated to whichever replica
+  answers. Prefer `ready > buildingAt` over `readyState === 'READY'`, and if state must be
+  used, do not conclude anything from it that the timestamps contradict.
+
+  Same family as the audit query that could not see views, and the monitor that was silent
+  because its loop never reached the last check code: the instrument was wrong, and
+  everything downstream of a wrong instrument inherits it. Worth remembering next time a
+  deploy gate or a canary is automated on this API.
+
+- [post-build] `icp_filter_spec.notes` CONTRADICTS `icp_filter_spec.person_countries` IN THE
+  SAME DOCUMENT. Measured on org 0ed34697, strategy document 0b902eaa, version 3, status
+  active, client_approval_status approved:
+
+      notes:            "... DE and NL included: English-operating consulting founders ..."
+      person_countries: ["GB", "IE", "US"]
+
+  The note is not carried forward from an older version, which was the initial reading. It
+  is DERIVED FRESH every time, and part of it is a hardcoded string literal inside
+  `deriveFilterSpec` (icp-filter-spec.ts, the `notes:` field). The revenue and headcount
+  half genuinely comes from the ICP document, which is why it differs across v1, v2 and v3.
+  The "DE and NL included" sentence is identical in all three because it is typed into the
+  function.
+
+  So the real shape is TWO STATEMENTS OF ONE FACT IN A SINGLE FILE, about 130 lines apart,
+  kept in step by hand and already drifted. `DEFAULT_PERSON_COUNTRIES` is `['GB','IE','US']`
+  and its comment explicitly records that DE and NL were REMOVED on legal grounds, Germany
+  because two GmbHs were mailed against an exclusion that had nothing to read it. The notes
+  literal below it still announces they are included. Both are re-emitted on every
+  derivation, so every future spec will carry the contradiction too.
+
+  **Not urgent: nothing reads `notes`.** No agent prompt, no query, no UI. That is exactly
+  why it is worth logging rather than fixing in passing. It is a lie sitting in an approved
+  document waiting for the first person or prompt that decides to read it, and the thing it
+  lies about is a legal exclusion. The fix is to derive the sentence from
+  `DEFAULT_PERSON_COUNTRIES` rather than restate it, so the drift cannot be expressed.
+
 ## Silent sourcing defaults are now loud, and what was found while making them loud (2026-08-27)
 
 Track B item 8. Three things were BUILT: a pre-search industry reachability gate in the
