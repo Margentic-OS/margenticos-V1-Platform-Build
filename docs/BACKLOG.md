@@ -23,6 +23,59 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## The vitest suite WRITES TEST ORGS TO PRODUCTION (2026-08-27)
+
+- [pre-c0] THIS IS WHERE THE TEST DATA CAME FROM. Found while collecting merge receipts,
+  immediately after cleaning it out.
+
+  Seven test files construct a Supabase service-role client from
+  NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY and then INSERT rows. They are
+  live integration tests, not unit tests, and they write to whatever project the env
+  points at. On this machine that is production.
+
+    src/__tests__/api/operator/monitor-acknowledge.test.ts
+    src/__tests__/api/monitor/mon_006_per_row.test.ts
+    src/app/api/operator/organisations/__tests__/archive.test.ts
+    src/lib/__tests__/org-archiving-integration.test.ts
+    src/lib/faq/write-enforcement.test.ts
+    src/lib/reply-handling/get-client-visible-replies.test.ts
+    src/app/dashboard/operator/clients/[id]/__tests__/handleUploadLeads.compliance.test.ts
+
+  PROVED, not inferred. monitor-acknowledge.test.ts:232 inserts
+  `name: 'Archived Test Active', slug: `archived-test-active-${Date.now()}``. The eight
+  orgs deleted this session were named exactly 'Archived Test Active' and 'Archived Test
+  Archived', and their slug timestamps decode to their own created_at values:
+
+    archived-test-active-1786236146132  -> 2026-08-09 00:42:26 UTC
+    archived-test-active-1786236170242  -> 2026-08-09 00:42:50 UTC
+    archived-test-active-1786236272457  -> 2026-08-09 00:44:32 UTC
+    archived-test-active-1786293326984  -> 2026-08-09 16:35:26 UTC
+
+  Same for org-archiving-integration.test.ts (`test-org-active-${Date.now()}`) and
+  archive.test.ts (`archive-test-${Date.now()}`).
+
+  So the cleanup is NOT a one-off. Anyone who runs `npx vitest run` with a real .env
+  re-pollutes production, and the leftovers accumulate because the tests only clean up
+  when they complete: a failed or interrupted run leaves its orgs behind, which is why
+  eight survived rather than zero.
+
+  Deliberately NOT run with production credentials while collecting the merge receipts,
+  for that reason. The suite was run WITHOUT credentials instead: 1,810 passed, 4 failed,
+  20 skipped, and all seven failing files failed at client construction inside
+  validateSupabaseUrl before any assertion executed. That is an environmental failure, not
+  a regression: a fresh worktree has no .env because .env is gitignored.
+
+  Next action, needs a decision rather than a quick fix:
+    1. Point these tests at a SEPARATE Supabase project, or the local Supabase stack, so
+       production is never a test target. This is the real fix.
+    2. Failing that, gate them behind an explicit opt-in env var so a plain `vitest run`
+       cannot touch production, and make them a distinct script.
+    3. Either way, give them afterEach cleanup that runs on failure, not only on success.
+  Until one of those lands, treat `npx vitest run` as a WRITE operation against production
+  and do not run it casually.
+  Trigger: before the next time anyone runs the full suite, and before the first paying
+  client.
+
 ## Production test data removed (2026-08-27)
 
 - [DONE 2026-08-27] TRACK A item 5. Test and mock data deleted from the production
