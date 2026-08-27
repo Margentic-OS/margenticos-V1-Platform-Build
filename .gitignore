@@ -67,5 +67,21 @@ dogfood-prospects-batch-1.csv
 .gstack/
 .backups/
 
-# Claude Code tooling artifacts — local state, not for version control
-.claude/
+# Claude Code tooling artifacts — local state, not for version control.
+#
+# NOTE THE `/*` RATHER THAN `/`. Git does not descend into an ignored DIRECTORY, so with
+# `.claude/` the negations below would never be consulted and the hook scripts would stay
+# invisible. Ignoring the CONTENTS instead lets specific paths be re-included.
+.claude/*
+
+# ...EXCEPT the parts that are project policy rather than local state.
+#
+# settings.json holds the shared permission list and the HOOK WIRING. The hook scripts are
+# the commit gate: secrets, .env, vendor names, post-edit tsc. A commit gate that is not
+# committed protects one laptop and nothing else, which is the same as no gate at all for
+# every other machine and for anyone reviewing this repo.
+#
+# settings.local.json stays ignored on purpose. It accumulates per-machine permission
+# grants and is genuinely local state.
+!.claude/settings.json
+!.claude/hooks/

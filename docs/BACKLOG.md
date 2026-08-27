@@ -23,6 +23,34 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## The commit gate is now executable (2026-08-27)
+
+- [DONE 2026-08-27] CLAUDE.md's "Hooks — three checks always active" was PROSE for the
+  whole life of the project. Nothing ran it. That is why a live secret sat in a public
+  repo for a day: the .env check and the vendor-name check were real rules that executed
+  only when someone remembered, and nobody had written a secret check at all.
+  Now wired in .claude/settings.json as real hooks:
+    PreToolUse  Bash        -> .claude/hooks/pre-commit-gate.sh   BLOCKS (exit 2)
+    PostToolUse Edit/Write  -> .claude/hooks/post-edit-tsc.sh     advisory
+  Four checks: secrets, .env, vendor names, plus post-edit tsc.
+  Self-test: bash .claude/hooks/__test__/gate-selftest.sh, 11 cases, 11 passing.
+  Proven live in the same session: the gate blocked a staged file containing a fake
+  64-hex string, and then blocked one of Claude's own compound commands because the
+  command string contained "git commit" while the probe was still staged.
+
+- [post-build] THE POST-EDIT TSC HOOK IS ADVISORY, NOT BLOCKING, and that is deliberate.
+  tsc is whole-project, so a legitimate mid-refactor state reports errors that are not
+  defects. Blocking there forces work into an unnatural order or gets the hook disabled,
+  and a disabled hook checks nothing. The commit gate is the hard stop. Revisit only if
+  type errors start reaching commits despite it.
+
+- [monitor] THE VENDOR-NAME CHECK EXEMPTS COMMENTS. Naming a vendor while EXPLAINING a
+  decision is good practice and the codebase does it deliberately throughout; a check that
+  forbade it would produce worse comments rather than better code. It also exempts
+  src/lib/integrations/**, src/lib/sourcing/handlers/**, tests, and .md/.sql/.json/.sh.
+  If a vendor name ever reaches production code through one of those exemptions, narrow
+  the exemption rather than deleting the check.
+
 ## A DATABASE DUMP IS NOT SAFE TO COMMIT BY DEFAULT (2026-08-27, standing rule)
 
 - [standing rule, learned the hard way] POSTGRES STORES CREDENTIALS IN THE CATALOG, AND A

@@ -766,9 +766,42 @@ Debug-level logs must not appear in production — use log level guards.
 
 ---
 
-## Hooks — three checks always active
+## Hooks — four checks, now ACTUALLY ENFORCED
 
-These run at the specified trigger points in every session. Never skip them.
+**As of 2026-08-27 these are executable hooks, not prose.** They were described here from
+the start of the project and nothing ran them, so they fired only when someone remembered.
+On 2026-08-26 a live webhook secret reached a PUBLIC repository inside a schema dump and
+stayed there until a manual scan found it a day later. A rule that depends on remembering
+is not a control.
+
+Wired in `.claude/settings.json`:
+
+  PreToolUse  on Bash          -> .claude/hooks/pre-commit-gate.sh   BLOCKS the commit
+  PostToolUse on Edit/Write    -> .claude/hooks/post-edit-tsc.sh     advisory
+
+The gate inspects the **staged diff**, which is exactly what the commit will contain, and
+**added lines only**, so the commit that REMOVES a secret is never blocked. Exit 2 blocks;
+matched values are redacted to their first six characters in the output.
+
+Self-test: `bash .claude/hooks/__test__/gate-selftest.sh` — 11 cases, and the ALLOW cases
+matter as much as the BLOCKs. A gate that blocks everything is an outage, not a control.
+
+Do not bypass a block with `--no-verify` or by rewording the command. If a match is a
+false positive, narrow the pattern in the hook, and say so in the commit message.
+
+### Pre-commit: secret check (NEW 2026-08-27)
+Blocks any staged addition containing a 64- or 32-character hex string, a JWT, an
+`sk-`/`sk-ant-`/`re_` key, an AWS or GitHub token, or a `Bearer` literal.
+
+64-char hex is there because that is `openssl rand -hex 32`, which is what generated both
+`NEXT_INTERNAL_SECRET` and the webhook secret that leaked.
+
+**A database dump is not safe to commit by default.** Postgres stores credentials in the
+catalog in at least two places: a Supabase Database Webhook keeps its headers as a literal
+inside the trigger definition, and pg_cron keeps bearer tokens in `cron.job.command`. Any
+dump, baseline or schema capture must be scrubbed by its generator, not afterwards. See
+`scripts/regen-schema-baseline.ts`, which scrubs during generation and refuses to write a
+file containing anything secret-shaped.
 
 ### Pre-commit: .env check
 Before any commit, verify .env is in .gitignore.
