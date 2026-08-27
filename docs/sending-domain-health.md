@@ -73,7 +73,8 @@ The monitor collapses the per-domain picture into one check.
 | **failing** | PROBLEM | A domain broke a rule. Sentry alert, sidebar badge. |
 | **stale** | PROBLEM | The figures stopped being refreshed. |
 
-**Why `insufficient_sends` reads OK rather than UNKNOWN.** The monitor sweep writes an
+**Why `insufficient_sends` reads OK rather than UNKNOWN.** (ADR-035. Ratified by Doug on
+2026-08-27 after seeing it in production, with the UNKNOWN alternative costed.) The monitor sweep writes an
 event only when a check's state *changes*, and it treats "no prior event" as UNKNOWN. A
 check that sat at UNKNOWN from birth would never write a row, and would render exactly like
 MON-008: registered, permanently silent, and impossible to tell apart from a monitor that

@@ -52,8 +52,10 @@ export interface MonitorStateInput {
  *   insufficient_sends -> OK        the absolute rule ran and passed
  *   healthy            -> OK
  *
- * insufficient_sends maps to OK deliberately, and it is worth saying why rather than
- * leaving it to look careless. Mapping it to UNKNOWN would be more literal but would make
+ * insufficient_sends maps to OK deliberately. RATIFIED: Doug questioned this against live
+ * production output on 2026-08-27, the UNKNOWN alternative was costed, and the decision was
+ * "keep the mapping as built". See ADR-035 before changing it. It is worth saying why
+ * rather than leaving it to look careless. Mapping it to UNKNOWN would be more literal but would make
  * the check DARK: the sweep only writes an event on a state CHANGE, and it treats "no
  * prior event" as UNKNOWN, so a check that sits at UNKNOWN from birth never writes a row
  * and renders exactly like MON-008 — registered, silent, and indistinguishable from a
