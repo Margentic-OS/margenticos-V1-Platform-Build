@@ -15,6 +15,10 @@ import {
  * NULL icp_filter_spec is a safe failure mode: the sourcing orchestrator will fail
  * loudly when it encounters a NULL spec, providing clear operator feedback.
  *
+ * Also re-queues the organisation's previously REMOVED prospects for tiering, because
+ * a new filter spec is the rule that removed them changing. This is the only thing in
+ * the codebase that re-queues them. See ADR-037.
+ *
  * Called from:
  *   - POST /api/suggestions/[id]/approve (in after() handler)
  *   - POST /api/cron/auto-approve (after RPC succeeds)
@@ -31,7 +35,7 @@ export async function persistIcpFilterSpec(
     // ── 1. Load the newly promoted document ────────────────────────────────────
     const { data: doc, error: fetchError } = await supabase
       .from('strategy_documents')
-      .select('id, document_type, content')
+      .select('id, document_type, content, organisation_id')
       .eq('id', documentId)
       .single()
 
@@ -128,6 +132,77 @@ export async function persistIcpFilterSpec(
       operation_id: operationId,
       document_id: documentId,
     })
+
+    // ── 5. Put previously removed prospects back in the tiering queue ──────────
+    //
+    // THE THIRD LAYER ADR-034 SAYS IS MISSING, for this one rule. tierEnrichedBatch
+    // skips any prospect that already carries a tiering_reason, which is what stops
+    // decided rows eating the batch cap. The cost of that filter is that a removal
+    // becomes a FROZEN VERDICT: the rule can change and the rows that the old rule
+    // removed never hear about it.
+    //
+    // A new filter spec IS that rule changing. So the moment a new one is stored,
+    // the rows the old one removed are cleared back to unclassified and the next
+    // tiering run re-decides them against the spec that is actually in force.
+    //
+    // SCOPE, deliberately narrow. Only this organisation, only rows with no tier,
+    // only rows that were actually classified. A survivor keeps its tier and is not
+    // touched, because re-tiering something already published to a client is a
+    // different decision with different consequences.
+    //
+    // COST, deliberately loud. This is free of API spend at the moment it runs, but
+    // it commits the next tiering runs to real work, and each re-tiered survivor
+    // goes on to cost research money downstream. At ramp volume one spec change can
+    // re-queue four figures of rows. The operator should see that number when they
+    // cause it, not infer it later from a bill, so a non-zero re-queue logs at warn.
+    //
+    // Never throws. A failure here must not fail the promotion, and the filter spec
+    // is already stored by this point.
+    try {
+      const { data: requeued, error: requeueError } = await supabase
+        .from('prospects')
+        .update({ tiering_reason: null })
+        .eq('organisation_id', doc.organisation_id)
+        .is('sourced_tier', null)
+        .not('tiering_reason', 'is', null)
+        .select('id')
+
+      if (requeueError) {
+        logger.error('persistIcpFilterSpec: failed to re-queue removed prospects', {
+          operation_id: operationId,
+          document_id: documentId,
+          organisation_id: doc.organisation_id,
+          error: requeueError.message,
+          consequence:
+            'Prospects removed under the PREVIOUS filter spec keep their old verdict and ' +
+            'will not be re-tiered against the new one. Nothing else re-queues them.',
+        })
+      } else {
+        const requeuedCount = requeued?.length ?? 0
+
+        if (requeuedCount > 0) {
+          logger.warn('persistIcpFilterSpec: removed prospects re-queued for tiering', {
+            operation_id: operationId,
+            document_id: documentId,
+            organisation_id: doc.organisation_id,
+            requeued_count: requeuedCount,
+          })
+        } else {
+          logger.info('persistIcpFilterSpec: no removed prospects to re-queue', {
+            operation_id: operationId,
+            document_id: documentId,
+            organisation_id: doc.organisation_id,
+          })
+        }
+      }
+    } catch (requeueErr) {
+      const msg = requeueErr instanceof Error ? requeueErr.message : String(requeueErr)
+      logger.error('persistIcpFilterSpec: re-queue threw', {
+        operation_id: operationId,
+        document_id: documentId,
+        error: msg,
+      })
+    }
   } catch (err) {
     // Catch-all for unexpected errors.
     // Never let this fail the promotion itself, but capture for visibility.

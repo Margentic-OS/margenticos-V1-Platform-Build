@@ -49,6 +49,7 @@ interface ProspectRow {
   company_industry: string | null
   company_name: string | null
   sourced_tier: string | null
+  tiering_reason: string | null
 }
 
 function prospect(over: Partial<ProspectRow>): ProspectRow {
@@ -62,6 +63,11 @@ function prospect(over: Partial<ProspectRow>): ProspectRow {
     company_industry: 'management consulting',
     company_name: 'Acme Consulting',
     sourced_tier: null,
+    // EXPLICIT. tierEnrichedBatch filters on `.is('tiering_reason', null)` to skip
+    // prospects it has already classified, and the fake compares with ===, so an
+    // absent field is `undefined` and would filter every fixture row out. Omitting
+    // this made all four assertion tests pass zero prospects and assert nothing.
+    tiering_reason: null,
     ...over,
   }
 }

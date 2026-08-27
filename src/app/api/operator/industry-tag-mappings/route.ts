@@ -100,25 +100,46 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Re-tier these prospects
-    const reTieredCount = await reTierProspectsWithMapping(
+    const outcome = await reTierProspectsWithMapping(
       serviceClient,
       flaggedProspects || [],
       apollo_tag,
       canonical_industry,
     )
 
-    logger.info('Industry tag mapping created and prospects re-tiered', {
+    // THREE numbers, not one.
+    //
+    // This used to return only the count that gained a tier, so "0" meant any of:
+    // no prospect carries this tag at all, prospects carry it but the mapping did
+    // not rescue them, or every write failed. Those need different actions from the
+    // operator and looked identical. `candidates_matched` is the one that separates
+    // "nothing matched the tag" from "the mapping did not help".
+    //
+    // Note the tag match is exact and case-sensitive (`.eq('company_industry', ...)`),
+    // while the mapping table is keyed lowercase. A tag typed with different casing
+    // to the stored value matches zero rows. Logged in BACKLOG, not changed here.
+    const logPayload = {
       apollo_tag,
       canonical_industry,
-      prospects_retiered: reTieredCount,
+      candidates_matched: outcome.candidates,
+      prospects_retiered: outcome.reTiered,
+      prospects_still_removed: outcome.stillRemoved,
       user_id: user.id,
-    })
+    }
+
+    if (outcome.candidates > 0 && outcome.reTiered === 0) {
+      logger.warn('Industry tag mapping created, but it rescued no prospects', logPayload)
+    } else {
+      logger.info('Industry tag mapping created and prospects re-tiered', logPayload)
+    }
 
     return NextResponse.json({
       success: true,
       apollo_tag,
       canonical_industry,
-      prospects_retiered: reTieredCount,
+      candidates_matched: outcome.candidates,
+      prospects_retiered: outcome.reTiered,
+      prospects_still_removed: outcome.stillRemoved,
     })
   } catch (error) {
     logger.error('Error in industry tag mapping endpoint', { error })
@@ -131,14 +152,15 @@ async function reTierProspectsWithMapping(
   prospects: any[],
   apollo_tag: string,
   canonical_industry: string,
-): Promise<number> {
-  if (prospects.length === 0) return 0
+): Promise<{ candidates: number; reTiered: number; stillRemoved: number }> {
+  if (prospects.length === 0) return { candidates: 0, reTiered: 0, stillRemoved: 0 }
 
   // Load the new mapping
   const dbMappings = await loadIndustryTagMappings(supabase)
   dbMappings[apollo_tag.toLowerCase().trim()] = canonical_industry
 
   let reTieredCount = 0
+  let stillRemovedCount = 0
 
   for (const prospect of prospects) {
     try {
@@ -177,26 +199,34 @@ async function reTierProspectsWithMapping(
         supabase,
       )
 
+      // Write the new verdict whichever way it went.
+      //
+      // This used to write ONLY when a tier resulted, which left a prospect that is
+      // still removed carrying the reason from BEFORE the mapping existed. That
+      // stale reason is what the operator review screen counts and what
+      // tierEnrichedBatch now reads to decide a row is already classified, so a
+      // wrong one is wrong in two places at once.
+      const { error: updateError } = await supabase
+        .from('prospects')
+        .update({
+          sourced_tier: result.sourced_tier,
+          fit_score: result.fit_score,
+          tiering_reason: result.tiering_reason,
+        })
+        .eq('id', prospect.id)
+
+      if (updateError) {
+        logger.warn('Failed to update prospect tier', {
+          prospect_id: prospect.id,
+          error: updateError,
+        })
+        continue
+      }
+
       if (result.sourced_tier) {
-        // Update the prospect with the new tier
-        const { error: updateError } = await supabase
-          .from('prospects')
-          .update({
-            sourced_tier: result.sourced_tier,
-            fit_score: result.fit_score,
-            tiering_reason: result.tiering_reason,
-          })
-          .eq('id', prospect.id)
-
-        if (updateError) {
-          logger.warn('Failed to update prospect tier', {
-            prospect_id: prospect.id,
-            error: updateError,
-          })
-          continue
-        }
-
         reTieredCount++
+      } else {
+        stillRemovedCount++
       }
     } catch (error) {
       logger.warn('Error re-tiering individual prospect', {
@@ -207,5 +237,9 @@ async function reTierProspectsWithMapping(
     }
   }
 
-  return reTieredCount
+  return {
+    candidates: prospects.length,
+    reTiered: reTieredCount,
+    stillRemoved: stillRemovedCount,
+  }
 }

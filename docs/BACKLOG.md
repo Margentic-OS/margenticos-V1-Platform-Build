@@ -261,6 +261,54 @@
   re-run. Kept rather than deleted because she is a real person and a data-hygiene
   accident, not test data.
   Trigger: next time the live org's prospect list is being built.
+## Two observations logged at the close of the loud-defaults session (2026-08-27)
+
+- [post-build] THE VERCEL API REPORTED `BUILDING` FOR A DEPLOYMENT THAT WAS ALREADY READY.
+  Collecting the production receipt for 0d82727, `get_deployment` returned
+  `state: BUILDING` / `readyState: BUILDING` on polls taken roughly four and seven minutes
+  after the push. The same response body carried `buildingAt: 1787865032455` and
+  `ready: 1787865148344`, which is a 116-second build that had finished long before either
+  poll. I reported "still building, slower than the previous one" on the strength of the
+  state field. The opposite was true: it was the FASTER of the two deploys.
+
+  **A poller that treats the state field as ground truth can report the reverse of
+  reality.** The timestamps are the reliable signal, because they are facts about events
+  that happened rather than a status that has to be propagated to whichever replica
+  answers. Prefer `ready > buildingAt` over `readyState === 'READY'`, and if state must be
+  used, do not conclude anything from it that the timestamps contradict.
+
+  Same family as the audit query that could not see views, and the monitor that was silent
+  because its loop never reached the last check code: the instrument was wrong, and
+  everything downstream of a wrong instrument inherits it. Worth remembering next time a
+  deploy gate or a canary is automated on this API.
+
+- [post-build] `icp_filter_spec.notes` CONTRADICTS `icp_filter_spec.person_countries` IN THE
+  SAME DOCUMENT. Measured on org 0ed34697, strategy document 0b902eaa, version 3, status
+  active, client_approval_status approved:
+
+      notes:            "... DE and NL included: English-operating consulting founders ..."
+      person_countries: ["GB", "IE", "US"]
+
+  The note is not carried forward from an older version, which was the initial reading. It
+  is DERIVED FRESH every time, and part of it is a hardcoded string literal inside
+  `deriveFilterSpec` (icp-filter-spec.ts, the `notes:` field). The revenue and headcount
+  half genuinely comes from the ICP document, which is why it differs across v1, v2 and v3.
+  The "DE and NL included" sentence is identical in all three because it is typed into the
+  function.
+
+  So the real shape is TWO STATEMENTS OF ONE FACT IN A SINGLE FILE, about 130 lines apart,
+  kept in step by hand and already drifted. `DEFAULT_PERSON_COUNTRIES` is `['GB','IE','US']`
+  and its comment explicitly records that DE and NL were REMOVED on legal grounds, Germany
+  because two GmbHs were mailed against an exclusion that had nothing to read it. The notes
+  literal below it still announces they are included. Both are re-emitted on every
+  derivation, so every future spec will carry the contradiction too.
+
+  **Not urgent: nothing reads `notes`.** No agent prompt, no query, no UI. That is exactly
+  why it is worth logging rather than fixing in passing. It is a lie sitting in an approved
+  document waiting for the first person or prompt that decides to read it, and the thing it
+  lies about is a legal exclusion. The fix is to derive the sentence from
+  `DEFAULT_PERSON_COUNTRIES` rather than restate it, so the drift cannot be expressed.
+
 ## Silent sourcing defaults are now loud, and what was found while making them loud (2026-08-27)
 
 Track B item 8. Three things were BUILT: a pre-search industry reachability gate in the
@@ -269,13 +317,33 @@ sourcing orchestrator (step 4.5), a returned-industry assertion after enrichment
 screen. Nothing underlying was fixed, deliberately. The items below are what was seen
 while in there and consciously left alone.
 
-- [post-build] REMOVED PROSPECTS ARE RE-CLASSIFIED ON EVERY TIERING RUN. tierEnrichedBatch
+- [DONE 2026-08-27, see ADR-037] REMOVED PROSPECTS ARE RE-CLASSIFIED ON EVERY TIERING RUN. tierEnrichedBatch
   selects `enrichment_status = 'enriched' AND sourced_tier IS NULL`, and a prospect removed
   by a disqualifier keeps `sourced_tier = NULL` forever. So every subsequent run picks it up
   again, re-runs classifyTier on it, and rewrites the same tiering_reason. It costs no money
   (no API call) but it consumes the batch cap: a client with 200 removed prospects and a cap
   of 100 will never reach a newly enriched one. `tiering_reason IS NOT NULL` is the
   discriminator and the fix is a filter, but it is a behaviour change and was out of scope.
+
+- [post-build, 2026-08-27] THREE REMOVAL REASONS STILL HAVE NO RE-EVALUATION PATH.
+  ADR-037 thaws a removal when a new ICP filter spec is stored, because that is the case
+  that will happen during the ramp. It is not the only case. A prospect removed for
+  `email_unverified` whose email later verifies is never re-queued: the verification path
+  does not clear `tiering_reason`. Nor is one removed for `company_too_large` whose
+  headcount is later re-enriched smaller. Nor does changing a disqualifier in CODE, such
+  as adding a decision-maker title, thaw anything, because there is no spec change behind
+  it. All three are the ADR-034 shape one level down. Each needs its own trigger, and none
+  should be a cron that re-queues everything on a timer.
+
+- [post-build, 2026-08-27] THE INDUSTRY TAG MATCH IS EXACT AND CASE-SENSITIVE.
+  /api/operator/industry-tag-mappings finds candidates with
+  `.eq('company_industry', apollo_tag)`, while the mapping table is keyed lowercase and
+  live data holds both `management consulting` and `Marketing Consulting`. An operator
+  typing a tag with different casing to the stored value matches zero rows. The route now
+  returns `candidates_matched` alongside `prospects_retiered` so that zero is at least
+  explicable rather than silent, but the matching itself is unchanged: making it
+  case-insensitive changes which rows a mapping captures, which is a behaviour change and
+  wanted a decision rather than a drive-by fix.
 
 - [post-build] `src/app/dashboard/operator/sourcing-review/components/FlaggedIndustryTagsSection.tsx`
   IS NOT IMPORTED ANYWHERE. 296 lines, a live POST to /api/operator/industry-tag-mappings,

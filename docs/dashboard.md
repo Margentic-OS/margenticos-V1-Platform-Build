@@ -72,6 +72,13 @@ its breakdown is the only thing explaining where the batch went. When nothing su
 link reads "See why all were removed" and the screen leads with a red panel saying so,
 rather than the old "No enriched prospects yet", which reads as "nothing has run".
 
+**The count is stable between runs, and a spec change can empty it.** Since ADR-037
+tiering skips prospects that already carry a reason, so these rows are decided once rather
+than re-decided on every run. Storing a new ICP filter spec clears the reason for the
+organisation's removed prospects and puts them back in the queue, so the removed count
+drops to zero and then refills as the next tiering runs re-decide them. That is expected,
+not a bug, and the re-queue logs at `warn` with the count at the moment it happens.
+
 What to check if it breaks:
 - The reason codes are the raw `tiering_reason` values. `REMOVAL_REASON_LABELS` in
   `Gate2TieredReview.tsx` glosses them into English; a reason with no gloss still renders,
