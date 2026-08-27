@@ -2289,7 +2289,11 @@ Rejected alternatives:
 ---
 
 ## ADR-032 — Sourcing filter hardcoded in the handler; both location axes constrained
-Date: August 2026 | Status: Accepted
+Date: August 2026 | Status: Accepted, with the headcount value and the long-term shape
+superseded by ADR-036 (2026-08-27). Read that one too: it narrows
+organization_num_employees_ranges to ['5,20'] and records this hardcoded filter as
+superseded in principle by spec-driven sourcing, which is not built yet. Everything
+else below still describes what ships.
 
 Context:
 The Apollo sourcing query was built by translating each client's ICPFilterSpec into
@@ -2329,7 +2333,7 @@ The ICPFilterSpec no longer builds the query. The filter is:
 
   organization_naics_codes            ['5416']
   q_organization_keyword_tags         management / business / strategy consulting
-  organization_num_employees_ranges   ['5,50']
+  organization_num_employees_ranges   ['5,50']   <- narrowed to ['5,20'] by ADR-036
   organization_locations              united states, united kingdom, ireland
   person_locations                    united states, united kingdom, ireland
   person_seniorities                  owner, founder, c_suite, partner
@@ -2584,3 +2588,130 @@ sent-email log. The second went out one day before the fix landed.
 - **Treating the column as authoritative and saying nothing.** That is the status quo this
   ADR exists to end. The behaviour is defensible; being undocumented is what let it
   surprise us.
+
+---
+
+## ADR-036: The 5-20 headcount narrowing is a stopgap, and the 21-50 band is declared but not sourced
+
+**Date:** 2026-08-27
+**Status:** Accepted, explicitly temporary
+
+### Context
+
+MargenticOS's ICP narrows to firms of 5 to 20 employees for the ramp. The Apollo
+sourcing filter asked for 5 to 50.
+
+Measured live on 2026-08-27 against the shipped filter, changing only
+`organization_num_employees_ranges`, by importing the handler rather than re-typing
+its values:
+
+  5,20   (shipped)    36,818
+  21,50  (tier_2)     19,162
+  5,50   (previous)   55,980
+
+The two bands partition the previous filter exactly: 36,818 + 19,162 = 55,980, zero
+residual. That arithmetic is the check that matters, not the individual counts.
+Apollo silently ignores a parameter it does not recognise (ADR-032), so a range string
+it failed to parse returns a plausible number rather than an error. A clean partition
+across three independent queries cannot happen by accident; two numbers that merely
+look reasonable can.
+
+So the narrowing gives up about 34 percent of reachable inventory. 36,818 is ample for
+the ramp at current send volumes, which is the only reason this is affordable.
+
+**One figure from the briefing did not reproduce, and is recorded as measured instead.**
+The narrowing was specified with 36,820 at 5-20 and 20,269 at 21-50. The first is
+confirmed: 36,818 is two rows off, which is Apollo's index moving, the same order of
+drift ADR-032 records over two days. The second is not. 21-50 measures 19,162 on the
+full filter and 21,247 with `person_locations` removed, so 20,269 is not the org-only
+base either, and it re-measured stable. The decision does not turn on it: 20,269 and
+19,162 both say the same thing about whether the ramp can afford the band. It is
+flagged because the figure is now the record of what tier_2 is worth, and a number
+nobody can reproduce is worse than one that is slightly inconvenient.
+
+The awkward part is not the number. It is WHERE the number lives. Under ADR-032 the
+Apollo query is hardcoded in the handler and the ICPFilterSpec no longer builds it.
+That decision was correct and is not being reopened here: a config layer that shipped
+three silent defects was replaced by one filter that carries its measurements. But it
+has a consequence that only becomes visible when the ICP acquires a second tier.
+
+### Decision
+
+Three things, and the third is the one that will be forgotten.
+
+**1. `organization_num_employees_ranges` becomes `['5,20']`.** One constant, in
+`src/lib/sourcing/handlers/adapter-apollo.ts`. Reversing this decision is editing that
+one string back to `'5,50'`. Nothing else in the filter was tuned to compensate, and
+nothing else needs to change to widen it again. That was deliberate: a stopgap that
+takes six coordinated edits to undo is not a stopgap, it is a migration.
+
+**2. The 21-50 band is declared in the ICP document as `tier_2`, and is DELIBERATELY
+NOT SOURCED.** Those 19,162 firms are in the ICP and out of the query. This is a
+decision, not an oversight, and it is recorded here precisely so that the next person
+to notice the gap finds an answer instead of a bug.
+
+**3. ADR-032's hardcoded filter is hereby SUPERSEDED IN PRINCIPLE by spec-driven
+sourcing, WHICH DOES NOT EXIST YET.** This is the honest statement of where the
+architecture is. Naming a tier the system cannot ask for is the first thing the
+hardcoded filter has cost that a comment at the call site does not cover, because it
+is not a property of the Apollo query, it is a property of the ICP no longer fitting
+in one query. ADR-032 stands as the current implementation and should be read as such.
+It is now known to be the wrong long-term shape, and this is the ADR that says so.
+
+Until that work lands there is exactly one filter, and every client sourced through
+this handler gets it, whatever their spec says.
+
+### Consequences
+
+**The tier_2 declaration is the only record that 19,162 firms were chosen against
+rather than missed.** There is no code path that reads `tier_2` and nothing in the
+system behaves differently because it exists. It is a document making a promise the
+query cannot keep. Stated plainly here so it is not later mistaken for a feature.
+
+**Widening back is safe and cheap; widening in stages is not.** Changing the constant
+to `'5,50'` restores the previous measured filter exactly. Introducing a SECOND range
+(for example `['5,20', '21,50']` as separate tiers with different handling) is not a
+constant change and must not be done as one: nothing downstream distinguishes tiers,
+so both bands would land in the same undifferentiated pool and the tier distinction
+would exist only in the ICP document. That is the spec-driven work, not a shortcut
+into it.
+
+**The divergence log now fires on every run**, in the same change. It previously fired
+only when the stored spec named a country outside US/GB/IE. ADR-032 moved the spec
+defaults to `['GB', 'IE', 'US']` for good reasons, and the side effect was that the
+condition became false for every correctly-configured client. So the specs most likely
+to be wrong produced no log at all, and a run discarding headcount, industries,
+keywords, titles, seniorities and revenue was indistinguishable in the logs from a run
+with nothing to report.
+
+That is the shape CLAUDE.md keeps returning to: a check that runs, reports nothing, and
+cannot see the class it was written to find. The absence of a line read as "no
+divergence" when it meant "the one divergence I test for is absent". The log now emits
+once per sourcing run and names which spec fields were ignored, derived from
+`supported_fields` rather than hand-listed beside it so the two cannot drift.
+
+Cost accepted: one INFO line per sourcing run, always. That is the point. A report that
+only speaks up when the problem is already obvious is not a report.
+
+### Alternatives rejected
+
+**Leave the filter at 5-50 and post-filter results down to 20.** Rejected. It pays
+Apollo pagination for rows that are then discarded, and post-filtering happens in
+`execute()` where the two existing post-filters are exclusions applied to results. It
+would also make `total_entries` stop describing the sourced population, which is the
+number every measurement in ADR-032 is expressed in.
+
+**Build the spec-driven query now, since the ICP has outgrown one filter.** Rejected
+for timing, not for merit. It is the correct end state and it is what supersedes
+ADR-032. Doing it inside a ramp change would mean reinstating the ISO-3166 location
+table, the seniority map and the manifest check as a real gate, all at once, against
+the live sourcing path. That is its own change with its own verification.
+
+**Say nothing about tier_2 and just narrow the constant.** Rejected. A band declared in
+a client-facing strategy document and silently absent from every sourcing run is
+exactly the kind of gap that gets rediscovered as a defect six weeks later.
+
+**Revisit when:** client two needs a different filter, or tier_2 needs to be sourced.
+Either one is the trigger for spec-driven sourcing, and at that point ADR-032's
+recovery instructions (the location table and seniority map at `bc05658`) apply, and
+the manifest check must be reinstated as a real gate in the same change.
