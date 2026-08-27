@@ -1,18 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
+import { createTestServiceClient } from '@/test-utils/test-database'
 
-// Test MON-006 per-row window evaluation (not single-org window)
-// Run: npx dotenv -e .env.local -- npx vitest run src/__tests__/api/monitor/mon_006_per_row.test.ts
+// Test MON-006 per-row window evaluation (not single-org window).
+// Needs the TEST database, never production. Run:
+//   npx dotenv -e .env.test.local -- npx vitest run src/__tests__/api/monitor/mon_006_per_row.test.ts
+//
+// process.exit(0) removed here for the same reason as monitor-acknowledge: it
+// terminates the worker rather than skipping the suite, so any file sharing that
+// worker stops reporting too.
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-if (!supabaseUrl || !serviceRoleKey) {
-  console.warn('Skipping MON-006 tests: missing Supabase credentials')
-  process.exit(0)
-}
-
-const serviceClient = createClient(supabaseUrl, serviceRoleKey)
+let serviceClient: SupabaseClient<Database>
 
 describe('MON-006 Per-Row Window Evaluation', () => {
   let shortWindowOrgId: string
@@ -20,6 +19,8 @@ describe('MON-006 Per-Row Window Evaluation', () => {
   const testMarker = `mon-006-test-${Date.now()}`
 
   beforeAll(async () => {
+    serviceClient = createTestServiceClient('mon_006_per_row.test.ts')
+
     // Create short-window org (default 72 hours, but override to 1 hour)
     const { data: shortOrg, error: shortError } = await serviceClient
       .from('organisations')

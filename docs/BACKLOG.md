@@ -23,6 +23,133 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## SKIPPED AND UNREGISTERED ARE DIFFERENT STATES THAT SHARE A NUMBER (2026-08-27)
+
+- [note] A test-count summary collapses distinct states into one integer, and reading a
+  CAUSE out of that integer is a mistake this build keeps making in different clothes.
+
+  THE INSTANCE. Predicting the outcome of the test-database isolation work, I forecast
+  1,933 total tests after credentials, up from 1,888. The measured result was 1,888, and
+  the total did not move at all:
+
+      before:  1,842 passed   11 failed   35 skipped   (1,888)
+      after:   1,886 passed    0 failed    2 skipped   (1,888)
+
+  The eleven failures became passes and thirty-three of the thirty-five skips started
+  running. 1,842 + 11 + 33 = 1,886. The total was always going to be constant.
+
+  THE FAULTY INFERENCE. Six of the eight integration files fail in `beforeAll` rather than
+  in an assertion. I ran vitest with `--reporter=json`, saw that those six contributed no
+  entries to `assertionResults`, and concluded their tests were NOT REGISTERING, so the
+  total would climb by 34 once they ran. Wrong. Vitest collects a file's tests BEFORE it
+  runs the hooks, so the tests exist; a throwing `beforeAll` marks them SKIPPED. They were
+  in the total the whole time, sitting inside the 35.
+
+  WHY THE TWO ARE WORTH SEPARATING. They mean opposite things.
+    - SKIPPED means "vitest found this test and chose not to run it." Recoverable, and the
+      count tells you how much coverage is currently dark.
+    - UNREGISTERED means "vitest never saw this test." That is the state the vitest.config
+      comment already documents from 2026-08-26, when 36 tests were invisible because an
+      import threw at module scope and the file reported NO test count at all. The suite
+      said "1,679 passed, 4 failed" and looked healthy.
+  One is a dimmed light. The other is a light that is not wired in. A summary line renders
+  the first as a number and the second as nothing, and nothing is easy to read as fine.
+
+  THE SAME SHAPE, ALREADY IN THIS FILE.
+    - a monitor that exists and is silent reads on the dashboard as a monitor that is
+      healthy (MON-019, never queried, its view returning OK)
+    - MON-002's `state` derived from `max(ran_at)` alone, so a cron failing every run still
+      read OK, because the number it was built from answered a different question
+    - a test that returns early on missing config and reports PASSED rather than SKIPPED,
+      logged directly above this entry
+  In each, a number or a status was read as evidence for something it does not measure.
+
+  HOW TO APPLY. When a count is the evidence, say which states it aggregates before drawing
+  a conclusion from it. For vitest specifically: `passed + failed + skipped` is the number
+  of tests COLLECTED, and a file that fails to import contributes zero to all three. So a
+  falling total is the signal for unregistered tests, and a rising skip count is the signal
+  for blocked ones. They are not interchangeable and only one of them is visible by
+  default. If a prediction depends on which of the two is happening, run the file alone and
+  read its own summary rather than inferring from the aggregate.
+  Trigger: any time a test-count delta is used as evidence.
+
+## A TEST THAT DEGRADES TO A NO-OP ON MISSING CONFIG IS ASSERTING NOTHING (2026-08-27)
+
+- [pre-c0] THE CLASS, not the instance. Any test that responds to absent configuration by
+  returning early, skipping quietly, or short-circuiting its setup is REPORTING GREEN WHILE
+  PROVING NOTHING. It is the check-that-passes-regardless shape this file already documents
+  in three other places, except it is inside the test suite, which is the one place nobody
+  thinks to audit because the suite IS the audit.
+
+  This is worse than the same defect in production code, for two reasons. A green test is
+  read as positive evidence, so it does not merely fail to warn, it actively reassures. And
+  the number it feeds is the one used to judge every other change: "1,840 passing" is the
+  sentence that ends arguments.
+
+  THE INSTANCE THAT EXPOSED IT, 2026-08-27.
+  src/lib/metrics/get-client-visible-campaign-metrics.test.ts, 7 tests, titled
+  "Campaign Metrics Chokepoint — ADR-030 Runtime Boundary". Its beforeEach read
+  SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY and then did:
+
+      if (!url || !key) {
+        console.warn('Skipping campaign metrics tests: ... not set')
+        return
+      }
+
+  A bare `return` from beforeEach. Every `it` below still RAN, against an undefined client,
+  and the suite reported them as passing. So the file has been claiming to prove the
+  ADR-030 client/operator chokepoint, the boundary that stops one client seeing another's
+  campaign metrics, and proving nothing at all. Nobody could say for how long.
+
+  HOW IT HID. It was NOT in the list of seven known database-integration files, and the
+  reason is exactly the defect: the other seven THREW when credentials were missing, so
+  they showed up as red and got catalogued. This one returned quietly, stayed green, and
+  was therefore invisible to a search for failing tests. THE ONES THAT FAIL LOUDLY ARE THE
+  ONES THAT GET FIXED. The dangerous file is the one that never complains.
+
+  It was found only because a structural scan for reads of production credentials flagged
+  it, and it read SUPABASE_URL rather than NEXT_PUBLIC_SUPABASE_URL, a variable name that
+  had not been on anyone's list either. Two separate blind spots, one file.
+
+  RELATED SHAPES ALREADY IN THIS FILE, all the same family:
+    - the opt-out footer validated and then discarded by a return-value bug
+    - monitor-sweep's loop bounded by the shorter of two parallel arrays, so MON-019 was
+      never queried and its silence read as health
+    - a fake that swallows .limit() so the filter under test is never exercised
+    - a REVOKE that is a no-op, verified by reading only the role it hoped to see
+  In every one, the check RAN, REPORTED SUCCESS, and never reached the thing it protected.
+
+  NEXT ACTION, a structural check. A lint-style test in the same family as
+  src/test-utils/__tests__/production-isolation.test.ts, which is the one that caught this.
+  Scan every *.test.ts for setup hooks that can exit without establishing their fixtures:
+
+    1. A bare `return` inside beforeAll/beforeEach that is guarded by an env-var check.
+    2. `console.warn` containing 'skip'/'skipping' anywhere in a setup hook. If a suite
+       genuinely should not run, the correct tools are `describe.skip`, `describe.runIf`
+       or `it.skipIf`, all of which report as SKIPPED rather than PASSED. The distinction
+       is the whole point: skipped is honest, passed is a lie.
+    3. `process.exit(0)` anywhere in a test file. Two files had this
+       (mon_006_per_row, monitor-acknowledge, both fixed 2026-08-27). It does not skip a
+       suite, it TERMINATES THE WORKER, so every other file sharing that worker silently
+       stops reporting too. Zero tests from those files appear, and the total just looks
+       smaller rather than wrong.
+    4. A test file whose declared `it` count exceeds the count vitest actually reports.
+       That difference is the general detector for this whole class and does not depend on
+       recognising any particular code shape. It is the check worth building if only one
+       gets built.
+
+  The check must guard ITSELF against the same defect: fail if it scans zero files, or the
+  broken-scan case passes vacuously forever. production-isolation.test.ts does this with an
+  explicit `expect(files.length).toBeGreaterThan(50)`, and that assertion is not decoration.
+
+  Also worth knowing when the check is written: a first version flagged ten mocked unit
+  tests that legitimately ASSIGN fake env values and delete them afterwards. A guard that
+  reports ten false positives gets its allowlist stuffed until it protects nothing, so the
+  read/write distinction had to be built in before the guard was usable. Expect the same
+  here: distinguish a hook that CANNOT establish fixtures from one that deliberately and
+  visibly skips.
+  Trigger: next time the test suite is touched, and before the first paying client.
+
 ## The vitest suite WRITES TEST ORGS TO PRODUCTION (2026-08-27)
 
 - [pre-c0] THIS IS WHERE THE TEST DATA CAME FROM. Found while collecting merge receipts,

@@ -12,8 +12,11 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { createTestServiceClient } from '@/test-utils/test-database'
+
+// Needs the TEST database. Run:
+//   npx dotenv -e .env.test.local -- npx vitest run src/lib/faq/write-enforcement.test.ts
 
 describe('FAQ write-side enforcement (database trigger)', () => {
   let serviceClient: SupabaseClient<Database>
@@ -22,15 +25,8 @@ describe('FAQ write-side enforcement (database trigger)', () => {
   let signal1Id: string
   let draft1Id: string
 
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
-
   beforeAll(async () => {
-    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-      throw new Error('Supabase env vars not set')
-    }
-
-    serviceClient = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY)
+    serviceClient = createTestServiceClient('write-enforcement.test.ts')
 
     // Create two organisations
     const { data: org1, error: org1Err } = await serviceClient

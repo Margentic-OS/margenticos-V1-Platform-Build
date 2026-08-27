@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { createTestServiceClient, bridgeEnvForSelfClientingModules } from '@/test-utils/test-database'
 import { getClientVisibleReplies } from './get-client-visible-replies'
 import { getOperatorRepliesForOrg } from './get-operator-replies'
 
@@ -15,6 +15,14 @@ import { getOperatorRepliesForOrg } from './get-operator-replies'
  * 4. Operator view: returns ALL 8 intents for campaign health monitoring
  *
  * These tests use a DRY_RUN test org (seeded, never deleted) so they survive reruns.
+ *
+ * "Seeded, never deleted" is why organisations 11111111-… and 22222222-…, named
+ * 'Test Org A (DRY RUN)' and 'Test Org B (DRY RUN)', were sitting in the PRODUCTION
+ * database until 2026-08-27. The rows were working as designed; the database they
+ * were designed into was the wrong one. They now seed the test project.
+ *
+ * Needs the TEST database. Run:
+ *   npx dotenv -e .env.test.local -- npx vitest run src/lib/reply-handling/get-client-visible-replies.test.ts
  */
 
 describe('getClientVisibleReplies (client-visible chokepoint)', () => {
@@ -26,14 +34,15 @@ describe('getClientVisibleReplies (client-visible chokepoint)', () => {
 
   let supabase: SupabaseClient<Database>
 
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
-
   beforeAll(async () => {
-    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-      throw new Error('Supabase env vars not set (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)')
-    }
-    supabase = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY)
+    supabase = createTestServiceClient('get-client-visible-replies.test.ts')
+
+    // getClientVisibleReplies and getOperatorRepliesForOrg build their own
+    // service-role clients internally, from NEXT_PUBLIC_SUPABASE_URL and
+    // SUPABASE_SERVICE_ROLE_KEY, and throw when the key is absent. vitest.setup.ts
+    // deletes both. Without this bridge all 11 tests fail with
+    // "getClientVisibleReplies: SUPABASE_SERVICE_ROLE_KEY is not set".
+    bridgeEnvForSelfClientingModules('get-client-visible-replies.test.ts')
 
     // Seed test orgs
     await supabase
@@ -484,8 +493,16 @@ describe('getClientVisibleReplies (client-visible chokepoint)', () => {
     it('getOperatorRepliesForOrg returns all 8 intents (no filtering)', async () => {
       const result = await getOperatorRepliesForOrg(TEST_ORG_A_ID)
 
-      // Should have 8 replies (all intents)
-      expect(result.total).toBe(8)
+      // NINE, not eight. Org A seeds the eight distinct intents PLUS a ninth
+      // positive_passive reply against prospect C, added later so the meeting badge
+      // could be tested without flipping every other card. The count here was never
+      // updated, and the mismatch went unnoticed because this file has not completed
+      // a run since: it was one of the credential-blocked integration files.
+      //
+      // Nine is the correct expectation. The suite title is "returns ALL intents (no
+      // filtering)", and all is nine. hiddenFromClientCount stays 3 because the ninth
+      // reply is positive_passive, which a client may see.
+      expect(result.total).toBe(9)
 
       // Three of the eight are ones a client may never see.
       expect(result.hiddenFromClientCount).toBe(3)

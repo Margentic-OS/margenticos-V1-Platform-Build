@@ -1,30 +1,45 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { createTestServiceClient, bridgeEnvForSelfClientingModules } from '@/test-utils/test-database'
 import {
   getClientVisibleCampaignMetrics,
   getAllCampaignMetricsForOrg,
 } from './get-client-visible-campaign-metrics'
 
+// Needs the TEST database. Run:
+//   npx dotenv -e .env.test.local -- npx vitest run src/lib/metrics/get-client-visible-campaign-metrics.test.ts
+
 describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
-  let supabase: ReturnType<typeof createClient<Database>>
+  let supabase: SupabaseClient<Database>
   let testOrgA: string
   let testOrgB: string
 
   beforeEach(async () => {
-    const url = process.env.SUPABASE_URL
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    // Was: read SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, and `return` quietly when
+    // either was missing. Two defects in four lines.
+    //
+    // First, it wrote to whichever database those variables named, inserting
+    // organisations called `Test Org A ${Date.now()}`. On this machine that was
+    // production.
+    //
+    // Second, and worse, the early `return` meant a missing credential produced a
+    // PASSING test file. Every assertion below was skipped and the suite reported
+    // green, so this file has been claiming to prove the ADR-030 chokepoint while
+    // proving nothing. It was not among the seven known integration files for
+    // exactly that reason: the others failed loudly and this one did not.
+    supabase = createTestServiceClient('get-client-visible-campaign-metrics.test.ts')
 
-    if (!url || !key) {
-      console.warn('Skipping campaign metrics tests: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set')
-      return
-    }
-
-    supabase = createClient<Database>(url, key)
     // getClientVisibleCampaignMetrics builds its own service-role client rather than
-    // accepting one, so the caller cannot hand it a session client by mistake. It reads
-    // NEXT_PUBLIC_SUPABASE_URL; this suite is configured with SUPABASE_URL.
-    process.env.NEXT_PUBLIC_SUPABASE_URL ??= url
+    // accepting one, so the caller cannot hand it a session client by mistake. Point
+    // that internal client at the test database too, or it would read the ambient
+    // environment, which vitest.setup.ts has deliberately emptied.
+    bridgeEnvForSelfClientingModules('get-client-visible-campaign-metrics.test.ts')
+
+    // Every `it` below used to open with `if (!supabase || !testOrgA) return`. All seven
+    // are gone. With beforeEach now throwing loudly on missing credentials those guards
+    // could no longer prevent anything, and all they could still do is convert a real
+    // failure into a silent pass. Same defect as the early return they used to pair with.
     // Create two test organisations
     const now = Date.now()
     const orgA = await supabase
@@ -56,7 +71,13 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
     // Create campaigns with bounce data for org A
     await supabase.from('campaigns').insert({
       organisation_id: testOrgA,
-      campaign_type: 'outbound',
+      // 'outbound' is NOT a permitted value. campaigns_campaign_type_check allows only
+      // cold_email | linkedin_post | linkedin_dm. The insert below never checked its
+      // error, so the constraint violation was swallowed, the campaign silently did not
+      // exist, and the metrics assertions failed with 'expected +0 to be 100' — a
+      // symptom that points nowhere near the cause. Invisible until now because this
+      // file returned early from beforeEach and reported green without running.
+      campaign_type: 'cold_email',
       status: 'active',
       sent_count: 100,
       replied_count: 5,
@@ -67,7 +88,7 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
     // Create campaigns with bounce data for org B
     await supabase.from('campaigns').insert({
       organisation_id: testOrgB,
-      campaign_type: 'outbound',
+      campaign_type: 'cold_email',
       status: 'active',
       sent_count: 200,
       replied_count: 10,
@@ -124,7 +145,6 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
   })
 
   it('client choicepoint returns totals only, never per-address or diagnostic fields', async () => {
-    if (!supabase || !testOrgA) return
     const result = await getClientVisibleCampaignMetrics(testOrgA)
 
     // DELIBERATE REVERSAL, 2026-08-24. This assertion used to be
@@ -171,7 +191,6 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
   })
 
   it('counts a positive reply from the action row, which is where the classification lives', async () => {
-    if (!supabase || !testOrgA) return
     const result = await getClientVisibleCampaignMetrics(testOrgA)
 
     // One positive_passive action row was seeded. Before this change the query counted a
@@ -180,7 +199,6 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
   })
 
   it('separates meetings booked from meetings held', async () => {
-    if (!supabase || !testOrgA) return
     const result = await getClientVisibleCampaignMetrics(testOrgA)
 
     // One meeting, seeded at 'booked'. Booked answers "did outreach produce meetings";
@@ -190,7 +208,6 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
   })
 
   it('cross-org boundary: client choicepoint returns ZERO org-B rows when queried as org-A', async () => {
-    if (!supabase || !testOrgA || !testOrgB) return
     // CRITICAL: Org A queries its own metrics
     const resultOrgA = await getClientVisibleCampaignMetrics(testOrgA)
 
@@ -208,7 +225,6 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
   })
 
   it('operator variant returns bouncedCount at runtime (ALL metrics)', async () => {
-    if (!supabase || !testOrgA) return
     // CRITICAL: Call the operator-only function against the same org
     const result = await getAllCampaignMetricsForOrg(supabase, testOrgA)
 
@@ -225,7 +241,6 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
   })
 
   it('operator variant is org-scoped: returns ZERO cross-org data', async () => {
-    if (!supabase || !testOrgA || !testOrgB) return
     // Org A queries
     const resultOrgA = await getAllCampaignMetricsForOrg(supabase, testOrgA)
     expect(resultOrgA.sentCount).toBe(100)
@@ -242,7 +257,6 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
   })
 
   it('client and operator variants are still distinct shapes', async () => {
-    if (!supabase || !testOrgA) return
     const clientResult = await getClientVisibleCampaignMetrics(testOrgA)
     const operatorResult = await getAllCampaignMetricsForOrg(supabase, testOrgA)
 

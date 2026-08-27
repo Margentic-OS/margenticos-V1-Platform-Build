@@ -5,6 +5,25 @@ export default defineConfig({
   test: {
     environment: 'node',
 
+    // Runs before EVERY test file. Strips production Supabase credentials from
+    // process.env so no test can reach the live database, whatever the caller
+    // exported or loaded with `dotenv -e .env.local`. See vitest.setup.ts.
+    setupFiles: ['./vitest.setup.ts'],
+
+    // PINNED, NOT INHERITED. These are vitest 4's current defaults, and the
+    // isolation this suite's safety depends on is a property of them rather than
+    // of anything we wrote. Stated explicitly so that turning them off — which is
+    // the obvious speed knob for a 122-file suite — is a visible decision with
+    // this comment attached, instead of a one-word config change.
+    //
+    // With isolate: false or pool: 'threads', every file in a worker shares one
+    // process.env. The two module-scope dotenv.config() callers described in
+    // vitest.setup.ts would then load .env.local into the SAME environment as the
+    // database integration files. The poisoning in vitest.setup.ts is what makes
+    // that survivable; this pinning is the second layer.
+    pool: 'forks',
+    isolate: true,
+
     // ═══════════════════════════════════════════════════════════════════════
     // TEST-ONLY ENVIRONMENT. READ THE SECOND HALF OF THIS COMMENT BEFORE
     // ADDING ANYTHING HERE.
@@ -45,10 +64,28 @@ export default defineConfig({
     // 6 inserts. Running them against production would destroy live client data
     // in the course of proving the code is safe.
     //
-    // The 38 stay blocked until they have a database that is not production.
-    // Options were costed on 2026-08-26 (Supabase branch at $0.01344/hour, a
-    // second project at $0/month, local Docker) and the decision is open. Until
-    // it is made, blocked is the correct state and is safer than green.
+    // ── RESOLVED 2026-08-27. THE DECISION THIS PARAGRAPH WAS WAITING ON ──
+    //
+    // The paragraph above used to end "the 38 stay blocked until they have a
+    // database that is not production, and the decision is open". They now have
+    // one: Supabase project tidqheqjzvwmrrrebzir, free plan, eu-west-1, restored
+    // from supabase/baseline/schema.sql with a verified catalog match against
+    // production. It holds schema and no client data.
+    //
+    // The seven integration files now read TEST_SUPABASE_URL and
+    // TEST_SUPABASE_SERVICE_ROLE_KEY through src/test-utils/test-database.ts,
+    // which allowlists that one project ref plus a local stack and refuses
+    // everything else, production loudest of all.
+    //
+    // NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are STILL absent
+    // here, and the instruction above still stands. It is now enforced rather
+    // than merely written down: vitest.setup.ts DELETES both from process.env
+    // before any test file is imported, so adding them here, exporting them in a
+    // shell, or running `dotenv -e .env.local -- vitest` no longer reaches the
+    // live database.
+    //
+    // Credentials live in .env.test.local, which is gitignored. This repository
+    // is PUBLIC; nothing secret belongs in this file. See docs/testing-database.md.
     //
     // ANTHROPIC_API_KEY, APOLLO_API_KEY and BRAVE_SEARCH_API_KEY are also absent
     // on purpose. Those throws are all INSIDE functions rather than at module

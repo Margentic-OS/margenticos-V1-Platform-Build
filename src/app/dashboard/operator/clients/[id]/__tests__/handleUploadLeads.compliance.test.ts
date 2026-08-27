@@ -6,21 +6,23 @@
  * Mock mode: INSTANTLY_API_ACTIVE=false (default) → in-process dispatch, no real emails.
  */
 
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { createTestServiceClient } from '@/test-utils/test-database'
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
+// Needs the TEST database. Run:
+//   npx dotenv -e .env.test.local -- npx vitest run "src/app/dashboard/operator/clients/[id]/__tests__/handleUploadLeads.compliance.test.ts"
+//
+// This file is the heaviest writer of the seven: 6 inserts and 3 deletes per run,
+// against organisations, campaigns and prospects. It must never see production.
 
-let supabase: ReturnType<typeof createSupabaseClient<Database>>
+let supabase: SupabaseClient<Database>
 let testOrgId: string
 let testCampaignId: string
 
 beforeEach(async () => {
-  supabase = createSupabaseClient<Database>(SUPABASE_URL, SERVICE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false }
-  })
+  supabase = createTestServiceClient('handleUploadLeads.compliance.test.ts')
 
   // Create test org
   const { data: org, error: orgErr } = await supabase

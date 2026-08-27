@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { createClient as createServiceClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { createTestServiceClient } from '@/test-utils/test-database'
 
-const supabase = createServiceClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Built in beforeAll, not at module scope. A throw at module scope makes the file
+// fail to IMPORT, which reports no test count at all rather than a named failure.
+let supabase: SupabaseClient<Database>
 
 describe('Org Archiving — Contract Tests', () => {
   let testOrgId: string
@@ -15,6 +15,8 @@ describe('Org Archiving — Contract Tests', () => {
   let testSignalId: string
 
   beforeAll(async () => {
+    supabase = createTestServiceClient('org-archiving-integration.test.ts')
+
     // Create test org (not archived)
     const { data: org, error: orgErr } = await supabase
       .from('organisations')

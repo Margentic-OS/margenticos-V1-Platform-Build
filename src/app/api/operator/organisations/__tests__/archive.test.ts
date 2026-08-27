@@ -1,23 +1,18 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { createTestServiceClient } from '@/test-utils/test-database'
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+// Needs the TEST database. Run:
+//   npx dotenv -e .env.test.local -- npx vitest run src/app/api/operator/organisations/__tests__/archive.test.ts
 
 describe('Archive/Unarchive Organisation', () => {
-  let supabase: ReturnType<typeof createClient<Database>>
+  let supabase: SupabaseClient<Database>
   let testOrgId: string
   let testOrgName: string
 
   beforeAll(async () => {
-    if (!SUPABASE_URL || !SERVICE_KEY) {
-      throw new Error('Supabase env vars not set (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)')
-    }
-
-    supabase = createClient<Database>(SUPABASE_URL, SERVICE_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
+    supabase = createTestServiceClient('archive.test.ts')
 
     // Create test organisation
     testOrgName = `Archive Test Org ${Date.now()}`

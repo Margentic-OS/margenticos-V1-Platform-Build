@@ -1,18 +1,22 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
+import { createTestServiceClient } from '@/test-utils/test-database'
 
-// These tests require .env.local to be set with valid Supabase credentials
-// Run: npx dotenv -e .env.local -- npx vitest run src/__tests__/api/operator/monitor-acknowledge.test.ts
+// Needs the TEST database, never production. Run:
+//   npx dotenv -e .env.test.local -- npx vitest run src/__tests__/api/operator/monitor-acknowledge.test.ts
+//
+// This file previously read NEXT_PUBLIC_SUPABASE_URL, so the documented command
+// was `dotenv -e .env.local`, which pointed it at the live database. It inserts an
+// organisation named 'Archived Test Active'; eight of them were still in
+// production on 2026-08-27. See src/test-utils/test-database.ts.
+//
+// It also called process.exit(0) when credentials were missing. That does not skip
+// a suite, it TERMINATES THE WORKER mid-run, so whatever else that worker had left
+// to execute simply never reported. Removed: a missing credential now fails one
+// named hook, loudly, and the rest of the suite still runs.
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-if (!supabaseUrl || !serviceRoleKey) {
-  console.warn('Skipping monitor-acknowledge tests: missing Supabase credentials')
-  process.exit(0)
-}
-
-const serviceClient = createClient(supabaseUrl, serviceRoleKey)
+let serviceClient: SupabaseClient<Database>
 
 describe('Monitor Acknowledge Flow', () => {
   let testOperatorId: string
@@ -22,6 +26,8 @@ describe('Monitor Acknowledge Flow', () => {
   let acknowledgedEventId: number
 
   beforeAll(async () => {
+    serviceClient = createTestServiceClient('monitor-acknowledge.test.ts')
+
     // Create a test operator user
     const { data: authUser, error: signUpError } = await serviceClient.auth.admin.createUser({
       email: `monitor-test-${Date.now()}@test.local`,
@@ -37,7 +43,11 @@ describe('Monitor Acknowledge Flow', () => {
       .from('users')
       .insert({
         id: testOperatorId,
-        email: authUser!.user!.email,
+        // auth.admin.createUser types email as optional, and users.email is NOT NULL.
+        // The old client was untyped, so this mismatch was invisible until the
+        // client gained a Database generic. Asserted rather than defaulted: if the
+        // address is genuinely missing the fixture is wrong and should fail here.
+        email: authUser!.user!.email!,
         role: 'operator',
       })
     expect(userError).toBeNull()
