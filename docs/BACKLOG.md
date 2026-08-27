@@ -23,6 +23,61 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## LIVE SECRET EXPOSED IN A PUBLIC REPO (found 2026-08-27, NOT YET REMEDIATED)
+
+- [c0-BLOCKER, URGENT] THE SUPABASE PENDING-REVIEW WEBHOOK SECRET IS PUBLIC ON GITHUB.
+
+  Found by the pre-push secret scan on 2026-08-27, before pushing branch sourcing-filter.
+  The push was STOPPED and has not happened.
+
+  WHAT: the value of SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET, embedded as a literal in a
+  CREATE TRIGGER statement.
+  WHERE: supabase/baseline/schema.sql, in the `users-pending-review-notify` trigger
+  definition (the x-webhook-secret header of the supabase_functions.http_request call).
+  INTRODUCED BY: commit 04572fd, "fix: recover 36 invisible tests, and capture the schema
+  baseline the repo cannot rebuild". The baseline was produced by dumping the live schema,
+  and a Supabase Database Webhook stores its headers, secret included, INSIDE the trigger
+  definition. So the dump captured a credential and nobody looked.
+  ALREADY PUBLIC: the commit is on origin/main, origin/batch-parity-harness and
+  origin/test-env-and-baseline. The repo is PUBLIC
+  (github.com/Margentic-OS/margenticos-V1-Platform-Build). Exposure is not hypothetical
+  and is not created by any future push; it is already done.
+  STILL LIVE: verified against the production database on 2026-08-27. The trigger still
+  carries this exact value, so the leaked secret is the working one.
+
+  BLAST RADIUS, stated accurately rather than alarmingly. The secret authenticates POSTs to
+  /api/webhooks/users-pending-review-notify. Holding it lets an unauthenticated caller
+  forge "a second user tried to sign up for this organisation" events, which causes the
+  operator to be emailed a fabricated notification. It does NOT grant database access, does
+  not read or write client data, and the route does not act on the payload beyond an
+  organisation-name lookup and an email. So: a spoofable operator notification and an email
+  amplification vector, not a data breach. Worth fixing promptly, not a fire drill.
+
+  REMEDIATION, all steps needed, none done yet. Requires Doug: it changes a credential and
+  touches Vercel and Supabase config.
+    1. Generate a new secret:  openssl rand -hex 32
+    2. Supabase Dashboard -> Database -> Webhooks -> users-pending-review-notify ->
+       update the x-webhook-secret header to the new value.
+    3. Vercel -> project env vars -> update SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET in every
+       scope that has it, then redeploy so the route validates against the new value.
+    4. Regenerate supabase/baseline/schema.sql AND scrub the header value before committing,
+       or exclude trigger definitions from the baseline entirely. Otherwise the next dump
+       re-leaks the NEW secret and this repeats.
+    5. Decide about history. The old value stays in git history on a public repo forever
+       unless the history is rewritten. Rotating (steps 1 to 3) makes the exposed value
+       worthless, which is the cheaper and usually sufficient answer.
+
+  THE GENERALISATION, which is the part worth carrying: A SCHEMA DUMP IS NOT SAFE TO COMMIT
+  BY DEFAULT. Anything the database stores that contains a credential comes out in the dump.
+  Supabase Database Webhooks store their headers in the trigger definition. pg_cron commands
+  store their bearer tokens in cron.job.command, which this build already hardcodes for
+  documented reasons, so a dump that ever includes cron.job would leak CRON_SECRET the same
+  way. Any future schema baseline must be scanned before it is committed, not after.
+
+  NEXT ACTION: add the secret scan to the pre-commit hooks in CLAUDE.md alongside the .env
+  check and the tool-name check. A grep for 64-hex and JWT shapes in the staged diff would
+  have caught this at the commit that introduced it.
+
 ## Per-domain sending health / MON-023 (2026-08-27, branch sourcing-filter)
 
 - [pre-ramp, HIGH] MON-023's SECOND TRIGGER IS DORMANT AND WILL STAY DORMANT until the
