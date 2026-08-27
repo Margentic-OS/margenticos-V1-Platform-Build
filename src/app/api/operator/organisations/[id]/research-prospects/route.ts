@@ -120,14 +120,44 @@ export async function POST(
     // of every source.
     const useStoredFindings = body.use_stored_findings === false ? false : true
 
-    const queued = await isQueueEnabled(supabase, 'research')
+    // ── WHICH PATH, DECIDED HERE AT ENQUEUE AND NOWHERE ELSE ─────────────────
+    //
+    // Read at ENQUEUE, never at claim. A prospect that entered the batch path must finish
+    // down the batch path: flipping a flag mid-batch would otherwise strand it between
+    // phase 1 and phase 2 with its sources bought and no job able to finish it.
+    //
+    // The two flags cannot both be true. system_flags_research_path_exclusive is a unique
+    // index that permits at most one of queue_research and queue_research_sources to be
+    // enabled, which is also what keeps Apify actor concurrency inside its measured
+    // ceiling of 25.
+    const batched = await isQueueEnabled(supabase, 'research_sources')
+    const queued = batched || await isQueueEnabled(supabase, 'research')
+
+    // ── REFUSE A HALF-ENABLED BATCH PATH ─────────────────────────────────────
+    //
+    // Phase 1 buys sources and leaves the prospect waiting for a batch. With collection
+    // disabled, that batch is submitted, billed, and never read: money spent on work
+    // nothing will finish. Refusing here is the difference between an operator seeing a
+    // sentence and an operator seeing an invoice.
+    if (batched) {
+      const collectEnabled = await isQueueEnabled(supabase, 'research_collect')
+      if (!collectEnabled) {
+        return NextResponse.json({
+          error:
+            'Refused: the batch research path is enabled (queue_research_sources) but its ' +
+            'collection half is not (queue_research_collect). Phase 1 would buy sources and ' +
+            'submit a batch that nothing would ever read, which spends money on work that ' +
+            'cannot finish. Turn queue_research_collect on first, then retry.',
+        }, { status: 409 })
+      }
+    }
 
     logger.info('research-prospects: operator triggered', {
       operator_id: user.id,
       organisation_id: organisationId,
       scope,
       use_stored_findings: useStoredFindings,
-      path: queued ? 'queue' : 'inline',
+      path: batched ? 'queue:batch' : queued ? 'queue:single-job' : 'inline',
     })
 
     // ── QUEUED PATH ─────────────────────────────────────────────────────────
@@ -148,6 +178,10 @@ export async function POST(
         organisationId,
         scope as ResearchScope,
         `operator:${user.id}`,
+        undefined,
+        // The SAME guards either way. Only the final insert differs, so a prospect is
+        // eligible under one definition no matter which path is live.
+        batched ? 'research_sources' : 'research',
       )
 
       if (!enqueued.ok) {

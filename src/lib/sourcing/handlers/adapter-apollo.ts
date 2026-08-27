@@ -38,6 +38,7 @@ interface ApolloApiSearchRequest {
   q_organization_keyword_tags: string[]
   organization_num_employees_ranges: string[]
   organization_locations: string[]
+  person_locations: string[]
   person_seniorities: string[]
   contact_email_status: string[]
   page: number
@@ -72,9 +73,11 @@ interface ApolloApiSearchResponse {
 }
 
 // ─── The filter ──────────────────────────────────────────────────────────────
-// Live total_entries with exactly these values: 61,524, measured 2026-08-26.
-// The same filter measured 61,492 on 2026-08-24. The 32-row difference is
-// Apollo's index moving over two days, not a change in the filter.
+// Live total_entries with exactly these values: 55,975, measured 2026-08-26.
+//
+// Without the person_locations line below it measures 61,523, against 61,492 for
+// the same filter on 2026-08-24. Those 31 rows are Apollo's index moving over two
+// days, not a change in the filter.
 //
 // Every number quoted below was measured on this exact base, changing one
 // parameter at a time. They are here so the next person does not have to
@@ -119,6 +122,26 @@ const APOLLO_FILTER: Omit<ApolloApiSearchRequest, 'page' | 'per_page'> = {
   // that had nothing to read it, which is what a convention is worth. Canada is
   // out on CASL: consent is required before first contact.
   organization_locations: ['united states', 'united kingdom', 'ireland'],
+
+  // The SAME three countries again, applied to where the PERSON is.
+  //
+  // organization_locations alone removes German and Canadian FIRMS. It does not
+  // remove a person sitting in Toronto who works for a US-registered company, and
+  // measured against the org-only filter there were 545 of them in Canada and 238
+  // in Germany. CASL attaches to the RECIPIENT, not to where the firm is
+  // registered, so those 545 were the same exposure as the two GmbHs and not a
+  // smaller version of it.
+  //
+  // This costs inventory and is worth it: 61,523 to 55,975, which is 5,548 rows or
+  // about 9 percent. A complaint is not affordable; 9 percent is.
+  //
+  // Proved by arithmetic rather than asserted, because Apollo silently ignores a
+  // parameter it does not recognise and an ignored person_locations would look
+  // exactly like a working one. Adding a country BACK to this list returns
+  // precisely the people it was excluding: +canada gives 56,520, which is 55,975
+  // plus exactly the 545, and +germany gives 56,213, which is 55,975 plus exactly
+  // the 238. Both residuals are therefore outside the shipped set.
+  person_locations: ['united states', 'united kingdom', 'ireland'],
 
   // Second silent defect. Apollo derives seniority from job TITLE, not from
   // ownership, and in professional services the owner is usually titled Partner
@@ -190,6 +213,7 @@ export const apolloHandler = {
       q_organization_keyword_tags: [...APOLLO_FILTER.q_organization_keyword_tags],
       organization_num_employees_ranges: [...APOLLO_FILTER.organization_num_employees_ranges],
       organization_locations: [...APOLLO_FILTER.organization_locations],
+      person_locations: [...APOLLO_FILTER.person_locations],
       person_seniorities: [...APOLLO_FILTER.person_seniorities],
       contact_email_status: [...APOLLO_FILTER.contact_email_status],
       page: 1,

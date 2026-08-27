@@ -6097,8 +6097,50 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   reading the docs and assuming. A parameter name typo here does not fail, it ships a
   filter that filters nothing.
 
-- [DECISION NEEDED, 2026-08-26] RESIDUAL CANADA AND GERMANY EXPOSURE. NOT FIXED, because
-  the spec was explicit and its number was matched. Doug's call.
+  WORKED EXAMPLE OF THE SAME MISTAKE, MADE WHILE FIXING IT. Recorded because it is the
+  more useful half of the finding above, and because it was caught by luck of a second
+  look rather than by process.
+
+  The task was to prove that adding person_locations actually excluded the 545 Canadians.
+  The first check built the probe like this:
+
+      { ...shippedFilter, person_locations: ['canada'] }      // WRONG
+
+  That REPLACES the filter's ['united states','united kingdom','ireland'] with ['canada']
+  rather than testing against it. So it measured "how many Canadians are at in-scope
+  firms", which is 545 whether or not person_locations is in the shipped filter. It
+  returned 545 before the fix and 545 after it. THE CHECK COULD NOT FAIL, so passing it
+  meant nothing, and it was one read-through away from being quoted as proof the gap was
+  closed.
+
+  The correct form ADDS instead of replacing, and is falsifiable:
+
+      { ...shippedFilter, person_locations: [...shipped, 'canada'] }   // RIGHT
+      55,975 + canada  = 56,520, delta exactly 545
+      55,975 + germany = 56,213, delta exactly 238
+
+  If person_locations were being ignored, both deltas would have been zero and the total
+  would have stayed at 61,523. The check can fail, therefore passing it is worth something.
+
+  THE RULE, which generalises past Apollo: A CHECK THAT PASSES REGARDLESS IS WORSE THAN NO
+  CHECK, because it manufactures confidence. No check leaves you knowing you are ignorant.
+  Before trusting any verification, ask what result would have made it FAIL, and if there
+  is no such result, the check is decoration. This is the same family as the MON-019
+  parallel arrays, the validated-then-discarded opt-out footer, and the REVOKE that read
+  back only the role it hoped to see: in every case the check ran, reported success, and
+  never touched the thing it was supposed to protect.
+
+- [RESOLVED 2026-08-26, was DECISION NEEDED] RESIDUAL CANADA AND GERMANY EXPOSURE. NOW
+  CLOSED at Doug's instruction: person_locations added, same three countries as
+  organization_locations. Shipped total 55,975, down from 61,523, which is 5,548 rows or
+  about 9 percent of inventory. Doug's reasoning, recorded because it is the precedent for
+  the next one of these: nine percent of inventory is affordable, a complaint is not, and
+  Canada was removed on legal grounds rather than preference.
+  Proof the gap is actually shut, rather than the parameter being silently ignored:
+  adding a country BACK returns precisely the people it was excluding. +canada gives
+  56,520, which is 55,975 plus exactly the 545. +germany gives 56,213, which is 55,975
+  plus exactly the 238. See ADR-032.
+  The original finding, kept for the reasoning:
   The filter constrains organization_locations only, so it removes German and Canadian
   FIRMS. It does not constrain where the PERSON is. Measured live:
     - 545 people located in Canada at in-scope US/UK/IE firms
@@ -6122,10 +6164,16 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
       dead code. Recover them from git history at bc05658 when the config layer returns.
     - spec.job_titles_excluded and spec.keywords_excluded ARE still honoured. They are
       post-filters applied to results in execute(), not search parameters.
-  Hardcoding the filter is an architectural decision and may deserve its own ADR. Not
-  written this session because docs/ADR.md was being edited in a parallel session.
+  Hardcoding the filter is an architectural decision and is now written up as ADR-032,
+  which also carries the manifest-check reasoning verbatim.
 
-- [pre-c1, 2026-08-26] ICP SPEC DEFAULTS STILL LIST DE AND CA. DEFAULT_PERSON_COUNTRIES and
+- [RESOLVED 2026-08-26, was pre-c1] ICP SPEC DEFAULTS NO LONGER LIST DE AND CA. Both
+  DEFAULT_PERSON_COUNTRIES and DEFAULT_COMPANY_COUNTRIES are now ['GB', 'IE', 'US'].
+  AU and NL were removed in the same edit, beyond the DE and CA that were asked for: the
+  filter does not source them either, so leaving them would have kept the divergence log
+  firing on every run, and that noise was half the reason for the change. Enforcement
+  still lives at the filter, which is hardcoded and which no spec value can widen. The
+  defaults now agree with it instead of contradicting it. Original finding below: DEFAULT_PERSON_COUNTRIES and
   DEFAULT_COMPANY_COUNTRIES in src/lib/agents/icp-filter-spec.ts still contain DE, CA, AU
   and NL, and the comment above them still recommends DE and NL. Not changed: the
   instruction was to remove Germany and Canada at the FILTER layer, and changing the
@@ -6133,3 +6181,130 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   live filter therefore disagree by design. The adapter logs that divergence on every run
   (ignored_spec_countries) so it is visible rather than silent. Reconcile when the config
   layer lands, or the defaults will quietly come back into force with it.
+## Batch synthesis (2026-08-26, branch batch-synthesis)
+
+- [pre-c1] The older mon_* views are readable by anon, and a Postgres view runs with its
+  OWNER's privileges rather than the caller's unless security_invoker is set.
+
+  Found while adding MON-021 and MON-022. The two new views were deliberately locked down
+  (REVOKE from anon and authenticated by name, GRANT SELECT to service_role only) because
+  they read synthesis_batches and synthesis_batch_entries, which this build revoked from
+  anon two migrations earlier. An anon-readable view over a revoked table hands anon
+  AGGREGATED ACCESS to exactly the data the revoke was for, and it does so without any
+  grant appearing on the table itself, so the standard audit query
+
+      SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relkind = 'r'
+         AND has_table_privilege('anon', c.oid, 'SELECT') AND NOT c.relrowsecurity;
+
+  does NOT find it. That query filters on relkind = 'r', tables only. Views are 'v'.
+
+  CORRECTED 2026-08-26 AFTER MEASURING RATHER THAN READING GRANTS. The severity ran the
+  OPPOSITE WAY to how it was first reported, and that inversion is the useful part.
+
+      as anon:  SELECT count(*) FROM cron_heartbeats;              ->  0 rows (RLS holds)
+      as anon:  SELECT * FROM mon_019;                             ->  RETURNS DATA
+      as anon:  SELECT * FROM client_organisation_view;
+                ERROR 42501: permission denied for function get_my_organisation_id
+
+  So the nine mon_* views really do bypass RLS, and client_organisation_view does NOT.
+  It was reported as exposing every organisation's name, contract_start_date and
+  meetings_count to anyone with the anon key. It does not: its definition ends
+  `WHERE id = get_my_organisation_id()`, so it self-scopes to the caller's own
+  organisation, and that function is SECURITY DEFINER with EXECUTE denied to anon. It
+  also fails CLOSED if that changes, because auth.uid() is NULL for anon, so the
+  predicate becomes `id = NULL` and matches nothing.
+
+  What the nine mon_* views leak is operational telemetry: which scheduled jobs exist,
+  when each last ran, whether it is failing, and a free-text detail line with counts.
+  Sampled live: "Processed 0 replies", "Checked 18 monitors, recorded 0 state change(s)",
+  "Nothing pending: every enriched prospect has a verdict." No client data, no
+  organisation data, no prospect data. Low severity, free to close.
+
+  A migration closing the nine is WRITTEN AND NOT APPLIED at
+  supabase/migrations/20260826170000_revoke_anon_on_views.sql, awaiting a decision,
+  because the instruction was to report rather than batch-revoke.
+
+  STILL OPEN, as its own decision: client_organisation_view's anon grant is useless
+  today, so removing it is defence in depth rather than a fix. It is a client-facing view
+  whose purpose is to serve an authenticated user their own organisation, and nothing
+  reads it yet. Changing grants or setting security_invoker on a client-facing view is
+  not something to do on the back of a premise that turned out to be wrong.
+
+  The original (uncorrected) survey follows, kept because the count is still right.
+
+  MEASURED 2026-08-26 with the widened query. TEN views are anon-readable while the
+  current audit returns zero rows:
+
+      client_organisation_view
+      mon_001  mon_002  mon_003  mon_004  mon_005  mon_007  mon_010  mon_019  mon_020
+
+  Note what is NOT in that list: mon_006, mon_011 through mon_018, and the new mon_021 and
+  mon_022. So some monitor views are already locked down and some are not, which means
+  this was never a deliberate policy either way. That is worth knowing before "fixing" it:
+  the inconsistency suggests grants were inherited from whatever the default was on the
+  day each view was created, not chosen.
+
+  client_organisation_view is the one to look at first and the one to be most careful
+  with. It is named as client-facing, so anon access may be load-bearing for something,
+  or it may be RLS-backed at the base tables. Either way it is not a mon_* view and it
+  should not be swept up in the same migration without being understood on its own.
+
+  Not fixed here, deliberately. Each of these is a fresh SELECT over other tables, I have
+  not traced what each exposes or who reads it, and changing grants on paths I have not
+  traced is how a working dashboard breaks quietly. It is also not urgent: the sweep and
+  the operator dashboard both read as service_role, so revoking is EXPECTED to be inert,
+  but "expected to be" is the phrase this project keeps getting caught by.
+
+  NEXT ACTION, in this order:
+    1. Widen the CLAUDE.md audit query to cover views as well as tables:
+       relkind IN ('r','v','m'). The current one cannot see this class at all, and it has
+       been returning zero rows reassuringly since the day it was written.
+    2. Handle client_organisation_view separately and first. Different object, different
+       question, and possibly a legitimate grant.
+    3. For each mon_* view, read what it selects from and confirm nothing client-facing
+       reads it. The operator dashboard reads monitor_checks and monitor_events, not the
+       views, so this is expected to be a short list.
+    4. Revoke by name and grant service_role, one migration, with a live read-back in
+       both directions.
+
+  Related: the 2026-08-25 verification_calls incident, where RLS held and the grant
+  underneath it did not. This is the same lesson one level out: the grant you did not
+  think to look at is on a different object than the one you secured.
+
+## Send-eligibility retroactivity and in-flight removal (2026-08-26, pre-ramp audit F1/F3)
+
+- [pre-c1] NO CODE PATH REMOVES A PROSPECT ALREADY UPLOADED TO THE OUTBOUND PROVIDER.
+
+  Our send gates govern the UPLOAD. Once a prospect is uploaded the provider owns the
+  sequence, and marking the row `email_send_eligible = false` afterwards does nothing to
+  email that has not been sent yet. Confirmed live on 2026-08-26: two German prospects
+  sat `status: 1` in an active campaign with emails 3 and 4 still scheduled, while their
+  rows read `false / country_excluded_de`.
+
+  Stopping them was a manual action in the provider UI. There is no API call in this
+  codebase that pauses or deletes a lead, and no reconciliation that would have noticed.
+
+  NEXT ACTION, and it is a design question before it is a build:
+    1. Decide the trigger. Suppression is the obvious one (we already push suppression to
+       the provider on opt-out), but a COMPLIANCE rule change is different: it applies to
+       a set defined by a predicate, not to one person who replied.
+    2. Build a removal capability behind the registry (`can_remove_from_sequence` or
+       similar), so it is not hardcoded to one vendor.
+    3. Decide whether it fires automatically on `email_send_eligible` going true->false,
+       or only on an explicit operator action. Automatic is safer for compliance and
+       riskier for accidents.
+
+- [pre-c1] ELIGIBILITY IS FROZEN AT VERIFICATION. Changing EXCLUDED_COUNTRIES, the
+  catch-all send policy, or the Bouncer status mapping does NOT change any prospect
+  already verified. Re-evaluating requires re-verifying, which costs money.
+
+  Full reasoning in ADR-034. Not a defect to fix blind: the column is deliberately the
+  last word at send time, and re-evaluating in the claim would put verification state
+  into the conditional UPDATE that makes the send path race-safe.
+
+  What is missing is a cheap re-evaluation path that does NOT re-verify. Everything the
+  rule needs (country, the two stored verdicts) is already on the row; only the write is
+  gated behind the paid trigger. A `recomputeSendEligibility(prospect_ids)` that reruns
+  `resolveSendEligibility` over stored columns and updates the verdict would make rule
+  changes retroactive for free. Deliberately not built during the audit.

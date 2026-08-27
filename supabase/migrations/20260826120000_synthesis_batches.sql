@@ -318,10 +318,12 @@ CREATE TABLE IF NOT EXISTS synthesis_batch_entries (
   phase1_run_id       uuid,
 
   -- ── The result, filled at collection ──────────────────────────────────────
-  -- The model's raw text. Everything downstream of the API call in synthesizeResearch
-  -- is pure: parseSynthesisResponse, selectCandidate, scrubAITells and
-  -- applyTriggerReadabilityGate take no clock and make no call. Given this text plus
-  -- the snapshot above, phase 2 reproduces a byte-identical SynthesisOutput.
+  -- SUPERSEDED by response_message (jsonb) in
+  -- 20260826140000_synthesis_entry_response_message.sql. Writing phase 2 showed the
+  -- string was the wrong seam: the shared parse takes a whole Message, because the
+  -- no-text-block fallback, the max_tokens truncation check and the usage read are all
+  -- properties of the response object rather than of its text. The Batch API returns
+  -- exactly that object, so storing it whole means phase 2 reconstructs nothing.
   response_text       text,
   -- usage verbatim. cache_read_input_tokens here is the only production evidence of
   -- whether caching survived batching, which is the open question this whole change

@@ -161,6 +161,66 @@ export const QUEUE_CONFIG: Record<JobType, JobTypeConfig> = {
     maxInFlight: 40,
     maxAttempts: 3,
   },
+
+  // ── PHASE 1 OF THE BATCH PATH ──────────────────────────────────────────────
+  //
+  // Fetch the four sources, snapshot everything phase 2 needs, submit the synthesis
+  // calls to the Batch API. No synthesis, no writer, no judge: those moved to
+  // research_collect. So this is the SAME Apify, Apollo, website and Brave work as
+  // 'research' with three Anthropic calls removed, which is why worstCaseSeconds is
+  // 200 rather than research's 240.
+  //
+  // maxInFlight 20 is THE APIFY CEILING, NOT A PREFERENCE, and it is the same 20 that
+  // 'research' carries, for the same reason: 25 concurrent actor runs measured
+  // 2026-08-24, one actor per prospect since 2026-08-25, 20 taken for margin.
+  //
+  // ── WHY BOTH CAN BE 20 WITHOUT EXCEEDING 25 ──
+  //
+  // Because they can never both be running. queue_research and queue_research_sources
+  // are mutually exclusive, enforced by system_flags_research_path_exclusive, a unique
+  // index on a constant expression that permits at most one of the two to be enabled.
+  //
+  // That guarantee is what lets the Apify assertion below take the MAX across the
+  // source-fetching job types rather than the SUM. Without it the sum would be 40
+  // against a ceiling of 25, and the only alternatives would have been to drop the
+  // proven path from 20 to 15 to make room, or to assert the max and hope nobody
+  // enabled both. Proving the exclusion is better than either.
+  research_sources: {
+    leaseSeconds: 360,
+    worstCaseSeconds: 200,
+    claimBatchSize: 5,
+    maxInFlight: 20,
+    maxAttempts: 2,
+  },
+
+  // ── PHASE 2 OF THE BATCH PATH ──────────────────────────────────────────────
+  //
+  // Read the synthesis out of the batch result, then writer + floor + judge, then one
+  // complete prospect_research_results row. Between one and six Anthropic calls per
+  // prospect depending on retries.
+  //
+  // STARTS NO APIFY ACTORS AT ALL, which is the whole point of splitting the caps.
+  // Its only external dependency is Anthropic, measured 2026-08-24 at 10,000
+  // requests/minute, 10M input tokens/minute and 2M output tokens/minute. At
+  // maxInFlight 40 this draws at most a few hundred requests a minute, so the cap here
+  // is for per-organisation FAIRNESS, not for a provider limit. It is deliberately
+  // NOT in APIFY_JOB_TYPES below.
+  //
+  // worstCaseSeconds 120 covers the retry path: the writer runs one to three times and
+  // floor and judge zero to three each, so a retried prospect is five or six calls.
+  //
+  // maxAttempts 3 rather than research's 2. A failed collect does NOT re-buy anything:
+  // the sources are already snapshotted and the synthesis is already paid for and
+  // stored. Only the writer and judge calls repeat, at roughly a fifth of the cost of
+  // a full run, so a third attempt is cheap insurance against a transient failure
+  // throwing away a batch we have already waited a day for.
+  research_collect: {
+    leaseSeconds: 240,
+    worstCaseSeconds: 120,
+    claimBatchSize: 10,
+    maxInFlight: 40,
+    maxAttempts: 3,
+  },
 }
 
 /**
@@ -289,15 +349,61 @@ function assertQueueConfig(): void {
   // 7. The one externally imposed ceiling. Apify allowed 25 concurrent actor runs when
   //    measured on 2026-08-24, and the LinkedIn source runs APIFY_ACTORS_PER_RESEARCH_PROSPECT
   //    actors per prospect (1 since 2026-08-25, 2 before).
-  //    Raising research.maxInFlight without raising the Apify plan buys actor-run
-  //    rejections rather than throughput, so it fails here instead.
-  const researchActorRuns = QUEUE_CONFIG.research.maxInFlight * APIFY_ACTORS_PER_RESEARCH_PROSPECT
-  if (researchActorRuns > APIFY_MAX_CONCURRENT_ACTOR_RUNS) {
+  //    Raising a source-fetching job type's maxInFlight without raising the Apify plan
+  //    buys actor-run rejections rather than throughput, so it fails here instead.
+  //
+  //    ── THIS USED TO NAME 'research' DIRECTLY, AND THAT WAS THE BUG WAITING ──
+  //
+  //    The check read QUEUE_CONFIG.research.maxInFlight, hardcoded. When source
+  //    fetching moved to research_sources, that line would have kept passing while
+  //    checking a job type that no longer starts a single actor: an assertion pointed
+  //    at the wrong thing, still green. Same family as the monitor-sweep arrays, where
+  //    the loop was bounded by the shorter one and MON-019 was silently never queried.
+  //
+  //    So the set of source-fetching job types is now DECLARED, in APIFY_JOB_TYPES, and
+  //    assertion 8 below fails if that declaration goes stale.
+  const apifyCeilingUsers = APIFY_JOB_TYPES.map(jobType => ({
+    jobType,
+    actorRuns: QUEUE_CONFIG[jobType].maxInFlight * APIFY_ACTORS_PER_RESEARCH_PROSPECT,
+  }))
+
+  //    MAX, NOT SUM, and the justification is a database guarantee rather than a
+  //    convention: queue_research and queue_research_sources are mutually exclusive via
+  //    system_flags_research_path_exclusive, so at most one source-fetching job type is
+  //    ever claiming work. If that index is ever dropped this must become a sum, and
+  //    the configuration would then have to change to fit.
+  const worstApify = apifyCeilingUsers.reduce(
+    (worst, entry) => (entry.actorRuns > worst.actorRuns ? entry : worst),
+    { jobType: 'none' as string, actorRuns: 0 },
+  )
+  if (worstApify.actorRuns > APIFY_MAX_CONCURRENT_ACTOR_RUNS) {
     problems.push(
-      `research: maxInFlight ${QUEUE_CONFIG.research.maxInFlight} x ` +
-      `${APIFY_ACTORS_PER_RESEARCH_PROSPECT} actors = ${researchActorRuns} concurrent Apify ` +
-      `actor runs, over the measured ceiling of ${APIFY_MAX_CONCURRENT_ACTOR_RUNS}.`,
+      `${worstApify.jobType}: maxInFlight ${QUEUE_CONFIG[worstApify.jobType as JobType].maxInFlight} x ` +
+      `${APIFY_ACTORS_PER_RESEARCH_PROSPECT} actors = ${worstApify.actorRuns} concurrent Apify ` +
+      `actor runs, over the measured ceiling of ${APIFY_MAX_CONCURRENT_ACTOR_RUNS}. ` +
+      'The two research paths are mutually exclusive, so this is a per-path ceiling, ' +
+      'not a shared one.',
     )
+  }
+
+  // 8. APIFY_JOB_TYPES must name real job types. A typo or a renamed job type would
+  //    make assertion 7 skip the path that actually calls Apify, which is exactly the
+  //    silent-pass failure it exists to prevent. An empty list fails too, so this
+  //    cannot pass vacuously.
+  if (APIFY_JOB_TYPES.length === 0) {
+    problems.push(
+      'APIFY_JOB_TYPES is empty, so the Apify concurrency ceiling is not being checked ' +
+      'against anything. If no job type starts actors any more, delete the check rather ' +
+      'than leaving it passing over an empty set.',
+    )
+  }
+  for (const jobType of APIFY_JOB_TYPES) {
+    if (!(jobType in QUEUE_CONFIG)) {
+      problems.push(
+        `APIFY_JOB_TYPES names '${jobType}', which is not a job type in QUEUE_CONFIG. ` +
+        'The Apify ceiling would silently skip it.',
+      )
+    }
   }
 
   if (problems.length > 0) {
@@ -323,6 +429,23 @@ export const APIFY_MAX_CONCURRENT_ACTOR_RUNS = 25
  * the assertion will refuse to start until maxInFlight comes back down.
  */
 export const APIFY_ACTORS_PER_RESEARCH_PROSPECT = 1
+
+/**
+ * WHICH JOB TYPES ACTUALLY START APIFY ACTORS.
+ *
+ * Declared rather than assumed, because the Apify ceiling assertion used to name
+ * 'research' inline. Once source fetching moved to research_sources that line would
+ * have gone on passing while measuring a job type that no longer touches Apify: a check
+ * that runs, reports success, and no longer protects the thing it was written for.
+ *
+ * 'research' is still here because the original single-job path is still deployed and
+ * still fetches sources. 'research_collect' is deliberately absent: phase 2 makes
+ * Anthropic calls only and starts no actors.
+ *
+ * assertQueueConfig verifies every name here exists in QUEUE_CONFIG, and fails on an
+ * empty list rather than passing over nothing.
+ */
+export const APIFY_JOB_TYPES: JobType[] = ['research', 'research_sources']
 
 /** Apollo people/bulk_match accepts ten details[] entries per call. */
 export const APOLLO_BULK_MATCH_PAGE_SIZE = 10

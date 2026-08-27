@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { isQueueEnabled, setQueueFlag, QUEUE_FLAG_KEYS } from '../flags'
+import { JOB_TYPES } from '../types'
 import { createFakeQueue } from './fake-queue'
 
 describe('isQueueEnabled — reading the flag', () => {
@@ -32,13 +33,52 @@ describe('isQueueEnabled — reading the flag', () => {
   })
 
   it('maps each job type to its documented key', () => {
-    // These strings are also written by the migration's seed INSERT. If they drift, the
+    // These strings are also written by the migrations' seed INSERTs. If they drift, the
     // flag silently reads a missing row and every job type falls back to inline.
     expect(QUEUE_FLAG_KEYS).toEqual({
-      enrich:   'queue_enrich',
-      research: 'queue_research',
-      compose:  'queue_compose',
+      enrich:           'queue_enrich',
+      research:         'queue_research',
+      compose:          'queue_compose',
+      research_sources: 'queue_research_sources',
+      research_collect: 'queue_research_collect',
     })
+  })
+
+  it('gives EVERY job type a key, checked against JOB_TYPES rather than a copy of it', () => {
+    // The assertion above is a literal, so it can only fail once someone has already
+    // added a job type AND remembered to come here. This one fails the moment JOB_TYPES
+    // grows: a job type with no flag key reads undefined, isQueueEnabled queries for a
+    // row that cannot exist, and the type falls back to inline for ever with nothing
+    // saying why.
+    for (const jobType of JOB_TYPES) {
+      expect(QUEUE_FLAG_KEYS[jobType], `no flag key for job type '${jobType}'`).toBeTruthy()
+    }
+    expect(Object.keys(QUEUE_FLAG_KEYS).sort()).toEqual([...JOB_TYPES].sort())
+  })
+
+  it('the two research paths read DIFFERENT keys, so one cannot imply the other', async () => {
+    // queue_research_sources is the switch and queue_research is the old path. If these
+    // ever collapsed onto one key, rolling back would be impossible: turning the batch
+    // path off would turn the proven path off with it.
+    expect(QUEUE_FLAG_KEYS.research).not.toBe(QUEUE_FLAG_KEYS.research_sources)
+
+    const fake = createFakeQueue([])
+    fake.flags.set('queue_research', true)
+    fake.flags.set('queue_research_sources', false)
+    expect(await isQueueEnabled(fake.client, 'research')).toBe(true)
+    expect(await isQueueEnabled(fake.client, 'research_sources')).toBe(false)
+  })
+
+  it('the drain valve is independent of the switch', async () => {
+    // Rollback is: queue_research_sources OFF, queue_research_collect LEFT ON, so
+    // batches already submitted and already paid for still get collected. If collect
+    // were gated on sources this would be impossible and the money would be lost.
+    const fake = createFakeQueue([])
+    fake.flags.set('queue_research_sources', false)
+    fake.flags.set('queue_research_collect', true)
+
+    expect(await isQueueEnabled(fake.client, 'research_sources')).toBe(false)
+    expect(await isQueueEnabled(fake.client, 'research_collect')).toBe(true)
   })
 })
 

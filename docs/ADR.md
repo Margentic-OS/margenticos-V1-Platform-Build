@@ -2285,3 +2285,302 @@ Rejected alternatives:
   is therefore a global in-flight cap sized off Apify concurrency. Anthropic response
   headers are still read and acted on, documented in code as insurance against a tier
   change, explicitly not load-bearing.
+
+---
+
+## ADR-032 — Sourcing filter hardcoded in the handler; both location axes constrained
+Date: August 2026 | Status: Accepted
+
+Context:
+The Apollo sourcing query was built by translating each client's ICPFilterSpec into
+API parameters. That translation shipped three defects, and the common property of
+all three is what makes this decision worth recording: every one of them ran
+successfully, returned plausible results, and reported nothing wrong.
+
+  1. q_keywords was used for category sourcing. It is AND over free text, matched
+     against person and company NAMES, so it only ever found firms with the literal
+     word in their name. Measured on the final base: 4,924 against 72,458 for NAICS
+     alone. q_organization_keyword_tags is the OR parameter and the correct one.
+     The two names look interchangeable and are not.
+
+  2. Seniority was set to owner and founder, on the reasoning that the ICP is
+     founder-led firms. Apollo derives seniority from job TITLE, not from ownership,
+     and in professional services the owner is usually titled Partner or Managing
+     Partner. Measured on the final base: 29,139 against 72,458 once c_suite and
+     partner were added. The filter was excluding most of the population it was
+     written to target, and the first live sample row after the fix is a Lead Partner.
+
+  3. Geography was constrained on organization_locations only. That removes German
+     and Canadian FIRMS. It does not remove a person sitting in Toronto who works for
+     a US-registered company, and there were 545 such people in Canada and 238 in
+     Germany. CASL attaches to the RECIPIENT. Two German GmbHs had already been mailed
+     against an exclusion that lived in convention and had nothing to read it.
+
+A fourth property of the Apollo API turns any of these into a permanent hazard:
+APOLLO SILENTLY IGNORES A PARAMETER IT DOES NOT RECOGNISE. It does not error and it
+does not warn. While establishing which parameter carries NAICS, both naics_codes and
+q_organization_naics_codes returned 770,753, the completely unfiltered count. Only
+organization_naics_codes is read. A parameter-name typo here does not fail: it ships a
+filter that filters nothing and looks healthy on every dashboard.
+
+Decision:
+The Apollo search filter is HARDCODED in src/lib/sourcing/handlers/adapter-apollo.ts.
+The ICPFilterSpec no longer builds the query. The filter is:
+
+  organization_naics_codes            ['5416']
+  q_organization_keyword_tags         management / business / strategy consulting
+  organization_num_employees_ranges   ['5,50']
+  organization_locations              united states, united kingdom, ireland
+  person_locations                    united states, united kingdom, ireland
+  person_seniorities                  owner, founder, c_suite, partner
+  contact_email_status                ['verified']
+
+Live total_entries 55,975, measured 2026-08-26.
+
+Three parts of this are load-bearing and easy to undo by accident:
+
+BOTH LOCATION AXES ARE CONSTRAINED, to the same three countries. Constraining only the
+organization axis is what left the 545 Canadians reachable. Cost of closing it: 61,523
+to 55,975, some 5,548 rows or about 9 percent of inventory. That trade was made
+explicitly on the grounds that nine percent of inventory is affordable and a complaint
+is not, and that Canada was removed on legal grounds rather than preference.
+
+NAICS 5418 IS NOT EXCLUDED. Firms carry more than one NAICS code, so a consultancy
+coded both 5416 and 5418 is in scope and an exclusion rule would drop it. Adding 5418
+to the include list is a different thing and is not wanted: it measures 66,134.
+
+EVERY PARAMETER IS PROVED BY MEASUREMENT, never by reading the docs and assuming,
+because of the silent-ignore property above. The person_locations line was verified by
+arithmetic rather than assertion: adding a country back to it returns precisely the
+people it was excluding. +canada gives 56,520, which is 55,975 plus exactly the 545,
+and +germany gives 56,213, which is 55,975 plus exactly the 238. An ignored parameter
+would have left the total unchanged.
+
+Consequences:
+
+Accepted knowingly: THE ORCHESTRATOR'S MANIFEST CHECK NO LONGER DESCRIBES THE QUERY.
+Step 4 of the sourcing orchestrator compares populated spec fields against
+handler.supported_fields and still passes. It is now a check that runs, reports
+success, and says nothing about what is actually sent, which is precisely the
+silent-failure shape CLAUDE.md warns about. It was left in place deliberately:
+narrowing supported_fields would make the orchestrator THROW for any client whose spec
+populates a field the hardcoded filter ignores, which would stop sourcing rather than
+improve it. The trade is recorded here and commented at the call site rather than left
+to be rediscovered. Revisit when the config layer returns.
+
+The ICP spec defaults were changed to match: DEFAULT_PERSON_COUNTRIES and
+DEFAULT_COMPANY_COUNTRIES are now ['GB', 'IE', 'US']. Enforcement lives at the filter
+and no spec value can widen it, but a default listing a country the filter refuses is
+a document that lies, and it made the adapter log a divergence on every run. AU and NL
+went in the same edit for the same reason. Widening that list alone now changes
+nothing about who is sourced: both it and APOLLO_FILTER must change together.
+
+This is deliberately NOT tool-agnostic in the usual sense, and that is the cost being
+accepted. ADR-001 and ADR-015 put translation inside the handler, and that still holds:
+the hardcoding is inside the Apollo handler, nothing upstream of it sees Apollo
+parameter names, and swapping sourcing tools still means a new handler. What is given
+up is per-client configurability of the filter, which existed and produced three
+defects. One filter that has been measured beats a config layer that has not.
+
+Alternatives rejected:
+
+Keep the spec-driven translation and fix the three bugs. Rejected because the defects
+were not arithmetic errors, they were wrong beliefs about what Apollo's parameters mean,
+and the translation layer gave those beliefs somewhere to hide. With one hardcoded
+filter the query is readable in one screen and every value carries its measurement.
+
+Remove DE and CA from the spec defaults only, and leave the filter permissive.
+Rejected: that is what was already in place. A convention with nothing enforcing it is
+exactly what the two mailed GmbHs had to protect them.
+
+Revisit when: client two needs a different filter. At that point restore the
+ISO-3166-to-Apollo location table and the seniority map from git history at bc05658,
+and reinstate the manifest check as a real gate in the same change.
+
+---
+
+<!-- Renumbered from ADR-032 to ADR-033 at merge on 2026-08-26. Two branches
+     claimed 032 independently; the sourcing filter merged first and has inbound
+     references from HANDOVER-sourcing-filter.md and BACKLOG.md. -->
+## ADR-033: Research synthesis runs through the Batch API, split into two jobs
+
+**Date:** 2026-08-26
+**Status:** Accepted, rolling out behind a flag
+
+### Context
+
+Synthesis is one Anthropic call per prospect and roughly 78% of the Anthropic spend
+per prospect (about $0.118 of $0.159, inside an all-in $0.192). The Batch API charges
+50% of standard prices for identical bytes to an identical model, and the discount
+stacks with prompt caching. So the saving is available with no quality trade.
+
+The cost is time. A batch may take up to 24 hours. Nothing in this system can hold a
+lease that long: research's lease is 360 seconds and reap-agent-runs marks any
+agent_runs row still 'running' after 600 seconds as failed.
+
+### Decision
+
+Research splits into two queue job types with a wait between them.
+
+- `research_sources` fetches the four sources, snapshots everything the second half
+  needs, and submits the synthesis calls. Records spend. Completes.
+- A pg_cron sweep polls batch status. Nothing holds a lease.
+- `research_collect` reads the synthesis out of the batch result, runs writer, floor
+  and judge as today, and writes ONE complete prospect_research_results row.
+
+The existing single-job `research` path is NOT removed. Rollback is a flag flip with
+no deploy.
+
+### Why this is safe under the existing queue
+
+`decideExecution` is pure and per-row: it terminates any claimed job carrying
+`spend_recorded_at`. Two separate jobs means two independent stamps, so nothing is
+ever claimed twice after paying. An earlier analysis concluded batching would need a
+queue rewrite; that was true only for batching INSIDE the agent, where a single job
+would pause 24 hours and lose its lease.
+
+### The intermediate state lives in its own table, not in a half-written research row
+
+`storeResearchResult` requires an `opening`, so there is no row shape meaning
+"synthesis done, opening pending". And `loadStoredFindings` filters reuse candidates
+on `candidates.length > 0` and nothing else, so a synthesis-only row HAS candidates:
+an ordinary later run would select it as reuse material and hand a different prospect
+a synthesis with no judged opening, silently.
+
+`synthesis_batches` and `synthesis_batch_entries` remove that failure rather than
+guarding against it. `storeResearchResult`, `loadStoredFindings` and every live
+selection path are untouched.
+
+### Everything phase 2 needs is SNAPSHOTTED, never re-read
+
+A 24-hour gap turns every re-read into a silent drift: the copy is simply different
+and nothing fails. Snapshotted: the four source payloads, the approved messaging
+document content, the assigned variant, the recency signal, and the client document
+context. The messaging document is the one that would have shipped wrong copy, and it
+is why compose was never migrated to the queue.
+
+### Consequences accepted
+
+- **`batch_id` on an entry is ON DELETE SET NULL, not CASCADE.** These rows hold
+  sources bought with real money. Pruning old batch rows is exactly the tidy-up
+  someone runs without thinking about what it takes with it. Orphaning an entry is
+  recoverable; deleting the snapshot is not.
+- **The two research paths are mutually exclusive, enforced by a unique index on
+  system_flags.** Both fetch sources and therefore both start Apify actors against a
+  measured ceiling of 25 concurrent runs. With both at maxInFlight 20, allowing both
+  to be enabled would permit 40. The exclusion is what lets the Apify assertion take a
+  MAX across source-fetching job types rather than a SUM, which in turn lets the
+  proven path keep its measured configuration unchanged.
+- **One live research job per prospect, across all three research types.** The
+  existing per-type index does not span job types, and during a batch wait the
+  prospect still reads as unresearched. Without this, one operator click mid-wait
+  re-pays Apify, Apollo and Brave for every prospect in flight: the 10 August 2026
+  shape, 141 credits for 29 prospects.
+- **The 1-hour cache TTL on the batched call is PROVISIONAL.** Anthropic documents
+  in-batch cache hits as best-effort at 30% to 98%. A 1-hour write costs 2x base input
+  against 1.25x for 5 minutes, so at the bottom of that range the 1-hour TTL is a
+  loss. A 13-call probe measured 85% at 1h, but with max_tokens 16 rather than
+  production's 16,000. The real `cache_read_input_tokens` on the first live batch
+  decides it.
+
+### Rejected alternatives
+
+- **Batching inside the agent.** The job would pause for the batch and lose its
+  360-second lease. This is what made an earlier session conclude a queue rewrite was
+  needed.
+- **A nullable-opening research row.** See above: the reuse filter would select it.
+- **Batches of one, submitted by each phase-1 job.** Keeps the 50% discount and needs
+  no separate submitter, but maximises the number of independently scheduled batches,
+  which is the condition Anthropic names as reducing best-effort cache hits, and turns
+  one batch id to poll per organisation into one per prospect.
+- **Dropping `research.maxInFlight` from 20 to 15 to make room for the batch path.**
+  Would have been necessary if the Apify assertion summed across paths. Proving the
+  exclusion instead leaves a proven number alone.
+
+---
+
+## ADR-034: Send eligibility is evaluated once, at verification, and frozen on the row
+
+**Date:** 2026-08-26
+**Status:** Accepted as a description of what the system does. The consequences are
+accepted; the retroactivity gap is NOT, and is tracked in BACKLOG.
+
+### The fact, stated plainly
+
+`prospects.email_send_eligible` is a MATERIALISED VERDICT, not an evaluated predicate.
+
+It is written in exactly two places, both at verification time:
+
+- `verification-trigger.ts:490` — `eligibilityCheck.is_eligible && result.send_eligible`
+- `second-pass-trigger.ts:557` — `decision.eligible`, from `resolveSendEligibility`
+
+`checkSendEligibility`, which owns the country rule and `EXCLUDED_COUNTRIES`, is called
+in exactly two places, and both are those same verification paths:
+
+- `verification-trigger.ts:484`
+- `send-eligibility-resolver.ts:97`
+
+**It is never called in the send path.** `handleUploadLeads` gates on the stored column
+at `actions.ts:288` and `actions.ts:329`.
+
+### Therefore
+
+**Adding a country to `EXCLUDED_COUNTRIES` is NOT retroactive.** A prospect verified
+before the change keeps `email_send_eligible = true` until it is verified again, and
+verification costs money. The exclusion list governs prospects verified from that moment
+on, and nothing else.
+
+The same applies to any change in `CATCH_ALL_IS_RESEARCH_WORTHY`'s send-side counterpart,
+to the Bouncer status mapping, and to any future rule that feeds either write site.
+
+### Why it is like this, because the design is defensible
+
+The column is the last word at send time on purpose. Re-evaluating the full predicate
+during the upload claim would mean joining verification state into a hot path that
+currently claims rows with a single conditional UPDATE, and the claim is what makes the
+send path race-safe. `send-eligibility-policy.ts:20-40` documents the mirror-image
+decision for the research spend filter, and reaches the opposite answer for good reasons:
+that filter reads the RAW verdict precisely because it needs policy to be changeable
+without re-verifying.
+
+So the split is deliberate. What was not deliberate is that nobody wrote down that the
+send side is frozen.
+
+### The consequence, and it is not hypothetical
+
+This is the mechanism behind the German-prospect incident.
+
+`country` was normalised to ISO-2 and `EXCLUDED_COUNTRIES` was taught to match aliases on
+2026-08-25. Both fixes are correct. Neither one reached the two prospects already
+verified, already uploaded, and already mid-sequence in the outbound provider. Their rows
+now read `email_send_eligible = false, country_excluded_de` and that changed nothing about
+what the provider was going to do next, because our gate governs UPLOAD and the provider
+owns the SEQUENCE.
+
+Four emails reached German recipients, not the two the incident record captured: step
+`0_0_0` on 2026-08-21 and step `0_1_0` on 2026-08-24, verified against the provider's own
+sent-email log. The second went out one day before the fix landed.
+
+### What follows from it, for anyone changing an eligibility rule
+
+1. **Changing a rule does not change a prospect.** If a rule change must apply to existing
+   prospects, it needs an explicit re-evaluation pass, and if that pass calls a paid
+   verifier it needs a budget decision. There is no code path today that re-evaluates
+   eligibility without re-verifying.
+2. **Our gates govern upload, not delivery.** Once a prospect is uploaded, the outbound
+   provider owns the sequence. Marking a row ineligible afterwards is a no-op with respect
+   to email that has not been sent yet. Stopping in-flight sends is a provider-side action
+   and there is no code for it.
+3. **A compliance rule therefore needs a third layer**, and does not have one: the write
+   path (normalise), the evaluation (rule), and a REMOVAL path for prospects already in
+   flight. Only the first two exist.
+
+### Rejected
+
+- **Re-evaluating in the send claim.** Would make the rule live, and would put verification
+  state into the conditional UPDATE that makes the claim race-safe. Not taken now because
+  it is a change to the one path where a race sends duplicate email, and it should not be
+  made in the same change as anything else.
+- **Treating the column as authoritative and saying nothing.** That is the status quo this
+  ADR exists to end. The behaviour is defensible; being undocumented is what let it
+  surprise us.

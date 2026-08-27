@@ -1,13 +1,34 @@
 // Shared types for the durable job queue.
 //
-// The queue covers the three units of work that are slow, cost money, and run once per
+// The queue covers the units of work that are slow, cost money, and run once per
 // PROSPECT: enrichment, research and composition. Document generation is deliberately
 // absent: those agents run once per client, not once per prospect, and they finish
 // inside a request comfortably.
 //
 // See ADR-029 for why this is a separate table from agent_runs.
 
-export const JOB_TYPES = ['enrich', 'research', 'compose'] as const
+// ── research vs research_sources + research_collect ──────────────────────────
+//
+// 'research' is the ORIGINAL single-job path: sources, synthesis, writer and judge in
+// one claimed job. It is proven in production and it is NOT being removed.
+//
+// 'research_sources' and 'research_collect' are the same work split either side of an
+// Anthropic Batch API wait, which buys 50% off the synthesis call. The split exists
+// because a batch may take 24 hours and nothing here can hold a lease that long:
+// research's lease is 360 seconds and reap-agent-runs kills any agent_runs row still
+// 'running' after 600.
+//
+// The two paths are MUTUALLY EXCLUSIVE and the database enforces it, because both fetch
+// sources and therefore both start Apify actors against a measured ceiling of 25
+// concurrent runs. See system_flags_research_path_exclusive in
+// 20260826130000_research_batch_job_types.sql.
+export const JOB_TYPES = [
+  'enrich',
+  'research',
+  'compose',
+  'research_sources',
+  'research_collect',
+] as const
 export type JobType = (typeof JOB_TYPES)[number]
 
 export const JOB_STATES = ['queued', 'claimed', 'done', 'failed', 'cancelled'] as const

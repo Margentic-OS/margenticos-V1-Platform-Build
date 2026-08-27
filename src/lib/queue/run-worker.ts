@@ -132,11 +132,19 @@ export async function runWorker({
   const elapsed = () => (now() - startedAt) / 1000
   const errors: string[] = []
 
-  const byJobType = {
-    enrich: emptyResult(),
-    research: emptyResult(),
-    compose: emptyResult(),
-  } as Record<JobType, JobTypeResult>
+  // DERIVED FROM JOB_TYPES, NOT WRITTEN OUT. This was a hand-written literal of three
+  // keys cast with `as Record<JobType, JobTypeResult>`, and the cast is what made it
+  // dangerous: without it, an incomplete literal is a compile error, which is precisely
+  // the check that would have caught a new job type. With it, adding a job type left
+  // byJobType[jobType] undefined and the loop below crashed on `result.enabled` at
+  // runtime, inside a try/catch that recorded it as "job type pass threw".
+  //
+  // Same family as the monitor-sweep arrays: a second list that has to be kept in step
+  // with the first by hand, where forgetting produces no error at the point of the
+  // mistake. Building it from JOB_TYPES means the drift cannot be expressed.
+  const byJobType = Object.fromEntries(
+    JOB_TYPES.map(jobType => [jobType, emptyResult()]),
+  ) as Record<JobType, JobTypeResult>
 
   // ── Reclaim first, before claiming anything ─────────────────────────────────
   //

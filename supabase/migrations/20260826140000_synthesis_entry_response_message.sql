@@ -1,0 +1,61 @@
+-- Migration: store the whole Anthropic Message on a batch entry, not just its text
+-- Date: 2026-08-26
+--
+-- Status: APPLIED (verified live 2026-08-26)
+--
+-- Read-back after apply:
+--   synthesis_batch_entries.response_message  present, jsonb
+--   synthesis_batch_entries.response_text     absent
+--
+-- STAMPED LATE, and that is worth recording rather than quietly correcting. The migration
+-- was applied and verified during the session, and the file was left saying PENDING. Found
+-- during the merge by grepping every 2026-08-26 migration for its status line.
+--
+-- CLAUDE.md's rule is "never leave migrations in the repo unapplied (track status in the
+-- file)". This was the inverse and it is just as bad: a file saying PENDING against a
+-- database where it has already run invites a future session to apply it again. Here that
+-- would have been survivable, because DROP COLUMN IF EXISTS and ADD COLUMN IF EXISTS are
+-- both idempotent. It would not be survivable for a migration that inserts or backfills.
+--
+-- The check is cheap and worth doing before any merge:
+--   for f in supabase/migrations/2026*.sql; do echo "$f: $(grep -m1 '^-- Status:' $f)"; done
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHY THE COLUMN CHANGED SHAPE
+--
+-- The original entry table carried response_text, on the assumption that phase 2 would
+-- parse a string. Writing phase 2 showed that was the wrong seam.
+--
+-- The post-call half of synthesis is synthesisFromMessage, and it takes a Message, not a
+-- string, because three of the things it does are properties of the whole response
+-- object rather than of its text:
+--
+--   the no-text-block fallback   response.content having no text block at all
+--   the truncation check         response.stop_reason === 'max_tokens', which is the
+--                                only way a lost-JSON failure is distinguishable from a
+--                                model error
+--   the usage read               response.usage, including cache_read_input_tokens,
+--                                which is the ONLY production evidence that caching
+--                                survived batching
+--
+-- The Batch API returns `result.message`, which is exactly the same Message shape the
+-- Messages API returns. So storing the object whole means the batch path RECONSTRUCTS
+-- NOTHING: one implementation of the parse serves both paths, and there is no partial
+-- Message to drift from the real one at the first edge case.
+--
+-- A string column would have forced phase 2 to rebuild a Message to call the shared
+-- function, or to duplicate the function. Both are the producer/consumer format mismatch
+-- from CLAUDE.md, where each side is individually correct and the seam is untested.
+--
+-- usage and stop_reason stay as their own columns even though they are also inside
+-- response_message. They are denormalised on purpose: measuring the cache read rate
+-- across a batch is the question this whole change turns on, and it should be one plain
+-- SELECT rather than a jsonb path expression that has to be got right under time
+-- pressure.
+--
+-- Safe as a drop: the table has never held a row.
+
+ALTER TABLE synthesis_batch_entries DROP COLUMN IF EXISTS response_text;
+
+-- The Anthropic Message verbatim, exactly as `result.message` delivered it.
+ALTER TABLE synthesis_batch_entries ADD COLUMN IF NOT EXISTS response_message jsonb;

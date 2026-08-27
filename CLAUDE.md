@@ -869,6 +869,151 @@ no views at all, rather than passing vacuously over an empty set.
 This is the same family as validate-one-thing-return-another: **the check runs, reports
 success, and the thing it was supposed to protect was never reached.**
 
+### A type assertion that switches off the check that would have caught it
+
+`as` does not convert a value. It tells the compiler to stop checking. So the single
+most dangerous place for a cast is exactly where a type was doing useful work.
+
+    // Wrong. The literal is incomplete, and `as` is why nothing says so.
+    const byJobType = {
+      enrich: emptyResult(),
+      research: emptyResult(),
+      compose: emptyResult(),
+    } as Record<JobType, JobTypeResult>
+
+    // Right. Derived, so the drift cannot be expressed.
+    const byJobType = Object.fromEntries(
+      JOB_TYPES.map(jobType => [jobType, emptyResult()]),
+    ) as Record<JobType, JobTypeResult>
+
+**The 2026-08-26 incident.** `run-worker.ts` held the wrong version above. Without the
+cast, `Record<JobType, JobTypeResult>` makes an incomplete literal a COMPILE ERROR, and
+that error is precisely the notification that a new job type needs a result slot. The
+cast silenced it. When `research_sources` and `research_collect` were added,
+`byJobType[jobType]` was `undefined`, and the worker crashed on `result.enabled` inside a
+try/catch that recorded the crash as "job type pass threw". Thirty tests failed at once,
+which is the only reason it was caught before deploy. In production it would have been a
+job type that silently never ran, reported as a caught error rather than as a missing
+handler.
+
+This is the same family as the parallel arrays above, one level up: a second list
+(the literal's keys) that has to be kept in step with a first list (`JOB_TYPES`) by hand.
+The fix is the same in kind: derive the second from the first so there is only one list.
+
+**The rule:** before writing `as` on an object literal, ask what the target type would
+have rejected. If the answer is "an incomplete or wrong-shaped literal", the cast is
+load-bearing in the wrong direction. Build the value from the source of truth instead.
+`satisfies` is often the right tool where a literal really is wanted: it checks the shape
+without widening or silencing.
+
+### A fake that does not honour a filter cannot test that filter
+
+An in-memory stand-in for a database client is the standard way to test query logic
+without a live connection. The trap is that a fake is written to satisfy the code paths
+you were thinking about, and it QUIETLY ACCEPTS every call it does not implement:
+
+    eq:    (c, v) => chain      // recorded, honoured
+    in:    (c, v) => chain      // recorded, honoured
+    limit: () => chain          // SWALLOWED. Returns everything, always.
+
+The chain still returns data, the test still passes, and the assertion still looks like
+it is about the filter. It is not. Remove the filter from the real query and nothing
+fails.
+
+**Three instances, all found on 2026-08-26 by mutation-testing rather than by reading:**
+
+- `.limit()` ignored. `MAX_ENTRIES_PER_BATCH` set to 1 passed the whole suite, so a change
+  turning one batch per organisation into one batch per prospect would have shipped
+  green, taking the shared cached prefix with it.
+- `.select(cols)` swallowed at the wrapper. The column list was consumed by `from().select()`
+  and never reached the chain, so a hook keyed on which columns a read asked for never
+  fired, and deleting the claim's concurrency guard passed everything. That guard is what
+  stops two overlapping sweeps submitting and paying for the same entry twice.
+- `job_type` and `state` filters dropped in the enqueue fake. Narrowing the real query
+  from three research job types to one failed exactly ONE test, the one that inspects the
+  filter directly, while every behavioural test stayed green. The behavioural tests were
+  the ones that were supposed to prove the prospect could not be double-charged.
+
+**Why this is its own shape.** It is not the parallel arrays (two lists that must agree),
+and it is not validate-one-thing-return-another (a check that runs on the wrong value).
+Here the production code is CORRECT and the test is structurally incapable of noticing
+when it stops being. The suite is green in both worlds, so coverage numbers, test counts
+and CI all report success while the guard is gone.
+
+**How to apply:**
+
+1. A fake must honour every filter the code under test applies, or explicitly THROW on
+   the ones it does not implement. Silently returning `chain` is the failure.
+   `limit: () => { throw new Error('fake does not implement limit') }` is a better fake
+   than one that ignores it.
+2. **Mutation-test the guard, not the code path.** Delete the filter in the real query and
+   confirm a test goes red. Zero failures means the filter is not covered, whatever the
+   line coverage says.
+3. When a mutation comes back uncovered, **suspect the fake before the guard.** Twice out
+   of three here the guard was correct and the fake was lying.
+4. Anything with a timing component (a row changing between a read and a write) needs the
+   fake to be able to CHANGE STATE at that exact point. A test that sets up the conflict
+   before the read never reaches the guard at all, which is how the first version of the
+   concurrency test passed against both the real code and the mutated code.
+
+### A test that reads the migration files proves history, not present state
+
+Migrations are append-only. A test that scans `supabase/migrations/*.sql` for a
+`CREATE INDEX` proves that a migration once created it. It says nothing about whether the
+index exists now, because a later migration is free to drop it and the CREATE stays in
+the repository, green forever.
+
+**Found 2026-08-26 by mutation-testing a test rather than a guard.** A test asserted that
+the migrations still create `system_flags_research_path_exclusive`, the index that a
+TypeScript assertion depends on. Deleting the statement failed the test. RENAMING it
+failed nothing, because the assertion was a substring match and the new name contained
+the old one. The tightened version matches `CREATE UNIQUE INDEX ...` and separately
+asserts no `DROP INDEX` names it.
+
+**The rule:** a migration scan is a cheap early warning and it belongs in the test suite,
+but it is never the authoritative check. Anything a code path actually depends on being
+true in the database gets a LIVE check that reads `pg_indexes`, `pg_constraint`,
+`has_table_privilege` or `pg_policies`, and that check goes in a monitor so it keeps
+running after the day it was written. State the limit in the test itself, so the next
+reader does not over-trust it.
+
+### A rule change that does not change any row, because the verdict was frozen
+
+A predicate evaluated once and stored is not the same thing as a rule. Editing the rule
+feels like changing behaviour and changes nothing that already exists.
+
+**`prospects.email_send_eligible` is a materialised verdict.** `checkSendEligibility`, which
+owns `EXCLUDED_COUNTRIES`, is called ONLY at verification time
+(`verification-trigger.ts:484`, `send-eligibility-resolver.ts:97`) and written to the column
+there. The send path reads the column (`actions.ts:288`, `actions.ts:329`) and never
+re-evaluates.
+
+**So adding a country to `EXCLUDED_COUNTRIES` is NOT retroactive.** Prospects verified
+before the edit keep their old verdict until re-verified, and re-verifying costs money.
+There is no code path that re-evaluates eligibility without paying a verifier.
+
+**And our gates govern UPLOAD, not DELIVERY.** Once a prospect is uploaded, the outbound
+provider owns the sequence. Setting `email_send_eligible = false` afterwards does nothing to
+email the provider has not sent yet. That is not a bug in the column; it is the boundary of
+what the column can do.
+
+**The 2026-08-26 finding.** Country normalisation and alias matching both landed on
+2026-08-25 and both are correct. Neither reached two German prospects already verified,
+already uploaded, and mid-sequence. Their rows read `false / country_excluded_de` while the
+provider had two more emails scheduled for them. Four emails had already been delivered, not
+the two the incident record captured, and the second went out one day before the fix.
+
+**The rule when changing any eligibility or compliance rule, in order:**
+
+1. Change the rule.
+2. Ask what it does to rows ALREADY EVALUATED. Usually nothing. If it must apply to them,
+   that is a separate re-evaluation pass with its own cost.
+3. Ask what it does to prospects ALREADY UPLOADED. Always nothing. Stopping those is a
+   provider-side action and no code does it.
+
+A compliance rule needs three layers and this codebase has two: normalise on write, evaluate
+on verification, and REMOVE what is already in flight. The third does not exist. See ADR-034.
+
 ### Related shapes already documented elsewhere in this file
 
 - Validating one value and returning another. The generation-time opt-out footer was
@@ -1005,6 +1150,91 @@ To audit every table in the database for this class:
 
 Any row there is a table anon can read outright. A table with RLS on is protected today
 but still worth revoking, per the incident above.
+
+### Rule: THAT QUERY IS NOT ENOUGH EITHER. A VIEW BYPASSES RLS AND THE QUERY CANNOT SEE IT.
+
+Read this immediately after the query above, because the query above is the one that has
+been giving false reassurance.
+
+`relkind = 'r'` means ORDINARY TABLES. A view is `'v'` and a materialised view is `'m'`.
+So that audit has never once looked at a view, and it has been returning zero rows,
+reassuringly, since the day it was written.
+
+**Views are worse than tables here, not better.** A Postgres view executes with the
+privileges of its OWNER unless it is created with `security_invoker = true`. Every view in
+this database is owned by `postgres`. So an anon-readable view over a table that anon
+cannot read **hands anon the contents of that table anyway, through the view**, and RLS on
+the base table is never consulted, because the query is not running as the caller.
+
+That means a view can undo a table's protection completely while the table's own
+privileges still read back as correctly locked down.
+
+**The 2026-08-26 finding, stated as measured rather than as first reported.**
+
+The bypass is real and was demonstrated end to end:
+
+    -- as anon, reading the TABLE directly: RLS holds
+    SELECT count(*) FROM public.cron_heartbeats;   ->  0 rows
+
+    -- as anon, reading a VIEW over the same table: RLS is never consulted
+    SELECT * FROM public.mon_019;                  ->  returns data
+
+Nine `mon_*` views (001, 002, 003, 004, 005, 007, 010, 019, 020) are anon-readable,
+owned by `postgres`, `security_invoker = false`, and each selects from `cron_heartbeats`,
+which has RLS enabled and denies anon directly. What leaks is operational telemetry:
+which scheduled jobs exist, when each last ran, whether it is failing, and the free-text
+detail line with its counts. No client data, no organisation data, no prospect data.
+
+`client_organisation_view` was ALSO anon-readable and `security_invoker = false`, and it
+selects id, name, slug, contract_start_date, pipeline_unlocked, pipeline_unlock_at,
+meetings_count, created_at and updated_at from `organisations`. It was initially reported
+as exposing all of that for every organisation. **It does not, and checking rather than
+acting on the report is the point of this entry.** Its definition ends
+`WHERE id = get_my_organisation_id()`, so it self-scopes to the caller's own
+organisation, and `get_my_organisation_id()` is SECURITY DEFINER with EXECUTE denied to
+anon. Measured: an anon read of that view fails outright with
+`42501 permission denied for function get_my_organisation_id`. It also fails closed if
+that ever changes, because the function returns `organisation_id FROM users WHERE id =
+auth.uid()`, and `auth.uid()` is NULL for anon, so the predicate becomes `id = NULL` and
+matches nothing.
+
+So the severity ran the opposite way to the initial report: the harmless-looking
+monitoring views are the ones actually bypassing RLS, and the alarming-looking client
+view is self-scoped and denied. Both facts came from running the query as anon rather
+than from reading the grants.
+
+The correct pattern already existed in the same database: `client_prospects_view` has
+`security_invoker = true` and denies anon. So this was never a policy decision in either
+direction. Grants and options were whatever the default was on the day each view happened
+to be created, and the audit could not see the difference.
+
+**The audit query, corrected. Use this one.**
+
+    SELECT c.relname,
+           c.relkind,
+           pg_get_userbyid(c.relowner) AS owner,
+           COALESCE((SELECT option_value FROM pg_options_to_table(c.reloptions)
+                      WHERE option_name = 'security_invoker'), 'false') AS security_invoker,
+           has_table_privilege('anon',          c.oid, 'SELECT') AS anon,
+           has_table_privilege('authenticated', c.oid, 'SELECT') AS authenticated
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relkind IN ('r', 'v', 'm')
+       AND (has_table_privilege('anon', c.oid, 'SELECT')
+         OR has_table_privilege('authenticated', c.oid, 'SELECT'));
+
+Read every row. For a TABLE, RLS is the mitigation. For a VIEW, RLS on the base tables is
+NOT a mitigation unless `security_invoker` is `true`, so a view row with
+`security_invoker = false` and `anon = true` is an outright read of whatever it selects.
+
+**Why this is in the security section and not in a backlog file.** The bug was not in the
+database. It was IN THE AUDIT. A check that runs, returns zero rows, and cannot see the
+class it was written to find is the same shape as the opt-out footer that was validated and
+then discarded, and as the monitor sweep whose loop was bounded by the shorter of two
+arrays. When a check is the thing that is wrong, nothing downstream of it can notice.
+
+MON-022 now reads this class live for the synthesis tables. Extending it to cover every
+public view is the obvious next step and is in BACKLOG.
 
 **The generalisation, which is the part worth carrying:** the mistake in both the
 2026-06-05, 2026-08-24 and 2026-08-25 incidents is identical, and it is not about
@@ -1168,6 +1398,12 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-030  Client reply view: org-scoping RLS-backed, intent-filtering chokepoint-enforced
            (renumbered from a duplicate ADR-026 on 2026-08-24)
   ADR-031  Two-pass email verification; send eligibility resolved by one shared function
+  ADR-032  Sourcing filter hardcoded in the handler; both location axes constrained
+  ADR-033  Research synthesis on the Batch API, split into research_sources +
+           research_collect with the intermediate state in synthesis_batch_entries
+  ADR-034  Send eligibility is evaluated once at verification and frozen on the row;
+           changing EXCLUDED_COUNTRIES is NOT retroactive, and our gates govern
+           UPLOAD, not delivery
 
 ---
 

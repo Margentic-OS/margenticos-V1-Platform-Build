@@ -64,6 +64,11 @@ describe('apolloHandler.adapter', () => {
       'united kingdom',
       'ireland',
     ])
+    expect(request.person_locations).toEqual([
+      'united states',
+      'united kingdom',
+      'ireland',
+    ])
     expect(request.person_seniorities).toEqual(['owner', 'founder', 'c_suite', 'partner'])
     expect(request.contact_email_status).toEqual(['verified'])
   })
@@ -98,12 +103,29 @@ describe('apolloHandler.adapter', () => {
     expect(request.organization_naics_codes).toEqual(['5416'])
   })
 
+  it('constrains WHERE THE PERSON IS, not just where the firm is registered', () => {
+    // CASL attaches to the recipient. Filtering only on organization_locations
+    // left 545 people in Canada and 238 in Germany reachable at in-scope US/UK/IE
+    // firms, which is the same exposure as the two mailed GmbHs rather than a
+    // smaller one. Both axes must be constrained, and to the same three countries.
+    const request = apolloHandler.adapter(HOSTILE_SPEC)
+
+    expect(request.person_locations).toEqual(request.organization_locations)
+    expect(request.person_locations).toEqual([
+      'united states',
+      'united kingdom',
+      'ireland',
+    ])
+  })
+
   it('cannot be made to source Germany or Canada by any spec value', () => {
     const request = apolloHandler.adapter(HOSTILE_SPEC)
     const serialised = JSON.stringify(request).toLowerCase()
 
     expect(request.organization_locations).not.toContain('germany')
     expect(request.organization_locations).not.toContain('canada')
+    expect(request.person_locations).not.toContain('germany')
+    expect(request.person_locations).not.toContain('canada')
     expect(serialised).not.toContain('germany')
     expect(serialised).not.toContain('canada')
     expect(serialised).not.toContain('"de"')
@@ -114,9 +136,15 @@ describe('apolloHandler.adapter', () => {
     const request = apolloHandler.adapter(HOSTILE_SPEC)
 
     expect(request).not.toHaveProperty('person_titles')
-    expect(request).not.toHaveProperty('person_locations')
     expect(request).not.toHaveProperty('revenue_range')
     expect(request.organization_num_employees_ranges).toEqual(['5,50'])
+    // person_locations exists, but it is the hardcoded value rather than the
+    // spec's person_countries, which asked for DE, CA, AU and NL.
+    expect(request.person_locations).toEqual([
+      'united states',
+      'united kingdom',
+      'ireland',
+    ])
   })
 
   it('cannot be contaminated by a caller mutating a previous request', () => {
@@ -124,11 +152,17 @@ describe('apolloHandler.adapter', () => {
     // so this mutation would leak into every later client in the same process.
     const first = apolloHandler.adapter({} as Record<string, unknown>)
     first.organization_locations.push('germany')
+    first.person_locations.push('canada')
     first.person_seniorities.push('entry')
 
     const second = apolloHandler.adapter({} as Record<string, unknown>)
 
     expect(second.organization_locations).toEqual([
+      'united states',
+      'united kingdom',
+      'ireland',
+    ])
+    expect(second.person_locations).toEqual([
       'united states',
       'united kingdom',
       'ireland',

@@ -9,6 +9,15 @@ import { enqueueResearchForOrganisation } from '../enqueue/research'
 
 const ORG = 'org-a'
 
+/**
+ * The job type that holds a prospect during a batch wait.
+ *
+ * research_collect, NOT research, because that is the case the guard exists for: the
+ * per-type index job_queue_one_live_per_target already stops two 'research' jobs, and it
+ * is precisely the type MISMATCH that slipped through before.
+ */
+const HELD_BY_JOB_TYPE = 'research_collect'
+
 interface FakeProspect {
   id: string
   personalisation_trigger: string | null
@@ -25,13 +34,62 @@ interface FakeProspect {
   ineligible_reason?: string | null
 }
 
-/** A client whose organisations and prospects tables answer the enqueue query. */
-function fake(prospects: FakeProspect[], opts: { archived?: boolean; orgMissing?: boolean } = {}) {
+/** A client whose organisations, prospects and job_queue tables answer the enqueue query. */
+function fake(
+  prospects: FakeProspect[],
+  opts: {
+    archived?: boolean
+    orgMissing?: boolean
+    /**
+     * Prospect ids that already hold a live job somewhere in the research family, which
+     * during a batch rollout means they are waiting on an Anthropic batch. Their sources
+     * are already bought, so enqueuing an ordinary research job for them would buy the
+     * same Apify, Apollo and Brave data a second time.
+     */
+    liveResearchJobs?: string[]
+    /** Make the live-job lookup fail, to prove the guard does not fail open. */
+    liveResearchJobsError?: string
+  } = {},
+) {
   const enqueued: Array<Record<string, unknown>> = []
   const filters: Record<string, unknown> = {}
 
   const client = {
     from(table: string) {
+      if (table === 'job_queue') {
+        const jqFilters: Record<string, unknown> = {}
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          eq: (c: string, v: unknown) => { jqFilters[c] = v; return chain },
+          in: (c: string, v: unknown[]) => { jqFilters[c] = v; return chain },
+          then: (resolve: (v: unknown) => void) => {
+            if (opts.liveResearchJobsError) {
+              resolve({ data: null, error: { message: opts.liveResearchJobsError } })
+              return
+            }
+            // HONOURS THE job_type FILTER, deliberately. It did not, and a mutation test
+            // caught it: narrowing the real query to ['research'] alone failed only the
+            // one test that inspects the filter directly, while every behavioural test
+            // stayed green. A fake that ignores a filter cannot test the filter, and the
+            // filter is the whole point here, since the prospect is held by a job of a
+            // DIFFERENT type.
+            const askedTypes = (jqFilters.job_type as string[] | undefined) ?? []
+            if (!askedTypes.includes(HELD_BY_JOB_TYPE)) {
+              resolve({ data: [], error: null })
+              return
+            }
+            const askedStates = (jqFilters.state as string[] | undefined) ?? []
+            if (!askedStates.includes('queued') || !askedStates.includes('claimed')) {
+              resolve({ data: [], error: null })
+              return
+            }
+            const asked = (jqFilters.prospect_id as string[] | undefined) ?? []
+            const live = (opts.liveResearchJobs ?? []).filter(id => asked.includes(id))
+            resolve({ data: live.map(id => ({ prospect_id: id, job_type: HELD_BY_JOB_TYPE })), error: null })
+          },
+        }
+        return chain
+      }
       if (table === 'organisations') {
         const chain: Record<string, unknown> = {
           select: () => chain,
@@ -279,5 +337,116 @@ describe('enqueueResearchForOrganisation — the send-eligibility gate', () => {
     if (result.ok) throw new Error('expected refusal')
     expect(result.error).toMatch(/already have a personalisation trigger/)
     expect(f.enqueued).toHaveLength(0)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// THE BATCH-WAIT GATE
+//
+// Added 2026-08-26 with the research batch split. The batch path runs research as two
+// jobs with up to 24 hours between them, and the prospect_research_results row is
+// deliberately not written until the second one finishes. So during the wait the
+// prospect still reads as current_research_result_id IS NULL and the 'unresearched'
+// scope selects it again.
+//
+// Enqueuing an ordinary research job for it re-fetches Apify, Apollo, the website and
+// Brave for sources that are already bought and already stored on the
+// synthesis_batch_entries row. That is the 10 August 2026 shape: 141 credits for 29
+// prospects against a ceiling of one per contact.
+
+describe('enqueueResearchForOrganisation — prospects mid-way through a batch run', () => {
+  it('SKIPS a prospect that is waiting on a batch, and enqueues the rest', async () => {
+    const f = fake(
+      [
+        { id: 'p1', personalisation_trigger: null },
+        { id: 'p2', personalisation_trigger: null },
+        { id: 'p3', personalisation_trigger: null },
+      ],
+      { liveResearchJobs: ['p2'] },
+    )
+
+    const result = await enqueueResearchForOrganisation(f.client, ORG, 'unresearched', 'test')
+
+    expect(result.ok).toBe(true)
+    // p2's sources are paid for and sitting on its synthesis_batch_entries row.
+    expect(f.enqueued.map(a => a.p_prospect_id)).toEqual(['p1', 'p3'])
+  })
+
+  it('skips rather than refusing the whole batch, unlike the trigger guard', async () => {
+    // Different in kind. The trigger guard refuses because overwriting shipped copy is
+    // destructive and has to be asked for. This is a spend filter: the other prospects
+    // should still be researched.
+    const f = fake(
+      [
+        { id: 'p1', personalisation_trigger: null },
+        { id: 'p2', personalisation_trigger: null },
+      ],
+      { liveResearchJobs: ['p1'] },
+    )
+
+    const result = await enqueueResearchForOrganisation(f.client, ORG, 'unresearched', 'test')
+
+    expect(result.ok).toBe(true)
+    expect(f.enqueued).toHaveLength(1)
+  })
+
+  it('returns a named error, not a bare nothing-to-do, when EVERY prospect is mid-batch', async () => {
+    const f = fake(
+      [
+        { id: 'p1', personalisation_trigger: null },
+        { id: 'p2', personalisation_trigger: null },
+      ],
+      { liveResearchJobs: ['p1', 'p2'] },
+    )
+
+    const result = await enqueueResearchForOrganisation(f.client, ORG, 'unresearched', 'test')
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('unreachable')
+    // The operator has to be able to tell "already in progress" from "broken".
+    expect(result.error).toMatch(/already have a research job in progress/)
+    expect(result.error).toMatch(/already paid for/)
+    expect(f.enqueued).toHaveLength(0)
+  })
+
+  it('FAILS LOUD when the live-job lookup errors, rather than enqueuing anyway', async () => {
+    // Failing open here would silently disable the guard and walk straight into the
+    // duplicate paid work it exists to prevent. A thrown error is recoverable; a silent
+    // re-spend on Apify, Apollo and Brave is not.
+    const f = fake(
+      [{ id: 'p1', personalisation_trigger: null }],
+      { liveResearchJobsError: 'connection reset' },
+    )
+
+    await expect(enqueueResearchForOrganisation(f.client, ORG, 'unresearched', 'test'))
+      .rejects.toThrow(/Could not check for live research jobs/)
+    expect(f.enqueued).toHaveLength(0)
+  })
+
+  it('asks about all three research job types, not just its own', async () => {
+    // The whole point is that the job types DIFFER. A check that only asked about
+    // 'research' would see nothing while a research_collect job held the prospect.
+    let askedJobTypes: unknown = null
+    const base = fake([{ id: 'p1', personalisation_trigger: null }])
+    const spy = {
+      ...base.client as object,
+      from(table: string) {
+        if (table !== 'job_queue') return (base.client as never as { from: (t: string) => unknown }).from(table)
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          eq: () => chain,
+          in: (c: string, v: unknown[]) => {
+            if (c === 'job_type') askedJobTypes = v
+            return chain
+          },
+          then: (resolve: (v: unknown) => void) => resolve({ data: [], error: null }),
+        }
+        return chain
+      },
+    } as never
+
+    await enqueueResearchForOrganisation(spy, ORG, 'unresearched', 'test')
+
+    expect(askedJobTypes).toEqual(['research', 'research_sources', 'research_collect'])
   })
 })
