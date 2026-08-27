@@ -143,7 +143,8 @@ export async function runIcpGenerationAgent(
   // Step 6: Run web research — market intelligence to inform the ICP.
   // Queries are derived from the client's intake data, not hardcoded.
   // Research INFORMS the ICP — it does not override intake. Conflicts are flagged
-  // in suggestion_reason, not silently resolved. Fails gracefully if unavailable.
+  // in the affected field's own text, not silently resolved. Fails gracefully if unavailable.
+  // Note: suggestion_reason is built in code further down and the model cannot write to it.
   logger.info('ICP agent: running web research', { organisation_id })
   const researchQueries = buildResearchQueries(intake)
   const research = await runResearchQueries(researchQueries)
@@ -314,51 +315,79 @@ async function fetchUploadedRefDocs(
 
 // ─── Research query builder ───────────────────────────────────────────────────
 
+// Condenses a free-text intake answer into a short search fragment.
+// Search engines degrade badly on long natural-language strings, so we take the
+// leading words only. Returns '' when the answer is too thin to be worth searching,
+// which is what makes the caller fall back to a description-only query rather than
+// to a hardcoded assumption about the client's industry.
+function condense(text: string, maxWords: number): string {
+  return text
+    .replace(/["\u2018\u2019\u201c\u201d]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    // Intake answers are written in the first person ("We supply hot school meals to
+    // primary schools"). The leading clause is noise in a search engine, so drop it
+    // and keep the subject matter. Nothing here depends on the words that follow.
+    .replace(/^(we|our team|our company|i)\s+(are|is|do|help|supply|provide|offer|sell|deliver|work with|specialise in|specialize in|run)\s+/i, '')
+    .split(' ')
+    .slice(0, maxWords)
+    .join(' ')
+    .trim()
+}
+
 // Derives 4 targeted search queries from the client's intake data.
-// Queries cover: buyer pain points, client revenue plateau patterns,
-// competitive landscape, and sector-specific buying behaviour.
-// All queries are purposeful — each one informs a distinct part of the ICP.
-function buildResearchQueries(intake: IntakeRow[]): string[] {
+// Queries cover: buyer pain points, buying triggers, buyer firmographics, and the
+// client's competitive landscape. Each one informs a distinct part of the ICP.
+//
+// Every query interpolates the client's own intake text. Nothing here names an
+// industry, a service type or a buyer archetype. An earlier version selected between
+// two hardcoded consulting literals on each branch, so intake could not change the
+// query: the .length checks gated which literal was used, and the intake values were
+// never interpolated. That put MargenticOS's own competitive set into every client's
+// research, whatever business the client was in.
+// Exported for tests: the industry-agnosticism guarantee is only meaningful if
+// something asserts that intake text actually reaches the query strings.
+export function buildResearchQueries(intake: IntakeRow[]): string[] {
   const val = (key: string) =>
     intake.find(r => r.field_key === key)?.response_value?.trim() ?? ''
 
-  const whatYouDo   = val('company_what_you_do')
-  const cloneClient = val('clients_clone')
-  const trigger     = val('clients_trigger')
+  const whatYouDo   = condense(val('company_what_you_do'), 12)
+  const cloneClient = condense(val('clients_clone'), 12)
+  const trigger     = condense(val('clients_trigger'), 12)
   const currency    = val('company_currency')
 
-  // Infer a market label from the service description and currency.
-  // Used to add geographic context to queries without hardcoding.
+  // A soft geographic hint only. The ICP prompt's geography rules forbid inferring a
+  // market from currency in the DOCUMENT; this narrows search results, nothing more.
   const geoHint = currency === 'GBP' ? 'UK'
     : currency === 'EUR' ? 'Europe'
     : currency === 'USD' ? 'US'
     : 'English-speaking markets'
 
-  // Query 1: Buyer pain points — what language do real buyers use to describe
-  // the problem this service solves? Grounds four_forces.push entries in market reality.
-  const buyerPainQuery =
-    whatYouDo.length > 20
-      ? `B2B consulting firm founder pipeline challenges feast famine revenue plateau ${geoHint} 2025`
-      : `boutique consulting firm owner outbound sales challenges pipeline predictability 2025`
+  // The buyer we are researching. Falls back to the service description when the
+  // ideal-client answer is thin, and to neither when both are thin.
+  const buyer = cloneClient || whatYouDo
 
-  // Query 2: Trigger events — what specific business events cause buyers to act?
-  // Validates or enriches the triggers section of each tier.
-  const triggerQuery =
-    trigger.length > 20
-      ? `founder-led consulting referral dependency ceiling growth trigger events outbound investment`
-      : `when do consulting firm owners invest in lead generation outbound pipeline agency`
+  // Query 1: Buyer pain points — the language real buyers use for the problem this
+  // client solves. Grounds four_forces.push entries in market reality.
+  const buyerPainQuery = buyer
+    ? `${buyer} challenges problems pain points ${geoHint} 2025`
+    : `B2B buyer challenges problems pain points ${geoHint} 2025`
 
-  // Query 3: Buyer profile reality check — what does the research say about
-  // team size, revenue range norms, and stage descriptions in this sector?
-  const buyerProfileQuery =
-    cloneClient.length > 20
-      ? `solo micro team B2B consultant annual revenue range UK professional services market size 2024 2025`
-      : `boutique B2B consulting firm revenue headcount typical profile UK 2025`
+  // Query 2: Trigger events — what business events cause this buyer to act?
+  const triggerQuery = trigger
+    ? `${buyer} ${trigger} buying trigger why now ${geoHint}`
+    : `${buyer} buying trigger events when do they invest ${geoHint}`
 
-  // Query 4: Competitive landscape — how do competitors position to the same buyer?
-  // Surfaces language real buyers hear, which informs disqualifiers and switching costs.
-  const competitorQuery =
-    `cold email outbound lead generation service for consultants competitors positioning UK 2025`
+  // Query 3: Buyer profile reality check — team size, revenue norms, stage language.
+  const buyerProfileQuery = buyer
+    ? `${buyer} typical company size revenue headcount profile ${geoHint} 2025`
+    : `B2B buyer typical company size revenue headcount profile ${geoHint} 2025`
+
+  // Query 4: Competitive landscape — how do others selling THIS CLIENT'S service to
+  // THIS CLIENT'S buyer position themselves? Informs disqualifiers and switching costs.
+  const competitorQuery = whatYouDo
+    ? `${whatYouDo} providers competitors positioning ${geoHint} 2025`
+    : `${buyer} suppliers competitors positioning ${geoHint} 2025`
 
   return [buyerPainQuery, triggerQuery, buyerProfileQuery, competitorQuery]
 }
@@ -428,14 +457,17 @@ function buildUserMessage(params: {
     ? `\n\n---\n\n${researchSection}\n\n` +
       `RESEARCH WEIGHTING RULE: Use research to validate, enrich, and sharpen the language ` +
       `in the ICP. If research findings conflict with intake data, do NOT silently override ` +
-      `intake. Instead, use the intake data as primary and note the conflict in your ` +
-      `generation — it will surface in the suggestion_reason.`
+      `intake. Instead, use the intake data as primary and state the conflict in the text of ` +
+      `the field it affects, so a reader of the document can see it.`
     : '\n\n---\n\n## WEB RESEARCH\n\nNo usable research results available. ' +
       'Base your analysis entirely on intake data and framework logic.'
 
   const websiteBlock = formatWebsiteContextForPrompt(websitePages)
 
-  return `You are generating an ICP document for a founder-led B2B consulting firm.
+  return `You are generating an ICP document for the B2B business described below.
+Derive what this business does, who it sells to, and the industry it operates in from the
+intake responses, uploaded documents and website content in this message. Do not assume an
+industry, a service type, or a buyer archetype that the intake does not support.
 ${completenessNote}
 
 ## INTAKE QUESTIONNAIRE RESPONSES
