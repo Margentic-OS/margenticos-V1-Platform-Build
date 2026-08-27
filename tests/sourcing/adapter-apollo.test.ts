@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import { apolloHandler } from '@/lib/sourcing/handlers/adapter-apollo'
+import { logger } from '@/lib/logger'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import type { ProspectCandidate } from '@/lib/sourcing/dedupe'
 import * as fs from 'fs'
@@ -49,7 +50,7 @@ const HOSTILE_SPEC: Record<string, unknown> = {
 }
 
 describe('apolloHandler.adapter', () => {
-  it('sends the measured filter: NAICS 5416, keyword tags, 5-50, US/UK/IE, verified', () => {
+  it('sends the measured filter: NAICS 5416, keyword tags, 5-20, US/UK/IE, verified', () => {
     const request = apolloHandler.adapter({} as Record<string, unknown>)
 
     expect(request.organization_naics_codes).toEqual(['5416'])
@@ -58,7 +59,7 @@ describe('apolloHandler.adapter', () => {
       'business consulting',
       'strategy consulting',
     ])
-    expect(request.organization_num_employees_ranges).toEqual(['5,50'])
+    expect(request.organization_num_employees_ranges).toEqual(['5,20'])
     expect(request.organization_locations).toEqual([
       'united states',
       'united kingdom',
@@ -137,7 +138,7 @@ describe('apolloHandler.adapter', () => {
 
     expect(request).not.toHaveProperty('person_titles')
     expect(request).not.toHaveProperty('revenue_range')
-    expect(request.organization_num_employees_ranges).toEqual(['5,50'])
+    expect(request.organization_num_employees_ranges).toEqual(['5,20'])
     // person_locations exists, but it is the hardcoded value rather than the
     // spec's person_countries, which asked for DE, CA, AU and NL.
     expect(request.person_locations).toEqual([
@@ -145,6 +146,85 @@ describe('apolloHandler.adapter', () => {
       'united kingdom',
       'ireland',
     ])
+  })
+
+  // ─── The divergence log ───────────────────────────────────────────────────
+  //
+  // These exist because the log used to be conditional on the spec naming a country
+  // outside US/GB/IE. After ADR-032 set the spec defaults to GB/IE/US, that
+  // condition is false for every new client, so the run that diverges on headcount,
+  // industries, keywords, titles and revenue produced no line at all. The absence
+  // read as 'nothing diverged'. It meant 'the one thing I test for is absent'.
+
+  it('logs the divergence on EVERY run, including a spec that names no country', () => {
+    const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
+
+    apolloHandler.adapter({} as Record<string, unknown>)
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy.mock.calls[0][0]).toContain('hardcoded filter in force')
+    spy.mockRestore()
+  })
+
+  it('still logs when the spec countries agree with the filter, which is the gap', () => {
+    // The exact shape that used to be silent: defaults in force, country test
+    // passes, and four other fields are discarded without a word.
+    const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
+
+    apolloHandler.adapter({
+      person_countries: ['GB', 'IE', 'US'],
+      company_countries: ['GB', 'IE', 'US'],
+      company_headcount_min: 500,
+      company_headcount_max: 20000,
+      industries: ['Software Publishers'],
+      keywords: ['advisory'],
+    } as Record<string, unknown>)
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    const meta = spy.mock.calls[0][1] as Record<string, unknown>
+
+    expect(meta.ignored_spec_countries).toEqual([])
+    expect(meta.ignored_spec_fields).toEqual(
+      expect.arrayContaining([
+        'company_headcount_min',
+        'company_headcount_max',
+        'industries',
+        'keywords',
+      ]),
+    )
+    spy.mockRestore()
+  })
+
+  it('reports the headcount the filter actually sends, not the one the spec asked for', () => {
+    const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
+
+    apolloHandler.adapter(HOSTILE_SPEC)
+    const meta = spy.mock.calls[0][1] as Record<string, unknown>
+
+    expect(meta.filter_headcount_ranges).toEqual(['5,20'])
+    expect(meta.ignored_spec_countries).toEqual(
+      expect.arrayContaining(['DE', 'CA', 'AU', 'NL']),
+    )
+    spy.mockRestore()
+  })
+
+  it('does not report an unpopulated field, or a post-filtered one, as diverging', () => {
+    // job_titles_excluded and keywords_excluded ARE honoured, as post-filters in
+    // execute(). Reporting them would pad the list until the real ones stop showing.
+    const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
+
+    apolloHandler.adapter({
+      job_titles: [],
+      keywords: '',
+      industries_excluded: null,
+      job_titles_excluded: ['Intern'],
+      keywords_excluded: ['recruiting'],
+    } as Record<string, unknown>)
+
+    const meta = spy.mock.calls[0][1] as Record<string, unknown>
+
+    expect(meta.ignored_spec_fields).toEqual([])
+    spy.mockRestore()
   })
 
   it('cannot be contaminated by a caller mutating a previous request', () => {

@@ -111,8 +111,26 @@ const APOLLO_FILTER: Omit<ApolloApiSearchRequest, 'page' | 'per_page'> = {
     'strategy consulting',
   ],
 
-  // 5 to 50 employees.
-  organization_num_employees_ranges: ['5,50'],
+  // 5 to 20 employees. A STOPGAP, and the one constant that reverses it. See ADR-036.
+  //
+  // Narrowed from '5,50' on 2026-08-27 for the ramp. Measured live on this exact
+  // filter, changing only this parameter:
+  //
+  //     5,20  (shipped)    36,818
+  //     21,50 (tier_2)     19,162
+  //     5,50  (previous)   55,980
+  //
+  // The two bands PARTITION the previous filter exactly: 36,818 + 19,162 = 55,980,
+  // zero residual. That arithmetic is the check that matters here, because Apollo
+  // silently ignores a parameter it does not recognise, so a range string it failed
+  // to parse would return a plausible number rather than an error. A clean partition
+  // cannot happen by accident.
+  //
+  // Those 19,162 are not lost, they are DECLARED AND NOT SOURCED. The 21-50 band is
+  // tier_2 in the ICP document, and there is no way to ask for it today because the
+  // query is hardcoded rather than spec-driven. Nothing else in this filter was tuned
+  // to compensate, so widening is this one edit and nothing else.
+  organization_num_employees_ranges: ['5,20'],
 
   // United States, United Kingdom and Ireland only. Apollo expects place names
   // here, not ISO codes.
@@ -157,6 +175,49 @@ const APOLLO_FILTER: Omit<ApolloApiSearchRequest, 'page' | 'per_page'> = {
 // ISO-3166 codes the hardcoded filter covers. Used only to report divergence.
 const FILTER_COUNTRY_CODES = new Set(['US', 'GB', 'IE'])
 
+// The fields this handler advertises. Hoisted out of the handler object so the
+// divergence report below can be DERIVED from it instead of hand-listed beside it.
+// Two lists that have to be kept in step by hand is the parallel-array shape
+// CLAUDE.md warns about: a field added to one and forgotten in the other would be
+// discarded and never reported, permanently and silently.
+const SUPPORTED_FIELDS = [
+  'job_titles',
+  'job_titles_excluded',
+  'seniority_levels',
+  'person_countries',
+  'company_countries',
+  'company_headcount_min',
+  'company_headcount_max',
+  'industries',
+  'industries_excluded',
+  'keywords',
+  'keywords_excluded',
+  'company_revenue_min',
+  'company_revenue_max',
+] as const
+
+// The only two spec fields that survive into the run at all. They are honoured as
+// POST-FILTERS on results in execute(), never as search parameters, so they are not
+// a divergence and must not be reported as one.
+const POST_FILTERED_SPEC_FIELDS = new Set<string>(['job_titles_excluded', 'keywords_excluded'])
+
+// Everything else the handler claims to support and the hardcoded query ignores.
+// Derived, so it cannot drift from SUPPORTED_FIELDS.
+const QUERY_IGNORED_SPEC_FIELDS = SUPPORTED_FIELDS.filter(
+  field => !POST_FILTERED_SPEC_FIELDS.has(field),
+)
+
+// A field counts as diverging only when the spec actually asked for something. An
+// empty array, an empty string or a null is the spec staying silent, and listing
+// those would pad the report until the fields that genuinely diverge stop standing
+// out. Zero is a real value and is reported.
+function isPopulated(value: unknown): boolean {
+  if (value === undefined || value === null) return false
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === 'string') return value.trim().length > 0
+  return true
+}
+
 export const apolloHandler = {
   name: 'Apollo',
 
@@ -164,43 +225,48 @@ export const apolloHandler = {
   // and history rather than the search query, which is hardcoded above. Narrowing
   // this list would make the orchestrator throw for any client whose spec
   // populates a field, which would stop sourcing rather than improve it.
-  supported_fields: [
-    'job_titles',
-    'job_titles_excluded',
-    'seniority_levels',
-    'person_countries',
-    'company_countries',
-    'company_headcount_min',
-    'company_headcount_max',
-    'industries',
-    'industries_excluded',
-    'keywords',
-    'keywords_excluded',
-    'company_revenue_min',
-    'company_revenue_max',
-  ],
+  // Copied out of SUPPORTED_FIELDS rather than referencing it, for the same reason
+  // the filter arrays are copied below: one caller mutating this would change what
+  // every later client in the process is measured against.
+  supported_fields: [...SUPPORTED_FIELDS],
 
   // Adapter: return the hardcoded request.
   //
   // `spec` is accepted to satisfy the SourcingHandler interface and is not used
   // to build the query. It is read for exactly one thing: to say out loud when
   // the stored spec disagrees with the filter, so that gap is visible in the
-  // logs instead of silent. Client zero's stored spec still lists DE and CA,
-  // so this will fire until the spec defaults are changed.
+  // logs instead of silent.
   adapter: (spec: Record<string, unknown>): ApolloApiSearchRequest => {
     const specCountries = [
       ...((spec.company_countries as string[] | undefined) ?? []),
       ...((spec.person_countries as string[] | undefined) ?? []),
     ]
-    const ignored = Array.from(new Set(specCountries))
+    const ignoredCountries = Array.from(new Set(specCountries))
       .filter(code => !FILTER_COUNTRY_CODES.has(code.toUpperCase()))
 
-    if (ignored.length > 0) {
-      logger.info('Apollo adapter: hardcoded filter in force, spec countries not honoured', {
-        ignored_spec_countries: ignored,
-        filter_locations: APOLLO_FILTER.organization_locations,
-      })
-    }
+    const ignoredFields = QUERY_IGNORED_SPEC_FIELDS.filter(field => isPopulated(spec[field]))
+
+    // UNCONDITIONAL, on every run, and that is the change.
+    //
+    // This used to fire only when the spec named a country outside US/GB/IE. So the
+    // specs MOST likely to be wrong were the ones that produced no log at all: once
+    // ADR-032 moved the defaults to GB/IE/US, the country test passes for every new
+    // client while headcount, industries, keywords, titles, seniorities and revenue
+    // are still being discarded in silence. A report that stays quiet until the
+    // problem is already obvious is not a report, and 'no log' read as 'no
+    // divergence' when it meant 'the only divergence I check for is absent'.
+    //
+    // So it logs every time, and names the fields rather than just the countries.
+    // Nothing here gates: the filter is hardcoded whatever the spec says, and this
+    // line is the only thing that says so out loud. Expect one line per sourcing run.
+    logger.info('Apollo adapter: hardcoded filter in force, spec did not build this query', {
+      ignored_spec_fields: ignoredFields,
+      ignored_spec_countries: ignoredCountries,
+      post_filtered_spec_fields: Array.from(POST_FILTERED_SPEC_FIELDS),
+      filter_locations: APOLLO_FILTER.organization_locations,
+      filter_person_locations: APOLLO_FILTER.person_locations,
+      filter_headcount_ranges: APOLLO_FILTER.organization_num_employees_ranges,
+    })
 
     // Copy the arrays out rather than spreading the references. A shallow spread
     // hands every caller the SAME array instances as the module-level constant, so
