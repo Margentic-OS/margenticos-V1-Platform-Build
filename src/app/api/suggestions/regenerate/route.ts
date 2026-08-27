@@ -21,6 +21,7 @@ import { runIcpGenerationAgent } from '@/agents/icp-generation-agent'
 import { runPositioningGenerationAgent } from '@/agents/positioning-generation-agent'
 import { runTovGenerationAgent } from '@/agents/tov-generation-agent'
 import { runMessagingGenerationAgent } from '@/agents/messaging-generation-agent'
+import type { RegenerationNotes } from '@/lib/agents/regeneration-notes'
 
 export const maxDuration = 300
 
@@ -32,7 +33,12 @@ function makeServiceClient() {
 }
 type ServiceClient = ReturnType<typeof makeServiceClient>
 
-const AGENT_MAP: Record<string, (input: { organisation_id: string; supabase: ServiceClient; is_refresh: boolean }) => Promise<unknown>> = {
+const AGENT_MAP: Record<string, (input: {
+  organisation_id: string
+  supabase: ServiceClient
+  is_refresh: boolean
+  regeneration_notes?: RegenerationNotes
+}) => Promise<unknown>> = {
   icp:        (i) => runIcpGenerationAgent(i),
   positioning:(i) => runPositioningGenerationAgent(i),
   tov:        (i) => runTovGenerationAgent(i),
@@ -151,6 +157,7 @@ export async function POST(request: NextRequest) {
 
   // ── 4. Resolve operation mode: regenerate vs generate-from-nothing ──────────
   let shouldReject = false
+  let clientNote: string | null = null
 
   if (suggestion_id) {
     // Operator mode: reject the current suggestion before generating fresh
@@ -163,7 +170,7 @@ export async function POST(request: NextRequest) {
 
     const { data: suggestion, error: suggestionError } = await supabase
       .from('document_suggestions')
-      .select('id, organisation_id, document_type, status')
+      .select('id, organisation_id, document_type, status, revision_note')
       .eq('id', suggestion_id)
       .eq('organisation_id', client_id)
       .single()
@@ -178,6 +185,12 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // The client's original change request, when this suggestion came from the
+    // client-side "Request changes" control. It has to reach the new run as well
+    // as the operator's note, or regenerating a client revision silently throws
+    // away the reason the document was being changed at all.
+    clientNote = suggestion.revision_note
 
     shouldReject = true
   } else {
@@ -198,6 +211,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const operatorNote = typeof rejection_reason === 'string' ? rejection_reason.trim() || null : null
+
   // ── 5. Reject current suggestion if regenerating (operator mode) ────────────
   if (shouldReject && suggestion_id) {
     const { error: rejectError } = await supabase
@@ -206,7 +221,7 @@ export async function POST(request: NextRequest) {
         status:           'rejected',
         reviewed_at:      new Date().toISOString(),
         reviewed_by:      user.id,
-        rejection_reason: typeof rejection_reason === 'string' ? rejection_reason.trim() || null : null,
+        rejection_reason: operatorNote,
       })
       .eq('id', suggestion_id)
 
@@ -223,6 +238,11 @@ export async function POST(request: NextRequest) {
   // is_refresh: true for regenerate (context from existing doc), false for generate-from-nothing
   const isRefresh = !!suggestion_id
 
+  // Notes on the version being replaced. Persisting rejection_reason above is an
+  // audit record; this is what makes the agent act on it. See ADR-038.
+  const regenerationNotes: RegenerationNotes | undefined =
+    operatorNote || clientNote ? { operator_note: operatorNote, client_note: clientNote } : undefined
+
   // Wrap agent execution in after() so it survives the response.
   // Vercel freezes the function immediately after response unless work is registered
   // via after(). This ensures agent.complete() and agent.fail() can write to the database.
@@ -232,6 +252,7 @@ export async function POST(request: NextRequest) {
         organisation_id: client_id,
         supabase,
         is_refresh: isRefresh,
+        regeneration_notes: regenerationNotes,
       })
     } catch (err) {
       logger.error('Regenerate route: agent run failed', {
@@ -250,6 +271,8 @@ export async function POST(request: NextRequest) {
     caller_role: isOperator ? 'operator' : 'client',
     caller_id: user.id,
     mode: isRefresh ? 'regenerate' : 'generate_fresh',
+    has_operator_note: !!operatorNote,
+    has_client_note: !!clientNote,
   })
 
   return NextResponse.json(

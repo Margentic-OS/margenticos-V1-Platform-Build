@@ -100,6 +100,47 @@ segment-scoped NULL-safe archival step. One function, two callers.
 
 ---
 
+## Rejection notes reach the next generation run
+
+Two controls take a free-text note about a document, and both notes now steer the run
+that replaces it.
+
+| Control | Where the note is stored | What reads it |
+|---|---|---|
+| Client "Request changes" on a live document | `document_suggestions.revision_note` | the revision agent, `runDocumentRevisionAgent` |
+| Operator "Reject and regenerate" in the approval queue | `document_suggestions.rejection_reason` | the generation agent for that document type |
+
+Until 27 August 2026 the operator note was written to the column and never read again.
+An operator could reject an ICP suggestion with "remove Canada, Australia and Western
+Europe from the geography", watch a new suggestion appear two minutes later, and find all
+three still there. Nothing in the UI, the logs or the suggestion's reasoning line said the
+instruction had been dropped. See ADR-038.
+
+**How it works now.** `POST /api/suggestions/regenerate` reads both notes off the
+suggestion it is rejecting and passes them to the agent as `regeneration_notes`. One
+module, `src/lib/agents/regeneration-notes.ts`, turns them into the prompt block and into
+the sentence appended to `suggestion_reason`. All four generation agents call it.
+
+**When both notes exist**, which happens when an operator rejects a staged client
+revision, both are sent and the prompt says the rejection note wins on conflict. The
+client note is the request; the operator note is the correction to the attempt that
+answered it. Neither is redundant.
+
+**Reading the receipt.** The new suggestion's reasoning line in the approval queue now
+names the note that was supplied. If a regenerated document ignores the note, that is now
+a model failure you can see, not a plumbing failure you cannot.
+
+**What still does not carry a note:**
+- A plain "Confirm rejection" with no regeneration. The note is recorded and nothing runs.
+- A later regeneration through the no-`suggestion_id` path. It does not go looking for the
+  last rejected suggestion's note.
+- The direct agent triggers at `/api/agents/{icp,positioning,tov,messaging}`.
+- The rejected document's own text. Agents refresh from the live approved document, so a
+  note that describes the target works and a note that describes a diff ("the second
+  paragraph contradicts the third") has nothing to point at.
+
+---
+
 ## Launch gate
 
 `assertStrategyApproved` (source: `src/lib/approval/assertStrategyApproved.ts`) is

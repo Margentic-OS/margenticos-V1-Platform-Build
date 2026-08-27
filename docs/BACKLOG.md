@@ -497,6 +497,48 @@ while in there and consciously left alone.
   directly beneath it and the two are easy to confuse. Step 4 asks whether the handler
   SUPPORTS a field. Step 4.5 asks whether the query it actually sends has anything to do
   with what the client asked for. Only the second one is currently true of the query.
+## Rejection notes now reach the agent, three gaps left open (2026-08-27)
+
+- [DONE 2026-08-27] The operator's "Reject and regenerate" note was persisted to
+  document_suggestions.rejection_reason and never read again. Measured live: an ICP
+  suggestion rejected at 20:57:02 with a note naming three regions to remove, regenerated
+  at 20:59:15 with all three still present. Now wired through
+  src/lib/agents/regeneration-notes.ts into all four generation agents, and named in
+  suggestion_reason so an ignored note is visible. See ADR-038.
+
+- [pre-c1] The rejected document is still not shown to the agent. Generation agents
+  refresh from the live approved document in strategy_documents, not from the
+  suggested_value that was just rejected. So a note that describes the TARGET works
+  ("the geography is too broad") and a note that describes a DIFF does not ("the second
+  paragraph contradicts the third" has nothing to point at). Passing the rejected
+  suggested_value as "here is what you produced" is the obvious next step. Not built
+  because the measured case did not need it and it doubles the refresh context.
+
+- [post-build] A plain "Confirm rejection" with a note, followed later by a regeneration
+  through the no-suggestion_id path, still loses the note. Reading the most recent
+  rejected suggestion's note back would be guessing at intent across an unbounded time
+  gap. Left deliberate. If operators start doing this in practice, the fix is to make the
+  regenerate control on a rejected doc-type carry the note forward explicitly rather than
+  to infer it.
+
+- [post-build] The direct agent triggers at /api/agents/{icp,positioning,tov,messaging}
+  accept no note at all. They are operator debugging routes, not part of the approval
+  loop, so this is consistent rather than a gap. Worth revisiting if they ever become a
+  user-facing control.
+
+- [post-build] POST /api/reply-drafts/[id]/reject accepts an optional `reason` and the
+  triage UI never sends one (TriageQueue.tsx posts `{}`). Unused capability rather than a
+  discarded note: nothing is captured, so nothing is lost. Either wire a reason field into
+  DraftCard or drop the parameter, so the route stops advertising something no caller uses.
+
+## ADR numbering is racing across parallel branches (2026-08-27)
+
+- [post-build] ADR-037 is claimed by BOTH `advisor-fixes` and `trackb-g1-industry-agnostic`
+  for different decisions, and ADR-036 exists on five branches. This work took ADR-038 to
+  avoid a third collision. Whichever of those two branches merges second has to renumber,
+  and the repo has already done this once (ADR-030 was renumbered from a duplicate
+  ADR-026). With several sessions running in parallel, the next number should be claimed
+  against all branches, not against main.
 
 ## The commit gate is now executable (2026-08-27)
 
