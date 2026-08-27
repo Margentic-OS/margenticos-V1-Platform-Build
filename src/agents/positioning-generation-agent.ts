@@ -388,12 +388,14 @@ export function buildResearchQueries(intake: IntakeRow[]): string[] {
     : `${service} buyer search intent category language ${geoHint} 2025`
 
   // Query 3: Case study and review language — what do satisfied buyers say?
-  const caseStudyQuery =
-    `${service} case study results testimonial review ${geoHint} 2025`
+  const caseStudyQuery = service
+    ? `${service} case study results testimonial review ${geoHint} 2025`
+    : `B2B service case study results testimonial review ${geoHint} 2025`
 
   // Query 4: Failure modes and white space — what frustrations do buyers voice?
-  const failureModeQuery =
-    `${service} "didn't work" OR "failed" OR "disappointed" review complaints 2025`
+  const failureModeQuery = service
+    ? `${service} "didn't work" OR "failed" OR "disappointed" review complaints 2025`
+    : `B2B service provider "didn't work" OR "failed" OR "disappointed" review complaints 2025`
 
   return [competitorPositioningQuery, buyerSearchQuery, caseStudyQuery, failureModeQuery]
 }
