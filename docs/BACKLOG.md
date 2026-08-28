@@ -23,6 +23,40 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## DATED ACTIONS — READ THIS BLOCK FIRST. IT IS THE ONLY PLACE DATES ARE COLLECTED.
+
+NOTHING IN THIS CODEBASE FIRES ON A DATE. Every item below happens only because somebody
+read this block. If a date has passed and the item is still listed here, it is OVERDUE,
+not done. Deliberately at the top of the file: both entries below were written near the
+bottom, under headings nobody scans, which is the same as not writing them.
+
+  2026-09-04   FLIP DECISION: the OUTPUT-SIDE VENDOR GATE.
+               VENDOR_GATE_MODE = 'report' in src/lib/agents/vendor-name-gate.ts
+               Full entry: search "THE OUTPUT-SIDE VENDOR GATE IS BUILT"
+
+  2026-09-04   FLIP DECISION: the SENTENCE-INITIAL NAME GATE.
+               SENTENCE_INITIAL_GATE_MODE = 'report' in
+               src/lib/style/sentence-initial-names.ts
+               Full entry: search "REVIEW 2026-09-04"
+
+Both are report-only gates shipped on the same rule: a gate nobody has watched fire is a
+gate nobody has tested. NEITHER FLIPS ITSELF and neither warns when the date passes. Read
+the week's logs, decide, then change one constant. Record what the logs showed in the full
+entry when you do, and delete the line from this block.
+
+## STANDING RULE: PIN EVERY GIT COMMAND WITH `git -C <path>` (2026-08-28)
+
+- THREE SESSIONS IN TWO DAYS have had a shell SILENTLY REVERT from a worktree to the main
+  checkout with no `cd` in between, so git ran against the wrong repository and branch. On
+  2026-08-28 a `git checkout -b` aborted ONLY because the main tree happened to be dirty
+  with the two tracked CLI artifacts; on a clean tree it would have switched that
+  checkout's branch underneath another live session. Pin every git command with
+  `git -C "$WT"` rather than trusting cwd, and when unexplained modified files appear run
+  `pwd` and `git rev-parse --abbrev-ref HEAD` FIRST, before reading the diff: the symptom
+  reads as a code problem when the real question is which directory you are in. Stale
+  worktrees compound it and have also caused a test run to scan every copy of the
+  codebase, so REMOVE A WORKTREE AS SOON AS ITS BRANCH IS MERGED.
+
 ## TRACK B GROUP 2, TOP ITEM: the mandated consulting pain vocabulary (2026-08-27, branch trackb-g1-industry-agnostic)
 
 - [pre-c1] Rule 5's ban list does not just illustrate with consulting language. It
