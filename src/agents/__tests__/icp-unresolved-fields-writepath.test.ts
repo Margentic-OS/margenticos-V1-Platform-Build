@@ -41,7 +41,12 @@ vi.mock('@/lib/agents/tools/webSearch', () => ({
   formatResearchForPrompt: vi.fn(() => ''),
 }))
 
-vi.mock('@/lib/agents/website-context', () => ({
+// Spread the real module first, then override only the two functions this test needs to
+// control. A hand-listed mock goes stale the moment the module gains an export, and it
+// fails as "No X export is defined on the mock", which reads like a bug in the code under
+// test rather than a bug in the mock. That happened when countTruncatedPages was added.
+vi.mock('@/lib/agents/website-context', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/agents/website-context')>()),
   fetchWebsiteContext: vi.fn(async () => []),
   formatWebsiteContextForPrompt: vi.fn(() => ''),
 }))
