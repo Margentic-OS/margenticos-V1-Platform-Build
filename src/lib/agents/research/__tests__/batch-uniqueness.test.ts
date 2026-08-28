@@ -1,5 +1,5 @@
 // Retry feedback used to say a closing question was taken without saying which ones were.
-// Udo burned all three attempts re-offering questions that were already gone, and fell back
+// One prospect burned all three attempts re-offering questions that were already gone, and fell back
 // to template with good findings unused.
 
 import { describe, it, expect } from 'vitest'
