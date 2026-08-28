@@ -93,7 +93,7 @@ export interface ReadabilityScore {
 // Splits on sentence-ending punctuation followed by whitespace, and on a trailing
 // terminator. Abbreviations inside an observation ("Jul. 2024") would over-split, so the
 // split requires the following character to start a new word rather than continue one.
-function splitSentences(text: string): string[] {
+export function splitSentences(text: string): string[] {
   return text
     .split(/(?<=[.!?])\s+/)
     .map(s => s.trim())

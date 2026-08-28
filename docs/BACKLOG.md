@@ -39,9 +39,15 @@ bottom, under headings nobody scans, which is the same as not writing them.
                src/lib/style/sentence-initial-names.ts
                Full entry: search "REVIEW 2026-09-04"
 
-Both are report-only gates shipped on the same rule: a gate nobody has watched fire is a
-gate nobody has tested. NEITHER FLIPS ITSELF and neither warns when the date passes. Read
-the week's logs, decide, then change one constant. Record what the logs showed in the full
+  NO DATE     DO NOT FLIP: the FINITE-VERB GATE.
+              FINITE_VERB_GATE_MODE = 'report' in src/lib/style/finite-verb.ts
+              Deliberately has no review date, unlike the two above. It was measured
+              before it was committed and it is NOT a flip candidate on that evidence.
+              Full entry: search "THE FINITE-VERB GATE IS MEASURED AND MUST NOT BLOCK"
+
+All three are report-only gates shipped on the same rule: a gate nobody has watched fire is
+a gate nobody has tested. NONE FLIPS ITSELF and none warns when the date passes. Read the
+week's logs, decide, then change one constant. Record what the logs showed in the full
 entry when you do, and delete the line from this block.
 
 ## STANDING RULE: PIN EVERY GIT COMMAND WITH `git -C <path>` (2026-08-28)
@@ -734,6 +740,56 @@ while in there and consciously left alone.
   NEXT ACTION: add the secret scan to the pre-commit hooks in CLAUDE.md alongside the .env
   check and the tool-name check. A grep for 64-hex and JWT shapes in the staged diff would
   have caught this at the commit that introduced it.
+
+## THE FINITE-VERB GATE IS MEASURED AND MUST NOT BLOCK (2026-08-28, branch writer-gate)
+
+- [research] A deterministic gate for sentences with no finite verb exists, is wired into
+  checkOpeningGates, and is REPORT-ONLY. It must not be flipped to 'block' as written.
+
+WHAT IT IS FOR. Three of twenty-four shipped openings contained a sentence with no finite
+verb: a participle fragment, and two comma-separated noun lists punctuated as sentences.
+No existing gate could catch that. The word cap counts words, the readability score
+measures sentence length and hedging, and a fragment is short and hedges nothing, so it
+passes both comfortably.
+
+MEASURED OVER ALL 24 STORED TRIGGERS, BEFORE COMMIT:
+
+  TRUE POSITIVES    3 of 3. It finds every genuinely verbless sentence in the corpus.
+  FALSE POSITIVES   13 sentences across 10 further rows. 13 of 24 rows flag in total.
+
+So it works as a detector and fails as a gate. Blocking on it today would reject roughly
+two fifths of all openings written, each rejection costing a regeneration and risking a
+fall back to the template, which is a worse email than the sentence rejected.
+
+WHY A LONGER WORD LIST DOES NOT FIX IT, WHICH IS THE PART TO REMEMBER. Every false
+positive has one cause: an ordinary present-tense verb absent from the closed lists.
+Third-singular and bare plural verb forms are an OPEN class and no closed list covers
+them. But lengthening the lists until the noise stops also destroys the detection, because
+the missing words and the fragment words ARE THE SAME WORDS: two of the three real hits
+are noun phrases built from nouns that double as common verbs, so adding those verbs turns
+both hits into misses. The two error rates are not independent knobs. There is no setting
+of this technique that is quiet enough to block and sharp enough to be worth blocking on.
+
+NEXT ACTION IF ANYONE PICKS THIS UP. Not a longer list. Either a real part-of-speech tagger
+(a dependency, and ADR-018 says deterministic first, so it needs an argument), or a
+narrower gate aimed only at the shapes actually observed: a sentence with no verb candidate
+at all whose structure is a comma-separated list, or one whose only verb-like token is a
+bare -ing participle. That narrower version would have caught all three and, on this
+corpus, close to none of the thirteen. It was not built here because narrowing the gate to
+fit three examples needs more than three examples to justify it.
+
+ALSO FIXED HERE, worth knowing if the apostrophe logic ever looks over-complicated. The
+first draft treated every 's as a verb contraction. That read the POSSESSIVE 's as a verb
+and missed ALL THREE real faults, since each is a noun phrase containing a possessive. The
+gate scored 0 of 3 and 11 false positives before the fix and 3 of 3 after it. A possessive
+is now separated from a copula by the word that follows it, since a possessive must
+introduce a noun phrase and cannot be followed by an article, a negator or a participle.
+
+READABILITY IS ALSO WIRED, ALSO LOGGING ONLY. readabilityScore now runs on the writer's
+observation and bridge separately and logs hardFail, penalty, reasons and hedges. It pushes
+nothing to failures. It has gated candidate SELECTION upstream for a while, but nothing had
+ever scored the writer's own output, so there is no evidence yet about what it would reject
+there. Accumulate first, decide later.
 
 ## Per-domain sending health / MON-023 (2026-08-27, branch sourcing-filter)
 

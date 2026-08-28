@@ -18,6 +18,8 @@ import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/firmographic'
 import { checkSentenceInitialNames } from '@/lib/style/sentence-initial-names'
+import { checkFiniteVerbs } from '@/lib/style/finite-verb'
+import { readabilityScore } from '@/lib/style/readability'
 import { BatchUniquenessRegistry, uniquenessFeedback } from './batch-uniqueness'
 import type { ObservationCandidate, TokenUsage } from './types'
 import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage } from './types'
@@ -904,9 +906,19 @@ export interface JudgeComparison {
 
 // ─── Deterministic gates on the writer's output ──────────────────────────────
 //
-// These three and no others. Everything else is the judge's job. A gate here is for
-// things a model should not be asked to self-report: length, whether it slipped into the
-// third person, and whether it invented a fact.
+// NO COUNT IS STATED HERE, ON PURPOSE. This comment read "These three and no others"
+// while sitting above eight gates, and the count has now been wrong twice. A number in a
+// comment above a list is a second list to keep in step by hand, and it loses.
+//
+// What belongs here, at category level: checks on things a model must not be asked to
+// self-report, because self-reporting them is the thing it is bad at. Budgets and counts
+// it would have to measure. Facts it would have to remember not having invented. Fixed
+// text it was told not to touch. House rules already enforced in code elsewhere, which
+// are only advisory in a prompt (ADR-028). Everything requiring judgement stays with the
+// judge, which is why nothing here reads for tone, interest or quality.
+//
+// Some gates run REPORT-ONLY behind a mode constant in their own module. Those log and
+// return nothing, so they cannot reject anything until the constant is flipped by hand.
 
 /** Numbers, years and proper nouns in the opening that do not appear in the findings. */
 function untraceableClaims(opening: string, findingsText: string): string[] {
@@ -1048,7 +1060,7 @@ export function checkOpeningGates(
     failures.push(`claims not traceable to any finding: ${untraceable.join(', ')}`)
   }
 
-  // AN EIGHTH GATE, AND IT CLOSES A HOLE IN THE THIRD ONE RATHER THAN ADDING A NEW RULE.
+  // CLOSES A HOLE IN THE TRACEABILITY GATE ABOVE RATHER THAN ADDING A NEW RULE.
   //
   // untraceableClaims exempts the first word of every sentence, because capitalisation
   // there is convention rather than evidence. This gate runs on `${opening} ${question}`,
@@ -1063,7 +1075,7 @@ export function checkOpeningGates(
     opening, findingsText, { prospectId: context?.prospectId ?? 'unknown' },
   ))
 
-  // A DELIBERATE FOURTH GATE. The brief said to keep the deterministic gates unchanged,
+  // A DELIBERATE ADDITION. The brief said to keep the deterministic gates unchanged,
   // and this adds one, so the reasoning should be on the record. A prompt rule alone is
   // advisory (ADR-028), the messaging agent enforces this same ban in code, and the
   // failure it prevents has already shipped once: "a $5M consulting firm" in Bob's
@@ -1074,7 +1086,7 @@ export function checkOpeningGates(
     failures.push(`quotes ${figures.join(' and ')} from the prospect's record: qualify by role, stage or situation instead`)
   }
 
-  // A FIFTH GATE, and it exists because this change set created the hole it closes.
+  // THIS GATE EXISTS BECAUSE THE CHANGE SET THAT ADDED IT CREATED THE HOLE IT CLOSES.
   //
   // The standing house rule is one question mark per email body: the CTA is the question,
   // and a second one splits the ask. The messaging agent enforces it at generation, but
@@ -1091,7 +1103,7 @@ export function checkOpeningGates(
     failures.push(`contains ${questionMarks} question marks: the closing question is the only question, and the observation and bridge must not ask one`)
   }
 
-  // A SIXTH GATE, and it shipped before it was caught. Bob's Email 1 read:
+  // THIS ONE SHIPPED BEFORE IT WAS CAUGHT. The Email 1 that prompted it read:
   //
   //   "Two leadership positions running in parallel means prospecting is usually the first
   //    thing that waits. We get qualified conversations into the diary without pulling you
@@ -1118,6 +1130,42 @@ export function checkOpeningGates(
     const needle = p3Words.slice(0, 6).join(' ')
     if (p3Words.length >= 6 && normaliseForEcho(opening).includes(needle)) {
       failures.push('repeats the approved offer line, which is already in the email: write only the observation, the bridge and the closing question')
+    }
+  }
+
+  // ── Report-only observation, per part. Neither of the two checks below can reject
+  // anything on this commit: the finite-verb gate returns an empty array while its mode
+  // constant says 'report', and the readability score is logged and never read.
+  //
+  // PER PART, NOT ON THE COMBINED BLOCK. Every gate above runs on `opening`, which is the
+  // observation, the bridge and the question joined together. That is right for a word cap
+  // and wrong for these two, because a hit on the joined string cannot say which half
+  // produced it, and the whole value of an observation period is knowing what was caught
+  // and where. Reading a log that says "the opening had a fragment in it" tells nobody
+  // which paragraph to look at.
+  //
+  // Guarded on `params` because it is optional: tests call this function with the parts
+  // undefined, and with nothing to attribute a hit to there is nothing worth logging.
+  if (params) {
+    for (const [part, text] of [['observation', params.observation], ['bridge', params.bridge]] as const) {
+      // Named logContext, not context: a local called `context` would shadow the
+      // parameter it is built from and never initialise.
+      const logContext = { prospectId: context?.prospectId ?? 'unknown', part }
+      failures.push(...checkFiniteVerbs(text, logContext))
+
+      // LOG ONLY, PUSHING NOTHING. readabilityScore already gates candidate SELECTION
+      // upstream, where a hard fail ranks a candidate out. Nothing has ever scored the
+      // writer's own output, so there is no evidence about what it would reject here, and
+      // adding a hard gate without that evidence is how a good variant gets thrown away.
+      // Accumulate first, decide later.
+      const readability = readabilityScore(text)
+      logger.info('writer-readability: scored, not gated', {
+        ...logContext,
+        hardFail: readability.hardFail,
+        penalty: readability.penalty,
+        reasons: readability.reasons,
+        hedges: readability.hedges,
+      })
     }
   }
 
