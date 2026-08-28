@@ -7695,3 +7695,43 @@ session's verification, not in the code it shipped, and that is the more useful 
   privilege on an RLS-backed table, which is what keeps it from being born red across 29
   tables. If the anon grants are removed, tighten it in the SAME commit so the new posture is
   the one it enforces, rather than leaving the monitor describing the old world.
+
+## SESSION1 CLOSE-OUT, 2026-08-28: what sending the real notification exposed
+
+- [bug] notifications_log RECORDS A NOTIFICATION THAT WAS NEVER DELIVERED, and then blocks
+  the retry.
+
+  Found by sending the first real version_pending on 2026-08-28. The send failed
+  ("RESEND_FROM_EMAIL is required in non-development environments") and the log row was
+  written anyway: organisation 0ed34697, subject_id 4b6883ef-eb19-4a9b-a718-785bd8c92e21,
+  sent_at 13:27:30, for an email that does not exist.
+
+  logAndSend in src/lib/notifications/notify-after-promotion.ts inserts the row FIRST, for
+  dedup, then calls sendTransactionalEmail, and treats a send failure as non-fatal with a
+  warn. So the table asserts "we told them" when nothing was told, and because dedup is on
+  (organisation_id, notification_type, subject_id) with a UNIQUE constraint, the retry for
+  that same suggestion is now permanently suppressed. A client can silently never be told
+  their document changed.
+
+  This is the validate-one-thing-return-another shape from CLAUDE.md, one level up: the
+  record and the act have come apart, and the record is the one that survives.
+
+  The fix is not simply to reverse the order, because that reintroduces the double-send the
+  log exists to prevent. It wants a delivered_at column, or a row written pending and
+  updated on success, with the dedup keyed on the pending row and a sweep for rows that
+  never reached delivered.
+
+  The false row above is still there. Deleting it needs a decision, not a session
+  initiative: it is one row on the client-zero test organisation, and it is wrong.
+
+- [ops] .env.local CANNOT BE LOADED WITH `set -a; . ./.env.local`, and the failure looks
+  like a missing variable rather than a broken parse.
+
+  RESEND_FROM_EMAIL holds a display-name address of the form `Name <addr@domain>`. The `<`
+  is a shell redirect and the space splits the word, so sourcing the file silently loses
+  that line. The symptom is an error from deep inside the send path saying the variable is
+  required, which reads as "the variable is not set" rather than "your loader ate it".
+
+  Every script header in scripts/ already says `dotenv -e .env.local --` for this reason.
+  Use it. Sourcing works for keys whose values are bare tokens, which is why it appears to
+  work right up until it does not.
