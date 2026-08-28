@@ -1095,6 +1095,17 @@ describe('the bridge may attribute, but only to the sender', () => {
     expect(flat).toContain('Most firms at this stage find')
   })
 
+  it('forbids asserting a track record, and says nothing about how many clients exist', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('NEVER ASSERT A TRACK RECORD')
+    expect(flat).toContain('unless the approved documents you were given state it outright')
+    // THE HALF THAT MUST NOT COME BACK. The paragraph this replaced also said "There are
+    // no clients yet", which was true of one client in one month and false for any client
+    // with a customer base. The universal half is the rule; the count never was.
+    expect(flat).not.toContain('There are no clients yet')
+    expect(flat).not.toMatch(/no clients yet|first client(?:s)? we/i)
+  })
+
   it('keeps attribution optional and subject to the batch gate', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('ATTRIBUTION IS OPTIONAL AND NEVER A FIXED OPENER')
