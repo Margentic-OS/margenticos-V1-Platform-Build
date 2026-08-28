@@ -227,13 +227,62 @@ async function main() {
        ) s`),
   ])
 
-  const scrubbedTriggers = scrub(triggers)
-  if (scrubbedTriggers === triggers && /http_request\(/.test(triggers)) {
+  // ── FIX 4: triggers that depend on Supabase PLATFORM schemas ───────────────
+  //
+  // A Database Webhook trigger calls supabase_functions.http_request. That schema is NOT
+  // part of the public schema and NOT an extension: Supabase creates it when Database
+  // Webhooks are enabled in the dashboard, the same way it owns auth and storage. A fresh
+  // project does not have it, so the restore died with 3F000.
+  //
+  // Creating the schema here would be wrong: we would be inventing a stub of a platform
+  // object and it would diverge from the real one. Dropping the trigger would silently
+  // lose it. So the statement is GUARDED: it runs when the platform provides the schema,
+  // and RAISES A WARNING naming the manual step when it does not.
+  //
+  // Found by the 2026-08-27 restore test.
+  function guardPlatformTriggers(ddl: string): string {
+    return ddl.split('\n').map(line => {
+      if (!line.includes('supabase_functions.')) return line
+      const inner = line.trim().replace(/;$/, '')
+      return [
+        'DO $baseline$',
+        'BEGIN',
+        "  IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'supabase_functions') THEN",
+        `    EXECUTE $trigger$${inner}$trigger$;`,
+        '  ELSE',
+        "    RAISE WARNING 'SKIPPED a Database Webhook trigger: schema supabase_functions does not exist. Enable Database Webhooks in the Supabase dashboard, then re-run this statement and set its header value from SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET.';",
+        '  END IF;',
+        'END',
+        '$baseline$;',
+      ].join('\n')
+    }).join('\n')
+  }
+
+  // ── ORDER MATTERS HERE: SCRUB, COMPARE, THEN GUARD ──────────────────────────
+  //
+  // The comparison below is the tripwire added after the 2026-08-26 leak. It fires when a
+  // webhook trigger is present and the scrub changed NOTHING, which is the case where the
+  // header format has moved and a live secret would sail through untouched.
+  //
+  // It was briefly dead. guardPlatformTriggers was applied first, in the same expression,
+  // and it rewrites the http_request line unconditionally into a nine-line DO block. So
+  // `scrubbed === triggers` could never be true whenever an http_request trigger existed,
+  // which is the only condition under which the tripwire was meant to fire. The check ran,
+  // stayed silent, and could no longer see the thing it was written to catch.
+  //
+  // That is the same shape as the privilege audit that could not see views and the monitor
+  // loop bounded by the shorter of two arrays. A guard that cannot see what it guards is
+  // worse than no guard, because it manufactures confidence.
+  //
+  // So the scrub is compared against its OWN input, before anything else touches the text.
+  const scrubbed = scrub(triggers)
+  if (scrubbed === triggers && /http_request\(/.test(triggers)) {
     // A webhook trigger exists but the scrub changed nothing. Either the header format
     // moved or there is genuinely no secret. Loud either way: silence here is how the
     // first leak happened.
     console.warn('WARNING: http_request trigger found but the scrub matched nothing. Check scrub().')
   }
+  const scrubbedTriggers = guardPlatformTriggers(scrubbed)
 
   const counts = {
     tables:      await count(`SELECT count(*)::text AS ddl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r'`),
@@ -287,10 +336,16 @@ ${extensions}
 
 -- ── SEQUENCES (must precede the tables whose DEFAULTs call nextval) ───
 ${sequences}
-${seqOwned}
 
 -- ── TABLES ────────────────────────────────────────────────────────────
 ${tables}
+
+-- ── SEQUENCE OWNERSHIP ────────────────────────────────────────────────
+-- MUST FOLLOW THE TABLES, and used not to. ALTER SEQUENCE ... OWNED BY names a
+-- COLUMN, so it needs the table to exist. Emitting it beside CREATE SEQUENCE, which
+-- correctly precedes the tables, made the first two statements of every restore fail
+-- with 42P01. Found by the 2026-08-27 restore test, not by reading.
+${seqOwned}
 
 -- ── PRIMARY KEYS, UNIQUE AND CHECK CONSTRAINTS ────────────────────────
 ${constraints}
@@ -302,7 +357,26 @@ ${foreignKeys}
 ${indexes}
 
 -- ── FUNCTIONS ─────────────────────────────────────────────────────────
+--
+-- check_function_bodies IS TURNED OFF FOR THIS SECTION, deliberately.
+--
+-- Functions are emitted alphabetically, and plpgsql validates a body at CREATE time, so
+-- any function calling one that sorts after it fails. fail_job calls job_queue_backoff
+-- and f < j, so the restore died on 42883. Dependency-sorting would need a call graph
+-- that Postgres does not track for plpgsql bodies, so it would have to be recovered by
+-- reading the source text, which is fragile in a different way.
+--
+-- The trade-off, stated rather than hidden: with validation off, a function whose body is
+-- genuinely broken is created here and fails at RUNTIME instead of at restore. That is
+-- acceptable ONLY because every body in this file was dumped from a database where it
+-- already ran. It would not be acceptable for hand-written SQL.
+--
+-- Found by the 2026-08-27 restore test.
+SET check_function_bodies = off;
+
 ${functions}
+
+RESET check_function_bodies;
 
 -- ── VIEWS ─────────────────────────────────────────────────────────────
 -- security_invoker is preserved where set. A view WITHOUT it runs as its OWNER
@@ -351,8 +425,12 @@ ${comments}
 --     literally. A restore must reschedule from the pg_cron migrations, which ARE
 --     in the repo.
 --
---  4. NO WEBHOOK SECRETS. The users-pending-review-notify trigger carries a
---     placeholder. Put the real value back from the environment on restore.
+--  4. NO WEBHOOK SECRETS, AND THE WEBHOOK TRIGGER MAY NOT RESTORE AT ALL. It carries a
+--     placeholder instead of the secret, and it is guarded on the existence of schema
+--     supabase_functions, which only exists once Database Webhooks have been enabled in
+--     the Supabase dashboard. On a fresh project the restore RAISES A WARNING and skips
+--     it. Enable webhooks, re-run that one statement, and set the header value from
+--     SUPABASE_PENDING_REVIEW_WEBHOOK_SECRET.
 --
 --  5. NO OWNERSHIP. On restore every object belongs to whoever ran the file. For
 --     views this matters: a view's owner determines whose privileges it runs with.
@@ -365,9 +443,17 @@ ${comments}
 --     Management API because db dump needs Docker and pg_dump is not installed.
 --     Statement ORDER within a section is alphabetical, not dependency-sorted.
 --
---  9. **IT HAS NEVER BEEN RESTORED.** The counts above prove COMPLETENESS, not
---     EXECUTABILITY. A restore test needs somewhere to restore TO, which is the
---     same blocked decision as the 38 database-dependent tests.
+--  9. IT HAS BEEN RESTORED, ONCE, on 2026-08-27, into a scratch Supabase project
+--     created for the purpose. It failed FIVE TIMES first, and every failure was in
+--     this generator rather than in the database: an unscrubbed secret, sequence
+--     ownership emitted before its table, alphabetical function order defeating
+--     plpgsql body validation, and a trigger depending on a platform schema a fresh
+--     project does not have. The counts above prove COMPLETENESS. Only a restore
+--     proves EXECUTABILITY, and until that day nothing had.
+--
+--     Re-run it with scripts/restore-baseline-test.ts. It will not run against
+--     production and it will not run against a target that already has objects in
+--     public.
 -- ═══════════════════════════════════════════════════════════════════════════
 `
 
