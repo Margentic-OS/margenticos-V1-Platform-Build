@@ -7919,3 +7919,54 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   hint to be tested, never as evidence. Also note allow_risky_contacts and
   disable_bounce_protect are NOT exposed by the MCP tools at all and must be set with a
   direct PATCH to /api/v2/campaigns/{id}.
+
+- [monitor] DO NOT BUILD ANYTHING ON accounts_summary.total_connected FROM INSTANTLY'S
+  SENDING-STATUS ENDPOINT. It returned 0 for a campaign with two connected senders that had
+  just sent five emails.
+
+  Promoted out of the daily_limit entry above so it is findable on its own, because the
+  field is exactly the sort of thing a future "why is this campaign not sending" dashboard
+  would reach for first.
+
+  Measured 2026-08-28 14:36:08Z on the throwaway campaign. The same response was correct
+  and internally consistent about everything else: campaign_daily_limit {limit 5, sent 5,
+  limit_hit true}, schedule_status.in_schedule true, leads_status.no_leads_ready false. Only
+  the accounts summary was wrong, and it was wrong in the reassuring direction, reading as
+  "no accounts connected" for a campaign that was actively sending.
+
+    "accounts_summary": { "total_connected": 0, "available": 0,
+                          "unavailable": { "daily_limit_hit": 0, "disconnected": 0, ... } }
+
+  Best reading: the account loop is not evaluated once the campaign-level daily-limit gate
+  short-circuits, so the whole summary is left at its zero-initialised state rather than
+  being populated. NOT CONFIRMED, and deliberately not chased further, because the useful
+  conclusion does not depend on the cause: the zeros are indistinguishable from a genuine
+  "every account is disconnected", which is a real and serious condition. A monitor keyed on
+  total_connected == 0 would fire spuriously every time a campaign simply hit its daily
+  limit, and worse, it would look like a correctly firing monitor.
+
+  Use campaign_daily_limit, schedule_status and leads_status, which were all accurate.
+  Treat accounts_summary as unpopulated unless proven otherwise in the specific case.
+
+- [ops] DELETING AN INSTANTLY CAMPAIGN LEAVES OUR campaigns ROW POINTING AT NOTHING, AND
+  THAT TURNS instantly-poll RED EVERY FIFTEEN MINUTES.
+
+  Found while cleaning up this session's throwaway campaign, and worth recording because the
+  cleanup is the dangerous half of the exercise, not the test.
+
+  The campaign stats refresh in instantly-poll/route.ts:175 selects EVERY campaigns row with
+  a non-null external_id and does NOT filter organisations.archived_at. So archiving the
+  organisation does not protect you here, even though it does protect the lead-status scan,
+  which filters archived at instantly.ts:955. Two passes in the same cron with different
+  scoping rules.
+
+  A registered external_id with no matching Instantly analytics row is counted as an ERROR,
+  not a skip, deliberately, and it carries into runOk. The code says so at route.ts:182 and
+  names the fix: "Clear external_id or point it at a real campaign."
+
+  Applied here: campaigns.external_id set to NULL and status to 'completed' rather than
+  deleting the row, so the signals row keeps its campaign_id linkage and the bounce evidence
+  stays intact. Renamed to record that the Instantly side is gone.
+
+  THE ORDER THAT MATTERS: delete the Instantly campaign, then immediately clear external_id.
+  Between those two steps every poll reports ok:false.
