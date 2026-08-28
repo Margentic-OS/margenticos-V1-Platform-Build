@@ -343,3 +343,93 @@ describe('renderUnknownFields: amendment 7 fallback', () => {
     expect(screen.getByText('fake field xyz')).toBeInTheDocument()
   })
 })
+
+// ─── unresolved_fields banner ────────────────────────────────────────────────
+//
+// The ICP agent emits unresolved_fields for a required field it could not ground in
+// intake, instead of writing a guessed value or an explanatory string into the field.
+// The banner is the whole point of the change: on 27 August two ungrounded values reached
+// a live document because the gap was prose inside a client-visible field and the operator
+// approved past it. These tests assert the gap is visible and is not silently swallowed.
+
+const UNRESOLVED = [
+  {
+    field_path: 'tier_1.company_profile.revenue_range',
+    why_unresolved: 'Intake gave no revenue figure and headcount alone cannot imply one.',
+    question_to_settle_it: 'What revenue range did your best clients bill last year?',
+  },
+  {
+    field_path: 'tier_1.company_profile.geography',
+    why_unresolved: 'Currency was EUR but no country was named.',
+    question_to_settle_it: 'Which countries do your clients operate in?',
+  },
+]
+
+describe('ICP: unresolved_fields banner', () => {
+  it('renders the banner when unresolved_fields is present', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: UNRESOLVED })
+    expect(didCrash()).toBe(false)
+    expect(screen.getByTestId('unresolved-fields-banner')).toBeInTheDocument()
+  })
+
+  it('shows every entry: path, reason, and the question that would settle it', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: UNRESOLVED })
+    for (const entry of UNRESOLVED) {
+      expect(screen.getByText(entry.why_unresolved, { exact: false })).toBeInTheDocument()
+      expect(screen.getByText(`Ask: ${entry.question_to_settle_it}`)).toBeInTheDocument()
+    }
+  })
+
+  it('keeps the full field path so the operator can tell which tier is affected', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: UNRESOLVED })
+    expect(
+      screen.getByText('Tier 1 › Company profile › Revenue range'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Tier 1 › Company profile › Geography')).toBeInTheDocument()
+  })
+
+  it('counts the fields in the heading', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: UNRESOLVED })
+    expect(screen.getByText('2 fields not established from intake')).toBeInTheDocument()
+  })
+
+  it('singularises the heading for one field', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: [UNRESOLVED[0]] })
+    expect(screen.getByText('1 field not established from intake')).toBeInTheDocument()
+  })
+
+  it('renders the banner ABOVE the document body, not below it', () => {
+    const { container } = renderCard('icp', { ...icpFixture, unresolved_fields: UNRESOLVED })
+    const banner = screen.getByTestId('unresolved-fields-banner')
+    const summary = screen.getByText(icpFixture.summary)
+    // Node.DOCUMENT_POSITION_FOLLOWING === 4: summary comes after banner in document order.
+    expect(banner.compareDocumentPosition(summary) & 4).toBeTruthy()
+    expect(container).toBeTruthy()
+  })
+
+  it('renders no banner when unresolved_fields is an empty array', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: [] })
+    expect(didCrash()).toBe(false)
+    expect(screen.queryByTestId('unresolved-fields-banner')).not.toBeInTheDocument()
+  })
+
+  it('renders no banner when the key is absent, and does not crash', () => {
+    renderCard('icp', icpFixture)
+    expect(didCrash()).toBe(false)
+    expect(screen.queryByTestId('unresolved-fields-banner')).not.toBeInTheDocument()
+  })
+
+  it('degrades to no banner on a malformed unresolved_fields value', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: 'not an array' })
+    expect(didCrash()).toBe(false)
+    expect(screen.queryByTestId('unresolved-fields-banner')).not.toBeInTheDocument()
+  })
+
+  it('does not ALSO dump unresolved_fields at the bottom via renderUnknownFields', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: UNRESOLVED })
+    // renderUnknownFields would label it "unresolved fields" with underscores stripped.
+    expect(screen.queryByText('unresolved fields')).not.toBeInTheDocument()
+    // And the reason must appear exactly once, in the banner only.
+    expect(screen.getAllByText(UNRESOLVED[0].why_unresolved, { exact: false })).toHaveLength(1)
+  })
+})

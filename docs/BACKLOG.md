@@ -7251,3 +7251,281 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   Still outstanding from this: CLAUDE.md's ADR reference list stops at ADR-034 and now
   misses 035 through 039. Same parallel-session reason as the entry above, so it is still
   one commit touching only CLAUDE.md once the branches land.
+
+---
+
+## SESSION 2026-08-27, branch docgen-intake-rules (four document-agent changes)
+
+- [post-build] RESOLVED: the mandated consulting pain vocabulary is gone. The Track B
+  Group 2 top item above is CLOSED by this branch. The open a/b/c decision recorded there
+  was settled as (b): a general derivation instruction with no worked vocabulary.
+
+  All 13 substitution instructions are removed: Rule 5 in the shared spec and all four
+  prompts, plus icp and positioning banned-phrases and messaging self-check step 8. The
+  bans on "revenue rollercoaster" and repeated "feast-or-famine" SURVIVE, as that entry
+  asked. Only the "use X instead" half is gone.
+
+  The five Rule 3 worked examples were rewritten too, which is wider than the entry above
+  scoped. Doug's call, on the grounds that an example teaching specificity by inventing
+  "3K to 15K per month" and "150K annual revenue" models the exact fabrication Rule 9a
+  forbids in the same prompt, and a model shown a good example reproduces its content and
+  not only its structure.
+
+  Still open from that entry's ranked list: the exemplar passages at the end of each
+  prompt ("Referrals carry the business", "Most solo B2B consultants I speak to") are
+  untouched and still consulting-carried. They are labelled style targets, which is the
+  same copy-the-content risk. Not in this session's brief.
+
+- [pre-c1] THE DISCLOSURE HALF OF RULE 9 IS DELETED, AND ITS ONLY CONSUMER IS NOW
+  PROVABLY DEAD CODE. LEFT IN PLACE DELIBERATELY.
+
+  Rule 9 asked every agent to list unsourced facts in an "Assumptions we have made"
+  section. Measured 2026-08-27 before deleting it:
+
+    - No ICP output schema key for it, and the ICP schema says "no text before or after
+      the JSON", so the ICP agent could never comply at all.
+    - No renderer anywhere in the UI.
+    - Its one machine consumer is extractAssumptionsFromDocument in
+      messaging-generation-agent.ts:641, which regexes `## Assumptions we have made` out
+      of strategy_documents.plain_text and feeds it to the messaging agent as
+      upstreamAssumptions.
+    - plain_text is NEVER WRITTEN. Nothing in the repo assigns it. Live check across all
+      50 strategy_documents rows: plain_text IS NULL in every one, and zero rows carry an
+      `assumptions` key in content.
+
+  So extractAssumptionsFromDocument has always returned [], upstreamAssumptionsContext has
+  always been '', and full compliance surfaced nothing to anyone. Deleting the rule
+  changes no behaviour.
+
+  NOT REMOVED, per "mention unrelated dead code, do not delete it": roughly 40 lines
+  across messaging-generation-agent.ts (the UpstreamAssumption type, the extractor, the
+  prompt block at 749-760). Removing it is a separate change. The real question underneath
+  is whether plain_text should be populated at all, since four agents read it as a
+  fallback and nothing writes it.
+
+- [pre-c1] "EMBEDDED VERBATIM" IN shared-voice-spec.md WAS FALSE AND IS NOW DOCUMENTED
+  RATHER THAN FIXED.
+
+  The spec claims its content is copied verbatim into the four prompts. Measured against
+  origin/main, five differences existed: heading level, no `---` separators in the
+  prompts, no em dashes in the prompts (the spec has six), a different Rule 7 example, and
+  messaging's local Rule 10.
+
+  The em dash one is the one that matters. Following the sync rule literally would have
+  injected five em dashes into four runtime prompts that ban em dashes and run
+  assertNoDashes on their own output. The prompt files ARE the runtime system prompts,
+  read from disk by loadSystemPrompt() at call time, so this is production behaviour and
+  not documentation.
+
+  Fixed for now by recording all five in the spec header so the next re-sync preserves
+  them. The better fix is to stop hand-syncing: make the spec the single source and have
+  the prompts include it at load time, or generate the prompt files from it. That is a
+  real change to how four agents load their prompts and wants its own session.
+
+- [monitor] THE COHERENCE CHECK IS PROMPT-ONLY AND THAT IS A KNOWING ADR-028 EXCEPTION.
+
+  ADR-028 says code validators are the hard gate and prompt instructions are advisory.
+  revenue_range against headcount stays advisory, agreed explicitly with Doug on
+  2026-08-27, because every code gate for it needs a revenue-per-head prior and any fixed
+  ratio is industry-specific. ~100K to 150K per consulting head is wrong for a school-meals
+  company. Hardcoding it would have put an industry assumption into a validator in the same
+  change that removed industry assumptions from the prompts.
+
+  Worth stating plainly: this rule already existed in TWO places before this session, in
+  Rule 9a and in the ICP data-quality section, and it still failed on 27 August. The
+  banner is the actual new control, not the rule. If a coherent revenue band reaches a
+  live document wrong again, prompt wording is not the fix to reach for.
+
+  What would make it a hard gate: a per-client revenue-per-head expectation captured at
+  intake, which would make the check arithmetic rather than assumed. Not built.
+
+- [post-build] unresolved_fields IS ICP-ONLY. positioning, tov and messaging still have
+  no structured way to report a field they could not ground. The banner code path reads
+  the key off any document type, so extending it is a schema and prompt change per agent
+  with no renderer work. Not done because the brief scoped Change 4 to the ICP schema.
+
+## THREE NOTES FOR THE RECORD, 2026-08-27, ratified by Doug at merge time
+
+- [post-build] DELETE THE DEAD ASSUMPTIONS-EXTRACTION PATH IN THE MESSAGING AGENT.
+  ITS OWN ITEM SO IT GETS DELETED DELIBERATELY RATHER THAN DISCOVERED AGAIN.
+
+  Roughly 40 lines in src/agents/messaging-generation-agent.ts, left in place during the
+  docgen-intake-rules session under "mention unrelated dead code, do not delete it", and
+  logged here at Doug's instruction so the deletion is a decision rather than a surprise.
+
+  What to delete:
+    - `UpstreamAssumption` type (around line 175)
+    - `extractAssumptionsFromDocument()` (around line 641)
+    - the three `.map()` calls building `upstreamAssumptions` (around lines 280-291)
+    - `upstreamAssumptions` threading through VariantGenerationContext and
+      buildBaseContext (around lines 304, 364, 668, 777)
+    - `upstreamAssumptionsContext` and its prompt block (around lines 749-760)
+
+  WHY IT IS DEAD, measured 2026-08-27 and not inferred. The extractor regexes
+  `## Assumptions we have made` out of `strategy_documents.plain_text`. NOTHING IN THE REPO
+  EVER WRITES plain_text: it is read in nine places across four agents and one page, and
+  assigned in none. Live confirmation across all 50 strategy_documents rows:
+
+      document_type   total   plain_text_not_null   has_assumptions_section
+      icp                15                     0                         0
+      messaging          18                     0                         0
+      positioning         8                     0                         0
+      tov                 9                     0                         0
+
+  So `extractAssumptionsFromDocument` has always returned [], `upstreamAssumptions` has
+  always been empty, and `upstreamAssumptionsContext` has always been ''. ADR-040 removed
+  the prompt rule that was supposed to produce its input, so it is now dead at both ends.
+
+  THE REAL QUESTION UNDERNEATH, and the reason this is not a two-minute deletion: four
+  agents read plain_text as a fallback (`doc.plain_text ?? JSON.stringify(doc.content)`)
+  and one client-facing page passes it to a renderer. Either plain_text should be populated
+  at approval time, in which case the extractor becomes live rather than dead, or the column
+  is vestigial and every read of it is a branch that never taken. Decide that first. Deleting
+  the extractor while leaving the column half-wired just moves the confusion.
+
+- [post-build] THE PLACEHOLDER GUARD'S OWN TEXT WAS THE SOURCE OF A WRONG MEASUREMENT
+  THAT THEN TRAVELLED BETWEEN SESSIONS.
+
+  shared-voice-spec.md's Rule 9 placeholder asserted that the four embedded Rule 9 copies
+  ran to "53, 46, 44 and 18 lines as of 2026-08-27". Measured on the same files the same
+  day, Rule 9 alone is 27 / 20 / 18 / 18 lines, and Rule 9 plus Rule 9a is 66 / 59 / 57 / 57.
+  Neither reading is 53/46/44/18. The pattern suggests 9+9a was counted for three files and
+  9 alone for the fourth, but the reconstruction does not matter.
+
+  WHAT MATTERS IS THE TRAVEL. The wrong figure was read out of the guard into another
+  session's report, passed from there into the docgen-intake-rules brief as an established
+  fact, and would have been repeated in that session's own report had it not been measured.
+  Doug flagged this himself at merge time: he took the figure from another session's report
+  and passed it on without checking.
+
+  A number written into a file as a parenthetical is indistinguishable from a number that
+  was measured, and it outlives the moment it was true. The guard is now deleted, so this
+  specific figure cannot travel further, but the shape will recur: this repo's docs are full
+  of measured counts stated as bare figures.
+
+  NEXT ACTION, and it is a convention rather than a fix: when a doc states a count, state
+  how to reproduce it in the same breath. "27/20/18/18 lines, measured by
+  `grep -n '^### Rule 9'` to the next heading" survives being wrong in a way a bare figure
+  does not. Related: [[backlog-entries-can-be-stale]] and the standing rule to verify a
+  stated symptom live before working the problem.
+
+- [docs] RATIFIED: A RE-SYNC OF shared-voice-spec.md CARRIES SUBSTANCE, NEVER BYTES.
+
+  Recorded because the instruction given at the time said the opposite, and Doug ratified
+  the deviation at merge time: "Following the sync rule literally would have injected banned
+  characters into prompts that assert against them. Syncing the substance was the correct
+  read."
+
+  The spec claimed "EMBEDDED VERBATIM". Five divergences were measured against origin/main
+  and all five are intentional: heading level, no `---` separators in the prompts, no em
+  dashes in the prompts where the spec carries six, a shorter Rule 7 example, and messaging's
+  local Understandability rule. A literal re-sync would have put em dashes into four runtime
+  prompts that ban em dashes and run assertNoDashes on their own output.
+
+  The spec header now lists all five so the next re-sync preserves them. This is documented
+  in ADR-040 as the standing interpretation.
+
+  STILL THE RIGHT FIX, and still not done: stop hand-syncing. Either have the four agents
+  load the spec at runtime and concatenate it, or generate the four prompt files from it in
+  a build step with the divergences as declared transforms. Both remove the class entirely.
+  This is a change to how four agents load their prompts and wants its own session with its
+  own receipts. Until then, a hand re-sync must verify Rules 1 to 10 are hash-identical
+  across the four prompts, which is what this session did.
+
+- [docs] ADR-040 EXTENDS THE CLAUDE.md ADR-LIST GAP TO 035 THROUGH 040.
+
+  CLAUDE.md's "ADR reference list" stops at ADR-034. The existing entry above already logs
+  035 through 039 as missing; ADR-040 makes it 035 through 040. NOT fixed here because
+  CLAUDE.md was explicitly out of bounds for this session, another live session was editing
+  it at the time, and it is still one commit touching only CLAUDE.md once the branches land.
+
+  Line to add when someone does it:
+    ADR-040  Intake is evidence, not a ceiling; checkability divides reasoning from
+             invention; unresolved_fields surfaces an ungrounded field to the operator
+
+## PRE-MERGE ADVERSARIAL PASS, 2026-08-27 — what a second look found in this session's own work
+
+Six independent verifications, each re-checked by a second agent instructed to refute it.
+Five came back with real findings. Recorded here because four of them are defects in THIS
+session's verification, not in the code it shipped, and that is the more useful lesson.
+
+- [pre-c1] A LIVE APPROVED ICP CARRIES ASSUMPTIONS NAMING EXTERNAL BODIES, AND THE NEW
+  RULE 9 DOES NOT REACH IT. DECISION NEEDED.
+
+  `strategy_documents` row `a8d35c94-b1a6-429e-99fd-119fb481c6cb`, org **360 Bia Og**,
+  document_type icp, version 2, status active, client_approval_status approved
+  (approval_source auto), generated 2026-06-12. It holds a six-element
+  `assumptions_we_have_made` array naming **An Taisce**, the **Department of Social
+  Protection**, **safefood** and the **HSE**, plus an assumed EUR 3.20 per meal and an
+  assumed 30 to 50 pupil minimum.
+
+  Under the Rule 9 this session just wrote, none of those may be stated at all. Under the
+  Rule 9 that produced them, they were allowed provided they were footnoted.
+
+  THIS IS THE FROZEN-VERDICT SHAPE, third instance in this repo. Editing a prompt changes
+  what the NEXT generation produces. It does not touch a row already generated, already
+  approved and already active. The same shape as `email_send_eligible` in ADR-034.
+
+  Also worth knowing: `assumptions_we_have_made` is NOT in `renderIcp`'s handledKeys, so
+  `renderUnknownFields` dumps it at the bottom of the approval card. For this row that is
+  the correct behaviour and should NOT be "fixed" by adding it to handledKeys, which would
+  hide it.
+
+  NEXT ACTION is a decision, not a migration: regenerate 360 Bia Og's ICP under the new
+  Rule 9 and re-approve, or leave v2 standing and accept that one live document contains
+  assumptions the current rules forbid. Regeneration costs an opus-4-6 call and an operator
+  approval. Doug's call. Do not do it silently either way.
+
+- [post-build] CORRECTED IN THIS SESSION: "the disclosure half surfaced nothing to anyone"
+  WAS WRONG, AND THE ERROR WAS A TOO-NARROW QUERY.
+
+  The claim was checked with `content ? 'assumptions'`, which returned 0. The key the agent
+  actually emits is `assumptions_we_have_made`, so the check could not match by
+  construction. `content ? 'assumptions_we_have_made'` returns 1.
+
+  The signal was visible and dismissed: the same query run earlier returned
+  `content_mentions_assumption = 1` for icp, and that 1 was not investigated because the
+  exact-key check said 0. An aggregate that disagrees with a key check is a reason to look
+  at the row, not a rounding error.
+
+  Corrected in ADR-040 in place, with the correction marked as a correction rather than
+  edited away. Same family as [[backlog-entries-can-be-stale]]: a check that runs, returns
+  a clean number, and cannot see the class it was written to find.
+
+- [post-build] FIXED IN THIS SESSION: three test defects, each mutation-proved before and
+  after. Recorded because all three are named silent-failure shapes from CLAUDE.md and they
+  appeared in tests written the same day to guard against exactly those shapes.
+
+  1. THE AGENT WRITE PATH WAS UNGUARDED. `icp-unresolved-fields.test.ts` hand-copied the
+     agent's steps 8 and 9 into a local `runAgentOutputPipeline()`. Inserting
+     `delete scrubbedDocument.unresolved_fields` into the REAL agent left the suite green:
+     the key would have vanished from every written row and the banner would never have
+     appeared again. Fixed by adding `icp-unresolved-fields-writepath.test.ts`, which calls
+     `runIcpGenerationAgent` against a Supabase fake that THROWS on anything it does not
+     implement, and asserts on the row actually written. Under the same mutation the old
+     file still passes 12/12 and the new one fails 3/4.
+
+  2. THE PROMPT TESTS READ THE WHOLE FILE, NOT THE RUNTIME SLICE. `loadSystemPrompt()`
+     slices from `## System Prompt` onward. The tests asserted against the whole file, so
+     moving the schema key into the frontmatter passed while the agent's real prompt lost
+     it. Validate-one-thing-return-another. Fixed, plus a guard-the-guard test asserting the
+     slice is strictly shorter than the file, so it cannot silently revert.
+
+  3. A NEGATIVE-ASSERTION REGEX THAT ONLY MATCHED ITS OWN EXAMPLE. The "no revenue-per-head
+     ratio" test was authored from the literal text of the mutation used to check it, so it
+     was caught by construction and proved nothing. "per fee earner", "per employee", "per
+     consultant", "per FTE" and a hyphenated range all passed. Broadened to match the SHAPE,
+     with the documented 27 August incident figure explicitly exempted. All five variants
+     now fail the test.
+
+  THE GENERALISATION: a mutation authored from the same string as the assertion tests the
+  string, not the rule. Write the mutation as an adversary would, not as the author would.
+
+- [post-build] FIXED IN THIS SESSION: the sync contract's own difference list was
+  incomplete. It asserted five intentional divergences as the complete set; there were six.
+  Rule 5's `- "go-to authority in their niche" (cliche)` carries the annotation in the spec
+  and not in any of the four prompts. A literal re-sync would have reintroduced it and
+  broken the byte-identity established the same day. Now recorded as item 4 of six.
+
+  Worth noting what caught it: an agent told to refute a claim, not an agent told to verify
+  one. The verifying pass had reported the divergence list as sound.
