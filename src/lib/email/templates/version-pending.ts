@@ -1,14 +1,18 @@
 import { strategyDocumentUrl } from '@/lib/urls/strategy-document-url'
+import { getDocumentLabel } from '@/lib/document-labels'
 
-const TYPE_LABEL: Record<string, string> = {
-  icp: 'ICP',
-  positioning: 'Positioning',
-  tov: 'Tone of Voice',
-  messaging: 'Messaging',
-}
-
+// THE LABEL COMES FROM THE UI'S OWN SOURCE, not from a second list kept here.
+//
+// This template used to carry { icp: 'ICP', tov: 'Tone of Voice', ... }, which is the
+// INTERNAL vocabulary. The dashboard sidebar and the page the button opens both call
+// getDocumentLabel, so a client received an email about their "ICP" and landed on a page
+// titled "Prospect profile". Two names for one thing, in the same click.
+//
+// src/lib/document-labels.ts already existed and already said, in its own header, "Never
+// show the raw database value ('icp', 'tov') to clients". The defect was not a missing
+// source of truth. It was a second list next to one.
 function label(docType: string): string {
-  return TYPE_LABEL[docType] ?? 'Document'
+  return getDocumentLabel(docType)
 }
 
 export function versionPendingSubject(orgName: string, docType: string): string {
@@ -54,7 +58,9 @@ export interface VersionPendingParams {
 //
 // The three-day line is not a nicety: strategy-doc-auto-approve promotes anything still
 // pending after three days, so a client who does nothing has still decided something. An
-// email that hides that is misleading by omission.
+// email that hides that is misleading by omission. It is phrased as a commitment we are
+// making ("we will take that as approval and move ahead") rather than as a default that
+// happens to them, because the first invites a reply and the second invites ignoring it.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export function versionPendingTemplate(params: VersionPendingParams): string {
@@ -75,7 +81,7 @@ export function versionPendingTemplate(params: VersionPendingParams): string {
 
     <p style="margin:0 0 16px;">If it reads right, approve it. If something is off, use Request changes on the page and tell us what to change. The document is rewritten from what you write there, so the more specific you are, the closer the next version lands.</p>
 
-    <p style="margin:0 0 24px;">If you do nothing, it is approved automatically after three days.</p>
+    <p style="margin:0 0 24px;">If we do not hear from you within three days we will take that as approval and move ahead.</p>
 
     <p style="margin:0;">${params.senderFirstName}<br />${params.senderCompanyName}</p>
   </div>
@@ -96,7 +102,7 @@ Review your ${docLabel}: ${url}
 
 If it reads right, approve it. If something is off, use Request changes on the page and tell us what to change. The document is rewritten from what you write there, so the more specific you are, the closer the next version lands.
 
-If you do nothing, it is approved automatically after three days.
+If we do not hear from you within three days we will take that as approval and move ahead.
 
 ${params.senderFirstName}
 ${params.senderCompanyName}`
