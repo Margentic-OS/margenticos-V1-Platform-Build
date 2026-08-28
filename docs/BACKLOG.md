@@ -8281,3 +8281,32 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   strongly flavoured by one, and its closing clause is a three-part list in a single
   sentence, which Rule 5 bans two rules later. The exemplar passages at the end of every
   prompt are the larger version of the same problem and remain untouched.
+
+- [monitor] REGISTERING A CAMPAIGN BEFORE ITS FIRST SEND TURNS instantly-poll RED, and the
+  error message points at the wrong thing.
+
+  Observed 2026-08-28 14:00:18Z, found only because the merge receipts were checked rather
+  than assumed. The throwaway campaign was inserted into campaigns at 13:52Z and sent its
+  first email at 14:01Z. The 14:00Z poll ran in that gap and reported:
+
+    ok=false  "campaign 875bd145... external_id 44bebeb0... has no Instantly analytics row"
+
+  The next run at 14:15Z was green. Nothing was wrong. Instantly's workspace analytics
+  simply has no row for a campaign that has never sent, and the stats refresh counts a
+  missing analytics row as an ERROR rather than a skip.
+
+  That error-not-skip choice is correct and should stay: it is what stops a campaigns row
+  pointing at a nonexistent Instantly campaign from sitting there silently forever. But it
+  cannot currently tell "this external_id was never real" from "this campaign is real and
+  simply has not sent yet", and it names only the first cause. Its remediation text says
+  "Either the campaign was deleted in Instantly, or campaigns.external_id holds a value that
+  was never a real Instantly campaign", and on this occasion neither was true.
+
+  PRACTICAL CONSEQUENCE: every new campaign will redden the monitor for up to 15 minutes
+  between registration and first send. At one campaign that is noise a human can explain
+  away, which is the dangerous kind of noise. Options if it becomes annoying: register the
+  campaigns row only after the first send, or treat a missing analytics row as a warning
+  until the row is older than one poll interval and an error after that.
+
+  NOT FIXED HERE. Logged, because a monitor that cries wolf on every new campaign is how a
+  real red run gets ignored.
