@@ -8295,13 +8295,125 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   first word of a sentence for a proper noun, and any defence-in-depth argument that
   counted these as two layers was counting one layer twice.
 
-- [research] SMALL, REAL, AND NOT FIXED: frameSkeleton leaves index 0 UNMASKED, so a name
-  swap at the very start of a sentence evades cross-variant reuse detection. "Acme
-  delivers X" and "Beta delivers X" normalise differently and read as two different
-  sentences. Found 2026-08-28 while working the sentence-initial gate. Left alone
-  deliberately: it is a reuse-detection question, not a leak question, and changing the
-  normaliser would shift which variants collide across the whole batch. Do it when
-  sentence-frames.ts is next open, with a batch re-run to see what starts colliding.
+- [research] [uniqueness] frameSkeleton LEAVES INDEX 0 UNMASKED, SO A NAME SWAP AT
+  SENTENCE START EVADES REUSE DETECTION. REAL, NOT FIXED HERE, AND IT IS NOT A ONE-LINE
+  CHANGE.
+
+  Found 2026-08-28 while closing the sentence-initial gate hole. Separate defect, same
+  blind spot.
+
+  WHAT IT IS. frameSkeleton in src/lib/style/sentence-frames.ts normalises a sentence
+  before comparing it to others, and it masks proper nouns so that a name swap cannot
+  disguise a reused sentence. That masking starts at index 1:
+
+      if (index > 0 && /^\p{Lu}/u.test(word)) return MASK
+
+  So a name in the FIRST position is left as a literal word. "Acme delivers X" and "Beta
+  delivers X" normalise to "acme delivers x" and "beta delivers x", read as two different
+  sentences, and the reuse check passes. The same two sentences with the name anywhere else
+  normalise identically and are correctly caught.
+
+  WHY IT WAS NOT FIXED IN THE SENTENCE-INITIAL GATE COMMIT. Different question. That gate
+  asks "is this an invented name", this asks "is this the same sentence twice", and the two
+  want opposite treatment of index 0. Bundling them would have put a change to batch
+  behaviour inside a commit whose entire safety argument is that it changes no behaviour at
+  all while report-only.
+
+  WHY IT NEEDS CARE, AND THIS IS THE PART TO READ BEFORE PICKING IT UP. Masking index 0
+  makes the normaliser STRICTER, so it can only ever find MORE collisions, never fewer.
+  That interacts directly with SentenceRegistry and batch uniqueness: first writer wins in
+  sorted variant order, so newly-detected collisions are thrown away and REGENERATED. The
+  prompt already records that the uniqueness gate has discarded whole attempts five times,
+  and that policing all sixteen emails compounded so badly the last variant could not be
+  filled. A stricter normaliser pushes in exactly that direction.
+
+  So it SHIFTS COLLISIONS ACROSS A WHOLE BATCH, not just the one sentence that looks wrong.
+  Do not land it on the strength of a unit test.
+
+  HOW TO DO IT. Change the mask condition, then re-run a real batch and diff which
+  sentences newly collide and how many attempts that costs, BEFORE committing. If the
+  collision count jumps, the fix is not the mask, it is MIN_SHARED_SENTENCE_WORDS or the
+  IGNORED_FRAMES set. Do it when sentence-frames.ts is next open for another reason.
+
+- [pre-c1] [gate] [REVIEW 2026-09-04] READ THE SENTENCE-INITIAL GATE'S OBSERVATION WEEK
+  AND DECIDE THE FLIP. THIS IS THE REMINDER. THERE IS NO DATE IN THE CODE.
+
+  Deliberately a line in this file and not a timer. Nothing in the repository flips itself,
+  and nothing warns when the date passes. If this is being read after 2026-09-04 and the
+  mode is still 'report', the review has not happened yet and this item is still live.
+
+  Merged 2026-08-28. SENTENCE_INITIAL_GATE_MODE = 'report' in
+  src/lib/style/sentence-initial-names.ts.
+
+  WHERE TO LOOK. One log line, from the research writer:
+      warn "sentence-initial-gate: name-shaped word opening a sentence, not in findings"
+  Each hit carries prospectId, word, run, signal ('orthography' or 'not-english') and the
+  full sentence.
+
+  THE TWO QUESTIONS TO ANSWER, IN THIS ORDER.
+
+  1. IS ANY LOGGED HIT ORDINARY ENGLISH? Go through the words one at a time. A hit whose
+     word is an ordinary English word is a FALSE POSITIVE and would have cost a writer
+     attempt after the flip. The fix is to ADD THAT WORD to src/lib/style/ordinary-words.ts.
+     Do not add an exemption, do not special-case the sentence. See the vocabulary item
+     below for why adding is always the safe move.
+     Expect zero. Every one of the fifteen distinct sentence-initial words measured across
+     the 24 stored openings is already in the list.
+
+  2. IS THE COUNT LOW ENOUGH THAT BLOCKING WOULD NOT BURN WRITER ATTEMPTS? There are only
+     2 to 3 attempts per prospect and exhausting them falls back to the template, so this
+     is a quality question, not a tidiness one. Measure hits PER PROSPECT, not in total:
+     one prospect logging six hits is one rejected attempt, six prospects logging one each
+     is six. Rough reading:
+       zero hits                  -> flip to 'block'. This is the expected outcome.
+       hits, all genuine names    -> flip to 'block'. The gate is doing its job and the
+                                     writer gets a specific message it can act on.
+       any hit that is ordinary   -> DO NOT FLIP. Add the words, keep report-only, and
+       English                       review again after another week of clean logs.
+
+  TO FLIP: change SENTENCE_INITIAL_GATE_MODE to 'block' and record here what the logs
+  showed, including the count and whether anything was added to the vocabulary. The
+  blocking path already has a passing test, so the flip is a one-word change and not a
+  leap.
+
+- [asset] THE ORDINARY-ENGLISH VOCABULARY IS A REUSABLE ASSET, NOT A FILE BELONGING TO ONE
+  GATE. AND THE FIX FOR A FALSE POSITIVE IS ALWAYS TO ADD A WORD.
+
+  src/lib/style/ordinary-words.ts. About 2,000 common English lemmas plus an inflection
+  stripper, so "buyers", "finding" and "running" resolve to "buy", "find" and "run" without
+  any of them being listed. One exported predicate: isOrdinaryWord(word).
+
+  WHAT IT IS FOR, GENERALLY. It answers "is this capitalised word a name, or an ordinary
+  word that happens to be capitalised". That question comes up wherever capitalisation
+  stops being evidence, which is every sentence boundary, every heading, every list item
+  and every all-caps field. The sentence-initial gate is the first caller, not the only
+  possible one. Anything that needs to tell an invented company from a common noun should
+  import this rather than grow its own list.
+
+  WHY IT IS BUILT THE WAY IT IS, so nobody re-litigates it:
+    - It enumerates ORDINARY ENGLISH, not names. A list of names protects against exactly
+      the strings on it and rots the moment a prompt example changes. A vocabulary catches
+      an invented company by construction, because invented companies are not English.
+    - It is FREQUENCY-based, not a dictionary. Measured: /usr/share/dict/words holds
+      235,976 entries including 25,203 proper nouns, and contains "pani" and "jason", so
+      it would hand three known leaks a free pass and add 2.5MB to do it. Rarity is the
+      signal being traded on.
+
+  THE OPERATING RULE, AND THE REASON THIS ITEM EXISTS. When the gate flags something it
+  should not have, ADD THE WORD TO THIS LIST. Adding a word can only ever make the gate
+  MORE PERMISSIVE, so the worst case of a wrong addition is a missed leak, which is the
+  direction this whole design already fails in on purpose. It cannot block an email.
+
+  DO NOT REACH FOR AN EXEMPTION LIST, a per-prospect override, a "skip this sentence" flag
+  or a regex around the specific phrase. Every one of those is a second list that has to be
+  kept in step with the first, which is the failure shape CLAUDE.md documents at length,
+  and none of them helps the next false positive. One list, one direction of failure, one
+  place to look.
+
+  REMOVING a word is the only dangerous edit: it makes the gate stricter and can reject
+  legitimate copy. Never remove a word to catch a specific name. Names are caught by
+  absence, not by exclusion. ("instantly", the adverb, stays in the list for exactly this
+  reason, even though it trips the tool-name pre-commit scan. Annotated in the file.)
 
 - [gate] THE KNOWN HOLE IN THE SENTENCE-INITIAL GATE: A REAL ENGLISH WORD USED AS A NAME.
 
