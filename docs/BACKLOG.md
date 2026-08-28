@@ -7804,8 +7804,29 @@ in docs/prompts/, the four generation agents, or document-projection was touched
        currently prose, which is the same shape as the pre-commit hooks before 2026-08-27.
   The evidence to flip it now exists. Flipping it is a separate, deliberate commit.
 
-- [pre-c0] MYEMAILVERIFIER_API_KEY reads as UNSET IN PRODUCTION. Verification is broken and
-  it was invisible because there was no work.
+- [RESOLVED 2026-08-28] MYEMAILVERIFIER_API_KEY read as UNSET IN PRODUCTION. Verification
+  was broken and it was invisible because there was no work.
+
+  FIXED THE SAME DAY. Doug replaced the key and redeployed production, then proved it live
+  rather than assuming the redeploy took: a probe prospect was inserted and the verdict read
+  back from the sweep, and the probe was then deleted. Confirmed independently in the
+  heartbeats, which is where the change is unmistakable:
+
+    14:00:04Z  "verified 0, send-eligible 0, failed 2"   <- broken
+    15:00:20Z  "verified 1, send-eligible 0, failed 0"   <- the probe, key working
+    15:10Z onward  "Nothing pending"                     <- probe deleted, backlog clear
+
+  `failed 2` becoming `failed 0` is the discriminating change, not `verified 1` on its own.
+  The root cause was never established from the outside; the eliminations below stand as a
+  record of what it was NOT, which is why an empty-or-stale stored value remained the
+  leading candidate.
+
+  KEEP THE DIAGNOSIS BELOW. The valuable part is not the outage, it is that a silent
+  dependency failure sat undetected for 18 days purely because nothing exercised it, and it
+  took an unrelated test unarchiving an organisation to surface it. Anything that only fails
+  when it is used, and is rarely used, needs a monitor that uses it.
+
+  Original report follows.
 
   Surfaced accidentally by this test. Unarchiving DRY RUN TEST at 13:50:31Z gave the
   verify-pending sweep work for the first time in 18 days. The 14:00:04Z run reported
@@ -8310,3 +8331,30 @@ in docs/prompts/, the four generation agents, or document-projection was touched
 
   NOT FIXED HERE. Logged, because a monitor that cries wolf on every new campaign is how a
   real red run gets ignored.
+
+- [post-build] THE VERCEL CLI IS FIVE MAJORS BEHIND AND `vercel inspect` PRINTS NO GIT
+  METADATA. A receipt built on it reads a field that cannot populate.
+
+  Installed 52.0.0, latest 59.9.1, flagged by the session-start hook and worth acting on.
+
+  Found 2026-08-28 while producing merge receipts. A watcher was written to confirm the
+  production deployment carried the merge SHA by grepping `vercel inspect <url>` for a
+  40-character hex string. It matched nothing, every poll, forever. The deployment was fine;
+  the field simply is not in that CLI's output.
+
+  THE SHAPE IS THE FAMILIAR ONE. A check that cannot succeed is indistinguishable from a
+  check that has not succeeded YET, so the watcher would have spun until timeout and the
+  honest-looking conclusion would have been "the deploy never landed". Same family as the
+  fake that swallows a filter and the monitor whose loop never reaches the last entry: the
+  instrument was broken, not the thing being measured.
+
+  USE THE API, NOT THE CLI, for anything that has to assert a commit SHA. The Vercel MCP
+  get_deployment / list_deployments return meta.githubCommitSha, meta.githubCommitRef and
+  state directly, which is how the receipt was actually obtained:
+
+    state READY, target production, githubCommitRef main,
+    githubCommitSha 5f75ff42caf2f206caff142a64fc941f79fa463b
+
+  ACTION: upgrade the CLI (`npm i -g vercel@latest`) so future sessions do not build
+  watchers on a field that is not there. Until then, treat `vercel ls` as good for state and
+  useless for provenance.
