@@ -3224,3 +3224,308 @@ that is correctly captured, correctly persisted, and never read.** The write sid
 test, the column has a value, the UI has a control, and the only missing piece is the one
 nobody can see. The general guard is the one applied here: when a control captures an
 instruction, something downstream must either act on it or say out loud that it did not.
+
+## ADR-040: Intake is evidence, and checkability is the line between reasoning and invention
+
+**Date:** 2026-08-27
+**Status:** Accepted. Applied to all four document generation agents and merged the same day.
+
+**Number:** 040 assigned after surveying every ref rather than main alone. Numbers collided
+three times on 2026-08-27, so the check was: 001 to 039 are taken across the union of all
+local branches, all remote branches, all commit messages and the other live session's
+working tree. 035 sits unmerged on sourcing-filter and is being cherry-picked, 038 belongs
+to operator-rejection-note, 039 was assigned by Doug. 040 was free everywhere.
+
+### The problem this solves
+
+The four document generation agents treated intake as authoritative. That is wrong in both
+directions at once, and the two failures look nothing alike.
+
+**Treating intake as a ceiling.** Intake answers come from a person filling in a form,
+often at the end of a working day. They are biased, incomplete, occasionally wrong, and
+usually thin on how the buyer experiences the problem. Nothing told the agents they were
+allowed to reason past a thin answer, so a two-word answer about buyer pain produced a
+two-word-deep document. A client answering one question badly could point their outbound at
+the wrong people.
+
+**Treating a gap as something to fill.** The opposite failure, in the same agents. A
+required schema field with no basis in intake was emitted as prose inside a client-visible
+field: the literal string "Unknown: not established in intake" followed by a question. An
+operator who approves without reading it ships it. On 27 August a geography naming four
+excluded markets and a revenue band arithmetically impossible against its own headcount
+both reached a live document exactly that way.
+
+**And a third, underneath both.** Rule 5's ban list did not only illustrate with consulting
+language, it PRESCRIBED it. Thirteen instructions across five files told the agent to reach
+for "referral ceiling", "revenue swings month to month" or "pipeline resets to zero when a
+client ends" whenever it wanted to name recurring revenue pressure. A school catering
+supplier does not have a referral ceiling. This contradicted the industry-agnosticism
+principle in CLAUDE.md from inside the prompts that principle governs.
+
+### The decision
+
+**Checkability is the line.** A fact a reader could verify outside the client's own
+materials must be sourced or omitted. A characterisation of how a buyer experiences their
+situation must be reasoned about, and thin input is a reason to reason harder rather than a
+reason to write nothing.
+
+Three rules implement it.
+
+**1. Intake is evidence, not a ceiling (new Rule 10).** Where the client's own words are
+strong and specific, use them. Where an answer is thin, vague, internally inconsistent, or
+clearly answers a different question, reason past it from the buyer's role, industry, size
+and situation, from the upstream documents, and from research where it exists. The boundary
+with Rule 9 is stated in the rule itself, because a model given both without the boundary
+will get confused: VERIFIABLE FACTS may never be invented, CHARACTERISATION may be reasoned
+about.
+
+**2. Pain language is derived, never selected.** No fixed vocabulary, and no replacement
+list. Different clients sell to different buyers with different pain, so any fixed
+vocabulary is wrong for someone. The bans on "revenue rollercoaster" and on repeated
+"feast-or-famine" survive; only the "use X instead" half is deleted.
+
+**3. A fact that cannot be established becomes `unresolved_fields`, not a guess.** A
+required array on the ICP output schema. Each entry carries the field path, why intake could
+not settle it, and the single question that would. It renders as a banner at the top of the
+approval card, above the document, so it cannot be approved past without being seen.
+
+Rule 9 becomes one canonical prohibition-only rule, absorbing 9a, and lives in the shared
+spec rather than in four divergent copies.
+
+### The disclosure half of Rule 9 is deleted, not promoted
+
+Rule 9 previously permitted an unsourced fact provided it was footnoted in an "Assumptions
+we have made" section. Measured before deleting it:
+
+  - No key for it in the ICP output schema, and the schema says "no text before or after
+    the JSON", so the markdown section the rule asked for was uninstructable.
+  - One machine consumer, `extractAssumptionsFromDocument` in
+    messaging-generation-agent.ts, which regexes that section out of
+    `strategy_documents.plain_text`.
+  - `plain_text` is never written. Nothing in the repo assigns it. Live check across all
+    50 `strategy_documents` rows: NULL in every one. So that consumer has always
+    returned `[]`.
+
+**CORRECTION, 2026-08-27, found by an adversarial re-check of this ADR before merge and
+recorded rather than quietly edited.** An earlier draft of this section said "full
+compliance surfaced nothing to anyone" and that deleting the rule "changes no behaviour".
+**Both were wrong**, and the error was a too-narrow query: the check used
+`content ? 'assumptions'`, and the key the agent actually emits is
+`assumptions_we_have_made`. Corrected census:
+
+    content ? 'assumptions'              -> 0     (what was checked)
+    content ? 'assumptions_we_have_made' -> 1     (what exists)
+
+The ICP agent did not write the markdown section. It emitted a top-level JSON key instead,
+in 1 of 15 ICP documents, and `renderUnknownFields` on the approval card renders any key
+not in `handledKeys`. So the disclosure DID reach the operator, by a different route than
+the rule described. What is dead is the plain_text route and its messaging-agent consumer.
+
+The row is `a8d35c94-b1a6-429e-99fd-119fb481c6cb`, org **360 Bia Og**, ICP v2, status
+active, client_approval_status approved. It carries six assumptions naming An Taisce, the
+Department of Social Protection, safefood and the HSE. **Those are exactly the externally
+verifiable named bodies the NEW Rule 9 bans**, which is the argument for the new rule
+rather than against it: the old rule permitted the agent to state them provided it
+footnoted them.
+
+This is also the frozen-verdict shape from CLAUDE.md. Editing a prompt does not touch a row
+already generated, so that document keeps its assumptions until it is regenerated. Logged in
+BACKLOG as a decision to take, not a silent leftover.
+
+### A deliberate exception to ADR-028
+
+ADR-028 says code validators are hard gates and prompt instructions are advisory. The
+revenue-against-headcount coherence check stays **prompt-only**, with failure routed into
+`unresolved_fields`. This is a knowing exception, agreed explicitly with Doug.
+
+The reason is that every code gate for this check needs a revenue-per-head prior, and any
+fixed ratio is industry-specific. Roughly 100K to 150K billed per consulting head is the
+figure that would have caught the 27 August case, and it is wrong for a school-meals
+company or a distributor. Hardcoding it would have put an industry assumption into a
+validator in the same change that removed industry assumptions from the prompts. A test
+asserts no such ratio appears in the prompt, so the exception cannot quietly become a
+hardcoded assumption later.
+
+**Stated plainly for the record:** this rule already existed in two places before this
+change, in Rule 9a and in the ICP data-quality section, and it failed anyway. The prompt
+instruction is the control that already did not hold. **The banner is the new control, not
+the rule.** Last time the failure was invisible; now an operator cannot approve past it
+without seeing it. If a wrong revenue band reaches a live document again, prompt wording is
+not the fix to reach for. What would make it a hard gate is a per-client revenue-per-head
+expectation captured at intake, which would make the check arithmetic rather than assumed.
+That is not built.
+
+### The shared spec is canonical in substance, not byte-for-byte
+
+`docs/prompts/*.md` ARE the runtime system prompts. `loadSystemPrompt()` reads them from
+disk at call time. Editing them is editing production behaviour.
+
+`shared-voice-spec.md` claimed its content was "EMBEDDED VERBATIM" in all four. That was
+false and had been for some time. Five differences were measured: heading level, no `---`
+separators in the prompts, no em dashes in the prompts where the spec has six, a shorter
+Rule 7 example, and messaging's local Understandability rule.
+
+**A re-sync carries SUBSTANCE, not bytes.** Following the sync rule literally would have
+injected five em dashes into four runtime prompts that ban em dashes and run
+`assertNoDashes` on their own output. That is a regression wearing the costume of
+compliance. The spec header now records all five divergences so the next re-sync preserves
+them. Rules 1 to 10 are hash-identical across the four prompts, verified by hash rather
+than by eye.
+
+### Consequences
+
+- Thin intake now produces a reasoned document rather than a thin one, within a stated
+  boundary that no invented figure may cross.
+- No agent anywhere is told to reach for a named pain phrase. The only surviving mention of
+  "referral ceiling" in the repo is in the derivation rule, as the counter-example.
+- The ICP agent has a structured channel for an honest gap, and the operator sees it before
+  the approve button rather than inside the document.
+- `unresolved_fields` is ICP-only. The other three agents still have no structured way to
+  report a field they could not ground. The renderer reads the key off any document type,
+  so extending it is schema plus prompt work per agent with no renderer change.
+- Roughly 40 lines of now-provably-dead assumptions-extraction code remain in
+  messaging-generation-agent.ts. Logged in BACKLOG for deliberate deletion rather than left
+  to be rediscovered.
+
+### Rejected alternatives
+
+**Promote one of the four existing Rule 9 versions.** Rejected: the disclosure half is dead
+in every version, so promoting any of them would carry the dead half forward and make it
+look ratified.
+
+**Keep a replacement vocabulary, just a better one.** Rejected, and this was the settled
+decision rather than an open question. There is no correct replacement list, because the
+list is wrong for whichever client it was not written for.
+
+**A code validator for revenue against headcount.** Rejected on industry-agnosticism
+grounds, as above. This is the ADR-028 exception.
+
+**Leave the Rule 3 worked example alone as out of scope.** Rejected by Doug. It taught
+specificity by demonstrating it with invented revenue figures, which is the exact
+fabrication Rule 9a forbids in the same prompt. A model shown a good example reproduces its
+content and not only its structure, and every stylistic tic in this codebase has traced back
+to a worked example being copied verbatim.
+
+---
+
+## ADR-041: A privilege audit belongs in a monitor, and "intended" means a second gate exists
+
+**Date:** 2026-08-27
+**Status:** Accepted. Applied to production and verified live before this ADR was written.
+**Number:** 041 assigned after surveying EVERY ref rather than main alone. 040 is taken by
+docgen-intake-rules, which merged first; 035 existed only on sourcing-filter until this
+session cherry-picked it. Seventeen refs were checked: 041 is free on all of them.
+**Relates to:** ADR-039, whose "What this does NOT fix" section named both halves of this.
+
+### The problem this solves
+
+CLAUDE.md has carried a privilege audit query since 2026-08-25. It has now been wrong twice,
+in two different ways, and each time the wrongness was invisible because the query returned
+a reassuring answer.
+
+    version 1   filtered relkind = 'r', so it had NEVER LOOKED AT A VIEW, and returned zero
+                rows for as long as it existed
+    version 2   read a single privilege, SELECT, so it asked who could READ and never asked
+                who could WRITE
+
+Version 2 is why `client_organisation_view` survived the 2026-08-26 review. It appeared in
+the audit output, its read path was measured correctly, and it was cleared. It was
+auto-updatable, owner-executing, and both public roles held the full `arwdDxtm` default, so
+a signed-in client could UPDATE their own organisation row through it, `pipeline_unlocked`
+included. ADR-039 measured that write succeeding.
+
+Three instances of one shape now: the `relkind` filter, the monitor sweep's parallel arrays,
+and a privilege list with seven omissions. **When the check is the thing that is wrong,
+nothing downstream of it can notice.**
+
+### The decision, part one: the audit runs without being remembered
+
+The corrected query stays in CLAUDE.md, because that is what you run when you want the full
+list rather than a verdict. But a query in a markdown file is not a control. Both misses
+above happened while that section already existed and was being followed.
+
+`mon_024` reads all eight table privileges for `anon` and `authenticated` across every table,
+view and materialised view in `public`, on every monitor sweep. Same reasoning that turned
+the commit gate from prose into a hook earlier the same day.
+
+### The decision, part two: what "intended" means
+
+Supabase runs `ALTER DEFAULT PRIVILEGES` on the public schema granting the full set to both
+public roles, so every relation in `public` starts life granted to both, by name. A monitor
+that treats that default as a fault is red on 29 tables from birth, and a permanently red
+monitor is one nobody reads. So the line is drawn at whether a SECOND GATE exists underneath
+the grant:
+
+    table, RLS on              intended. RLS is the gate, and the count is reported in the
+                               detail line so the single-layer posture stays visible
+    table, RLS off             PROBLEM. Nothing stands between the role and every row
+    view, security_invoker     SELECT intended. RLS on the base tables applies to the caller
+    view, security_invoker,    PROBLEM. ADR-039: the predicate constrains WHICH ROWS, only
+      with a write grant       the grant constrains WHAT OPERATIONS
+    owner-executing view       PROBLEM for any privilege. RLS is never consulted, so the
+      or materialised view     grant is the whole of the protection
+
+This is deliberately NOT an allowlist of relation names. An allowlist has to be edited by
+the same person who just added the thing it was meant to catch.
+
+### The decision, part three: nothing to evaluate is not OK
+
+Every rule above has the form "no relation is in a bad state", and all of them pass
+vacuously over an empty catalog. `mon_024` returns UNKNOWN when it finds no relations and
+says why. OK means "I looked at 63 relations and they were fine", never "I looked at
+nothing". This is the MON-019 lesson: a monitor that exists and is silent renders as
+healthy.
+
+### What it found, and the disagreement it settled
+
+`client_prospects_view` gave `authenticated` INSERT, UPDATE, DELETE and TRUNCATE, and
+`information_schema` reports the view `is_updatable = YES`. **Two sessions reached opposite
+conclusions about that same object on the same day**, the other holding that the write
+grants were intentional because of the `clients_update_own_prospect_review` policy.
+
+That argument fails, and the failure is worth stating precisely: **the policy is on the
+TABLE.** A policy on the table is what permits the client's direct write to the table, which
+is the write the code actually performs. It says nothing about whether the VIEW needs a
+grant. `security_invoker` means that IF someone wrote through the view the table's RLS would
+still apply; it does not mean anyone does, and it does not make the grant load-bearing.
+
+Settled five ways rather than by re-reading:
+
+1. Every client approve and reject path writes `.from('prospects')`. The two live buttons
+   reach `/api/dashboard/client/prospects/reject` and `/approve-all`, both service-role.
+2. The view name appears in exactly ONE `.from()` call in the repository, a SELECT in a test.
+3. The compiled browser bundle contains one `.from()` call in total, a read of
+   `integrations_registry`, and no write to any relation.
+4. The live catalog has no rewrite rules, no INSTEAD OF triggers on any view, and no function
+   or cron command naming the view. Each probe run with a non-vacuous control.
+5. **Measured, not inferred.** As a real client (`SET LOCAL request.jwt.claims`, `SET LOCAL
+   ROLE authenticated`), inside `BEGIN ... ROLLBACK`, with the old grant RESTORED for the
+   test: `UPDATE client_prospects_view ... ` wrote **zero rows**. `security_invoker` means the
+   caller's RLS applies, and `clients_read_own_prospects_denied` is `USING (false)`, so the
+   client cannot see the row to update it. The grant was never load-bearing.
+
+There is also a structural reason it could not have been used by accident: the three
+client-facing routes that run as `authenticated` write `suppressed_at`,
+`suppression_reason` and `sourcing_review_status`, and the view does not have those columns.
+
+**The residual risk, which is real and now guarded.** Supabase generates Insert and Update
+types for an auto-updatable view, so `.from('client_prospects_view').update(...)`
+type-checks cleanly and would fail only at runtime in production. A test now fails on any
+write chained onto that view, and it guards itself against scanning nothing.
+
+### Why not the alternatives
+
+**Keep the audit in CLAUDE.md and be more careful.** That is what was in place for both
+misses. Every session reads that file, and both misses were made by sessions that had.
+
+**Make the monitor enforce the strict posture: anon holds nothing anywhere.** Correct as an
+end state, and measurement supports it: not one RLS policy in this database is addressed to
+`anon`, so every anon grant is dead weight. But it is a 29-table change on a live database
+and it would land the monitor red on day one. Recorded in BACKLOG with the evidence, to be
+done in its own session with a per-table read-back, and the monitor tightened in the same
+commit.
+
+**Encode intent as a baseline table of accepted grants.** A drift detector rather than a rule
+engine. Rejected because the baseline row and the grant are two lists that must agree, which
+is the failure this codebase keeps having, and because a person adding a bad grant would be
+the same person adding its baseline row.

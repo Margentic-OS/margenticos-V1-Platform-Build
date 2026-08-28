@@ -238,12 +238,21 @@ type IcpTierObject = {
   disqualifiers?: string[]
 }
 
+// A field the agent could not ground in intake. Emitted instead of a guessed value,
+// so the gap reaches the operator as a banner rather than as prose inside the document.
+type UnresolvedField = {
+  field_path?: string
+  why_unresolved?: string
+  question_to_settle_it?: string
+}
+
 type IcpDoc = {
   summary?: string
   jtbd_statement?: string
   tier_1?: IcpTierObject
   tier_2?: IcpTierObject
   tier_3?: IcpTierObject
+  unresolved_fields?: UnresolvedField[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -274,6 +283,18 @@ function parseSuggestedValue(raw: string): unknown {
   } catch {
     return null
   }
+}
+
+// Pulls unresolved_fields off a suggested document. Returns [] for anything malformed,
+// so a bad payload degrades to "no banner" rather than crashing the whole card.
+function extractUnresolvedFields(raw: string): UnresolvedField[] {
+  const parsed = parseSuggestedValue(raw)
+  if (!parsed || typeof parsed !== 'object') return []
+  const list = (parsed as IcpDoc).unresolved_fields
+  if (!Array.isArray(list)) return []
+  return list.filter(
+    (entry): entry is UnresolvedField => Boolean(entry) && typeof entry === 'object',
+  )
 }
 
 // Amendment 7: renders any field not explicitly handled by a typed renderer as key: value.
@@ -370,6 +391,60 @@ function renderCrashFallback(parsed: unknown) {
     }
   }
   return <div>{generic}</div>
+}
+
+// ─── Unresolved fields banner ─────────────────────────────────────────────────
+
+// Unlike formatFieldPath, this keeps every segment. "Revenue range" alone would not say
+// which tier it belongs to, and the tier is the part the operator needs.
+function formatUnresolvedPath(path: string): string {
+  return path
+    .split('.')
+    .map(seg => {
+      const spaced = seg.replace(/_/g, ' ')
+      return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+    })
+    .join(' › ')
+}
+
+// Sits above the document so a gap the agent could not ground cannot be approved past
+// without being seen. Uses the card's alert palette rather than the amber used by agent
+// reasoning directly below it: two identical amber blocks would read as one and defeat
+// the point of separating them.
+function UnresolvedFieldsBanner({ fields }: { fields: UnresolvedField[] }) {
+  if (fields.length === 0) return null
+
+  return (
+    <div
+      data-testid="unresolved-fields-banner"
+      className="bg-[#FDEEE8] border border-[#EFBCAA] rounded-[6px] px-3 py-2.5"
+    >
+      <p className="text-[10px] uppercase tracking-[0.07em] text-[#8B2020] mb-1.5">
+        {fields.length === 1
+          ? '1 field not established from intake'
+          : `${fields.length} fields not established from intake`}
+      </p>
+      <p className="text-[10px] text-[#8B2020] opacity-80 leading-relaxed mb-2">
+        The agent could not ground these in the client's answers and did not guess. Settle
+        them before approving.
+      </p>
+      <ul className="space-y-2">
+        {fields.map((field, i) => (
+          <li key={i} className="text-xs text-[#8B2020] leading-relaxed">
+            {field.field_path && (
+              <span className="font-medium">{formatUnresolvedPath(field.field_path)}</span>
+            )}
+            {field.why_unresolved && <span> {field.why_unresolved}</span>}
+            {field.question_to_settle_it && (
+              <span className="block mt-0.5 italic opacity-90">
+                Ask: {field.question_to_settle_it}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 // ─── Collapsible email section (legacy format) ────────────────────────────────
@@ -1333,7 +1408,11 @@ function renderPositioning(parsed: unknown) {
 function renderIcp(parsed: unknown) {
   try {
     const doc = parsed as IcpDoc
-    const handledKeys = new Set(['summary', 'jtbd_statement', 'tier_1', 'tier_2', 'tier_3'])
+    // unresolved_fields is handled here so renderUnknownFields does not also dump it at
+    // the bottom of the card. It renders as a banner above the document instead.
+    const handledKeys = new Set([
+      'summary', 'jtbd_statement', 'tier_1', 'tier_2', 'tier_3', 'unresolved_fields',
+    ])
 
     const tiers = [doc.tier_1, doc.tier_2, doc.tier_3].filter(
       (t): t is IcpTierObject => Boolean(t),
@@ -1457,6 +1536,7 @@ export default function ApprovalCard({ suggestion, onResolved }: Props) {
   const clientName = getClientName(suggestion.organisations)
   const isFullDocument = suggestion.field_path === 'full_document'
   const isLoading = loading !== null
+  const unresolvedFields = extractUnresolvedFields(suggestion.suggested_value)
 
   return (
     <div className="bg-surface-card border border-border-card rounded-[10px] overflow-hidden">
@@ -1485,6 +1565,10 @@ export default function ApprovalCard({ suggestion, onResolved }: Props) {
       </div>
 
       <div className="px-5 py-4 space-y-4">
+        {/* Unresolved fields: first item in the card, above everything including the
+            document, so approving without seeing it is not possible. */}
+        <UnresolvedFieldsBanner fields={unresolvedFields} />
+
         {/* Client's request: shown for client revisions only */}
         {suggestion.update_trigger === 'client_revision' && suggestion.revision_note && (
           <div className="bg-surface-content border border-border-card rounded-[6px] px-3 py-2.5">
