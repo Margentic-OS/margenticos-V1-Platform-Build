@@ -4,8 +4,18 @@ import { useState } from 'react'
 import Link from 'next/link'
 import ApprovalCard, { type PendingSuggestion } from './ApprovalCard'
 
+// A pending suggestion plus the operator note that caused it to be regenerated.
+//
+// The note is carried HERE rather than on PendingSuggestion because it is not a column on
+// the suggestion: it lives on the row this one replaced. See
+// src/lib/approvals/driving-rejection-note.ts.
+export type QueuedSuggestion = PendingSuggestion & {
+  driving_rejection_note: string | null
+  driving_rejection_at: string | null
+}
+
 type Props = {
-  initialSuggestions: PendingSuggestion[]
+  initialSuggestions: QueuedSuggestion[]
   filteredClientId?: string | null
 }
 
@@ -69,7 +79,27 @@ export default function ApprovalsView({ initialSuggestions, filteredClientId }: 
         {count > 0 ? (
           <div className="flex flex-col gap-4">
             {suggestions.map(s => (
-              <ApprovalCard key={s.id} suggestion={s} onResolved={handleResolved} />
+              <div key={s.id} className="flex flex-col gap-2">
+                {/* The note the operator wrote when rejecting the version this replaces.
+                    Shown above the card so the instruction is read before the answer to it. */}
+                {s.driving_rejection_note && (
+                  <div className="bg-surface-content border border-border-card rounded-[10px] px-4 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.07em] text-text-secondary mb-1">
+                      Regenerated after your rejection note
+                      {s.driving_rejection_at && (
+                        <span className="normal-case tracking-normal">
+                          {' '}
+                          &middot; {new Date(s.driving_rejection_at).toLocaleString('en-GB', {
+                            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                          })}
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-text-primary leading-relaxed">{s.driving_rejection_note}</p>
+                  </div>
+                )}
+                <ApprovalCard suggestion={s} onResolved={handleResolved} />
+              </div>
             ))}
           </div>
         ) : (
