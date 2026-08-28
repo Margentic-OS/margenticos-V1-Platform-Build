@@ -46,9 +46,9 @@
 //   A row that comes back from a bounced query without status -1 is not written as a
 //   bounce; it is recorded as a poll failure and surfaces in polling_cursors.last_error.
 //
-//   INSTANTLY_LEAD_STATUS_VERIFIED remains false. It flips only after a real bounce has
-//   been observed travelling this path end to end, not because the constants were fixed.
-//   See BACKLOG: "Instantly bounce/unsub detection - live field and value verification".
+//   INSTANTLY_LEAD_STATUS_VERIFIED is now TRUE, earned on 2026-08-28 by a real bounce
+//   observed travelling this path end to end, not by the constants being fixed.
+//   See BACKLOG: "BOUNCE PATH PROOF — first live bounce end to end".
 
 import * as Sentry from '@sentry/nextjs'
 import { SupabaseClient } from '@supabase/supabase-js'
@@ -88,7 +88,18 @@ export const INSTANTLY_LEAD_STATUS_UNSUBSCRIBED = -2
 // Safety flag: set to true only after a real bounce has been observed end to end through
 // this path, not merely after the constants were corrected. While false, polling logs a
 // warning on every run. Correcting the values above does NOT earn this flag.
-export const INSTANTLY_LEAD_STATUS_VERIFIED = false
+//
+// EARNED 2026-08-28. A deliberate bounce was sent from doug@gomargenticos.com to a
+// nonexistent mailbox on a domain we control, confirmed non-catch-all first so that an
+// accepting domain could not make the test pass while proving nothing. Google rejected it
+// at SMTP time and the live GET /leads/list?status=-1 returned the row carrying
+// "status": -1 as a JSON NUMBER, which is what verifyLeadStatus requires. The poll
+// finished with polling_cursors.error_count 0, so the status was READ BACK and confirmed
+// rather than assumed from the filter. A signal, a suppression row and a send-gate block
+// followed. Full evidence in BACKLOG under "BOUNCE PATH PROOF".
+//
+// This flag gates nothing but the warning below. It is not a send gate and never was.
+export const INSTANTLY_LEAD_STATUS_VERIFIED = true
 
 type SupabaseServiceClient = SupabaseClient<Database>
 

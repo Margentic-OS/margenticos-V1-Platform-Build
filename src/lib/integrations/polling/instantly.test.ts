@@ -25,10 +25,15 @@ describe('Instantly polling - bounce/unsubscribe detection mechanism', () => {
       expect(INSTANTLY_LEAD_STATUS_BOUNCED).not.toBe(INSTANTLY_LEAD_STATUS_UNSUBSCRIBED)
     })
 
-    it('INSTANTLY_LEAD_STATUS_VERIFIED flag is false (operating on unverified values)', () => {
-      // While this is false, polling logs warnings on every run about unverified values.
-      // At activation, after live confirmation, this flips to true and warnings stop.
-      expect(INSTANTLY_LEAD_STATUS_VERIFIED).toBe(false)
+    it('INSTANTLY_LEAD_STATUS_VERIFIED flag is true (values confirmed against the live API)', () => {
+      // Earned 2026-08-28 by a real bounce observed end to end: a deliberate send to a
+      // nonexistent mailbox on a confirmed non-catch-all domain returned status -1 as a
+      // JSON number from the live GET /leads/list, and the poll recorded zero errors, so
+      // verifyLeadStatus read the status back rather than trusting the filter.
+      //
+      // If this ever reads false again, either someone reverted it without cause or the
+      // live values stopped holding. Both are worth failing for.
+      expect(INSTANTLY_LEAD_STATUS_VERIFIED).toBe(true)
     })
 
     it('status values are numbers, so a strict comparison against the API can succeed', () => {
@@ -104,12 +109,16 @@ describe('Instantly polling - bounce/unsubscribe detection mechanism', () => {
   })
 
   describe('Live verification gate', () => {
-    it('INSTANTLY_LEAD_STATUS_VERIFIED flag controls verification status', () => {
-      // When VERIFIED = false: polling logs warnings about unverified values
-      // When VERIFIED = true: polling operates in confident mode (no warnings)
-      // This flag exists to ensure live confirmation at activation is never forgotten.
-      expect(INSTANTLY_LEAD_STATUS_VERIFIED).toBe(false)
-      // If ever this is true without proper live confirmation, that's a bug in the activation process.
+    it('INSTANTLY_LEAD_STATUS_VERIFIED only silences a warning, and gates nothing else', () => {
+      // The flag existed so live confirmation at activation could not be forgotten. That
+      // confirmation happened on 2026-08-28, so the flag is now true.
+      expect(INSTANTLY_LEAD_STATUS_VERIFIED).toBe(true)
+
+      // What it does NOT do matters as much. It is read in exactly two places, both
+      // `if (!VERIFIED) logger.warn(...)`. It is not a send gate, and the BACKLOG sentence
+      // claiming no production send is allowed until it is true was never enforced by any
+      // code. Anyone reaching for this flag as a safety interlock is reaching for the wrong
+      // thing and should add a real gate instead.
     })
   })
 })
