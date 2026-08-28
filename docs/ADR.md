@@ -3529,3 +3529,270 @@ commit.
 engine. Rejected because the baseline row and the grant are two lists that must agree, which
 is the failure this codebase keeps having, and because a person adding a bad grant would be
 the same person adding its baseline row.
+
+## ADR-042: Rule 9 narrows to checkability, and the flag is a gate rather than a label
+
+**Date:** 2026-08-28
+**Status:** Accepted. Narrows ADR-040, which is one day old.
+
+**Number:** 042 chosen after surveying every ref. 041 was taken on main by the privilege
+audit ADR while this work was in progress, which is the fourth number collision in two days.
+
+### What was wrong with the rule shipped yesterday
+
+ADR-040 made Rule 9 a flat prohibition: any externally verifiable fact not supplied in this
+message must be left out. That was right about invention and wrong about a whole category
+of true, useful, checkable statement.
+
+The evidence was one live document. Its ICP named several public bodies and a public funding
+programme that genuinely govern its buyer's market. The model flagged every one of them,
+exactly as the rule of the day asked. The rule worked. The CHANNEL was dead: the disclosure
+was written into a section nothing renders, so it was correct and invisible. ADR-040 deleted
+the disclosure half on the grounds that it surfaced nothing, which was true of the channel
+and unfair to the rule.
+
+An hour later the same session built `unresolved_fields`, which surfaces as a banner above
+the document that an operator cannot approve past. That is the working channel the old rule
+never had.
+
+### The decision: draw the line at checkability, not provenance
+
+**Tier One, never stated.** If a reader trying to verify the claim would find nothing, it
+does not go in the document, and there is no flag for it. Company names, people, statistics,
+percentages, market sizes, currency amounts, headcounts, client results, and any figure,
+date or threshold attached to a third party. Also, and this is the part that is easy to
+miss: **this client's own standing** under anything in Tier Two. Whether they hold it,
+qualify for it, comply with it or are funded by it is a fact about them, and it is
+unverifiable from general knowledge.
+
+**Tier Two, stated only if the document needs it, and flagged.** Public bodies, regulators,
+statutes, funding programmes, industry schemes, published standards, settled sector
+conventions. What may be said is that the thing exists and what it does, in general terms.
+Attach a number, a date, a threshold or an eligibility rule and it is Tier One again.
+
+**Tier Two is closed to any agent whose output format has no flag channel.** Today that
+means it is open to the ICP agent alone. For positioning, TOV and messaging, every Tier Two
+item is Tier One. That is not a restriction on anything legitimate: a public body named in
+intake, uploads, the website or research is SOURCED, and neither tier governs it.
+
+Flagging uses a `kind` discriminator on the existing `unresolved_fields` array rather than a
+second array, so there is one extractor, one renderer, one banner and one place for the two
+to drift apart. Entries without `kind` mean `unestablished_field`, so nothing already
+written breaks.
+
+### The loophole, and how the rule text closes it
+
+A tier that permits a flagged claim is a route to declaring something unverifiable and then
+writing whatever you like. The rule text states the consequence so the model has a standing
+reason to prefer sourcing:
+
+> Every flag reaches the operator as a visible gap in the work, and reaches them before they
+> can approve. One or two flags read as care. Ten read as a document where nothing was
+> researched, and it comes back to be generated again.
+
+with the order made explicit: source it, or omit it, or flag it, in that preference. And:
+"A flag never widens what Tier One permits, and it never makes a Tier One item acceptable."
+
+### The precondition: downstream agents see a projection, not the document
+
+This narrowing could not ship on its own, because flagged content was not contained.
+
+Measured 2026-08-28. `messaging-generation-agent.ts` and `positioning-generation-agent.ts`
+both embedded the upstream ICP as `doc.plain_text ?? JSON.stringify(doc.content, null, 2)`.
+`plain_text` is NULL on every row in production, so the stringify branch always ran and
+every top-level key entered the prompt verbatim, with no allowlist and no key stripping.
+A flagged claim is a review item in a document and an assertion of fact in an email sent to
+a stranger under the client's name, and **no outbound gate catches one**: measured against
+the real validators, `findFirmographicFigures` returns `[]` for a sentence naming a
+government department and a compliance deadline, and `scrubAITells` leaves it untouched.
+
+So `projectIcpForDownstream` narrows the ICP to five content keys before it reaches any
+document-writing prompt. **Allowlist, not denylist**, because a denylist is a second list
+kept in step by hand and a new operator-facing key would leak until someone remembered it.
+The `project` parameter is REQUIRED rather than optional: omitting it at a call site is a
+compile error. That was found by mutation, after the first version made it optional and
+deleting the argument left the whole suite green.
+
+The two paths that actually reach a prospect's inbox were already safe and are the pattern
+this follows: `research/synthesize.ts` and composition's `extractPainFromIcp` both read
+named fields and never stringify a document.
+
+### THE ASSUMPTION THIS RESTS ON, STATED PLAINLY
+
+**A Tier Two claim written into `tier_1` prose survives the projection.** The projection
+strips `unresolved_fields` and keeps the tiers, which is what it is for. So the CLAIM
+propagates into the messaging prompt while its FLAG does not.
+
+That is coherent rather than a hole, and the reason is worth stating rather than assuming:
+**operator approval is the verification step.** A flagged claim that reaches an approved
+document has been read by a human, taken to the client on the onboarding call, and either
+confirmed or removed. Everything downstream of approval is entitled to treat the document as
+checked, which is why the flag does not need to travel with the claim.
+
+**It holds only if the operator actually verifies rather than clicking approve.** The banner
+is not a warning label on a shipped document. It is a gate, and the whole design rests on
+somebody reading it. If approvals become routine, this ADR's reasoning fails silently: the
+claims still propagate, the flags still do not, and nothing in the system will say so.
+
+The mitigations that exist are that the banner is the first thing in the card body, above
+the document, and that a document carrying many flags is visibly one nobody researched.
+Neither is a control. Both are prompts to a human.
+
+### Consequences
+
+- The ICP agent can state what genuinely governs a buyer's market instead of writing around
+  it, and every such statement arrives at the operator as a question to settle.
+- The messaging, positioning and TOV agents cannot introduce an unsourced third-party claim
+  at all, and cannot inherit a flagged one from the ICP.
+- Two independent defences, not one: the tier rule stops it originating in copy, and the
+  projection stops it propagating into copy.
+- The client does NOT see the flags. Deferred deliberately, see BACKLOG. The client is
+  currently protected by renderer omission rather than by any filter, which is a trap and is
+  logged as one.
+- `unresolved_fields` remains ICP-only. Positioning, TOV and messaging have no gap channel
+  and therefore no Tier Two.
+
+### Rejected alternatives
+
+**A second array for flagged claims.** Rejected: two extractors and two renderers that can
+disagree, for no gain over a discriminator.
+
+**Leaving the projection out and relying on the tier rule alone.** Rejected: the tier rule
+governs what an agent WRITES, and the propagation problem is about what an agent READS. One
+does not substitute for the other.
+
+**A denylist of operator-facing keys.** Rejected: fails open. The allowlist fails closed and
+the drift test makes an unclassified schema key a test failure rather than a silent
+omission.
+
+**Fixing the research queries instead.** Not rejected, deferred, and it is the better fix.
+See BACKLOG: the queries that produced the flagged document were built from an off-question
+intake answer and a currency-derived geography, so research was asked nonsense rather than
+failing. Better queries reduce how often flagging is needed but never to zero, so the two
+are complementary.
+
+---
+
+## ADR-043: ICP research geography comes from the client's own domain, and Rule 9B is the positive counterpart to Rule 9
+
+**Date:** 2026-08-28
+**Status:** Accepted.
+
+**Number:** 043 claimed by surveying every local and remote ref, per the method in BACKLOG.
+042 is the highest defined anywhere.
+
+### What prompted this
+
+An ICP regenerated on 2026-08-28 for the live school-meals client described the business
+generically. The previous version had named the delivery mechanism, the waste model and a
+product range of the client's own. Measured rather than assumed: the current suggestion
+still carries the delivery mechanism and gains the founder's background, and has LOST the
+named range and the waste model that the June version carried.
+
+The material was not missing. Two pages, 6,000 characters, `fetch_status = complete`, sit
+in `intake_website_pages` for that organisation and contain every one of those details.
+
+### Finding one: the website content reaches the agent, and always did
+
+`fetchWebsiteContext` in `src/lib/agents/website-context.ts` is called by the ICP agent at
+`icp-generation-agent.ts:142`, and its output is interpolated at `buildUserMessage` as
+`websiteBlock`, after the intake responses and the uploaded documents and before the
+research block. There is no cap, no slice and no row limit on the read.
+
+So the plumbing was never the cause, and the other two changes are not secondary to it.
+
+There IS a truncation, but it is upstream and it is not what lost these details.
+`MAX_CHARS_PER_PAGE = 3_000` in `src/lib/intake/fetch-website.ts:17` cuts each page at
+ingest. Four of the eight stored pages sit at exactly 3,000 characters and end mid-word.
+(Reported as three of seven in the first pass, which counted three organisations rather than
+all five. Corrected against the full table when the backfill was verified live.)
+Every detail named above is inside the stored window, so the cap did not remove them. It is
+logged in BACKLOG rather than changed here, because changing it would need a re-fetch to
+mean anything and the prompt budget it protects is real.
+
+### Finding two: the research queries were the cause, and they were asked nonsense
+
+Both causes were logged in BACKLOG on 2026-08-28 and are fixed here.
+
+**Cause one, an emptiness check standing in for a quality check.** `const buyer =
+cloneClient || whatYouDo` falls back only when the ideal-client answer is EMPTY. An answer
+that is non-empty and does not answer the question asked became the buyer descriptor
+verbatim, in three of the four queries.
+
+This is not an edge case. Run against the real intake of all five organisations, FOUR of
+the five `clients_clone` answers are prose about a relationship rather than a description
+of a population, and the fifth is the only one that names a buyer.
+
+`usableDescriptor` replaces the emptiness check with two category-level criteria and a
+floor. Neither criterion names an industry, a buyer archetype or a service type.
+
+  1. The descriptor must open with a noun phrase. A subject pronoun has no antecedent a
+     search engine can resolve, and a subordinating conjunction opens a story rather than
+     naming a population. Possessives are deliberately NOT rejected: "our clients are
+     hospital procurement leads" opens with "our" and is a good descriptor.
+  2. The descriptor must not carry a first-person singular marker. That means the answer
+     turned into the respondent's own story.
+  3. Below three words it carries no more than the generic fallback already does.
+
+The failure is deliberately asymmetric. A false reject falls back to the service
+description, which is still a real search term. A false accept sends narrative prose to a
+search engine, the research comes back empty, and the document is written without it.
+
+**Cause two, geography inferred from currency.** `geoHint` mapped EUR to "Europe", so a
+single-country client inside a multi-country currency zone was searched against the whole
+zone. On the school-meals client that put "Ireland" in the service description and "Europe"
+in the same query string. CLAUDE.md's geography rule says currency alone is insufficient.
+The document prompt obeys that rule; the query builder did the opposite and its own comment
+said so.
+
+Geography now comes from the ccTLD of the client's own website and from nothing else.
+There is no country field in intake, and the domain is the only direct country evidence
+that exists. The ccTLD map is an allowlist, so the country codes sold as vanity domains
+(.io, .ai, .co, .me, .tv) yield no hint rather than a wrong one.
+
+**The accepted trade-off, stated because it is a cost and not an oversight.** A generic TLD
+now yields NO geographic hint, where currency previously supplied a confident wrong one.
+Three of the five live organisations are on .com and lose their hint. A query with no
+geography returns broader results; a query with the wrong geography returns results about
+the wrong market and reads as though it worked. Broader beats wrong. The real fix is a
+country field in intake, which is in BACKLOG.
+
+**Proved rather than asserted.** `scripts/prove-research-queries.ts` runs the real builder
+against the real intake of every organisation and prints before beside after. The "before"
+column comes from `scripts/__before__research-queries.ts`, extracted mechanically from
+origin/main rather than retyped. All twenty queries across five organisations change.
+
+### Finding three: Rule 9 has no positive counterpart, and Rule 9B is it
+
+Rule 9 is a prohibition on stating third-party facts that are not sourced. It says nothing
+about the client's own facts. A model reading a long absolute ban immediately before
+generating has no instruction pulling the other way, and the observed output is a specific
+business described in general terms.
+
+Rule 9B states that the client's own materials ARE sourced material and must be used
+concretely: their own products, methods, mechanisms, named ranges, operational detail and
+the founder's own background all come from intake, the uploads or their own website, so no
+tier of Rule 9 governs them. The test is stated in the rule and repeated in the ICP quality
+self-check: a reader who knows this market should be able to tell this client apart from a
+competitor after reading the document.
+
+It defers rather than widens on the one place the two rules touch. Where the client's own
+material states their standing under a public body, a regulator, a scheme or a standard,
+Rule 9 governs that sentence. Whether Rule 9 Tier One's ban on "this client's own standing"
+is overridden by that standing appearing in the client's own website text is a genuine
+ambiguity in the rule as written. It is logged in BACKLOG rather than resolved here,
+because resolving it changes what Rule 9 permits and that is its own decision.
+
+**Why 9B and not a new Rule 10.** Inserting a rule between 9 and 10 renumbers Rule 10 in
+five files and Rule 11 in the messaging prompt, and touches roughly fourteen cross
+references. 9B is adjacent to Rule 9, which is what makes the boundary visible, and it can
+be synced to the other three prompts later without renumbering anything. The retired
+lowercase "9a" was absorbed into Rule 9 because it was a duplicate PROHIBITION. 9B is the
+opposite half, not a duplicate.
+
+**Scope boundary, recorded as divergence 7 in the shared spec.** 9B is in
+`shared-voice-spec.md` and `icp-agent.md` only. It is not yet in the positioning, TOV or
+messaging prompts. That is a scope decision, not drift: this session was scoped to the ICP
+path, and the messaging prompt feeds the send path, which another session was exercising.
+A test asserts the two copies that DO exist are identical, so they cannot drift while the
+other three wait.

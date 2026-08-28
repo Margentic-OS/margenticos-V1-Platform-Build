@@ -7970,3 +7970,314 @@ in docs/prompts/, the four generation agents, or document-projection was touched
 
   THE ORDER THAT MATTERS: delete the Instantly campaign, then immediately clear external_id.
   Between those two steps every poll reports ok:false.
+
+## SESSION 2026-08-28, branch rule9-checkability (Rule 9 narrowed to checkability)
+
+- [pre-c1] THE CLIENT IS PROTECTED BY RENDERER OMISSION, NOT BY A FILTER. THAT IS A TRAP,
+  NOT A DESIGN.
+
+  `unresolved_fields` is operator-only by intent. It is NOT operator-only by construction.
+
+  Measured 2026-08-28. `approve_document_suggestion` sets
+  `v_content := v_suggestion.suggested_value::jsonb` and its own comment says "no sub-key
+  extraction", so the whole suggestion body becomes `strategy_documents.content`. The client
+  page selects `content` in full (`src/app/dashboard/(client)/strategy/[type]/page.tsx:111`)
+  and passes it to the renderer (`:256`). **So operator flags reach the client's browser in
+  the page payload today.** They are simply not drawn, because
+  `src/components/dashboard/strategy/IcpDocumentView.tsx` renders a fixed field set and has
+  no unknown-key fallback.
+
+  THE TRAP: `ApprovalCard` DOES have an unknown-key fallback (`renderUnknownFields`), and it
+  is a reasonable thing to add to a renderer. Anyone adding the same fallback to
+  `IcpDocumentView`, for the perfectly good reason that a client should not silently lose a
+  field, starts leaking operator flags to clients unlabelled and unexplained. Nothing in the
+  data path, the query or the types would stop them. `IcpDocument` in `src/types/index.ts:84`
+  does not even declare the key.
+
+  Related and currently inert: `IcpDocumentView.tsx:124` falls back to `PlainTextView` when
+  the structured branch fails. Safe only because nothing anywhere writes
+  `strategy_documents.plain_text`. Two protections, both accidental.
+
+  NEXT ACTION, and it is cheap: either project the document server-side before it reaches the
+  client component, or add a deliberate, labelled client rendering (see the next item). Do
+  not leave it resting on a renderer not having a feature.
+
+- [post-build] SHOW THE FLAGS TO THE CLIENT. DEFERRED ON TIMING, NOT REJECTED. REVISIT AFTER
+  THE FIRST REAL ONBOARDING CALL.
+
+  Doug's call, 2026-08-28. The operator walks the client through the document on an
+  onboarding call and that call IS the verification step. A client reading "we stated this
+  and did not verify it" BEFORE that conversation reads it as a defect in something they are
+  paying for, rather than as a question they can answer. Radical transparency is the
+  positioning, so this is a sequencing question rather than a disclosure one.
+
+  It is render-only: no migration, no query change, no agent change, and the data already
+  arrives. Scoped and ready:
+
+    1. Add `unresolved_fields?: UnresolvedField[]` to `IcpDocument` (`src/types/index.ts:84`)
+       and export `UnresolvedField` once, so `ApprovalCard` stops declaring it locally. Two
+       declarations of one shape is the drift shape.
+    2. Lift the array-guard half of `extractUnresolvedFields`
+       (`ApprovalCard.tsx`) into a shared helper taking `unknown`, so the operator and
+       client paths cannot disagree about what a valid entry is.
+    3. Render in `IcpDocumentView` following `DocApprovalControls.tsx:96-106`, the
+       "What changed in this version" callout: same page, same slot, neutral parchment
+       palette (`#F5F2ED` / `#E8E3DC`).
+
+  DO NOT copy `UnresolvedFieldsBanner`. Its red alert palette and its copy ("Settle them
+  before approving") are operator instructions and read to a client as a defect report on
+  their own strategy. For a client the valuable field is `question_to_settle_it`, which reads
+  as a request for input.
+
+  Revisit trigger: after the first real onboarding call, when we know how that conversation
+  actually goes.
+
+- [DONE 2026-08-28, ADR-043] THE ICP RESEARCH QUERIES ARE THE REAL FIX, AND THEY ARE BROKEN
+  IN TWO INDEPENDENT WAYS. NOT BUNDLED WITH THE FLAGGING RULE ON PURPOSE.
+
+  BOTH CAUSES FIXED. Cause one is now `usableDescriptor`, two category-level criteria and a
+  word floor replacing the `||` emptiness check. Cause two is now `geographyFromIntake`,
+  reading the ccTLD of the client's own domain, with currency removed from the builder
+  entirely. Proved with `scripts/prove-research-queries.ts` against the real intake of all
+  five organisations: all twenty queries change. Original text kept below as the record.
+
+  The document that prompted this whole change was generated with a research note saying web
+  search returned limited or no results. Research did not fail. **It was asked nonsense.**
+
+  Measured by running the real `buildResearchQueries` against that org's real intake on
+  2026-08-28. The four queries actually sent were:
+
+      Q1: When a problem becomes our problem, that's my aim. let me solve challenges
+          problems pain points Europe 2025
+      Q2: When a problem becomes our problem, that's my aim. let me solve they needed
+          support buying trigger why now Europe
+      Q3: When a problem becomes our problem, that's my aim. let me solve typical company
+          size revenue headcount profile Europe 2025
+      Q4: [service description] providers competitors positioning Europe 2025
+
+  CAUSE ONE. `const buyer = cloneClient || whatYouDo` in
+  `src/agents/icp-generation-agent.ts`. `||` falls back only when the answer is EMPTY. That
+  client's `clients_clone` answer is non-empty and entirely off-question, so it became the
+  buyer descriptor in three of four queries. This needs a QUALITY check rather than an
+  emptiness check, which is Rule 10's judgement moved into deterministic code, and that is
+  exactly why it wants its own session rather than a rider on a prompt change.
+
+  CAUSE TWO. `geoHint` derives from CURRENCY: `EUR -> "Europe"`. The country is stated in
+  plain text in `company_what_you_do` and reaches one query only by luck, where "Europe"
+  then contradicts it in the same string. CLAUDE.md's own geography rule says currency alone
+  is insufficient because EUR spans 20+ countries. The ICP prompt obeys that rule for the
+  DOCUMENT; the query builder does the opposite as a "soft hint", and the comment says so.
+
+  NOT BUILT HERE, at Doug's instruction: it belongs upstream of the flagging rule rather
+  than bundled with it. Fixing it reduces how often Tier Two flagging is needed but never to
+  zero, so ADR-042 remains the fallback rather than being superseded.
+
+- [pre-c1] THE POSITIONING AGENT HAS BOTH ICP QUERY DEFECTS AND WAS DELIBERATELY NOT FIXED.
+
+  `buildResearchQueries` in `src/agents/positioning-generation-agent.ts:368` is a second
+  copy of the same builder. It carries the currency-derived `geoHint` verbatim, and it is
+  WORSE than the ICP version on cause one: `const buyer = condense(val('clients_clone'), 12)`
+  with no fallback at all, so an off-question answer is used and there is nothing to fall
+  back to.
+
+  NOT FIXED ON PURPOSE. This session was scoped to the ICP path by Doug's instruction. The
+  fix is to lift `usableDescriptor`, `geographyFromIntake` and `q` out of
+  `icp-generation-agent.ts` into a shared module and call them from both. They are exported
+  already, so the move is mechanical. `condense` is a third duplicate across the two files
+  and should go with them.
+
+  Next action: one session, one shared module, both agents, and extend
+  `scripts/prove-research-queries.ts` to print the positioning builder alongside the ICP one.
+
+- [pre-c1] RULE 9B IS IN TWO OF THE FIVE PROMPT FILES. RE-SYNC IT.
+
+  Added 2026-08-28 to `docs/prompts/shared-voice-spec.md` and `docs/prompts/icp-agent.md`.
+  NOT in positioning, TOV or messaging. Recorded as divergence 7 in the spec's own list so
+  it is a named boundary rather than silent drift, and a test asserts the two synced copies
+  stay identical.
+
+  The rule is written to apply to all four agents. The reason messaging was left alone is
+  that its prompt feeds the send path and another session was exercising that path at the
+  time, not that the rule does not apply to it.
+
+  Numbering was chosen to make the re-sync cheap: 9B inserts without renumbering Rule 10 in
+  five files and Rule 11 in messaging-agent.md.
+
+- [research] `clients_trigger` IS STILL PASSED TO THE QUERY BUILDER UNCHECKED.
+
+  Change 2 put `usableDescriptor` on the buyer descriptor and the service description,
+  because that is what was scoped. `trigger` goes through `condense` only. Measured on the
+  live data, that still puts narrative prose into query 2: "They were dealing with feast or
+  famine. Some months were great, and buying trigger why now".
+
+  NOT simply fixed by applying the same check. The trigger slot describes an EVENT, not a
+  population, so the noun-phrase criterion is the wrong shape for it, and the live
+  school-meals trigger is "they needed support", which the check would reject and which
+  currently contributes a little. Needs its own criteria and its own measurement before
+  anything is changed.
+
+- [PARTIALLY DONE 2026-08-28] WEBSITE PAGES ARE CUT AT 3,000 CHARACTERS PER PAGE, MID-WORD,
+  AT INGEST.
+
+  THE VISIBILITY HALF IS DONE. `intake_website_pages.extraction_truncated` is set at fetch
+  time and was backfilled by length. Verified live: 8 complete pages, 4 truncated, every one
+  at exactly 3,000 characters ending mid-word. The agents are told per page in the prompt
+  block, and the ICP suggestion_reason carries a count plus the fact that regenerating will
+  not recover the text.
+
+  THE CAP ITSELF IS UNCHANGED AND NOTHING WAS RE-FETCHED, at Doug's instruction. So the
+  four already-cut pages are still cut, and the flag is what makes that visible rather than
+  what fixes it. Original text below.
+
+- [research] ORIGINAL ENTRY:
+
+  `MAX_CHARS_PER_PAGE` in `src/lib/intake/fetch-website.ts:17`. Measured 2026-08-28: three
+  of the seven stored pages sit at exactly 3,000 characters and end mid-word.
+
+  NOT the cause of the concreteness regression that ADR-043 fixes. Every detail that was
+  lost is inside the stored window. Logged because the limit is real and invisible: nothing
+  records that a page was truncated, so a reader of `intake_website_pages` cannot tell a
+  short page from a cut one.
+
+  Two things to decide together. Raising the cap does nothing for pages already stored
+  without a re-fetch, and the prompt budget it protects is real now that website content,
+  uploads and research all share one message. A `truncated` boolean on the row would at
+  least make it visible for the cost of one column.
+
+- [research] STORED WEBSITE TEXT CARRIES XML DECLARATIONS AND HTML ENTITIES INTO THE PROMPT.
+
+  Measured 2026-08-28. `extracted_text` for the live pages contains repeated
+  `<?xml version="1.0" encoding="UTF-8"?>` fragments and unresolved entities
+  (`&rsquo;`, `&Oacute;`, `&nbsp;`, `&mdash;`). Roughly a tenth of the stored characters on
+  one page are that noise, and it is inside the 3,000-character cap, so it displaces real
+  content.
+
+  `&mdash;` is the one worth naming: em dashes reach the prompt as entities in the client's
+  own website text, in a prompt whose first section bans the character. Nothing has gone
+  wrong yet because `scrubAITellsDeep` and `assertNoDashes` gate the OUTPUT, not the input.
+
+- [DONE 2026-08-28, five instances not one] THE ICP QUALITY SELF-CHECK NAMED AN INDUSTRY IN
+  RUNTIME PROMPT TEXT.
+
+  Fixed, and the scan found four more of the same class in the same file once it was pointed
+  past the rule block: the quality bar at line 38, the JTBD framing, rule 2 under "Rules you
+  must follow", and the research conflict-resolution example. All five rewritten
+  category-level using the same phrasing as Rule 9B, "any other provider in the same
+  category".
+
+  THE WIDER SCAN IS NOT BUILT. Proposing the exemption boundary first, per Doug's
+  instruction, because an exemption list that grows is how a check stops checking. Measured
+  scope of what a wider scan would surface today, after the five fixes: ICP 22 hits of which
+  19 are the canonical NAICS list, positioning 4, TOV 2, messaging 16.
+
+- [pre-c1] THREE VENDOR NAMES ARE HARDCODED IN THE ICP PROMPT, AND MORE IN MESSAGING.
+
+  `docs/prompts/icp-agent.md` uses "Apollo-detectable" as a signal category in the output
+  format and again under "Rules you must follow". `docs/prompts/messaging-agent.md` names
+  the sending provider six times.
+
+  This is CLAUDE.md's tool-name rule, not the industry-agnosticism rule, and it is a
+  different fix: a capability phrasing ("enrichment-detectable", or the registry capability
+  name) rather than a wording change. Found by the category-level scan on 2026-08-28 while
+  fixing the industry assumptions; deliberately not bundled with them.
+
+- [docs] ORIGINAL ENTRY:
+
+  `docs/prompts/icp-agent.md`, quality self-check: "could they be copy-pasted to any
+  consulting firm's ICP?". That is an industry assumption in text the model reads at
+  generation time, and it sits four lines from the Rule 9B check added on 2026-08-28 which
+  says the opposite.
+
+  Not caught by `rule-text-category-level.test.ts` because that test deliberately scans
+  Rules 1 to 10 only, and this line is outside the rule block. Left alone in that session
+  under the surgical-changes rule rather than fixed as a drive-by.
+
+  Next action: decide whether the category-level scan should extend past the rule block,
+  and fix this line either way. The ICP prompt's worked-example section names a sector on
+  purpose, so a wider scan needs an exemption list, which is why this is a decision and not
+  a one-word edit.
+
+- [research] RULE 9 AMBIGUITY: THE CLIENT'S OWN STANDING, ASSERTED ON THE CLIENT'S OWN SITE.
+
+  Rule 9 Tier One bans "anything about THIS CLIENT'S OWN STANDING under something in Tier
+  Two". Rule 9 also says "Nothing here applies to a fact this message already supplied".
+  Those two sentences disagree when the client's own website asserts their standing, which
+  is the ordinary case: a live client's about page states which nutrition standards their
+  product meets, and that text is in `intake_website_pages` and reaches the prompt.
+
+  Rule 9B, added 2026-08-28, DEFERS on this rather than resolving it: where the client's own
+  material states their standing under a public body, a regulator, a scheme or a standard,
+  Rule 9 governs. That keeps the boundary exactly where it was.
+
+  Resolving it changes what Rule 9 permits, so it is a decision for its own session. The
+  question is narrow: does a client asserting their own compliance on their own website make
+  that fact sourced, or is a self-assertion the thing Tier One was written to keep out?
+
+- [pre-c1] [monitor] BUILD THE TIME-TO-APPROVE MONITOR. ADR-042 RESTS ON OPERATORS ACTUALLY
+  READING THE BANNER, AND NOTHING MEASURES WHETHER THEY DO.
+
+  TAGGED [pre-c1] DELIBERATELY, by Doug on 2026-08-28. Not because it blocks anything today,
+  but because the failure mode arrives exactly when the first paying client does. Today one
+  operator approves a handful of documents and reads every one. Approvals become routine
+  under volume and time pressure, and that is the moment this assumption stops holding. A
+  monitor added after that point measures the decayed state and calls it the baseline.
+
+  A Tier Two claim written into tier_1 prose survives the projection, so the claim
+  propagates into messaging while its flag does not. That is coherent BECAUSE operator
+  approval is the verification step. It stops being coherent the moment approvals become
+  routine, and it fails silently: the claims still travel, the flags still do not, and
+  nothing in the system notices.
+
+  There is no measurement today. The cheapest one that would mean anything: record time
+  between a suggestion being rendered and approved, and flag approvals of documents carrying
+  `unverified_claim` entries that were approved in under some small number of seconds. That
+  is a monitor, not a gate, and it would at least make the assumption observable.
+
+  Stated in ADR-042 under "THE ASSUMPTION THIS RESTS ON" so it is on the record rather than
+  discovered later. Doug's instruction is that it gets BUILT rather than left logged: an
+  assumption that nothing measures decays quietly, and this one is load-bearing for the
+  whole Tier Two design.
+
+- [docs] ADR NUMBERS ARE CLAIMED BY SURVEYING EVERY REF, NOT BY READING main.
+
+  Four collisions in two days: 035, 036, 037 and 038 all landed on more than one branch, 039
+  had to be assigned by hand, and 041 was taken on main by another session while ADR-042 was
+  being written. Reading main is not enough, because an ADR spends most of its life on an
+  unmerged branch.
+
+  THE METHOD, and it takes about ten seconds:
+
+      # every ADR heading defined on every local and remote ref
+      for ref in $(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin | sort -u); do
+        git show "$ref:docs/ADR.md" 2>/dev/null | grep -oE '^#+ *ADR-[0-9]{3}'
+      done | grep -oE '[0-9]{3}' | sort -u | tail -5
+
+      # and anything above that number, anywhere, including prose references
+      git grep -hoE 'ADR-[0-9]{3}' $(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin) -- . | sort -u | tail -5
+
+      # and commit messages, which can claim a number no file carries yet
+      git log --all --oneline --grep='ADR-0'
+
+  Then check `git worktree list` for any active worktree with uncommitted work, since a
+  number can be claimed in a file that is not committed anywhere yet. That is how 042 was
+  chosen and it was the only method that would have avoided 041.
+
+  A number is only truly free when it appears in none of those four places.
+
+- [post-build] TWO MORE NAMED SECTORS WERE IN LIVE RULE TEXT, AND THE TEST THAT FOUND THEM
+  IS THE POINT.
+
+  Fixed 2026-08-28: Rule 5's derivation rule named two sectors as a contrast pair, and
+  Rule 2's "Wrong" example named one more. All three shipped on 2026-08-27 in the change
+  that removed industry assumptions from these same prompts.
+
+  The second was found only because the new named-entity test was scoped to ALL rule text
+  rather than to the rule being changed. A test narrower than the standard it enforces is
+  the shape that let the earlier violations survive four months, and scoping it to Rule 9
+  would have reproduced exactly that.
+
+  STILL OPEN, deliberately out of scope and not a violation of the stated standard: Rule 2's
+  "Right" example ("Referrals are structurally uncontrollable...") names no sector but is
+  strongly flavoured by one, and its closing clause is a three-part list in a single
+  sentence, which Rule 5 bans two rules later. The exemplar passages at the end of every
+  prompt are the larger version of the same problem and remain untouched.

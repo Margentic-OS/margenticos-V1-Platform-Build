@@ -9,6 +9,11 @@ export interface WebsitePageContext {
   page_label: string
   url: string
   text: string
+  // The stored text was cut at the per-page cap in fetch-website.ts. The agents are told,
+  // because a page that stops mid-sentence otherwise reads as a page that had nothing
+  // more to say, and the detail that was cut is disproportionately the specific kind:
+  // the general description is at the top of a page and the mechanism is further down.
+  truncated: boolean
 }
 
 export async function fetchWebsiteContext(
@@ -18,7 +23,7 @@ export async function fetchWebsiteContext(
 ): Promise<WebsitePageContext[]> {
   const { data, error } = await supabase
     .from('intake_website_pages')
-    .select('page_label, url, extracted_text')
+    .select('page_label, url, extracted_text, extraction_truncated')
     .eq('organisation_id', organisation_id)
     .eq('fetch_status', 'complete')
     .order('display_order', { ascending: true })
@@ -36,6 +41,7 @@ export async function fetchWebsiteContext(
       page_label: row.page_label as string,
       url: row.url as string,
       text: row.extracted_text as string,
+      truncated: row.extraction_truncated === true,
     }))
 }
 
@@ -45,7 +51,14 @@ export function formatWebsiteContextForPrompt(pages: WebsitePageContext[]): stri
   if (pages.length === 0) return ''
 
   const pageBlocks = pages
-    .map(p => `### ${p.page_label} (${p.url})\n\n${p.text}`)
+    .map(p => {
+      const cut = p.truncated
+        ? '\n\n[This page was cut at the fetch limit and stops mid-sentence. What is here is ' +
+          'genuine and usable. Treat the ending as incomplete rather than as the end of what ' +
+          'this client had to say, and do not infer anything from what is absent below it.]'
+        : ''
+      return `### ${p.page_label} (${p.url})\n\n${p.text}${cut}`
+    })
     .join('\n\n---\n\n')
 
   return `\n\n---\n\n## CLIENT WEBSITE CONTENT\n\n` +
@@ -53,4 +66,11 @@ export function formatWebsiteContextForPrompt(pages: WebsitePageContext[]): stri
     `Use it to inform your understanding of their positioning, language, and offer. ` +
     `Do not treat it as authoritative — intake responses take precedence where they conflict.\n\n` +
     pageBlocks
+}
+
+// How many of the supplied pages were cut at the fetch limit. Used by the document agents
+// to put the fact in the operator-facing reason on the suggestion, so a thin document has
+// a visible candidate explanation rather than looking like the agent simply did poorly.
+export function countTruncatedPages(pages: WebsitePageContext[]): number {
+  return pages.filter(p => p.truncated).length
 }

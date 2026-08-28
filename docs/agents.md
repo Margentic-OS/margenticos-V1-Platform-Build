@@ -119,7 +119,26 @@ Inputs:
   - intake_responses for this organisation
   - Existing ICP document (if is_refresh: true)
   - patterns table (cross-client, read-only, may be empty in phase one)
+  - intake_website_pages for this organisation, via fetchWebsiteContext. Every page with
+    fetch_status 'complete' and non-empty text, in display_order, with no cap and no row
+    limit. It lands in the prompt after the intake answers and the uploaded documents and
+    before the research block. Note the upstream limit: each page was cut at 3,000
+    characters when it was FETCHED (src/lib/intake/fetch-website.ts), so the agent sees
+    everything that was stored, and what was stored may already be short.
   - 4 web research queries derived from intake data (buyer pain, trigger events, buyer profile, competitive landscape)
+
+How the 4 research queries are built (buildResearchQueries, rewritten 2026-08-28, ADR-043):
+  - The buyer descriptor is the ideal-client answer if `usableDescriptor` accepts it, else
+    the service description, else a generic B2B fallback. `usableDescriptor` rejects an
+    answer that opens with a subject pronoun or a subordinating conjunction, one that
+    carries a first-person singular marker, and one under three words. It replaced a plain
+    emptiness check that could not tell a thin answer from an off-question one.
+  - Geography comes from the ccTLD of the client's own domain (company_url, else
+    assets_website) and from nothing else. It used to come from currency, which put a whole
+    currency zone into a single-country client's queries. A generic TLD yields no
+    geographic hint rather than a wrong one.
+  - To see what any organisation's queries actually are, before and after the rewrite:
+      dotenv -e .env.local -- npx tsx scripts/prove-research-queries.ts
 
 Output (1 row in document_suggestions):
   field_path:      'full_document'

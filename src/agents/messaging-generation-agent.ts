@@ -33,6 +33,7 @@ import { SentenceRegistry, comparableSentences } from '@/lib/style/sentence-fram
 // must measure word counts identically or the stored count and the sent count disagree.
 import { countWords } from '@/lib/composition/personalization'
 import { buildRegenerationNotesBlock, buildRegenerationNotesReason, type RegenerationNotes } from '@/lib/agents/regeneration-notes'
+import { projectIcpForDownstream } from '@/lib/agents/document-projection'
 
 const MESSAGING_MODEL = 'claude-sonnet-4-6' // TEST ONLY — revert to claude-opus-4-6 for production (ADR-013)
 
@@ -687,8 +688,28 @@ function buildBaseContext(params: VariantGenerationContext): {
     })
     .join('\n\n---\n\n')
 
-  const formatDoc = (doc: StrategyDocument, label: string, guidance: string): string => {
-    const body = doc.plain_text ?? JSON.stringify(doc.content, null, 2)
+  // `project` narrows the document before it reaches the prompt. Passed for the ICP, whose
+  // content carries operator-facing keys (unresolved_fields, and Rule 9 Tier Two flagged
+  // claims) that must not reach copy. Positioning and TOV have no such keys today; when
+  // either gains one, it needs a projection here too.
+  //
+  // Note which branch runs: plain_text is NULL on every row in production, so the fallback
+  // is the real path and projecting only the fallback would be projecting nothing. Both
+  // branches go through `project`.
+  // `project` is REQUIRED, and deliberately not optional. An optional parameter is one a
+  // caller can forget, and forgetting it here silently puts operator-facing keys back into
+  // a prompt that writes copy. Required means every call site states its decision and
+  // omitting it is a compile error, which is the guard a test cannot give you.
+  // Pass `null` only for a document with no operator-facing keys.
+  const formatDoc = (
+    doc: StrategyDocument,
+    label: string,
+    guidance: string,
+    project: ((content: unknown) => Record<string, unknown>) | null,
+  ): string => {
+    const body = project
+      ? JSON.stringify(project(doc.content), null, 2)
+      : (doc.plain_text ?? JSON.stringify(doc.content, null, 2))
     return `\n\n---\n\n## ${label} (version ${doc.version})\n\n${guidance}\n\n${body}`
   }
 
@@ -697,7 +718,8 @@ function buildBaseContext(params: VariantGenerationContext): {
     'ICP DOCUMENT',
     'Use this to understand who the playbook is written for. ICP Tier 1 defines the hero. ' +
     'Their four_forces (push, pull, anxiety, habit) are the emotional raw material for opening lines and subject lines. ' +
-    'Their triggers are the situations that make Email 1 land. Their switching_costs inform objection handling.'
+    'Their triggers are the situations that make Email 1 land. Their switching_costs inform objection handling.',
+    projectIcpForDownstream,
   )
 
   const positioningBlock = formatDoc(
@@ -705,7 +727,10 @@ function buildBaseContext(params: VariantGenerationContext): {
     'POSITIONING DOCUMENT',
     'Use this for the core_message, value_themes, and key_messages. ' +
     'The moore_statement is the spine. The competitive_alternatives inform the cost-of-inaction framing. ' +
-    'The white_space from competitive_landscape is what differentiates this firm in copy.'
+    'The white_space from competitive_landscape is what differentiates this firm in copy.',
+    // No operator-facing keys in the positioning schema today. The day it gains one,
+    // this null becomes a projection.
+    null,
   )
 
   const tovBlock = formatDoc(
@@ -715,7 +740,9 @@ function buildBaseContext(params: VariantGenerationContext): {
     'Use the vocabulary.words_they_use list directly. ' +
     'Apply the vocabulary.structural_patterns to every email and LinkedIn message. ' +
     'The writing_rules section contains the five mandatory corrections — all apply here. ' +
-    'The before_after_examples show the register. The do_dont_list is a copy checklist.'
+    'The before_after_examples show the register. The do_dont_list is a copy checklist.',
+    // No operator-facing keys in the TOV schema today. Same note as positioning above.
+    null,
   )
 
   const refreshContext = existingDocument

@@ -22,6 +22,7 @@ import { runResearchQueries, formatResearchForPrompt, type ResearchBundle } from
 import { fetchWebsiteContext, formatWebsiteContextForPrompt, type WebsitePageContext } from '@/lib/agents/website-context'
 import { scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
 import { buildRegenerationNotesBlock, buildRegenerationNotesReason, type RegenerationNotes } from '@/lib/agents/regeneration-notes'
+import { projectIcpForDownstream } from '@/lib/agents/document-projection'
 
 // The model specified in the PRD for document generation agents.
 const POSITIONING_MODEL = 'claude-opus-4-6'
@@ -444,8 +445,10 @@ function buildUserMessage(params: {
 
   // ICP document: the primary anchor for this analysis.
   // Include in full so the agent can read buyer language, four_forces, and tiers directly.
-  const icpContent = icpDocument.plain_text
-    ?? JSON.stringify(icpDocument.content, null, 2)
+  // Projected, not raw. The ICP carries operator-facing keys (unresolved_fields, and Rule 9
+  // Tier Two flagged claims) that must not reach a document-writing prompt. plain_text is
+  // NULL on every row, so the stringify branch was the real path and it passed everything.
+  const icpContent = JSON.stringify(projectIcpForDownstream(icpDocument.content), null, 2)
 
   const icpBlock = `\n\n---\n\n## ICP DOCUMENT (version ${icpDocument.version}) — PRIMARY ANCHOR\n\n` +
     'This is the approved ICP document for this organisation. ' +

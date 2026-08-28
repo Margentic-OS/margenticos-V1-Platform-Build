@@ -621,6 +621,7 @@ export type Database = {
           display_order: number
           error_message: string | null
           extracted_text: string | null
+          extraction_truncated: boolean
           fetch_status: string
           fetched_at: string | null
           id: string
@@ -633,6 +634,7 @@ export type Database = {
           display_order?: number
           error_message?: string | null
           extracted_text?: string | null
+          extraction_truncated?: boolean
           fetch_status?: string
           fetched_at?: string | null
           id?: string
@@ -645,6 +647,7 @@ export type Database = {
           display_order?: number
           error_message?: string | null
           extracted_text?: string | null
+          extraction_truncated?: boolean
           fetch_status?: string
           fetched_at?: string | null
           id?: string

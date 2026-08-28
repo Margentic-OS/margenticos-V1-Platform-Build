@@ -38,6 +38,10 @@ export interface WebsitePage {
   display_order: number
   fetch_status: 'complete' | 'failed'
   extracted_text: string | null
+  // True when the raw extraction was longer than MAX_CHARS_PER_PAGE and was cut before
+  // storage. Without this a page that was cut mid-word is indistinguishable from a page
+  // that is genuinely short, both to a reader of the table and to the agents.
+  extraction_truncated: boolean
   error_message: string | null
   fetched_at: string
 }
@@ -53,6 +57,7 @@ export async function fetchWebsitePages(homepageUrl: string): Promise<WebsitePag
       display_order: 0,
       fetch_status: 'failed',
       extracted_text: null,
+      extraction_truncated: false,
       error_message: 'invalid_url',
       fetched_at: new Date().toISOString(),
     }]
@@ -107,6 +112,7 @@ async function fetchPage(
           url, page_label: label, display_order: order,
           fetch_status: 'failed',
           extracted_text: null,
+          extraction_truncated: false,
           error_message: `http_${res.status}`,
           fetched_at,
         },
@@ -121,7 +127,8 @@ async function fetchPage(
       page: {
         url, page_label: label, display_order: order,
         fetch_status: 'complete',
-        extracted_text: extracted || null,
+        extracted_text: extracted.text || null,
+        extraction_truncated: extracted.truncated,
         error_message: null,
         fetched_at,
       },
@@ -135,6 +142,7 @@ async function fetchPage(
         url, page_label: label, display_order: order,
         fetch_status: 'failed',
         extracted_text: null,
+        extraction_truncated: false,
         error_message: isTimeout ? 'timeout' : 'fetch_error',
         fetched_at,
       },
@@ -145,7 +153,7 @@ async function fetchPage(
 
 // ─── Text extraction ──────────────────────────────────────────────────────────
 
-function extractText(html: string): string {
+function extractText(html: string): { text: string; truncated: boolean } {
   const root = parse(html)
 
   // Remove noise nodes — scripts, styles, nav chrome, cookie banners
@@ -165,7 +173,9 @@ function extractText(html: string): string {
     .replace(/\n{3,}/g, '\n\n') // collapse blank lines
     .trim()
 
-  return text.slice(0, MAX_CHARS_PER_PAGE)
+  // Both values come from the same comparison, so the flag cannot claim one thing while
+  // the text says another.
+  return { text: text.slice(0, MAX_CHARS_PER_PAGE), truncated: text.length > MAX_CHARS_PER_PAGE }
 }
 
 // ─── Inner page discovery ─────────────────────────────────────────────────────
