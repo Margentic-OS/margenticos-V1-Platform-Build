@@ -3670,3 +3670,127 @@ See BACKLOG: the queries that produced the flagged document were built from an o
 intake answer and a currency-derived geography, so research was asked nonsense rather than
 failing. Better queries reduce how often flagging is needed but never to zero, so the two
 are complementary.
+
+---
+
+## ADR-043: ICP research geography comes from the client's own domain, and Rule 9B is the positive counterpart to Rule 9
+
+**Date:** 2026-08-28
+**Status:** Accepted.
+
+**Number:** 043 claimed by surveying every local and remote ref, per the method in BACKLOG.
+042 is the highest defined anywhere.
+
+### What prompted this
+
+An ICP regenerated on 2026-08-28 for the live school-meals client described the business
+generically. The previous version had named the delivery mechanism, the waste model and a
+product range of the client's own. Measured rather than assumed: the current suggestion
+still carries the delivery mechanism and gains the founder's background, and has LOST the
+named range and the waste model that the June version carried.
+
+The material was not missing. Two pages, 6,000 characters, `fetch_status = complete`, sit
+in `intake_website_pages` for that organisation and contain every one of those details.
+
+### Finding one: the website content reaches the agent, and always did
+
+`fetchWebsiteContext` in `src/lib/agents/website-context.ts` is called by the ICP agent at
+`icp-generation-agent.ts:142`, and its output is interpolated at `buildUserMessage` as
+`websiteBlock`, after the intake responses and the uploaded documents and before the
+research block. There is no cap, no slice and no row limit on the read.
+
+So the plumbing was never the cause, and the other two changes are not secondary to it.
+
+There IS a truncation, but it is upstream and it is not what lost these details.
+`MAX_CHARS_PER_PAGE = 3_000` in `src/lib/intake/fetch-website.ts:17` cuts each page at
+ingest. Three of the seven stored pages sit at exactly 3,000 characters and end mid-word.
+Every detail named above is inside the stored window, so the cap did not remove them. It is
+logged in BACKLOG rather than changed here, because changing it would need a re-fetch to
+mean anything and the prompt budget it protects is real.
+
+### Finding two: the research queries were the cause, and they were asked nonsense
+
+Both causes were logged in BACKLOG on 2026-08-28 and are fixed here.
+
+**Cause one, an emptiness check standing in for a quality check.** `const buyer =
+cloneClient || whatYouDo` falls back only when the ideal-client answer is EMPTY. An answer
+that is non-empty and does not answer the question asked became the buyer descriptor
+verbatim, in three of the four queries.
+
+This is not an edge case. Run against the real intake of all five organisations, FOUR of
+the five `clients_clone` answers are prose about a relationship rather than a description
+of a population, and the fifth is the only one that names a buyer.
+
+`usableDescriptor` replaces the emptiness check with two category-level criteria and a
+floor. Neither criterion names an industry, a buyer archetype or a service type.
+
+  1. The descriptor must open with a noun phrase. A subject pronoun has no antecedent a
+     search engine can resolve, and a subordinating conjunction opens a story rather than
+     naming a population. Possessives are deliberately NOT rejected: "our clients are
+     hospital procurement leads" opens with "our" and is a good descriptor.
+  2. The descriptor must not carry a first-person singular marker. That means the answer
+     turned into the respondent's own story.
+  3. Below three words it carries no more than the generic fallback already does.
+
+The failure is deliberately asymmetric. A false reject falls back to the service
+description, which is still a real search term. A false accept sends narrative prose to a
+search engine, the research comes back empty, and the document is written without it.
+
+**Cause two, geography inferred from currency.** `geoHint` mapped EUR to "Europe", so a
+single-country client inside a multi-country currency zone was searched against the whole
+zone. On the school-meals client that put "Ireland" in the service description and "Europe"
+in the same query string. CLAUDE.md's geography rule says currency alone is insufficient.
+The document prompt obeys that rule; the query builder did the opposite and its own comment
+said so.
+
+Geography now comes from the ccTLD of the client's own website and from nothing else.
+There is no country field in intake, and the domain is the only direct country evidence
+that exists. The ccTLD map is an allowlist, so the country codes sold as vanity domains
+(.io, .ai, .co, .me, .tv) yield no hint rather than a wrong one.
+
+**The accepted trade-off, stated because it is a cost and not an oversight.** A generic TLD
+now yields NO geographic hint, where currency previously supplied a confident wrong one.
+Three of the five live organisations are on .com and lose their hint. A query with no
+geography returns broader results; a query with the wrong geography returns results about
+the wrong market and reads as though it worked. Broader beats wrong. The real fix is a
+country field in intake, which is in BACKLOG.
+
+**Proved rather than asserted.** `scripts/prove-research-queries.ts` runs the real builder
+against the real intake of every organisation and prints before beside after. The "before"
+column comes from `scripts/__before__research-queries.ts`, extracted mechanically from
+origin/main rather than retyped. All twenty queries across five organisations change.
+
+### Finding three: Rule 9 has no positive counterpart, and Rule 9B is it
+
+Rule 9 is a prohibition on stating third-party facts that are not sourced. It says nothing
+about the client's own facts. A model reading a long absolute ban immediately before
+generating has no instruction pulling the other way, and the observed output is a specific
+business described in general terms.
+
+Rule 9B states that the client's own materials ARE sourced material and must be used
+concretely: their own products, methods, mechanisms, named ranges, operational detail and
+the founder's own background all come from intake, the uploads or their own website, so no
+tier of Rule 9 governs them. The test is stated in the rule and repeated in the ICP quality
+self-check: a reader who knows this market should be able to tell this client apart from a
+competitor after reading the document.
+
+It defers rather than widens on the one place the two rules touch. Where the client's own
+material states their standing under a public body, a regulator, a scheme or a standard,
+Rule 9 governs that sentence. Whether Rule 9 Tier One's ban on "this client's own standing"
+is overridden by that standing appearing in the client's own website text is a genuine
+ambiguity in the rule as written. It is logged in BACKLOG rather than resolved here,
+because resolving it changes what Rule 9 permits and that is its own decision.
+
+**Why 9B and not a new Rule 10.** Inserting a rule between 9 and 10 renumbers Rule 10 in
+five files and Rule 11 in the messaging prompt, and touches roughly fourteen cross
+references. 9B is adjacent to Rule 9, which is what makes the boundary visible, and it can
+be synced to the other three prompts later without renumbering anything. The retired
+lowercase "9a" was absorbed into Rule 9 because it was a duplicate PROHIBITION. 9B is the
+opposite half, not a duplicate.
+
+**Scope boundary, recorded as divergence 7 in the shared spec.** 9B is in
+`shared-voice-spec.md` and `icp-agent.md` only. It is not yet in the positioning, TOV or
+messaging prompts. That is a scope decision, not drift: this session was scoped to the ICP
+path, and the messaging prompt feeds the send path, which another session was exercising.
+A test asserts the two copies that DO exist are identical, so they cannot drift while the
+other three wait.

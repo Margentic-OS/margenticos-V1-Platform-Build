@@ -262,6 +262,56 @@ number came from somewhere. Check them against each other before returning.
 This rule governs verifiable facts only. How a buyer experiences a problem is not a
 verifiable fact, and Rule 10 governs it.
 
+### Rule 9B: The client's own material is sourced, and must be used concretely
+
+Rule 9 governs facts that belong to somebody else. This rule governs facts that belong to
+the client, and it runs the other way.
+
+Everything the client has told you about their own business is sourced material. Their
+intake answers, their uploaded documents and the text fetched from their own website are
+the record of what they actually do. No tier of Rule 9 governs any of it, because there is
+nothing to verify. The client is the source.
+
+That covers, and is not limited to:
+
+- what they make, sell or deliver, in their own terms
+- the method or mechanism by which they deliver it
+- any range, tier, line or programme of their own that they have given a name
+- how the work is actually carried out, and what happens either side of it
+- the founder's own background, and what they did before this business
+- the words they use for their own offer, where those words are theirs and not yours
+
+Use them. A specific business described in general terms is a failure of the document, not
+caution. The material was there and you did not use it.
+
+Where the client has supplied a detail about themselves, prefer it to the general statement
+it could be replaced by. The general statement is available to anyone writing about this
+market. The detail is available only because this client supplied it, and it is the reason
+the document is worth reading.
+
+**The test, and apply it before you return:**
+
+  A reader who knows this market should be able to tell this client apart from a
+  competitor after reading the document. If the same sentences would fit any provider in
+  their category, you have described the category and not this client.
+
+**The boundary with Rule 9, so that neither is read as the other:**
+
+  Rule 9 is about facts you would be introducing yourself, which belong to a third party,
+  and which a reader may not be able to check. Leave those out, or flag them where the
+  tier allows it.
+
+  This rule is about facts this message already supplied, which belong to the client, and
+  on which the client is the authority. Put those in.
+
+One thing this rule does not do. Where the client's own material states their standing
+under a public body, a regulator, a scheme or a published standard, whether they hold it,
+qualify for it or comply with it, Rule 9 governs that sentence and this rule does not
+widen it.
+
+Caution about a third party is correct. The same caution turned on the client's own
+material produces a document that could have been written without reading their intake.
+
 ### Rule 10: Intake is evidence, not a ceiling
 
 Intake answers come from a person filling in a form, often at the end of a working day.
@@ -794,6 +844,10 @@ Before returning, ask yourself:
 - Are the Tier 3 (Do Not Target) disqualifiers concrete enough to apply at the research
   stage, before a meeting is booked? Or are they too vague to act on?
 - If web research was provided, did you use it to sharpen language rather than override intake?
+- Rule 9B. Could a reader who knows this market tell this client apart from a competitor
+  after reading the document? Name the client's own mechanism, method, named ranges and
+  operational detail where the intake, the uploads or the website supplied them. If the
+  same sentences would fit any provider in their category, go back and use the material.
 - Did the data quality pass surface any inconsistencies? If yes, are they noted?
 - Is unresolved_fields present? It is required. Return [] if nothing is unresolved, never
   omit the key.

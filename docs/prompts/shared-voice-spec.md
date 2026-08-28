@@ -10,7 +10,7 @@ to this file must be manually re-synced to all four prompt files:
 If you edit this file without syncing, the spec and the embedded copies silently diverge.
 
 **"Verbatim" above is aspirational and has not been true for some time. Measured
-2026-08-27 and corrected the same day, SIX differences are intentional and a re-sync must
+2026-08-27 and corrected the same day, SEVEN differences are intentional and a re-sync must
 PRESERVE them:**
 
   1. HEADING LEVEL. `## Rule N` here, `### Rule N` in the prompts, where the rules sit
@@ -32,8 +32,16 @@ PRESERVE them:**
      this file and must not be deleted by a re-sync. It was Rule 10 until 2026-08-27,
      renumbered when Rule 10 was added here.
 
-Rules 1 to 10 are canonical in SUBSTANCE. A re-sync carries the substance across and
-preserves the six differences above. Nothing else in a prompt file is touched.
+  7. RULE 9B EXISTS HERE AND IN icp-agent.md ONLY, as of 2026-08-28. It is NOT yet in
+     positioning-agent.md, tov-agent.md or messaging-agent.md. This is a deliberate scope
+     boundary, not drift: the session that added it was scoped to the ICP path, and the
+     messaging prompt feeds the send path, which another session was exercising at the
+     time. The rule is written to apply to all four and the next re-sync should carry it
+     across. It is numbered 9B rather than inserted as a new Rule 10 precisely so that it
+     can be synced without renumbering Rule 10 here and Rule 11 in messaging-agent.md.
+
+Rules 1 to 10, and Rule 9B, are canonical in SUBSTANCE. A re-sync carries the substance
+across and preserves the seven differences above. Nothing else in a prompt file is touched.
 
 ---
 
@@ -272,6 +280,59 @@ number came from somewhere. Check them against each other before returning.
 
 This rule governs verifiable facts only. How a buyer experiences a problem is not a
 verifiable fact, and Rule 10 governs it.
+
+---
+
+## Rule 9B: The client's own material is sourced, and must be used concretely
+
+Rule 9 governs facts that belong to somebody else. This rule governs facts that belong to
+the client, and it runs the other way.
+
+Everything the client has told you about their own business is sourced material. Their
+intake answers, their uploaded documents and the text fetched from their own website are
+the record of what they actually do. No tier of Rule 9 governs any of it, because there is
+nothing to verify. The client is the source.
+
+That covers, and is not limited to:
+
+- what they make, sell or deliver, in their own terms
+- the method or mechanism by which they deliver it
+- any range, tier, line or programme of their own that they have given a name
+- how the work is actually carried out, and what happens either side of it
+- the founder's own background, and what they did before this business
+- the words they use for their own offer, where those words are theirs and not yours
+
+Use them. A specific business described in general terms is a failure of the document, not
+caution. The material was there and you did not use it.
+
+Where the client has supplied a detail about themselves, prefer it to the general statement
+it could be replaced by. The general statement is available to anyone writing about this
+market. The detail is available only because this client supplied it, and it is the reason
+the document is worth reading.
+
+**The test, and apply it before you return:**
+
+  A reader who knows this market should be able to tell this client apart from a
+  competitor after reading the document. If the same sentences would fit any provider in
+  their category, you have described the category and not this client.
+
+**The boundary with Rule 9, so that neither is read as the other:**
+
+  Rule 9 is about facts you would be introducing yourself, which belong to a third party,
+  and which a reader may not be able to check. Leave those out, or flag them where the
+  tier allows it.
+
+  This rule is about facts this message already supplied, which belong to the client, and
+  on which the client is the authority. Put those in.
+
+One thing this rule does not do. Where the client's own material states their standing
+under a public body, a regulator, a scheme or a published standard, whether they hold it,
+qualify for it or comply with it, Rule 9 governs that sentence and this rule does not
+widen it.
+
+Caution about a third party is correct. The same caution turned on the client's own
+material produces a document that could have been written without reading their intake.
+
 
 ---
 

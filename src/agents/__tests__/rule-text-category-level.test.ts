@@ -78,6 +78,7 @@ describe('shared rule text is category-level', () => {
     const block = ruleBlock(SPEC)
     expect(block.length).toBeGreaterThan(5000)
     expect(block).toContain('Rule 9')
+    expect(block).toContain('Rule 9B')
     expect(block).toContain('Rule 10')
   })
 
@@ -100,6 +101,47 @@ describe('shared rule text is category-level', () => {
     expect(r9.length).toBeGreaterThan(1000)
     const hits = scan(r9)
     expect(hits, `Rule 9:\n  ${hits.join('\n  ')}`).toEqual([])
+  })
+
+  it('Rule 9B is clean, and it is the rule most likely to attract a worked example', () => {
+    // Rule 9B tells the model to be CONCRETE about the client. The tempting way to write
+    // that rule is to show what concrete looks like, and every example of a named product
+    // range, a delivery mechanism or a founder's background belongs to some real industry.
+    // A worked example here would teach the industry along with the rule, inside the rule
+    // that is supposed to make the document specific to whichever client is in front of it.
+    const block = ruleBlock(SPEC)
+    const r9b = block.slice(block.indexOf('## Rule 9B:'), block.indexOf('## Rule 10:'))
+    expect(r9b.length, 'Rule 9B not found in the shared spec').toBeGreaterThan(1000)
+    const hits = scan(r9b)
+    expect(hits, `Rule 9B:\n  ${hits.join('\n  ')}`).toEqual([])
+  })
+
+  it('Rule 9B is present in the ICP prompt and says the same thing as the spec', () => {
+    // Recorded divergence 7: 9B is in the spec and the ICP prompt only. This asserts the
+    // half that IS synced actually matches, so the two cannot drift while the other three
+    // prompts wait for the re-sync. Heading level is the one permitted difference.
+    const spec = readFileSync(SPEC, 'utf-8')
+    const icp = readFileSync(join(process.cwd(), 'docs/prompts/icp-agent.md'), 'utf-8')
+
+    const cut = (raw: string, h: string) =>
+      raw.slice(raw.indexOf(`${h} Rule 9B:`), raw.indexOf(`${h} Rule 10:`))
+        .replace(/^#+ /gm, '')
+        .replace(/^---$/gm, '')
+        .trim()
+
+    const fromSpec = cut(spec, '##')
+    const fromIcp = cut(icp, '###')
+    expect(fromSpec.length).toBeGreaterThan(1000)
+    expect(fromIcp).toBe(fromSpec)
+  })
+
+  it('Rule 9B carries no em dash, because the prompt copy bans the character', () => {
+    // Divergence 3: the spec still uses em dashes in older rules and the prompts may not.
+    // 9B was written without one so the two copies stay byte-identical and the assertion
+    // above stays a real check rather than one that has to allow for conversions.
+    const icp = readFileSync(join(process.cwd(), 'docs/prompts/icp-agent.md'), 'utf-8')
+    const r9b = icp.slice(icp.indexOf('### Rule 9B:'), icp.indexOf('### Rule 10:'))
+    expect(r9b).not.toMatch(/[\u2014\u2013]|--/)
   })
 
   it('the banned list itself has not been quietly emptied', () => {
