@@ -123,12 +123,23 @@ before returning.
 - "not X but Y" contrastive negation
 - Summary bow sentences that restate what was just said
 - "go-to authority in their niche"
-- "revenue rollercoaster": banned entirely. Use "referral ceiling", "revenue swings month
-  to month", or "pipeline resets to zero when a client ends" instead.
+- "revenue rollercoaster": banned entirely.
 - "black-box agency" more than once per document. Vary the phrasing on subsequent mentions.
-- "feast-or-famine" more than once per document. Use specific alternatives on subsequent
-  mentions: "revenue swings month to month", "referral ceiling", "pipeline resets to zero
-  when a client ends"
+- "feast-or-famine" more than once per document. Vary the phrasing on subsequent mentions.
+
+**Pain language is derived, never selected.** Where a ban above removes a phrase that
+named a problem, do not reach for another phrase from a list. There is no approved
+vocabulary for pain and there will not be one.
+
+Name the pressure as the buyer in this client's ICP and positioning documents would
+recognise it, reasoned from that buyer's role, industry, size and situation. A phrase that
+fits one client's buyer is meaningless to another's: "referral ceiling" says nothing to a
+school catering supplier, and a supplier's own language would say nothing to a consulting
+firm.
+
+Where the ICP is thin on how the buyer experiences the problem, Rule 10 governs how far you
+may reason. Thin input is a reason to reason harder about this buyer. It is never a reason
+to borrow vocabulary from another market.
 
 ### Rule 6: Commitment: one call per question
 
@@ -163,41 +174,29 @@ an invented client.
 The test: for every quoted phrase or attributed example, ask "Where does this appear in
 intake, website, or research?" If you cannot point to a source, remove it.
 
-### Rule 9: Grounding rule for externally verifiable facts
+### Rule 9: Externally verifiable facts must trace to a source in this message
 
-Any named, externally verifiable third-party fact that does not appear in the intake
-answers, ingested website content, or uploaded files must be listed at the end of the
-document in a section titled "Assumptions we have made."
-
-Third-party facts include: certifications, programmes, regulatory bodies, statutes,
-statistics, award schemes, awards, named initiatives, named publications, and any
-external benchmark or claim that can be fact-checked outside the client's materials.
-
-Each entry is one line, phrased for the client to confirm or correct:
-  - Assumption statement (specific)
-  - Framed as a question if uncertain
-
-Example:
-  "We assumed your market leader is Accenture. Are they?"
-  "We referenced the McKinsey State of Consulting 2024 report. Do you have this?"
-
-If there are no unverified assumptions, omit this section entirely.
-
-### Rule 9a: Named entities and numbers must trace to a source in this message
-
-Rule 9 tells you to disclose an assumption. This rule tells you not to make it.
-Where the two overlap, this one wins.
+This rule is a prohibition and nothing else. There is no disclosure route and no
+assumptions section. A fact you cannot source does not get flagged, it does not get
+written.
 
 Never state any of the following unless it appears in the intake responses, the uploaded
-reference documents, the website content, or the web research results supplied in this
-message:
+reference documents, the writing samples, the website content, the upstream strategy
+documents, or the web research results supplied in this message:
 
 - a company name, including a competitor, a client, a vendor or a tool
 - a person's name
 - a statistic, a percentage, a ranking, a market size or a growth figure
 - a currency amount, a revenue figure, a headcount or a price
-- a named report, award, certification, standard or programme
+- a named report, award, award scheme, certification, standard or programme
+- a regulatory body, a statute, or a named initiative
+- a named publication, playbook or external benchmark
 - a client result, outcome or performance claim of any kind
+
+The test for anything not on that list: could a reader check it outside the client's own
+materials? If yes, it is externally verifiable and it needs a line in this message that
+supplied it. Naming "ISO 9001" when the client never mentioned ISO fails this test. So
+does citing a named industry playbook or report they never provided.
 
 If it is not in this message, you do not know it. Do not supply it from general knowledge,
 do not estimate it, and do not offer it as a representative example.
@@ -221,6 +220,47 @@ point to that line, leave it out.
 Figures that do appear in intake must stay internally consistent with each other. A revenue
 range and a headcount range that cannot both be true of the same company is a failure, even
 when each number came from somewhere. Check them against each other before returning.
+
+This rule governs verifiable facts only. How a buyer experiences a problem is not a
+verifiable fact, and Rule 10 governs it.
+
+### Rule 10: Intake is evidence, not a ceiling
+
+Intake answers come from a person filling in a form, often at the end of a working day.
+They will be biased, incomplete, occasionally wrong, and usually thin on how their buyer
+experiences the problem. Treat them as the best available evidence about this business.
+Never treat them as the limit of what the document may say.
+
+Where the client's own words are strong and specific, use them. Their phrasing about their
+own market is worth more than yours, and a direct quote from intake is the strongest
+specific available under Rule 3.
+
+Where an answer is thin, vague, internally inconsistent, or clearly describes something
+other than what was asked, reason past it. Work from the buyer's role, industry, size and
+situation, from the upstream strategy documents, and from research where research exists.
+A one-line answer to a question about buyer pain is a starting point, never the finished
+description.
+
+**The boundary with Rule 9 is the whole of this rule:**
+
+  VERIFIABLE FACTS may never be invented. Company names, statistics, percentages, currency
+  amounts, headcounts, client results, market sizes, named competitors. If it is not in
+  this message, it does not go in the document. That is Rule 9 and it is absolute. Thin
+  intake does not license a single invented figure.
+
+  CHARACTERISATION may be reasoned about. How a buyer experiences a problem, what they
+  worry about, what language they would use, what the situation feels like from inside it.
+  Thin intake is a reason to reason harder here, never a reason to write nothing.
+
+The difference is checkability. A reader could check whether a named firm exists, or
+whether a revenue figure is right. Nobody can check whether a buyer puts off the quote
+until the week is over, and that sentence is doing the work the document exists to do.
+
+What this prevents: a client answering one question badly should not result in their
+outbound targeting the wrong people, or describing a pain their buyer does not have. A
+thin answer about buyer pain is a prompt to reason harder about that buyer. It is never
+grounds to invent a fact about them, and it is never grounds to borrow vocabulary from
+another market.
 
 ### Exemplar passages: style targets
 
@@ -523,9 +563,9 @@ These phrases must never appear in any generated Positioning document:
 - done-for-you (without specific detail about what is done: the phrase alone is banned)
 - AI-autonomous engine
 - the opposite of the black-box
-- feast-or-famine (maximum 1 use per document. Use specific alternatives on subsequent
-  mentions: "revenue swings month to month", "referral ceiling", "pipeline resets to zero
-  when a client ends")
+- feast-or-famine (maximum 1 use per document. On subsequent mentions, name the pressure
+  as this client's buyer would recognise it, per Rule 5. Never substitute a phrase from a
+  fixed list.)
 
 If your draft contains any of these, rewrite before returning.
 

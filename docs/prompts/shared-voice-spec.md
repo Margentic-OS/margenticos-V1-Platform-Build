@@ -9,17 +9,26 @@ to this file must be manually re-synced to all four prompt files:
   docs/prompts/messaging-agent.md
 If you edit this file without syncing, the spec and the embedded copies silently diverge.
 
-**Two known and intended differences between this file and the embedded copies.** Neither
-is drift, and a re-sync must preserve both:
+**"Verbatim" above is aspirational and has not been true for some time. Measured
+2026-08-27, five differences are intentional and a re-sync must PRESERVE them:**
 
-  1. HEADING LEVEL. Rules are `## Rule N` here and `### Rule N` in the four prompts,
-     because in the prompts they sit under a `## Shared voice rules` parent.
-  2. messaging-agent.md carries a LOCAL `### Rule 11: Understandability` that is not in
+  1. HEADING LEVEL. `## Rule N` here, `### Rule N` in the prompts, where the rules sit
+     under a `## Shared voice rules` parent.
+  2. NO `---` SEPARATORS in the prompts.
+  3. NO EM DASHES in the prompts, anywhere except the ban-list line that has to contain
+     the character it bans. This file still uses them in Rules 4, 5, 6 and 8. Copying
+     those lines across unchanged would put an em dash into a runtime prompt that bans
+     em dashes and runs assertNoDashes on its own output. Established conversions: Rule 6
+     heading takes a colon, Rule 4's "robust" line drops the parenthetical, Rule 8 takes
+     a colon and a comma.
+  4. RULE 7's EXAMPLE DIFFERS. The prompts carry a shorter version with no worked "wrong"
+     sentence. Do not overwrite it from here.
+  5. messaging-agent.md carries a LOCAL `### Rule 11: Understandability` that is not in
      this file and must not be deleted by a re-sync. It was Rule 10 until 2026-08-27,
      renumbered when Rule 10 was added here.
 
-Rules 1 to 10 below are canonical. A re-sync replaces Rules 1 to 10 in each prompt and
-touches nothing else in the file.
+Rules 1 to 10 are canonical in SUBSTANCE. A re-sync carries the substance across and
+preserves the five differences above. Nothing else in a prompt file is touched.
 
 ---
 
