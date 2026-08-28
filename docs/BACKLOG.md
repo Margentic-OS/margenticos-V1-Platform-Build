@@ -7343,3 +7343,102 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   no structured way to report a field they could not ground. The banner code path reads
   the key off any document type, so extending it is a schema and prompt change per agent
   with no renderer work. Not done because the brief scoped Change 4 to the ICP schema.
+
+## THREE NOTES FOR THE RECORD, 2026-08-27, ratified by Doug at merge time
+
+- [post-build] DELETE THE DEAD ASSUMPTIONS-EXTRACTION PATH IN THE MESSAGING AGENT.
+  ITS OWN ITEM SO IT GETS DELETED DELIBERATELY RATHER THAN DISCOVERED AGAIN.
+
+  Roughly 40 lines in src/agents/messaging-generation-agent.ts, left in place during the
+  docgen-intake-rules session under "mention unrelated dead code, do not delete it", and
+  logged here at Doug's instruction so the deletion is a decision rather than a surprise.
+
+  What to delete:
+    - `UpstreamAssumption` type (around line 175)
+    - `extractAssumptionsFromDocument()` (around line 641)
+    - the three `.map()` calls building `upstreamAssumptions` (around lines 280-291)
+    - `upstreamAssumptions` threading through VariantGenerationContext and
+      buildBaseContext (around lines 304, 364, 668, 777)
+    - `upstreamAssumptionsContext` and its prompt block (around lines 749-760)
+
+  WHY IT IS DEAD, measured 2026-08-27 and not inferred. The extractor regexes
+  `## Assumptions we have made` out of `strategy_documents.plain_text`. NOTHING IN THE REPO
+  EVER WRITES plain_text: it is read in nine places across four agents and one page, and
+  assigned in none. Live confirmation across all 50 strategy_documents rows:
+
+      document_type   total   plain_text_not_null   has_assumptions_section
+      icp                15                     0                         0
+      messaging          18                     0                         0
+      positioning         8                     0                         0
+      tov                 9                     0                         0
+
+  So `extractAssumptionsFromDocument` has always returned [], `upstreamAssumptions` has
+  always been empty, and `upstreamAssumptionsContext` has always been ''. ADR-040 removed
+  the prompt rule that was supposed to produce its input, so it is now dead at both ends.
+
+  THE REAL QUESTION UNDERNEATH, and the reason this is not a two-minute deletion: four
+  agents read plain_text as a fallback (`doc.plain_text ?? JSON.stringify(doc.content)`)
+  and one client-facing page passes it to a renderer. Either plain_text should be populated
+  at approval time, in which case the extractor becomes live rather than dead, or the column
+  is vestigial and every read of it is a branch that never taken. Decide that first. Deleting
+  the extractor while leaving the column half-wired just moves the confusion.
+
+- [post-build] THE PLACEHOLDER GUARD'S OWN TEXT WAS THE SOURCE OF A WRONG MEASUREMENT
+  THAT THEN TRAVELLED BETWEEN SESSIONS.
+
+  shared-voice-spec.md's Rule 9 placeholder asserted that the four embedded Rule 9 copies
+  ran to "53, 46, 44 and 18 lines as of 2026-08-27". Measured on the same files the same
+  day, Rule 9 alone is 27 / 20 / 18 / 18 lines, and Rule 9 plus Rule 9a is 66 / 59 / 57 / 57.
+  Neither reading is 53/46/44/18. The pattern suggests 9+9a was counted for three files and
+  9 alone for the fourth, but the reconstruction does not matter.
+
+  WHAT MATTERS IS THE TRAVEL. The wrong figure was read out of the guard into another
+  session's report, passed from there into the docgen-intake-rules brief as an established
+  fact, and would have been repeated in that session's own report had it not been measured.
+  Doug flagged this himself at merge time: he took the figure from another session's report
+  and passed it on without checking.
+
+  A number written into a file as a parenthetical is indistinguishable from a number that
+  was measured, and it outlives the moment it was true. The guard is now deleted, so this
+  specific figure cannot travel further, but the shape will recur: this repo's docs are full
+  of measured counts stated as bare figures.
+
+  NEXT ACTION, and it is a convention rather than a fix: when a doc states a count, state
+  how to reproduce it in the same breath. "27/20/18/18 lines, measured by
+  `grep -n '^### Rule 9'` to the next heading" survives being wrong in a way a bare figure
+  does not. Related: [[backlog-entries-can-be-stale]] and the standing rule to verify a
+  stated symptom live before working the problem.
+
+- [docs] RATIFIED: A RE-SYNC OF shared-voice-spec.md CARRIES SUBSTANCE, NEVER BYTES.
+
+  Recorded because the instruction given at the time said the opposite, and Doug ratified
+  the deviation at merge time: "Following the sync rule literally would have injected banned
+  characters into prompts that assert against them. Syncing the substance was the correct
+  read."
+
+  The spec claimed "EMBEDDED VERBATIM". Five divergences were measured against origin/main
+  and all five are intentional: heading level, no `---` separators in the prompts, no em
+  dashes in the prompts where the spec carries six, a shorter Rule 7 example, and messaging's
+  local Understandability rule. A literal re-sync would have put em dashes into four runtime
+  prompts that ban em dashes and run assertNoDashes on their own output.
+
+  The spec header now lists all five so the next re-sync preserves them. This is documented
+  in ADR-040 as the standing interpretation.
+
+  STILL THE RIGHT FIX, and still not done: stop hand-syncing. Either have the four agents
+  load the spec at runtime and concatenate it, or generate the four prompt files from it in
+  a build step with the divergences as declared transforms. Both remove the class entirely.
+  This is a change to how four agents load their prompts and wants its own session with its
+  own receipts. Until then, a hand re-sync must verify Rules 1 to 10 are hash-identical
+  across the four prompts, which is what this session did.
+
+- [docs] ADR-040 EXTENDS THE CLAUDE.md ADR-LIST GAP TO 035 THROUGH 040.
+
+  CLAUDE.md's "ADR reference list" stops at ADR-034. The existing entry above already logs
+  035 through 039 as missing; ADR-040 makes it 035 through 040. NOT fixed here because
+  CLAUDE.md was explicitly out of bounds for this session, another live session was editing
+  it at the time, and it is still one commit touching only CLAUDE.md once the branches land.
+
+  Line to add when someone does it:
+    ADR-040  Intake is evidence, not a ceiling; checkability divides reasoning from
+             invention; unresolved_fields surfaces an ungrounded field to the operator
