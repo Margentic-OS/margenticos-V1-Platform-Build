@@ -17,6 +17,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { assertNoUnsourcedVendorNames } from '@/lib/agents/vendor-name-gate'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { runResearchQueries, formatResearchForPrompt, type ResearchBundle } from '@/lib/agents/tools/webSearch'
 import { fetchWebsiteContext, formatWebsiteContextForPrompt, type WebsitePageContext } from '@/lib/agents/website-context'
@@ -197,6 +198,16 @@ export async function runPositioningGenerationAgent(
   // Operates on string values only — never changes JSON structure.
   const scrubbedDocument = scrubAITellsDeep(parsedDocument, 'positioning-agent')
   assertNoDashes(scrubbedDocument, 'positioning-agent')
+
+  // Vendor-name gate. REPORT-ONLY until 2026-09-04: logs every hit with the
+  // field and whether the input message supplied the name, and throws only in block mode.
+  // The input message is literally what the model was given, which is what makes the
+  // sourcedness test Rule 9's own test rather than a new one.
+  assertNoUnsourcedVendorNames(scrubbedDocument, userMessage, {
+    agent: 'positioning-agent',
+    organisation_id,
+    document_type: 'positioning',
+  })
   const scrubbedContent = JSON.stringify(scrubbedDocument)
 
   // Step 10: Write to document_suggestions — never to strategy_documents directly.

@@ -8207,7 +8207,71 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   gained a rule saying evidence is named by KIND OF SOURCE, never by a tool, in EVERY
   field rather than only in evidence_to_find.
 
-- [pre-c1] [gate] THE OUTPUT-SIDE TOOL-AGNOSTICISM GATE IS NOT BUILT. BOUNDARY REPORTED.
+- [pre-c1] [gate] THE OUTPUT-SIDE VENDOR GATE IS BUILT AND IS REPORT-ONLY. REVIEW AFTER
+  2026-09-04, THEN FLIP IT TO BLOCKING.
+
+  src/lib/agents/vendor-name-gate.ts, wired into the ICP, positioning and TOV agents beside
+  assertNoDashes. VENDOR_GATE_MODE = 'report'.
+
+  DOUG'S INSTRUCTION, 2026-08-28, and the reason it is not blocking on day one: "A gate that
+  has never been observed firing is a gate nobody has tested." One week of report-only, log
+  every hit with the document, the field and whether the name was sourced. If it fires zero
+  times on real generations, flip it.
+
+  TO FLIP: change VENDOR_GATE_MODE to 'block' and record here what the week's logs showed.
+  The flip is MANUAL on purpose. A date this file rolls over on its own would put the gate
+  into blocking mode without anyone having read what it caught, which is the whole point of
+  the observation week.
+
+  WHAT TO LOOK FOR IN THE LOGS. Two log lines, deliberately separate.
+    warn "UNSOURCED vendor names in generated document"  -> would be blocked. Expect zero.
+    info "sourced vendor names allowed"                  -> the known hole below. Read these.
+
+  NOT WIRED INTO THE MESSAGING AGENT. Its gate site is inside writeDocumentSuggestion, which
+  does not have the per-variant user message in scope, so threading it in is an invasive
+  change to the agent that feeds the send path. Measured 2026-08-28: no messaging output
+  contains a vendor name. Own item, do it when the messaging agent is next open anyway.
+
+- [research] [gate] THE INCIDENTAL-MENTION HOLE IN THE VENDOR GATE. DO NOT FIX IT BY
+  MATCHING PHRASING.
+
+  A client who mentions a vendor in passing ("we tried Apollo once" in an intake answer)
+  SOURCES that name for the whole run. The model may then reuse it as a signal prefix, and
+  the gate will allow it, because sourcedness is the test and the name genuinely is in the
+  input message. Logged as a sourced hit, never blocked.
+
+  THIS IS DELIBERATE AND THE ALTERNATIVE IS WORSE. Recorded here so that nobody later
+  "improves" the gate by trying to infer intent from how the name is used.
+
+  The 33 real occurrences measured on 2026-08-28 used at least three unrelated shapes:
+      "Apollo-detectable: headcount reduction ..."
+      "Checkable via Apollo revenue estimates ..."
+      "no visible team beyond the founder on Apollo or LinkedIn"
+  No pattern separates those from a client legitimately naming a tool their buyer uses.
+  Guessing intent from phrasing means guessing wrong in both directions, and the direction
+  that guesses wrong AGAINST THE CLIENT is the one that matters: a gate that stops a client
+  describing their own market is worse than the leak it prevents.
+
+  The right place for this review is a human reading the report-only "sourced" log line,
+  which is why sourced hits are logged separately rather than silently allowed.
+
+- [process] A FIGURE REPEATED IS NOT A FIGURE VERIFIED.
+
+  2026-08-28. I reported THREE hardcoded vendor names in the ICP prompt, repeated it in a
+  second report, and wrote three into this file. It was TWO. The count came from a scan that
+  reported one hit per line and I never re-derived it.
+
+  Same shape as the page-truncation figure the day before: "three of seven stored pages"
+  was stated confidently, repeated, and was four of eight, because the first count queried
+  three organisations rather than all five. Both were caught only when something forced a
+  re-measurement, not by re-reading.
+
+  The pattern is that a number acquires authority by being repeated, and a number carried
+  between reports or between sessions is the one least likely to be checked, because it
+  arrives already looking settled. RE-DERIVE A COUNT AT THE POINT OF USE. Quoting an earlier
+  count is quoting yourself.
+
+- [pre-c1] [gate] SUPERSEDED ENTRY, kept for the boundary reasoning:
 
   The prompt-text scan (prompt-tool-agnostic.test.ts) is live and is the SMALLER HALF: it
   would have caught 2 of the 35 occurrences and missed 33. ADR-028 says the prompt is
