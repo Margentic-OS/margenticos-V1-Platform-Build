@@ -7251,3 +7251,95 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   Still outstanding from this: CLAUDE.md's ADR reference list stops at ADR-034 and now
   misses 035 through 039. Same parallel-session reason as the entry above, so it is still
   one commit touching only CLAUDE.md once the branches land.
+
+---
+
+## SESSION 2026-08-27, branch docgen-intake-rules (four document-agent changes)
+
+- [post-build] RESOLVED: the mandated consulting pain vocabulary is gone. The Track B
+  Group 2 top item above is CLOSED by this branch. The open a/b/c decision recorded there
+  was settled as (b): a general derivation instruction with no worked vocabulary.
+
+  All 13 substitution instructions are removed: Rule 5 in the shared spec and all four
+  prompts, plus icp and positioning banned-phrases and messaging self-check step 8. The
+  bans on "revenue rollercoaster" and repeated "feast-or-famine" SURVIVE, as that entry
+  asked. Only the "use X instead" half is gone.
+
+  The five Rule 3 worked examples were rewritten too, which is wider than the entry above
+  scoped. Doug's call, on the grounds that an example teaching specificity by inventing
+  "3K to 15K per month" and "150K annual revenue" models the exact fabrication Rule 9a
+  forbids in the same prompt, and a model shown a good example reproduces its content and
+  not only its structure.
+
+  Still open from that entry's ranked list: the exemplar passages at the end of each
+  prompt ("Referrals carry the business", "Most solo B2B consultants I speak to") are
+  untouched and still consulting-carried. They are labelled style targets, which is the
+  same copy-the-content risk. Not in this session's brief.
+
+- [pre-c1] THE DISCLOSURE HALF OF RULE 9 IS DELETED, AND ITS ONLY CONSUMER IS NOW
+  PROVABLY DEAD CODE. LEFT IN PLACE DELIBERATELY.
+
+  Rule 9 asked every agent to list unsourced facts in an "Assumptions we have made"
+  section. Measured 2026-08-27 before deleting it:
+
+    - No ICP output schema key for it, and the ICP schema says "no text before or after
+      the JSON", so the ICP agent could never comply at all.
+    - No renderer anywhere in the UI.
+    - Its one machine consumer is extractAssumptionsFromDocument in
+      messaging-generation-agent.ts:641, which regexes `## Assumptions we have made` out
+      of strategy_documents.plain_text and feeds it to the messaging agent as
+      upstreamAssumptions.
+    - plain_text is NEVER WRITTEN. Nothing in the repo assigns it. Live check across all
+      50 strategy_documents rows: plain_text IS NULL in every one, and zero rows carry an
+      `assumptions` key in content.
+
+  So extractAssumptionsFromDocument has always returned [], upstreamAssumptionsContext has
+  always been '', and full compliance surfaced nothing to anyone. Deleting the rule
+  changes no behaviour.
+
+  NOT REMOVED, per "mention unrelated dead code, do not delete it": roughly 40 lines
+  across messaging-generation-agent.ts (the UpstreamAssumption type, the extractor, the
+  prompt block at 749-760). Removing it is a separate change. The real question underneath
+  is whether plain_text should be populated at all, since four agents read it as a
+  fallback and nothing writes it.
+
+- [pre-c1] "EMBEDDED VERBATIM" IN shared-voice-spec.md WAS FALSE AND IS NOW DOCUMENTED
+  RATHER THAN FIXED.
+
+  The spec claims its content is copied verbatim into the four prompts. Measured against
+  origin/main, five differences existed: heading level, no `---` separators in the
+  prompts, no em dashes in the prompts (the spec has six), a different Rule 7 example, and
+  messaging's local Rule 10.
+
+  The em dash one is the one that matters. Following the sync rule literally would have
+  injected five em dashes into four runtime prompts that ban em dashes and run
+  assertNoDashes on their own output. The prompt files ARE the runtime system prompts,
+  read from disk by loadSystemPrompt() at call time, so this is production behaviour and
+  not documentation.
+
+  Fixed for now by recording all five in the spec header so the next re-sync preserves
+  them. The better fix is to stop hand-syncing: make the spec the single source and have
+  the prompts include it at load time, or generate the prompt files from it. That is a
+  real change to how four agents load their prompts and wants its own session.
+
+- [monitor] THE COHERENCE CHECK IS PROMPT-ONLY AND THAT IS A KNOWING ADR-028 EXCEPTION.
+
+  ADR-028 says code validators are the hard gate and prompt instructions are advisory.
+  revenue_range against headcount stays advisory, agreed explicitly with Doug on
+  2026-08-27, because every code gate for it needs a revenue-per-head prior and any fixed
+  ratio is industry-specific. ~100K to 150K per consulting head is wrong for a school-meals
+  company. Hardcoding it would have put an industry assumption into a validator in the same
+  change that removed industry assumptions from the prompts.
+
+  Worth stating plainly: this rule already existed in TWO places before this session, in
+  Rule 9a and in the ICP data-quality section, and it still failed on 27 August. The
+  banner is the actual new control, not the rule. If a coherent revenue band reaches a
+  live document wrong again, prompt wording is not the fix to reach for.
+
+  What would make it a hard gate: a per-client revenue-per-head expectation captured at
+  intake, which would make the check arithmetic rather than assumed. Not built.
+
+- [post-build] unresolved_fields IS ICP-ONLY. positioning, tov and messaging still have
+  no structured way to report a field they could not ground. The banner code path reads
+  the key off any document type, so extending it is a schema and prompt change per agent
+  with no renderer work. Not done because the brief scoped Change 4 to the ICP schema.
