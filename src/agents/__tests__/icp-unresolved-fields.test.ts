@@ -9,6 +9,10 @@
 // This is the "validate one thing, return another" shape from CLAUDE.md: the generation-time
 // opt-out footer was validated and then dropped by a return-value bug, and every stored
 // document shipped without it. These tests exist so unresolved_fields cannot go the same way.
+//
+// SCOPE, stated so it is not over-trusted: this file tests the SCRUBBER SEMANTICS against a
+// hand-copy of the agent's pipeline, plus the runtime slice of the prompt. It does not
+// exercise the agent. See icp-unresolved-fields-writepath.test.ts for that.
 
 import { describe, it, expect } from 'vitest'
 import { scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
@@ -63,7 +67,15 @@ const TWO_FIELDS: UnresolvedField[] = [
   },
 ]
 
-// Mirrors icp-generation-agent.ts steps 8 and 9 exactly.
+// A HAND-COPY of icp-generation-agent.ts steps 8 and 9, and it must be read as one.
+//
+// It is a second list kept in step with the first by hand, so it CANNOT catch the agent
+// dropping the key on its way to storage. Mutation-proved on 2026-08-27: inserting
+// `delete scrubbedDocument.unresolved_fields` into the real agent leaves this whole file
+// green at 12/12. The behavioural guard for that lives in
+// icp-unresolved-fields-writepath.test.ts, which calls runIcpGenerationAgent itself and
+// asserts on the row written. This file's value is the scrubber semantics below, which
+// are cheaper to exercise directly than through the agent.
 function runAgentOutputPipeline(modelJson: string) {
   const parsed = JSON.parse(modelJson) as Record<string, unknown>
   const scrubbed = scrubAITellsDeep(parsed, 'icp-agent')
@@ -165,16 +177,39 @@ describe('unresolved_fields survives the ICP output pipeline', () => {
 })
 
 describe('the ICP prompt declares unresolved_fields', () => {
-  // The prompt file IS the runtime system prompt: icp-generation-agent.ts loadSystemPrompt()
-  // reads docs/prompts/icp-agent.md from disk at call time. If the key leaves the prompt,
-  // the agent stops emitting it and the banner silently never appears again.
-  it('names unresolved_fields in the output schema and marks it required', async () => {
+  // These assert against the RUNTIME SLICE, not the whole file.
+  //
+  // icp-generation-agent.ts loadSystemPrompt() reads docs/prompts/icp-agent.md and then
+  // slices from the '## System Prompt' marker onward, discarding everything above it. A
+  // test that reads the whole file therefore passes while the agent's actual prompt has
+  // lost the key: move the schema block into the frontmatter and the suite stays green.
+  // That is the validate-one-thing-return-another shape CLAUDE.md names, and the earlier
+  // version of this file had it. Proved by mutation 2026-08-27.
+  const MARKER = '## System Prompt'
+
+  async function runtimePrompt(): Promise<string> {
     const { readFile } = await import('fs/promises')
     const { join } = await import('path')
-    const prompt = await readFile(
-      join(process.cwd(), 'docs', 'prompts', 'icp-agent.md'),
-      'utf-8',
-    )
+    const raw = await readFile(join(process.cwd(), 'docs', 'prompts', 'icp-agent.md'), 'utf-8')
+    const idx = raw.indexOf(MARKER)
+    // Mirrors the agent's own failure mode rather than silently testing the whole file.
+    expect(idx, 'icp-agent.md has no "## System Prompt" marker').toBeGreaterThan(-1)
+    return raw.slice(idx + MARKER.length).trim()
+  }
+
+  it('the runtime slice is a strict subset of the file, so this test can actually fail', async () => {
+    // Guards the guard: if the slice ever equals the whole file, these tests silently
+    // revert to the weaker check they were written to replace.
+    const { readFile } = await import('fs/promises')
+    const { join } = await import('path')
+    const raw = await readFile(join(process.cwd(), 'docs', 'prompts', 'icp-agent.md'), 'utf-8')
+    const slice = await runtimePrompt()
+    expect(slice.length).toBeGreaterThan(0)
+    expect(slice.length).toBeLessThan(raw.length)
+  })
+
+  it('names unresolved_fields in the output schema and marks it required', async () => {
+    const prompt = await runtimePrompt()
     expect(prompt).toContain('"unresolved_fields"')
     expect(prompt).toContain('field_path')
     expect(prompt).toContain('why_unresolved')
@@ -182,31 +217,35 @@ describe('the ICP prompt declares unresolved_fields', () => {
     expect(prompt).toMatch(/unresolved_fields` is REQUIRED/)
   })
 
-  it('still requires revenue_range to be checked against headcount', () => {
+  it('still requires revenue_range to be checked against headcount', async () => {
     // Restated because this rule already existed in two places and failed anyway on
     // 27 August. It is advisory (ADR-028); the banner is the actual control.
-    return import('fs/promises').then(async ({ readFile }) => {
-      const { join } = await import('path')
-      const prompt = await readFile(
-        join(process.cwd(), 'docs', 'prompts', 'icp-agent.md'),
-        'utf-8',
-      )
-      expect(prompt).toMatch(/REVENUE AND HEADCOUNT MUST COHERE/)
-      expect(prompt).toMatch(/Check revenue_range against headcount/)
-    })
+    const prompt = await runtimePrompt()
+    expect(prompt).toMatch(/REVENUE AND HEADCOUNT MUST COHERE/)
+    expect(prompt).toMatch(/Check revenue_range against headcount/)
   })
 
-  it('does not hardcode a revenue-per-head ratio anywhere in the prompt', () => {
+  it('does not hardcode a revenue-per-head ratio anywhere in the runtime prompt', async () => {
     // A fixed ratio would be consulting-specific and wrong for other industries, which is
-    // the reason this check is prompt-plus-banner rather than a code validator.
-    return import('fs/promises').then(async ({ readFile }) => {
-      const { join } = await import('path')
-      const prompt = await readFile(
-        join(process.cwd(), 'docs', 'prompts', 'icp-agent.md'),
-        'utf-8',
-      )
-      expect(prompt).not.toMatch(/per (consulting )?head/i)
-      expect(prompt).not.toMatch(/100K to 150K/i)
-    })
+    // why the coherence check is prompt-plus-banner rather than a code validator (ADR-040).
+    //
+    // The first version of this test matched only the literal wording of the mutation it
+    // was authored from, so "per fee earner", "per employee", "per FTE" and a hyphenated
+    // range all passed. It tested its own example rather than the rule. This version
+    // matches the SHAPE: a money-ish quantity tied to a per-person unit.
+    const prompt = await runtimePrompt()
+
+    const PER_PERSON = /per\s+(consulting\s+)?(head|employee|person|consultant|fee[- ]earner|FTE|staff|headcount|seat|body)\b/i
+    expect(prompt, 'a per-person revenue unit appeared in the runtime prompt').not.toMatch(PER_PERSON)
+
+    // A money range near the word headcount or revenue, in any of the usual spellings.
+    const MONEY_RANGE = /[€$£]?\s?\d{2,3}[,.]?\d*\s?[Kk]?\s?(to|-|–|—)\s?[€$£]?\s?\d{2,3}[,.]?\d*\s?[Kk]\b/
+    const offenders = prompt
+      .split('\n')
+      .filter(line => MONEY_RANGE.test(line) && /revenue|headcount|bill|per\s/i.test(line))
+      // The documented 27 August incident record is the one legitimate money range: it
+      // reports what the agent wrongly produced, it does not instruct a ratio.
+      .filter(line => !line.includes('150K to 750K'))
+    expect(offenders, `unexpected money range near revenue/headcount: ${offenders.join(' | ')}`).toEqual([])
   })
 })

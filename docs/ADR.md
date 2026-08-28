@@ -3210,17 +3210,40 @@ spec rather than in four divergent copies.
 Rule 9 previously permitted an unsourced fact provided it was footnoted in an "Assumptions
 we have made" section. Measured before deleting it:
 
-  - No key for it in the ICP output schema, which also says "no text before or after the
-    JSON", so the ICP agent could never comply at all.
-  - No renderer anywhere in the UI.
+  - No key for it in the ICP output schema, and the schema says "no text before or after
+    the JSON", so the markdown section the rule asked for was uninstructable.
   - One machine consumer, `extractAssumptionsFromDocument` in
-    messaging-generation-agent.ts, which regexes the section out of
+    messaging-generation-agent.ts, which regexes that section out of
     `strategy_documents.plain_text`.
   - `plain_text` is never written. Nothing in the repo assigns it. Live check across all
-    50 `strategy_documents` rows: NULL in every one, and zero rows carry an `assumptions`
-    key in `content`.
+    50 `strategy_documents` rows: NULL in every one. So that consumer has always
+    returned `[]`.
 
-Full compliance surfaced nothing to anyone. Deleting it changes no behaviour.
+**CORRECTION, 2026-08-27, found by an adversarial re-check of this ADR before merge and
+recorded rather than quietly edited.** An earlier draft of this section said "full
+compliance surfaced nothing to anyone" and that deleting the rule "changes no behaviour".
+**Both were wrong**, and the error was a too-narrow query: the check used
+`content ? 'assumptions'`, and the key the agent actually emits is
+`assumptions_we_have_made`. Corrected census:
+
+    content ? 'assumptions'              -> 0     (what was checked)
+    content ? 'assumptions_we_have_made' -> 1     (what exists)
+
+The ICP agent did not write the markdown section. It emitted a top-level JSON key instead,
+in 1 of 15 ICP documents, and `renderUnknownFields` on the approval card renders any key
+not in `handledKeys`. So the disclosure DID reach the operator, by a different route than
+the rule described. What is dead is the plain_text route and its messaging-agent consumer.
+
+The row is `a8d35c94-b1a6-429e-99fd-119fb481c6cb`, org **360 Bia Og**, ICP v2, status
+active, client_approval_status approved. It carries six assumptions naming An Taisce, the
+Department of Social Protection, safefood and the HSE. **Those are exactly the externally
+verifiable named bodies the NEW Rule 9 bans**, which is the argument for the new rule
+rather than against it: the old rule permitted the agent to state them provided it
+footnoted them.
+
+This is also the frozen-verdict shape from CLAUDE.md. Editing a prompt does not touch a row
+already generated, so that document keeps its assumptions until it is regenerated. Logged in
+BACKLOG as a decision to take, not a silent leftover.
 
 ### A deliberate exception to ADR-028
 

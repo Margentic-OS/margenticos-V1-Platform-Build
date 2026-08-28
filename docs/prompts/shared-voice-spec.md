@@ -10,7 +10,8 @@ to this file must be manually re-synced to all four prompt files:
 If you edit this file without syncing, the spec and the embedded copies silently diverge.
 
 **"Verbatim" above is aspirational and has not been true for some time. Measured
-2026-08-27, five differences are intentional and a re-sync must PRESERVE them:**
+2026-08-27 and corrected the same day, SIX differences are intentional and a re-sync must
+PRESERVE them:**
 
   1. HEADING LEVEL. `## Rule N` here, `### Rule N` in the prompts, where the rules sit
      under a `## Shared voice rules` parent.
@@ -21,14 +22,18 @@ If you edit this file without syncing, the spec and the embedded copies silently
      em dashes and runs assertNoDashes on its own output. Established conversions: Rule 6
      heading takes a colon, Rule 4's "robust" line drops the parenthetical, Rule 8 takes
      a colon and a comma.
-  4. RULE 7's EXAMPLE DIFFERS. The prompts carry a shorter version with no worked "wrong"
+  4. RULE 5's "go-to authority in their niche" line drops its "(cliche)" annotation in the
+     prompts. Found by an adversarial check of THIS LIST, which had asserted five was the
+     complete set. A literal re-sync would have reintroduced "(cliche)" into all four
+     prompts and broken the byte-identity established on the same day.
+  5. RULE 7's EXAMPLE DIFFERS. The prompts carry a shorter version with no worked "wrong"
      sentence. Do not overwrite it from here.
-  5. messaging-agent.md carries a LOCAL `### Rule 11: Understandability` that is not in
+  6. messaging-agent.md carries a LOCAL `### Rule 11: Understandability` that is not in
      this file and must not be deleted by a re-sync. It was Rule 10 until 2026-08-27,
      renumbered when Rule 10 was added here.
 
 Rules 1 to 10 are canonical in SUBSTANCE. A re-sync carries the substance across and
-preserves the five differences above. Nothing else in a prompt file is touched.
+preserves the six differences above. Nothing else in a prompt file is touched.
 
 ---
 

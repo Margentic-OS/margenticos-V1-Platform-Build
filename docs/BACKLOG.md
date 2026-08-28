@@ -7442,3 +7442,90 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   Line to add when someone does it:
     ADR-040  Intake is evidence, not a ceiling; checkability divides reasoning from
              invention; unresolved_fields surfaces an ungrounded field to the operator
+
+## PRE-MERGE ADVERSARIAL PASS, 2026-08-27 — what a second look found in this session's own work
+
+Six independent verifications, each re-checked by a second agent instructed to refute it.
+Five came back with real findings. Recorded here because four of them are defects in THIS
+session's verification, not in the code it shipped, and that is the more useful lesson.
+
+- [pre-c1] A LIVE APPROVED ICP CARRIES ASSUMPTIONS NAMING EXTERNAL BODIES, AND THE NEW
+  RULE 9 DOES NOT REACH IT. DECISION NEEDED.
+
+  `strategy_documents` row `a8d35c94-b1a6-429e-99fd-119fb481c6cb`, org **360 Bia Og**,
+  document_type icp, version 2, status active, client_approval_status approved
+  (approval_source auto), generated 2026-06-12. It holds a six-element
+  `assumptions_we_have_made` array naming **An Taisce**, the **Department of Social
+  Protection**, **safefood** and the **HSE**, plus an assumed EUR 3.20 per meal and an
+  assumed 30 to 50 pupil minimum.
+
+  Under the Rule 9 this session just wrote, none of those may be stated at all. Under the
+  Rule 9 that produced them, they were allowed provided they were footnoted.
+
+  THIS IS THE FROZEN-VERDICT SHAPE, third instance in this repo. Editing a prompt changes
+  what the NEXT generation produces. It does not touch a row already generated, already
+  approved and already active. The same shape as `email_send_eligible` in ADR-034.
+
+  Also worth knowing: `assumptions_we_have_made` is NOT in `renderIcp`'s handledKeys, so
+  `renderUnknownFields` dumps it at the bottom of the approval card. For this row that is
+  the correct behaviour and should NOT be "fixed" by adding it to handledKeys, which would
+  hide it.
+
+  NEXT ACTION is a decision, not a migration: regenerate 360 Bia Og's ICP under the new
+  Rule 9 and re-approve, or leave v2 standing and accept that one live document contains
+  assumptions the current rules forbid. Regeneration costs an opus-4-6 call and an operator
+  approval. Doug's call. Do not do it silently either way.
+
+- [post-build] CORRECTED IN THIS SESSION: "the disclosure half surfaced nothing to anyone"
+  WAS WRONG, AND THE ERROR WAS A TOO-NARROW QUERY.
+
+  The claim was checked with `content ? 'assumptions'`, which returned 0. The key the agent
+  actually emits is `assumptions_we_have_made`, so the check could not match by
+  construction. `content ? 'assumptions_we_have_made'` returns 1.
+
+  The signal was visible and dismissed: the same query run earlier returned
+  `content_mentions_assumption = 1` for icp, and that 1 was not investigated because the
+  exact-key check said 0. An aggregate that disagrees with a key check is a reason to look
+  at the row, not a rounding error.
+
+  Corrected in ADR-040 in place, with the correction marked as a correction rather than
+  edited away. Same family as [[backlog-entries-can-be-stale]]: a check that runs, returns
+  a clean number, and cannot see the class it was written to find.
+
+- [post-build] FIXED IN THIS SESSION: three test defects, each mutation-proved before and
+  after. Recorded because all three are named silent-failure shapes from CLAUDE.md and they
+  appeared in tests written the same day to guard against exactly those shapes.
+
+  1. THE AGENT WRITE PATH WAS UNGUARDED. `icp-unresolved-fields.test.ts` hand-copied the
+     agent's steps 8 and 9 into a local `runAgentOutputPipeline()`. Inserting
+     `delete scrubbedDocument.unresolved_fields` into the REAL agent left the suite green:
+     the key would have vanished from every written row and the banner would never have
+     appeared again. Fixed by adding `icp-unresolved-fields-writepath.test.ts`, which calls
+     `runIcpGenerationAgent` against a Supabase fake that THROWS on anything it does not
+     implement, and asserts on the row actually written. Under the same mutation the old
+     file still passes 12/12 and the new one fails 3/4.
+
+  2. THE PROMPT TESTS READ THE WHOLE FILE, NOT THE RUNTIME SLICE. `loadSystemPrompt()`
+     slices from `## System Prompt` onward. The tests asserted against the whole file, so
+     moving the schema key into the frontmatter passed while the agent's real prompt lost
+     it. Validate-one-thing-return-another. Fixed, plus a guard-the-guard test asserting the
+     slice is strictly shorter than the file, so it cannot silently revert.
+
+  3. A NEGATIVE-ASSERTION REGEX THAT ONLY MATCHED ITS OWN EXAMPLE. The "no revenue-per-head
+     ratio" test was authored from the literal text of the mutation used to check it, so it
+     was caught by construction and proved nothing. "per fee earner", "per employee", "per
+     consultant", "per FTE" and a hyphenated range all passed. Broadened to match the SHAPE,
+     with the documented 27 August incident figure explicitly exempted. All five variants
+     now fail the test.
+
+  THE GENERALISATION: a mutation authored from the same string as the assertion tests the
+  string, not the rule. Write the mutation as an adversary would, not as the author would.
+
+- [post-build] FIXED IN THIS SESSION: the sync contract's own difference list was
+  incomplete. It asserted five intentional divergences as the complete set; there were six.
+  Rule 5's `- "go-to authority in their niche" (cliche)` carries the annotation in the spec
+  and not in any of the four prompts. A literal re-sync would have reintroduced it and
+  broken the byte-identity established the same day. Now recorded as item 4 of six.
+
+  Worth noting what caught it: an agent told to refute a claim, not an agent told to verify
+  one. The verifying pass had reported the divergence list as sound.
