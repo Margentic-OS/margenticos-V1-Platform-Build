@@ -140,6 +140,18 @@ How the 4 research queries are built (buildResearchQueries, rewritten 2026-08-28
   - To see what any organisation's queries actually are, before and after the rewrite:
       dotenv -e .env.local -- npx tsx scripts/prove-research-queries.ts
 
+Output gates (run after the JSON parses, before anything is written):
+  - scrubAITellsDeep + assertNoDashes, as before.
+  - assertNoUnsourcedVendorNames (src/lib/agents/vendor-name-gate.ts), added 2026-08-28.
+    Finds a vendor name anywhere in the generated document and marks it sourced or
+    unsourced against the input message the model was given. Unsourced means the model
+    introduced it, which is our execution stack leaking into a client's document. Sourced
+    means the client's own intake, uploads, website or research named it, which is their
+    market vocabulary and is allowed.
+    REPORT-ONLY until reviewed after 2026-09-04: it logs and does not throw. See BACKLOG
+    for the flip to blocking and for the known incidental-mention hole.
+    Also wired into the positioning and TOV agents. Not messaging: see BACKLOG.
+
 Output (1 row in document_suggestions):
   field_path:      'full_document'
   suggested_value: JSON string — JTBD statement, summary, 3 tiers (Ideal / Good / Do Not Target).
