@@ -7264,3 +7264,89 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   Still outstanding from this: CLAUDE.md's ADR reference list stops at ADR-034 and now
   misses 035 through 039. Same parallel-session reason as the entry above, so it is still
   one commit touching only CLAUDE.md once the branches land.
+
+## SESSION1, 2026-08-27, branch session1-restore-and-audit (baseline restore, privilege audit, notification 404)
+
+- [monitor] DECISION TAKEN AND DEFERRED: the liveness monitors should have THREE states,
+  not two. Recorded now so it is not re-derived from scratch.
+
+  Today a liveness view derives its state from staleness alone, so it answers "did this run
+  recently" and ignores whether the run SUCCEEDED. A job firing punctually and failing every
+  single time reads GREEN across all ten liveness views. The 2026-08-23 instantly-poll
+  failure is in cron_heartbeats with ok = false and no liveness view reacted to it.
+
+  The model to build:
+
+      DEAD        not running at all               red      no heartbeat inside the window
+      BREATHING   running on schedule, failing     orange   heartbeat fresh, ok = false
+      HEALTHY     running and succeeding           green    heartbeat fresh, ok = true
+
+  No schema change is needed. monitor_events already accepts OK, PROBLEM and UNKNOWN, so
+  the mapping is DEAD -> PROBLEM, BREATHING -> PROBLEM with a distinct detail line, and
+  HEALTHY -> OK. The colour distinction is a dashboard concern, not a data one.
+
+  mon_021 already reads ok as well as staleness and is the worked example to copy. mon_002
+  and mon_003 are the ones whose shape this describes.
+
+  Deferred rather than done because it is ten view rewrites plus their dashboard rendering,
+  and this session's brief was five other things. Nothing about it is blocked.
+
+- [monitor] The cron_heartbeats retention job writes a heartbeat and NOTHING WATCHES IT.
+
+  Added 2026-08-27 as pg_cron job 'cron-heartbeats-retention', daily at 03:17 UTC, keeping
+  90 days of successful heartbeats and every failure for ever. It writes a heartbeat row
+  saying how many it pruned, so the record exists, but no mon_* view reads it.
+
+  Low urgency: if it stops, the table grows, and it is 3.7 MB after twenty days. Worth
+  folding into the three-state work above rather than doing on its own.
+
+  Note when it is picked up: NOTHING IN THE TABLE IS OLDER THAN 30 DAYS YET, so the job
+  will delete zero rows until roughly November, and zero deletions look identical to a
+  broken job. The DELETE itself was proved on 2026-08-27 inside a rolled-back transaction
+  against a synthetic old row.
+
+- [pre-c1] THE OPEN QUESTION MON-024 SURFACED: 29 tables where RLS is the only layer.
+
+  MON-024 reads OK, and its detail line says why that is not the same as safe: 440
+  privileges are held by anon and authenticated across 29 RLS-backed tables, and the grant
+  underneath RLS is the Supabase default.
+
+  The sharper fact, measured 2026-08-27: NOT ONE RLS POLICY IN THIS DATABASE IS ADDRESSED
+  TO anon. Every policy targets authenticated, apart from one on enrichment_runs targeting
+  public. So every anon grant in the schema is dead weight whose only effect is to be one
+  migration away from an exposure, exactly as CLAUDE.md's 2026-08-25 rule describes.
+
+  Revoking anon across all 29 should therefore be behaviourally inert: anon cannot read a
+  row today because RLS denies it, and after login the role is authenticated rather than
+  anon. That is an argument, not a receipt, and it is a 29-table change on a live database,
+  so it wants its own session with a per-table read-back.
+
+  MON-024 deliberately does NOT treat this as a fault, because a monitor that is red on 29
+  tables from birth is one nobody reads. If the revoke happens, tighten the monitor in the
+  same commit so the new posture is the one it enforces.
+
+- [ops] OUTSTANDING FROM ITEM 3: the version_pending notification has still never been sent
+  end to end.
+
+  The 404 is fixed, the route is proved to exist in the build manifest and on disk, and all
+  four links resolve into the auth flow with the right next= target. What has NOT happened
+  is a real send followed by a real click, because the rewritten copy goes to Doug first.
+
+  Two things to know when doing it. The recipient is resolved as role = 'client' for the
+  organisation, so it goes to the client's inbox and not the operator's. And notifications_log
+  dedups on (organisation_id, notification_type, subject_id), so re-triggering the same
+  suggestion sends nothing: a second test needs a different suggestion or the log row
+  removing.
+
+- [post-build] The restore test needs somewhere to restore TO, and that somewhere is a
+  second Supabase project.
+
+  scripts/restore-baseline-test.ts defaults to a rehearsal that runs inside one transaction
+  and always rolls back, so it can be re-run against a project that already holds a previous
+  restore and leaves it byte-identical. It still needs RESTORE_TEST_PROJECT_REF pointing at
+  a real project, and it refuses production by ref.
+
+  Project margenticos-baseline-restore-test (tidqheqjzvwmrrrebzir) was created on 2026-08-27
+  for this and is on the same organisation, so it is a live project with whatever that costs.
+  Decide whether it stays. If it is deleted, the static half of the script still runs in
+  vitest with no credentials, and the live half will say it was skipped rather than fail.

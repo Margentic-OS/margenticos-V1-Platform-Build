@@ -205,3 +205,66 @@ delivery, no programmatic scheduling API).
 - On gate failure, it retries once with the failure context injected into the prompt.
 - If the second pass also fails, the route returns 422 with a human-readable message.
   The client sees the failure reason; no partial document is staged.
+
+---
+
+## The operator's rejection note, and where it is now visible (2026-08-27)
+
+**What it is.** When an operator rejects a pending suggestion and regenerates, the note they
+type is stored on `document_suggestions.rejection_reason` and passed to the generation agent
+(ADR-038). It is an instruction to the next run, not an audit record.
+
+**What was wrong.** It reached the agent and reached no screen. An operator opening the
+replacement saw the answer without the question.
+
+**Why the obvious fix does not work, and this is the part worth remembering.** The approvals
+page fetches rows with `status = 'pending'`, and `rejection_reason` is only ever set on the
+row that was REPLACED, at the same moment that row becomes `rejected`. Adding
+`rejection_reason` to the page's column list therefore returns NULL for every row it fetches.
+It compiles, it looks like the fix, and it displays nothing.
+
+**How it works now.** `findDrivingRejectionNotes` in `src/lib/approvals/driving-rejection-note.ts`
+pairs each pending suggestion with the most recent rejection for the same organisation and
+document type that happened BEFORE that suggestion was created. There is no foreign key from
+a suggestion to the one it replaced, so "caused" cannot be proved; "preceded it, same
+document type, same organisation" is the closest honest claim, and it is exact in every path
+that exists today because only one suggestion per document type can be pending at a time.
+
+The ordering comparison is what stops it lying. Without it, a rejection that nobody
+regenerated from attaches itself to whatever suggestion turns up next, however much later.
+
+**Where it renders.** In `ApprovalsView`, above each card, not inside `ApprovalCard`. The
+extra fields ride on `QueuedSuggestion`, a superset of `PendingSuggestion`.
+
+**If the note stops appearing:** check that the predecessor row still has a non-empty
+`rejection_reason` and a `reviewed_at` earlier than the pending row's `created_at`. A
+rejection recorded without a timestamp will not pair, by design.
+
+---
+
+## The document update notification (2026-08-27)
+
+Sent by `notifyAfterPromotion` as `version_pending`, once the client has already had the
+`docs_ready` email. One per document type, per promotion.
+
+**It used to link to a 404.** The button pointed at `/dashboard/documents`, which has never
+existed. The real route is `/dashboard/strategy/[type]`, where the `(client)` route group is
+invisible in the URL. It survived because, signed out, the broken and the correct URL both
+redirect to `/login`: the 404 only appears after signing in, so a quick check from a
+signed-out terminal shows nothing wrong.
+
+The URL is now built by `strategyDocumentUrl` in `src/lib/urls/strategy-document-url.ts`,
+once, with a test that checks the route file exists on disk. `?client=` is added only for an
+operator recipient, because `resolveViewingOrg` ignores it for a client user.
+
+**The two names in the email both come from `organisations.founder_first_name`,** one from
+each side: the recipient's own organisation for the greeting, and the OPERATOR's organisation
+for the sign-off, resolved by `resolvePlatformSender` through the operator user rather than
+by slug or id so no organisation id is hardcoded. If either is missing the email still sends:
+the greeting falls back to a plain "Hi," and the sign-off to the platform name, with a
+warning logged.
+
+**What to check if a client says they got no email:** `notifications_log` dedups on
+(organisation_id, notification_type, subject_id), so a repeat for the same suggestion sends
+nothing at all. Then check the send validator, which rejects any email containing an em dash,
+an en dash, or a literal "undefined", "null" or "NaN", and logs rather than throws.
