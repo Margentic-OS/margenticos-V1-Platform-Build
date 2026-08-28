@@ -7735,3 +7735,136 @@ session's verification, not in the code it shipped, and that is the more useful 
   Every script header in scripts/ already says `dotenv -e .env.local --` for this reason.
   Use it. Sourcing works for keys whose values are bare tokens, which is why it appears to
   work right up until it does not.
+
+## BOUNCE PATH PROOF — first live bounce end to end (2026-08-28, branch bounce-path-proof)
+
+Session ran in a worktree off origin/main while another session held the main tree. Nothing
+in docs/prompts/, the four generation agents, or document-projection was touched.
+
+- [pre-c0] RESOLVED BY OBSERVATION: Instantly lead status -1 IS Bounced, and it is a NUMBER.
+
+  The first real bounce ever to travel this path. Method per the 12 August decision: a
+  throwaway campaign registered to the DRY RUN TEST organisation, one prospect row inserted
+  directly with the gate columns forced, addressed to a nonexistent mailbox on a domain we
+  control. The live C0 campaign was never touched and no dead address was seeded into it.
+
+  Sent 14:01:15Z from doug@gomargenticos.com to qx7v-bounce-probe-a1@getmargenticos.com.
+  Google rejected at SMTP time; Instantly flipped the lead to -1 by 14:01:20Z, five seconds
+  later. The raw POST /leads/list {status:-1} response carried "status": -1, unquoted.
+
+  Both halves of the 2026-08-21 correction are now confirmed against the LIVE API rather
+  than against the schema document: the value is -1 and not -2, and the type is number and
+  not string. Either fault alone would have made detection silently wrong.
+
+  THE GUARD RAN AND PASSED, which is the part worth keeping. polling_cursors.leads_bounced
+  finished with error_count 0 and no last_error, so verifyLeadStatus confirmed the returned
+  row actually carried -1. The distinction matters: this is "we read the status back", not
+  "we asked for -1 and got rows".
+
+  Full chain, all timestamps from the live database:
+    14:01:15Z  sent
+    14:01:20Z  Instantly lead status -> -1
+    14:15:01Z  signals row 27251458-2896-4509-9675-5e414bc301d3, signal_type email_bounced,
+               external_event_id = the Instantly lead id, raw_data holds the -1 payload
+    14:15:01Z  suppressed_emails row f5887abf-c16b-4a93-82ef-260b37fd9bb9, reason 'bounced',
+               source_signal_id linking back to that signal
+    14:15:07Z  sending_health_snapshot recomputed with the bounce in it
+  Before: findBlockedProspects returned blocked.size 0. After: blocked.size 1, reason
+  globally_suppressed. Run against the real function and the live database, not a fake.
+
+  WHY THE DOMAIN CHOICE WAS A PRECONDITION AND NOT A DETAIL. A catch-all target would have
+  accepted the address and never bounced, and the test would have "passed" while proving
+  nothing, which is the same shape as the defect being tested for. getmargenticos.com was
+  confirmed non-catch-all FIRST: MyEmailVerifier returned catch_all:0 / Status:"Invalid"
+  for two distinct random local-parts across three of our domains, with a real mailbox on
+  the same domain returning Greylisted rather than Invalid as a discriminating control.
+
+- [monitor] The 50-send floor is load-bearing, and this test demonstrated it rather than
+  arguing it.
+
+  After the bounce, sending_health_snapshot read gomargenticos.com at 1 bounce / 3 sends =
+  33.3%, which is sixteen times the 2% red threshold, and it correctly did NOT fire.
+  RATE_MINIMUM_SENDS held trigger 2 dormant, and the detail line said so in plain words:
+  "the rate rule judged nothing". Trigger 1 read 1/3 and did not breach.
+
+  Without that floor a single deliberate test bounce would have tripped the ramp's only
+  stop condition. Keep the floor, and keep the detail line honest about not having judged.
+
+- [monitor] INSTANTLY_LEAD_STATUS_VERIFIED gates NOTHING. Flipping it changes one log line.
+
+  Read in exactly two places, instantly.ts:717 and :933, both `if (!VERIFIED) logger.warn`.
+  No branch on detection, suppression, or sending.
+
+  TWO THINGS DO CHANGE ON FLIP, and neither is behaviour:
+    1. instantly.test.ts:31 and :111 assert it is false. They fail on flip and must be
+       updated in the same commit.
+    2. BACKLOG:6225 states "No production send to a client is allowed until this blocker is
+       complete and INSTANTLY_LEAD_STATUS_VERIFIED = true." NOTHING ENFORCES THAT. No code
+       reads the constant to block a send. If that sentence is meant to be a control it is
+       currently prose, which is the same shape as the pre-commit hooks before 2026-08-27.
+  The evidence to flip it now exists. Flipping it is a separate, deliberate commit.
+
+- [pre-c0] MYEMAILVERIFIER_API_KEY reads as UNSET IN PRODUCTION. Verification is broken and
+  it was invisible because there was no work.
+
+  Surfaced accidentally by this test. Unarchiving DRY RUN TEST at 13:50:31Z gave the
+  verify-pending sweep work for the first time in 18 days. The 14:00:04Z run reported
+  "verified 0, send-eligible 0, failed 2" and both prospect rows recorded
+  last_verification_error = "Email verification failed: MYEMAILVERIFIER_API_KEY not set in
+  environment".
+
+  NOT ROOT-CAUSED. The obvious explanations were checked and ELIMINATED:
+    - The var IS present in Vercel Production scope, created 19d ago (vercel env ls).
+    - Production deployments are minutes old, so they postdate the var.
+    - app.margenticos.com resolves to the same project, margenticos-platform.
+    - The same route read CRON_SECRET successfully in the same invocation, so env injection
+      works generally. Only this one variable is unreadable.
+  An EMPTY stored value would produce an identical symptom, because the handler tests
+  `if (!apiKey)`. That needs a human to look at the value in the Vercel dashboard; it
+  cannot be read back without printing a secret.
+
+  IMPACT: last successful verification was 2026-08-10. The next time sourcing produces
+  prospects needing verification, every one of them fails. Unrelated to the bounce work and
+  a pre-C0 blocker in its own right.
+
+- [monitor] Archived-org bug observed live, behaving exactly as documented, and CHEAPER than
+  estimated.
+
+  verify-pending at 13:50:00Z, thirty-one seconds before the unarchive: "Nothing pending".
+  At 14:00:04Z, the first run after: "failed 2, daily used 1". The archived check in
+  verify-pending and verify-catch-all works correctly; the two prospects it had been
+  correctly skipping became visible the instant the org was unarchived.
+
+  Actual paid spend: ZERO. Both addresses are @mock.invalid, a reserved TLD, so the first
+  pass cannot return an inconclusive verdict and neither promotes to the paid second pass.
+  verify-catch-all at 14:00:01Z confirmed "Nothing pending".
+
+  The pre-session estimate of four paid calls was WRONG, and the error is worth recording:
+  it counted rows pending first pass rather than rows matching the sweep's actual filter
+  (enrichment_status='enriched' AND independent_email_status IS NULL), which is two. Read
+  the filter, not the intent.
+
+- [monitor] The instantly-poll lead-status scan filters organisations.archived_at IS NULL.
+
+  Worth knowing before archiving anything with a live campaign: re-archiving an
+  organisation stops the poller scanning its campaigns for bounces and unsubscribes
+  entirely. Detection is not paused for that org, it does not run. All polling observations
+  must complete BEFORE re-archiving.
+
+- [ops] Instantly preserves Gmail plus-addressing. Confirmed by read-back, not by response
+  echo.
+
+  11 leads at d.h.p1999+bt1..11@gmail.com uploaded as 11 distinct lead ids with
+  duplicate_email_count 0, and the +btN alias intact in both `email` and `payload.email`
+  when READ BACK from Instantly's store. No normalisation, no dedupe.
+
+  TRAP: once those leads exist in the workspace, adding them to a campaign with
+  skip_if_in_workspace:true silently skips all of them. Pass it false.
+
+- [ops] The per-mailbox daily analytics endpoint is GET /accounts/analytics/daily and it
+  returns a BARE ARRAY.
+
+  Not /campaigns/analytics/daily/account, which returns empty and reads as "no sends"
+  rather than as a wrong path. It 413s across the whole workspace without an `emails`
+  filter. Codified already in sending-health.ts; recorded here because a wrong endpoint
+  here is indistinguishable from a quiet day.
