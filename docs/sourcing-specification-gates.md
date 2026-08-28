@@ -95,7 +95,74 @@ Removals are put back in the queue when a new ICP filter spec is stored for the
 organisation, and by nothing else. See ADR-037, which also lists the three removal reasons
 that still have no re-evaluation path at all.
 
+## The third check, added 2026-08-28: the spec inspector
+
+`inspectFilterSpec` in `src/lib/sourcing/inspect-filter-spec.ts`. Report only, never gates.
+It runs twice: on the spec being WRITTEN (`persistIcpFilterSpec`) and on the spec being READ
+(`orchestrator.ts`, step 2.5). Two silences meet here.
+
+**Frozen specs.** `deriveFilterSpec` has exactly one caller and it runs only when a document
+is promoted. Nothing recomputes a spec on read. So changing the derivation leaves every
+existing row on the old shape, and production carries a mixed population. Every reader casts
+`icp_filter_spec as ICPFilterSpec` with no runtime check, and the two places that matter
+(`tier-classification.ts`, industries and industries_excluded) guard with `&&`. An absent
+field therefore degrades to NO SCORING and NO EXCLUSION rather than to an error: the rule
+silently stops being applied while the pipeline keeps reporting success. Same family as the
+opt-out footer that was validated and then discarded.
+
+**Industries that are targeted and unclassifiable at the same time.** `APOLLO_TO_SPEC` is
+inbound-only and many-to-one, so its RANGE is smaller than the set of names the handler
+declares it targets. Four canonical names sit in that gap today:
+
+    Environmental Consulting
+    Engineering Consulting
+    Healthcare Consulting
+    Executive Coaching
+
+Each passes the pre-search gate above and can then never be produced by the classifier, so
+every prospect for it is removed as `industry_not_consulting` with nothing saying why. Three
+of the four are in MargenticOS's live stored spec. `CLASSIFIABLE_INDUSTRIES` in
+`industry-mapping.ts` is the range; the test in
+`src/lib/sourcing/__tests__/inspect-filter-spec.test.ts` enumerates the four so a FIFTH
+fails the build.
+
+It reports rather than gates on purpose: promoting it would newly refuse runs, which is a
+decision, not a cleanup. Logged in BACKLOG.
+
+**Limit, so it is not over-trusted.** The classifiable range is the STATIC map only.
+Operators can add `industry_tag_mappings` rows, which can only ADD names. So a flagged name
+may be classifiable in practice, which is why callers may pass extra known names and why
+this reports rather than fails.
+
+## One list of filter fields, not three
+
+Until 2026-08-28 there were three, and they disagreed: `ICPFilterSpec`'s own keys,
+`FILTER_FIELDS` in `sourcing/types.ts` (19 names, 8 of which no spec has ever had), and
+`SUPPORTED_FIELDS` in `adapter-apollo.ts` (which claimed two fields the type lacks).
+
+The manifest check iterates `FILTER_FIELDS`, so **a field added to `ICPFilterSpec` and not
+to that list was never checked** — the adapter could discard it with no divergence reported.
+The parallel-array shape from CLAUDE.md, three lists deep.
+
+`FILTER_SPEC_FIELDS` and `FILTER_SPEC_METADATA_FIELDS` in `icp-filter-spec.ts` are now the
+single source; the other two derive from it. Two compile-time assertions beside them fail if
+either list drifts from `keyof ICPFilterSpec`, in either direction. Both directions are
+checked because only checking the one you expect to break is how the original three drifted.
+
+The FILTER/METADATA split is load-bearing: metadata fields (`notes`,
+`unmatched_industries`) constrain nothing, so including them would make the manifest check
+demand every handler "support" `notes` and throw for every client.
+
+## Proving a filter actually filters
+
+`scripts/apollo-prove-filter.ts`. Four assertions per mapping, not one, because a count that
+moved is not proof. See `docs/discovery/2026-08-28-apollo-filter-silent-ignore.md` for the
+measurements behind it, including the province that silently widens to its country.
+
+Run it before shipping any canonical-to-Apollo mapping. It costs no Apollo credits.
+
 ## Related
+
 
 - `docs/dashboard.md`, "Operator quality review", for the removal counts on screen.
 - `docs/BACKLOG.md`, "Silent sourcing defaults are now loud", for what was found and left.

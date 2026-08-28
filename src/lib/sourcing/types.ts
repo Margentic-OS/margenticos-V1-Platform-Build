@@ -61,26 +61,19 @@ export interface SourcingHandler {
   execute: (spec: unknown, cap?: number) => Promise<unknown[]>
 }
 
-export const FILTER_FIELDS = [
-  'job_titles',
-  'job_titles_excluded',
-  'seniority_levels',
-  'departments',
-  'person_countries',
-  'company_countries',
-  'company_headcount_min',
-  'company_headcount_max',
-  'industries',
-  'industries_excluded',
-  'keywords',
-  'keywords_excluded',
-  'company_revenue_min',
-  'company_revenue_max',
-  'company_age_min_years',
-  'company_age_max_years',
-  'technologies_used',
-  'funding_stage',
-  'funded_since',
-]
+// Re-exported from the ONE list in icp-filter-spec.ts. See "Layer G" there.
+//
+// This used to be its own 19-name array and it disagreed with both ICPFilterSpec and the
+// Apollo handler's SUPPORTED_FIELDS. Six of those names (`departments`,
+// `company_age_min_years`, `company_age_max_years`, `technologies_used`, `funding_stage`,
+// `funded_since`) have never existed on ICPFilterSpec, so the orchestrator's manifest
+// check read `undefined` for them on every run and they could never be "populated".
+// `company_revenue_min` and `company_revenue_max` were the same. Removing them is
+// therefore not a behaviour change: it removes eight names that could not fire.
+//
+// The real defect was the other direction. A field added to ICPFilterSpec and not to this
+// list was silently NEVER CHECKED by the manifest gate, so a handler could discard it
+// with no divergence reported. Deriving from one list is what closes that.
+export { FILTER_SPEC_FIELDS as FILTER_FIELDS } from '@/lib/agents/icp-filter-spec'
 
 export {}

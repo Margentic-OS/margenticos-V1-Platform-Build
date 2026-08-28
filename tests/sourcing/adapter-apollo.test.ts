@@ -4,7 +4,7 @@
 // Tests adapter translation, seniority mapping, post-filtering, and pagination.
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
-import { apolloHandler } from '@/lib/sourcing/handlers/adapter-apollo'
+import { apolloHandler, reportSpecDivergence } from '@/lib/sourcing/handlers/adapter-apollo'
 import { logger } from '@/lib/logger'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import type { ProspectCandidate } from '@/lib/sourcing/dedupe'
@@ -159,7 +159,7 @@ describe('apolloHandler.adapter', () => {
   it('logs the divergence on EVERY run, including a spec that names no country', () => {
     const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
 
-    apolloHandler.adapter({} as Record<string, unknown>)
+    reportSpecDivergence({} as Record<string, unknown>)
 
     expect(spy).toHaveBeenCalledTimes(1)
     expect(spy.mock.calls[0][0]).toContain('hardcoded filter in force')
@@ -171,7 +171,7 @@ describe('apolloHandler.adapter', () => {
     // passes, and four other fields are discarded without a word.
     const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
 
-    apolloHandler.adapter({
+    reportSpecDivergence({
       person_countries: ['GB', 'IE', 'US'],
       company_countries: ['GB', 'IE', 'US'],
       company_headcount_min: 500,
@@ -198,7 +198,7 @@ describe('apolloHandler.adapter', () => {
   it('reports the headcount the filter actually sends, not the one the spec asked for', () => {
     const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
 
-    apolloHandler.adapter(HOSTILE_SPEC)
+    reportSpecDivergence(HOSTILE_SPEC)
     const meta = spy.mock.calls[0][1] as Record<string, unknown>
 
     expect(meta.filter_headcount_ranges).toEqual(['5,20'])
@@ -213,7 +213,7 @@ describe('apolloHandler.adapter', () => {
     // execute(). Reporting them would pad the list until the real ones stop showing.
     const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
 
-    apolloHandler.adapter({
+    reportSpecDivergence({
       job_titles: [],
       keywords: '',
       industries_excluded: null,
@@ -441,6 +441,64 @@ describe('apolloHandler.execute - ProspectCandidate format', () => {
 })
 
 // ─── Manifest tests ─────────────────────────────────────────────────────────
+
+
+// ─── The divergence report fires once per RUN, not once per PAGE ─────────────
+//
+// This is the whole point of extracting reportSpecDivergence out of adapter(). adapter()
+// is called inside the pagination loop; the log used to live inside it, so the single
+// line saying "the client's stored spec was discarded" was emitted once per page, up to
+// MAX_PAGES = 500 times. Its own volume was what made it noise.
+//
+// The assertion is on the COUNT, because that is the thing that regressed and the thing
+// a future refactor could silently undo by moving the call back inside the loop.
+describe('apolloHandler.execute - divergence report volume', () => {
+  beforeEach(() => {
+    process.env.APOLLO_API_KEY = 'test-key-fixture'
+    vi.restoreAllMocks()
+  })
+
+  it('logs the divergence exactly once across a multi-page run', async () => {
+    // Three full pages of 100, then a short page, which is what stops pagination.
+    const full = {
+      people: Array.from({ length: 100 }, (_, i) => ({
+        id: `p${i}`,
+        first_name: 'A',
+        last_name_obfuscated: 'B',
+        title: 'Founder',
+        has_email: true,
+        organization: { name: 'Acme' },
+      })),
+      total_entries: 350,
+    }
+    const short = { ...full, people: full.people.slice(0, 50) }
+
+    let call = 0
+    global.fetch = vi.fn(async () => {
+      call += 1
+      return { ok: true, status: 200, json: async () => (call >= 4 ? short : full) }
+    }) as never
+
+    const infoSpy = vi.spyOn(logger, 'info')
+
+    const spec: Record<string, unknown> = {
+      job_titles: [], job_titles_excluded: [], seniority_levels: [],
+      person_countries: ['DE'], company_countries: ['DE'],
+      company_headcount_min: 1, company_headcount_max: 50,
+      industries: [], industries_excluded: [], keywords: [], keywords_excluded: [],
+      notes: '',
+    }
+
+    await apolloHandler.execute(spec)
+
+    expect(call).toBeGreaterThan(1)  // guards itself: a single-page run proves nothing
+
+    const divergenceLogs = infoSpy.mock.calls.filter(
+      c => typeof c[0] === 'string' && c[0].includes('hardcoded filter in force'),
+    )
+    expect(divergenceLogs).toHaveLength(1)
+  })
+})
 
 describe('apolloHandler.supported_fields', () => {
   it('includes job_titles_excluded in supported_fields (post-filter)', () => {

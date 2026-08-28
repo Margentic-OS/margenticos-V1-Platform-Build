@@ -139,6 +139,66 @@ export interface ICPFilterSpec {
   unmatched_industries?: string[]     // Non-canonical industries flagged for operator review
 }
 
+// ─── Layer G: ONE list of spec fields, and a compile-time guard on it ─────────
+//
+// There used to be THREE lists of filter-field names and they disagreed:
+//
+//   ICPFilterSpec's own keys          13
+//   FILTER_FIELDS in sourcing/types   19  (6 fields no spec has ever had, plus revenue)
+//   SUPPORTED_FIELDS in adapter-apollo 13  (including 2 fields ICPFilterSpec lacks)
+//
+// The orchestrator's manifest check iterates FILTER_FIELDS, so a field added to
+// ICPFilterSpec but not to FILTER_FIELDS was NEVER CHECKED: the adapter could discard
+// it and nothing would report a divergence. That is the parallel-array shape CLAUDE.md
+// warns about, three lists deep, and it is why this is fixed before anything is built
+// on top of the spec.
+//
+// The two lists below are the single source. Everything else derives from them.
+//
+// The split is load-bearing. FILTER fields are constraints a handler is expected to
+// honour, so the manifest check iterates exactly these. METADATA fields travel with the
+// spec but constrain nothing, so listing them would make the manifest check demand that
+// every handler "support" `notes`, which would throw for every client.
+
+export const FILTER_SPEC_FIELDS = [
+  'job_titles',
+  'job_titles_excluded',
+  'seniority_levels',
+  'person_countries',
+  'company_countries',
+  'company_headcount_min',
+  'company_headcount_max',
+  'industries',
+  'industries_excluded',
+  'keywords',
+  'keywords_excluded',
+] as const
+
+export const FILTER_SPEC_METADATA_FIELDS = [
+  'notes',
+  'unmatched_industries',
+] as const
+
+export type FilterSpecField = typeof FILTER_SPEC_FIELDS[number]
+
+// The guard. Adding a key to ICPFilterSpec without classifying it above is a COMPILE
+// ERROR here, and so is naming a field above that ICPFilterSpec does not have.
+//
+// Written as two `never` checks rather than a boolean, because `extends true` would
+// still pass when the Exclude resolves to a union containing true. Both directions are
+// checked on purpose: one catches a field added to the type and forgotten in the list,
+// the other catches a field removed from the type and left in the list. Only checking
+// the direction you expect to break is how the original three lists drifted.
+type _AllSpecFields = FilterSpecField | typeof FILTER_SPEC_METADATA_FIELDS[number]
+type _FieldsMissingFromLists = Exclude<keyof ICPFilterSpec, _AllSpecFields>
+type _FieldsNotOnTheType = Exclude<_AllSpecFields, keyof ICPFilterSpec>
+
+// If either line below errors, read the type name: it says which direction drifted.
+const _specFieldsAreExhaustive: [_FieldsMissingFromLists] extends [never] ? true : never = true
+const _specFieldsAllExist: [_FieldsNotOnTheType] extends [never] ? true : never = true
+void _specFieldsAreExhaustive
+void _specFieldsAllExist
+
 // ─── ICP document types (mirrors icp-generation-agent.ts output schema) ───────
 
 export interface IcpCompanyProfile {

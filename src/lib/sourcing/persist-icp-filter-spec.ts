@@ -5,6 +5,7 @@ import {
   deriveFilterSpec,
   type IcpDocument,
 } from '@/lib/agents/icp-filter-spec'
+import { inspectFilterSpec } from '@/lib/sourcing/inspect-filter-spec'
 
 /**
  * Derives and persists the ICP filter spec for a newly promoted strategy document.
@@ -99,6 +100,21 @@ export async function persistIcpFilterSpec(
         await Sentry.flush(2000)
       } catch {}
       return
+    }
+
+    // ── 3.5 Inspect the spec we are about to write ─────────────────────────────
+    // Report only. A finding here does NOT stop the write: a spec with a flaw is more
+    // useful than a NULL one, which fails sourcing outright. This is the earliest point
+    // an unclassifiable industry can be named, and naming it at write time is what stops
+    // it being discovered later as an unexplained pile of `industry_not_consulting`.
+    const writeFindings = inspectFilterSpec(spec)
+    if (writeFindings.length > 0) {
+      logger.warn('persistIcpFilterSpec: derived spec has findings', {
+        operation_id: operationId,
+        document_id: documentId,
+        finding_count: writeFindings.length,
+        findings: writeFindings,
+      })
     }
 
     // ── 4. Update strategy_documents with the derived spec ──────────────────────
