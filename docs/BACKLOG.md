@@ -7881,7 +7881,20 @@ session's verification, not in the code it shipped, and that is the more useful 
   currently contributes a little. Needs its own criteria and its own measurement before
   anything is changed.
 
-- [research] WEBSITE PAGES ARE CUT AT 3,000 CHARACTERS PER PAGE, MID-WORD, AT INGEST.
+- [PARTIALLY DONE 2026-08-28] WEBSITE PAGES ARE CUT AT 3,000 CHARACTERS PER PAGE, MID-WORD,
+  AT INGEST.
+
+  THE VISIBILITY HALF IS DONE. `intake_website_pages.extraction_truncated` is set at fetch
+  time and was backfilled by length. Verified live: 8 complete pages, 4 truncated, every one
+  at exactly 3,000 characters ending mid-word. The agents are told per page in the prompt
+  block, and the ICP suggestion_reason carries a count plus the fact that regenerating will
+  not recover the text.
+
+  THE CAP ITSELF IS UNCHANGED AND NOTHING WAS RE-FETCHED, at Doug's instruction. So the
+  four already-cut pages are still cut, and the flag is what makes that visible rather than
+  what fixes it. Original text below.
+
+- [research] ORIGINAL ENTRY:
 
   `MAX_CHARS_PER_PAGE` in `src/lib/intake/fetch-website.ts:17`. Measured 2026-08-28: three
   of the seven stored pages sit at exactly 3,000 characters and end mid-word.
@@ -7908,7 +7921,32 @@ session's verification, not in the code it shipped, and that is the more useful 
   own website text, in a prompt whose first section bans the character. Nothing has gone
   wrong yet because `scrubAITellsDeep` and `assertNoDashes` gate the OUTPUT, not the input.
 
-- [docs] THE ICP QUALITY SELF-CHECK NAMES AN INDUSTRY IN RUNTIME PROMPT TEXT.
+- [DONE 2026-08-28, five instances not one] THE ICP QUALITY SELF-CHECK NAMED AN INDUSTRY IN
+  RUNTIME PROMPT TEXT.
+
+  Fixed, and the scan found four more of the same class in the same file once it was pointed
+  past the rule block: the quality bar at line 38, the JTBD framing, rule 2 under "Rules you
+  must follow", and the research conflict-resolution example. All five rewritten
+  category-level using the same phrasing as Rule 9B, "any other provider in the same
+  category".
+
+  THE WIDER SCAN IS NOT BUILT. Proposing the exemption boundary first, per Doug's
+  instruction, because an exemption list that grows is how a check stops checking. Measured
+  scope of what a wider scan would surface today, after the five fixes: ICP 22 hits of which
+  19 are the canonical NAICS list, positioning 4, TOV 2, messaging 16.
+
+- [pre-c1] THREE VENDOR NAMES ARE HARDCODED IN THE ICP PROMPT, AND MORE IN MESSAGING.
+
+  `docs/prompts/icp-agent.md` uses "Apollo-detectable" as a signal category in the output
+  format and again under "Rules you must follow". `docs/prompts/messaging-agent.md` names
+  the sending provider six times.
+
+  This is CLAUDE.md's tool-name rule, not the industry-agnosticism rule, and it is a
+  different fix: a capability phrasing ("enrichment-detectable", or the registry capability
+  name) rather than a wording change. Found by the category-level scan on 2026-08-28 while
+  fixing the industry assumptions; deliberately not bundled with them.
+
+- [docs] ORIGINAL ENTRY:
 
   `docs/prompts/icp-agent.md`, quality self-check: "could they be copy-pasted to any
   consulting firm's ICP?". That is an industry assumption in text the model reads at

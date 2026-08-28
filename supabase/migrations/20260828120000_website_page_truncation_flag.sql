@@ -3,9 +3,9 @@
 -- WHY. src/lib/intake/fetch-website.ts cuts every fetched page at MAX_CHARS_PER_PAGE
 -- (3,000 characters) before storing it. Nothing recorded that it had happened, so a
 -- reader of intake_website_pages could not tell a page that is genuinely short from one
--- that was cut mid-word. Measured 2026-08-28: three of the seven stored pages sit at
--- exactly 3,000 characters and end mid-word, and one of them cuts off in the middle of
--- the sentence describing the client's own sustainability model.
+-- that was cut mid-word. Measured 2026-08-28 across the full table: four of the eight
+-- stored pages sit at exactly 3,000 characters and end mid-word, and one of them cuts off
+-- in the middle of the sentence describing the client's own sustainability model.
 --
 -- The cap is NOT raised here and nothing is re-fetched. This migration only makes the
 -- existing behaviour observable. See ADR-043 and BACKLOG.
@@ -34,4 +34,7 @@ UPDATE public.intake_website_pages
    AND length(extracted_text) = 3000
    AND extraction_truncated = false;
 
--- Status: PENDING (apply via Supabase MCP apply_migration, then verify and mark APPLIED)
+-- Status: APPLIED (verified live 2026-08-28)
+-- Read-back: 8 complete pages, 4 flagged true, every one at exactly 3000 chars and ending
+-- mid-word; the 4 flagged false all end on a clean boundary. Applied via MCP apply_migration,
+-- so the remote version timestamp differs from this filename. See CLAUDE.md.

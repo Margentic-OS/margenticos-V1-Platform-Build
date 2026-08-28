@@ -3703,7 +3703,9 @@ So the plumbing was never the cause, and the other two changes are not secondary
 
 There IS a truncation, but it is upstream and it is not what lost these details.
 `MAX_CHARS_PER_PAGE = 3_000` in `src/lib/intake/fetch-website.ts:17` cuts each page at
-ingest. Three of the seven stored pages sit at exactly 3,000 characters and end mid-word.
+ingest. Four of the eight stored pages sit at exactly 3,000 characters and end mid-word.
+(Reported as three of seven in the first pass, which counted three organisations rather than
+all five. Corrected against the full table when the backfill was verified live.)
 Every detail named above is inside the stored window, so the cap did not remove them. It is
 logged in BACKLOG rather than changed here, because changing it would need a re-fetch to
 mean anything and the prompt budget it protects is real.
