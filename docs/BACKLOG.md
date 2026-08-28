@@ -7868,3 +7868,54 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   rather than as a wrong path. It 413s across the whole workspace without an `emails`
   filter. Codified already in sending-health.ts; recorded here because a wrong endpoint
   here is indistinguishable from a quiet day.
+
+- [pre-c0] SETTLED: Instantly's campaign daily_limit is PER CAMPAIGN IN TOTAL, not per
+  mailbox. The MCP tool's own parameter documentation says the opposite and is WRONG.
+
+  Measured on the throwaway campaign, never on C0: daily_limit 5, TWO sending mailboxes,
+  12 leads. If the limit were per mailbox the campaign could send 10. It sent 5 and stopped
+  with 7 leads uncontacted.
+
+  The decisive evidence is GET /campaigns/{id}/sending-status, which separates all three
+  competing explanations in a single response rather than leaving them to be inferred from
+  a plateau:
+
+    "status": "daily_limit_met"
+    "campaign_daily_limit": { "limit": 5, "sent": 5, "limit_hit": true }
+    "accounts_summary": { "unavailable": { "daily_limit_hit": 0, ... } }
+    "schedule_status": { "in_schedule": true }
+    "leads_status":    { "no_leads_ready": false }
+
+    per-campaign total  CONFIRMED: limit_hit true at the CAMPAIGN level, 5 of 5.
+    per-mailbox         REFUTED:   ZERO accounts report daily_limit_hit. If the cap were
+                                   per account, the accounts would be the thing at limit.
+                                   Neither had reached 5 (doug 3, douglas 2).
+    schedule closed     REFUTED:   in_schedule true. Measured at 10:36 ET against a
+                                   09:00-17:00 ET window, 6.5 hours of window remaining.
+    out of work         REFUTED:   no_leads_ready false, 7 leads uncontacted.
+
+  ORDERING MATTERS AND WAS PRESERVED: daily_limit_met was recorded at 14:36:08Z and the
+  campaign was paused at 14:37:03Z. The limit was hit on its own; the pause is not what
+  stopped it. Pausing at total 5 BEFORE the verdict would have made 5 an artefact of the
+  intervention rather than a measurement, and was deliberately not done.
+
+  CAVEAT, recorded rather than smoothed over: accounts_summary.total_connected reads 0 in
+  the same response, which is plainly not true of a campaign with two senders that had just
+  sent five emails. It looks like the account loop is not evaluated once the campaign-level
+  gate short-circuits. It does not weaken the finding, because the campaign-level
+  limit_hit is explicit, but do not build anything on total_connected.
+
+  CONSEQUENCE FOR THE RAMP. C0's daily_limit of 20 is a TOTAL across all ten of its
+  mailboxes, roughly 2 per mailbox per day, not 20 each. Any ramp plan that assumed
+  20-per-mailbox was overstating capacity by 10x. Raising throughput means raising the
+  campaign number, and the 50-send-per-domain floor in sending-health only starts judging
+  bounce RATE once a domain clears 50 sends in 7 days, which at 20/day across five domains
+  it never will.
+
+- [ops] Instantly's MCP tool descriptions are generated and are not a source of truth.
+
+  create_campaign and update_campaign both document daily_limit as "Max emails per day per
+  sending account". Measured behaviour is per campaign in total. Treat the tool text as a
+  hint to be tested, never as evidence. Also note allow_risky_contacts and
+  disable_bounce_protect are NOT exposed by the MCP tools at all and must be set with a
+  direct PATCH to /api/v2/campaigns/{id}.
