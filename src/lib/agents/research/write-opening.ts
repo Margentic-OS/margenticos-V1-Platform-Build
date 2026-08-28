@@ -17,6 +17,7 @@ import { logger } from '@/lib/logger'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/firmographic'
+import { checkSentenceInitialNames } from '@/lib/style/sentence-initial-names'
 import { BatchUniquenessRegistry, uniquenessFeedback } from './batch-uniqueness'
 import type { ObservationCandidate, TokenUsage } from './types'
 import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage } from './types'
@@ -1015,6 +1016,11 @@ export function checkOpeningGates(
    * whole point of the per-part budget is that a length failure names the part.
    */
   params?: { observation: string; bridge: string; question: string },
+  /**
+   * For the sentence-initial log line only. Optional so existing single-purpose callers
+   * and tests need not thread it through; production always passes it.
+   */
+  context?: { prospectId: string },
 ): string[] {
   const failures: string[] = []
 
@@ -1041,6 +1047,21 @@ export function checkOpeningGates(
   if (untraceable.length > 0) {
     failures.push(`claims not traceable to any finding: ${untraceable.join(', ')}`)
   }
+
+  // AN EIGHTH GATE, AND IT CLOSES A HOLE IN THE THIRD ONE RATHER THAN ADDING A NEW RULE.
+  //
+  // untraceableClaims exempts the first word of every sentence, because capitalisation
+  // there is convention rather than evidence. This gate runs on `${opening} ${question}`,
+  // and the observation always ends in a full stop, so the bridge's first token is ALWAYS
+  // in that exempt set. Twelve of the sixteen named entities in the writer prompt's own
+  // worked examples leak straight through it. See sentence-initial-names.ts for the
+  // measurement and for why the discriminator is a vocabulary rather than a denylist.
+  //
+  // REPORT-ONLY until SENTENCE_INITIAL_GATE_MODE is flipped by hand, so this returns an
+  // empty array today and logs what it would have rejected.
+  failures.push(...checkSentenceInitialNames(
+    opening, findingsText, { prospectId: context?.prospectId ?? 'unknown' },
+  ))
 
   // A DELIBERATE FOURTH GATE. The brief said to keep the deterministic gates unchanged,
   // and this adds one, so the reasoning should be on the record. A prompt rule alone is
@@ -1323,7 +1344,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     // The cap covers the whole written block, so gate the combined text.
     const gates = checkOpeningGates(
       `${opening} ${question}`.trim(), params.prospectFirstName, findings, params.p3,
-      { observation, bridge, question },
+      { observation, bridge, question }, { prospectId: params.prospectId },
     )
     if (!question) gates.push('writer returned no closing question')
     // A missing half means the reply was malformed. Failing here rather than shipping is

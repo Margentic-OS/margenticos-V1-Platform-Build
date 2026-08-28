@@ -8232,6 +8232,90 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   change to the agent that feeds the send path. Measured 2026-08-28: no messaging output
   contains a vendor name. Own item, do it when the messaging agent is next open anyway.
 
+- [pre-c1] [gate] THE SENTENCE-INITIAL NAME GATE IS BUILT AND IS REPORT-ONLY. REVIEW
+  AFTER 2026-09-04, THEN FLIP IT TO BLOCKING.
+
+  src/lib/style/sentence-initial-names.ts, wired into checkOpeningGates in
+  write-opening.ts. SENTENCE_INITIAL_GATE_MODE = 'report'.
+
+  THE DEFECT. untraceableClaims exempts the first word of every sentence, because a
+  capital there is convention and not evidence. Production runs that gate on
+  `${opening} ${question}`, and the observation always ends in a full stop, so the
+  BRIDGE'S FIRST TOKEN IS ALWAYS IN THE EXEMPT SET. That is structural, true on every
+  call, not probabilistic. Three positions are exempt, not one: index 0, the bridge's
+  first word and the question's first word, plus every internal sentence break.
+
+  MEASURED 2026-08-28 against the real exported gate at the real production shape:
+  TWELVE OF THE SIXTEEN named entities in the writer prompt's worked examples leak.
+  The four caught are caught incidentally by a tail token that is not sentence-initial
+  (Blue SKY, Hollywood FOOD COALITION, Stanford GSB, Knot CONSULTING). "Sovern LA" leaks
+  despite being two tokens, because the tail is two characters and the old gate has a
+  three-character floor.
+
+  NOT FIRED IN PRODUCTION. All 24 stored openings were checked: every capitalised word
+  traces to the prospect it belongs to, because the examples were built from those
+  prospects. The hole is real, it has not leaked yet, and it widens with volume.
+
+  WHY IT IS NOT A DENYLIST. A list of the fifteen-odd entities currently in the prompt
+  protects against those strings and rots when an example is edited, and does nothing
+  about an invented company or a hallucinated regulator, which are the failures that
+  matter. So the list runs the other way: enumerate ORDINARY ENGLISH
+  (src/lib/style/ordinary-words.ts) and treat what is outside it as a possible name.
+
+  WHY A VOCABULARY AND NOT A LIST OF COMMON OPENERS, measured on all 24 stored openings:
+  67 sentence-initial capitalised tokens, 35 of them absent from their own findings. So
+  untraceability ALONE would reject essentially every opening ever shipped, and the list
+  beside it is the entire gate rather than a tiebreaker. Those 35 are fifteen distinct
+  words and every one is ordinary English: Between Buyers Finding Founders Most New
+  Running Shows That Then They Those When You Your. SEVEN ARE OPEN-CLASS, which a
+  function-word list would miss, costing a writer attempt on six or seven of 24 openings.
+
+  A full dictionary was rejected on measurement, not taste: /usr/share/dict/words holds
+  235,976 entries including 25,203 proper nouns, and contains "pani" and "jason". It
+  would hand three of the twelve known leaks a free pass.
+
+  TO FLIP: change SENTENCE_INITIAL_GATE_MODE to 'block' and record here what the week's
+  logs showed. MANUAL on purpose, same reasoning as the vendor gate above.
+
+  WHAT TO LOOK FOR IN THE LOGS. One line:
+    warn "sentence-initial-gate: name-shaped word opening a sentence, not in findings"
+  Each hit carries prospectId, the word, the full run, the signal (orthography or
+  not-english) and the sentence. EXPECT ZERO. A hit whose word is ordinary English is a
+  false positive and the fix is to ADD THAT WORD to ordinary-words.ts, which can only
+  ever make the gate more permissive.
+
+- [gate] frameSkeleton IS NOT A SECOND LAYER AGAINST INVENTED NAMES. DO NOT COUNT IT AS
+  ONE.
+
+  Recorded because counting it as one is what leaves the hole above open. frameSkeleton
+  in sentence-frames.ts also treats index 0 specially, which looks like the same rule. It
+  is not. It is a NORMALISER for cross-variant sentence reuse and it MASKS every
+  capitalised word from index 1 onward rather than testing any of them. It never rejects
+  anything at any index. Before sentence-initial-names.ts, nothing anywhere checked the
+  first word of a sentence for a proper noun, and any defence-in-depth argument that
+  counted these as two layers was counting one layer twice.
+
+- [research] SMALL, REAL, AND NOT FIXED: frameSkeleton leaves index 0 UNMASKED, so a name
+  swap at the very start of a sentence evades cross-variant reuse detection. "Acme
+  delivers X" and "Beta delivers X" normalise differently and read as two different
+  sentences. Found 2026-08-28 while working the sentence-initial gate. Left alone
+  deliberately: it is a reuse-detection question, not a leak question, and changing the
+  normaliser would shift which variants collide across the whole batch. Do it when
+  sentence-frames.ts is next open, with a batch re-run to see what starts colliding.
+
+- [gate] THE KNOWN HOLE IN THE SENTENCE-INITIAL GATE: A REAL ENGLISH WORD USED AS A NAME.
+
+  "Treasury", "Cave", "Knot", "Sky". If the word is in ordinary-words.ts the gate allows
+  it, by design. AMBIGUITY RESOLVES TO ALLOW, the same rule vendor-name-gate.ts states:
+  every uncertain case is a missed leak and never a rejected email, because the leak has
+  never fired and a wrong rejection costs a writer attempt every time.
+
+  In practice the frequency-based list closes most of this by accident rather than by
+  rule: "treasury" and "cave" are real words but not common enough to be in a common-word
+  list, so both are caught today. Do not read that as a guarantee. "Blue Sky" IS allowed
+  by this gate, and is caught only because untraceableClaims sees the tail "Sky". That
+  seam is asserted as a pair in the tests rather than assumed.
+
 - [research] [gate] THE INCIDENTAL-MENTION HOLE IN THE VENDOR GATE. DO NOT FIX IT BY
   MATCHING PHRASING.
 

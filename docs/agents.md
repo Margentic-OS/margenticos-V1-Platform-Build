@@ -616,6 +616,49 @@ the stored record no longer matches what the prospect received.
 `src/lib/agents/rerun-three-prospects.ts` calls the agent directly and has no such guard.
 It is a diagnostic. Do not point it at prospects whose copy has shipped.
 
+### The gates on the writer's opening (research agent)
+
+`checkOpeningGates` in `src/lib/agents/research/write-opening.ts` runs deterministic checks
+on what the writer hands back, before any judge sees it. Length, third person, untraceable
+claims, firmographics, question marks, client-base claims, and an echo of the approved
+offer line.
+
+**Added 2026-08-28: the sentence-initial name check**
+(`src/lib/style/sentence-initial-names.ts`).
+
+WHAT IT DOES, in plain English. One of the older checks says "every capitalised word must
+appear in the research findings, because a capital letter means it is the name of
+something". That check has to skip the first word of a sentence, because the first word of
+any sentence is capitalised whether or not it is a name. Skipping it is correct on its own.
+
+It is a hole because of where that check runs. It sees the observation and the bridge as
+one block, and the observation always ends in a full stop, so **the first word of the
+bridge is always in the skipped position**. Every time. The bridge is exactly where the
+writer prompt's worked examples land, and twelve of the sixteen named entities in those
+examples pass straight through when placed there.
+
+Nothing has leaked. All 24 stored openings were checked and every name in them belongs to
+the prospect it was written for. The risk grows with volume.
+
+HOW IT TELLS A NAME FROM AN ORDINARY WORD, given that capitalisation is useless here. A
+word is only reported when it is absent from the findings AND looks like a name, where
+looking like a name means either odd spelling (an internal capital, all caps, or a digit:
+`HydrospherIQ`, `DTCC`, `Web3`) or not being ordinary English at all (`Taffet`, `Sovern`,
+and any company the model invents tomorrow). The ordinary-English vocabulary lives in
+`src/lib/style/ordinary-words.ts`.
+
+It is deliberately NOT a list of the names we are afraid of. Such a list would protect
+against exactly those spellings and would rot the moment an example changed.
+
+**REPORT-ONLY UNTIL FLIPPED BY HAND.** `SENTENCE_INITIAL_GATE_MODE = 'report'` means it
+logs what it would have rejected and rejects nothing. Review after 2026-09-04. See
+BACKLOG for what to look for in the logs and how to flip it.
+
+WHAT TO CHECK IF IT BREAKS. If good copy starts getting rejected after the flip, read the
+log line `sentence-initial-gate: ...`. It names the prospect, the word, and the sentence.
+If the word is ordinary English, add it to `ordinary-words.ts`. Adding a word can only make
+the gate more permissive, so it is always the safe fix.
+
 ### The safe default
 
 `use_stored_findings` defaults to **true** everywhere: in the agent, in the entry point, and
