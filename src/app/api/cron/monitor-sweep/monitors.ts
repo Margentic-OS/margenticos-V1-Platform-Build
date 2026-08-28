@@ -60,4 +60,9 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   // src/lib/sending-health/ so vitest can reach them without a database, which no view
   // can offer. MON-016 already reads a stored verdict, so the sweep needs no special case.
   ['MON-023', 'mon_023'],
+  // Privilege audit, added 2026-08-27. Structural like MON-022, and for the same reason:
+  // the check it replaces lived in CLAUDE.md and ran only when someone remembered it,
+  // which is how a writable client-facing view passed review twice. It reads all eight
+  // table privileges for anon and authenticated across tables, views and matviews.
+  ['MON-024', 'mon_024'],
 ] as const

@@ -1241,33 +1241,75 @@ The correct pattern already existed in the same database: `client_prospects_view
 direction. Grants and options were whatever the default was on the day each view happened
 to be created, and the audit could not see the difference.
 
-**The audit query, corrected. Use this one.**
+### Rule: THAT QUERY WAS STILL WRONG. IT READ ONE PRIVILEGE OUT OF EIGHT.
+
+The version above was corrected once, for `relkind = 'r'`, and it stayed wrong in a second
+way for another day: **it asked who could SELECT and never asked who could WRITE.**
+
+That is not hypothetical. `client_organisation_view` appeared in its output on 2026-08-26,
+was reasoned about carefully on the read path, and was cleared. It was auto-updatable,
+owner-executing, and `anon` and `authenticated` both held the full `arwdDxtm` default on
+it, so a signed-in client could UPDATE their own organisation row through the view,
+including `pipeline_unlocked`, the operator-controlled phased unlock. See ADR-039, which
+measured that write succeeding. **The write grants were invisible to the query that was
+looking for problems.**
+
+So this is the third time one shape has cost real time here: the `relkind = 'r'` filter,
+the monitor sweep's parallel arrays, and now a privilege list with seven omissions.
+
+**The audit query, corrected again. Use this one. It reads all eight privileges.**
 
     SELECT c.relname,
            c.relkind,
            pg_get_userbyid(c.relowner) AS owner,
            COALESCE((SELECT option_value FROM pg_options_to_table(c.reloptions)
                       WHERE option_name = 'security_invoker'), 'false') AS security_invoker,
-           has_table_privilege('anon',          c.oid, 'SELECT') AS anon,
-           has_table_privilege('authenticated', c.oid, 'SELECT') AS authenticated
-      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+           c.relrowsecurity AS rls,
+           who.rolname AS role,
+           string_agg(p.priv, ',' ORDER BY p.priv) AS held
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      CROSS JOIN (SELECT unnest(ARRAY['anon','authenticated']) AS rolname) who
+      CROSS JOIN (SELECT unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE',
+                                      'TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) AS priv) p
      WHERE n.nspname = 'public'
        AND c.relkind IN ('r', 'v', 'm')
-       AND (has_table_privilege('anon', c.oid, 'SELECT')
-         OR has_table_privilege('authenticated', c.oid, 'SELECT'));
+       AND has_table_privilege(who.rolname, c.oid, p.priv)
+     GROUP BY c.relname, c.relkind, c.relowner, c.reloptions, c.relrowsecurity, who.rolname
+     ORDER BY c.relkind, c.relname, who.rolname;
 
-Read every row. For a TABLE, RLS is the mitigation. For a VIEW, RLS on the base tables is
-NOT a mitigation unless `security_invoker` is `true`, so a view row with
-`security_invoker = false` and `anon = true` is an outright read of whatever it selects.
+`MAINTAIN` is Postgres 17 and is in the list for the same reason the other six are: a
+partial list is exactly how the last two misses happened. To read the privilege back for
+ONE relation after changing it, which the rules above require in both directions, ask for
+each privilege as its own column rather than aggregating.
+
+Read every row:
+
+  - **table, RLS on** — intended. RLS is the gate. Note that the grant underneath it is
+    the Supabase default and RLS is therefore the ONLY layer.
+  - **table, RLS off** — an outright read and write of every row.
+  - **view or matview, `security_invoker` not true** — RLS on the base tables is never
+    consulted. Any privilege here is the whole of the protection, and a write privilege
+    is a write path straight past RLS.
+  - **view, `security_invoker = true`, anything beyond SELECT** — the predicate constrains
+    WHICH ROWS, only the grant constrains WHAT OPERATIONS. A read-only view gets SELECT
+    and nothing else. ADR-039.
+
+**AND NOW IT RUNS WITHOUT BEING REMEMBERED. See MON-024.** A query in a markdown file is
+not a control, for the same reason the commit gate had to become a hook on 2026-08-27: it
+fires only when someone thinks to run it, and the two misses above both happened while
+this section already existed. `mon_024` applies the four rules above against the live
+catalog on every monitor sweep, and returns UNKNOWN rather than OK when it finds no
+relations to evaluate, because every one of those rules passes vacuously over an empty set.
+
+Keep the query here anyway. It is what you run when you want the full list rather than a
+verdict, and MON-024's detail line names only the first failing class.
 
 **Why this is in the security section and not in a backlog file.** The bug was not in the
 database. It was IN THE AUDIT. A check that runs, returns zero rows, and cannot see the
 class it was written to find is the same shape as the opt-out footer that was validated and
 then discarded, and as the monitor sweep whose loop was bounded by the shorter of two
 arrays. When a check is the thing that is wrong, nothing downstream of it can notice.
-
-MON-022 now reads this class live for the synthesis tables. Extending it to cover every
-public view is the obvious next step and is in BACKLOG.
 
 **The generalisation, which is the part worth carrying:** the mistake in both the
 2026-06-05, 2026-08-24 and 2026-08-25 incidents is identical, and it is not about
