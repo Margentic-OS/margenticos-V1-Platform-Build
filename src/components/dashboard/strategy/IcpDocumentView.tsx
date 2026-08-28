@@ -1,5 +1,38 @@
 import type { Json } from '@/types/database'
-import type { IcpDocument, IcpTier, IcpTrigger } from '@/types'
+import type { IcpDocument, IcpTier } from '@/types'
+
+// ─── Render-boundary coercion ────────────────────────────────────────────────
+//
+// The ICP agent has NO runtime schema validator. Between the model's JSON and the row
+// stored in strategy_documents there are three steps (JSON.parse, scrubAITellsDeep,
+// assertNoDashes) and not one of them checks that a key exists or has a type. So any
+// field reaching this component may be a string, an object, a number, or absent, and
+// TypeScript cannot see it because the document is cast from `Json`.
+//
+// Handing React an object throws "Objects are not valid as a React child" during the
+// RENDER phase, which is AFTER the component function has returned. A try/catch around
+// a render helper therefore does not catch it: ApprovalCard has exactly such a try/catch
+// and it is ineffective for this class. An error boundary would catch it, but this is a
+// server component, so the boundary would have to be a client component and the server
+// render would fail first.
+//
+// Coercing at the boundary is what actually holds, and it degrades better than either:
+// the reader sees the value instead of a blank section or a dead page.
+function renderableText(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (typeof value === 'object') {
+    const o = value as Record<string, unknown>
+    // `trigger` is the existing IcpTrigger shape. `criterion` is the agreed shape for
+    // structured disqualifiers, so that change cannot crash this view when it lands.
+    for (const key of ['criterion', 'trigger']) {
+      if (typeof o[key] === 'string') return o[key] as string
+    }
+    return JSON.stringify(value)
+  }
+  return String(value)
+}
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -9,16 +42,26 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   )
 }
 
-function FieldRow({ label, value }: { label: string; value: string | string[] | undefined }) {
+function FieldRow({ label, value }: { label: string; value: unknown }) {
   if (!value || (Array.isArray(value) && value.length === 0)) return null
+
+  // Coerce BEFORE React sees it. Everything below renders strings only.
+  const items = Array.isArray(value)
+    ? value.map(renderableText).filter((t): t is string => t !== null && t !== '')
+    : null
+  const single = items === null ? renderableText(value) : null
+
+  if (items !== null && items.length === 0) return null
+  if (items === null && !single) return null
+
   return (
     <div>
       <p className="text-[10px] font-normal uppercase tracking-[0.07em] text-text-secondary mb-1.5">
         {label}
       </p>
-      {Array.isArray(value) ? (
+      {items !== null ? (
         <ul className="space-y-1">
-          {value.map((item, i) => (
+          {items.map((item, i) => (
             <li key={i} className="flex gap-2">
               <span className="text-text-muted shrink-0 mt-0.5">·</span>
               <span className="text-[13px] text-text-primary leading-relaxed">{item}</span>
@@ -26,7 +69,7 @@ function FieldRow({ label, value }: { label: string; value: string | string[] | 
           ))}
         </ul>
       ) : (
-        <p className="text-[13px] text-text-primary leading-[1.65]">{value}</p>
+        <p className="text-[13px] text-text-primary leading-[1.65]">{single}</p>
       )}
     </div>
   )
@@ -89,9 +132,13 @@ function TierBlock({ tier, tierNum }: { tier: IcpTier; tierNum: 1 | 2 | 3 }) {
           </div>
         )}
 
-        <FieldRow label="Triggers" value={tier.triggers.map((t): string =>
-          typeof t === 'string' ? t : (t as IcpTrigger).trigger
-        )} />
+        {/* No .map here on purpose. This was `tier.triggers.map(...)`, the one
+            unguarded dereference in this file while every field around it was
+            guarded, so a tier without a `triggers` key took down the whole client
+            strategy page. Nothing enforces that key: the ICP agent has no schema
+            validator. FieldRow now handles the array, and renderableText handles
+            both the plain-string and the { trigger } object shape. */}
+        <FieldRow label="Triggers" value={tier.triggers} />
         <FieldRow label="Switching costs" value={tier.switching_costs} />
 
         {tier.disqualifiers && tier.disqualifiers.length > 0 && (
@@ -100,7 +147,7 @@ function TierBlock({ tier, tierNum }: { tier: IcpTier; tierNum: 1 | 2 | 3 }) {
               Disqualifiers
             </p>
             <ul className="space-y-1">
-              {tier.disqualifiers.map((item, i) => (
+              {tier.disqualifiers.map(renderableText).map((item, i) => (
                 <li key={i} className="flex gap-2">
                   <span className="text-[#8B2020] shrink-0 mt-0.5">·</span>
                   <span className="text-[13px] text-[#8B2020] leading-relaxed">{item}</span>

@@ -6,6 +6,7 @@ import type {
   SourcingHandler,
 } from '@/lib/sourcing/types'
 import { FILTER_FIELDS } from '@/lib/sourcing/types'
+import { inspectFilterSpec } from '@/lib/sourcing/inspect-filter-spec'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import { apolloHandler } from '@/lib/sourcing/handlers/adapter-apollo'
 import { checkCandidates, type ProspectCandidate } from '@/lib/sourcing/dedupe'
@@ -112,6 +113,23 @@ export async function runSourcing(
     }
 
     const spec = icpDoc.icp_filter_spec as ICPFilterSpec
+
+    // ── Step 2.5: Inspect the STORED spec ─────────────────────────────────────
+    // Stored specs are frozen at promotion time and nothing recomputes them, so this
+    // row may predate the current shape. Every reader below casts without checking, and
+    // tier-classification guards absent fields with && — meaning an old spec silently
+    // stops applying a rule rather than failing. Report only; this must not decide
+    // whether a run happens.
+    const specFindings = inspectFilterSpec(spec)
+    if (specFindings.length > 0) {
+      logger.warn('Sourcing orchestrator: stored filter spec has findings', {
+        operation_id: operationId,
+        client_id,
+        icp_document_id: icpDoc.id,
+        finding_count: specFindings.length,
+        findings: specFindings,
+      })
+    }
 
     // ── Step 3: Get active handler from integrations_registry ─────────────────
     const { data: capabilityRow, error: capError } = await supabase

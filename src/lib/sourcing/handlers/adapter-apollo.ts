@@ -32,6 +32,7 @@
 import { logger } from '@/lib/logger'
 import { normaliseLinkedInUrl } from '@/lib/sourcing/normalise-linkedin'
 import type { ProspectCandidate } from '@/lib/sourcing/dedupe'
+import { FILTER_SPEC_FIELDS } from '@/lib/agents/icp-filter-spec'
 import type { CanonicalIndustry } from '@/lib/agents/icp-filter-spec'
 
 interface ApolloApiSearchRequest {
@@ -242,21 +243,13 @@ const FILTER_COUNTRY_CODES = new Set(['US', 'GB', 'IE'])
 // Two lists that have to be kept in step by hand is the parallel-array shape
 // CLAUDE.md warns about: a field added to one and forgotten in the other would be
 // discarded and never reported, permanently and silently.
-const SUPPORTED_FIELDS = [
-  'job_titles',
-  'job_titles_excluded',
-  'seniority_levels',
-  'person_countries',
-  'company_countries',
-  'company_headcount_min',
-  'company_headcount_max',
-  'industries',
-  'industries_excluded',
-  'keywords',
-  'keywords_excluded',
-  'company_revenue_min',
-  'company_revenue_max',
-] as const
+// Derived from the ONE list in icp-filter-spec.ts. See "Layer G" there.
+//
+// Hand-listed until now, and it disagreed with ICPFilterSpec in both directions: it
+// claimed `company_revenue_min` and `company_revenue_max`, which no spec has ever had,
+// and any field added to the spec would have been missing here. Deriving it means a new
+// spec field is advertised automatically and cannot be silently dropped.
+const SUPPORTED_FIELDS = FILTER_SPEC_FIELDS
 
 // The only two spec fields that survive into the run at all. They are honoured as
 // POST-FILTERS on results in execute(), never as search parameters, so they are not
@@ -280,6 +273,47 @@ function isPopulated(value: unknown): boolean {
   return true
 }
 
+// ─── The divergence report ───────────────────────────────────────────────────
+//
+// Called ONCE PER RUN, from execute(), before the first request.
+//
+// It used to live inside adapter(), and adapter() is called inside the pagination
+// loop, once per page. So the single line that says "the spec did not build this
+// query" was emitted up to MAX_PAGES times per run. It is the only evidence that a
+// client's stored specification was discarded, and its own volume was what made it
+// something to scroll past. A report nobody reads is not a report.
+//
+// Nothing here gates. The filter is hardcoded whatever the spec says, and this
+// function is the only thing that says so out loud.
+export function reportSpecDivergence(spec: Record<string, unknown>): void {
+  const specCountries = [
+    ...((spec.company_countries as string[] | undefined) ?? []),
+    ...((spec.person_countries as string[] | undefined) ?? []),
+  ]
+  const ignoredCountries = Array.from(new Set(specCountries))
+    .filter(code => !FILTER_COUNTRY_CODES.has(code.toUpperCase()))
+
+  const ignoredFields = QUERY_IGNORED_SPEC_FIELDS.filter(field => isPopulated(spec[field]))
+
+  // UNCONDITIONAL, on every run.
+  //
+  // This used to fire only when the spec named a country outside US/GB/IE. So the
+  // specs MOST likely to be wrong were the ones that produced no log at all: once
+  // ADR-032 moved the defaults to GB/IE/US, the country test passes for every new
+  // client while headcount, industries, keywords, titles and seniorities are still
+  // being discarded in silence. A report that stays quiet until the problem is
+  // already obvious is not a report, and 'no log' read as 'no divergence' when it
+  // meant 'the only divergence I check for is absent'.
+  logger.info('Apollo adapter: hardcoded filter in force, spec did not build this query', {
+    ignored_spec_fields: ignoredFields,
+    ignored_spec_countries: ignoredCountries,
+    post_filtered_spec_fields: Array.from(POST_FILTERED_SPEC_FIELDS),
+    filter_locations: APOLLO_FILTER.organization_locations,
+    filter_person_locations: APOLLO_FILTER.person_locations,
+    filter_headcount_ranges: APOLLO_FILTER.organization_num_employees_ranges,
+  })
+}
+
 export const apolloHandler = {
   name: 'Apollo',
 
@@ -300,42 +334,13 @@ export const apolloHandler = {
 
   // Adapter: return the hardcoded request.
   //
-  // `spec` is accepted to satisfy the SourcingHandler interface and is not used
-  // to build the query. It is read for exactly one thing: to say out loud when
-  // the stored spec disagrees with the filter, so that gap is visible in the
-  // logs instead of silent.
-  adapter: (spec: Record<string, unknown>): ApolloApiSearchRequest => {
-    const specCountries = [
-      ...((spec.company_countries as string[] | undefined) ?? []),
-      ...((spec.person_countries as string[] | undefined) ?? []),
-    ]
-    const ignoredCountries = Array.from(new Set(specCountries))
-      .filter(code => !FILTER_COUNTRY_CODES.has(code.toUpperCase()))
-
-    const ignoredFields = QUERY_IGNORED_SPEC_FIELDS.filter(field => isPopulated(spec[field]))
-
-    // UNCONDITIONAL, on every run, and that is the change.
-    //
-    // This used to fire only when the spec named a country outside US/GB/IE. So the
-    // specs MOST likely to be wrong were the ones that produced no log at all: once
-    // ADR-032 moved the defaults to GB/IE/US, the country test passes for every new
-    // client while headcount, industries, keywords, titles, seniorities and revenue
-    // are still being discarded in silence. A report that stays quiet until the
-    // problem is already obvious is not a report, and 'no log' read as 'no
-    // divergence' when it meant 'the only divergence I check for is absent'.
-    //
-    // So it logs every time, and names the fields rather than just the countries.
-    // Nothing here gates: the filter is hardcoded whatever the spec says, and this
-    // line is the only thing that says so out loud. Expect one line per sourcing run.
-    logger.info('Apollo adapter: hardcoded filter in force, spec did not build this query', {
-      ignored_spec_fields: ignoredFields,
-      ignored_spec_countries: ignoredCountries,
-      post_filtered_spec_fields: Array.from(POST_FILTERED_SPEC_FIELDS),
-      filter_locations: APOLLO_FILTER.organization_locations,
-      filter_person_locations: APOLLO_FILTER.person_locations,
-      filter_headcount_ranges: APOLLO_FILTER.organization_num_employees_ranges,
-    })
-
+  // `spec` is accepted to satisfy the SourcingHandler interface and is NOT used to
+  // build the query. It is deliberately unused: the divergence it causes is reported
+  // by reportSpecDivergence() above, once per run rather than once per page.
+  //
+  // This function is now pure. Keep it that way. It is called inside the pagination
+  // loop, so anything with a side effect here is multiplied by the page count.
+  adapter: (_spec: Record<string, unknown>): ApolloApiSearchRequest => {
     // Copy the arrays out rather than spreading the references. A shallow spread
     // hands every caller the SAME array instances as the module-level constant, so
     // one caller appending a location would silently change the filter for every
@@ -366,6 +371,9 @@ export const apolloHandler = {
       throw new Error(`Apollo sourcing failed: ${msg}`)
     }
 
+    // Once per run, before the first request. See reportSpecDivergence above.
+    reportSpecDivergence(spec)
+
     const candidates: ProspectCandidate[] = []
 
     // Aggregate counts for the two post-filters below. The per-candidate lines are
@@ -382,6 +390,12 @@ export const apolloHandler = {
     const MAX_RESULTS = cap ?? 50000
     const PAGE_SIZE = cap ? Math.min(cap, 100) : 100
 
+    // Built ONCE. adapter() ignores `spec` and returns the same hardcoded filter every
+    // call, so rebuilding it per page allocated a fresh object per request for nothing.
+    // `page` and `per_page` are the only fields that vary, and they are set below.
+    const request = apolloHandler.adapter(spec) as ApolloApiSearchRequest
+    request.per_page = PAGE_SIZE
+
     let page = 1
     let totalFetched = 0
     let morePages = true
@@ -393,9 +407,7 @@ export const apolloHandler = {
         await new Promise(resolve => setTimeout(resolve, 300))
       }
 
-      const request = apolloHandler.adapter(spec) as ApolloApiSearchRequest
       request.page = page
-      request.per_page = PAGE_SIZE
 
       try {
         const response = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {

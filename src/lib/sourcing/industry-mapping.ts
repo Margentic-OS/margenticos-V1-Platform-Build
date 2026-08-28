@@ -30,6 +30,27 @@ const APOLLO_TO_SPEC: Record<string, string> = {
   'it consulting': 'Information Technology Consulting',
 }
 
+// ─── What this mapping can PRODUCE ───────────────────────────────────────────
+//
+// The RANGE of APOLLO_TO_SPEC, not its domain. This is the set of canonical industry
+// names a sourced prospect can ever be classified as.
+//
+// It exists because the map is MANY-TO-ONE and therefore not invertible. Both
+// 'business coaching' and 'executive coaching' map to 'Business Coaching', so the
+// canonical name 'Executive Coaching' is in CANONICAL_INDUSTRIES, is listed in the
+// Apollo handler's APOLLO_TARGETED_INDUSTRIES, passes the orchestrator's reachability
+// gate, and can then never come back out of this function. A client whose ICP named
+// only that industry would pass every pre-search check and lose every prospect to
+// `industry_not_consulting` at tier classification.
+//
+// LIMIT, stated so it is not over-trusted: this is the STATIC range only. Operators can
+// add rows to industry_tag_mappings, which can only ADD names, never remove them. So a
+// name flagged here may be classifiable in practice. That is why every consumer of this
+// set reports rather than gates, and why callers may pass extra names they know about.
+export const CLASSIFIABLE_INDUSTRIES: ReadonlySet<string> = new Set(
+  Object.values(APOLLO_TO_SPEC),
+)
+
 // Cache for database mappings — keyed by apollo_tag
 let mappingCache: Record<string, string> | null = null
 let cacheFetchedAt: number = 0

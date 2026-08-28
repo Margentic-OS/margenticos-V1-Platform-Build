@@ -8532,3 +8532,197 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   Related shapes already in CLAUDE.md: the fake that silently swallows a filter, the monitor
   loop bounded by the shorter of two arrays, and the audit query whose relkind filter could
   not see views. All four are a check that cannot fail reporting success.
+
+---
+
+## 2026-08-28 — spec-driven sourcing, Ship 1 landed. Everything below is deferred, deliberately.
+
+Ship 1 delivered layer G (one field list), layer E (spec inspector), the once-per-run
+divergence log, the IcpDocumentView crash guard and `scripts/apollo-prove-filter.ts`.
+Design report accepted the same day. Measurements are in
+`docs/discovery/2026-08-28-apollo-filter-silent-ignore.md`.
+
+### Ship 2 — schema widening, agreed shape, not yet built
+
+- [sourcing] **Geography as a structured sibling of the prose field.** Add optional
+  `company_profile.geography_filter { countries: string[] (ISO-3166), localities?: string[],
+  excluded_countries?: string[] }`. Prose `geography` stays and keeps rendering: it is read
+  by IcpDocumentView and ApprovalCard and both fail SILENTLY (no placeholder, no error) if
+  it goes. `countries` is ISO and validatable; `localities` is free-text place names and
+  must be **adapter-verified at derivation time** against the granularity rule, because a
+  province silently widens to its country. Never trust a locality into the spec unmeasured.
+
+- [sourcing] **Structured disqualifiers, parallel array.** Keep `disqualifiers: string[]`
+  exactly as it is. Add a separate `disqualifier_filters` array carrying only
+  sourcing-stage criteria with an enforceable `{ field, op, value }`. Chosen over retagging
+  the existing array because both renderers `.map()` it into React children, and an object
+  child throws during React's render phase.
+  The three-way stage split (`sourcing` / `research` / `conversation`) is the better model
+  and is wanted eventually. It is grounded in the live documents: several disqualifiers
+  already name their own stage ("check their website for client logos", "this can be asked
+  in the first email exchange before a meeting is booked").
+
+- [sourcing] **tier_3 `exclusion_basis`, and `industries_excluded` MUST be derived as
+  (tier_3 industries MINUS tier_1 and tier_2 industries).** The subtraction is part of the
+  change, not a caveat on it. Building the `exclusion_basis` field without the subtraction
+  is worse than not building it at all.
+
+  WHY THE SUBTRACTION IS A PRECONDITION. In `tier-classification.ts`, exclusion
+  (Disqualifier 5) runs BEFORE the on-target check (Disqualifier 6), so excluded always
+  wins. Live today: MargenticOS's stored spec has `Business Coaching` in `industries` (it
+  comes from tier_2) while its tier_3 also names it; Simcare has the same collision on
+  `Healthcare Consulting`. Feeding tier_3 straight into `industries_excluded` therefore
+  DELETES the prospects the client explicitly targets, silently, recorded as
+  `industry_excluded`. The naive version of this fix is a regression, and it will look
+  like it is working.
+
+  Log loudly whenever the subtraction removes a name: a name in both the targeted and the
+  excluded list is an authoring contradiction the operator should see, not something the
+  derivation should quietly resolve.
+
+  The rest of the change: add required
+  `exclusion_basis: 'structural' | 'sectoral' | 'geographic'` to tier_3, and omit
+  `company_profile.industries` on tier_3 unless the basis is `sectoral`. Only a `sectoral`
+  tier_3 contributes to `industries_excluded` at all. The schema block in
+  `docs/prompts/icp-agent.md` does NOT currently require tier_3 industries (it is an
+  elision); only Rule 7 constrains the contents if present. So this is cheap.
+
+  The documents are already asking for it. Two of five live tier_3 geography fields read
+  *"Any — geography is not the disqualifier, the business stage is"* and *"Any geography.
+  The disqualifiers are structural, not geographic."* The agent is writing the basis into
+  a place-name field because the schema gives it nowhere else.
+
+### Ship 3 — spec-driven adapter. BLOCKED, and not on engineering.
+
+**DO NOT BUILD SHIP 3 UNTIL DOUG HAS WRITTEN THE GEOGRAPHY EXCLUSION RULE DOWN.**
+Decision taken 2026-08-28. This is his call, not an implementation detail, and the block
+is on the whole ship rather than on one field, because spec-driven geography is most of
+what Ship 3 is.
+
+Spec-driven geography would source Germany, France, the Netherlands and the Nordics THE
+DAY IT SHIPS, because one live ICP (Simcare) names all of them. Germany is excluded on
+consent grounds; Canada is excluded on CASL. Those exclusions must be a HARD INTERSECTION
+APPLIED AFTER DERIVATION, never a default that a client document can widen. Until the rule
+exists in writing, there is nothing correct to implement against.
+
+Also: must land behind a per-org flag.
+
+- [sourcing] `deriveFilterSpec` writing a real geography while the adapter still hardcodes
+  US/GB/IE is not merely inert, it is **actively misleading**: the stored spec would claim
+  reach the query does not have, and the divergence log would go quiet exactly when it
+  matters. Flag them on together, per organisation.
+
+- [compliance] Spec-driven geography would source Germany, France, Netherlands and the
+  Nordics the day it ships — Simcare's ICP names all of them. The CASL/GDPR exclusions must
+  become a **hard intersection applied after derivation**, never a default a document can
+  widen. This is a legal decision that has to be made before the flag is turned on for
+  anyone. See ADR-034 on why frozen verdicts make this harder than it looks.
+
+- [sourcing] The canonical-to-Apollo **industry** translation has never existed and cannot
+  be recovered from git history. The pre-hardcode adapter used `q_keywords` (the first
+  silent defect), not NAICS. `APOLLO_TO_SPEC` is inbound only and MANY-TO-ONE, so it is not
+  invertible. A canonical → NAICS table is genuinely new build. The ISO→Apollo location
+  table and the seniority map ARE recoverable, from the commit before `8960fa6`.
+
+### Logged, not fixed — from the design report's section 7
+
+- [sourcing] **Four targeted industries can never be classified**, not one.
+  `Environmental Consulting`, `Engineering Consulting`, `Healthcare Consulting` and
+  `Executive Coaching` are in `APOLLO_TARGETED_INDUSTRIES` and pass the orchestrator's
+  reachability gate, but are not in the range of the inbound tag map, so no prospect can
+  ever be classified as them and each is removed as `industry_not_consulting`.
+
+  **DECIDED 2026-08-28: this stays REPORTING and does NOT become a gate.** Three of the
+  four are in MargenticOS's own live stored spec, so gating would refuse Doug's own
+  sourcing runs. It becomes a gate when sourcing is spec-driven AND the tag map has been
+  rebuilt, not before. Do not "tidy this up" by promoting it: the one-line change in
+  `orchestrator.ts` that turns it into a throw is deliberately not taken.
+
+  Ship 1 reports it from `inspect-filter-spec.ts`, and the test in
+  `src/lib/sourcing/__tests__/inspect-filter-spec.test.ts` enumerates the four so a FIFTH
+  fails the build. The real fix is `industry_tag_mappings` rows, or tool tags mapped to
+  those four names in `industry-mapping.ts`.
+
+- [sourcing] `spec.company_headcount_min/max` reaches NOTHING. `tier-classification.ts`
+  uses a hardcoded band ladder (1-20→20, 21-50→10, 51-100→5) and a hardcoded `> 100`
+  removal. So the one genuinely spec-driven part of `deriveFilterSpec` affects only the
+  manifest check and the `notes` string.
+
+- [sourcing] `parseHeadcountMax` breaks on thousands separators. It takes the second
+  `\d+` match, so `"1,000–5,000 employees"` yields max = **0** (`1`, then `000`). No error.
+  Unhit today because ICPs are small-firm; Ship 3 widens who writes that field.
+
+- [sourcing] The `notes` string built by `deriveFilterSpec` ends *"DE and NL included:
+  English-operating consulting founders"* while the comment block above the country
+  defaults explains DE was removed on GDPR grounds after two GmbHs were mailed. That text
+  is stored in every derived spec and reads as policy.
+
+- [logging] `src/lib/sourcing/industry-mapping.ts` uses `console.error` directly, against
+  the CLAUDE.md logger rule, on the path where a DB mapping load failure silently degrades
+  to static mappings. Also `as any` on that query.
+
+- [dashboard] `src/app/dashboard/operator/sourcing-review/approve/page.tsx` tests
+  `spec.target_job_titles`; the field is `job_titles`. Permanently false, so `targetTitle`
+  is always undefined on the operator approve screen. The adjacent `revenueRange` key is
+  populated with an employee count.
+
+- [icp] Editing the schema block in `docs/prompts/icp-agent.md` breaks literal-string
+  assertions in `src/agents/__tests__/icp-unresolved-fields.test.ts:178-251`. And
+  `document-projection.ts` has a drift test that fires on any new TOP-LEVEL ICP key —
+  nested additions inside `company_profile` pass through opaquely and land unannounced in
+  the positioning and messaging prompts, with no test on content. Both bite in Ship 2.
+
+- [icp] Prompt Rule 6 says "All four tiers must be internally consistent" and there are
+  three. It also already tries in prose to prevent the tier_1/tier_3 industry overlap that
+  is measurably happening on two live orgs. Prose is not holding it.
+
+- [build] **`next build` does not type-check `scripts/`, and the tsc incremental cache can
+  lie in BOTH directions.** Two separate gaps, and the second one caught me during Ship 1.
+
+  GAP 1: `next build` type-checks the app but not `scripts/`. A type error in a script
+  surfaces only on an explicit `npx tsc --noEmit`, so CI-green and build-green say nothing
+  about that directory.
+
+  GAP 2: `tsconfig.json` sets `"incremental": true`, and the resulting `tsconfig.tsbuildinfo`
+  **survives a branch switch and a `git stash`**. During Ship 1 a genuine error (a new
+  script with no import/export, whose global `main` collided with the one in
+  `scripts/verify-mock-dispatch.ts`) was fixed by adding `export {}`, but the cache kept
+  replaying it. It was then reported on a tree that had been stashed back to pristine,
+  which made it look like a PRE-EXISTING error on `d34380d`. It was not. Both trees are
+  clean once the cache is cleared. A stale cache can equally hide a real error.
+
+  THE RELIABLE INVOCATION, and the one to use before any commit or any claim about type
+  cleanliness:
+
+      rm -f tsconfig.tsbuildinfo .next/cache/.tsbuildinfo && npx tsc --noEmit
+
+  `npx tsc --noEmit --incremental false` does NOT do it on its own: it still reads an
+  existing `tsconfig.tsbuildinfo`. Delete the file.
+
+  Same family as the rest of this file: a check that reports a result the world does not
+  support. Here the instrument was stale rather than mis-scoped, and the tell was that its
+  answer did not change when the tree did.
+
+- [process] **`git stash` is SHARED ACROSS GIT WORKTREES.** A worktree has its own working
+  tree but the same `.git`, so `git stash` push/pop operate on one global stack. During
+  Ship 1, a `git stash -u` in a worktree found nothing to save (the tree was already
+  committed), the failure was suppressed, and the following `git stash pop` reached for
+  another session's stash entry (`pre-cso-cleanup`) and partially wrote two of its
+  untracked files into the worktree. Nothing was lost — the pop failed before dropping the
+  entry, the stash is intact with all six files, and the two on-disk copies were verified
+  byte-identical to the stash blobs before being deleted.
+
+  RULE: never `git stash pop` unconditionally in a worktree, and never suppress the output
+  of `git stash push`. Check `git stash list` first, or compare against a named stash. For
+  baseline comparisons prefer `git worktree add <tmp> <sha>` or `git stash create`, neither
+  of which touches the shared stack.
+
+- [icp] Three of five active ICPs have `icp_filter_spec = NULL` (`DRY RUN TEST`, the older
+  `MargenticOS` org, `Simcare`), all June documents. They cannot source at all: the
+  orchestrator throws at step 2. `DRY RUN TEST` additionally names `"Distribution
+  Consulting"`, which is not in `CANONICAL_INDUSTRIES`, so it cannot derive a spec today
+  even if re-approved. Not urgent, but "five active ICPs" overstates what can actually run.
+
+- [icp] Re-approving an ICP is NOT free. `persistIcpFilterSpec` re-queues the org's removed
+  prospects for tiering, and its own comment warns that at ramp volume one spec change can
+  re-queue four figures of rows. "Just re-approve everything" is a spend decision.
