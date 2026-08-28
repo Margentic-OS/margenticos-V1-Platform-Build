@@ -8443,3 +8443,28 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   ACTION: upgrade the CLI (`npm i -g vercel@latest`) so future sessions do not build
   watchers on a field that is not there. Until then, treat `vercel ls` as good for state and
   useless for provenance.
+
+- [monitor] AN EMPTY RESULT FROM THE WRONG PLACE IS INDISTINGUISHABLE FROM A GENUINE ZERO.
+  When a check returns nothing, prove the instrument CAN return something before concluding
+  the thing is absent.
+
+  Three instances in one day, which is why it is written as a rule rather than an anecdote:
+
+    - Wrong analytics endpoint. /campaigns/analytics/daily/account returned [] and read as
+      a quiet day with no sends. The real path is /accounts/analytics/daily. Caught only
+      because a mailbox was known to have sent.
+    - A Map serialised by JSON.stringify. findBlockedProspects returned blocked as a Map,
+      printed as {}, and read as "the gate is not blocking" while the log line beside it
+      said blocked_count 1. Nearly reported as a validate-one-thing-return-another defect.
+      The harness was lying, not the code.
+    - Another session's poll returned no rows because the status filter was wrong, not
+      because nothing had bounced. That is the failure this whole session existed to rule
+      out, and it is the same shape as the other two.
+
+  THE CHEAP TEST: before trusting a zero, make the instrument produce a non-zero from data
+  you already know exists. One known-good call costs seconds and converts "nothing found"
+  into "nothing there", which are not the same statement.
+
+  Related shapes already in CLAUDE.md: the fake that silently swallows a filter, the monitor
+  loop bounded by the shorter of two arrays, and the audit query whose relkind filter could
+  not see views. All four are a check that cannot fail reporting success.
