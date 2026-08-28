@@ -8165,12 +8165,97 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   category-level using the same phrasing as Rule 9B, "any other provider in the same
   category".
 
-  THE WIDER SCAN IS NOT BUILT. Proposing the exemption boundary first, per Doug's
-  instruction, because an exemption list that grows is how a check stops checking. Measured
-  scope of what a wider scan would surface today, after the five fixes: ICP 22 hits of which
-  19 are the canonical NAICS list, positioning 4, TOV 2, messaging 16.
+  THE WIDER SCAN IS NOW BUILT: prompt-industry-agnostic.test.ts, whole-file, with
+  exemptions A (delimited canonical list), B (labelled example, term inside quotes) and C
+  (one worked-example section per file), each structurally capped, plus a per-file baseline
+  that may only go down. Remaining recorded violations: ICP 1, positioning 4, TOV 1,
+  messaging 8. Those are the same class as the five already fixed and are not fixed here
+  because this session was scoped to the ICP path and the messaging prompt feeds the send
+  path. The baseline makes them visible and shrink-only rather than invisible.
 
-- [pre-c1] THREE VENDOR NAMES ARE HARDCODED IN THE ICP PROMPT, AND MORE IN MESSAGING.
+- [DONE 2026-08-28] TWO VENDOR NAMES WERE HARDCODED IN THE ICP PROMPT.
+
+  CORRECTION: reported as THREE in two consecutive session reports and written into this
+  file that way. It was TWO, at icp-agent.md lines 504 and 657. Both replaced with
+  "Company-data-detectable". Website-detectable and Web search-detectable are unchanged:
+  the three-way taxonomy is useful and only the vendor name had to go.
+
+  WHY THE RENAME ALONE WOULD NOT HAVE BEEN ENOUGH, measured. "Apollo" appeared TWICE in
+  the prompt and THIRTY-THREE times in stored generated documents, because the model took
+  it as vocabulary and used it outside the schema field it was taught in. So the prompt
+  gained a rule saying evidence is named by KIND OF SOURCE, never by a tool, in EVERY
+  field rather than only in evidence_to_find.
+
+- [pre-c1] [gate] THE OUTPUT-SIDE TOOL-AGNOSTICISM GATE IS NOT BUILT. BOUNDARY REPORTED.
+
+  The prompt-text scan (prompt-tool-agnostic.test.ts) is live and is the SMALLER HALF: it
+  would have caught 2 of the 35 occurrences and missed 33. ADR-028 says the prompt is
+  advisory and the code validator is the hard gate, and this is a case where that is
+  measured rather than assumed.
+
+  The boundary was reported to Doug for approval before building, because a gate that stops
+  a client describing their own buyer is worse than the leak it prevents. Proposed line:
+  SOURCEDNESS, which is Rule 9's own test. A vendor name in generated content that appears
+  nowhere in the input message was introduced by the model and is blocked. One that appears
+  in the intake, uploads, website or research is the client's own market vocabulary and is
+  allowed, report-only.
+
+  Measured backing: "apollo" and "instantly" appear ZERO times in intake_responses and
+  intake_website_pages across all five organisations. So the sourced/unsourced line would
+  have caught all 33 with zero false positives on real data.
+
+- [pre-c1] [registry] THE MESSAGING PROMPT NAMES THE SENDING PROVIDER SIX TIMES, AND
+  RENAMING IT WOULD NOT FIX ANYTHING.
+
+  messaging-agent.md lines 375, 464, 588, 786, 1074, 1146. All six are merge-tag syntax and
+  threading configuration. The vendor name is a SYMPTOM of a real coupling to that
+  provider's tag format, not a naming choice: replacing the word with a capability name
+  leaves the coupling exactly where it was.
+
+  The fix is the registry handler supplying the tag format for whichever tool holds
+  can_send_email, so the prompt asks for a placeholder and the handler renders it. That is a
+  code change and its own item.
+
+  Recorded as a baseline of 6 in prompt-tool-agnostic.test.ts rather than reworded, so it
+  cannot grow and cannot be mistaken for solved. Verified 2026-08-28 that NO messaging
+  output contains the provider name, so nothing is leaking to a client today.
+
+- [rule9] MARGENTICOS'S OWN POSITIONING DOCUMENT NAMES ITS COMPETITIVE SET. DOUG'S TO
+  REGENERATE, NOT A CODE FIX.
+
+  strategy_documents, MargenticOS positioning v2 (active) contains "Buy a DIY outbound tool
+  and self-serve (Apollo, Lemlist, Instantly)". Archived v1 has two more of the same shape,
+  and MargenticOS ICP v4 (archived) has one.
+
+  This is Rule 9 TIER ONE (naming companies), in a document generated BEFORE Rule 9 was
+  tightened on 2026-08-27. It is not a tool-agnosticism issue: those genuinely are
+  MargenticOS's competitive set, and the fault is that they were named at all rather than
+  described as a category. Nothing in the current prompt would produce it again.
+
+  Doug regenerates it. Logged so it is not rediscovered as a new leak.
+
+- [record] WHICH DOCUMENTS CARRY THE VENDOR NAME TODAY. LEFT IN PLACE ON PURPOSE.
+
+  Doug's decision 2026-08-28: leave them, write no suggestion rows. Writing suggestions
+  across five orgs to fix a phrase would put four documents into a pending state, which
+  blocks lead upload for any org that later becomes active, to fix cosmetics. The next
+  refresh clears it.
+
+  ACTIVE ICP documents containing "Apollo", measured 2026-08-28:
+    360 Bia Og v2      1 occurrence, all in evidence_to_find (operator-only)
+    DRY RUN TEST v3   12 occurrences, 11 in evidence_to_find, 1 in tier_3.disqualifiers
+    MargenticOS v3     6 occurrences, all in evidence_to_find
+    MargenticOS v5      8 occurrences, 7 in evidence_to_find, 1 in tier_3.disqualifiers
+    Simcare v2         6 occurrences, all in evidence_to_find
+
+  CLIENT-VISIBLE: only the two in tier_3.disqualifiers. IcpDocumentView renders
+  disqualifiers and does NOT render evidence_to_find, which is operator-only via
+  ApprovalCard. Both affected orgs are Doug's own and neither is running a campaign.
+
+  MargenticOS v5 tier_3 also names LinkedIn as a research source, which ADR-005 rules out.
+  Same document, same refresh clears it.
+
+- [pre-c1] ORIGINAL ENTRY:
 
   `docs/prompts/icp-agent.md` uses "Apollo-detectable" as a signal category in the output
   format and again under "Rules you must follow". `docs/prompts/messaging-agent.md` names

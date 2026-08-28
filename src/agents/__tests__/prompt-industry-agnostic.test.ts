@@ -1,0 +1,152 @@
+// The WHOLE-FILE industry-agnosticism scan, added 2026-08-28.
+//
+// rule-text-category-level.test.ts scans Rules 1 to 10 only, and says so deliberately.
+// That scope let five industry assumptions sit in ICP runtime prompt text for months,
+// including one four lines from Rule 9B telling the model to do the opposite. This scan
+// covers the whole file, with three structural exemptions and a per-file baseline.
+//
+// THE BASELINE IS THE POINT. Setting it to the measured count makes the check live
+// immediately across all four prompts without requiring every existing violation to be
+// fixed in one commit, and every number can only go DOWN. A new violation fails the same
+// day it is written.
+//
+// TOOL-AGNOSTICISM IS A SEPARATE SCAN, in prompt-tool-agnostic.test.ts. Different rule,
+// different fix, and one scan carrying two exemption regimes is how an exemption list
+// starts growing.
+
+import { describe, it, expect } from 'vitest'
+import { join } from 'node:path'
+import { scanFile, canonicalListIsBareEnumeration, exemptRegions, redactExampleQuotes, MAX_EXEMPT_LINES_PER_FILE, MAX_EXEMPT_REGIONS_PER_FILE, type Pattern } from './prompt-scan'
+import { readFileSync } from 'node:fs'
+
+const PROMPTS = ['icp', 'positioning', 'tov', 'messaging'].map(n => `docs/prompts/${n}-agent.md`)
+const SPEC = 'docs/prompts/shared-voice-spec.md'
+const abs = (p: string) => join(process.cwd(), p)
+
+const INDUSTRY: Pattern[] = [
+  // "construction" was BARE here and matched "sentence construction" in the messaging
+  // prompt. A false positive in a scan people are meant to trust is how exemptions get
+  // asked for, so the pattern requires an industry noun after it rather than being
+  // exempted at the line.
+  { label: 'named industry or sector', re: /\b(consult(ing|ant|ancy)|school catering|catering suppl|logistics|SaaS|manufactur(ing|er)|recruitment agenc|law firm|accountanc|hospitality|construction (firm|compan|industry|sector|business)|e-?commerce|fintech|healthcare provider)\b/i },
+  { label: 'named country or nationality', re: /\b(Ireland|Irish|United Kingdom|Britain|British|England|Scotland|Wales|United States|America|American|Germany|German|France|French|Spain|Spanish|Canada|Canadian|Australia|Australian)\b/ },
+  { label: 'named public body or programme', re: /\bDepartment of [A-Z]|\bMinistry of [A-Z]|\b(HSE|NHS|safefood|An Taisce|Green Schools|Green Flag|Hot School Meals|Revenue Commissioners|Companies House|HMRC|IRS|FDA|FCA|SEC)\b/ },
+  { label: 'named statute or regulation', re: /\b(GDPR|CCPA|HIPAA|Sarbanes[- ]Oxley|SOX|Companies Act|Data Protection Act)\b/ },
+  { label: 'named standard or scheme', re: /\bISO ?\d{4,5}\b|\b(SOC ?2|PCI[- ]DSS|Cyber Essentials|B Corp)\b/i },
+]
+
+// Measured 2026-08-28, after the ICP prompt was cleaned. These may only go DOWN.
+//
+// icp 1:          a four-line inline example of the unmatched-industries mechanic quotes
+//                 two names from the canonical list. It is the same KIND of content as
+//                 exemption A but sits outside the delimiters, and widening exemption A or
+//                 B to reach it would cost more than recording it here.
+// positioning 4:  same class as the five fixed in the ICP prompt. Not fixed in this
+//                 session, which was scoped to the ICP path.
+// tov 1:          same.
+// messaging 8:    same, and the messaging prompt feeds the send path, so it is not edited
+//                 as a drive-by.
+const BASELINE: Record<string, number> = {
+  'docs/prompts/icp-agent.md': 1,
+  'docs/prompts/positioning-agent.md': 4,
+  'docs/prompts/tov-agent.md': 1,
+  'docs/prompts/messaging-agent.md': 8,
+  'docs/prompts/shared-voice-spec.md': 0,
+}
+
+describe('prompt files name no industry, country, public body, statute or standard', () => {
+  it.each([...PROMPTS, SPEC])('%s is at or below its recorded baseline', path => {
+    const hits = scanFile(abs(path), INDUSTRY)
+    const allowed = BASELINE[path]
+    expect(allowed, `${path} has no recorded baseline`).toBeTypeOf('number')
+    expect(
+      hits.length,
+      `${path}: ${hits.length} hits, baseline ${allowed}. ` +
+      `Baselines may only go down.\n  ${hits.map(h => `L${h.line} [${h.label}] «${h.match}» ${h.text}`).join('\n  ')}`,
+    ).toBeLessThanOrEqual(allowed)
+  })
+
+  it('the baseline has not been raised to make a failure go away', () => {
+    // Guards the guard. The recorded total is the thing a future edit is most likely to
+    // reach for, so it is asserted against the value measured when the scan was written.
+    expect(Object.values(BASELINE).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(14)
+    expect(Object.keys(BASELINE)).toHaveLength(5)
+  })
+
+  it('found real content to scan, so nothing above passes vacuously', () => {
+    for (const p of [...PROMPTS, SPEC]) {
+      expect(readFileSync(abs(p), 'utf-8').length, p).toBeGreaterThan(5000)
+    }
+  })
+})
+
+describe('the exemptions are structurally capped', () => {
+  it('the caps themselves are the measured values and have not been raised', () => {
+    // THE FIRST VERSION OF THIS TEST WAS SELF-REFERENTIAL AND A MUTATION SURVIVED IT.
+    // It asserted `exemptLines <= MAX_EXEMPT_LINES_PER_FILE`, so raising the constant to
+    // 200 raised the assertion with it and the suite stayed green. The constants are now
+    // pinned to the figures measured on 2026-08-28. Changing either is a two-line diff
+    // that has to be explained, which is what a recorded total is for.
+    expect(MAX_EXEMPT_REGIONS_PER_FILE).toBe(3)
+    expect(MAX_EXEMPT_LINES_PER_FILE).toBe(43)
+  })
+
+  it('each file claims no more exempt lines than were measured', () => {
+    // Asserted against LITERALS, not against the constants above, so that raising a
+    // constant cannot raise this too.
+    const measured: Record<string, number> = {
+      'docs/prompts/icp-agent.md': 43,
+      'docs/prompts/positioning-agent.md': 0,
+      'docs/prompts/tov-agent.md': 0,
+      'docs/prompts/messaging-agent.md': 0,
+      'docs/prompts/shared-voice-spec.md': 0,
+    }
+    for (const p of [...PROMPTS, SPEC]) {
+      const regions = exemptRegions(readFileSync(abs(p), 'utf-8').split('\n'), p)
+      expect(regions.length, `${p} regions`).toBeLessThanOrEqual(3)
+      const lines = regions.reduce((n, r) => n + (r.to - r.from + 1), 0)
+      expect(lines, `${p} exempts ${lines} lines, measured ${measured[p]}`).toBeLessThanOrEqual(measured[p])
+    }
+  })
+
+  it('exemption A covers a bare enumeration and not hidden prose', () => {
+    // The canonical-list exemption is the widest of the three, so it is the one that has
+    // to be proved harmless. Every non-blank line inside the markers must be part of the
+    // pipe-delimited list. An instruction written in there would show up here.
+    expect(canonicalListIsBareEnumeration(abs('docs/prompts/icp-agent.md'))).toEqual([])
+  })
+
+  it('exemption B needs a label AND quotes, so ordinary prose cannot claim it', () => {
+    // Tested directly rather than through the real files. A mutation granting the
+    // exemption to EVERY line survived the previous version of this test, because no
+    // prompt line today has a labelled example with a scanned term outside its quotes.
+    const hit = (s: string) => INDUSTRY.some(p => p.re.test(redactExampleQuotes(s)))
+
+    // Labelled, term inside the quotes: exempt. This is Rule 9's "Acme Group" shape.
+    expect(hit('Wrong (guide-led opener): "We help consulting firms build pipeline"')).toBe(false)
+    expect(hit('Right: "a consulting firm"')).toBe(false)
+
+    // Labelled, but the term is OUTSIDE the quotes: NOT exempt. The label is not a
+    // blanket pass for the rest of the line.
+    expect(hit('Wrong: consulting firms are the target, e.g. "some quote"')).toBe(true)
+
+    // Unlabelled line containing a quotation: NOT exempt. A quote alone earns nothing.
+    expect(hit('The document says "a consulting firm" here')).toBe(true)
+
+    // And redaction must leave an unlabelled line completely untouched.
+    expect(redactExampleQuotes('plain "quoted" prose')).toBe('plain "quoted" prose')
+  })
+
+  it('the industry patterns still match what they claim, and not what they do not', () => {
+    const probe = (text: string) => INDUSTRY.some(p => p.re.test(text))
+    expect(probe('a consulting firm')).toBe(true)
+    expect(probe('schools in Ireland')).toBe(true)
+    expect(probe('the Department of Transport')).toBe(true)
+    expect(probe('ISO 9001 compliance')).toBe(true)
+    expect(probe('a construction firm')).toBe(true)
+    // The false positive that would have been exempted at the line instead of fixed.
+    expect(probe('Parallel sentence construction across consecutive sentences')).toBe(false)
+    expect(probe('a public body or government agency')).toBe(false)
+    expect(probe('the sector the buyer operates in')).toBe(false)
+  })
+})
