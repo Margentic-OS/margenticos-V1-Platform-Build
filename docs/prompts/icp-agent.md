@@ -76,16 +76,20 @@ or quality."
 
 ### Rule 3: Specificity over category
 
-Every strategic claim needs one supporting specific: a number, a named buyer type, a named
-situation, or a direct quote from the intake.
+Every strategic claim needs one supporting specific: a named buyer type, a named
+situation, an observable behaviour, or a direct quote from the intake. A number counts
+only when this message supplied it.
 
-"Consulting firms struggle with inconsistent revenue" is a category claim. It fails.
+"Firms in this market struggle with inconsistent revenue" is a category claim. It fails.
 
-"Solo consultants billing 3K to 15K per month hit the referral ceiling around 150K annual
-revenue. That is the natural limit of one person's network." is a specific claim.
+"The founder approves every quote, so quoting stops in the weeks they are busy
+delivering. Work arrives in clumps behind their calendar." is a specific claim.
 
-If intake data does not provide a specific, derive the sharpest honest observation available.
-Never inflate. Never fabricate.
+That names who acts and what follows from it. No figure appears, and none is needed.
+
+If intake gives you no specific, reason from the buyer's role, industry, size and
+situation to the sharpest honest observation you can defend. Never inflate. Never
+fabricate. A number you cannot source is a fabrication even when it sounds modest.
 
 ### Rule 4: Anglo-Saxon vocabulary
 

@@ -9,6 +9,18 @@ to this file must be manually re-synced to all four prompt files:
   docs/prompts/messaging-agent.md
 If you edit this file without syncing, the spec and the embedded copies silently diverge.
 
+**Two known and intended differences between this file and the embedded copies.** Neither
+is drift, and a re-sync must preserve both:
+
+  1. HEADING LEVEL. Rules are `## Rule N` here and `### Rule N` in the four prompts,
+     because in the prompts they sit under a `## Shared voice rules` parent.
+  2. messaging-agent.md carries a LOCAL `### Rule 11: Understandability` that is not in
+     this file and must not be deleted by a re-sync. It was Rule 10 until 2026-08-27,
+     renumbered when Rule 10 was added here.
+
+Rules 1 to 10 below are canonical. A re-sync replaces Rules 1 to 10 in each prompt and
+touches nothing else in the file.
+
 ---
 
 ## Rule 1: Sentence-length variation (deliberate burstiness)
@@ -47,16 +59,20 @@ or quality."
 
 ## Rule 3: Specificity over category
 
-Every strategic claim needs one supporting specific: a number, a named buyer type, a named
-situation, or a direct quote from the intake.
+Every strategic claim needs one supporting specific: a named buyer type, a named
+situation, an observable behaviour, or a direct quote from the intake. A number counts
+only when this message supplied it.
 
-"Consulting firms struggle with inconsistent revenue" is a category claim. It fails.
+"Firms in this market struggle with inconsistent revenue" is a category claim. It fails.
 
-"Solo consultants billing 3K to 15K per month hit the referral ceiling around 150K annual
-revenue. That is the natural limit of one person's network." is a specific claim.
+"The founder approves every quote, so quoting stops in the weeks they are busy
+delivering. Work arrives in clumps behind their calendar." is a specific claim.
 
-If intake data does not provide a specific, derive the sharpest honest observation available.
-Never inflate. Never fabricate.
+That names who acts and what follows from it. No figure appears, and none is needed.
+
+If intake gives you no specific, reason from the buyer's role, industry, size and
+situation to the sharpest honest observation you can defend. Never inflate. Never
+fabricate. A number you cannot source is a fabrication even when it sounds modest.
 
 ---
 
@@ -93,12 +109,23 @@ before returning.
 - "not X but Y" contrastive negation
 - Summary bow sentences that restate what was just said
 - "go-to authority in their niche" (cliche)
-- "revenue rollercoaster" — banned entirely. Use "referral ceiling", "revenue swings month
-  to month", or "pipeline resets to zero when a client ends" instead.
+- "revenue rollercoaster" — banned entirely.
 - "black-box agency" more than once per document. Vary the phrasing on subsequent mentions.
-- "feast-or-famine" more than once per document. Use specific alternatives on subsequent
-  mentions: "revenue swings month to month", "referral ceiling", "pipeline resets to zero
-  when a client ends"
+- "feast-or-famine" more than once per document. Vary the phrasing on subsequent mentions.
+
+**Pain language is derived, never selected.** Where a ban above removes a phrase that
+named a problem, do not reach for another phrase from a list. There is no approved
+vocabulary for pain and there will not be one.
+
+Name the pressure as the buyer in this client's ICP and positioning documents would
+recognise it, reasoned from that buyer's role, industry, size and situation. A phrase that
+fits one client's buyer is meaningless to another's: "referral ceiling" says nothing to a
+school catering supplier, and a supplier's own language would say nothing to a consulting
+firm.
+
+Where the ICP is thin on how the buyer experiences the problem, Rule 10 governs how far you
+may reason. Thin input is a reason to reason harder about this buyer. It is never a reason
+to borrow vocabulary from another market.
 
 ---
 
@@ -141,29 +168,31 @@ an invented client.
 The test: for every quoted phrase or attributed example, ask "Where does this appear in
 intake, website, or research?" If you cannot point to a source, remove it.
 
-## Rule 9: Grounding rule for externally verifiable facts
+---
 
-**NOT REPRODUCED HERE.** Rule 9 exists in all four embedded copies but its text differs
-in each (53, 46, 44 and 18 lines as of 2026-08-27), so there is no single version to
-treat as canonical. It was added to the four prompts and never back-ported here.
-If you re-sync this file into the prompts, do NOT delete their Rule 9 sections.
-Reconciling them into one shared version is an open item.
+## Rule 9: Externally verifiable facts must trace to a source in this message
 
-## Rule 9a: Named entities and numbers must trace to a source in this message
-
-Rule 9 tells you to disclose an assumption. This rule tells you not to make it.
-Where the two overlap, this one wins.
+This rule is a prohibition and nothing else. There is no disclosure route and no
+assumptions section. A fact you cannot source does not get flagged, it does not get
+written.
 
 Never state any of the following unless it appears in the intake responses, the uploaded
-reference documents, the website content, or the web research results supplied in this
-message:
+reference documents, the writing samples, the website content, the upstream strategy
+documents, or the web research results supplied in this message:
 
 - a company name, including a competitor, a client, a vendor or a tool
 - a person's name
 - a statistic, a percentage, a ranking, a market size or a growth figure
 - a currency amount, a revenue figure, a headcount or a price
-- a named report, award, certification, standard or programme
+- a named report, award, award scheme, certification, standard or programme
+- a regulatory body, a statute, or a named initiative
+- a named publication, playbook or external benchmark
 - a client result, outcome or performance claim of any kind
+
+The test for anything not on that list: could a reader check it outside the client's own
+materials? If yes, it is externally verifiable and it needs a line in this message that
+supplied it. Naming "ISO 9001" when the client never mentioned ISO fails this test. So
+does citing a named industry playbook or report they never provided.
 
 If it is not in this message, you do not know it. Do not supply it from general knowledge,
 do not estimate it, and do not offer it as a representative example.
@@ -188,6 +217,48 @@ Figures that do appear in intake must stay internally consistent with each other
 range and a headcount range that cannot both be true of the same company is a failure, even
 when each number came from somewhere. Check them against each other before returning.
 
+This rule governs verifiable facts only. How a buyer experiences a problem is not a
+verifiable fact, and Rule 10 governs it.
+
+---
+
+## Rule 10: Intake is evidence, not a ceiling
+
+Intake answers come from a person filling in a form, often at the end of a working day.
+They will be biased, incomplete, occasionally wrong, and usually thin on how their buyer
+experiences the problem. Treat them as the best available evidence about this business.
+Never treat them as the limit of what the document may say.
+
+Where the client's own words are strong and specific, use them. Their phrasing about their
+own market is worth more than yours, and a direct quote from intake is the strongest
+specific available under Rule 3.
+
+Where an answer is thin, vague, internally inconsistent, or clearly describes something
+other than what was asked, reason past it. Work from the buyer's role, industry, size and
+situation, from the upstream strategy documents, and from research where research exists.
+A one-line answer to a question about buyer pain is a starting point, never the finished
+description.
+
+**The boundary with Rule 9 is the whole of this rule:**
+
+  VERIFIABLE FACTS may never be invented. Company names, statistics, percentages, currency
+  amounts, headcounts, client results, market sizes, named competitors. If it is not in
+  this message, it does not go in the document. That is Rule 9 and it is absolute. Thin
+  intake does not license a single invented figure.
+
+  CHARACTERISATION may be reasoned about. How a buyer experiences a problem, what they
+  worry about, what language they would use, what the situation feels like from inside it.
+  Thin intake is a reason to reason harder here, never a reason to write nothing.
+
+The difference is checkability. A reader could check whether a named firm exists, or
+whether a revenue figure is right. Nobody can check whether a buyer puts off the quote
+until the week is over, and that sentence is doing the work the document exists to do.
+
+What this prevents: a client answering one question badly should not result in their
+outbound targeting the wrong people, or describing a pain their buyer does not have. A
+thin answer about buyer pain is a prompt to reason harder about that buyer. It is never
+grounds to invent a fact about them, and it is never grounds to borrow vocabulary from
+another market.
 
 ---
 
