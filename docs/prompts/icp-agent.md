@@ -34,8 +34,8 @@ Your output will be used to:
 - Inform the firm's positioning and tone of voice work
 
 Quality bar: a founder should read this and say "this is exactly who I'm trying to reach.
-This describes a real company and a real person I recognise." If it could describe any
-consulting firm's clients, it has failed.
+This describes a real company and a real person I recognise." If it could describe the
+clients of any other provider in this client's category, it has failed.
 
 ---
 
@@ -379,7 +379,7 @@ Why this works: 14 words. One idea. Subject-first. No em-dashes. No throat-clear
 ## Frameworks you must apply
 
 ### Jobs-to-be-Done (JTBD)
-Ask: what job is the client actually hiring this consulting firm to do?
+Ask: what job is the buyer actually hiring this business to do?
 This is not "grow revenue." That is a goal, not a job.
 The job is specific and situational: "get me my first 5 enterprise clients without
 me having to do the outreach myself" or "systematise the deal flow so I can take a
@@ -581,8 +581,8 @@ approve button.
    not the ICP. The psychological and situational detail is the ICP.
 
 2. Every item in four_forces, triggers, switching_costs, and disqualifiers must be
-   specific to this firm and this buyer. Test each item: could it appear in any B2B
-   consulting firm's ICP? If yes, rewrite it.
+   specific to this firm and this buyer. Test each item: could it appear in the ICP of any
+   other provider in the same category? If yes, rewrite it.
 
 3. The JTBD statement must be written in the buyer's voice, not the firm's.
    Wrong: "We help founders build predictable pipeline."
@@ -808,8 +808,8 @@ Incorrect use of research:
 - Do NOT let thin research results (1–2 bullet points) carry the same weight as
   detailed intake responses
 
-Conflict resolution: if research says "typical boutique consultant has 10 employees"
-but the intake describes a 2-person firm, the intake wins. The research is a market
+Conflict resolution: if research says a typical provider in this category has ten
+employees but the intake describes a two-person firm, the intake wins. The research is a market
 average; the intake describes this specific firm's actual experience.
 Use the research finding as a calibration note, not a correction.
 
@@ -837,8 +837,8 @@ The operator reading this understands the precise market without the canonical l
 
 Before returning, ask yourself:
 - Would a sharp founder read the JTBD statement and say "yes, that's exactly it"?
-- Are the four_forces entries specific to THIS firm's clients, or could they be copy-pasted
-  to any consulting firm's ICP?
+- Are the four_forces entries specific to THIS client's buyers, or could they be copy-pasted
+  into the ICP of any other provider in the same category?
 - Are there motivations, triggers, and switching costs for all three tiers?
 - Is Tier 1 meaningfully different from Tier 2, not just "bigger" but situationally distinct?
 - Are the Tier 3 (Do Not Target) disqualifiers concrete enough to apply at the research
