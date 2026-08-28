@@ -1479,8 +1479,19 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-034  Send eligibility is evaluated once at verification and frozen on the row;
            changing EXCLUDED_COUNTRIES is NOT retroactive, and our gates govern
            UPLOAD, not delivery
+  ADR-035  A four-state sending-health verdict collapsed onto the sweep's three states;
+           insufficient_sends maps to OK deliberately, because a state whose resting
+           value would be UNKNOWN makes the check born dark
+  ADR-036  The 5-20 headcount narrowing is a stopgap, and the 21-50 band is declared
+           but not sourced
   ADR-037  A tiering verdict is frozen on the row; ONLY a new ICP filter spec
            re-queues removed prospects, and the re-queue count logs at warn
+  ADR-038  An operator's rejection note is an instruction to the next run, not an
+           audit record; both it and the client's revision note travel to the agent,
+           and the rejection note wins on conflict
+  ADR-039  A client-facing view runs as the CALLER, and the GRANT is the control;
+           the predicate constrains which rows, only the grant constrains what
+           operations, so a read-only view gets SELECT and nothing else
 
 ---
 
