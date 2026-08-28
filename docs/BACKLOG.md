@@ -7735,3 +7735,167 @@ session's verification, not in the code it shipped, and that is the more useful 
   Every script header in scripts/ already says `dotenv -e .env.local --` for this reason.
   Use it. Sourcing works for keys whose values are bare tokens, which is why it appears to
   work right up until it does not.
+
+## SESSION 2026-08-28, branch rule9-checkability (Rule 9 narrowed to checkability)
+
+- [pre-c1] THE CLIENT IS PROTECTED BY RENDERER OMISSION, NOT BY A FILTER. THAT IS A TRAP,
+  NOT A DESIGN.
+
+  `unresolved_fields` is operator-only by intent. It is NOT operator-only by construction.
+
+  Measured 2026-08-28. `approve_document_suggestion` sets
+  `v_content := v_suggestion.suggested_value::jsonb` and its own comment says "no sub-key
+  extraction", so the whole suggestion body becomes `strategy_documents.content`. The client
+  page selects `content` in full (`src/app/dashboard/(client)/strategy/[type]/page.tsx:111`)
+  and passes it to the renderer (`:256`). **So operator flags reach the client's browser in
+  the page payload today.** They are simply not drawn, because
+  `src/components/dashboard/strategy/IcpDocumentView.tsx` renders a fixed field set and has
+  no unknown-key fallback.
+
+  THE TRAP: `ApprovalCard` DOES have an unknown-key fallback (`renderUnknownFields`), and it
+  is a reasonable thing to add to a renderer. Anyone adding the same fallback to
+  `IcpDocumentView`, for the perfectly good reason that a client should not silently lose a
+  field, starts leaking operator flags to clients unlabelled and unexplained. Nothing in the
+  data path, the query or the types would stop them. `IcpDocument` in `src/types/index.ts:84`
+  does not even declare the key.
+
+  Related and currently inert: `IcpDocumentView.tsx:124` falls back to `PlainTextView` when
+  the structured branch fails. Safe only because nothing anywhere writes
+  `strategy_documents.plain_text`. Two protections, both accidental.
+
+  NEXT ACTION, and it is cheap: either project the document server-side before it reaches the
+  client component, or add a deliberate, labelled client rendering (see the next item). Do
+  not leave it resting on a renderer not having a feature.
+
+- [post-build] SHOW THE FLAGS TO THE CLIENT. DEFERRED ON TIMING, NOT REJECTED. REVISIT AFTER
+  THE FIRST REAL ONBOARDING CALL.
+
+  Doug's call, 2026-08-28. The operator walks the client through the document on an
+  onboarding call and that call IS the verification step. A client reading "we stated this
+  and did not verify it" BEFORE that conversation reads it as a defect in something they are
+  paying for, rather than as a question they can answer. Radical transparency is the
+  positioning, so this is a sequencing question rather than a disclosure one.
+
+  It is render-only: no migration, no query change, no agent change, and the data already
+  arrives. Scoped and ready:
+
+    1. Add `unresolved_fields?: UnresolvedField[]` to `IcpDocument` (`src/types/index.ts:84`)
+       and export `UnresolvedField` once, so `ApprovalCard` stops declaring it locally. Two
+       declarations of one shape is the drift shape.
+    2. Lift the array-guard half of `extractUnresolvedFields`
+       (`ApprovalCard.tsx`) into a shared helper taking `unknown`, so the operator and
+       client paths cannot disagree about what a valid entry is.
+    3. Render in `IcpDocumentView` following `DocApprovalControls.tsx:96-106`, the
+       "What changed in this version" callout: same page, same slot, neutral parchment
+       palette (`#F5F2ED` / `#E8E3DC`).
+
+  DO NOT copy `UnresolvedFieldsBanner`. Its red alert palette and its copy ("Settle them
+  before approving") are operator instructions and read to a client as a defect report on
+  their own strategy. For a client the valuable field is `question_to_settle_it`, which reads
+  as a request for input.
+
+  Revisit trigger: after the first real onboarding call, when we know how that conversation
+  actually goes.
+
+- [pre-c1] THE ICP RESEARCH QUERIES ARE THE REAL FIX, AND THEY ARE BROKEN IN TWO INDEPENDENT
+  WAYS. NOT BUNDLED WITH THE FLAGGING RULE ON PURPOSE.
+
+  The document that prompted this whole change was generated with a research note saying web
+  search returned limited or no results. Research did not fail. **It was asked nonsense.**
+
+  Measured by running the real `buildResearchQueries` against that org's real intake on
+  2026-08-28. The four queries actually sent were:
+
+      Q1: When a problem becomes our problem, that's my aim. let me solve challenges
+          problems pain points Europe 2025
+      Q2: When a problem becomes our problem, that's my aim. let me solve they needed
+          support buying trigger why now Europe
+      Q3: When a problem becomes our problem, that's my aim. let me solve typical company
+          size revenue headcount profile Europe 2025
+      Q4: [service description] providers competitors positioning Europe 2025
+
+  CAUSE ONE. `const buyer = cloneClient || whatYouDo` in
+  `src/agents/icp-generation-agent.ts`. `||` falls back only when the answer is EMPTY. That
+  client's `clients_clone` answer is non-empty and entirely off-question, so it became the
+  buyer descriptor in three of four queries. This needs a QUALITY check rather than an
+  emptiness check, which is Rule 10's judgement moved into deterministic code, and that is
+  exactly why it wants its own session rather than a rider on a prompt change.
+
+  CAUSE TWO. `geoHint` derives from CURRENCY: `EUR -> "Europe"`. The country is stated in
+  plain text in `company_what_you_do` and reaches one query only by luck, where "Europe"
+  then contradicts it in the same string. CLAUDE.md's own geography rule says currency alone
+  is insufficient because EUR spans 20+ countries. The ICP prompt obeys that rule for the
+  DOCUMENT; the query builder does the opposite as a "soft hint", and the comment says so.
+
+  NOT BUILT HERE, at Doug's instruction: it belongs upstream of the flagging rule rather
+  than bundled with it. Fixing it reduces how often Tier Two flagging is needed but never to
+  zero, so ADR-042 remains the fallback rather than being superseded.
+
+- [pre-c1] [monitor] BUILD THE TIME-TO-APPROVE MONITOR. ADR-042 RESTS ON OPERATORS ACTUALLY
+  READING THE BANNER, AND NOTHING MEASURES WHETHER THEY DO.
+
+  TAGGED [pre-c1] DELIBERATELY, by Doug on 2026-08-28. Not because it blocks anything today,
+  but because the failure mode arrives exactly when the first paying client does. Today one
+  operator approves a handful of documents and reads every one. Approvals become routine
+  under volume and time pressure, and that is the moment this assumption stops holding. A
+  monitor added after that point measures the decayed state and calls it the baseline.
+
+  A Tier Two claim written into tier_1 prose survives the projection, so the claim
+  propagates into messaging while its flag does not. That is coherent BECAUSE operator
+  approval is the verification step. It stops being coherent the moment approvals become
+  routine, and it fails silently: the claims still travel, the flags still do not, and
+  nothing in the system notices.
+
+  There is no measurement today. The cheapest one that would mean anything: record time
+  between a suggestion being rendered and approved, and flag approvals of documents carrying
+  `unverified_claim` entries that were approved in under some small number of seconds. That
+  is a monitor, not a gate, and it would at least make the assumption observable.
+
+  Stated in ADR-042 under "THE ASSUMPTION THIS RESTS ON" so it is on the record rather than
+  discovered later. Doug's instruction is that it gets BUILT rather than left logged: an
+  assumption that nothing measures decays quietly, and this one is load-bearing for the
+  whole Tier Two design.
+
+- [docs] ADR NUMBERS ARE CLAIMED BY SURVEYING EVERY REF, NOT BY READING main.
+
+  Four collisions in two days: 035, 036, 037 and 038 all landed on more than one branch, 039
+  had to be assigned by hand, and 041 was taken on main by another session while ADR-042 was
+  being written. Reading main is not enough, because an ADR spends most of its life on an
+  unmerged branch.
+
+  THE METHOD, and it takes about ten seconds:
+
+      # every ADR heading defined on every local and remote ref
+      for ref in $(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin | sort -u); do
+        git show "$ref:docs/ADR.md" 2>/dev/null | grep -oE '^#+ *ADR-[0-9]{3}'
+      done | grep -oE '[0-9]{3}' | sort -u | tail -5
+
+      # and anything above that number, anywhere, including prose references
+      git grep -hoE 'ADR-[0-9]{3}' $(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin) -- . | sort -u | tail -5
+
+      # and commit messages, which can claim a number no file carries yet
+      git log --all --oneline --grep='ADR-0'
+
+  Then check `git worktree list` for any active worktree with uncommitted work, since a
+  number can be claimed in a file that is not committed anywhere yet. That is how 042 was
+  chosen and it was the only method that would have avoided 041.
+
+  A number is only truly free when it appears in none of those four places.
+
+- [post-build] TWO MORE NAMED SECTORS WERE IN LIVE RULE TEXT, AND THE TEST THAT FOUND THEM
+  IS THE POINT.
+
+  Fixed 2026-08-28: Rule 5's derivation rule named two sectors as a contrast pair, and
+  Rule 2's "Wrong" example named one more. All three shipped on 2026-08-27 in the change
+  that removed industry assumptions from these same prompts.
+
+  The second was found only because the new named-entity test was scoped to ALL rule text
+  rather than to the rule being changed. A test narrower than the standard it enforces is
+  the shape that let the earlier violations survive four months, and scoping it to Rule 9
+  would have reproduced exactly that.
+
+  STILL OPEN, deliberately out of scope and not a violation of the stated standard: Rule 2's
+  "Right" example ("Referrals are structurally uncontrollable...") names no sector but is
+  strongly flavoured by one, and its closing clause is a three-part list in a single
+  sentence, which Rule 5 bans two rules later. The exemplar passages at the end of every
+  prompt are the larger version of the same problem and remain untouched.

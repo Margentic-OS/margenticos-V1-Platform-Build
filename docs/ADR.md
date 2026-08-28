@@ -3529,3 +3529,144 @@ commit.
 engine. Rejected because the baseline row and the grant are two lists that must agree, which
 is the failure this codebase keeps having, and because a person adding a bad grant would be
 the same person adding its baseline row.
+
+## ADR-042: Rule 9 narrows to checkability, and the flag is a gate rather than a label
+
+**Date:** 2026-08-28
+**Status:** Accepted. Narrows ADR-040, which is one day old.
+
+**Number:** 042 chosen after surveying every ref. 041 was taken on main by the privilege
+audit ADR while this work was in progress, which is the fourth number collision in two days.
+
+### What was wrong with the rule shipped yesterday
+
+ADR-040 made Rule 9 a flat prohibition: any externally verifiable fact not supplied in this
+message must be left out. That was right about invention and wrong about a whole category
+of true, useful, checkable statement.
+
+The evidence was one live document. Its ICP named several public bodies and a public funding
+programme that genuinely govern its buyer's market. The model flagged every one of them,
+exactly as the rule of the day asked. The rule worked. The CHANNEL was dead: the disclosure
+was written into a section nothing renders, so it was correct and invisible. ADR-040 deleted
+the disclosure half on the grounds that it surfaced nothing, which was true of the channel
+and unfair to the rule.
+
+An hour later the same session built `unresolved_fields`, which surfaces as a banner above
+the document that an operator cannot approve past. That is the working channel the old rule
+never had.
+
+### The decision: draw the line at checkability, not provenance
+
+**Tier One, never stated.** If a reader trying to verify the claim would find nothing, it
+does not go in the document, and there is no flag for it. Company names, people, statistics,
+percentages, market sizes, currency amounts, headcounts, client results, and any figure,
+date or threshold attached to a third party. Also, and this is the part that is easy to
+miss: **this client's own standing** under anything in Tier Two. Whether they hold it,
+qualify for it, comply with it or are funded by it is a fact about them, and it is
+unverifiable from general knowledge.
+
+**Tier Two, stated only if the document needs it, and flagged.** Public bodies, regulators,
+statutes, funding programmes, industry schemes, published standards, settled sector
+conventions. What may be said is that the thing exists and what it does, in general terms.
+Attach a number, a date, a threshold or an eligibility rule and it is Tier One again.
+
+**Tier Two is closed to any agent whose output format has no flag channel.** Today that
+means it is open to the ICP agent alone. For positioning, TOV and messaging, every Tier Two
+item is Tier One. That is not a restriction on anything legitimate: a public body named in
+intake, uploads, the website or research is SOURCED, and neither tier governs it.
+
+Flagging uses a `kind` discriminator on the existing `unresolved_fields` array rather than a
+second array, so there is one extractor, one renderer, one banner and one place for the two
+to drift apart. Entries without `kind` mean `unestablished_field`, so nothing already
+written breaks.
+
+### The loophole, and how the rule text closes it
+
+A tier that permits a flagged claim is a route to declaring something unverifiable and then
+writing whatever you like. The rule text states the consequence so the model has a standing
+reason to prefer sourcing:
+
+> Every flag reaches the operator as a visible gap in the work, and reaches them before they
+> can approve. One or two flags read as care. Ten read as a document where nothing was
+> researched, and it comes back to be generated again.
+
+with the order made explicit: source it, or omit it, or flag it, in that preference. And:
+"A flag never widens what Tier One permits, and it never makes a Tier One item acceptable."
+
+### The precondition: downstream agents see a projection, not the document
+
+This narrowing could not ship on its own, because flagged content was not contained.
+
+Measured 2026-08-28. `messaging-generation-agent.ts` and `positioning-generation-agent.ts`
+both embedded the upstream ICP as `doc.plain_text ?? JSON.stringify(doc.content, null, 2)`.
+`plain_text` is NULL on every row in production, so the stringify branch always ran and
+every top-level key entered the prompt verbatim, with no allowlist and no key stripping.
+A flagged claim is a review item in a document and an assertion of fact in an email sent to
+a stranger under the client's name, and **no outbound gate catches one**: measured against
+the real validators, `findFirmographicFigures` returns `[]` for a sentence naming a
+government department and a compliance deadline, and `scrubAITells` leaves it untouched.
+
+So `projectIcpForDownstream` narrows the ICP to five content keys before it reaches any
+document-writing prompt. **Allowlist, not denylist**, because a denylist is a second list
+kept in step by hand and a new operator-facing key would leak until someone remembered it.
+The `project` parameter is REQUIRED rather than optional: omitting it at a call site is a
+compile error. That was found by mutation, after the first version made it optional and
+deleting the argument left the whole suite green.
+
+The two paths that actually reach a prospect's inbox were already safe and are the pattern
+this follows: `research/synthesize.ts` and composition's `extractPainFromIcp` both read
+named fields and never stringify a document.
+
+### THE ASSUMPTION THIS RESTS ON, STATED PLAINLY
+
+**A Tier Two claim written into `tier_1` prose survives the projection.** The projection
+strips `unresolved_fields` and keeps the tiers, which is what it is for. So the CLAIM
+propagates into the messaging prompt while its FLAG does not.
+
+That is coherent rather than a hole, and the reason is worth stating rather than assuming:
+**operator approval is the verification step.** A flagged claim that reaches an approved
+document has been read by a human, taken to the client on the onboarding call, and either
+confirmed or removed. Everything downstream of approval is entitled to treat the document as
+checked, which is why the flag does not need to travel with the claim.
+
+**It holds only if the operator actually verifies rather than clicking approve.** The banner
+is not a warning label on a shipped document. It is a gate, and the whole design rests on
+somebody reading it. If approvals become routine, this ADR's reasoning fails silently: the
+claims still propagate, the flags still do not, and nothing in the system will say so.
+
+The mitigations that exist are that the banner is the first thing in the card body, above
+the document, and that a document carrying many flags is visibly one nobody researched.
+Neither is a control. Both are prompts to a human.
+
+### Consequences
+
+- The ICP agent can state what genuinely governs a buyer's market instead of writing around
+  it, and every such statement arrives at the operator as a question to settle.
+- The messaging, positioning and TOV agents cannot introduce an unsourced third-party claim
+  at all, and cannot inherit a flagged one from the ICP.
+- Two independent defences, not one: the tier rule stops it originating in copy, and the
+  projection stops it propagating into copy.
+- The client does NOT see the flags. Deferred deliberately, see BACKLOG. The client is
+  currently protected by renderer omission rather than by any filter, which is a trap and is
+  logged as one.
+- `unresolved_fields` remains ICP-only. Positioning, TOV and messaging have no gap channel
+  and therefore no Tier Two.
+
+### Rejected alternatives
+
+**A second array for flagged claims.** Rejected: two extractors and two renderers that can
+disagree, for no gain over a discriminator.
+
+**Leaving the projection out and relying on the tier rule alone.** Rejected: the tier rule
+governs what an agent WRITES, and the propagation problem is about what an agent READS. One
+does not substitute for the other.
+
+**A denylist of operator-facing keys.** Rejected: fails open. The allowlist fails closed and
+the drift test makes an unclassified schema key a test failure rather than a silent
+omission.
+
+**Fixing the research queries instead.** Not rejected, deferred, and it is the better fix.
+See BACKLOG: the queries that produced the flagged document were built from an off-question
+intake answer and a currency-derived geography, so research was asked nonsense rather than
+failing. Better queries reduce how often flagging is needed but never to zero, so the two
+are complementary.
