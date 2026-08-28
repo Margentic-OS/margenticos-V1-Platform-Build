@@ -8562,26 +8562,50 @@ Design report accepted the same day. Measurements are in
   already name their own stage ("check their website for client logos", "this can be asked
   in the first email exchange before a meeting is booked").
 
-- [sourcing] **tier_3 `exclusion_basis`.** Add required
-  `exclusion_basis: 'structural' | 'sectoral' | 'geographic'`, and omit
-  `company_profile.industries` on tier_3 unless the basis is `sectoral`. The schema block in
+- [sourcing] **tier_3 `exclusion_basis`, and `industries_excluded` MUST be derived as
+  (tier_3 industries MINUS tier_1 and tier_2 industries).** The subtraction is part of the
+  change, not a caveat on it. Building the `exclusion_basis` field without the subtraction
+  is worse than not building it at all.
+
+  WHY THE SUBTRACTION IS A PRECONDITION. In `tier-classification.ts`, exclusion
+  (Disqualifier 5) runs BEFORE the on-target check (Disqualifier 6), so excluded always
+  wins. Live today: MargenticOS's stored spec has `Business Coaching` in `industries` (it
+  comes from tier_2) while its tier_3 also names it; Simcare has the same collision on
+  `Healthcare Consulting`. Feeding tier_3 straight into `industries_excluded` therefore
+  DELETES the prospects the client explicitly targets, silently, recorded as
+  `industry_excluded`. The naive version of this fix is a regression, and it will look
+  like it is working.
+
+  Log loudly whenever the subtraction removes a name: a name in both the targeted and the
+  excluded list is an authoring contradiction the operator should see, not something the
+  derivation should quietly resolve.
+
+  The rest of the change: add required
+  `exclusion_basis: 'structural' | 'sectoral' | 'geographic'` to tier_3, and omit
+  `company_profile.industries` on tier_3 unless the basis is `sectoral`. Only a `sectoral`
+  tier_3 contributes to `industries_excluded` at all. The schema block in
   `docs/prompts/icp-agent.md` does NOT currently require tier_3 industries (it is an
   elision); only Rule 7 constrains the contents if present. So this is cheap.
-  The documents are already asking for it: two of five live tier_3 geography fields read
+
+  The documents are already asking for it. Two of five live tier_3 geography fields read
   *"Any — geography is not the disqualifier, the business stage is"* and *"Any geography.
-  The disqualifiers are structural, not geographic."* The agent is writing the basis into a
-  place-name field because the schema gives it nowhere else.
+  The disqualifiers are structural, not geographic."* The agent is writing the basis into
+  a place-name field because the schema gives it nowhere else.
 
-  **Do NOT wire tier_3 industries into `industries_excluded` naively.** Exclusion
-  (Disqualifier 5) runs BEFORE the on-target check (Disqualifier 6) in
-  `tier-classification.ts`, so excluded wins. MargenticOS's live spec has `Business
-  Coaching` in `industries` (from tier_2) while tier_3 also names it; Simcare has the same
-  collision on `Healthcare Consulting`. Populating the exclusion list from tier_3 would
-  delete exactly the prospects the client explicitly targets, silently, as
-  `industry_excluded`. Subtract tier_1+tier_2 industries first and log loudly when the
-  subtraction removes anything, because a name in both lists is an authoring contradiction.
+### Ship 3 — spec-driven adapter. BLOCKED, and not on engineering.
 
-### Ship 3 — spec-driven adapter. Must land behind a per-org flag.
+**DO NOT BUILD SHIP 3 UNTIL DOUG HAS WRITTEN THE GEOGRAPHY EXCLUSION RULE DOWN.**
+Decision taken 2026-08-28. This is his call, not an implementation detail, and the block
+is on the whole ship rather than on one field, because spec-driven geography is most of
+what Ship 3 is.
+
+Spec-driven geography would source Germany, France, the Netherlands and the Nordics THE
+DAY IT SHIPS, because one live ICP (Simcare) names all of them. Germany is excluded on
+consent grounds; Canada is excluded on CASL. Those exclusions must be a HARD INTERSECTION
+APPLIED AFTER DERIVATION, never a default that a client document can widen. Until the rule
+exists in writing, there is nothing correct to implement against.
+
+Also: must land behind a per-org flag.
 
 - [sourcing] `deriveFilterSpec` writing a real geography while the adapter still hardcodes
   US/GB/IE is not merely inert, it is **actively misleading**: the stored spec would claim
@@ -8605,14 +8629,19 @@ Design report accepted the same day. Measurements are in
 - [sourcing] **Four targeted industries can never be classified**, not one.
   `Environmental Consulting`, `Engineering Consulting`, `Healthcare Consulting` and
   `Executive Coaching` are in `APOLLO_TARGETED_INDUSTRIES` and pass the orchestrator's
-  reachability gate, but are not in the range of `APOLLO_TO_SPEC`, so no prospect can ever
-  be classified as them and each is removed as `industry_not_consulting`. Three of the four
-  are in MargenticOS's live stored spec.
-  Ship 1 REPORTS this (`inspect-filter-spec.ts`, and an enumerated test that fails if a
-  FIFTH appears). It does not gate. **Promoting it to a hard gate in the orchestrator is a
-  one-line change and a deliberate decision** — it would newly refuse runs. Not taken in
-  Ship 1 because Ship 1 was no-behaviour-change. The real fix is `industry_tag_mappings`
-  rows, or Apollo tags mapped to those four names in `industry-mapping.ts`.
+  reachability gate, but are not in the range of the inbound tag map, so no prospect can
+  ever be classified as them and each is removed as `industry_not_consulting`.
+
+  **DECIDED 2026-08-28: this stays REPORTING and does NOT become a gate.** Three of the
+  four are in MargenticOS's own live stored spec, so gating would refuse Doug's own
+  sourcing runs. It becomes a gate when sourcing is spec-driven AND the tag map has been
+  rebuilt, not before. Do not "tidy this up" by promoting it: the one-line change in
+  `orchestrator.ts` that turns it into a throw is deliberately not taken.
+
+  Ship 1 reports it from `inspect-filter-spec.ts`, and the test in
+  `src/lib/sourcing/__tests__/inspect-filter-spec.test.ts` enumerates the four so a FIFTH
+  fails the build. The real fix is `industry_tag_mappings` rows, or tool tags mapped to
+  those four names in `industry-mapping.ts`.
 
 - [sourcing] `spec.company_headcount_min/max` reaches NOTHING. `tier-classification.ts`
   uses a hardcoded band ladder (1-20→20, 21-50→10, 51-100→5) and a hardcoded `> 100`
@@ -8647,11 +8676,46 @@ Design report accepted the same day. Measurements are in
   three. It also already tries in prose to prevent the tier_1/tier_3 industry overlap that
   is measurably happening on two live orgs. Prose is not holding it.
 
-- [build] `npx tsc --noEmit` reports `scripts/verify-mock-dispatch.ts(53,16): error TS2393:
-  Duplicate function implementation` on pristine `d34380d`. Pre-existing, not introduced by
-  Ship 1. That file has no import/export so its `main` is global. `next build` passes
-  because it does not type-check `scripts/`. CLAUDE.md says do not commit TS files with
-  type errors, so the repo is currently in violation of its own rule at the `tsc` level.
+- [build] **`next build` does not type-check `scripts/`, and the tsc incremental cache can
+  lie in BOTH directions.** Two separate gaps, and the second one caught me during Ship 1.
+
+  GAP 1: `next build` type-checks the app but not `scripts/`. A type error in a script
+  surfaces only on an explicit `npx tsc --noEmit`, so CI-green and build-green say nothing
+  about that directory.
+
+  GAP 2: `tsconfig.json` sets `"incremental": true`, and the resulting `tsconfig.tsbuildinfo`
+  **survives a branch switch and a `git stash`**. During Ship 1 a genuine error (a new
+  script with no import/export, whose global `main` collided with the one in
+  `scripts/verify-mock-dispatch.ts`) was fixed by adding `export {}`, but the cache kept
+  replaying it. It was then reported on a tree that had been stashed back to pristine,
+  which made it look like a PRE-EXISTING error on `d34380d`. It was not. Both trees are
+  clean once the cache is cleared. A stale cache can equally hide a real error.
+
+  THE RELIABLE INVOCATION, and the one to use before any commit or any claim about type
+  cleanliness:
+
+      rm -f tsconfig.tsbuildinfo .next/cache/.tsbuildinfo && npx tsc --noEmit
+
+  `npx tsc --noEmit --incremental false` does NOT do it on its own: it still reads an
+  existing `tsconfig.tsbuildinfo`. Delete the file.
+
+  Same family as the rest of this file: a check that reports a result the world does not
+  support. Here the instrument was stale rather than mis-scoped, and the tell was that its
+  answer did not change when the tree did.
+
+- [process] **`git stash` is SHARED ACROSS GIT WORKTREES.** A worktree has its own working
+  tree but the same `.git`, so `git stash` push/pop operate on one global stack. During
+  Ship 1, a `git stash -u` in a worktree found nothing to save (the tree was already
+  committed), the failure was suppressed, and the following `git stash pop` reached for
+  another session's stash entry (`pre-cso-cleanup`) and partially wrote two of its
+  untracked files into the worktree. Nothing was lost — the pop failed before dropping the
+  entry, the stash is intact with all six files, and the two on-disk copies were verified
+  byte-identical to the stash blobs before being deleted.
+
+  RULE: never `git stash pop` unconditionally in a worktree, and never suppress the output
+  of `git stash push`. Check `git stash list` first, or compare against a named stash. For
+  baseline comparisons prefer `git worktree add <tmp> <sha>` or `git stash create`, neither
+  of which touches the shared stack.
 
 - [icp] Three of five active ICPs have `icp_filter_spec = NULL` (`DRY RUN TEST`, the older
   `MargenticOS` org, `Simcare`), all June documents. They cannot source at all: the
