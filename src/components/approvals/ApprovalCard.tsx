@@ -240,10 +240,22 @@ type IcpTierObject = {
 
 // A field the agent could not ground in intake. Emitted instead of a guessed value,
 // so the gap reaches the operator as a banner rather than as prose inside the document.
+// Two kinds share the array and the banner. `kind` discriminates rather than a second
+// array, so there is one extractor, one renderer and one place for the two to drift apart.
+// An entry with no `kind` predates the discriminator and means "unestablished_field".
+type UnresolvedFieldKind = 'unestablished_field' | 'unverified_claim'
+
 type UnresolvedField = {
+  kind?: UnresolvedFieldKind
   field_path?: string
+  /** Present on unverified_claim only: the statement, plain enough to check in one search. */
+  claim?: string
   why_unresolved?: string
   question_to_settle_it?: string
+}
+
+function kindOf(field: UnresolvedField): UnresolvedFieldKind {
+  return field.kind === 'unverified_claim' ? 'unverified_claim' : 'unestablished_field'
 }
 
 type IcpDoc = {
@@ -414,35 +426,57 @@ function formatUnresolvedPath(path: string): string {
 function UnresolvedFieldsBanner({ fields }: { fields: UnresolvedField[] }) {
   if (fields.length === 0) return null
 
+  const gaps = fields.filter(f => kindOf(f) === 'unestablished_field')
+  const claims = fields.filter(f => kindOf(f) === 'unverified_claim')
+
+  const renderEntry = (field: UnresolvedField, i: number) => (
+    <li key={i} className="text-xs text-[#8B2020] leading-relaxed">
+      {field.claim
+        ? <span className="font-medium">{field.claim}</span>
+        : field.field_path && (
+            <span className="font-medium">{formatUnresolvedPath(field.field_path)}</span>
+          )}
+      {field.claim && field.field_path && (
+        <span className="opacity-70"> ({formatUnresolvedPath(field.field_path)})</span>
+      )}
+      {field.why_unresolved && <span> {field.why_unresolved}</span>}
+      {field.question_to_settle_it && (
+        <span className="block mt-0.5 italic opacity-90">
+          Ask: {field.question_to_settle_it}
+        </span>
+      )}
+    </li>
+  )
+
   return (
     <div
       data-testid="unresolved-fields-banner"
       className="bg-[#FDEEE8] border border-[#EFBCAA] rounded-[6px] px-3 py-2.5"
     >
       <p className="text-[10px] uppercase tracking-[0.07em] text-[#8B2020] mb-1.5">
-        {fields.length === 1
-          ? '1 field not established from intake'
-          : `${fields.length} fields not established from intake`}
+        {fields.length === 1 ? '1 item to settle before approving' : `${fields.length} items to settle before approving`}
       </p>
-      <p className="text-[10px] text-[#8B2020] opacity-80 leading-relaxed mb-2">
-        The agent could not ground these in the client's answers and did not guess. Settle
-        them before approving.
-      </p>
-      <ul className="space-y-2">
-        {fields.map((field, i) => (
-          <li key={i} className="text-xs text-[#8B2020] leading-relaxed">
-            {field.field_path && (
-              <span className="font-medium">{formatUnresolvedPath(field.field_path)}</span>
-            )}
-            {field.why_unresolved && <span> {field.why_unresolved}</span>}
-            {field.question_to_settle_it && (
-              <span className="block mt-0.5 italic opacity-90">
-                Ask: {field.question_to_settle_it}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
+
+      {gaps.length > 0 && (
+        <div data-testid="unresolved-gaps" className="mb-2">
+          <p className="text-[10px] text-[#8B2020] opacity-80 leading-relaxed mb-1.5">
+            {gaps.length === 1 ? '1 field was' : `${gaps.length} fields were`} not established
+            from intake. The agent did not guess.
+          </p>
+          <ul className="space-y-2">{gaps.map(renderEntry)}</ul>
+        </div>
+      )}
+
+      {claims.length > 0 && (
+        <div data-testid="unverified-claims">
+          <p className="text-[10px] text-[#8B2020] opacity-80 leading-relaxed mb-1.5">
+            {claims.length === 1 ? '1 claim was' : `${claims.length} claims were`} stated
+            without a source in the client's materials. Each should be confirmable in
+            seconds. Check before approving.
+          </p>
+          <ul className="space-y-2">{claims.map(renderEntry)}</ul>
+        </div>
+      )}
     </div>
   )
 }

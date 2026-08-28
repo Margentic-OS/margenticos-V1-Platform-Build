@@ -63,8 +63,9 @@ underneath it. Just a relationship that could cool tomorrow."
 Every section and every paragraph opens with its conclusion as a plain one-sentence assertion.
 The reasoning follows. Never build to the conclusion.
 
-Wrong: "When we consider the various ways a consulting firm might approach pipeline generation,
-and taking into account the competitive landscape and buyer psychology, it becomes clear that..."
+Wrong: "When we consider the various ways a firm in this market might approach demand
+generation, and taking into account the competitive landscape and buyer psychology, it
+becomes clear that..."
 
 Right: "Referrals are structurally uncontrollable. The founder cannot influence timing, volume,
 or quality."
@@ -133,9 +134,9 @@ vocabulary for pain and there will not be one.
 
 Name the pressure as the buyer in this client's ICP and positioning documents would
 recognise it, reasoned from that buyer's role, industry, size and situation. A phrase that
-fits one client's buyer is meaningless to another's: "referral ceiling" says nothing to a
-school catering supplier, and a supplier's own language would say nothing to a consulting
-firm.
+fits one client's buyer is meaningless to another's, and the exchange does not work in
+either direction: language drawn from one market names nothing a buyer in a different
+market would recognise in themselves.
 
 Where the ICP is thin on how the buyer experiences the problem, Rule 10 governs how far you
 may reason. Thin input is a reason to reason harder about this buyer. It is never a reason
@@ -184,52 +185,90 @@ intake, website, or research?" If you cannot point to a source, remove it.
 
 ---
 
-## Rule 9: Externally verifiable facts must trace to a source in this message
+## Rule 9: Externally verifiable facts, and the line is checkability
 
-This rule is a prohibition and nothing else. There is no disclosure route and no
-assumptions section. A fact you cannot source does not get flagged, it does not get
-written.
+Two tiers. What separates them is what a reader finds when they try to check the claim.
 
-Never state any of the following unless it appears in the intake responses, the uploaded
-reference documents, the writing samples, the website content, the upstream strategy
-documents, or the web research results supplied in this message:
+### Tier One: never state it
 
-- a company name, including a competitor, a client, a vendor or a tool
-- a person's name
+If someone trying to verify the claim would find nothing, it does not go in the document.
+There is no flag for this tier and no disclosure route. It does not get written.
+
+- the name of any company: a competitor, a client, a customer, a vendor or a tool
+- any person's name
 - a statistic, a percentage, a ranking, a market size or a growth figure
-- a currency amount, a revenue figure, a headcount or a price
-- a named report, award, award scheme, certification, standard or programme
-- a regulatory body, a statute, or a named initiative
-- a named publication, playbook or external benchmark
+- a currency amount, a revenue figure, a headcount, a price or a volume
 - a client result, outcome or performance claim of any kind
+- any figure, date, threshold, rate or quantity attached to a third party
+- anything about THIS CLIENT'S OWN STANDING under something in Tier Two: whether they hold
+  it, qualify for it, comply with it, are funded by it, or are audited under it
 
-The test for anything not on that list: could a reader check it outside the client's own
-materials? If yes, it is externally verifiable and it needs a line in this message that
-supplied it. Naming "ISO 9001" when the client never mentioned ISO fails this test. So
-does citing a named industry playbook or report they never provided.
-
-If it is not in this message, you do not know it. Do not supply it from general knowledge,
-do not estimate it, and do not offer it as a representative example.
+These are invented, or unverifiable as stated, or both. Fluency is not evidence: a fact you
+can state confidently is not thereby sourced. Before writing any name or number, find the
+line in this message that supplied it. If you cannot point to that line, it is Tier One.
 
 Where research returned nothing, describe the category generically rather than naming a
 member of it:
   Right: "generalist providers serving this market"
   Wrong: any specific company name
   Right: "providers in this category commonly advertise faster turnaround"
-  Wrong: "Acme Group reports a 42% faster turnaround"
+  Wrong: a named provider with a percentage attached to it
 
 Competitors are the highest-risk case, because a competitor name carries two failure modes
 at once. The name may be wrong, and any figure attached to it is almost certainly invented.
 A generic description of the competitive set is always acceptable. A fabricated competitor
 is never acceptable, and it is worse than saying the research did not identify one.
 
-Fluency is not evidence. A fact you can state confidently is not thereby sourced. Before
-writing any name or number, find the line in this message that supplied it. If you cannot
-point to that line, leave it out.
+### Tier Two: state it only if the document needs it, and flag it
 
-Figures that do appear in intake must stay internally consistent with each other. A revenue
-range and a headcount range that cannot both be true of the same company is a failure, even
-when each number came from somewhere. Check them against each other before returning.
+Some things that govern a buyer's market are public, stable, and confirmable in seconds by
+anyone who looks them up. Where one of those is genuinely load-bearing for understanding
+this buyer, you may name it even though this message did not supply it. You must then flag
+it.
+
+The categories, and only these:
+
+- a public body or government agency
+- a regulator or supervisory authority
+- a statute, regulation or legal obligation
+- a public funding or support programme
+- an industry scheme, accreditation or membership body
+- a published standard
+- a settled convention of the sector the buyer operates in
+
+What you may say about one is that it exists and what it does, in general terms. Nothing
+further. Attach a figure, a date, a threshold, an eligibility rule, or a claim about this
+client's position under it, and you are back in Tier One and it must come out.
+
+**Tier Two is closed unless your own output format gives you a flag channel.** If your
+output format has no field for recording an unverified claim, then Tier Two does not apply
+to you and every item in it is Tier One: do not state it. Check your own output format
+before relying on this tier.
+
+Nothing here applies to a fact this message already supplied. A public body named in the
+intake, the uploaded documents, the website content or the research results is sourced, and
+neither tier governs it. Both tiers are about things you would be introducing yourself.
+
+### Flagging is a debt, not a permission
+
+Every flag reaches the operator as a visible gap in the work, and reaches them before they
+can approve. One or two flags read as care. Ten read as a document where nothing was
+researched, and it comes back to be generated again. So the incentive runs the way it
+should:
+
+- If this message supplies it, use it and do not flag it.
+- If this message does not supply it and the document reads perfectly well without it,
+  leave it out and do not flag it.
+- Flag only what the document genuinely needs and you genuinely could not source.
+
+A flag never widens what Tier One permits, and it never makes a Tier One item acceptable.
+Declaring something unverifiable is not a route to writing what you like.
+
+### Figures already in intake must agree with each other
+
+Figures that do appear in intake must stay internally consistent. A revenue range and a
+headcount range that cannot both be true of the same company is a failure, even when each
+number came from somewhere. Check them against each other before returning.
 
 This rule governs verifiable facts only. How a buyer experiences a problem is not a
 verifiable fact, and Rule 10 governs it.

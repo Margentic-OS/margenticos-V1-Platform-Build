@@ -390,12 +390,14 @@ describe('ICP: unresolved_fields banner', () => {
 
   it('counts the fields in the heading', () => {
     renderCard('icp', { ...icpFixture, unresolved_fields: UNRESOLVED })
-    expect(screen.getByText('2 fields not established from intake')).toBeInTheDocument()
+    expect(screen.getByText('2 items to settle before approving')).toBeInTheDocument()
+    expect(screen.getByText(/2 fields were not established/)).toBeInTheDocument()
   })
 
   it('singularises the heading for one field', () => {
     renderCard('icp', { ...icpFixture, unresolved_fields: [UNRESOLVED[0]] })
-    expect(screen.getByText('1 field not established from intake')).toBeInTheDocument()
+    expect(screen.getByText('1 item to settle before approving')).toBeInTheDocument()
+    expect(screen.getByText(/1 field was not established/)).toBeInTheDocument()
   })
 
   it('renders the banner ABOVE the document body, not below it', () => {
@@ -431,5 +433,68 @@ describe('ICP: unresolved_fields banner', () => {
     expect(screen.queryByText('unresolved fields')).not.toBeInTheDocument()
     // And the reason must appear exactly once, in the banner only.
     expect(screen.getAllByText(UNRESOLVED[0].why_unresolved, { exact: false })).toHaveLength(1)
+  })
+})
+
+// ─── unresolved_fields: the unverified_claim kind ────────────────────────────
+//
+// Rule 9 Tier Two lets the ICP agent name something public and checkable that this message
+// did not supply, provided it flags it. The flag is a GATE, not a warning label: the
+// operator settles it with the client before approving, and everything downstream of
+// approval treats the document as checked. So the two kinds must be distinguishable in the
+// banner, and a claim must render its `claim` text, which is the thing being verified.
+
+const CLAIMS = [
+  {
+    kind: 'unverified_claim',
+    field_path: 'tier_1.company_profile.industries',
+    claim: 'A public funding programme sets the terms this buyer operates under.',
+    why_unresolved: 'Stated from general knowledge; not supplied in this message.',
+    question_to_settle_it: 'Is that programme the right one for your market?',
+  },
+]
+
+describe('ICP: unverified_claim entries', () => {
+  it('renders claims in the same banner as gaps, in their own group', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: [...UNRESOLVED, ...CLAIMS] })
+    expect(didCrash()).toBe(false)
+    expect(screen.getByTestId('unresolved-fields-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('unresolved-gaps')).toBeInTheDocument()
+    expect(screen.getByTestId('unverified-claims')).toBeInTheDocument()
+  })
+
+  it('shows the claim text, which is the thing the operator verifies', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: CLAIMS })
+    expect(screen.getByText(CLAIMS[0].claim)).toBeInTheDocument()
+    expect(screen.getByText(`Ask: ${CLAIMS[0].question_to_settle_it}`)).toBeInTheDocument()
+  })
+
+  it('counts both kinds in the heading and describes each group separately', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: [...UNRESOLVED, ...CLAIMS] })
+    expect(screen.getByText('3 items to settle before approving')).toBeInTheDocument()
+    expect(screen.getByText(/2 fields were not established/)).toBeInTheDocument()
+    expect(screen.getByText(/1 claim was stated without a source/)).toBeInTheDocument()
+  })
+
+  it('shows only the claims group when there are no gaps', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: CLAIMS })
+    expect(screen.queryByTestId('unresolved-gaps')).not.toBeInTheDocument()
+    expect(screen.getByTestId('unverified-claims')).toBeInTheDocument()
+  })
+
+  it('treats an entry with no kind as a gap, so nothing written before the discriminator breaks', () => {
+    renderCard('icp', { ...icpFixture, unresolved_fields: UNRESOLVED })
+    expect(screen.getByTestId('unresolved-gaps')).toBeInTheDocument()
+    expect(screen.queryByTestId('unverified-claims')).not.toBeInTheDocument()
+  })
+
+  it('does not silently drop an unknown kind: it falls back to the gap group', () => {
+    renderCard('icp', {
+      ...icpFixture,
+      unresolved_fields: [{ ...UNRESOLVED[0], kind: 'something_new' }],
+    })
+    expect(didCrash()).toBe(false)
+    expect(screen.getByTestId('unresolved-gaps')).toBeInTheDocument()
+    expect(screen.getByText(UNRESOLVED[0].why_unresolved, { exact: false })).toBeInTheDocument()
   })
 })
