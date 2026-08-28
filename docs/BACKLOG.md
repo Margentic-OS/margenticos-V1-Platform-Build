@@ -7736,6 +7736,241 @@ session's verification, not in the code it shipped, and that is the more useful 
   Use it. Sourcing works for keys whose values are bare tokens, which is why it appears to
   work right up until it does not.
 
+## BOUNCE PATH PROOF — first live bounce end to end (2026-08-28, branch bounce-path-proof)
+
+Session ran in a worktree off origin/main while another session held the main tree. Nothing
+in docs/prompts/, the four generation agents, or document-projection was touched.
+
+- [pre-c0] RESOLVED BY OBSERVATION: Instantly lead status -1 IS Bounced, and it is a NUMBER.
+
+  The first real bounce ever to travel this path. Method per the 12 August decision: a
+  throwaway campaign registered to the DRY RUN TEST organisation, one prospect row inserted
+  directly with the gate columns forced, addressed to a nonexistent mailbox on a domain we
+  control. The live C0 campaign was never touched and no dead address was seeded into it.
+
+  Sent 14:01:15Z from doug@gomargenticos.com to qx7v-bounce-probe-a1@getmargenticos.com.
+  Google rejected at SMTP time; Instantly flipped the lead to -1 by 14:01:20Z, five seconds
+  later. The raw POST /leads/list {status:-1} response carried "status": -1, unquoted.
+
+  Both halves of the 2026-08-21 correction are now confirmed against the LIVE API rather
+  than against the schema document: the value is -1 and not -2, and the type is number and
+  not string. Either fault alone would have made detection silently wrong.
+
+  THE GUARD RAN AND PASSED, which is the part worth keeping. polling_cursors.leads_bounced
+  finished with error_count 0 and no last_error, so verifyLeadStatus confirmed the returned
+  row actually carried -1. The distinction matters: this is "we read the status back", not
+  "we asked for -1 and got rows".
+
+  Full chain, all timestamps from the live database:
+    14:01:15Z  sent
+    14:01:20Z  Instantly lead status -> -1
+    14:15:01Z  signals row 27251458-2896-4509-9675-5e414bc301d3, signal_type email_bounced,
+               external_event_id = the Instantly lead id, raw_data holds the -1 payload
+    14:15:01Z  suppressed_emails row f5887abf-c16b-4a93-82ef-260b37fd9bb9, reason 'bounced',
+               source_signal_id linking back to that signal
+    14:15:07Z  sending_health_snapshot recomputed with the bounce in it
+  Before: findBlockedProspects returned blocked.size 0. After: blocked.size 1, reason
+  globally_suppressed. Run against the real function and the live database, not a fake.
+
+  WHY THE DOMAIN CHOICE WAS A PRECONDITION AND NOT A DETAIL. A catch-all target would have
+  accepted the address and never bounced, and the test would have "passed" while proving
+  nothing, which is the same shape as the defect being tested for. getmargenticos.com was
+  confirmed non-catch-all FIRST: MyEmailVerifier returned catch_all:0 / Status:"Invalid"
+  for two distinct random local-parts across three of our domains, with a real mailbox on
+  the same domain returning Greylisted rather than Invalid as a discriminating control.
+
+- [monitor] The 50-send floor is load-bearing, and this test demonstrated it rather than
+  arguing it.
+
+  After the bounce, sending_health_snapshot read gomargenticos.com at 1 bounce / 3 sends =
+  33.3%, which is sixteen times the 2% red threshold, and it correctly did NOT fire.
+  RATE_MINIMUM_SENDS held trigger 2 dormant, and the detail line said so in plain words:
+  "the rate rule judged nothing". Trigger 1 read 1/3 and did not breach.
+
+  Without that floor a single deliberate test bounce would have tripped the ramp's only
+  stop condition. Keep the floor, and keep the detail line honest about not having judged.
+
+- [monitor] INSTANTLY_LEAD_STATUS_VERIFIED gates NOTHING. Flipping it changes one log line.
+
+  Read in exactly two places, instantly.ts:717 and :933, both `if (!VERIFIED) logger.warn`.
+  No branch on detection, suppression, or sending.
+
+  TWO THINGS DO CHANGE ON FLIP, and neither is behaviour:
+    1. instantly.test.ts:31 and :111 assert it is false. They fail on flip and must be
+       updated in the same commit.
+    2. BACKLOG:6225 states "No production send to a client is allowed until this blocker is
+       complete and INSTANTLY_LEAD_STATUS_VERIFIED = true." NOTHING ENFORCES THAT. No code
+       reads the constant to block a send. If that sentence is meant to be a control it is
+       currently prose, which is the same shape as the pre-commit hooks before 2026-08-27.
+  The evidence to flip it now exists. Flipping it is a separate, deliberate commit.
+
+- [pre-c0] MYEMAILVERIFIER_API_KEY reads as UNSET IN PRODUCTION. Verification is broken and
+  it was invisible because there was no work.
+
+  Surfaced accidentally by this test. Unarchiving DRY RUN TEST at 13:50:31Z gave the
+  verify-pending sweep work for the first time in 18 days. The 14:00:04Z run reported
+  "verified 0, send-eligible 0, failed 2" and both prospect rows recorded
+  last_verification_error = "Email verification failed: MYEMAILVERIFIER_API_KEY not set in
+  environment".
+
+  NOT ROOT-CAUSED. The obvious explanations were checked and ELIMINATED:
+    - The var IS present in Vercel Production scope, created 19d ago (vercel env ls).
+    - Production deployments are minutes old, so they postdate the var.
+    - app.margenticos.com resolves to the same project, margenticos-platform.
+    - The same route read CRON_SECRET successfully in the same invocation, so env injection
+      works generally. Only this one variable is unreadable.
+  An EMPTY stored value would produce an identical symptom, because the handler tests
+  `if (!apiKey)`. That needs a human to look at the value in the Vercel dashboard; it
+  cannot be read back without printing a secret.
+
+  IMPACT: last successful verification was 2026-08-10. The next time sourcing produces
+  prospects needing verification, every one of them fails. Unrelated to the bounce work and
+  a pre-C0 blocker in its own right.
+
+- [monitor] Archived-org bug observed live, behaving exactly as documented, and CHEAPER than
+  estimated.
+
+  verify-pending at 13:50:00Z, thirty-one seconds before the unarchive: "Nothing pending".
+  At 14:00:04Z, the first run after: "failed 2, daily used 1". The archived check in
+  verify-pending and verify-catch-all works correctly; the two prospects it had been
+  correctly skipping became visible the instant the org was unarchived.
+
+  Actual paid spend: ZERO. Both addresses are @mock.invalid, a reserved TLD, so the first
+  pass cannot return an inconclusive verdict and neither promotes to the paid second pass.
+  verify-catch-all at 14:00:01Z confirmed "Nothing pending".
+
+  The pre-session estimate of four paid calls was WRONG, and the error is worth recording:
+  it counted rows pending first pass rather than rows matching the sweep's actual filter
+  (enrichment_status='enriched' AND independent_email_status IS NULL), which is two. Read
+  the filter, not the intent.
+
+- [monitor] The instantly-poll lead-status scan filters organisations.archived_at IS NULL.
+
+  Worth knowing before archiving anything with a live campaign: re-archiving an
+  organisation stops the poller scanning its campaigns for bounces and unsubscribes
+  entirely. Detection is not paused for that org, it does not run. All polling observations
+  must complete BEFORE re-archiving.
+
+- [ops] Instantly preserves Gmail plus-addressing. Confirmed by read-back, not by response
+  echo.
+
+  11 leads at d.h.p1999+bt1..11@gmail.com uploaded as 11 distinct lead ids with
+  duplicate_email_count 0, and the +btN alias intact in both `email` and `payload.email`
+  when READ BACK from Instantly's store. No normalisation, no dedupe.
+
+  TRAP: once those leads exist in the workspace, adding them to a campaign with
+  skip_if_in_workspace:true silently skips all of them. Pass it false.
+
+- [ops] The per-mailbox daily analytics endpoint is GET /accounts/analytics/daily and it
+  returns a BARE ARRAY.
+
+  Not /campaigns/analytics/daily/account, which returns empty and reads as "no sends"
+  rather than as a wrong path. It 413s across the whole workspace without an `emails`
+  filter. Codified already in sending-health.ts; recorded here because a wrong endpoint
+  here is indistinguishable from a quiet day.
+
+- [pre-c0] SETTLED: Instantly's campaign daily_limit is PER CAMPAIGN IN TOTAL, not per
+  mailbox. The MCP tool's own parameter documentation says the opposite and is WRONG.
+
+  Measured on the throwaway campaign, never on C0: daily_limit 5, TWO sending mailboxes,
+  12 leads. If the limit were per mailbox the campaign could send 10. It sent 5 and stopped
+  with 7 leads uncontacted.
+
+  The decisive evidence is GET /campaigns/{id}/sending-status, which separates all three
+  competing explanations in a single response rather than leaving them to be inferred from
+  a plateau:
+
+    "status": "daily_limit_met"
+    "campaign_daily_limit": { "limit": 5, "sent": 5, "limit_hit": true }
+    "accounts_summary": { "unavailable": { "daily_limit_hit": 0, ... } }
+    "schedule_status": { "in_schedule": true }
+    "leads_status":    { "no_leads_ready": false }
+
+    per-campaign total  CONFIRMED: limit_hit true at the CAMPAIGN level, 5 of 5.
+    per-mailbox         REFUTED:   ZERO accounts report daily_limit_hit. If the cap were
+                                   per account, the accounts would be the thing at limit.
+                                   Neither had reached 5 (doug 3, douglas 2).
+    schedule closed     REFUTED:   in_schedule true. Measured at 10:36 ET against a
+                                   09:00-17:00 ET window, 6.5 hours of window remaining.
+    out of work         REFUTED:   no_leads_ready false, 7 leads uncontacted.
+
+  ORDERING MATTERS AND WAS PRESERVED: daily_limit_met was recorded at 14:36:08Z and the
+  campaign was paused at 14:37:03Z. The limit was hit on its own; the pause is not what
+  stopped it. Pausing at total 5 BEFORE the verdict would have made 5 an artefact of the
+  intervention rather than a measurement, and was deliberately not done.
+
+  CAVEAT, recorded rather than smoothed over: accounts_summary.total_connected reads 0 in
+  the same response, which is plainly not true of a campaign with two senders that had just
+  sent five emails. It looks like the account loop is not evaluated once the campaign-level
+  gate short-circuits. It does not weaken the finding, because the campaign-level
+  limit_hit is explicit, but do not build anything on total_connected.
+
+  CONSEQUENCE FOR THE RAMP. C0's daily_limit of 20 is a TOTAL across all ten of its
+  mailboxes, roughly 2 per mailbox per day, not 20 each. Any ramp plan that assumed
+  20-per-mailbox was overstating capacity by 10x. Raising throughput means raising the
+  campaign number, and the 50-send-per-domain floor in sending-health only starts judging
+  bounce RATE once a domain clears 50 sends in 7 days, which at 20/day across five domains
+  it never will.
+
+- [ops] Instantly's MCP tool descriptions are generated and are not a source of truth.
+
+  create_campaign and update_campaign both document daily_limit as "Max emails per day per
+  sending account". Measured behaviour is per campaign in total. Treat the tool text as a
+  hint to be tested, never as evidence. Also note allow_risky_contacts and
+  disable_bounce_protect are NOT exposed by the MCP tools at all and must be set with a
+  direct PATCH to /api/v2/campaigns/{id}.
+
+- [monitor] DO NOT BUILD ANYTHING ON accounts_summary.total_connected FROM INSTANTLY'S
+  SENDING-STATUS ENDPOINT. It returned 0 for a campaign with two connected senders that had
+  just sent five emails.
+
+  Promoted out of the daily_limit entry above so it is findable on its own, because the
+  field is exactly the sort of thing a future "why is this campaign not sending" dashboard
+  would reach for first.
+
+  Measured 2026-08-28 14:36:08Z on the throwaway campaign. The same response was correct
+  and internally consistent about everything else: campaign_daily_limit {limit 5, sent 5,
+  limit_hit true}, schedule_status.in_schedule true, leads_status.no_leads_ready false. Only
+  the accounts summary was wrong, and it was wrong in the reassuring direction, reading as
+  "no accounts connected" for a campaign that was actively sending.
+
+    "accounts_summary": { "total_connected": 0, "available": 0,
+                          "unavailable": { "daily_limit_hit": 0, "disconnected": 0, ... } }
+
+  Best reading: the account loop is not evaluated once the campaign-level daily-limit gate
+  short-circuits, so the whole summary is left at its zero-initialised state rather than
+  being populated. NOT CONFIRMED, and deliberately not chased further, because the useful
+  conclusion does not depend on the cause: the zeros are indistinguishable from a genuine
+  "every account is disconnected", which is a real and serious condition. A monitor keyed on
+  total_connected == 0 would fire spuriously every time a campaign simply hit its daily
+  limit, and worse, it would look like a correctly firing monitor.
+
+  Use campaign_daily_limit, schedule_status and leads_status, which were all accurate.
+  Treat accounts_summary as unpopulated unless proven otherwise in the specific case.
+
+- [ops] DELETING AN INSTANTLY CAMPAIGN LEAVES OUR campaigns ROW POINTING AT NOTHING, AND
+  THAT TURNS instantly-poll RED EVERY FIFTEEN MINUTES.
+
+  Found while cleaning up this session's throwaway campaign, and worth recording because the
+  cleanup is the dangerous half of the exercise, not the test.
+
+  The campaign stats refresh in instantly-poll/route.ts:175 selects EVERY campaigns row with
+  a non-null external_id and does NOT filter organisations.archived_at. So archiving the
+  organisation does not protect you here, even though it does protect the lead-status scan,
+  which filters archived at instantly.ts:955. Two passes in the same cron with different
+  scoping rules.
+
+  A registered external_id with no matching Instantly analytics row is counted as an ERROR,
+  not a skip, deliberately, and it carries into runOk. The code says so at route.ts:182 and
+  names the fix: "Clear external_id or point it at a real campaign."
+
+  Applied here: campaigns.external_id set to NULL and status to 'completed' rather than
+  deleting the row, so the signals row keeps its campaign_id linkage and the bounce evidence
+  stays intact. Renamed to record that the Instantly side is gone.
+
+  THE ORDER THAT MATTERS: delete the Instantly campaign, then immediately clear external_id.
+  Between those two steps every poll reports ok:false.
+
 ## SESSION 2026-08-28, branch rule9-checkability (Rule 9 narrowed to checkability)
 
 - [pre-c1] THE CLIENT IS PROTECTED BY RENDERER OMISSION, NOT BY A FILTER. THAT IS A TRAP,
