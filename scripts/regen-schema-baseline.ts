@@ -104,6 +104,50 @@ function assertNoSecrets(content: string): void {
   }
 }
 
+// ── View DDL, and the property that turned out to be a live exposure ─────────
+//
+// A Postgres view runs with its OWNER's privileges unless security_invoker is on, so this
+// one boolean decides whether RLS on the base tables is consulted at all. CLAUDE.md's
+// 2026-08-26 finding is exactly that: nine anon-readable mon_* views, owner postgres,
+// security_invoker false, handing out the contents of a table anon could not read.
+//
+// THIS FUNCTION EXISTS BECAUSE THE GENERATOR USED TO LIE ABOUT IT. The old SQL asked
+// whether the reloption was PRESENT and then hardcoded the value:
+//
+//     CASE WHEN EXISTS (... WHERE o LIKE 'security_invoker=%')
+//          THEN ' WITH (security_invoker = true)' ELSE '' END
+//
+// So a view carrying security_invoker=false was written into the tracked baseline as
+// security_invoker = true. The disaster recovery file asserted the secure posture on the
+// one property that was actually insecure, and restoring it would have produced a
+// DIFFERENT database from the one it claims to reproduce.
+//
+// The trap, worth stating because it is why nobody noticed: the advisor fix on 2026-08-26
+// set the affected view to true, so today every view in this database is either true or
+// has no reloption at all, and the bug emits the correct text for both. It self-heals and
+// stays invisible until the next view is created false. That is precisely when a disaster
+// recovery file would be believed.
+//
+// An ABSENT option emits no clause, deliberately. Absent and false behave identically, but
+// they are not the same catalog state, and a restore that turned reloptions NULL into
+// {security_invoker=false} would not reproduce what it captured. Fidelity first.
+export interface ViewRow {
+  name: string
+  securityInvoker: string | null
+  definition: string
+}
+
+export function buildViewsDdl(rows: ViewRow[]): string {
+  return rows
+    .map(v => {
+      const clause = v.securityInvoker === null
+        ? ''
+        : ` WITH (security_invoker = ${v.securityInvoker})`
+      return `CREATE OR REPLACE VIEW public.${v.name}${clause} AS\n${v.definition}`
+    })
+    .join('\n\n')
+}
+
 async function main() {
   const started = new Date().toISOString().slice(0, 16).replace('T', ' ')
 
@@ -168,11 +212,15 @@ async function main() {
        FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
        WHERE n.nspname='public' AND p.prokind='f'`),
 
-    q(`SELECT string_agg('CREATE OR REPLACE VIEW public.' || c.relname ||
-         CASE WHEN EXISTS (SELECT 1 FROM unnest(COALESCE(c.reloptions,'{}')) o
-                            WHERE o LIKE 'security_invoker=%')
-              THEN ' WITH (security_invoker = true)' ELSE '' END ||
-         ' AS' || E'\\n' || pg_get_viewdef(c.oid, true), E'\\n\\n' ORDER BY c.relname) AS ddl
+    // READS THE VALUE, does not test for the key's presence. See buildViewsDdl above.
+    // The catalog read stays in SQL; the DECISION about what to emit is in TypeScript,
+    // where a test can reach it without a database.
+    q(`SELECT json_agg(json_build_object(
+           'name', c.relname,
+           'securityInvoker', (SELECT option_value FROM pg_options_to_table(c.reloptions)
+                                WHERE option_name = 'security_invoker'),
+           'definition', pg_get_viewdef(c.oid, true)
+         ) ORDER BY c.relname)::text AS ddl
        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
        WHERE n.nspname='public' AND c.relkind='v'`),
 
@@ -257,6 +305,8 @@ async function main() {
       ].join('\n')
     }).join('\n')
   }
+
+  const viewsDdl = buildViewsDdl(views ? (JSON.parse(views) as ViewRow[]) : [])
 
   // ── ORDER MATTERS HERE: SCRUB, COMPARE, THEN GUARD ──────────────────────────
   //
@@ -379,9 +429,13 @@ ${functions}
 RESET check_function_bodies;
 
 -- ── VIEWS ─────────────────────────────────────────────────────────────
--- security_invoker is preserved where set. A view WITHOUT it runs as its OWNER
--- and does not consult RLS on its base tables. See CLAUDE.md.
-${views}
+-- security_invoker carries the VALUE the catalog holds, true or false, and a view
+-- with no such reloption emits no clause because absent is not the same catalog
+-- state as false. Until 2026-08-27 the generator tested whether the option was
+-- PRESENT and then wrote 'true' regardless, so a view set to false was recorded
+-- here as secure. A view WITHOUT security_invoker runs as its OWNER and does not
+-- consult RLS on its base tables. See CLAUDE.md.
+${viewsDdl}
 
 -- ── TRIGGERS ──────────────────────────────────────────────────────────
 -- Header values are scrubbed. See the SECRETS note at the top of this file.
@@ -469,7 +523,10 @@ ${comments}
   console.log('  assertNoSecrets: passed (before write and after write)')
 }
 
-main().catch(err => {
-  console.error(err.message ?? err)
-  process.exit(1)
-})
+// Only run when invoked directly, so the pure helpers above can be imported by a test.
+if (process.argv[1] && process.argv[1].endsWith('regen-schema-baseline.ts')) {
+  main().catch(err => {
+    console.error(err.message ?? err)
+    process.exit(1)
+  })
+}
