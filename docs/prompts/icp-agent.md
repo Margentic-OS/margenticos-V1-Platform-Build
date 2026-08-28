@@ -471,7 +471,7 @@ Return raw JSON only.
       "stage": "e.g. growth stage, pre-scale, early systematisation",
       "industries": ["industry 1", "industry 2"],
       "geography": "e.g. US and UK, English-speaking markets",
-      "business_model": "e.g. subscription SaaS, project-based services, retainer"
+      "business_model": "e.g. subscription, project-based services, retainer"
     },
     "buyer_profile": {
       "title": "e.g. Founder / Managing Director",
@@ -501,7 +501,7 @@ Return raw JSON only.
       {
         "trigger": "Specific event or situation that creates urgency to act NOW",
         "evidence_to_find": [
-          "Apollo-detectable signal: e.g. headcount change in last 90 days",
+          "Company-data-detectable signal: e.g. headcount change in last 90 days",
           "Website-detectable signal: e.g. case study section not updated in 6+ months",
           "Web search-detectable signal: e.g. recent press mention or speaking appearance"
         ]
@@ -604,6 +604,7 @@ approve button.
 7. The `industries` arrays in every tier's `company_profile` MUST use canonical names
    from this exact list. No variations, abbreviations, or invented names:
 
+   <!-- CANONICAL-INDUSTRY-LIST:BEGIN -->
    Primary and Secondary Education | Higher Education | Educational Services and Training |
    Healthcare Providers | Pharmaceutical Manufacturing | Medical Devices and Equipment |
    Biotechnology | Construction and Building | Real Estate Development |
@@ -627,6 +628,7 @@ approve button.
    Healthcare Consulting | Supply Chain Consulting | Procurement Consulting |
    Risk Management Consulting | Compliance Consulting | Data Analytics Consulting |
    Cybersecurity Consulting | Change Management Consulting
+   <!-- CANONICAL-INDUSTRY-LIST:END -->
 
    Wrong: "HR / talent consulting", "Marketing strategy consulting", "IT / technology consulting"
    Right: "Human Resources Consulting", "Marketing Consulting", "Information Technology Consulting"
@@ -652,9 +654,17 @@ approve button.
    Each item must be a specific, observable signal a researcher can check in under
    60 seconds. Never use vague emotional states as evidence ("they seem frustrated").
    Never list LinkedIn activity patterns as a primary signal.
+   NAME THE KIND OF SOURCE, NEVER THE TOOL. The three category names below describe where
+   a signal is found: company data, the company's own website, or a general web search.
+   They are not product names and they must not be replaced by one. This applies to EVERY
+   field in the document, not only to evidence_to_find. A tool name in a disqualifier, in a
+   trigger, or in any prose field is the same failure in a different place, and the client
+   reads several of those fields directly. If you find yourself about to name the service
+   that would surface a fact, name the KIND of source instead and stop there.
+
    Draw signals from these categories only:
 
-   Apollo-detectable:
+   Company-data-detectable:
    - Headcount change (increase or reduction) in last 90 days
    - New job postings for business development, sales, or marketing roles
    - Job postings removed after a short period (signal of paused hiring)
