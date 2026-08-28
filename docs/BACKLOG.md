@@ -7831,8 +7831,14 @@ session's verification, not in the code it shipped, and that is the more useful 
   than bundled with it. Fixing it reduces how often Tier Two flagging is needed but never to
   zero, so ADR-042 remains the fallback rather than being superseded.
 
-- [monitor] ADR-042 RESTS ON OPERATORS ACTUALLY READING THE BANNER, AND NOTHING MEASURES
-  WHETHER THEY DO.
+- [pre-c1] [monitor] BUILD THE TIME-TO-APPROVE MONITOR. ADR-042 RESTS ON OPERATORS ACTUALLY
+  READING THE BANNER, AND NOTHING MEASURES WHETHER THEY DO.
+
+  TAGGED [pre-c1] DELIBERATELY, by Doug on 2026-08-28. Not because it blocks anything today,
+  but because the failure mode arrives exactly when the first paying client does. Today one
+  operator approves a handful of documents and reads every one. Approvals become routine
+  under volume and time pressure, and that is the moment this assumption stops holding. A
+  monitor added after that point measures the decayed state and calls it the baseline.
 
   A Tier Two claim written into tier_1 prose survives the projection, so the claim
   propagates into messaging while its flag does not. That is coherent BECAUSE operator
@@ -7846,7 +7852,35 @@ session's verification, not in the code it shipped, and that is the more useful 
   is a monitor, not a gate, and it would at least make the assumption observable.
 
   Stated in ADR-042 under "THE ASSUMPTION THIS RESTS ON" so it is on the record rather than
-  discovered later.
+  discovered later. Doug's instruction is that it gets BUILT rather than left logged: an
+  assumption that nothing measures decays quietly, and this one is load-bearing for the
+  whole Tier Two design.
+
+- [docs] ADR NUMBERS ARE CLAIMED BY SURVEYING EVERY REF, NOT BY READING main.
+
+  Four collisions in two days: 035, 036, 037 and 038 all landed on more than one branch, 039
+  had to be assigned by hand, and 041 was taken on main by another session while ADR-042 was
+  being written. Reading main is not enough, because an ADR spends most of its life on an
+  unmerged branch.
+
+  THE METHOD, and it takes about ten seconds:
+
+      # every ADR heading defined on every local and remote ref
+      for ref in $(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin | sort -u); do
+        git show "$ref:docs/ADR.md" 2>/dev/null | grep -oE '^#+ *ADR-[0-9]{3}'
+      done | grep -oE '[0-9]{3}' | sort -u | tail -5
+
+      # and anything above that number, anywhere, including prose references
+      git grep -hoE 'ADR-[0-9]{3}' $(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin) -- . | sort -u | tail -5
+
+      # and commit messages, which can claim a number no file carries yet
+      git log --all --oneline --grep='ADR-0'
+
+  Then check `git worktree list` for any active worktree with uncommitted work, since a
+  number can be claimed in a file that is not committed anywhere yet. That is how 042 was
+  chosen and it was the only method that would have avoided 041.
+
+  A number is only truly free when it appears in none of those four places.
 
 - [post-build] TWO MORE NAMED SECTORS WERE IN LIVE RULE TEXT, AND THE TEST THAT FOUND THEM
   IS THE POINT.
