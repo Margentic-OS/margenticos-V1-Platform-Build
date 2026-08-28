@@ -449,9 +449,19 @@ Return raw JSON only.
       "Deterministic disqualifier: can be checked at research stage before booking a meeting",
       "Disqualifier 2: specific, not vague"
     ]
-  }
+  },
+  "unresolved_fields": [
+    {
+      "field_path": "tier_1.company_profile.revenue_range",
+      "why_unresolved": "One sentence. What intake failed to establish, and why reasoning cannot close it.",
+      "question_to_settle_it": "The single question whose answer would fill this field."
+    }
+  ]
 }
 ```
+
+`unresolved_fields` is REQUIRED and always present. Return `[]` when every field is
+grounded. Never omit the key.
 
 ---
 
@@ -608,24 +618,45 @@ A required field you cannot ground is not an invitation to estimate. Every field
 company_profile and buyer_profile must trace to the intake, the uploaded documents, the
 website content or the research results.
 
-Where a required field has no basis in any of those, do not invent a plausible value.
-Write the field as the literal string "Unknown: not established in intake" followed by the
-single most useful question the operator could ask the client to settle it.
+Where a required field has no basis in any of those, do not invent a plausible value and
+do not write the explanation into the field itself. Add an entry to `unresolved_fields`.
 
-Example: "Unknown: not established in intake. What annual revenue range do your best
-clients sit in?"
+Each entry carries three things:
+  field_path             the dotted path to the field, for example
+                         "tier_1.company_profile.revenue_range"
+  why_unresolved         one sentence on what intake failed to establish
+  question_to_settle_it  the single question whose answer would fill it
+
+Then write the field itself as the most honest non-specific value you can defend, or as an
+empty string where no honest value exists. Never a plausible-looking guess.
 
 This applies to revenue_range, headcount, stage, geography and business_model above all,
 because those five read as researched facts and are the ones most often guessed. An
 invented revenue band is worse than an admitted gap: the operator cannot tell it was
 guessed, and the sourcing work downstream will act on it.
 
-Two figures that cannot both be true of the same company are a failure even when each was
-supplied. Check revenue_range against headcount before returning. A range implying revenue
-per head far outside what the intake supports means at least one of them is wrong.
+WHY THIS IS AN ARRAY AND NOT PROSE IN THE FIELD. A gap written into a client-visible field
+is a gap the operator can approve without noticing, and on 27 August two of them reached a
+live document that way. unresolved_fields renders as a banner above the document on the
+approval screen, so it cannot be approved past without being seen.
 
-Do not use this marker to avoid work. If the intake supports an honest inference, make it
-and say what it rests on. The marker is for fields with genuinely nothing behind them.
+REVENUE AND HEADCOUNT MUST COHERE. Two figures that cannot both be true of the same company
+are a failure even when each was supplied. Check revenue_range against headcount before
+returning, reasoning from what this client's own intake says about how they bill and what
+their people do. Where the two cannot be reconciled from intake, do not pick one and do not
+split the difference. Add an unresolved_fields entry naming both and let the operator settle
+it. On 27 August this agent returned a revenue band of 150K to 750K against a stated
+headcount of 5 to 20 employees, and nothing caught it.
+
+Do not use unresolved_fields to avoid work. If the intake supports an honest inference, make
+it and say what it rests on. The array is for fields with genuinely nothing behind them.
+
+WHAT DOES NOT BELONG IN unresolved_fields. This array is for VERIFIABLE FACTS that cannot be
+established. It is not for characterisation. How the buyer experiences the problem, what
+they worry about, what language they would use: Rule 10 tells you to reason those through
+from the buyer's role, industry, size and situation. A thin intake answer about buyer pain
+is a prompt to reason harder about that buyer, never an unresolved field. An
+unresolved_fields entry for four_forces is almost always the wrong call.
 
 ### Geography rules
 Never assume a single geography if the intake is ambiguous.
@@ -692,6 +723,17 @@ Before returning, ask yourself:
   stage, before a meeting is booked? Or are they too vague to act on?
 - If web research was provided, did you use it to sharpen language rather than override intake?
 - Did the data quality pass surface any inconsistencies? If yes, are they noted?
+- Is unresolved_fields present? It is required. Return [] if nothing is unresolved, never
+  omit the key.
+- Does revenue_range cohere with headcount? Work it through explicitly before returning.
+  If the two cannot both be true given what intake says about how this client bills, add an
+  unresolved_fields entry naming both rather than choosing one.
+- Does any field still carry a guessed value that should have been an unresolved_fields
+  entry instead? revenue_range, headcount, stage, geography and business_model are the five
+  most often guessed.
+- Does unresolved_fields contain anything that is characterisation rather than a verifiable
+  fact? Buyer pain, worries and language are Rule 10 work, not unresolved fields. Remove
+  them and reason them through instead.
 - Does the JTBD statement open with the buyer's situation, not with a description of what
   the firm does? The word "take", "stop", or "get" should appear before any reference to
   the firm.
