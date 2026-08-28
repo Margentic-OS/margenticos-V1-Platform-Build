@@ -12,8 +12,10 @@ import {
 } from '@/lib/email/templates/docs-ready'
 import {
   versionPendingTemplate,
+  versionPendingText,
   versionPendingSubject,
 } from '@/lib/email/templates/version-pending'
+import { resolvePlatformSender } from '@/lib/notifications/platform-sender'
 
 interface PromotionContext {
   organisation_id: string
@@ -43,7 +45,7 @@ export async function notifyAfterPromotion(
     // Resolve client user email for this organisation
     const { data: clientUser, error: userError } = await supabase
       .from('users')
-      .select('email')
+      .select('email, role')
       .eq('organisation_id', organisation_id)
       .eq('role', 'client')
       .single()
@@ -113,15 +115,32 @@ export async function notifyAfterPromotion(
 
     // ── Priority 3: docs_ready sent, send version_pending ────────────────────
     if (docsReadyLogged) {
+      // Both names come from organisations.founder_first_name, one from each side: the
+      // recipient's own organisation for the greeting, the operator's for the sign-off.
+      const [recipientFirstName, sender] = await Promise.all([
+        fetchFounderFirstName(supabase, organisation_id),
+        resolvePlatformSender(supabase),
+      ])
+
+      // ?client= is honoured by resolveViewingOrg for operators only, and this recipient is
+      // resolved by role = 'client', so it is omitted rather than passed and ignored.
+      const clientId = clientUser.role === 'operator' ? organisation_id : null
+
+      const templateParams = {
+        docType: document_type,
+        recipientFirstName,
+        senderFirstName: sender.firstName,
+        senderCompanyName: sender.companyName,
+        clientId,
+      }
+
       await logAndSend(
         supabase,
         {
           to: clientEmail,
           subject: versionPendingSubject(orgName, document_type),
-          html: versionPendingTemplate({
-            orgName,
-            docType: document_type,
-          }),
+          html: versionPendingTemplate(templateParams),
+          text: versionPendingText(templateParams),
         },
         organisation_id,
         'version_pending',
@@ -167,7 +186,7 @@ export async function notifyAfterPromotion(
  */
 async function logAndSend(
   supabase: SupabaseClient,
-  emailParams: { to: string; subject: string; html: string },
+  emailParams: { to: string; subject: string; html: string; text?: string },
   organisation_id: string,
   notification_type: string,
   subject_id: string
@@ -264,6 +283,32 @@ async function hasNotificationLog(
 /**
  * Fetches organisation name for use in email templates.
  */
+/**
+ * The founder's first name on an organisation, used to address the recipient by name.
+ * Returns null rather than a placeholder: the template drops to a plain "Hi," instead of
+ * greeting somebody by a made-up name.
+ */
+async function fetchFounderFirstName(
+  supabase: SupabaseClient,
+  organisation_id: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('organisations')
+    .select('founder_first_name')
+    .eq('id', organisation_id)
+    .single()
+
+  if (error || !data?.founder_first_name?.trim()) {
+    logger.warn('fetchFounderFirstName: no founder first name on organisation', {
+      organisation_id,
+      error: error?.message,
+    })
+    return null
+  }
+
+  return data.founder_first_name.trim()
+}
+
 async function fetchOrgName(
   supabase: SupabaseClient,
   organisation_id: string
