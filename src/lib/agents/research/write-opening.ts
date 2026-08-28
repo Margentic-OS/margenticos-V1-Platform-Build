@@ -417,10 +417,13 @@ versions of the same thing. They still tell the reader what he thinks, and they 
 bigger sample while doing it. The question is always whose experience is being reported.
 Yours is honest. Theirs is a verdict wearing a larger number.
 
-NEVER IMPLY AN EXISTING CLIENT BASE. No "the firms we work with", no "our clients", no "we
-have seen this with", no case studies, no results from previous engagements. There are no
-clients yet. A false claim there is the one thing that cannot be walked back, and it is
-rejected in code before anyone reads it.
+NEVER ASSERT A TRACK RECORD. Do not claim a client relationship, a past engagement, a
+delivered result, or a case study unless the approved documents you were given state it
+outright. Anything not in those documents did not happen for the purposes of this email.
+This is not a question of tone. A claim about work that was never done is the one thing
+that cannot be walked back once the reader asks about it, and it is the sender who has to
+answer, not you. A pattern you have noticed is yours to report. An outcome you cannot
+point to in the documents is not yours to mention at all.
 
 ATTRIBUTION IS OPTIONAL AND NEVER A FIXED OPENER. An unattributed pattern is still fine
 where it reads as something noticed rather than something pronounced. If every bridge in the
@@ -948,33 +951,6 @@ function untraceableClaims(opening: string, findingsText: string): string[] {
   return [...new Set(untraceable)]
 }
 
-/**
- * Claims of an existing client base. There are no clients yet.
- *
- * A GATE RATHER THAN A PROMPT LINE, for the reason every other gate here exists: the prompt
- * has told the writer not to pitch since the day it was written, and the writer has echoed
- * the approved offer line, quoted a headcount and asked a second question anyway (ADR-028).
- * This one is worse than those. A recipient who asks which firms we work with, and finds
- * out the answer is none, is not a lost email. It is a lost reputation, and it cannot be
- * walked back.
- *
- * Narrow on purpose. It looks for a claimed RELATIONSHIP with other companies, not for the
- * word "we": the approved offer line says "We get qualified conversations into the diary",
- * which promises what the sender does and claims nothing about who it has done it for.
- */
-const CLIENT_BASE_CLAIMS: ReadonlyArray<{ pattern: RegExp; label: string }> = [
-  { pattern: /\bour (?:clients|customers)\b/i,                                        label: '"our clients"' },
-  { pattern: /\bclients of ours\b/i,                                                  label: '"clients of ours"' },
-  { pattern: /\b(?:firms|companies|founders|businesses|teams|clients) we (?:work with|serve|help|support)\b/i, label: 'a claimed client relationship' },
-  { pattern: /\bwe(?:'ve|\s+have)\s+(?:helped|worked with|seen this with|seen it with)\b/i, label: 'a claimed track record' },
-  { pattern: /\bevery (?:client|customer) (?:we|of ours)\b/i,                          label: 'a claimed client base' },
-]
-
-/** Labels of every client-base claim found. Empty when the copy claims nothing. */
-export function findClientBaseClaims(text: string): string[] {
-  return [...new Set(CLIENT_BASE_CLAIMS.filter(c => c.pattern.test(text)).map(c => c.label))]
-}
-
 /** Words in one part. Same counting rule as the gate and the composition layer. */
 function wordsIn(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length
@@ -1075,12 +1051,17 @@ export function checkOpeningGates(
     opening, findingsText, { prospectId: context?.prospectId ?? 'unknown' },
   ))
 
-  // A DELIBERATE ADDITION. The brief said to keep the deterministic gates unchanged,
-  // and this adds one, so the reasoning should be on the record. A prompt rule alone is
-  // advisory (ADR-028), the messaging agent enforces this same ban in code, and the
-  // failure it prevents has already shipped once: "a $5M consulting firm" in Bob's
-  // opening. Traceability would not have caught it, because the figure was genuinely in
-  // the findings. Being in the findings is exactly what makes it dangerous.
+  // A DELIBERATE ADDITION. The brief said to keep the deterministic gates unchanged, and
+  // this adds one, so the reasoning should be on the record. A prompt rule alone is
+  // advisory (ADR-028) and the messaging agent enforces the same ban in code.
+  //
+  // The failure it prevents has already shipped: an opening that quoted a revenue figure
+  // straight from the prospect's own record. Traceability cannot catch that, because the
+  // figure really was in the findings. BEING IN THE FINDINGS IS WHAT MAKES IT DANGEROUS.
+  // It reads as a database lookup rather than as something noticed, it may simply be
+  // wrong, and a wrong number in the opening line is worse than a generic one. A revenue
+  // band is a TARGETING instruction, never email content. Qualify the population by role,
+  // stage or situation instead.
   const figures = findFirmographicFigures(opening)
   if (figures.length > 0) {
     failures.push(`quotes ${figures.join(' and ')} from the prospect's record: qualify by role, stage or situation instead`)
@@ -1120,11 +1101,6 @@ export function checkOpeningGates(
   // caught too: "We get qualified conversations into the diary." stops one word short of an
   // eight-word needle and would have slipped through. Six consecutive words of the client's
   // own offer line is not something a bridge arrives at by chance.
-  const clientClaims = findClientBaseClaims(opening)
-  if (clientClaims.length > 0) {
-    failures.push(`claims an existing client base (${clientClaims.join(', ')}): there are no clients yet, so attribute the pattern to what you have seen, never to work you have done`)
-  }
-
   if (approvedP3) {
     const p3Words = normaliseForEcho(approvedP3).split(' ').filter(Boolean)
     const needle = p3Words.slice(0, 6).join(' ')

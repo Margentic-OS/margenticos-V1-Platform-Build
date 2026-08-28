@@ -14,7 +14,6 @@ import {
   buildWriterAssignment,
   buildJudgePrompt,
   joinOpening,
-  findClientBaseClaims,
   OPENING_MAX_WORDS,
   OPENING_BUDGET,
   OPENING_TARGET_WORDS,
@@ -207,16 +206,17 @@ describe('prompt shape', () => {
     expect(p).not.toContain('There is no blog, no case studies')
   })
 
-  it('the writer prompt bans verdicts and carries the Richard and Robert failures verbatim', () => {
+  it('the writer prompt bans verdicts and carries both real failures verbatim', () => {
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT')
-    // Richard: the bridge that was actually wrong, not merely presumptuous.
+    // The first: the bridge that was actually wrong, not merely presumptuous.
     expect(flat).toContain('What a Chamber event and a strong network cannot do')
-    // Robert: invented outright.
+    // The second: invented outright.
     expect(flat).toContain('a firm that size fills its diary through relationships')
-    // The corrected half is no longer Richard's. He reproduced it almost verbatim, so it
-    // was re-welded to a print shop, whose facts belong to nobody in the batch.
+    // The corrected half no longer belongs to the first case. The writer reproduced it
+    // almost verbatim, so it was re-welded to a print shop, whose facts belong to nobody
+    // in the batch.
     expect(flat).toContain('Your existing customers filled the first press')
   })
 
@@ -292,7 +292,7 @@ describe('prompt shape', () => {
   })
 
   it('the cap is set to the measured headroom, not below it', () => {
-    // It was 62 against 70 of headroom, and rejected Jason at 70 words against a limit the
+    // It was 62 against 70 of headroom, and rejected a prospect at 70 words against a limit the
     // email did not have. Pinned from BOTH sides so a future tightening is as visible as a
     // future raise: too low silently costs prospects, too high silently breaches 90.
     expect(OPENING_MAX_WORDS).toBe(67)
@@ -414,10 +414,10 @@ describe('the writer prompt enforces one fact per sentence', () => {
 
   it('carries both real cramped examples verbatim', () => {
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
-    // Robert's, and the diagnosis of why it fails.
+    // The first, and the diagnosis of why it fails.
     expect(flat).toContain('DTCC tokenization, Treasury clearing, SEC crypto posture, shows where the thinking is')
     expect(flat).toContain('a verb whose subject is three clauses back')
-    // Daedra's.
+    // The second.
     expect(flat).toContain('Hollywood Food Coalition and Sovern LA, on top of running SCG full-time is a real load')
     expect(flat).toContain('An appositive list swallows the subject')
   })
@@ -890,9 +890,10 @@ describe('the bridge examples come from outside the client industry', () => {
   })
 
   it('no longer carries the two phrases that were lifted and then rejected', () => {
-    // Udo returned "development is usually what gives" off "prospecting is usually what
-    // gives"; Debra lifted "Delivery has a deadline" verbatim into her bridge. Both
-    // collided and cost the prospect. The bridge examples are gone, so they cannot recur.
+    // One prospect returned "development is usually what gives" off "prospecting is
+    // usually what gives"; a second lifted "Delivery has a deadline" verbatim into its
+    // bridge. Both collided and cost the prospect. The bridge examples are gone, so they
+    // cannot recur.
     const p = prompt()
     const examplesSection = p.slice(
       p.indexOf('EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY'),
@@ -1094,10 +1095,15 @@ describe('the bridge may attribute, but only to the sender', () => {
     expect(flat).toContain('Most firms at this stage find')
   })
 
-  it('forbids implying a client base', () => {
+  it('forbids asserting a track record, and says nothing about how many clients exist', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('NEVER IMPLY AN EXISTING CLIENT BASE')
-    expect(flat).toContain('There are no clients yet')
+    expect(flat).toContain('NEVER ASSERT A TRACK RECORD')
+    expect(flat).toContain('unless the approved documents you were given state it outright')
+    // THE HALF THAT MUST NOT COME BACK. The paragraph this replaced also said "There are
+    // no clients yet", which was true of one client in one month and false for any client
+    // with a customer base. The universal half is the rule; the count never was.
+    expect(flat).not.toContain('There are no clients yet')
+    expect(flat).not.toMatch(/no clients yet|first client(?:s)? we/i)
   })
 
   it('keeps attribution optional and subject to the batch gate', () => {
@@ -1117,45 +1123,8 @@ describe('the bridge may attribute, but only to the sender', () => {
     const rewrite = 'The founders I speak to describe the same split. Board dates are fixed. Selling is what moves.'
     expect(countAbstractNouns(rewrite)).toBe(0)
     expect(rewrite.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
-    expect(findClientBaseClaims(rewrite)).toEqual([])
   })
 })
-
-describe('an existing client base cannot be claimed', () => {
-  const claims = [
-    'This is what our clients tell us.',
-    'The firms we work with see the same thing.',
-    'Companies we serve describe it that way.',
-    "We've helped founders in exactly this spot.",
-    'We have seen this with founders like you.',
-    'That is true of clients of ours.',
-    'Every client we onboard says it.',
-  ]
-
-  for (const claim of claims) {
-    it(`rejects: ${claim}`, () => {
-      expect(findClientBaseClaims(claim).length).toBeGreaterThan(0)
-    })
-  }
-
-  it('gates it, with feedback pointing at the allowed alternative', () => {
-    const text = 'You hired a delivery lead.\n\nThe firms we work with see the same thing. Is that a gap?'
-    const msg = checkOpeningGates(text, null, 'Blue Sky hired a delivery lead.').join(' ')
-    expect(msg).toContain('claims an existing client base')
-    expect(msg).toContain('attribute the pattern to what you have seen')
-  })
-
-  it('leaves the approved offer line alone, which says we without claiming anyone', () => {
-    expect(findClientBaseClaims('We get qualified conversations into the diary without pulling you out of delivery.')).toEqual([])
-    expect(findClientBaseClaims('We run outbound for consulting firms so qualified meetings land in the diary.')).toEqual([])
-  })
-
-  it('leaves sender-attributed patterns alone, which is the whole allowed form', () => {
-    expect(findClientBaseClaims('The founders I speak to describe the same split.')).toEqual([])
-    expect(findClientBaseClaims('The pattern I keep running into is the opposite.')).toEqual([])
-  })
-})
-
 
 // ─── The camera test and plain verbs ────────────────────────────────────────
 
@@ -1206,10 +1175,10 @@ describe('the writer prompt runs a camera test, not a reading age', () => {
 
   it('carries two real failures verbatim, each with a plain rewrite', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    // Alma.
+    // The first.
     expect(flat).toContain('those tend to shrink before they grow')
     expect(flat).toContain('Outreach gets whatever hours are left at the end of the day. Most weeks nobody gets to it.')
-    // Shevonne.
+    // The second.
     expect(flat).toContain('before they become a conversation')
     expect(flat).toContain('Some of the people who heard it are ready to buy. They will not email you first.')
   })
@@ -1223,7 +1192,6 @@ describe('the writer prompt runs a camera test, not a reading age', () => {
       expect(countFigurativeVerbs(r)).toBe(0)
       expect(countAbstractNouns(r)).toBe(0)
       expect(r.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
-      expect(findClientBaseClaims(r)).toEqual([])
     }
   })
 })
@@ -1317,8 +1285,8 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
   })
 
   it('no longer carries the phrasing that was reproduced almost verbatim', () => {
-    // Richard returned "A network fills the first months after a hire like that. The months
-    // after it are the harder ones." That was the seventh instance of example copying.
+    // One prospect returned "A network fills the first months after a hire like that. The
+    // months after it are the harder ones." That was the seventh instance of example copying.
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).not.toContain('A network fills the first months after a hire like that')
     expect(flat).not.toContain('The months after it are the harder ones')
@@ -1334,7 +1302,6 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
     const bridge = 'Your existing customers filled the first press. The second one needs work that has not been quoted yet.'
     expect(countFigurativeVerbs(bridge)).toBe(0)
     expect(countAbstractNouns(bridge)).toBe(0)
-    expect(findClientBaseClaims(bridge)).toEqual([])
     expect(bridge.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
     // Two sentences, no conditional, no "because".
     expect(bridge).not.toMatch(/\bbecause\b|\bwhen\b/i)
@@ -1386,13 +1353,13 @@ describe('the gap is about people who have not met them yet', () => {
 
   it('carries all three failing bridges verbatim, each with what is wrong', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    // Udo.
+    // The first.
     expect(flat).toContain('The right buyers hear it on the day. Then the event ends, and most of them do not follow up first.')
     expect(flat).toContain('the room that already saw him speak')
-    // Shevonne, which fails twice over.
+    // The second, which fails twice over.
     expect(flat).toContain('A product shop builds an audience of people who browse.')
     expect(flat).toContain('tells her the thing she just built is not working, which is banned above')
-    // Robert.
+    // The third.
     expect(flat).toContain('The founders who need you next are reading that feed.')
     expect(flat).toContain('There is no gap in that sentence at all')
   })

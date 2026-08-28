@@ -105,10 +105,28 @@ async function loadClientContext(clientId: string, segmentId: string | null): Pr
     const buyer  = (t1?.buyer_profile as Record<string, unknown> | undefined)?.title as string | undefined
     const stage  = (t1?.company_profile as Record<string, unknown> | undefined)?.stage as string | undefined
     const push   = ((t1?.four_forces as Record<string, unknown> | undefined)?.push as string[] | undefined) ?? []
-    icpSummary = [
-      `Their ideal client: ${buyer ?? 'founder-led B2B firm'} at ${stage ?? 'growth stage'}.`,
+    // NO DEFAULT VALUES FOR A MISSING BUYER OR STAGE. This line used to read
+    // `${buyer ?? 'a hardcoded archetype'} at ${stage ?? 'a hardcoded stage'}`, so a thin
+    // ICP did not produce a thin summary. It produced a CONFIDENT one describing a client
+    // the document never named, and that description then travelled into the synthesis
+    // prompt indistinguishable from a fact the client had actually supplied.
+    //
+    // Two rules in CLAUDE.md forbid it, and it broke both. No agent may hardcode a buyer
+    // archetype or growth model as a universal default, and when intake data is thin an
+    // agent must FLAG THE GAP rather than fill it with an assumption. A default value is
+    // the opposite of flagging: it is a gap made invisible.
+    //
+    // Each line is now emitted only if its value is real, and a document with none of
+    // them says so, which is what gives the model something honest to reason about.
+    const icpLines = [
+      buyer ? `Their ideal client: ${buyer}.` : '',
+      stage ? `Company stage: ${stage}.` : '',
       push.length ? `Top pain points (push forces):\n${push.slice(0, 3).map(p => `  - ${p}`).join('\n')}` : '',
-    ].filter(Boolean).join('\n')
+    ].filter(Boolean)
+
+    icpSummary = icpLines.length > 0
+      ? icpLines.join('\n')
+      : 'An ICP document exists but names no buyer title, company stage or push forces.'
   }
 
   // Positioning summary: plain-text positioning_summary field.

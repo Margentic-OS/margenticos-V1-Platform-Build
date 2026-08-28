@@ -1,6 +1,6 @@
 // The gate originally matched numerals and currency only, so two spelled-out headcounts
-// shipped: "a two-person firm" in Shevonne's opening and "a firm that size" in Robert's.
-// Both are the prospect's headcount restated, and both were reported as clean.
+// shipped: "a two-person firm" in one opening and "a firm that size" in another. Both are
+// the prospect's headcount restated, and both were reported as clean.
 
 import { describe, it, expect } from 'vitest'
 import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '../firmographic'
@@ -80,7 +80,7 @@ describe('known over-reach, recorded rather than hidden', () => {
 
 // ─── A headcount of one ──────────────────────────────────────────────────────
 //
-// "running it solo since" shipped in Jason's email. The list already caught "a two-person
+// "running it solo since" shipped in a real email. The list already caught "a two-person
 // firm" and "a team of five" and had no spelling for one, which is the headcount most
 // likely to be observed and most likely to go stale.
 
