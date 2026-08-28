@@ -55,7 +55,16 @@ export interface ComposeDocs {
   messagingDocId: string
   /** Pre-extracted pain point string from the active + approved ICP doc (optional enrichment). */
   icpPainPoint?: string
-  /** Pre-extracted cold_outreach_hook from the active + approved Positioning doc (optional enrichment). */
+  /**
+   * Pre-extracted cold_outreach_hook from the active + approved Positioning doc.
+   *
+   * READ BY NOTHING as of 2026-08-28. Its only consumer was the bridge, and the bridge has
+   * been disabled since 2026-08-19. fetchComposeDocs still populates it, once per segment
+   * rather than once per prospect, so it costs one query per batch and no wrong copy.
+   * Left in place rather than removed with the rest, because ComposeDocs and
+   * fetchApprovedPositioningHook are both exported and removing them is a wider API change
+   * than the deletion that orphaned this. Proposed for removal in docs/BACKLOG.md.
+   */
   positioningValueHook?: string
 }
 
@@ -71,6 +80,12 @@ interface ProspectRow {
    * personalisation_trigger, so the two are always set or cleared together.
    */
   personalisation_question: string | null
+  /**
+   * The written Email 1 subject, replacing the variant's authored one. NULL keeps the
+   * authored subject, which is the state of every row written before this column existed
+   * and of every prospect whose generated subject failed its own soft gate.
+   */
+  personalisation_subject: string | null
   has_dateable_signal: boolean | null
   signal_relevance: string | null
   /** Written by the (currently orphaned) research agent. NULL for every sourced prospect. */
@@ -231,6 +246,19 @@ export async function composeSequence({
       ? applyQuestionToEmail1(afterTrigger, prospect.personalisation_question)
       : afterTrigger
 
+  // The written subject, when research produced one that survived its gate.
+  //
+  // WHY THIS EXISTS. Email 1's subject was authored against the variant's own P2, and P2
+  // is the paragraph research replaces. So on the researched path the subject named a
+  // framing the body no longer contained, and the subject is the first thing the reader
+  // sees. Gated identically to the question above, and for the same two reasons: without
+  // research there is no prospect-specific subject to write, and the authored one is
+  // approved copy.
+  const afterSubject: ComposedEmail[] =
+    trigger.source === 'research' && prospect.personalisation_subject
+      ? applySubjectToEmail1(afterQuestion, prospect.personalisation_subject)
+      : afterQuestion
+
   // Step 4b — Haiku bridge + personalised CTA for Email 1.
   //
   // FAIL CLOSED: this step only runs when the trigger came from real prospect research.
@@ -241,15 +269,21 @@ export async function composeSequence({
   let composedEmails: ComposedEmail[]
 
   if (trigger.source === 'research') {
-    const clientValueHook = preloadedDocs?.positioningValueHook
-      ?? await fetchApprovedPositioningHook(supabase, client_id)
-      ?? 'consistent outbound pipeline without founder involvement'
-
+    // DELETED HERE 2026-08-28: a hardcoded default value proposition, and the live
+    // Supabase read that ran once per prospect to try to avoid it.
+    //
+    // Both were dead. The only consumer of that string is generateBridge, reachable only
+    // inside applyPersonalization's `BRIDGE_ENABLED` branch, and BRIDGE_ENABLED has been
+    // false since 2026-08-19. The `!BRIDGE_ENABLED ||` short-circuit means the value was
+    // fetched and discarded on every researched prospect.
+    //
+    // The default also named the buyer type as a universal fact, which the
+    // industry-agnosticism rule forbids: a value proposition is read from the client's own
+    // approved Positioning document or it is not asserted at all.
     composedEmails = await applyPersonalization(
-      afterQuestion,
+      afterSubject,
       prospect,
       trigger.text,
-      clientValueHook,
     )
   } else {
     // Skipped, not failed. Logged explicitly so "skipped" is never mistaken for
@@ -269,7 +303,7 @@ export async function composeSequence({
     // Recompute word_count from the body rather than trusting the stored count. On this
     // path P2 was not replaced, so the stored count should already agree; recomputing
     // keeps one source of truth and costs nothing.
-    composedEmails = afterQuestion.map(email => ({ ...email, word_count: countWords(email.body) }))
+    composedEmails = afterSubject.map(email => ({ ...email, word_count: countWords(email.body) }))
   }
 
   // Step 5. Append the opt-out footer to every email, last.
@@ -310,6 +344,23 @@ function applyQuestionToEmail1(emails: ComposedEmail[], question: string): Compo
   })
 }
 
+// Replaces Email 1's subject line with a written one. Emails 2 to 4 have no subject at
+// all: they thread under Email 1, so there is nothing there to replace and the position
+// guard is the whole of the safety needed.
+//
+// subject_char_count is recomputed rather than carried, for the same reason the messaging
+// agent recomputes it: a stored count that disagrees with the string it describes is a
+// number nothing checks, and the one place it is read would then be reading a lie.
+function applySubjectToEmail1(emails: ComposedEmail[], subject: string): ComposedEmail[] {
+  const text = subject.trim()
+  if (!text) return emails
+
+  return emails.map(email => {
+    if (email.sequence_position !== 1) return email
+    return { ...email, subject_line: text, subject_char_count: text.length }
+  })
+}
+
 // ─── Email 1 preview for the research judge ──────────────────────────────────
 //
 // Builds the COMPLETE Email 1 exactly as production builds it for a researched prospect,
@@ -340,11 +391,22 @@ export function composeEmail1WithOpening(
    * unresolved template.
    */
   firstName?: string | null,
+  /**
+   * The written subject, replacing the variant's authored one. Omit to keep the authored
+   * subject, which is what the template side of the judge's comparison does and what a
+   * prospect whose generated subject failed its gate receives.
+   *
+   * Threaded through so anything READING this email reads the subject that will actually
+   * be sent. The floor asks whether the email claims private knowledge about the prospect,
+   * and a subject line is as capable of doing that as any paragraph.
+   */
+  subject?: string | null,
 ): ComposedEmail {
   const variantEmails = getVariantEmails(messagingDoc, variantId)
   const withOpening = applyTriggerToEmail1(variantEmails, opening)
   const withQuestion = question ? applyQuestionToEmail1(withOpening, question) : withOpening
-  const counted = withQuestion.map(email => ({ ...email, word_count: countWords(email.body) }))
+  const withSubject = subject ? applySubjectToEmail1(withQuestion, subject) : withQuestion
+  const counted = withSubject.map(email => ({ ...email, word_count: countWords(email.body) }))
   const withFooter = appendOptOutFooter(counted)
 
   const email1 = withFooter.find(e => e.sequence_position === 1)
@@ -519,7 +581,7 @@ async function fetchProspect(
 ): Promise<ProspectRow> {
   const { data, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, personalisation_question, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name')
+    .select('id, organisation_id, segment_id, variant_id, personalisation_trigger, personalisation_question, personalisation_subject, has_dateable_signal, signal_relevance, role, job_title, first_name, last_name, company_name')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id) // explicit isolation filter
     .single()
@@ -779,11 +841,18 @@ export function pluraliseRoleTitle(title: string | null): string | null {
 }
 
 // Last-resort fallback when ICP has no extractable pain point.
-// roleOrTitle: prospects.role when set, else prospects.job_title.
-function buildRoleProxy(roleOrTitle: string | null): string {
-  const plural = pluraliseRoleTitle(roleOrTitle)
-  const subject = plural ?? 'people'
-  return `Most ${subject} I speak to at this stage are dealing with the same pipeline problem.`
+//
+// THE SENTENCE THIS RETURNED WAS DELETED 2026-08-28. It asserted one specific problem as
+// the thing every prospect in every industry is dealing with, which is the hardcoded
+// industry assumption the product rules forbid outright: a pain line is derived from the
+// client's own ICP document at runtime or it is not written.
+//
+// Nothing replaces it, and there is nothing this function can honestly return without it.
+// It should be deleted along with the whole 'role_proxy' trigger source, which is
+// unreachable behind TRIGGER_FALLBACKS_ENABLED = false. That removal is not made here
+// because it was not asked for; it is proposed in docs/BACKLOG.md.
+function buildRoleProxy(_roleOrTitle: string | null): string {
+  return ''
 }
 
 // ─── Step 4 — Apply trigger to email 1 ───────────────────────────────────────
@@ -889,7 +958,6 @@ async function applyPersonalization(
   emails: ComposedEmail[],
   prospect: ProspectRow,
   trigger: string,
-  clientValueHook: string,
 ): Promise<ComposedEmail[]> {
   return Promise.all(
     emails.map(async email => {
@@ -914,11 +982,15 @@ async function applyPersonalization(
         return withCount(email.body)
       }
 
+      // Unreachable while BRIDGE_ENABLED is false. Re-enabling the bridge means deciding
+      // where the value hook comes from as part of that change: it is a per-client fact and
+      // belongs in ComposeDocs, read from the approved Positioning document, never a
+      // literal here.
       const { bridge } = await generateBridge({
         triggerText:       trigger,
         prospectRole:      prospect.role,
         prospectFirstName: prospect.first_name,
-        clientValueHook,
+        clientValueHook:   '',
       })
 
       if (!bridge) {

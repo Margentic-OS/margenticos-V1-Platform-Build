@@ -1511,6 +1511,7 @@ export type Database = {
           outbound_upload_error: string | null
           outbound_upload_status: string
           personalisation_question: string | null
+          personalisation_subject: string | null
           personalisation_trigger: string | null
           qualification_status: string | null
           qualified_at: string | null
@@ -1591,6 +1592,7 @@ export type Database = {
           outbound_upload_error?: string | null
           outbound_upload_status?: string
           personalisation_question?: string | null
+          personalisation_subject?: string | null
           personalisation_trigger?: string | null
           qualification_status?: string | null
           qualified_at?: string | null
@@ -1671,6 +1673,7 @@ export type Database = {
           outbound_upload_error?: string | null
           outbound_upload_status?: string
           personalisation_question?: string | null
+          personalisation_subject?: string | null
           personalisation_trigger?: string | null
           qualification_status?: string | null
           qualified_at?: string | null

@@ -608,12 +608,15 @@ describe('the writer prompt asks for three paragraphs, returned as three blocks'
     expect(flat).toContain('never run together')
   })
 
-  it('asks for exactly three labelled blocks', () => {
+  it('asks for exactly four labelled blocks, with the subject last', () => {
     const p = prompt()
-    expect(p).toContain('exactly three labelled blocks')
+    expect(p).toContain('exactly four labelled blocks')
     expect(p).toContain('OBSERVATION:')
     expect(p).toContain('BRIDGE:')
     expect(p).toContain('QUESTION:')
+    expect(p).toContain('SUBJECT:')
+    // Last, because it is written from the observation. Order is the instruction.
+    expect(p.lastIndexOf('QUESTION:')).toBeLessThan(p.lastIndexOf('SUBJECT:'))
   })
 })
 

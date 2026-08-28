@@ -198,6 +198,11 @@ export async function updateProspect(
     // Set and cleared together with the trigger: a written question without its opening
     // would put a bespoke CTA under an approved opener neither was written for.
     personalisation_question:   opening.written_won ? opening.question : null,
+    // Cleared with the trigger, but NOT necessarily set with it. The subject fails soft:
+    // an opening can win the judge while its subject was discarded by its own gate, and
+    // `opening.subject` is null in exactly that case. NULL here means the variant's
+    // authored subject ships, which is what shipped before this column existed.
+    personalisation_subject:    opening.written_won ? opening.subject : null,
     signal_relevance:           opening.written_won ? 'use_as_hook' : 'no_signal',
     trigger_confidence:         synthesis.confidence,
     // The judge audit trail, per prospect, for sampled review later. Stored in the
