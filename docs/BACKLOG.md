@@ -7797,8 +7797,14 @@ session's verification, not in the code it shipped, and that is the more useful 
   Revisit trigger: after the first real onboarding call, when we know how that conversation
   actually goes.
 
-- [pre-c1] THE ICP RESEARCH QUERIES ARE THE REAL FIX, AND THEY ARE BROKEN IN TWO INDEPENDENT
-  WAYS. NOT BUNDLED WITH THE FLAGGING RULE ON PURPOSE.
+- [DONE 2026-08-28, ADR-043] THE ICP RESEARCH QUERIES ARE THE REAL FIX, AND THEY ARE BROKEN
+  IN TWO INDEPENDENT WAYS. NOT BUNDLED WITH THE FLAGGING RULE ON PURPOSE.
+
+  BOTH CAUSES FIXED. Cause one is now `usableDescriptor`, two category-level criteria and a
+  word floor replacing the `||` emptiness check. Cause two is now `geographyFromIntake`,
+  reading the ccTLD of the client's own domain, with currency removed from the builder
+  entirely. Proved with `scripts/prove-research-queries.ts` against the real intake of all
+  five organisations: all twenty queries change. Original text kept below as the record.
 
   The document that prompted this whole change was generated with a research note saying web
   search returned limited or no results. Research did not fail. **It was asked nonsense.**
@@ -7830,6 +7836,109 @@ session's verification, not in the code it shipped, and that is the more useful 
   NOT BUILT HERE, at Doug's instruction: it belongs upstream of the flagging rule rather
   than bundled with it. Fixing it reduces how often Tier Two flagging is needed but never to
   zero, so ADR-042 remains the fallback rather than being superseded.
+
+- [pre-c1] THE POSITIONING AGENT HAS BOTH ICP QUERY DEFECTS AND WAS DELIBERATELY NOT FIXED.
+
+  `buildResearchQueries` in `src/agents/positioning-generation-agent.ts:368` is a second
+  copy of the same builder. It carries the currency-derived `geoHint` verbatim, and it is
+  WORSE than the ICP version on cause one: `const buyer = condense(val('clients_clone'), 12)`
+  with no fallback at all, so an off-question answer is used and there is nothing to fall
+  back to.
+
+  NOT FIXED ON PURPOSE. This session was scoped to the ICP path by Doug's instruction. The
+  fix is to lift `usableDescriptor`, `geographyFromIntake` and `q` out of
+  `icp-generation-agent.ts` into a shared module and call them from both. They are exported
+  already, so the move is mechanical. `condense` is a third duplicate across the two files
+  and should go with them.
+
+  Next action: one session, one shared module, both agents, and extend
+  `scripts/prove-research-queries.ts` to print the positioning builder alongside the ICP one.
+
+- [pre-c1] RULE 9B IS IN TWO OF THE FIVE PROMPT FILES. RE-SYNC IT.
+
+  Added 2026-08-28 to `docs/prompts/shared-voice-spec.md` and `docs/prompts/icp-agent.md`.
+  NOT in positioning, TOV or messaging. Recorded as divergence 7 in the spec's own list so
+  it is a named boundary rather than silent drift, and a test asserts the two synced copies
+  stay identical.
+
+  The rule is written to apply to all four agents. The reason messaging was left alone is
+  that its prompt feeds the send path and another session was exercising that path at the
+  time, not that the rule does not apply to it.
+
+  Numbering was chosen to make the re-sync cheap: 9B inserts without renumbering Rule 10 in
+  five files and Rule 11 in messaging-agent.md.
+
+- [research] `clients_trigger` IS STILL PASSED TO THE QUERY BUILDER UNCHECKED.
+
+  Change 2 put `usableDescriptor` on the buyer descriptor and the service description,
+  because that is what was scoped. `trigger` goes through `condense` only. Measured on the
+  live data, that still puts narrative prose into query 2: "They were dealing with feast or
+  famine. Some months were great, and buying trigger why now".
+
+  NOT simply fixed by applying the same check. The trigger slot describes an EVENT, not a
+  population, so the noun-phrase criterion is the wrong shape for it, and the live
+  school-meals trigger is "they needed support", which the check would reject and which
+  currently contributes a little. Needs its own criteria and its own measurement before
+  anything is changed.
+
+- [research] WEBSITE PAGES ARE CUT AT 3,000 CHARACTERS PER PAGE, MID-WORD, AT INGEST.
+
+  `MAX_CHARS_PER_PAGE` in `src/lib/intake/fetch-website.ts:17`. Measured 2026-08-28: three
+  of the seven stored pages sit at exactly 3,000 characters and end mid-word.
+
+  NOT the cause of the concreteness regression that ADR-043 fixes. Every detail that was
+  lost is inside the stored window. Logged because the limit is real and invisible: nothing
+  records that a page was truncated, so a reader of `intake_website_pages` cannot tell a
+  short page from a cut one.
+
+  Two things to decide together. Raising the cap does nothing for pages already stored
+  without a re-fetch, and the prompt budget it protects is real now that website content,
+  uploads and research all share one message. A `truncated` boolean on the row would at
+  least make it visible for the cost of one column.
+
+- [research] STORED WEBSITE TEXT CARRIES XML DECLARATIONS AND HTML ENTITIES INTO THE PROMPT.
+
+  Measured 2026-08-28. `extracted_text` for the live pages contains repeated
+  `<?xml version="1.0" encoding="UTF-8"?>` fragments and unresolved entities
+  (`&rsquo;`, `&Oacute;`, `&nbsp;`, `&mdash;`). Roughly a tenth of the stored characters on
+  one page are that noise, and it is inside the 3,000-character cap, so it displaces real
+  content.
+
+  `&mdash;` is the one worth naming: em dashes reach the prompt as entities in the client's
+  own website text, in a prompt whose first section bans the character. Nothing has gone
+  wrong yet because `scrubAITellsDeep` and `assertNoDashes` gate the OUTPUT, not the input.
+
+- [docs] THE ICP QUALITY SELF-CHECK NAMES AN INDUSTRY IN RUNTIME PROMPT TEXT.
+
+  `docs/prompts/icp-agent.md`, quality self-check: "could they be copy-pasted to any
+  consulting firm's ICP?". That is an industry assumption in text the model reads at
+  generation time, and it sits four lines from the Rule 9B check added on 2026-08-28 which
+  says the opposite.
+
+  Not caught by `rule-text-category-level.test.ts` because that test deliberately scans
+  Rules 1 to 10 only, and this line is outside the rule block. Left alone in that session
+  under the surgical-changes rule rather than fixed as a drive-by.
+
+  Next action: decide whether the category-level scan should extend past the rule block,
+  and fix this line either way. The ICP prompt's worked-example section names a sector on
+  purpose, so a wider scan needs an exemption list, which is why this is a decision and not
+  a one-word edit.
+
+- [research] RULE 9 AMBIGUITY: THE CLIENT'S OWN STANDING, ASSERTED ON THE CLIENT'S OWN SITE.
+
+  Rule 9 Tier One bans "anything about THIS CLIENT'S OWN STANDING under something in Tier
+  Two". Rule 9 also says "Nothing here applies to a fact this message already supplied".
+  Those two sentences disagree when the client's own website asserts their standing, which
+  is the ordinary case: a live client's about page states which nutrition standards their
+  product meets, and that text is in `intake_website_pages` and reaches the prompt.
+
+  Rule 9B, added 2026-08-28, DEFERS on this rather than resolving it: where the client's own
+  material states their standing under a public body, a regulator, a scheme or a standard,
+  Rule 9 governs. That keeps the boundary exactly where it was.
+
+  Resolving it changes what Rule 9 permits, so it is a decision for its own session. The
+  question is narrow: does a client asserting their own compliance on their own website make
+  that fact sourced, or is a self-assertion the thing Tier One was written to keep out?
 
 - [pre-c1] [monitor] BUILD THE TIME-TO-APPROVE MONITOR. ADR-042 RESTS ON OPERATORS ACTUALLY
   READING THE BANNER, AND NOTHING MEASURES WHETHER THEY DO.
