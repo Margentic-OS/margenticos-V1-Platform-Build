@@ -6,6 +6,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { validateEmails, EMAIL_WORD_LIMITS, type EmailRecord } from '../messaging-generation-agent'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { findFirmographicFigures } from '@/lib/style/firmographic'
 
 const SENDER = 'Doug'
 const COMPANY = 'MargenticOS'
@@ -129,5 +132,113 @@ describe('firmographic figures are banned', () => {
   ])('leaves ordinary numbers alone: %s', sentence => {
     const emails = [email(1, wrap(sentence), 'a subject'), email(2, bodyOf(60)), email(3, bodyOf(50)), email(4, bodyOf(40))]
     expect(issuesFor(emails, 1).some(i => i.includes('firmographic'))).toBe(false)
+  })
+})
+
+// ─── Subject parity ───────────────────────────────────────────────────────────
+//
+// Both bans were written as test(body) and the subject was checked for length and
+// null-ness only, so a revenue band in the one line every recipient reads passed a
+// validator that already owned every pattern needed to catch it. The prompt made this
+// worse rather than better: its "Ten example subject lines" block offered
+// "£500k revenue question" as a model to copy.
+//
+// The tests below are paired on purpose. Asserting only that a bad subject is rejected
+// would still pass if the check were bolted onto the wrong surface, so each case asserts
+// the CLEAN counterpart is untouched.
+describe('the subject line is scanned like the body', () => {
+  const CLEAN_BODY = `{{first_name}}\n\nMost of the people we speak to find new work arrives through introductions they cannot plan around.\n\nWe run the outbound so the meetings land without you writing anything.\n\nIs that where you are right now?\n\n${SENDER}\n${COMPANY}`
+
+  const subjectIssues = (subject: string | null) => {
+    const emails = [email(1, CLEAN_BODY, subject), email(2, bodyOf(60)), email(3, bodyOf(50)), email(4, bodyOf(40))]
+    return issuesFor(emails, 1).filter(i => i.startsWith('subject line'))
+  }
+
+  it.each([
+    ['£500k revenue question', 'firmographic'],
+    ['5M pipeline question', 'firmographic'],
+    ['team of 12 problem', 'firmographic'],
+    ['12 employees, one gap', 'firmographic'],
+    ['your ICP is drifting', 'jargon'],
+    ['the go-to-market gap', 'jargon'],
+  ])('rejects %s', (subject, kind) => {
+    expect(subjectIssues(subject).some(i => i.includes(kind))).toBe(true)
+  })
+
+  it.each([
+    'pipeline after referrals',
+    'the timing question',
+    'saw your post on pricing',
+    'q4 pipeline',
+    'cold food complaints',
+    'the flask comes back',
+  ])('leaves the clean subject alone: %s', subject => {
+    expect(subjectIssues(subject)).toEqual([])
+  })
+
+  // The body path must not have been traded away for the subject path.
+  it('still rejects the same figure in the body', () => {
+    const body = CLEAN_BODY.replace('introductions they cannot plan around', 'introductions, at the £500K mark')
+    const emails = [email(1, body, 'pipeline after referrals'), email(2, bodyOf(60)), email(3, bodyOf(50)), email(4, bodyOf(40))]
+    expect(issuesFor(emails, 1).some(i => i.startsWith('body quotes'))).toBe(true)
+  })
+
+  // A null subject is the required state for emails 2 to 4 and must not be read as ''.
+  it('does not invent a violation for the null subjects on emails 2 to 4', () => {
+    const emails = [email(1, CLEAN_BODY, 'pipeline after referrals'), email(2, bodyOf(60)), email(3, bodyOf(50)), email(4, bodyOf(40))]
+    for (const pos of [2, 3, 4]) {
+      expect(issuesFor(emails, pos).filter(i => i.startsWith('subject line'))).toEqual([])
+    }
+  })
+
+  // MUTATION GUARD. The defect was two blocks that both said `body`. Reverting either
+  // surface must fail here, so the pair is asserted rather than the union.
+  it('scans both surfaces, not one of them', () => {
+    expect(subjectIssues('£500k revenue question').length).toBeGreaterThan(0)
+    const dirtyBody = CLEAN_BODY.replace('introductions they cannot plan around', 'introductions, at the £500K mark')
+    const emails = [email(1, dirtyBody, 'pipeline after referrals'), email(2, bodyOf(60)), email(3, bodyOf(50)), email(4, bodyOf(40))]
+    expect(issuesFor(emails, 1).filter(i => i.startsWith('body quotes')).length).toBeGreaterThan(0)
+  })
+})
+
+// ─── The prompt's own specimens ───────────────────────────────────────────────
+//
+// A prompt that shows the model a passage the validator rejects buys a regeneration call
+// against MAX_ANTHROPIC_CALLS every time the model does as it was told. That is not
+// theoretical: the exemplar passage at docs/prompts/messaging-agent.md was copied verbatim
+// into a live active messaging document, where it hard-failed.
+//
+// This reads the prompt file rather than a copy of it, so the two cannot drift.
+describe('every specimen the prompt offers as a model passes the validator', () => {
+  const md = readFileSync(join(process.cwd(), 'docs/prompts/messaging-agent.md'), 'utf-8')
+
+  // Deliberately NOT scanned: the block labelled FAILING, which exists to show what a
+  // rejection looks like and is correct as it stands.
+  const FAILING_MARKER = 'FAILING, both shipped in the same generation:'
+
+  it('found the prompt file, so nothing below passes vacuously', () => {
+    expect(md.length).toBeGreaterThan(1000)
+    expect(md).toContain(FAILING_MARKER)
+  })
+
+  it.each([
+    ['the peer-pattern exemplar passage', 'Most of the people I speak to who still run delivery themselves'],
+    ['the Rule 6 "Right" specimen', 'It is the only approach that still runs in a month when nobody has time'],
+  ])('%s is present and clean', (_label, fragment) => {
+    expect(md).toContain(fragment)
+    expect(findFirmographicFigures(fragment)).toEqual([])
+  })
+
+  it('the example subject lines carry no figure, currency or headcount', () => {
+    const block = md.split('Ten example subject lines:')[1]?.split('---')[0] ?? ''
+    expect(block.length).toBeGreaterThan(20)
+    for (const subject of block.split('/').map(s => s.trim()).filter(Boolean)) {
+      expect(findFirmographicFigures(subject)).toEqual([])
+    }
+  })
+
+  it('the FAILING block is left intact, because it is working correctly', () => {
+    const failing = md.split(FAILING_MARKER)[1]?.slice(0, 200) ?? ''
+    expect(findFirmographicFigures(failing).length).toBeGreaterThan(0)
   })
 })

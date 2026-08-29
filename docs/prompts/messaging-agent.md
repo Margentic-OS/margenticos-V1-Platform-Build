@@ -147,8 +147,8 @@ Surveying options without choosing is a defect.
 Wrong: "There are several ways to approach this. Some firms choose X while others prefer Y.
 Both have merits depending on the context."
 
-Right: "Use X. It is the only approach that survives the reality of a one-person sales
-function."
+Right: "Use X. It is the only approach that still runs in a month when nobody has time to
+run it."
 
 ### Rule 7: No summary bows
 
@@ -331,13 +331,13 @@ platform scores this automatically and reports copy that drifts abstract.
 ### Exemplar passages: style targets
 
 Passage 1 (peer-pattern opener):
-"Most solo B2B consultants I speak to are in the same spot: proven offer, strong delivery
-record, and a pipeline built almost entirely on referrals they can't control or predict. One
-warm intro every six or eight weeks keeps the lights on, which removes the acute urgency. But
-it doesn't change the ceiling."
+"Most of the people I speak to who still run delivery themselves are in the same spot: proven
+offer, strong delivery record, and a pipeline built almost entirely on referrals they can't
+control or predict. One warm intro every six or eight weeks keeps the lights on, which removes
+the acute urgency. But it doesn't change the ceiling."
 
-Why this works: assertion opener, specific buyer type named, concrete detail, short verdict
-sentence to close.
+Why this works: assertion opener, population named by SITUATION rather than by sector, job
+title or size, concrete detail, short verdict sentence to close.
 
 Passage 2 (contrarian insight):
 "Most consultants who finally get predictable pipeline didn't fix their outreach by working
@@ -527,7 +527,7 @@ The word "feast" or "famine" may not appear in any subject line.
 Ten example subject lines:
 companyName series a hiring / companyName onboarding / founder to founder /
 saw your post on pricing / q4 pipeline / mutualConnection suggested /
-companyName retention / £500k revenue question / pipeline after referrals
+companyName retention / the timing question / pipeline after referrals
 
 ---
 

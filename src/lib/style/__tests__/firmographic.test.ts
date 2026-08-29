@@ -129,3 +129,69 @@ describe('a headcount of one is still a headcount', () => {
     expect(FIRMOGRAPHIC_RULE_TEXT).toContain('wrong the day they make a first hire')
   })
 })
+
+// ─── The "solo" narrowing ─────────────────────────────────────────────────────
+//
+// The pattern was a bare /\bsolo\b/i until 2026-08-29 and rejected four of four ordinary
+// sentences, including this repository's own exemplar passage in
+// docs/prompts/messaging-agent.md, which had already been copied verbatim into a live
+// active messaging document. Both sides are tested here on purpose: a narrowing that stops
+// catching the thing it exists for is not a fix, and the ALLOW cases are the half that
+// regressed.
+describe('"solo" fires on a headcount claim and not on a category label', () => {
+  // ATTRIBUTIVE. "solo" modifies the noun after it, so it labels a kind of business, not
+  // the reader's headcount. Rows 1-4 are the four sentences measured as false positives.
+  const ATTRIBUTIVE = [
+    'We help solo travel operators fill their winter departures.',
+    'Most solo B2B consultants I speak to are in the same spot.',
+    'Your solo album release changed the touring calendar.',
+    'The solo practitioner segment is who you sell to.',
+    'We work with solo operators across the region.',
+    'Most consultants running a solo practice reach the same ceiling.',
+    'Solo climbers use the north route.',
+  ]
+
+  // ADVERBIAL or PREDICATIVE. "solo" describes how the reader does the thing, which is the
+  // headcount claim. Row 1 is the sentence from the real incident.
+  const HEADCOUNT = [
+    'You launched it three months after leaving and have been running it solo since.',
+    'You have been running it solo for two years.',
+    'He went solo.',
+    'She is flying solo.',
+    'You built the whole thing solo, which is why the ceiling is where it is.',
+    'You do it solo and it shows.',
+    'Running the practice solo.',
+  ]
+
+  const soloHits = (t: string) =>
+    findFirmographicFigures(t).filter(l => l.includes('headcount of one ("solo")'))
+
+  for (const text of ATTRIBUTIVE) {
+    it(`passes the category label: ${JSON.stringify(text.slice(0, 52))}`, () => {
+      expect(soloHits(text)).toEqual([])
+    })
+  }
+
+  for (const text of HEADCOUNT) {
+    it(`still catches the headcount: ${JSON.stringify(text.slice(0, 52))}`, () => {
+      expect(soloHits(text)).toHaveLength(1)
+    })
+  }
+
+  // The narrowing must not have widened a hole next door. "solopreneur" carries its own
+  // pattern and must survive independently of how \bsolo\b is written.
+  it('leaves the neighbouring spellings alone', () => {
+    expect(findFirmographicFigures('a solopreneur three years in').length).toBeGreaterThan(0)
+    expect(findFirmographicFigures('you run it single-handed').length).toBeGreaterThan(0)
+    expect(findFirmographicFigures('a sole practitioner').length).toBeGreaterThan(0)
+  })
+
+  // MUTATION GUARD. Reverting to the bare pattern must fail this file, not pass it. If the
+  // exemplar sentence ever reads as a hit again, the narrowing has been undone.
+  it('fails if the pattern is reverted to a bare word match', () => {
+    const bare = /\bsolo\b/i
+    const exemplar = 'Most solo B2B consultants I speak to are in the same spot.'
+    expect(bare.test(exemplar)).toBe(true)      // what the old pattern did
+    expect(soloHits(exemplar)).toEqual([])      // what the narrowed one does
+  })
+})

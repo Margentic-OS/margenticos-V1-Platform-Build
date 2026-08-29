@@ -43,8 +43,34 @@ export const BANNED_FIRMOGRAPHIC: ReadonlyArray<{ pattern: RegExp; label: string
   // spelling the list did not have. "You launched HydrospherIQ within three months of
   // leaving Pani and have been running it solo since" shipped: solo IS the headcount, it
   // came from the same data provider as any other headcount, and it is wrong the moment a
-  // first hire lands. A false positive here costs one retry, which is the cheap side.
-  { pattern: /\bsolo\b/i,                                          label: 'a headcount of one ("solo")' },
+  // first hire lands.
+  //
+  // NARROWED 2026-08-29. The pattern was a bare /\bsolo\b/i and the comment here argued
+  // that "a false positive here costs one retry, which is the cheap side". Measured, it is
+  // not the cheap side, and the argument had the arithmetic backwards. A retry costs one
+  // call against MAX_ANTHROPIC_CALLS, and a variant that exhausts its retries is DROPPED
+  // and replaced by a fallback angle, so the price of a false positive is not a retry, it
+  // is shipping worse copy than the sentence that was rejected. Four of four ordinary
+  // sentences were rejected, one of them this prompt's own exemplar passage, and that
+  // exemplar had already been copied verbatim into a live active messaging document
+  // (MargenticOS v6, variant C, Email 1), where it hard-failed every revision.
+  //
+  // THE DISTINCTION IS GRAMMATICAL, not lexical. "solo" is a headcount claim about the
+  // reader when it is used ADVERBIALLY or PREDICATIVELY: "running it solo since",
+  // "flying solo", "went solo". It is a category label, and none of our business, when it
+  // is ATTRIBUTIVE, modifying the noun that follows it: "solo travel operators",
+  // "solo practitioner segment", "solo album". The four measured false positives are all
+  // attributive and the real incident is adverbial, so the split is clean.
+  //
+  // So: fire only when "solo" is NOT followed by a word it could be modifying. Trailing
+  // punctuation, end of sentence, or one of the closed-class words that can only continue
+  // a clause. AMBIGUITY RESOLVES TO PASS by construction: any word not on that short list
+  // is treated as a noun being modified, which is the miss-rather-than-misfire direction
+  // the cost argument above requires.
+  {
+    pattern: /\bsolo\b(?!\s+(?!(?:since|for|from|until|till|now|again|ever|and|or|but|so|because|while|when|after|before|though|although|yet|then|too|anymore|today|these|through|throughout|up)\b)\w)/i,
+    label: 'a headcount of one ("solo")',
+  },
   { pattern: /\bsolopreneur\b/i,                                   label: 'a headcount of one ("solopreneur")' },
   { pattern: /\bsingle[- ]handed(?:ly)?\b/i,                        label: 'a headcount of one ("single-handed")' },
   { pattern: /\bone[- ](?:man|woman)\b/i,                          label: 'a headcount of one ("one-man")' },
