@@ -72,7 +72,7 @@ The captured_answer must reflect what the operator actually said. Do NOT:
 - Combine information from multiple sources
 
 DO:
-- Strip greeting/sign-off lines if present ("Hey Mark," "Cheers, Doug")
+- Strip greeting/sign-off lines if present ("Hey [name]," "Cheers, [name]")
 - Remove specific personal details (see "Personal details" rule below)
 - Generalise niche-specific language (see "Niche language" rule below)
 - Convert the answer to a generalisable form (e.g. drop the prospect's
@@ -92,7 +92,7 @@ the prospect asked. Generalisable enough that future prospects asking
 similar things would match it.
 
 Good: "How long does onboarding take?"
-Bad: "Hey Doug, just wondering, like how long is the whole onboarding process
+Bad: "Hey [name], just wondering, like how long is the whole onboarding process
 gonna actually take in real terms because I want to plan for it"
 
 ### Personal details
@@ -100,7 +100,7 @@ gonna actually take in real terms because I want to plan for it"
 Strip personal details from captured_answer. Replace with generic equivalents
 or remove entirely:
 
-- Specific names ("Sarah", "Mark") → "the team", "you", or remove
+- Specific names (the operator's, a colleague's, the prospect's) → "the team", "you", or remove
 - Specific dates ("Monday", "next week", "March 12th") → "shortly", "after
   our discovery call", or remove
 - Specific company names of the prospect → "your business" or "your company"
