@@ -9015,6 +9015,63 @@ Also: must land behind a per-org flag.
 
 ---
 
+## SESSION 2026-08-29, branch prompt-guard — the guard on prompt text
+
+### What shipped
+
+A scan over EVERY prompt source, markdown and TypeScript template literal alike, for
+client-specific content: named industries, buyer archetypes asserted as defaults,
+money and headcount figures, and organisation-name shapes. Three files, all test-only:
+`prompt-forbidden-content.data.ts` (the deny list), `prompt-sources.ts` (the registry
+and the template-literal extractor), `prompt-forbidden-content.test.ts`.
+
+Measured on a6ae4df before anything was changed: **44 violations across 8 of 14
+sources**. Nothing was fixed. The number is the deliverable.
+
+### [PG-01] The swap pass. NOT DONE, and it is what unblocks the goal test.
+
+`it.fails('GOAL: zero violations across every prompt source')` is red on purpose. It
+turns green-by-failing the moment the last violation goes, which is the signal to
+delete the `.fails` and the per-source baseline and leave a plain assertion of zero.
+
+The 44 are listed by `npx vitest run prompt-forbidden-content`. They are concentrated:
+30 are a named industry, and most of those are the word "consulting" inside worked
+examples that teach the model what good and bad copy look like. Replacing those
+examples is writing, not deletion, which is why it is a separate pass.
+
+### [PG-02] The deny list is NARROWER than a raw term count, deliberately
+
+A raw grep for `consult|founder|B2B|coach|agenc` finds 50 occurrences in
+messaging-agent.md; this scan reports 12 lines / 20 occurrences. The gap is almost
+entirely **bare "founder" (29) and bare "consulting" (13)**, and they are excluded on
+purpose: both appear inside the rules that FORBID them, for example "Do not assume the
+prospect is a founder". A pattern on the bare noun fires on the prohibition doing its
+job, and a scan that flags its own enforcement is one people exempt and stop reading.
+
+So this scan under-counts against a term-frequency measure, knowingly. It is
+regression cover for specific known-bad content, not a discovery tool. Stated here
+rather than left for someone to find by comparing two numbers.
+
+### [PG-03] Two industry lists now exist and agree
+
+`prompt-industry-agnostic.test.ts` owns one for its five-file baseline ratchet;
+`prompt-forbidden-content.data.ts` owns one for the fourteen-source scan. Same terms,
+different regimes. This is the parallel-list shape CLAUDE.md warns about. Consolidating
+is worth doing once the swap pass has driven both to zero; doing it now would mean one
+list serving two different baselines.
+
+### [PG-04] Names without a corporate suffix are not caught
+
+`ORG_NAME_SHAPE` matches `Ltd|Inc|LLC|GmbH|...` and domain names. A company named in
+prose with no suffix is invisible to it. Real names are NOT enumerated in the deny
+list and must not be: this is a public repository, and listing them would publish the
+thing the swap pass exists to remove. The writer prompt currently names two real
+companies in one worked example; that line is caught today only because it also
+contains "Consulting".
+
+
+---
+
 ## SESSION 2026-08-28, branch subject-line — the Email 1 subject on the researched path
 
 ### What shipped
