@@ -15,7 +15,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { fetchAllSources } from './research/fetch-sources'
-import { synthesizeResearch }  from './research/synthesize'
+import { synthesizeResearch, loadClientContext }  from './research/synthesize'
 import { FrameRegistry, frameShingles, sentenceKey } from '@/lib/style/sentence-frames'
 import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
 import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nouns'
@@ -491,6 +491,13 @@ export async function runProspectResearchAgentV2({
     const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) throw new Error('prospect-research-v2: ANTHROPIC_API_KEY not set')
 
+    // A SECOND READ of the client context, purely for the ICP buyer title. synthesizeResearch
+    // loads this and discards it, and the stored-findings branch above never loads it at all,
+    // so reading it here is what makes tier 2 of the buyer precedence work on BOTH branches
+    // rather than only on the one that synthesizes. Two queries against a path that already
+    // makes four or more model calls.
+    const clientCtx = await loadClientContext(client_id, ctx.segment_id)
+
     const opening = await produceOpening({
       apiKey,
       clientName: await loadClientName(supabase, client_id),
@@ -498,6 +505,7 @@ export async function runProspectResearchAgentV2({
       candidates: synthesis.candidates,
       messagingContent: messaging.content,
       variantId,
+      icpBuyerTitle: clientCtx.buyerTitle,
       uniqueness,
     })
 

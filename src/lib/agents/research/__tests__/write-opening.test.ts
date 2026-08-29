@@ -156,7 +156,7 @@ describe('prompt shape', () => {
   // and can be cached. The prompt is ~9,300 tokens and the writer call runs up to three
   // times per prospect, so a per-variant prefix was costing a full re-read every attempt.
   it('the assignment block carries the variant P3 and CTA verbatim', () => {
-    const a = buildWriterAssignment({ clientName: 'Acme', p3: 'THE_P3_LINE', cta: 'THE_CTA_LINE' })
+    const a = buildWriterAssignment({ clientName: 'Acme', buyer: 'THE_BUYER_TITLE', p3: 'THE_P3_LINE', cta: 'THE_CTA_LINE' })
     expect(a).toContain('THE_P3_LINE')
     expect(a).toContain('THE_CTA_LINE')
     expect(a).toContain('Acme')
@@ -174,14 +174,14 @@ describe('prompt shape', () => {
   })
 
   it('the judge prompt asks exactly one question and no checklist', () => {
-    const p = buildJudgePrompt()
+    const p = buildJudgePrompt('THE_BUYER_TITLE')
     expect((p.match(/\?/g) ?? []).length).toBe(1)
   })
 
 
 
   it('the judge prompt frames a choice between two sendable drafts, with no free rejection', () => {
-    const p = buildJudgePrompt()
+    const p = buildJudgePrompt('THE_BUYER_TITLE')
     expect(p).toContain('both ready to send')
     expect(p).toContain('Both go out under your name')
     expect(p).toContain('both ready to send')
@@ -266,7 +266,7 @@ describe('prompt shape', () => {
   })
 
   it('the judge now tests the closing question, not general flow', () => {
-    const flat = buildJudgePrompt().replace(/\s+/g, ' ')
+    const flat = buildJudgePrompt('THE_BUYER_TITLE').replace(/\s+/g, ' ')
     expect(flat).toContain('still find the closing question the obvious thing to ask them')
   })
 
@@ -433,7 +433,7 @@ describe('the writer prompt enforces one fact per sentence', () => {
 
 describe('the judge tests the first read, still as one question', () => {
   it('asks about reading once at speed without re-reading ANY sentence', () => {
-    const flat = buildJudgePrompt().replace(/\s+/g, ' ')
+    const flat = buildJudgePrompt('THE_BUYER_TITLE').replace(/\s+/g, ' ')
     // Widened from "the first paragraph": the observation and the bridge are now two
     // paragraphs, so a test scoped to the first one would miss the bridge entirely.
     expect(flat).toContain('read once, at speed, without going back over any sentence')
@@ -441,14 +441,14 @@ describe('the judge tests the first read, still as one question', () => {
   })
 
   it('is still exactly one question and still not a checklist', () => {
-    const p = buildJudgePrompt()
+    const p = buildJudgePrompt('THE_BUYER_TITLE')
     expect((p.match(/\?/g) ?? []).length).toBe(1)
     expect(p).not.toContain('1.')
     expect(p).not.toContain('- ')
   })
 
   it('still keeps the closing-question test in the same sentence', () => {
-    const flat = buildJudgePrompt().replace(/\s+/g, ' ')
+    const flat = buildJudgePrompt('THE_BUYER_TITLE').replace(/\s+/g, ' ')
     expect(flat).toContain('the obvious thing to ask them')
   })
 })
@@ -575,7 +575,7 @@ describe('the writer prompt treats the approved questions as register, not a men
     expect(flat).toContain('The approved question for this particular variant is named in the ASSIGNMENT block')
     expect(flat).toContain('the same applies to it')
 
-    const assignment = buildWriterAssignment({ clientName: 'Acme', p3: 'x', cta: 'Worth a look?' })
+    const assignment = buildWriterAssignment({ clientName: 'Acme', buyer: 'THE_BUYER_TITLE', p3: 'x', cta: 'Worth a look?' })
       .replace(/\s+/g, ' ')
     expect(assignment).toContain('The approved closing question for this particular variant is "Worth a look?"')
     expect(assignment).toContain('it shows register and length')

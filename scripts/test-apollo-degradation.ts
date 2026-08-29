@@ -20,6 +20,7 @@ const TEST_PROSPECT = {
   last_name: 'Smith',
   company_name: 'Test Co',
   role: 'Founder',
+  job_title: null,
   email: 'jane@test.com',
   linkedin_url: null,
   website_url: null,

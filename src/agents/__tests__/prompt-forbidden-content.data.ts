@@ -65,6 +65,19 @@ export const NAMED_INDUSTRY: Pattern[] = [
 //   "read the buyer title from the ICP document"
 const TITLE = '(founder|co-?founder|owner|managing director|ceo|cto|cmo|coo|cfo|vp of [a-z ]{3,20}|head of [a-z ]{3,20}|sales director|marketing director|operations director|practice lead|principal|partner)'
 
+// The same titles as a population rather than a person. Kept as its own literal rather
+// than derived by appending "s" to TITLE, because several of these do not pluralise that
+// way and a derivation that silently produced "vp of sales" + "s" would match nothing
+// while looking like coverage.
+const TITLE_PLURAL = '(founders|co-?founders|owners|managing directors|ceos|ctos|cmos|coos|cfos|sales directors|marketing directors|operations directors|practice leads|principals|partners)'
+
+// SHARED BY THE TWO PATTERNS BELOW, and load-bearing in exactly the way the lookbehind on
+// the pattern above it is. An assertion and its prohibition read almost identically to a
+// regex, and the difference is entirely in the few words before it. Without this, both new
+// patterns fire on the rules that FORBID the assumption, which is the failure mode that
+// gets a scan exempted rather than fixed.
+const NOT_NEGATED = "(?<!\\b(?:do not|do NOT|don't|never|must not|cannot|can't|avoid|not|no|stop|neither|rather than)\\b[^.\\n]{0,40})"
+
 export const BUYER_ARCHETYPE: Pattern[] = [
   {
     label: 'buyer title given as a schema default or example value',
@@ -87,6 +100,50 @@ export const BUYER_ARCHETYPE: Pattern[] = [
   {
     label: 'founder-led asserted as the buyer archetype',
     re: /\bfounder[- ]led\b/i,
+  },
+
+  // ── Added 2026-08-29, closing a blind spot the scan had from the day it was written ──
+  //
+  // WHAT WAS GETTING THROUGH. The four patterns above all require a QUALIFIER frame:
+  // "e.g.", "typically", "assume", "is your buyer", "founder-led". So the plainest form of
+  // the mistake, a bare buyer noun stated as simple fact, scored zero. Two of them sat in
+  // this repository's most expensive prompt and its most consequential one and neither was
+  // ever flagged: buildJudgePrompt scored 0 violations while its single question named an
+  // archetype outright, and buildWriterPrompt's 9 hits were all on an industry word
+  // elsewhere in the file. Recorded as PG-02 and CD-02.
+  //
+  // WHY THE BARE NOUN WAS LEFT OUT ORIGINALLY, and it was a real problem rather than an
+  // oversight: the same noun appears throughout the prompts inside the RULES FORBIDDING
+  // the assumption, and inside worked examples that quote it on purpose. A pattern on the
+  // noun alone fires on the rule that enforces the thing you are scanning for, which is
+  // the fastest way to teach people a scan is noise. So these two do not match the noun.
+  // They match the two GRAMMATICAL FRAMES in which it can only be an assertion.
+  {
+    // FRAME ONE: a plural buyer noun with a copula directly attached. "Founders are busy."
+    // The plural generalises over a population, and the copula states a fact about it,
+    // which together are an assertion no prohibition reads like.
+    //
+    // ADJACENT, not "somewhere on the line". A relative clause between the noun and the
+    // verb, "the founders who need you next are not reading your feed", is example COPY
+    // about a client's own audience rather than a claim about our reader, and it is
+    // exactly what a looser pattern would drown this in.
+    label: 'a plural buyer noun asserted with a copula',
+    re: new RegExp(`${NOT_NEGATED}\\b${TITLE_PLURAL}\\s+(?:are|were)\\b`, 'i'),
+  },
+  {
+    // FRAME TWO: the reader of this very prompt, addressed as an archetype. This is the
+    // one that catches what actually shipped, and neither of the two lines it was written
+    // for is plural or has a copula, so FRAME ONE alone would not have found either.
+    //   "You are writing to a founder you respect"     <- the writer's system prompt
+    //   "Which one could a busy founder read once"     <- the judge's only question
+    // Both name the person on the other end, and a prompt may never do that: the reader
+    // comes from the ICP document or the prospect's own record at runtime.
+    label: 'the reader of the prompt addressed as a buyer archetype',
+    re: new RegExp(
+      `${NOT_NEGATED}(?:\\b(?:writing|written|addressed|speaking|talking|pitching|selling)\\s+(?:to|for)\\s+|\\b(?:a|an|the)\\s+busy\\s+)` +
+      `(?:(?:a|an|the)\\s+)?(?:[a-z]+\\s+){0,2}${TITLE}\\b`,
+      'i',
+    ),
   },
 ]
 

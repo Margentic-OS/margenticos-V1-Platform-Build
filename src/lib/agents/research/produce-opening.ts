@@ -14,6 +14,8 @@ import {
 } from '@/lib/composition/compose-sequence'
 import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
 import { writeAndJudgeOpening, type OpeningResult } from './write-opening'
+import { resolveBuyer } from './resolve-buyer'
+import { logger } from '@/lib/logger'
 import type { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
 import type { ProspectContext, ObservationCandidate } from './types'
 
@@ -41,6 +43,16 @@ export interface ProduceOpeningInput {
   candidates: ObservationCandidate[]
   messagingContent: MessagingContent
   variantId: string
+  /**
+   * The client's ICP tier-1 buyer title, tier 2 of the buyer precedence. Passed IN rather
+   * than read here for the same reason messagingContent is: the two callers get it from
+   * different places, and that difference is the whole point of the batch split. The
+   * inline path reads it live; phase 2 reads the snapshot phase 1 took.
+   *
+   * Optional at the type level because the batch snapshot is JSONB written before the
+   * field existed, so an older entry reads back as undefined rather than null.
+   */
+  icpBuyerTitle?: string | null
   /** Batch-scoped. Absent on a single-prospect run, where there is nothing to collide with. */
   uniqueness?: BatchUniquenessRegistry
 }
@@ -81,13 +93,34 @@ export async function produceOpening({
   candidates,
   messagingContent,
   variantId,
+  icpBuyerTitle,
   uniqueness,
 }: ProduceOpeningInput): Promise<OpeningResult> {
   const frame = getVariantEmail1Frame(messagingContent, variantId)
 
+  // THE ONE PLACE THE PRECEDENCE IS DECIDED. Both research paths converge here, so
+  // resolving it at either call site would be the two-implementations-that-must-agree
+  // shape, and a drift between them would show up as different copy rather than as an
+  // error. The writer and the judge are then handed the same resolved string, which is
+  // what stops the personalisation layer being graded against a different reader than
+  // it was written for.
+  const buyer = resolveBuyer(ctx.job_title, icpBuyerTitle)
+
+  // LOGGED AT EVERY CALL, so an email that reads wrong can be traced to the input that
+  // caused it rather than argued about. The source matters more than the value: a
+  // description that came from the ICP is a statement about the client's whole audience,
+  // and one that came from the prospect row is a statement about this person only.
+  logger.info('research/produce-opening: buyer resolved', {
+    prospect_id: ctx.id,
+    variant_id: variantId,
+    buyer_source: buyer.source,
+    buyer_description: buyer.description,
+  })
+
   return writeAndJudgeOpening({
     apiKey,
     clientName,
+    buyer: buyer.description,
     prospectFirstName: ctx.first_name,
     candidates,
     p3: frame.p3,

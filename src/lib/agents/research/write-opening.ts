@@ -160,12 +160,21 @@ export interface OpeningResult {
  */
 export function buildWriterAssignment(params: {
   clientName: string
+  /**
+   * Who is reading it, resolved by resolveBuyer. IN THE ASSIGNMENT AND NOT THE SYSTEM
+   * PROMPT, because it varies per prospect and per client, and the system prompt is
+   * ~9,300 cached tokens sent up to three times per prospect. One interpolation there
+   * would miss the cache on every writer call in the system.
+   */
+  buyer: string
   p3: string
   cta: string
 }): string {
   return `## Assignment
 
 You are writing for: ${params.clientName}
+
+Who you are writing to: ${params.buyer}
 
 THE OFFER LINE (this is the fixed middle paragraph referred to in your instructions. It is
 the client's approved positioning. Reproduce it exactly, do not alter or paraphrase it):
@@ -180,7 +189,9 @@ export function buildWriterPrompt(): string {
   return `You are a senior BDR with fifteen years behind you, writing for the client named in
 the ASSIGNMENT block at the top of the user message.
 
-You are writing to a founder you respect, who runs a real business and gets a lot of these.
+You are writing to the person the ASSIGNMENT block names. Assume nothing else about who
+they are: not their seniority, not their industry, not how their business is run. You
+respect them, they are good at their job, and they get a lot of these.
 Your only goal is a reply. Not to demonstrate that you did the research. Not to prove you
 looked them up. A reply.
 
@@ -908,11 +919,27 @@ export function parseFloor(raw: string): FloorCheck {
   }
 }
 
-export function buildJudgePrompt(): string {
+/**
+ * TAKES THE READER AS A PARAMETER, and this is the call that most needed it. The judge
+ * decides whether the written opening ships or the approved template does, and it used to
+ * decide by imagining one buyer archetype named in this literal. An opening pitched
+ * correctly at a different reader could lose for no reason but that.
+ *
+ * INTERPOLATION IS FREE HERE, unlike in the writer prompt. This one is ~124 tokens, far
+ * below the ~1,024-token minimum cacheable prefix, so it is deliberately sent uncached and
+ * a per-prospect value costs nothing.
+ *
+ * The reader goes on its OWN LINE after a colon rather than inline as "a busy X". Real
+ * buyer titles are free text and several are full clauses naming more than one role, and
+ * an inline slot would render those as an unreadable sentence.
+ */
+export function buildJudgePrompt(buyer: string): string {
   return `You are the head of sales. Two drafts of the same cold email are in front of you,
 both written by your team, both ready to send. They differ only in how they open.
 
-Both go out under your name. Which one could a busy founder read once, at speed, without
+Who is reading it: ${buyer}
+
+Both go out under your name. Which one could that person read once, at speed, without
 going back over any sentence, and still find the closing question the obvious thing to ask
 them?
 
@@ -1341,6 +1368,12 @@ function cleanOpening(raw: string): string {
 export interface WriteAndJudgeParams {
   apiKey: string
   clientName: string
+  /**
+   * Who is reading the email, already resolved by resolveBuyer at the single chokepoint
+   * both paths share. Resolved by the CALLER rather than here so the precedence decision
+   * and the log line naming which tier won live in one place.
+   */
+  buyer: string
   prospectFirstName: string | null
   candidates: ObservationCandidate[]
   p3: string
@@ -1456,14 +1489,14 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   // Constant across every prospect, variant and client, which is what makes it cacheable.
   // The parts that used to vary are in the assignment block, prepended to the user message.
   const writerSystem = buildWriterPrompt()
-  const assignment = buildWriterAssignment({ clientName: params.clientName, p3: params.p3, cta: params.cta })
+  const assignment = buildWriterAssignment({ clientName: params.clientName, buyer: params.buyer, p3: params.p3, cta: params.cta })
 
   // Accumulated across EVERY call this prospect makes, including the ones on attempts that
   // were thrown away. A retried prospect's real cost is the point of measuring at all, so
   // the counter has to sit outside the attempt loop.
   let usage: TokenUsage = ZERO_TOKEN_USAGE
   const record = (u: TokenUsage) => { usage = addTokenUsage(usage, u) }
-  const judgeSystem = buildJudgePrompt()
+  const judgeSystem = buildJudgePrompt(params.buyer)
   const floorSystem = buildFloorPrompt()
 
   // The template keeps its OWN approved CTA. Passing no question is what makes that true.

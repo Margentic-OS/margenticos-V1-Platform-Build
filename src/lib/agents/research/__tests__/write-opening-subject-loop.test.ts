@@ -54,6 +54,7 @@ const writerCalls = () =>
 
 function run(subject: string) {
   return writeAndJudgeOpening({
+    buyer: 'Operations Lead',
     apiKey: 'test-key',
     clientName: 'Test Client',
     prospectFirstName: 'Robin',
@@ -227,5 +228,72 @@ describe('a template win clears the subject with everything else', () => {
     expect(result.written_won).toBe(false)
     expect(result.subject).toBeNull()
     expect(result.opening).toBeNull()
+  })
+})
+
+// ─── Where the reader is allowed to travel ───────────────────────────────────
+//
+// STEP 3, THIRD CHECK, AT THE REAL CALL SITE RATHER THAN BY READING IT. The two prompt
+// builders can be unit-tested in isolation and still be wired up wrongly: what actually
+// decides the cache is which argument of client.messages.create the varying string ends
+// up in. This drives the production loop against the scripted model and inspects the
+// requests it really sent.
+//
+// It is the same shape as the fake-that-does-not-honour-a-filter problem recorded in
+// CLAUDE.md, one level up: a unit test on buildWriterAssignment passes identically whether
+// the assignment is prepended to the user message or concatenated onto the system prompt.
+describe('the reader travels in the user message, never in the cached prefix', () => {
+  const BUYER = 'Operations Lead'
+
+  /** Every request whose system block is the cached array, i.e. every writer call. */
+  const writerRequests = () =>
+    createMock.mock.calls
+      .map(([args]) => args as { system: unknown; messages: { content: string }[] })
+      .filter(a => Array.isArray(a.system))
+
+  beforeEach(() => {
+    createMock.mockImplementation(async (args: { system: unknown; messages: { content: string }[] }) => {
+      if (Array.isArray(args.system)) return writerReply('two field roles, three depots')
+      const content = String(args.messages[0].content)
+      if (content.includes('VERSION A')) {
+        const a = content.split('VERSION B')[0]
+        return say(`CHOICE: ${a.includes('The authored opener.') ? 'B' : 'A'}\nREASON: it reads faster.`)
+      }
+      return FLOOR_PASS
+    })
+  })
+
+  it('sends the buyer in the writer user message and not in the cached system block', async () => {
+    await run('two field roles, three depots')
+
+    const writer = writerRequests()
+    expect(writer.length).toBeGreaterThan(0)
+
+    for (const req of writer) {
+      const system = (req.system as { text: string; cache_control?: unknown }[])[0]
+      // Still marked as a cache breakpoint after the change.
+      expect(system.cache_control).toEqual({ type: 'ephemeral' })
+      // The varying value is NOT in the cached prefix.
+      expect(system.text).not.toContain(BUYER)
+      expect(system.text).not.toContain('Test Client')
+      // And it IS in the per-call user message, where varying is free.
+      expect(String(req.messages[0].content)).toContain(`Who you are writing to: ${BUYER}`)
+    }
+  })
+
+  it('the judge is handed the buyer, uncached, on the same run', async () => {
+    await run('two field roles, three depots')
+
+    // The judge and the floor judge are the calls with a plain string system prompt. The
+    // judge is the one whose user message holds both labelled versions.
+    const judge = createMock.mock.calls
+      .map(([args]) => args as { system: unknown; messages: { content: string }[] })
+      .find(a => !Array.isArray(a.system) && String(a.messages[0].content).includes('VERSION A'))
+
+    expect(judge, 'no judge call was made').toBeDefined()
+    // A PLAIN STRING, deliberately: ~124 tokens is far below the minimum cacheable prefix,
+    // so a breakpoint here would be ignored while spending one of the four allowed.
+    expect(typeof judge!.system).toBe('string')
+    expect(judge!.system as string).toContain(`Who is reading it: ${BUYER}`)
   })
 })

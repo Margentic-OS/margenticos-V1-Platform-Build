@@ -242,6 +242,11 @@ export async function runProspectResearchCollect({
       // THE SNAPSHOT, not a fresh fetch. See the header.
       messagingContent: entry.messaging_content,
       variantId: entry.variant_id,
+      // Tier 2 of the buyer precedence, off the SAME snapshot as everything else here, so
+      // the judge reads the ICP phase 1 planned against. An entry written before this
+      // field existed carries no key at all and reads back undefined, which resolveBuyer
+      // treats as absent and falls through, never as a value.
+      icpBuyerTitle: entry.client_context?.buyerTitle ?? null,
       // No batch-uniqueness registry: it is scoped to one in-process batch run and this
       // phase processes one prospect per job.
     })
