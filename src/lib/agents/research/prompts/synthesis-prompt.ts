@@ -182,9 +182,9 @@ preference, it removes the candidate from hook use:
 
 FAILING EXAMPLE. This scored 6 out of 6 on the tests above and shipped:
 
-  "Running Taffet alongside the CRC Director engagement from mid-2024 through
+  "Running Vantor alongside the Merrow Director engagement from mid-2024 through
    mid-2025 is a particular kind of balancing act, and with that role now
-   wrapped, the pipeline question for Taffet tends to land differently."
+   wrapped, the pipeline question for Vantor tends to land differently."
 
 Why it fails: 37 words in one sentence. "is a particular kind of balancing
 act" is a stock frame that says nothing. "tends to land differently" hedges,
@@ -193,7 +193,7 @@ say this out loud.
 
 BENCHMARK EXAMPLE. From a real campaign that replied at 7 percent:
 
-  "Read through your last 30 reviews on Google. Front desk hold times keep
+  "Read through your last 30 reviews. Front desk hold times keep
    coming up, 4 of the most recent 10."
 
 Why it works: two short sentences. Every noun is concrete and countable. No
@@ -204,7 +204,7 @@ Write to the benchmark, not to the failing example.
 
 PROVENANCE IS MANDATORY. Every candidate must carry a provenance string precise
 enough for a human to verify it in 30 seconds: a URL, or an exact location such
-as "Apollo employment_history: Director at CRC, Jul 2024 to Aug 2025" or
+as "Apollo employment_history: Director at Merrow, Jul 2024 to Aug 2025" or
 "LinkedIn post dated 2026-07-20". A candidate without provenance fails
 VERIFIABLE by definition. Set verifiable: false in that case.
 
@@ -279,10 +279,10 @@ selected_candidate_id, turned from a note about the prospect into a sentence
 addressed to them. Keep its nouns, its dates and its numbers.
 
   Winner:  "All of her recent LinkedIn posts are client work: intern questions,
-            performance review coaching, HR policy for founders. UpLevel has been a
+            performance review coaching, HR policy for founders. Tessom has been a
             solo operation since 2018."
   Trigger: "Your recent LinkedIn posts are all client work: intern questions,
-            performance reviews. UpLevel has been solo since 2018."
+            performance reviews. Tessom has been solo since 2018."
 
 Writing generic ICP framing instead is a silent failure, and it happened twice in
 fifteen: a candidate scored six out of six, was selected, and the prospect received
@@ -393,7 +393,7 @@ When the winning candidate comes from employment history:
   conclusion, and both readings stay available to the reader.
   ✓ "You ran the firm and the Director role side by side for 14 months. That finished
      in August."
-  ✗ "Taking a job at CRC suggests your pipeline was thin." (accusatory, fails NON-JUDGEMENTAL)
+  ✗ "Taking a job at Merrow suggests your pipeline was thin." (accusatory, fails NON-JUDGEMENTAL)
   ✗ "Running the firm alongside that engagement is a particular kind of balancing act."
      (stock frame, hedged, says nothing the prospect did not already know)
 

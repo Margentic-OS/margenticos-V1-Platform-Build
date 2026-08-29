@@ -51,19 +51,42 @@ const report = (v: NameHit[]) =>
 //
 // THE NUMBER MAY ONLY GO DOWN.
 const BASELINE_TOTAL_AT_INTRODUCTION = 49
-const BASELINE_TOTAL = 49
+
+// RATCHETED DOWN 2026-08-29, same day, by the swap pass over the six low-risk sources.
+// Twelve tokens went, all of them real organisations or real people:
+//
+//   synthesis-prompt.ts  8 -> 1   two firms and a real review platform, across a failing
+//                                 example, a benchmark, a provenance string, a
+//                                 winner/trigger pair and a judgemental example
+//   faq-extraction       3 -> 0   the OPERATOR'S OWN NAME, twice, in a public repository
+//   reply-draft          1 -> 0   a first name in a "never invent context" example
+//   positioning          2 -> 1   a real author and their book title
+//
+// WHAT DID NOT MOVE, and it is the measurement that justifies this file existing: the
+// deny-list scan read 35 before the swap and 35 after. Twelve real names left the prompts
+// and it did not notice one of them, because it never could.
+//
+// THE TWO THAT REMAIN IN THE EDITED FILES ARE DELIBERATE, not missed:
+//   positioning-agent.md  "Moore"  is load-bearing on the OUTPUT SCHEMA FIELD
+//                         moore_positioning, which has stored documents behind it and
+//                         legacy moore_statement handling in the dashboard. Renaming it is
+//                         a schema migration, not a text swap.
+//   synthesis-prompt.ts   "Apollo" is a registered VENDOR in a provenance example, which
+//                         is ADR-001 tool-agnosticism, a different rule with a different
+//                         fix. Swapping it here would make a silent architectural call.
+const BASELINE_TOTAL = 37
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/icp-agent.md': 0,
-  'docs/prompts/positioning-agent.md': 2,
+  'docs/prompts/positioning-agent.md': 1,
   'docs/prompts/tov-agent.md': 0,
   'docs/prompts/messaging-agent.md': 2,
-  'docs/prompts/faq-extraction-agent.md': 3,
-  'docs/prompts/reply-draft-agent.md': 1,
+  'docs/prompts/faq-extraction-agent.md': 0,
+  'docs/prompts/reply-draft-agent.md': 0,
   'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 33,
   'src/lib/agents/research/write-opening.ts:buildFloorPrompt': 0,
   'src/lib/agents/research/write-opening.ts:buildJudgePrompt': 0,
-  'src/lib/agents/research/prompts/synthesis-prompt.ts:buildSynthesisPrompt': 8,
+  'src/lib/agents/research/prompts/synthesis-prompt.ts:buildSynthesisPrompt': 1,
   'src/lib/agents/reply-classifier.ts:SYSTEM_PROMPT': 0,
   'src/lib/agents/faq-seed-agent.ts:buildSystemPrompt': 0,
   'src/lib/composition/personalization.ts:systemPrompt': 0,

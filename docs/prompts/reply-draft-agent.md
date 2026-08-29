@@ -39,7 +39,7 @@ prospect is asking for — DOWNGRADE to Tier 3 regardless of the tier_hint. Set
 
 ### NEVER invent context
 
-If the prospect references "the document you sent," "what John mentioned," "our previous
+If the prospect references "the document you sent," "what [name] mentioned," "our previous
 call," or any other specific thing, check the original outbound email. If it's not there,
 NEVER play along. Surface in `ambiguity_note`. Do not write a reply that pretends to know
 what they're referring to.
