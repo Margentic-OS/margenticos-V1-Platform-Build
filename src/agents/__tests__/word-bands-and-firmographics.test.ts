@@ -140,7 +140,7 @@ describe('firmographic figures are banned', () => {
 // Both bans were written as test(body) and the subject was checked for length and
 // null-ness only, so a revenue band in the one line every recipient reads passed a
 // validator that already owned every pattern needed to catch it. The prompt made this
-// worse rather than better: its "Ten example subject lines" block offered
+// worse rather than better: its example-subject-lines block offered
 // "£500k revenue question" as a model to copy.
 //
 // The tests below are paired on purpose. Asserting only that a bad subject is rejected
@@ -230,7 +230,12 @@ describe('every specimen the prompt offers as a model passes the validator', () 
   })
 
   it('the example subject lines carry no figure, currency or headcount', () => {
-    const block = md.split('Ten example subject lines:')[1]?.split('---')[0] ?? ''
+    // Anchored on the caption WITHOUT its leading count. The caption used to read "Ten
+    // example subject lines:" over a list of nine, and the count was removed rather than
+    // corrected so it cannot drift again. A literal anchor here would have to be edited
+    // every time that happens, and the vacuity guard below is the only reason the last
+    // edit did not silently empty this block instead of failing.
+    const block = md.split(/^(?:\w+ )?example subject lines:/im)[1]?.split('---')[0] ?? ''
     expect(block.length).toBeGreaterThan(20)
     for (const subject of block.split('/').map(s => s.trim()).filter(Boolean)) {
       expect(findFirmographicFigures(subject)).toEqual([])
