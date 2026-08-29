@@ -621,7 +621,7 @@ Parallel sentence construction across consecutive sentences is banned.
 
 Descriptive over prescriptive voice. Paragraphs that describe a desirable state, outcome,
 or solution should be framed as observations of peers or possibilities, not prescriptions
-of what the reader should do. Founders are sensitive to being told what their business
+of what the reader should do. Readers are sensitive to being told what their business
 should look like. They detect it instantly and disengage.
 Forbidden framings: "That's what [X] looks like for [reader's category]", "A properly-built
 [thing] does [behaviour]", "What [reader] needs is...", "The right way to do [X] is...".

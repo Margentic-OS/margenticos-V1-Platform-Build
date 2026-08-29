@@ -9015,6 +9015,60 @@ Also: must land behind a per-org flag.
 
 ---
 
+## SESSION 2026-08-29, branch contradiction — the declarative was already gone
+
+### The finding, which is that there was nothing to remove
+
+The brief described a contradiction in `docs/prompts/messaging-agent.md`: an agnosticism
+preamble, and ~173 lines later a flat declarative naming the industry and buyer type.
+
+**That declarative was removed on 2026-08-27 in af0f05c**, whose own commit message
+describes the same contradiction in almost the same words: "The messaging prompt said the
+agent writes for any B2B business across any industry with no default buyer type, and then
+170 lines later said it writes for a founder-led consulting or coaching business. The
+second is removed." Nothing was left to delete.
+
+The three places most likely to still assert an industry are all already agnostic:
+Framework 2's opener, Framework 3's buyer definition, and Variant C's angle assignment
+each now derive from the ICP document explicitly.
+
+### [CD-01] One flat assertion of buyer type SURVIVED, in rule prose, and is fixed here
+
+"Founders are sensitive to being told what their business should look like" sat in the
+descriptive-over-prescriptive rule, asserting the reader's buyer type as operating fact.
+Not specimen copy, not a worked example, not a ban-list entry. Changed to "Readers".
+One word. It is the only edit in this branch.
+
+### [CD-02] THE SCAN DOES NOT CATCH IT, and that is the useful part
+
+Measured before and after: `messaging-agent.md` scores **12 both times**, total 44 both
+times. The edit is invisible to `prompt-forbidden-content`.
+
+Tested directly against the deny list:
+  the removed declarative       CAUGHT (on "consulting")
+  "Founders are sensitive..."   NOT CAUGHT
+  "Readers are sensitive..."    NOT CAUGHT
+
+So the scan would have caught the original, and its baseline of 12 already reflects a file
+the fix had landed in. What it cannot see is a **bare plural buyer-type noun asserting a
+property** — "Founders are", "Founders reading this feel". The deny list excludes bare
+"founder" on purpose (PG-02): the bare noun appears inside the rules that forbid assuming
+it, and a pattern on it fires on "Do not assume the prospect is a founder".
+
+A narrow pattern for plural-noun-plus-copula might close this without that false positive.
+NOT added here, deliberately: mixing a prompt edit with a scan-pattern change makes both
+harder to review, which is the same reason the swap pass is excluded from this branch.
+
+### [CD-03] Still outstanding, and untouched here
+
+`messaging-agent.md` L646, L654, L656 (worked example), L1257-1259 (prescribed
+replacements), L334-347 (exemplar passages), L573-574 (opener specimens). All name an
+industry or buyer type and all are examples or specimen copy. They are the swap pass,
+PG-01, and were explicitly out of scope.
+
+
+---
+
 ## SESSION 2026-08-29, branch prompt-guard — the guard on prompt text
 
 ### What shipped
