@@ -3673,6 +3673,91 @@ are complementary.
 
 ---
 
+## ADR-044: The ICP research agent declines to search when intake names no buyer, and researches the service RECIPIENT rather than the service
+
+**Date:** 2026-08-29
+**Status:** Accepted.
+
+NOTE ON NUMBERING: taken as 044 on branch research-query-builder off origin/main ef20336.
+See BACKLOG on ADR numbers racing across parallel branches; renumber on merge if 044 is
+taken by another branch first.
+
+**Context.**
+
+Every ICP generated over 2026-08-27/28 reported that web research returned nothing, and the
+documents fell back to framework logic. Research had not failed. It was being asked
+unanswerable questions.
+
+An earlier fix (ADR-043) stopped raw `clients_clone` prose reaching the provider by adding
+`usableDescriptor`. It left the fallback in place: when the ideal-client answer was
+rejected, the buyer descriptor became `company_what_you_do`, which describes the client's
+SERVICE rather than the client's BUYER. Measured across all five live organisations, the
+buyer-profile query read:
+
+    "B2B consultants get more qualified meetings in their diary through cold email
+     typical company size revenue headcount profile 2025"
+
+That is a service description with research keywords appended, not a population. It also
+left `clients_trigger` unchecked entirely, so all five organisations sent a second query
+opening with narrative prose.
+
+**Decision.**
+
+1. THE BUYER IS THE RECIPIENT NAMED INSIDE THE SERVICE DESCRIPTION, NOT THE SERVICE
+   DESCRIPTION. A service description names who it is for after a recipient marker: "to
+   founder-led businesses", "into hospitals, care homes", "help B2B consultants". Extracting
+   the complement of that marker is a grammatical rule and holds in any industry.
+   Prepositions are tried before beneficiary verbs, and the phrase stops at a closed list of
+   function words plus a heuristic list of generic predicate-opening verbs.
+
+2. WHEN NOTHING NAMES A POPULATION, RESEARCH IS SKIPPED AND SAID TO BE SKIPPED. The agent
+   sends nothing to the provider, and `suggestion_reason` says the intake did not supply a
+   buyer descriptor. The prompt is told the same, and is instructed not to claim a search
+   ran.
+
+3. THE PROVENANCE OF THE DESCRIPTOR IS REPORTED WHEN IT IS NOT THE IDEAL-CLIENT FIELD.
+
+**Why 2 is the load-bearing part.**
+
+"Research ran and found nothing" and "research was skipped because intake never named a
+buyer" are different facts about a document, and only the second is actionable. The first
+reads as a provider problem and points the operator at nothing. Three generations were
+reported the first way when the second was true.
+
+This is the same shape as the failures already catalogued in CLAUDE.md: a check that runs,
+reports a result, and was never actually applied to the thing it was protecting. A bad
+query that returns nothing looks exactly like a good query about an obscure market.
+
+**Consequences, including the ones that cost something.**
+
+- One of the five live organisations now gets NO research where it previously got four
+  queries and four empty results. That is a loss of nothing real and a gain of an
+  explanation.
+- Three of the five get a genuinely searchable population where they previously got a
+  service description.
+- ONE OF THE FIVE GETS A REAL POPULATION THAT IS THE WRONG ONE. 360 Bia Og delivers school
+  meals to children and is paid by the state, so the recipient extractor returns "children
+  in Ireland". Separating delivered-to from bought-by needs world knowledge, not grammar.
+  The fallback is deliberately NOT made cleverer; it is made visible, via the provenance
+  note in 3. The proper fix is an intake field, logged in BACKLOG and not built here
+  because intake is write-once with no edit path, so a new field helps future clients and
+  none of the five that exist.
+- The positioning agent's own builder is UNCHANGED and still has the pre-ADR-043 defects.
+  Logged in BACKLOG. The two builders are not the same shape: three of four ICP queries are
+  about the buyer, where three of four positioning queries are about the client's own
+  service, for which `company_what_you_do` is correct rather than a bug.
+
+**Alternatives rejected.**
+
+- ASK THE CLIENT A NEW INTAKE QUESTION. Correct long-term and useless now: intake is
+  write-once with no edit path, so it fixes nobody who already exists. Logged, not built.
+- USE AN LLM TO EXTRACT THE BUYER. Would handle the school-meals case. Rejected under
+  ADR-018: a grammatical rule covers four of five, and the fifth is made visible rather
+  than guessed at. Revisit if the visible-note path proves noisy on real clients.
+- KEEP SEARCHING WITH A GENERIC "B2B buyer" FALLBACK. This is what the old code did on
+  empty intake. It returns plausible generic results that ground the ICP in nothing about
+  this client, which is worse than an empty section, because it is not visible.
+
 ## ADR-043: ICP research geography comes from the client's own domain, and Rule 9B is the positive counterpart to Rule 9
 
 **Date:** 2026-08-28

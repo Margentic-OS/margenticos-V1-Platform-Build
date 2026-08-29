@@ -155,15 +155,36 @@ export async function runIcpGenerationAgent(
   // Research INFORMS the ICP — it does not override intake. Conflicts are flagged
   // in the affected field's own text, not silently resolved. Fails gracefully if unavailable.
   // Note: suggestion_reason is built in code further down and the model cannot write to it.
-  logger.info('ICP agent: running web research', { organisation_id })
-  const researchQueries = buildResearchQueries(intake)
-  const research = await runResearchQueries(researchQueries)
+  // A plan may decline to search. "Research was skipped because intake never named a
+  // buyer" and "research ran and found nothing" are different facts about a document and
+  // only the first is actionable, so they are reported as different sentences rather than
+  // collapsed into the provider-shaped one.
+  const researchPlan = buildResearchPlan(intake)
 
-  if (research.anyLimited) {
-    logger.warn('ICP agent: some research queries returned limited results', {
+  let research: ResearchBundle
+  if (researchPlan.skipped) {
+    logger.warn('ICP agent: web research skipped, intake supplied no buyer descriptor', {
       organisation_id,
-      limitedNote: research.limitedNote,
+      buyerSource: researchPlan.buyerSource,
     })
+    // Nothing is sent to the provider. An empty bundle is the honest representation of
+    // "no search ran": anyLimited stays false, so the limited-results note is not
+    // emitted alongside the skip note and the operator sees one explanation, not two.
+    research = { results: [], anyLimited: false, limitedNote: '' }
+  } else {
+    logger.info('ICP agent: running web research', {
+      organisation_id,
+      buyerSource: researchPlan.buyerSource,
+      queryCount: researchPlan.queries.length,
+    })
+    research = await runResearchQueries(researchPlan.queries)
+
+    if (research.anyLimited) {
+      logger.warn('ICP agent: some research queries returned limited results', {
+        organisation_id,
+        limitedNote: research.limitedNote,
+      })
+    }
   }
 
   // Step 7: Build the user message from intake data + research + uploaded docs + website.
@@ -174,6 +195,7 @@ export async function runIcpGenerationAgent(
     patterns,
     completeness,
     research,
+    researchSkipped: researchPlan.skipped,
     refDocs,
     websitePages,
     regeneration_notes,
@@ -220,7 +242,8 @@ export async function runIcpGenerationAgent(
     intake,
     completeness,
     is_refresh,
-    researchLimitedNote: research.limitedNote,
+    researchLimitedNote:
+      researchPlan.skipReason || researchPlan.descriptorNote + research.limitedNote,
     truncatedPageCount,
     regeneration_notes,
   })
@@ -338,24 +361,44 @@ async function fetchUploadedRefDocs(
 
 // ─── Research query builder ───────────────────────────────────────────────────
 
+// Splits text into sentences and keeps whole ones up to a word budget.
+//
+// WHY WHOLE SENTENCES. The previous version took the first N words flat, which cut mid
+// clause and left a dangling fragment on the end of the search term. The one live
+// ideal-client answer that passes the usability check below produced
+// "... 15-80 staff. Usually the founder is", and those last four words are a subject
+// with no predicate. They are noise to a search engine and they were in every query.
+//
+// If the FIRST sentence alone is over budget there is nothing to keep whole, so it is cut
+// at the budget as before. That is the honest fallback, not a special case.
+function firstSentences(text: string, maxWords: number): string {
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0)
+  const kept: string[] = []
+  let words = 0
+  for (const sentence of sentences) {
+    const n = sentence.split(/\s+/).filter(Boolean).length
+    if (kept.length > 0 && words + n > maxWords) break
+    kept.push(sentence.trim())
+    words += n
+    if (words >= maxWords) break
+  }
+  return kept.join(' ').split(/\s+/).filter(Boolean).slice(0, maxWords).join(' ').trim()
+}
+
 // Condenses a free-text intake answer into a short search fragment.
-// Search engines degrade badly on long natural-language strings, so we take the
-// leading words only. Returns '' when the answer is too thin to be worth searching,
-// which is what makes the caller fall back to a description-only query rather than
-// to a hardcoded assumption about the client's industry.
+// Search engines degrade badly on long natural-language strings, so we take the leading
+// sentences only. Returns '' when the answer is too thin to be worth searching, which is
+// what makes the caller fall back rather than assume anything about the client's industry.
 function condense(text: string, maxWords: number): string {
-  return text
-    .replace(/["\u2018\u2019\u201c\u201d]/g, ' ')
+  const cleaned = text
+    .replace(/["‘’“”]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     // Intake answers are written in the first person ("We supply hot school meals to
     // primary schools"). The leading clause is noise in a search engine, so drop it
     // and keep the subject matter. Nothing here depends on the words that follow.
     .replace(/^(we|our team|our company|i)\s+(are|is|do|help|supply|provide|offer|sell|deliver|work with|specialise in|specialize in|run)\s+/i, '')
-    .split(' ')
-    .slice(0, maxWords)
-    .join(' ')
-    .trim()
+  return firstSentences(cleaned, maxWords)
 }
 
 // A condensed intake answer is USABLE as a search descriptor only if it reads as a
@@ -371,10 +414,10 @@ function condense(text: string, maxWords: number): string {
 // Both criteria are category-level. Neither names an industry, a buyer archetype or a
 // service type, so the check behaves the same for any client in any market.
 //
-// The failure is deliberately asymmetric. A false reject falls back to the service
-// description, which is still a real search term. A false accept sends a sentence of
-// narrative prose to a search engine and the research comes back empty, which is the
-// failure this is here to stop.
+// The failure is deliberately asymmetric, but NOT in the direction it used to be. A false
+// reject now costs research entirely (see resolveBuyerDescriptor), where it used to fall
+// through to the service description. That is the point: a wrong population researched
+// confidently is worse than no population researched at all.
 
 // Criterion one: the descriptor must open with a noun phrase.
 // A subject pronoun has no antecedent a search engine can resolve, and a subordinating
@@ -394,24 +437,173 @@ const NON_DESCRIPTOR_OPENERS = new Set([
 // "companies we sell to", and that is still a descriptor.
 const FIRST_PERSON_SINGULAR = /\b(i|me|my|mine|myself)\b/i
 
-// Below this a descriptor carries no more information than the generic fallback already
-// does, so there is nothing to gain by interpolating it.
+// Applies the two criteria above. Shared, because a free-text intake answer and an
+// extracted recipient phrase must both read as a population, but they do NOT share a
+// length floor. See the two constants below.
+function readsAsPopulation(text: string): boolean {
+  const words = text.split(/\s+/).filter(Boolean)
+  if (words.length === 0) return false
+
+  const firstWord = words[0].toLowerCase().replace(/[^a-z']/g, '')
+  if (NON_DESCRIPTOR_OPENERS.has(firstWord)) return false
+
+  return !FIRST_PERSON_SINGULAR.test(text)
+}
+
+// Below this a free-text answer carries no more information than a generic term already
+// does. It exists to reject thin prose: "they needed support" is three words of narrative
+// and says nothing about a population.
 const MIN_DESCRIPTOR_WORDS = 3
 
+// The floor for an EXTRACTED recipient is lower, and deliberately so. A recipient phrase
+// is already a noun phrase by construction, so shortness means precision rather than
+// thinness: "B2B consultants" is two words and is exactly the population to research,
+// where the three-word floor rejected it and skipped research for a client whose buyer
+// the intake names perfectly clearly. Applying a prose floor to a parsed phrase measures
+// the wrong thing.
+const MIN_RECIPIENT_WORDS = 2
+
 // Returns the descriptor when it is usable as a search term, and '' when it is not.
-// '' is what makes the caller fall back, so an unusable answer and a missing answer take
-// the same path. Exported for tests.
+// Exported for tests.
 export function usableDescriptor(condensed: string): string {
   const words = condensed.split(/\s+/).filter(Boolean)
   if (words.length < MIN_DESCRIPTOR_WORDS) return ''
-
-  const firstWord = words[0].toLowerCase().replace(/[^a-z']/g, '')
-  if (NON_DESCRIPTOR_OPENERS.has(firstWord)) return ''
-
-  if (FIRST_PERSON_SINGULAR.test(condensed)) return ''
-
-  return condensed
+  return readsAsPopulation(condensed) ? condensed : ''
 }
+
+// ─── Buyer descriptor resolution ──────────────────────────────────────────────
+
+// THE DEFECT THIS REPLACES, measured across three ICP generations on 2026-08-27/28.
+//
+// `const buyer = cloneClient || whatYouDo` fell back to the SERVICE DESCRIPTION when the
+// ideal-client answer was unusable. A service description names what the client sells, not
+// who buys it, so the buyer-population queries asked about the wrong thing entirely. The
+// live query read "<service description> typical company size revenue headcount profile
+// 2025", which is not a population a search engine can serve, and research came back empty
+// on all four queries for four of the five organisations.
+//
+// The service description is still the right place to look, but for the RECIPIENT inside
+// it rather than for the whole string. Every service description names who it is for:
+// "... to founder-led businesses", "... into hospitals, care homes", "help B2B
+// consultants ...". Extracting the complement of a recipient marker is a grammatical rule
+// and holds in any industry.
+
+export type BuyerDescriptorSource =
+  /** `clients_clone` — the field that actually asks who the buyer is. */
+  | 'ideal_client'
+  /** The recipient named inside `company_what_you_do`. */
+  | 'service_recipient'
+  /** Neither yielded a population. Research is skipped rather than guessed. */
+  | 'none'
+
+export interface BuyerDescriptor {
+  /** The search term. '' exactly when source is 'none'. */
+  text: string
+  source: BuyerDescriptorSource
+}
+
+// Recipient markers, most explicit first. All are closed-class function words or the
+// small set of verbs that take a beneficiary. Nothing here names an industry or a buyer.
+//
+// ORDER IS LOAD-BEARING. The prepositions are tried before the verbs because a service
+// description commonly contains both: "We sell medical mattresses into hospitals" matches
+// "sell" earlier in the string than "into", and matching on "sell" returns the PRODUCT
+// ("medical mattresses into hospitals") instead of the buyer. Measured on the live
+// intake: preposition-first is what turns that case from a product string into
+// "hospitals, care homes".
+const RECIPIENT_MARKERS: RegExp[] = [
+  /\b(?:to|into|for)\s+/i,
+  /\b(?:help|helps|helping|serve|serves|serving|support|supports|supporting)\s+/i,
+  /\bwith\s+/i,
+]
+
+// Tokens that cannot continue a noun phrase naming a population. The extraction stops at
+// the first one, so an adjunct clause after the recipient is dropped rather than searched.
+// Closed-class: prepositions that open an adjunct, subordinators, and relativisers.
+const RECIPIENT_BOUNDARY_FUNCTION_WORDS =
+  'on|through|by|using|via|across|from|so|who|which|that|because|when|while|and then'
+
+// Generic English verbs that open a predicate about the recipient rather than continuing
+// to name them. "help B2B consultants GET more meetings" names the buyer in the two words
+// before the verb; without this the phrase runs on into the benefit being sold and the
+// query asks about the outcome instead of the population.
+//
+// THIS ONE IS A HEURISTIC AND THE OTHER LIST IS NOT, which is why they are separate.
+// Function words are a closed class and can be enumerated. Verbs cannot, so this list is
+// the common ones and will miss others. The miss is safe by construction: an unrecognised
+// verb leaves a LONGER descriptor, capped at MAX_RECIPIENT_WORDS, which is the behaviour
+// before this list existed. It cannot produce a different population, only a wordier
+// version of the right one.
+//
+// Every verb here is industry-neutral. None names a service, a sector or a buyer type,
+// so the boundary falls in the same grammatical place for any client in any market.
+const RECIPIENT_BOUNDARY_VERBS =
+  'get|gets|getting|achieve|achieves|grow|grows|scale|scales|reduce|reduces|' +
+  'increase|increases|improve|improves|save|saves|win|wins|build|builds|run|runs|' +
+  'manage|manages|find|finds|generate|generates|become|becomes|avoid|avoids|' +
+  'stop|stops|make|makes|hit|hits|move|moves|turn|turns|keep|keeps'
+
+const RECIPIENT_BOUNDARY = new RegExp(
+  `\\b(?:${RECIPIENT_BOUNDARY_FUNCTION_WORDS}|${RECIPIENT_BOUNDARY_VERBS})\\b`, 'i')
+
+// A recipient phrase longer than this is no longer naming a population, it is describing
+// the engagement. Caps the damage when no boundary token appears.
+const MAX_RECIPIENT_WORDS = 8
+
+// Pulls the recipient out of a service description. Returns '' when the description names
+// no recipient, which is a real outcome and not an error: "We make industrial fasteners"
+// genuinely does not say who buys them.
+// Exported for tests.
+export function recipientFromServiceDescription(raw: string): string {
+  const text = raw.replace(/["‘’“”]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+
+  for (const marker of RECIPIENT_MARKERS) {
+    const match = marker.exec(text)
+    if (!match) continue
+
+    // Everything after the marker, cut at the end of its own sentence.
+    let tail = text.slice(match.index + match[0].length).split(/[.!?;:]/)[0]
+
+    const boundary = RECIPIENT_BOUNDARY.exec(tail)
+    if (boundary) tail = tail.slice(0, boundary.index)
+
+    const phrase = tail
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, MAX_RECIPIENT_WORDS)
+      .join(' ')
+      // "etc" and a trailing comma are list punctuation, not part of the population.
+      .replace(/[,\s]*\betc\.?$/i, '')
+      .replace(/[,\s]+$/, '')
+      .trim()
+
+    const words = phrase.split(/\s+/).filter(Boolean)
+    if (words.length >= MIN_RECIPIENT_WORDS && readsAsPopulation(phrase)) return phrase
+  }
+
+  return ''
+}
+
+// Resolves the population the research is about, in the order the intake actually answers
+// the question. Exported for tests and for the proof harness.
+export function resolveBuyerDescriptor(intake: IntakeRow[]): BuyerDescriptor {
+  const val = (key: string) =>
+    intake.find(r => r.field_key === key)?.response_value?.trim() ?? ''
+
+  // 1. The field that asks the question. When it is answered with a population, use it.
+  const idealClient = usableDescriptor(condense(val('clients_clone'), 12))
+  if (idealClient) return { text: idealClient, source: 'ideal_client' }
+
+  // 2. Otherwise the recipient named inside the service description.
+  const recipient = recipientFromServiceDescription(val('company_what_you_do'))
+  if (recipient) return { text: recipient, source: 'service_recipient' }
+
+  // 3. Nothing in intake names a population. The caller skips research and says so.
+  return { text: '', source: 'none' }
+}
+
+// ─── Geography ────────────────────────────────────────────────────────────────
 
 // Country-code top-level domains that genuinely signal where a business operates.
 // This is an allowlist on purpose. The ccTLDs sold as generic vanity domains (.io, .ai,
@@ -458,62 +650,131 @@ export function geographyFromIntake(url: string): string {
   return COUNTRY_BY_CCTLD[labels[labels.length - 1]] ?? ''
 }
 
+// ─── Research plan ────────────────────────────────────────────────────────────
+
 // Joins query fragments, dropping the ones that are empty. Without this an absent
 // geography hint leaves a double space in the middle of every query string.
 function q(...parts: string[]): string {
   return parts.filter(s => s.trim().length > 0).join(' ').replace(/\s+/g, ' ').trim()
 }
 
-// Derives 4 targeted search queries from the client's intake data.
+export interface ResearchPlan {
+  /** The queries to run. Empty exactly when skipped is true. */
+  queries: string[]
+  /** True when intake supplied no buyer population, so nothing should be searched. */
+  skipped: boolean
+  /**
+   * Operator-facing explanation, appended to suggestion_reason. '' when not skipped.
+   * This is the whole point of the type: "research was skipped because intake did not
+   * name a buyer" and "research ran and found nothing" are different statements, and only
+   * the first one tells the operator what to do about it.
+   */
+  skipReason: string
+  /**
+   * Operator-facing note naming the population that was researched, emitted when the
+   * descriptor did NOT come from the ideal-client field. '' otherwise.
+   *
+   * WHY THIS EXISTS. A service description names who the service is DELIVERED to, which
+   * is usually but not always who BUYS it. On the live school-meals client the service is
+   * delivered to children and bought by the state, so the recipient is a real population
+   * and the wrong one. No category-level rule separates those two without world
+   * knowledge, so the fallback is not made cleverer. It is made VISIBLE: the operator is
+   * told which population was researched and can see at a glance that it is wrong.
+   * A silently wrong population researched confidently is the failure mode this whole
+   * change is about, and it would otherwise reappear here in a smaller form.
+   */
+  descriptorNote: string
+  /** Where the buyer descriptor came from. Recorded so the note can name the field. */
+  buyerSource: BuyerDescriptorSource
+}
+
+// Derives targeted search queries from the client's intake data, or declines to.
+//
 // Queries cover: buyer pain points, buying triggers, buyer firmographics, and the
 // client's competitive landscape. Each one informs a distinct part of the ICP.
 //
-// Every query interpolates the client's own intake text. Nothing here names an
-// industry, a service type or a buyer archetype. An earlier version selected between
-// two hardcoded consulting literals on each branch, so intake could not change the
-// query: the .length checks gated which literal was used, and the intake values were
-// never interpolated. That put MargenticOS's own competitive set into every client's
-// research, whatever business the client was in.
-// Exported for tests: the industry-agnosticism guarantee is only meaningful if
-// something asserts that intake text actually reaches the query strings.
-export function buildResearchQueries(intake: IntakeRow[]): string[] {
+// Every query interpolates the client's own intake text. Nothing here names an industry,
+// a service type or a buyer archetype. An earlier version selected between two hardcoded
+// consulting literals on each branch, so intake could not change the query, which put
+// MargenticOS's own competitive set into every client's research.
+export function buildResearchPlan(intake: IntakeRow[]): ResearchPlan {
   const val = (key: string) =>
     intake.find(r => r.field_key === key)?.response_value?.trim() ?? ''
 
-  // Every intake answer used as a search term goes through the same usability check, so
-  // an off-question answer takes the same path as a missing one.
-  const whatYouDo   = usableDescriptor(condense(val('company_what_you_do'), 12))
-  const cloneClient = usableDescriptor(condense(val('clients_clone'), 12))
-  const trigger     = condense(val('clients_trigger'), 12)
+  const buyer = resolveBuyerDescriptor(intake)
+
+  // NO BUYER, NO RESEARCH. Three of the four queries are about the buyer population, and
+  // the fourth is only useful alongside them. Sending them with a service description in
+  // the buyer's place is what produced empty research on three consecutive generations,
+  // reported to the operator as "web search returned limited results" — which reads as a
+  // provider problem and is not actionable. Skipping and saying why is.
+  if (buyer.source === 'none') {
+    return {
+      queries: [],
+      skipped: true,
+      descriptorNote: '',
+      buyerSource: 'none',
+      skipReason:
+        ' ⚠️ Web research was SKIPPED, not attempted and failed. The intake did not supply ' +
+        'anything naming a buyer population: the ideal-client answer reads as narrative ' +
+        'rather than as a description of who buys, and the service description does not say ' +
+        'who the service is delivered to. Every section below therefore comes from intake ' +
+        'and framework logic only, with no live market data. To change that, the ' +
+        'ideal-client answer needs to name a population, for example a role together with ' +
+        'a kind of organisation. Regenerating without changing the intake will skip ' +
+        'research again.',
+    }
+  }
+
+  // The trigger is a search fragment in its own right and gets the same usability check.
+  // WITHOUT THIS the raw answer reached the provider verbatim: all five live
+  // organisations produced a query 2 opening with narrative prose, including
+  // "They were dealing with feast and famine cycles. Their revenue was all buying trigger
+  // why now". The earlier fix applied the check to the two descriptors and not to this.
+  const trigger = usableDescriptor(condense(val('clients_trigger'), 12))
 
   // The client's own domain, not their currency. See geographyFromIntake.
   const geoHint = geographyFromIntake(val('company_url') || val('assets_website'))
 
-  // The buyer we are researching. Falls back to the service description when the
-  // ideal-client answer is unusable, and to neither when both are.
-  const buyer = cloneClient || whatYouDo
+  // The service the client sells, used only for the competitor query, where the subject
+  // really is the client's own offer rather than the buyer.
+  const service = usableDescriptor(condense(val('company_what_you_do'), 12))
 
   // Query 1: Buyer pain points — the language real buyers use for the problem this
   // client solves. Grounds four_forces.push entries in market reality.
-  const buyerPainQuery = q(buyer || 'B2B buyer', 'challenges problems pain points', geoHint, '2025')
+  const buyerPainQuery = q(buyer.text, 'challenges problems pain points', geoHint, '2025')
 
   // Query 2: Trigger events — what business events cause this buyer to act?
   const triggerQuery = trigger
-    ? q(buyer, trigger, 'buying trigger why now', geoHint)
-    : q(buyer || 'B2B buyer', 'buying trigger events when do they invest', geoHint)
+    ? q(buyer.text, trigger, 'buying trigger why now', geoHint)
+    : q(buyer.text, 'buying trigger events when do they invest', geoHint)
 
   // Query 3: Buyer profile reality check — team size, revenue norms, stage language.
   const buyerProfileQuery = q(
-    buyer || 'B2B buyer', 'typical company size revenue headcount profile', geoHint, '2025')
+    buyer.text, 'typical company size revenue headcount profile', geoHint, '2025')
 
   // Query 4: Competitive landscape — how do others selling THIS CLIENT'S service to
   // THIS CLIENT'S buyer position themselves? Informs disqualifiers and switching costs.
-  const competitorQuery = whatYouDo
-    ? q(whatYouDo, 'providers competitors positioning', geoHint, '2025')
-    : q(buyer || 'B2B', 'suppliers competitors positioning', geoHint, '2025')
+  const competitorQuery = service
+    ? q(service, 'providers competitors positioning', geoHint, '2025')
+    : q(buyer.text, 'suppliers competitors positioning', geoHint, '2025')
 
-  return [buyerPainQuery, triggerQuery, buyerProfileQuery, competitorQuery]
+  return {
+    queries: [buyerPainQuery, triggerQuery, buyerProfileQuery, competitorQuery],
+    skipped: false,
+    skipReason: '',
+    descriptorNote:
+      buyer.source === 'service_recipient'
+        ? ` ⚠️ The ideal-client answer did not name a buyer population, so research was ` +
+          `run against "${buyer.text}", taken from who the service description says it is ` +
+          `delivered to. Check that this is who actually BUYS. Where a service is ` +
+          `delivered to one party and bought by another, the research below is about the ` +
+          `wrong one, and the fix is to answer the ideal-client question with a population.`
+        : '',
+    buyerSource: buyer.source,
+  }
 }
+
 
 // ─── Prompt construction ──────────────────────────────────────────────────────
 
@@ -524,11 +785,14 @@ function buildUserMessage(params: {
   patterns: PatternRow[]
   completeness: number
   research: ResearchBundle
+  /** True when no search ran because intake named no buyer. Not the same as a search
+   *  that ran and found nothing, and the prompt must not describe it as one. */
+  researchSkipped: boolean
   refDocs: UploadedRefDoc[]
   websitePages: WebsitePageContext[]
   regeneration_notes: RegenerationNotes | undefined
 }): string {
-  const { intake, existingDocument, patterns, completeness, research, refDocs, websitePages } = params
+  const { intake, existingDocument, patterns, completeness, research, researchSkipped, refDocs, websitePages } = params
 
   // Group intake responses by section for readability in the prompt.
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
@@ -583,8 +847,20 @@ function buildUserMessage(params: {
       `in the ICP. If research findings conflict with intake data, do NOT silently override ` +
       `intake. Instead, use the intake data as primary and state the conflict in the text of ` +
       `the field it affects, so a reader of the document can see it.`
-    : '\n\n---\n\n## WEB RESEARCH\n\nNo usable research results available. ' +
-      'Base your analysis entirely on intake data and framework logic.'
+    : researchSkipped
+      // The model used to be told only "no usable research results available", and it
+      // reported that back in its reasoning as research having been run and returned
+      // nothing. That was never true when the real cause was a missing buyer descriptor,
+      // and the document read as though the market had no data rather than as though we
+      // had not asked. Say which of the two happened.
+      ? '\n\n---\n\n## WEB RESEARCH\n\nNo web research was run for this document. ' +
+        'The intake did not name a buyer population to research, so no search was ' +
+        'attempted. Do NOT state or imply that research was performed, that it returned ' +
+        'no results, or that no market data exists. Base your analysis entirely on intake ' +
+        'data and framework logic, and where a section would normally be grounded in ' +
+        'market research, say that it is derived from the intake alone.'
+      : '\n\n---\n\n## WEB RESEARCH\n\nWeb research ran but returned no usable results. ' +
+        'Base your analysis entirely on intake data and framework logic.'
 
   const websiteBlock = formatWebsiteContextForPrompt(websitePages)
 

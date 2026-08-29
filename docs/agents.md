@@ -125,20 +125,60 @@ Inputs:
     before the research block. Note the upstream limit: each page was cut at 3,000
     characters when it was FETCHED (src/lib/intake/fetch-website.ts), so the agent sees
     everything that was stored, and what was stored may already be short.
-  - 4 web research queries derived from intake data (buyer pain, trigger events, buyer profile, competitive landscape)
+  - 4 web research queries derived from intake data (buyer pain, trigger events, buyer
+    profile, competitive landscape) — OR NONE AT ALL. See the skip path below.
 
-How the 4 research queries are built (buildResearchQueries, rewritten 2026-08-28, ADR-043):
-  - The buyer descriptor is the ideal-client answer if `usableDescriptor` accepts it, else
-    the service description, else a generic B2B fallback. `usableDescriptor` rejects an
-    answer that opens with a subject pronoun or a subordinating conjunction, one that
-    carries a first-person singular marker, and one under three words. It replaced a plain
-    emptiness check that could not tell a thin answer from an off-question one.
-  - Geography comes from the ccTLD of the client's own domain (company_url, else
-    assets_website) and from nothing else. It used to come from currency, which put a whole
-    currency zone into a single-country client's queries. A generic TLD yields no
-    geographic hint rather than a wrong one.
-  - To see what any organisation's queries actually are, before and after the rewrite:
-      dotenv -e .env.local -- npx tsx scripts/prove-research-queries.ts
+How the research queries are built (buildResearchPlan, rewritten 2026-08-29, ADR-043):
+
+  THE BUYER DESCRIPTOR is resolved by `resolveBuyerDescriptor`, in this order, and its
+  source is recorded on the plan because the operator needs to know which one was used:
+    1. `ideal_client`      — `clients_clone`, when `usableDescriptor` accepts it. This is
+                             the field that actually asks who the buyer is.
+    2. `service_recipient` — the RECIPIENT named inside `company_what_you_do`, extracted by
+                             `recipientFromServiceDescription`. A service description names
+                             who it is for after a recipient marker ("... to founder-led
+                             businesses", "... into hospitals, care homes", "help B2B
+                             consultants ..."). Prepositions are tried before beneficiary
+                             verbs, because "We sell mattresses into hospitals" matches
+                             "sell" earlier and that returns the product, not the buyer.
+    3. `none`              — nothing named a population. Research is SKIPPED.
+
+  WHY NOT THE SERVICE DESCRIPTION ITSELF. Until 2026-08-29 the fallback was the whole of
+  `company_what_you_do`, which describes what the client SELLS, not who BUYS it. The live
+  query read "<service description> typical company size revenue headcount profile 2025",
+  which is not a searchable population, and three consecutive ICP generations reported
+  research returning nothing.
+
+  THE SKIP PATH is the point of the rewrite. With no buyer descriptor the agent sends
+  NOTHING to the provider and `suggestion_reason` says research was skipped and why.
+  "Research was skipped because intake never named a buyer" and "research ran and found
+  nothing" are different facts about a document and only the first tells the operator what
+  to do. The prompt is told the difference too, and is instructed not to claim research
+  ran — the model was previously reporting a search that never happened.
+
+  THE TRIGGER gets the same usability check as the descriptors, added 2026-08-29. Before
+  that it was condensed but never checked, so all five live organisations sent a query 2
+  opening with narrative prose ("They were dealing with feast and famine cycles. Their
+  revenue was all buying trigger why now").
+
+  DESCRIPTOR PROVENANCE IS REPORTED. When the descriptor came from `service_recipient`,
+  `suggestion_reason` names the population that was researched. A service delivered to one
+  party and bought by another yields a real population and the wrong one, and no
+  category-level rule separates those without world knowledge. See BACKLOG for the intake
+  field that would fix it properly.
+
+  GEOGRAPHY comes from the ccTLD of the client's own domain (company_url, else
+  assets_website) and from nothing else. It used to come from currency, which put a whole
+  currency zone into a single-country client's queries. A generic TLD yields no geographic
+  hint rather than a wrong one.
+
+  TO SEE WHAT ANY ORGANISATION'S QUERIES ACTUALLY ARE, before and after:
+      npx dotenv -e .env.local -- npx tsx scripts/prove-research-queries.ts
+  The "before" column is sliced out of origin/main by
+  scripts/regen-before-research-queries.ts, not retyped, so it is the code that shipped.
+
+  THE POSITIONING AGENT HAS NOT HAD THIS FIX. Its own buildResearchQueries still falls back
+  to raw prose and still derives geography from currency. See BACKLOG.
 
 Output gates (run after the JSON parses, before anything is written):
   - scrubAITellsDeep + assertNoDashes, as before.

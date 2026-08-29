@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { buildResearchQueries as buildIcpQueries } from '../icp-generation-agent'
+import { buildResearchPlan } from '../icp-generation-agent'
 import { buildResearchQueries as buildPositioningQueries } from '../positioning-generation-agent'
+
+// The ICP agent may now DECLINE to search when intake names no buyer population, so its
+// entry point returns a plan rather than a bare array. This adapter keeps the shared
+// agnosticism assertions below applicable to both agents. The skip path itself is covered
+// in research-query-usability.test.ts.
+const buildIcpQueries = (intake: Parameters<typeof buildResearchPlan>[0]) =>
+  buildResearchPlan(intake).queries
 
 // These tests guard the industry-agnosticism rule in CLAUDE.md at the point it was
 // broken: the web research queries. The previous implementation chose between two
@@ -71,11 +78,19 @@ describe('research query builders are industry-agnostic', () => {
     })
   }
 
-  it('still produces usable queries when intake is empty', () => {
-    for (const build of [buildIcpQueries, buildPositioningQueries]) {
-      const queries = build([])
-      expect(queries).toHaveLength(4)
-      for (const q of queries) expect(q.trim().length).toBeGreaterThan(0)
-    }
+  it('the positioning agent still produces usable queries when intake is empty', () => {
+    const queries = buildPositioningQueries([])
+    expect(queries).toHaveLength(4)
+    for (const q of queries) expect(q.trim().length).toBeGreaterThan(0)
+  })
+
+  it('the ICP agent skips rather than searching a generic population on empty intake', () => {
+    // Deliberately NOT the same contract as positioning. Three of the four ICP queries are
+    // about the buyer, so with no buyer there is nothing worth asking. Positioning's
+    // queries are about the client's own service and still mean something without one.
+    // See BACKLOG: the positioning builder has not had this fix applied.
+    const plan = buildResearchPlan([])
+    expect(plan.skipped).toBe(true)
+    expect(plan.queries).toEqual([])
   })
 })
