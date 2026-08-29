@@ -50,6 +50,51 @@ a gate nobody has tested. NONE FLIPS ITSELF and none warns when the date passes.
 week's logs, decide, then change one constant. Record what the logs showed in the full
 entry when you do, and delete the line from this block.
 
+## VERIFIED LIVE: THE CASE 3 SKIP PATH, AND ONE THING IT REVEALED (2026-08-29)
+
+A real ICP generation was run against MargenticOS 74243c62 (archived, dormant since June)
+to confirm the skip path end to end. Suggestion 93e09f5a-aae4-4c2f-918b-a237bfd862db,
+status pending, 123 seconds, claude-opus-4-6.
+
+ALL THREE CHECKS PASSED. suggestion_reason carries the SKIPPED sentence; the model emitted
+the unresolved_fields banner entry on tier_1.buyer_profile as instructed, with a
+question_to_settle_it that names the gap; and no sentence anywhere in the document claims
+research ran, returned nothing, or that no market data exists. Every occurrence of the word
+"research" in the document is either a prospect-research evidence_to_find signal or the
+unresolved_fields explanation itself.
+
+[phase2] THE FINDING. The model's banner reads "The intake did not name a buyer population
+beyond 'B2B consultants'". It found that phrase, and the builder did not, because
+resolveBuyerDescriptor reads only `clients_clone` and `company_what_you_do`, and this
+organisation's `company_what_you_do` is EMPTY. The phrase is in `offer_structure`:
+"Cold email outreach for B2B consultants."
+
+So the skip was correct under the current rules and arguably avoidable. Running
+recipientFromServiceDescription over `offer_structure` for all five organisations:
+
+    MargenticOS 74243c62   "B2B consultants"                        <- exactly right
+    DRY RUN TEST           "a retainer where one of us is embedded"
+    Simcare                "buying a sample"
+    360 Bia Og             "an extremely large market"
+    MargenticOS 0ed34697   "do an intake form, and give them loads"
+
+ONE GOOD, FOUR USELESS, and that is the whole decision. `offer_structure` asks how the
+engagement runs, so it describes a PROCESS, not a buyer. The four useless answers would
+never actually be reached, because a third source is only consulted when the first two
+fail and those four all resolve earlier. So adding it would fix one organisation today and
+cost nothing today.
+
+NOT DONE, because that reasoning is a bet that the failure mode always co-occurs with the
+good case, and there is exactly one observation supporting it. The next client whose
+`company_what_you_do` is empty is equally likely to get "buying a sample" as a buyer
+population, and a wrong population researched confidently is the failure ADR-044 exists to
+stop. It would also weaken the skip path a day after it was built.
+
+DECIDE IT WITH MORE DATA, not with instinct. Revisit when there are more organisations with
+an empty `company_what_you_do`, or fold it into INTAKE V2 Q1, which removes the need
+entirely by asking who pays directly.
+
+
 ## INTAKE V2: THE FOUR QUESTIONS, AS A REQUIREMENT (2026-08-29, branch skip-visibility)
 
 [pre-c1] THIS IS THE BUILDABLE FORM OF "RESTRUCTURE INTAKE". Each question below was

@@ -3836,6 +3836,13 @@ query that returns nothing looks exactly like a good query about an obscure mark
   about the buyer, where three of four positioning queries are about the client's own
   service, for which `company_what_you_do` is correct rather than a bug.
 
+**VERIFIED LIVE 2026-08-29.** A real ICP generation against MargenticOS 74243c62, the
+organisation that triggers the skip, confirmed all three surfaces: suggestion_reason states
+SKIPPED, the model emitted the unresolved_fields banner entry on tier_1.buyer_profile, and
+no sentence in the generated document claims research ran or returned nothing. Suggestion
+93e09f5a. See BACKLOG "VERIFIED LIVE: THE CASE 3 SKIP PATH" for the one finding it turned
+up, which is that `offer_structure` held a usable buyer descriptor the builder does not read.
+
 **Alternatives rejected.**
 
 - ASK THE CLIENT A NEW INTAKE QUESTION. Correct long-term and useless now: intake is
