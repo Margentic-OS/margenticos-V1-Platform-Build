@@ -62,6 +62,16 @@
 // Differs 1: NO SOURCE CALLS. Findings come off the row, so Apollo, Apify, the website
 // and web search are never touched. That is what a reuse run does too.
 //
+// Differs 3: THE MESSAGING DOCUMENT CAN BE PINNED, and for a comparison it must be.
+// By default the production rule applies: the active AND client-approved document, via
+// fetchApprovedMessagingDoc. --messaging-doc-id=<uuid> reads a named document instead.
+//
+// The brief the writer is given is the other half of what it produces. A run against a
+// different document is not a rerun of the writer, it is a comparison of two things at
+// once, and the difference cannot afterwards be attributed to either. So the document id
+// and version are RECORDED PER PROSPECT, and a comparison across two runs should assert
+// they match before reading anything else into the copy.
+//
 // Differs 2: RUNS SERIALLY. Production fans out. Serial gives the prompt cache the best
 // possible hit rate, so the measured cost here is a FLOOR: a concurrent batch pays a few
 // extra cache writes at the head. Stated because the cost figure is a deliverable.
@@ -215,6 +225,14 @@ interface ProspectRecord {
   prospect_id: string
   organisation_id: string
   variant_id: string
+  /**
+   * The document the writer was briefed with. RECORDED because it is the other half of
+   * what the writer produced: two runs against different documents are not comparable,
+   * and this is what lets a later comparison prove they were the same before reading
+   * anything into the copy.
+   */
+  messaging_doc_id: string
+  messaging_doc_version: string | null
   /** The research result the findings were reused from, and how many it carried. */
   source_result_id: string
   candidate_count: number
@@ -263,11 +281,50 @@ async function readProspectIds(supabase: SupabaseClient, withQuestion: boolean, 
   return (data ?? []).map(r => r.id as string)
 }
 
+/**
+ * The messaging document the writer is briefed with.
+ *
+ * Pinned: read by id, WITHOUT the active-and-approved filter, because the document a
+ * baseline needs is usually one that has since been archived. Unpinned: the production
+ * rule exactly, by calling the function production calls.
+ */
+async function loadMessaging(
+  supabase: SupabaseClient,
+  clientId: string,
+  segmentId: string | null,
+  pinnedDocId: string | null,
+): Promise<{ content: MessagingContent; doc_id: string; version: string | null }> {
+  if (!pinnedDocId) {
+    const doc = await fetchApprovedMessagingDoc(supabase as never, clientId, segmentId)
+    return { content: doc.content as MessagingContent, doc_id: doc.doc_id, version: null }
+  }
+  const { data, error } = await supabase
+    .from('strategy_documents')
+    .select('id, content, version, organisation_id, document_type')
+    .eq('id', pinnedDocId)
+    .single()
+  if (error || !data) throw new Error(`pinned messaging document not found: ${pinnedDocId}`)
+  // Agent isolation, per CLAUDE.md: a pinned id is operator input and must still be
+  // proved to belong to this client before its copy is put in front of this prospect.
+  if (data.organisation_id !== clientId) {
+    throw new Error(`pinned document ${pinnedDocId} belongs to another organisation`)
+  }
+  if (data.document_type !== 'messaging') {
+    throw new Error(`pinned document ${pinnedDocId} is a ${data.document_type} document, not messaging`)
+  }
+  return {
+    content: data.content as MessagingContent,
+    doc_id: data.id as string,
+    version: (data.version ?? null) as string | null,
+  }
+}
+
 async function runOne(
   supabase: SupabaseClient,
   apiKey: string,
   prospectId: string,
   uniqueness: BatchUniquenessRegistry,
+  pinnedDocId: string | null,
 ): Promise<ProspectRecord | null> {
   // A PLAIN SELECT, NOT loadProspectContext. That helper stamps prospects.segment_id when
   // it finds it null, which is correct for the agents and is a WRITE. The proxy would
@@ -304,8 +361,8 @@ async function runOne(
     return null
   }
 
-  const messaging = await fetchApprovedMessagingDoc(supabase as never, clientId, ctx.segment_id)
-  const variantId = resolveVariantId(ctx.id, (p.variant_id ?? null) as string | null, messaging.content as MessagingContent)
+  const messaging = await loadMessaging(supabase, clientId, ctx.segment_id, pinnedDocId)
+  const variantId = resolveVariantId(ctx.id, (p.variant_id ?? null) as string | null, messaging.content)
   const clientCtx = await loadClientContext(clientId, ctx.segment_id)
 
   const attempts: AttemptObservation[] = []
@@ -314,7 +371,7 @@ async function runOne(
     clientName: await loadClientName(supabase as never, clientId),
     ctx,
     candidates: stored.candidates,
-    messagingContent: messaging.content as MessagingContent,
+    messagingContent: messaging.content,
     variantId,
     icpBuyerTitle: clientCtx.buyerTitle,
     uniqueness,
@@ -325,6 +382,8 @@ async function runOne(
     prospect_id:      prospectId,
     organisation_id:  clientId,
     variant_id:       variantId,
+    messaging_doc_id:      messaging.doc_id,
+    messaging_doc_version: messaging.version,
     source_result_id: stored.result_id,
     candidate_count:  stored.candidates.length,
     strong_material:  opening.strong_material,
@@ -362,6 +421,7 @@ function renderText(records: ProspectRecord[], startedAt: string): string {
     L.push('')
     L.push(rule('-'))
     L.push(`PROSPECT ${r.prospect_id}   variant ${r.variant_id}   findings from ${r.source_result_id}`)
+    L.push(`messaging document ${r.messaging_doc_id}${r.messaging_doc_version ? ` v${r.messaging_doc_version}` : ''}`)
     L.push(`candidates ${r.candidate_count}   strong_material ${r.strong_material}   retries ${r.retries_used}   comparisons ${r.comparisons}`)
     L.push(rule('-'))
 
@@ -406,9 +466,10 @@ function renderText(records: ProspectRecord[], startedAt: string): string {
 async function main() {
   const argv = process.argv.slice(2)
   const withQuestion = argv.includes('--with-question')
+  const pinnedDocId = argv.find(a => a.startsWith('--messaging-doc-id='))?.split('=')[1] ?? null
   const ids = argv.filter(a => !a.startsWith('--'))
   if (!withQuestion && ids.length === 0) {
-    console.error('usage: npx tsx --env-file=.env.local scripts/export-writer-run.ts <prospect_id>... | --with-question')
+    console.error('usage: npx tsx --env-file=.env.local scripts/export-writer-run.ts <prospect_id>... | --with-question [--messaging-doc-id=<uuid>]')
     process.exit(2)
   }
 
@@ -417,6 +478,9 @@ async function main() {
 
   const targets = await readProspectIds(supabase, withQuestion, ids)
   console.log(`export-writer-run: ${targets.length} prospects. Writer, floor and judge run per prospect. PAID. Nothing is written.`)
+  console.log(pinnedDocId
+    ? `messaging document PINNED to ${pinnedDocId}. The active-and-approved rule is bypassed.`
+    : 'messaging document resolved by the production rule (active AND client-approved).')
 
   // ONE REGISTRY FOR THE RUN, which is what a production batch has. A per-prospect
   // registry would only ever reserve against itself, so the bridge and question
@@ -427,7 +491,7 @@ async function main() {
   const records: ProspectRecord[] = []
   for (const [i, id] of targets.entries()) {
     console.log(`[${i + 1}/${targets.length}] ${id}`)
-    const rec = await runOne(supabase, apiKey, id, uniqueness)
+    const rec = await runOne(supabase, apiKey, id, uniqueness, pinnedDocId)
     if (rec) {
       records.push(rec)
       console.log(`  judge ${rec.judge_won ? 'WON' : 'lost'}  retries ${rec.retries_used}  $${rec.usd.toFixed(4)}`)
@@ -453,6 +517,8 @@ async function main() {
 
   const summary = {
     started_at: startedAt,
+    messaging_doc_pinned: pinnedDocId,
+    messaging_docs_used: [...new Set(records.map(r => `${r.messaging_doc_id}${r.messaging_doc_version ? ` v${r.messaging_doc_version}` : ''}`))],
     prospects_run: records.length,
     prospects_requested: targets.length,
     judge_wins: won,
