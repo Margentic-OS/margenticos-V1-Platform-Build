@@ -177,8 +177,9 @@ How the research queries are built (buildResearchPlan, rewritten 2026-08-29, ADR
   The "before" column is sliced out of origin/main by
   scripts/regen-before-research-queries.ts, not retyped, so it is the code that shipped.
 
-  THE POSITIONING AGENT HAS NOT HAD THIS FIX. Its own buildResearchQueries still falls back
-  to raw prose and still derives geography from currency. See BACKLOG.
+  THE POSITIONING AGENT NOW SHARES THESE RULES. Ported 2026-08-29 (ADR-045); the descriptor
+  and geography helpers moved to src/lib/agents/research-descriptors.ts so the two builders
+  cannot diverge again.
 
 Output gates (run after the JSON parses, before anything is written):
   - scrubAITellsDeep + assertNoDashes, as before.
@@ -224,7 +225,31 @@ Inputs:
   - Active ICP document (required, used as primary anchor)
   - Existing Positioning document (if is_refresh: true)
   - patterns table (cross-client, read-only)
-  - 4 competitor-focused web research queries
+  - 4 competitor-focused web research queries — OR NONE. See below.
+
+How the research queries are built (buildResearchPlan, ported 2026-08-29, ADR-045):
+  The descriptor, geography and query-assembly rules are SHARED with the ICP agent and live
+  in src/lib/agents/research-descriptors.ts. Read that module's header first: it explains
+  why they are shared rather than copied, which is that they were copied and diverged.
+
+  WHAT DIFFERS FROM THE ICP AGENT. Three of these four queries are about the CLIENT'S OWN
+  SERVICE (who else sells this, what do their case studies say, what do buyers complain
+  about), so `company_what_you_do` is the correct input here and was never the bug. Only
+  query 2 is about the buyer, and it uses the same resolveBuyerDescriptor the ICP agent
+  uses. All four needed the geography fix.
+
+  THE SKIP PATH. With no usable service descriptor the agent sends nothing and
+  suggestion_reason says research was skipped and why. It previously substituted the
+  literal "B2B service providers" and searched anyway, which returns generic results
+  grounded in nothing about this client and reads exactly like research that worked.
+
+  offer_deliverables IS NO LONGER A FALLBACK for the service descriptor. Measured across
+  all five live organisations it is an OUTCOME every time ("A qualified meeting in the
+  diary that flows into pipeline and drives", "contractual obligation"), so it searched
+  the result rather than the category.
+
+  TO SEE THE QUERIES, before and after the port:
+      npx dotenv -e .env.local -- npx tsx scripts/prove-positioning-queries.ts
 
 Output (1 row in document_suggestions):
   field_path:      'full_document'

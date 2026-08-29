@@ -1,9 +1,10 @@
-// AUTO-EXTRACTED from origin/main (ef20336) by scripts/regen-before-research-queries.ts.
+// AUTO-EXTRACTED from ef20336 (ef20336) by scripts/regen-before-research-queries.ts.
 // DO NOT EDIT. Regenerate with:
 //   npx tsx scripts/regen-before-research-queries.ts
 //
-// This is the builder as it SHIPPED, sliced out of the origin/main file rather than
-// retyped, so the "before" column of the proof table is evidence and not a recollection.
+// This is src/agents/icp-generation-agent.ts as it SHIPPED at ef20336, the commit immediately before the
+// fix this proves. Sliced out of that commit rather than retyped, so the "before" column
+// of the proof table is evidence and not a recollection.
 
 export interface IntakeRow {
   field_key: string

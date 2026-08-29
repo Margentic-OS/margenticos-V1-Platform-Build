@@ -1,13 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { buildResearchPlan } from '../icp-generation-agent'
-import { buildResearchQueries as buildPositioningQueries } from '../positioning-generation-agent'
+import { buildResearchPlan as buildIcpPlan } from '../icp-generation-agent'
+import { buildResearchPlan as buildPositioningPlan } from '../positioning-generation-agent'
 
-// The ICP agent may now DECLINE to search when intake names no buyer population, so its
-// entry point returns a plan rather than a bare array. This adapter keeps the shared
-// agnosticism assertions below applicable to both agents. The skip path itself is covered
-// in research-query-usability.test.ts.
-const buildIcpQueries = (intake: Parameters<typeof buildResearchPlan>[0]) =>
-  buildResearchPlan(intake).queries
+// Both agents may now DECLINE to search, so both entry points return a plan rather than a
+// bare array. These adapters keep the shared agnosticism assertions applicable to both.
+// The skip paths themselves are covered in research-query-usability.test.ts and
+// positioning-research-queries.test.ts.
+const buildIcpQueries = (intake: Parameters<typeof buildIcpPlan>[0]) =>
+  buildIcpPlan(intake).queries
+const buildPositioningQueries = (intake: Parameters<typeof buildPositioningPlan>[0]) =>
+  buildPositioningPlan(intake).queries
 
 // These tests guard the industry-agnosticism rule in CLAUDE.md at the point it was
 // broken: the web research queries. The previous implementation chose between two
@@ -78,19 +80,15 @@ describe('research query builders are industry-agnostic', () => {
     })
   }
 
-  it('the positioning agent still produces usable queries when intake is empty', () => {
-    const queries = buildPositioningQueries([])
-    expect(queries).toHaveLength(4)
-    for (const q of queries) expect(q.trim().length).toBeGreaterThan(0)
-  })
-
-  it('the ICP agent skips rather than searching a generic population on empty intake', () => {
-    // Deliberately NOT the same contract as positioning. Three of the four ICP queries are
-    // about the buyer, so with no buyer there is nothing worth asking. Positioning's
-    // queries are about the client's own service and still mean something without one.
-    // See BACKLOG: the positioning builder has not had this fix applied.
-    const plan = buildResearchPlan([])
-    expect(plan.skipped).toBe(true)
-    expect(plan.queries).toEqual([])
+  it('BOTH agents skip rather than searching a generic literal on empty intake', () => {
+    // This was two different contracts for one day, because the ICP agent gained the skip
+    // path and the positioning agent had not been ported yet. It is one contract again.
+    // Neither agent substitutes a hardcoded population or category and searches anyway:
+    // generic results grounded in nothing about this client read exactly like research
+    // that worked, which is the failure both fixes exist to stop.
+    for (const plan of [buildIcpPlan([]), buildPositioningPlan([])]) {
+      expect(plan.skipped).toBe(true)
+      expect(plan.queries).toEqual([])
+    }
   })
 })

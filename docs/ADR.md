@@ -3673,6 +3673,95 @@ are complementary.
 
 ---
 
+## ADR-045: The two document agents share one research-descriptor module, and the positioning agent gains the same skip path
+
+**Date:** 2026-08-29
+**Status:** Accepted.
+
+NOTE ON NUMBERING: taken as 045 on branch positioning-research-queries off main c7d42c1.
+See BACKLOG on ADR numbers racing across parallel branches.
+
+**Context.**
+
+ADR-044 fixed the ICP agent's research queries. The positioning agent builds its own and
+was untouched from the start of the project, so for one day the same intake produced a
+checked query in one document and raw narrative prose in the other. Measured against the
+real intake of all five live organisations before the port, the positioning builder had
+four defects:
+
+1. Query 2 interpolated `clients_clone` RAW into a quoted-phrase search. All five
+   organisations sent prose. One read:
+   `When a problem becomes our problem, that's my aim. let me solve "looking for" OR
+   "need help with" hot school lunches ...`
+2. Geography from CURRENCY, the inference ADR-043 removed from the ICP agent for being the
+   thing CLAUDE.md's geography rule forbids. Every EUR client searched "Europe", including
+   an .ie client whose own domain says Ireland.
+3. No skip path. With no service description it substituted the literal "B2B service
+   providers" and searched anyway.
+4. `service` fell back to `offer_deliverables`. FOUND WHILE MEASURING, not in the brief.
+   That field is an OUTCOME in all five live answers, so one organisation's competitor
+   query searched "A qualified meeting in the diary that flows into pipeline and drives".
+
+**Decision.**
+
+1. THE SHARED RULES MOVE TO `src/lib/agents/research-descriptors.ts`. Both agents import
+   condense, usableDescriptor, recipientFromServiceDescription, resolveBuyerDescriptor,
+   geographyFromIntake and q from one module.
+
+   It is a lib module rather than an agent-to-agent import. An agent importing another
+   agent is what CLAUDE.md's one-file-one-agent rule exists to stop, and it is also how
+   circular imports get built, which pass tsc and vitest and fail only `npm run build`.
+
+2. THE POSITIONING AGENT GAINS THE SAME SKIP PATH, keyed on the SERVICE descriptor rather
+   than the buyer, because three of its four queries are about the client's own service.
+
+3. `offer_deliverables` IS DELETED AS A FALLBACK, not relaxed. A field that answers a
+   different question is not a fallback.
+
+**Why this was a separate change and not part of ADR-044.**
+
+The two builders are not the same shape. Three of four ICP queries are about the BUYER;
+three of four positioning queries are about the CLIENT'S SERVICE, for which
+`company_what_you_do` is correct and was never the bug. Only query 2 needed the buyer fix.
+Folding it into ADR-044 would have hidden that asymmetry and skipped its own before-and-
+after table.
+
+**Two bugs the port surfaced, both the same shape as the original.**
+
+Neither was visible until a second caller exercised the shared code with different inputs.
+Both are cases of a rule that is correct for the field it was written against and wrong for
+the next one:
+
+- `condense` stripped a first-person opener using a FIXED VERB LIST. "We manufacture
+  industrial fasteners" kept its "We", `usableDescriptor` rejected the pronoun opener, and
+  the client got no research at all. A closed list of verbs can never be complete, and its
+  incompleteness failed in the direction of losing research rather than of a worse query.
+  There is now a general second pass that strips a first-person subject and its verb
+  whatever the verb is.
+
+- The three-word PROSE floor was applied to a parsed CATEGORY name and rejected "industrial
+  fasteners". This is the second time that floor has been wrong in this exact way: ADR-044
+  already hit it with the extracted buyer "B2B consultants". There are now two named
+  constants, MIN_PROSE_WORDS and MIN_PHRASE_WORDS, and the floor is passed explicitly at
+  every call site rather than defaulted, so the choice has to be made rather than inherited.
+
+**Consequences.**
+
+- All five live organisations now resolve the SAME buyer descriptor in both agents.
+  Previously the two disagreed for four of the five.
+- One organisation now skips positioning research where it previously sent four queries,
+  one of which searched an outcome phrase and one of which searched narrative prose.
+- Descriptors gain a trailing-function-word trim, so a hard cut at the word budget no
+  longer ends "...on a contractual basis with".
+- The divergent empty-intake contract in research-queries-agnostic.test.ts collapses back
+  to one contract for both agents.
+
+**Alternative rejected.**
+
+IMPORT THE HELPERS FROM THE ICP AGENT DIRECTLY. Smaller diff, no new file. Rejected: it
+makes one agent depend on another, which is the coupling the agent conventions forbid, and
+it would have left the canonical home of a shared rule inside one of its two callers.
+
 ## ADR-044: The ICP research agent declines to search when intake names no buyer, and researches the service RECIPIENT rather than the service
 
 **Date:** 2026-08-29
