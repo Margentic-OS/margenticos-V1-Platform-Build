@@ -776,6 +776,46 @@ export function buildResearchPlan(intake: IntakeRow[]): ResearchPlan {
 }
 
 
+
+// Builds the WEB RESEARCH section of the prompt.
+//
+// THREE STATES, NAMED, and the naming is the point. The model used to be told only "no
+// usable research results available", and it reported that back as research having been
+// run and returned nothing. That was false whenever the real cause was a missing buyer
+// descriptor: the document then read as though the market had no data, when the truth was
+// that we never asked. An operator can act on the second and not on the first.
+//
+// The CASE numbers match the "When no research was run at all" section of
+// docs/prompts/icp-agent.md, which owns the behaviour for each. This function owns only
+// which case is true. If either side gains or loses a case, the other must change in the
+// same commit.
+//
+// Exported for tests: the distinction is only real if something asserts the skip string
+// never says a search ran.
+export function buildResearchBlock(researchSection: string, researchSkipped: boolean): string {
+  if (researchSection) {
+    return `\n\n---\n\n${researchSection}\n\n` +
+      `CASE 1: research ran and returned usable findings. ` +
+      `RESEARCH WEIGHTING RULE: Use research to validate, enrich, and sharpen the language ` +
+      `in the ICP. If research findings conflict with intake data, do NOT silently override ` +
+      `intake. Instead, use the intake data as primary and state the conflict in the text of ` +
+      `the field it affects, so a reader of the document can see it.`
+  }
+
+  if (researchSkipped) {
+    return '\n\n---\n\n## WEB RESEARCH\n\nCASE 3: NO RESEARCH WAS RUN. Nothing was sent ' +
+      'to any search provider, because the intake did not name a buyer population to ' +
+      'research. This is a fact about the intake, not about the market. Follow the ' +
+      '"When no research was run at all" rules: state that the buyer is derived from ' +
+      'intake alone, never that a search returned nothing or that no market data ' +
+      'exists, and add the single unresolved_fields entry those rules specify.'
+  }
+
+  return '\n\n---\n\n## WEB RESEARCH\n\nCASE 2: research ran and returned no usable ' +
+    'results. Base your analysis on intake data and framework logic. Do NOT add an ' +
+    'unresolved_fields entry for this: a search that ran and found nothing is ordinary.'
+}
+
 // ─── Prompt construction ──────────────────────────────────────────────────────
 
 function buildUserMessage(params: {
@@ -837,30 +877,7 @@ function buildUserMessage(params: {
       'Derive what you can from what is available. Flag any significant gaps. Do not hallucinate specifics.'
     : ''
 
-  // Research section: included only when searches returned usable results.
-  // When research conflicts with intake data, your data quality rules apply:
-  // flag the conflict rather than silently overriding either source.
-  const researchSection = formatResearchForPrompt(research)
-  const researchBlock = researchSection
-    ? `\n\n---\n\n${researchSection}\n\n` +
-      `RESEARCH WEIGHTING RULE: Use research to validate, enrich, and sharpen the language ` +
-      `in the ICP. If research findings conflict with intake data, do NOT silently override ` +
-      `intake. Instead, use the intake data as primary and state the conflict in the text of ` +
-      `the field it affects, so a reader of the document can see it.`
-    : researchSkipped
-      // The model used to be told only "no usable research results available", and it
-      // reported that back in its reasoning as research having been run and returned
-      // nothing. That was never true when the real cause was a missing buyer descriptor,
-      // and the document read as though the market had no data rather than as though we
-      // had not asked. Say which of the two happened.
-      ? '\n\n---\n\n## WEB RESEARCH\n\nNo web research was run for this document. ' +
-        'The intake did not name a buyer population to research, so no search was ' +
-        'attempted. Do NOT state or imply that research was performed, that it returned ' +
-        'no results, or that no market data exists. Base your analysis entirely on intake ' +
-        'data and framework logic, and where a section would normally be grounded in ' +
-        'market research, say that it is derived from the intake alone.'
-      : '\n\n---\n\n## WEB RESEARCH\n\nWeb research ran but returned no usable results. ' +
-        'Base your analysis entirely on intake data and framework logic.'
+  const researchBlock = buildResearchBlock(formatResearchForPrompt(research), researchSkipped)
 
   const websiteBlock = formatWebsiteContextForPrompt(websitePages)
 
