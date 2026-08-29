@@ -1,3 +1,4 @@
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/suppression/suppression-list.ts
 //
 // The global do-not-contact list: read, write, and revoke.
@@ -16,7 +17,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 
-type SupabaseServiceClient = SupabaseClient<Database>
+type SupabaseServiceClient = ServiceRoleClient
 
 // The two reasons an address lands on the list. Mirrors the reason CHECK constraint
 // in the migration; changing one means changing the other in the same commit.

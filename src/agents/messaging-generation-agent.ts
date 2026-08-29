@@ -43,6 +43,51 @@ const MAX_TOKENS = 16384
 // Maximum retry attempts on the same angle before moving to fallback angles.
 const MAX_RETRY_ATTEMPTS = 3
 
+/**
+ * Hard ceiling on Anthropic calls per run. THE 8TH CALL IS REFUSED.
+ *
+ * WHY A CALL BUDGET AS WELL AS THE WALL CLOCK. Nothing bounded total calls against the
+ * clock. The structural worst case is 1 first-pass call plus MAX_RETRY_ATTEMPTS retries and
+ * 3 fallback angles for each of 4 slots: 1 + 4 x 6 = 25 sequential calls. One run on
+ * 2026-08-19 took 1,255,370ms, 21 minutes, and produced zero variants.
+ *
+ * THE ARITHMETIC, from durations measured across every run with a recorded call count. The
+ * first call generates all four variants and costs about 75s; each single-variant retry
+ * costs about 26s:
+ *
+ *     total ≈ 75 + 26 x (calls - 1)
+ *
+ *     7 calls ≈ 231s   <- inside the 240s guard, so the budget fires first
+ *     8 calls ≈ 257s   <- past the guard
+ *     9 calls ≈ 283s   <- what the two failed runs on 2026-08-28 actually reached
+ *                          before Vercel killed the function at its 300s ceiling
+ *
+ * So the budget must stop the run before the 8th call starts. Seven calls is the largest
+ * number that completes inside the wall-clock guard.
+ *
+ * THE TWO CONTROLS FAIL DIFFERENTLY AND BOTH ARE KEPT. The wall clock can only ever cut
+ * mid-stream, at an arbitrary point, with a partially generated variant discarded. The
+ * budget stops at a SLOT BOUNDARY: every variant that has already passed is intact, the
+ * remaining slots are recorded as dropped with a truthful reason, and the run reports a
+ * complete picture of what it did. The wall clock stays as the backstop for the case the
+ * budget cannot model, which is a single call running pathologically long.
+ */
+export const MAX_API_CALLS_PER_RUN = 7
+
+/**
+ * Measured cost model, exported so the budget and the wall-clock guard cannot drift apart
+ * silently. Derived from every messaging run that recorded a call count:
+ * 1 call -> 53-84s, 3 -> 128s, 5 -> 197s, 11 -> 317s, 12 -> 354s, 19 -> 543s.
+ */
+export const MEASURED_FIRST_CALL_SECONDS = 75
+export const MEASURED_REPAIR_CALL_SECONDS = 26
+
+/** 240s. Under Vercel's 300s ceiling on this plan, which the route declares. */
+export const AGENT_TIMEOUT_MS = 240 * 1000
+
+/** The structural worst case the budget exists to bound: 1 + 4 slots x (3 retries + 3 fallbacks). */
+export const UNBOUNDED_WORST_CASE_CALLS = 1 + 4 * (MAX_RETRY_ATTEMPTS + 3)
+
 // ─── Angle definitions ────────────────────────────────────────────────────────
 
 // Maps each variant key to its original angle instruction for retry calls.
@@ -208,6 +253,56 @@ interface RunStats {
   durationMs: number
 }
 
+/**
+ * One-line summary of what a run had done at the moment it is called.
+ *
+ * Used by the timeout path so a killed run still records its call count and slot
+ * outcomes. The success path has always had this detail; the failure path had none, which
+ * left the only evidence in provider logs that expire.
+ */
+/**
+ * Thrown when the 240s guard aborts a run. Distinct from a validation failure so the
+ * retry loops can tell "this attempt was bad" from "stop working entirely".
+ */
+class MessagingAbortedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'MessagingAbortedError'
+  }
+}
+
+/**
+ * Stops the retry machinery the moment the guard fires.
+ *
+ * WITHOUT THIS THE ABORT WOULD BE SWALLOWED. Every attempt inside retryVariantSlot is
+ * wrapped in a try/catch that logs and continues to the next attempt, which is correct for
+ * a transport error and completely wrong for an abort: an aborted signal makes every
+ * remaining attempt fail instantly, so the loop would spin through all remaining retries
+ * and fallbacks for every remaining slot, doing no work and reporting each as dropped.
+ * The guard has to be checked explicitly and its error has to be rethrown.
+ */
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    const reason = signal.reason
+    throw new MessagingAbortedError(
+      reason instanceof Error ? reason.message : 'Messaging agent: run aborted by the timeout guard'
+    )
+  }
+}
+
+function summariseRunStats(stats: RunStats, startedAt: number): string {
+  const settled = stats.slotOutcomes
+  const shipped = settled.filter(o => o.result !== 'dropped').length
+  return (
+    `API calls: ${stats.totalApiCalls}. ` +
+    `Slots settled: ${settled.length}/4 (${shipped} shipped). ` +
+    (settled.length > 0
+      ? `Outcomes: ${settled.map(o => `${o.variant}=${o.result}`).join(', ')}. `
+      : '') +
+    `Elapsed: ${Math.round((Date.now() - startedAt) / 1000)}s.`
+  )
+}
+
 // ─── Main agent function ──────────────────────────────────────────────────────
 
 export async function runMessagingGenerationAgent(
@@ -224,17 +319,49 @@ export async function runMessagingGenerationAgent(
     agent_name: 'messaging-generation',
   })
 
-  const AGENT_TIMEOUT_MS = 240 * 1000
+  // AGENT_TIMEOUT_MS is 240s and stays 240s. Vercel's ceiling on this plan is 300 and the
+  // route declares exactly that, so there is no headroom above it to move into.
   let timeoutHandle: NodeJS.Timeout | null = null
 
-  try {
-    timeoutHandle = setTimeout(async () => {
-      const msg = 'Messaging agent: execution exceeded 240s timeout guard — failing gracefully'
-      logger.error(msg, { organisation_id })
-      await agentRun.fail(msg)
-    }, AGENT_TIMEOUT_MS)
+  // THE GUARD ABORTS. It used to only announce.
+  //
+  // The old version called agentRun.fail() and returned. Nothing cancelled the work, so
+  // the agent kept calling Anthropic until Vercel killed the function at 300s. Measured
+  // 2026-08-28: the guard fired at 240s, two more single-variant calls completed, and a
+  // third was in flight when the runtime killed it. On 2026-08-19 a run whose guard had
+  // fired at 240s ran on to 543s and then reported success. A control that does not stop
+  // the thing it is guarding is a monitor wearing a control's name.
+  //
+  // The signal is threaded into every Anthropic call, so an in-flight stream is cut
+  // rather than left to finish and be discarded.
+  const abortController = new AbortController()
 
-    const startedAt = Date.now()
+  // Live, not reconstructed at the end. The timeout path needs to persist what the run
+  // actually did, and the old code built RunStats only on the success path, so a timed-out
+  // run recorded nothing about how many calls it had made. That is why the two failures on
+  // 2026-08-28 were diagnosable only from Vercel logs, which expire.
+  const startedAt = Date.now()
+  const runStats: RunStats = {
+    slotOutcomes: [],
+    totalApiCalls: 0,
+    durationMs: 0,
+  }
+
+  try {
+    timeoutHandle = setTimeout(() => {
+      const msg =
+        'Messaging agent: execution exceeded 240s timeout guard — aborting in-flight work. ' +
+        summariseRunStats(runStats, startedAt)
+      logger.error(msg, {
+        organisation_id,
+        api_calls: runStats.totalApiCalls,
+        slots_settled: runStats.slotOutcomes.length,
+      })
+      // Abort first, then record. Recording is async; aborting must not wait on it.
+      abortController.abort(new Error(msg))
+      runStats.durationMs = Date.now() - startedAt
+      void agentRun.fail(msg)
+    }, AGENT_TIMEOUT_MS)
 
     // Step 1: Fetch intake responses for this client only.
     const intake = await fetchIntakeResponses(supabase, organisation_id)
@@ -311,7 +438,11 @@ export async function runMessagingGenerationAgent(
       organisation_id,
       model: MESSAGING_MODEL,
     })
-    const generatedContent = await callClaude(userMessage)
+    // Counted BEFORE the await so a call aborted mid-flight is still counted. A counter
+    // incremented after the response would report zero for exactly the run that failed.
+    throwIfAborted(abortController.signal)
+    runStats.totalApiCalls++
+    const generatedContent = await callClaude(userMessage, abortController.signal)
 
     // Step 10: Parse the four-variant structure.
     // Expected: { variants: { A: { emails: [...] }, B: { emails: [...] }, C: {...}, D: {...} } }
@@ -331,12 +462,7 @@ export async function runMessagingGenerationAgent(
       sentenceRegistry,
     )
 
-    // Step 12: Initialise run stats. The initial four-variant call counts as 1 API call.
-    const runStats: RunStats = {
-      slotOutcomes: [],
-      totalApiCalls: 1,
-      durationMs: 0,
-    }
+    // Step 12: RunStats is created above, before the guard, and counted live.
 
     for (const key of Object.keys(rawVariants)) {
       if (passedVariants[key]) {
@@ -367,6 +493,10 @@ export async function runMessagingGenerationAgent(
       }
 
       for (const failure of variantFailures) {
+        // Stop before starting a new slot once the guard has fired. Without this the loop
+        // would enter the next slot and throw on its first attempt anyway, but it would
+        // do so after logging a retry that never happened.
+        throwIfAborted(abortController.signal)
         // Recollected on every iteration so each retry sees the variants that have
         // survived up to this point, including ones repaired earlier in this same loop.
         const taken = collectTakenCopy(passedVariants, [preflight.sender_first_name, preflight.org_name])
@@ -377,9 +507,14 @@ export async function runMessagingGenerationAgent(
           organisation_id,
           taken,
           sentenceRegistry,
+          // The first-pass violations for THIS slot. This is the feedback attempt 1 sees.
+          failure.violations,
+          abortController.signal,
+          runStats,
         )
         runStats.slotOutcomes.push(outcome)
-        runStats.totalApiCalls += outcome.apiCallsUsed
+        // NOT `+= outcome.apiCallsUsed`. retryVariantSlot now increments the shared
+        // counter at each call, so adding the returned total here would double-count.
         if (emails !== null) {
           passedVariants[failure.variant] = emails
         }
@@ -1109,11 +1244,42 @@ function renderWordCountReminder(): string {
   const L = EMAIL_WORD_LIMITS
   return [
     `- Email 1: ${L.email1MinWords} to ${L.email1TargetMaxWords} words, hard cap ${L.email1MaxWords}. Under ${L.email1MinWords} is rejected.`,
-    `- Email 2: ${L.email2MinWords} to ${L.email2MaxWords} words, and no longer than Email 1.`,
+    `- Email 2: ${L.email2MinWords} to ${L.email2MaxWords} words. It is NOT chained to Email 1's length.`,
     `- Email 3: ${L.email3MinWords} to ${L.email3MaxWords} words, and no longer than Email 2.`,
     `- Email 4: up to ${L.email4MaxWords} words. No minimum: a short breakup is fine.`,
     '- Counts include the {{first_name}} line and the sign-off name. They exclude the opt-out footer, which the platform adds later.',
   ].join('\n')
+}
+
+/**
+ * Renders the checks the previous attempt actually failed, so a retry is a correction
+ * rather than a fresh sample.
+ *
+ * BEFORE THIS EXISTED, A RETRY WAS TOLD NOTHING. buildSingleVariantUserMessage received
+ * the angle and the taken-copy list and no failure detail at all, so every attempt was an
+ * independent draw from the same distribution. Measured 2026-08-28: variant B failed the
+ * Email 2 word gate at 79, then 68, then 71, then 69 words across four consecutive
+ * attempts, each one a full API call. Nothing in any of those prompts mentioned words.
+ *
+ * The violation strings already carry both numbers, because the gate formats them that
+ * way: "word count 74 is outside the 30 to 85 word range". They are passed through
+ * verbatim rather than summarised, so the model sees the measured value and the target
+ * and does not have to infer either. A direction ("too long") would be a guess.
+ */
+export function buildPriorAttemptBlock(violations: readonly ValidationViolation[]): string {
+  if (violations.length === 0) return ''
+  const lines = violations.map(v => `- Email ${v.email}: ${v.issue}`).join('\n')
+  return `
+
+## WHAT THE PREVIOUS ATTEMPT GOT WRONG
+
+The previous attempt at this variant was rejected by these checks, measured on the text it
+returned. Each line gives the value measured and the target it missed.
+
+${lines}
+
+Fix exactly these. Keep everything the previous attempt got right: this is a correction,
+not a fresh start. Do not shorten or rewrite anything the list above does not name.`
 }
 
 // Builds the user message for a single-variant retry or fallback call.
@@ -1122,6 +1288,10 @@ function buildSingleVariantUserMessage(
   context: VariantGenerationContext,
   angleInstruction: string,
   taken: TakenCopy,
+  // REQUIRED, deliberately not optional. An optional parameter is one a caller can forget,
+  // and forgetting it here silently restores the blind-resample behaviour this fixes.
+  // Pass [] only where there genuinely is no prior attempt.
+  priorViolations: readonly ValidationViolation[],
 ): string {
   const { completenessNote, contextBlocks } = buildBaseContext(context)
 
@@ -1129,6 +1299,7 @@ function buildSingleVariantUserMessage(
   // what the surviving variants already used. Without this block a retried variant
   // collides with them by construction, because it is generated in isolation.
   const avoidBlock = buildAvoidBlock(taken)
+  const priorAttemptBlock = buildPriorAttemptBlock(priorViolations)
 
   return `You are generating a single email sequence variant for the client described in the ICP document provided.
 ${completenessNote}
@@ -1147,6 +1318,7 @@ Generate ONE email sequence variant. The angle assignment for Email 1 is:
 ${angleInstruction}
 
 Apply all rules from the system prompt without exception: the Email 1 paragraph frame, word counts, TOV rules, banned structures, sign-off rules, and the four-email sequence structure (Email 1 observation and what changes, Email 2 pattern proof, Email 3 insight and meeting ask, Email 4 breakup).
+${priorAttemptBlock}
 ${avoidBlock}
 Critical reminders:
 ${renderWordCountReminder()}
@@ -1190,7 +1362,7 @@ Each email object must contain exactly these fields:
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
 
-async function callClaude(userMessage: string): Promise<string> {
+async function callClaude(userMessage: string, signal: AbortSignal): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     throw new Error(
@@ -1206,12 +1378,18 @@ async function callClaude(userMessage: string): Promise<string> {
   // Use streaming to keep the TCP connection alive during long generations.
   // Without streaming, routers and macOS drop connections that look idle after ~180s,
   // even though the server is still working. Tokens arrive continuously in stream mode.
-  const stream = client.messages.stream({
-    model: MESSAGING_MODEL,
-    max_tokens: MAX_TOKENS,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userMessage }],
-  })
+  // The signal is REQUIRED, not optional. It is what makes the 240s guard a control
+  // rather than an announcement: without it an aborted run keeps streaming tokens until
+  // the platform kills the function.
+  const stream = client.messages.stream(
+    {
+      model: MESSAGING_MODEL,
+      max_tokens: MAX_TOKENS,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    },
+    { signal },
+  )
 
   const message = await stream.finalMessage()
 
@@ -1629,7 +1807,18 @@ export const EMAIL_WORD_LIMITS = {
   email1TargetMaxWords: 80,   // advisory target rendered into the prompt
   email1MaxWords: 90,         // hard cap
   email2MinWords: 30,
-  email2MaxWords: 70,
+  // 85, and DECOUPLED from Email 1. Email 2 used to be capped at 70 AND required to be no
+  // longer than Email 1, so its real cap was whatever Email 1 happened to land at. The
+  // model cannot see that number while writing, which made the target unhittable by
+  // construction rather than by difficulty. Measured 2026-08-28 across 15 first-pass and
+  // retry attempts in two runs: Email 2 came in at 62 to 79 words (mean 72.3, sd 4.2) while
+  // Email 1 landed 56 to 71, so 10 of 15 breached the 70 band outright and the other 5
+  // breached only the coupling. Every one of those 15 fits inside 85, which is mean + 3sd.
+  //
+  // The intent that survives: a follow-up carrying relevance is stacking, and stacking
+  // raises reply odds. Emails 3 and 4 keep their own tighter bands, so the sequence still
+  // tapers without Email 2 being chained to a number it cannot read.
+  email2MaxWords: 85,
   email3MinWords: 30,
   email3MaxWords: 70,
   // NO FLOOR ON EMAIL 4. A breakup email is allowed to be very short: brevity is the
@@ -1831,13 +2020,20 @@ export function validateEmails(
       })
     }
 
-    // Each follow-up must be shorter than the email before it. Deterministic, so it is
-    // enforced here rather than left to the prompt. Email 4 is exempt: it is a breakup
-    // with its own 30 to 50 band, and chaining it to Email 3 leaves too little room.
-    // NOT LONGER THAN, not strictly shorter. The sequence still tapers, but two adjacent
-    // emails of equal length is not a defect and the strict version rejected variants for
-    // being one word over. Equal-length pairs now pass.
-    if (pos === 2 || pos === 3) {
+    // Email 3 must be no longer than Email 2. Email 2 is NO LONGER CHAINED TO EMAIL 1.
+    //
+    // Why Email 2 was released: the model writes all four emails in one response and
+    // cannot measure Email 1 while writing Email 2, so this gate asked it to hit a target
+    // it could not see. It cost eight failed API calls in a single run on 2026-08-28,
+    // each one a full single-variant regeneration, which is what exhausted the 240s guard.
+    // A follow-up at 74 words against an opener at 62 is not something a reader notices.
+    //
+    // Email 3 keeps the constraint deliberately, not by omission. It is the same shape and
+    // carries the same risk, but it binds far less often now that Email 2 may run to 85:
+    // the constraint only bites when Email 2 lands near its floor. Logged in BACKLOG.
+    //
+    // NOT LONGER THAN, not strictly shorter. Equal-length pairs pass.
+    if (pos === 3) {
       const prev = emails.find(e => e.sequence_position === pos - 1)
       if (prev && wc > prev.word_count) {
         violations.push({
@@ -1945,7 +2141,16 @@ async function retryVariantSlot(
   organisation_id: string,
   taken: TakenCopy,
   registry: SentenceRegistry,
+  // Violations from the attempt that sent this slot here. Attempt 1 gets the first-pass
+  // failure; each later attempt gets the one before it, so feedback never goes stale.
+  initialViolations: readonly ValidationViolation[],
+  // Cuts an in-flight stream when the 240s guard fires.
+  signal: AbortSignal,
+  // The RUN-level stats object, mutated in place. Calls are counted here at the moment
+  // they are made, so a run aborted mid-retry still reports the calls it paid for.
+  runStats: RunStats,
 ): Promise<{ emails: EmailRecord[] | null; outcome: SlotOutcome }> {
+  let lastViolations: readonly ValidationViolation[] = initialViolations
   const senderFirstName = context.preflight.sender_first_name
   const senderCompanyName = context.preflight.org_name
   const signOffLines = [senderFirstName, senderCompanyName]
@@ -1956,6 +2161,29 @@ async function retryVariantSlot(
   // could be "rescued" into the exact duplicate the gate just rejected.
   const collides = (emails: EmailRecord[]): ValidationViolation[] =>
     findCrossVariantReuse(emails, registry, variantKey, signOffLines)
+
+  // Returns the slot cleanly rather than throwing, so the run keeps every variant that
+  // has already passed and records an honest reason for the ones it never attempted.
+  const budgetExhausted = (): { emails: null; outcome: SlotOutcome } => {
+    logger.warn(
+      `Messaging agent: Variant ${variantKey} not attempted — run call budget of ${MAX_API_CALLS_PER_RUN} exhausted`,
+      { organisation_id, variantKey, api_calls: runStats.totalApiCalls, budget: MAX_API_CALLS_PER_RUN }
+    )
+    return {
+      emails: null,
+      outcome: {
+        variant: variantKey,
+        result: 'dropped',
+        retryAttempts: 0,
+        apiCallsUsed,
+        shippedAngle: null,
+        dropReason:
+          `Run call budget of ${MAX_API_CALLS_PER_RUN} exhausted before this slot could be repaired. ` +
+          `A run needs about 75s for the first call and 26s per repair, so an eighth call would ` +
+          `not finish inside the 240s guard.`,
+      },
+    }
+  }
 
   const originalAngle = VARIANT_ANGLE_INSTRUCTIONS[variantKey]
   if (!originalAngle) {
@@ -1980,10 +2208,14 @@ async function retryVariantSlot(
       { organisation_id, variantKey, attempt }
     )
 
+    // Checked BEFORE the counter so an aborted run does not report a call it never made.
+    throwIfAborted(signal)
+    if (runStats.totalApiCalls >= MAX_API_CALLS_PER_RUN) return budgetExhausted()
     apiCallsUsed++
+    runStats.totalApiCalls++
     try {
-      const userMessage = buildSingleVariantUserMessage(context, originalAngle, taken)
-      const raw = await callClaude(userMessage)
+      const userMessage = buildSingleVariantUserMessage(context, originalAngle, taken, lastViolations)
+      const raw = await callClaude(userMessage, signal)
       const emails = parseSingleVariantFromClaude(raw)
       // senderCompanyName must be passed explicitly. Omitting it shifted every later
       // argument left: the sign-off fixer received the organisation UUID as the company
@@ -1995,6 +2227,10 @@ async function retryVariantSlot(
         variantKey, emails, senderFirstName, senderCompanyName, organisation_id,
         attemptLabel: `retry-${attempt}`,
       })
+      // Carry THIS attempt's measured violations into the next one. Without this the
+      // whole loop would keep re-sending the first-pass failure, which goes stale the
+      // moment attempt 1 fails a different check.
+      if (!('passed' in result)) lastViolations = result.failure.violations
       if ('passed' in result) {
         const reuse = collides(result.passed)
         if (reuse.length > 0) {
@@ -2002,6 +2238,9 @@ async function retryVariantSlot(
             `Messaging agent: Variant ${variantKey} retry ${attempt} passed validation but reuses an accepted variant's sentence`,
             { organisation_id, variantKey, attempt, violations: reuse.map(v => `Email ${v.email}: ${v.issue}`) }
           )
+          // The collision IS the next attempt's feedback. Without this the retry would be
+          // told nothing and could collide again the same way.
+          lastViolations = reuse
           continue
         }
         logger.info(
@@ -2021,6 +2260,9 @@ async function retryVariantSlot(
         }
       }
     } catch (err) {
+      // An abort is not a bad attempt. Rethrow so the run stops here.
+      if (err instanceof MessagingAbortedError) throw err
+      throwIfAborted(signal)
       logger.warn(
         `Messaging agent: Variant ${variantKey} retry attempt ${attempt} error — ${String(err)}`,
         { organisation_id, variantKey, attempt }
@@ -2036,15 +2278,19 @@ async function retryVariantSlot(
         { organisation_id, variantKey, fallbackName: fallback.name, attempt }
       )
 
+      throwIfAborted(signal)
+      if (runStats.totalApiCalls >= MAX_API_CALLS_PER_RUN) return budgetExhausted()
       apiCallsUsed++
+      runStats.totalApiCalls++
       try {
-        const userMessage = buildSingleVariantUserMessage(context, fallback.instruction, taken)
-        const raw = await callClaude(userMessage)
+        const userMessage = buildSingleVariantUserMessage(context, fallback.instruction, taken, lastViolations)
+        const raw = await callClaude(userMessage, signal)
         const emails = parseSingleVariantFromClaude(raw)
         const result = await processOneVariant({
           variantKey, emails, senderFirstName, senderCompanyName, organisation_id,
           attemptLabel: `fallback-${fallback.name}-attempt-${attempt}`,
         })
+        if (!('passed' in result)) lastViolations = result.failure.violations
         if ('passed' in result) {
           const reuse = collides(result.passed)
           if (reuse.length > 0) {
@@ -2052,6 +2298,7 @@ async function retryVariantSlot(
               `Messaging agent: Variant ${variantKey} fallback "${fallback.name}" attempt ${attempt} passed validation but reuses an accepted variant's sentence`,
               { organisation_id, variantKey, fallbackName: fallback.name, attempt, violations: reuse.map(v => `Email ${v.email}: ${v.issue}`) }
             )
+            lastViolations = reuse
             continue
           }
           logger.info(
@@ -2075,6 +2322,9 @@ async function retryVariantSlot(
           }
         }
       } catch (err) {
+        // An abort is not a bad attempt. Rethrow so the run stops here.
+        if (err instanceof MessagingAbortedError) throw err
+        throwIfAborted(signal)
         logger.warn(
           `Messaging agent: Variant ${variantKey} fallback "${fallback.name}" attempt ${attempt} error — ${String(err)}`,
           { organisation_id, variantKey, fallbackName: fallback.name, attempt }

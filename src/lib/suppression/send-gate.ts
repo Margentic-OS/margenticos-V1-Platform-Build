@@ -1,3 +1,4 @@
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/suppression/send-gate.ts
 //
 // The one chokepoint that decides whether a prospect may be sent to.
@@ -34,7 +35,7 @@ import { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { lookupSuppressedEmails, normaliseEmail } from './suppression-list'
 
-type SupabaseServiceClient = SupabaseClient<Database>
+type SupabaseServiceClient = ServiceRoleClient
 
 export interface GateCandidate {
   id: string

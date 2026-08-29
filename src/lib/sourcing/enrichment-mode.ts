@@ -1,3 +1,4 @@
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 /**
  * Enrichment mode gating: test vs. live Apollo.
  *
@@ -17,7 +18,7 @@ import { createClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 
-type SupabaseServiceClient = ReturnType<typeof createClient<Database>>
+type SupabaseServiceClient = ServiceRoleClient
 
 /**
  * Determine if enrichment should use mock test mode or live Apollo API.

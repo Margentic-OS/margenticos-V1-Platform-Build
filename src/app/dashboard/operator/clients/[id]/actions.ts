@@ -18,6 +18,7 @@ import { logger } from '@/lib/logger'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import type { ProspectForUpload, DfyOrderResult } from '@/lib/integrations/handlers/instantly/types'
 import { findBlockedProspects } from '@/lib/suppression/send-gate'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 export type SetupStatusField = 'campaigns' | 'linkedin'
 export type SetupStatusValue = 'pending' | 'in_progress' | 'complete'
@@ -231,6 +232,25 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
 
+  // The send gate reads suppressed_emails, which is service-role only: RLS enabled, zero
+  // policies, and EXECUTE/SELECT revoked from anon and authenticated by name. The session
+  // client above authenticates as `authenticated`, so it gets `permission denied` there,
+  // not an empty result. Both findBlockedProspects call sites below therefore take THIS
+  // client, not `supabase`.
+  //
+  // Isolation is not weakened by that. Gate 1 filters `.eq('organisation_id', orgId)`
+  // explicitly inside findBlockedProspects, which is the application-layer filter
+  // CLAUDE.md requires and does not depend on RLS. Gate 2 is global by policy.
+  //
+  // The auth gate stays on the session client above, and this is only reached after the
+  // operator role check.
+  //
+  // Note that TypeScript cannot catch this class: findBlockedProspects declares its
+  // parameter as `SupabaseServiceClient`, which is a bare alias for
+  // `SupabaseClient<Database>`. The session client has that exact type. The name says
+  // service role, the type does not enforce it, and passing the wrong one compiles.
+  const serviceClient = await createServiceRoleClient()
+
   return Sentry.withServerActionInstrumentation('handleUploadLeads', async (): Promise<UploadLeadsResult> => {
   let shouldReclaim = true
   let reclamIds = new Set<string>()
@@ -295,7 +315,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
 
   let preFilteredIds: string[] = []
   if (claimCandidates && claimCandidates.length > 0) {
-    const preGate = await findBlockedProspects(supabase, orgId, claimCandidates)
+    const preGate = await findBlockedProspects(serviceClient, orgId, claimCandidates)
     // Fail closed. An unknown suppression list is never treated as an empty one, even
     // in the cost path — a gate that silently degrades to "allow all" is not a gate.
     if (!preGate.ok) {
@@ -676,7 +696,7 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   // else. Compliance-critical: it must be impossible to send to anyone the client
   // rejected, or to an address that has already bounced or unsubscribed anywhere.
   const finalGate = await findBlockedProspects(
-    supabase,
+    serviceClient,
     orgId,
     (rawRows ?? []).filter(r => claimedIdSet.has(r.id)).map(r => ({ id: r.id, email: r.email }))
   )

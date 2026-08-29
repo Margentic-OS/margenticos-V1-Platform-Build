@@ -17,6 +17,8 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
+import type { Database } from '../src/types/database'
+import { asServiceRoleClient } from '../src/lib/supabase/service-role'
 import { runSourcingForOrg, SOURCING_MAX_BATCH_SIZE } from '@/lib/operator/sourcing-entry'
 
 function arg(name: string): string | undefined {
@@ -49,7 +51,9 @@ async function main() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) usage('NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set. Pass --env-file=.env.local.')
 
-  const supabase = createClient(url, key)
+  // Typed AND branded. It was an untyped createClient(url, key), so neither the row
+  // types nor the service-role requirement were checked at this boundary.
+  const supabase = asServiceRoleClient(createClient<Database>(url, key))
 
   const { data: org } = await supabase
     .from('organisations')

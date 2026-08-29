@@ -27,6 +27,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
+import { asServiceRoleClient } from '@/lib/supabase/service-role'
 import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
 import { sendApprovedDraft } from '@/lib/reply-handling/send-approved-draft'
@@ -72,10 +74,12 @@ export async function POST(
       },
     }
   )
-  const supabase = createServiceClient(
+  // Typed with <Database> as well as branded: without the generic this was
+    // SupabaseClient<any>, which defeats the row typing as well as the brand.
+  const supabase = asServiceRoleClient(createServiceClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  ))
 
   // ── 1. Authenticated ────────────────────────────────────────────────────────
   const { data: { user }, error: authError } = await sessionClient.auth.getUser()

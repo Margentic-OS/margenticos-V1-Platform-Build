@@ -9012,3 +9012,140 @@ Also: must land behind a per-org flag.
 - [icp] Re-approving an ICP is NOT free. `persistIcpFilterSpec` re-queues the org's removed
   prospects for tiering, and its own comment warns that at ramp volume one spec change can
   re-queue four figures of rows. "Just re-approve everything" is a spend decision.
+
+---
+
+## 2026-08-28 — messaging agent timeout investigation: logged, not fixed
+
+Recorded from the measurement in the messaging timeout session. Each of these was found
+while fixing something else and deliberately left alone.
+
+### [MSG-01] Call-count budget — BUILT 2026-08-29
+
+Was logged; built instead. `MAX_API_CALLS_PER_RUN = 7` in the messaging agent: the EIGHTH
+call is refused.
+
+Measured relationship across every messaging run with a recorded call count:
+
+    total ≈ 75 + 26 x (calls - 1)      1 call 53-84s, 3 -> 128s, 5 -> 197s,
+                                        11 -> 317s, 12 -> 354s, 19 -> 543s
+
+    7 calls ≈ 231s   inside the 240s guard, so the budget fires first
+    8 calls ≈ 257s   past the guard
+    9 calls ≈ 283s   what both failed runs on 2026-08-28 reached before Vercel
+                     killed the function at its 300s ceiling
+
+Seven is the largest number that finishes inside the wall clock. The budget stops at a SLOT
+BOUNDARY: variants that already passed are kept, remaining slots are recorded dropped with a
+truthful reason. The wall-clock guard is KEPT as the backstop for the one thing the budget
+cannot model, a single call running pathologically long. The two controls fail differently
+and both are wanted.
+
+`src/agents/__tests__/call-budget.test.ts` pins the invariant in both directions:
+raising the budget to 12 without raising the guard fails 2 tests, lowering it to 3 fails 1.
+
+STILL OPEN: the budget's LOOP behaviour is not exercised end to end. The invariant test
+covers the arithmetic; that the loop returns a clean slot-boundary stop is verified by
+reading and by tsc, not by a test. Same root cause as MSG-05: the agent needs a mocked
+Anthropic harness before either can be tested properly.
+
+### [MSG-02] Email 3 is still chained to Email 2 — same shape as the bug just fixed
+
+Email 2's coupling to Email 1 was removed 2026-08-28 because the model cannot see Email 1's
+final word count while writing Email 2: the constraint asked for a target that does not
+exist yet. **Email 3 ≤ Email 2 is exactly the same shape and is still enforced.**
+
+Left in place deliberately, not by oversight. It binds far less often now that Email 2 may
+run to 85 words: it only bites when Email 2 lands near its 30-word floor. It was not
+implicated in any of the 15 failures measured on 2026-08-28.
+
+If Email 3 starts costing retries, remove the coupling and give it a fixed band, exactly as
+Email 2 got. Do not re-add Email 2's coupling to "restore the taper" — the taper is carried
+by the bands themselves (85 / 70 / 50), not by the chaining.
+
+### [MSG-03] The queue does NOT solve the messaging timeout. Do not propose it again as the fix.
+
+Recorded because it is the obvious wrong answer and it will be proposed again.
+
+`/api/cron/queue-worker` declares `maxDuration = 300` — the same Hobby ceiling as every
+other long route — and reserves `WORKER_BUDGET_SECONDS = 280` for work. **A queue job runs
+inside one Vercel function, so it inherits the same 300s limit.** Moving messaging into the
+queue as a single job would move the timeout, not remove it: a run needing 500-700s of
+contiguous work still does not fit.
+
+What WOULD work is decomposing messaging into **per-variant jobs**, so each job is one or
+two API calls (~30-60s) and the queue's existing retry and state reporting carry the run
+across ticks. That is a real design change — variant slots become independently schedulable,
+cross-variant sentence uniqueness needs a shared registry across jobs, and the "3 of 4
+variants must pass" threshold has to be evaluated somewhere after all jobs settle.
+
+Decide it on its own merits. It is not the timeout fix.
+
+### [MSG-04] Branded ServiceRoleClient — BUILT 2026-08-29
+
+Was logged; built instead. `ServiceRoleClient` in `src/lib/supabase/service-role.ts` is now
+a `unique symbol` branded type. Passing a session client where a service-role client is
+required is a COMPILE ERROR. Verified by mutation: reverting the 2026-08-28 send-gate fix
+now fails `tsc` at the call site instead of failing in production against the database.
+
+Blast radius was measured, not estimated: 24 errors across 14 files. The earlier "78
+construction sites" figure was wrong — most files build a service client but never pass it
+to a service-role-typed parameter.
+
+`asServiceRoleClient()` is the single assertion boundary. A brand needs exactly one place
+where an unbranded client becomes branded, because no runtime check can inspect the key
+inside a constructed client. Call it ONLY on the same expression that passes
+SUPABASE_SERVICE_ROLE_KEY. Its value is that every such assertion is greppable and
+deliberate, where the old alias made the same mistake invisible.
+
+TWO REAL DEFECTS FOUND BY TURNING IT ON:
+
+1. `src/app/dashboard/operator/clients/[id]/page.tsx` passed the SSR session client to
+   `getAllCampaignMetricsForOrg`, which declares a service-role client — with the correct
+   client already in scope four lines above. It returned correct numbers only because the
+   operator RLS policies on campaigns, meetings and reply_handling_actions happen to be
+   permissive (verified live). Tighten any of the three and the page would have shown zeros
+   with no error. Fixed.
+
+2. `src/lib/sourcing/orchestrator.ts` and `src/lib/operator/sourcing-entry.ts` declared
+   their client as a bare `SupabaseClient` with NO row types, so they accepted anything at
+   all. Now `ServiceRoleClient`. Typing them surfaced a latent `Json` -> `ICPFilterSpec`
+   cast that only compiled while the client was untyped.
+
+STILL OPEN: test fakes assert the brand via a `brandedFake` helper, which is correct (a fake
+is not a real client and no key can be checked) but does mean tests cannot catch a
+wrong-client bug. The production call sites are what the brand protects.
+
+### [MSG-05] The abort path has no unit test
+
+The 240s guard now aborts in-flight Anthropic calls and the retry loops rethrow rather than
+swallowing the abort. Verified by `tsc`, by reading, and by the live run.
+
+It is **not** unit-tested, because `AGENT_TIMEOUT_MS` is a local const inside
+`runMessagingGenerationAgent` and cannot be shortened from a test without making the timeout
+injectable. Making it injectable is the right fix and is small; it was out of scope for an
+incident pass. Until then the abort path's proof is the live run, not the suite.
+
+### [MSG-06] Four agent routes duplicate the operator-notification block
+
+`/api/agents/{icp,tov,positioning,messaging}` each carry their own copy of the
+`RESEND_OPERATOR_EMAIL` + `sendTransactionalEmail` + template block, and
+`/api/suggestions/regenerate` now has a fifth. **That duplication is exactly how the
+regenerate route came to notify on neither outcome while the agents routes notified on
+both.**
+
+They share enough to be unified behind one `notifyOperatorOfAgentOutcome(kind, orgName,
+orgId, docType, error?)` helper. Not done here: it touches five routes and this pass was
+meant to close a silent failure, not refactor the notification layer.
+
+### [MSG-07] The existing send-gate fake hardcodes a filter instead of honouring it
+
+`src/lib/suppression/send-gate.test.ts` fakes `suppressed_emails` with `is: () => builder`
+and then applies `s.revoked_at === null` inside its own `then`. The revocation filter is
+therefore **assumed, not observed**: delete `.is('revoked_at', null)` from
+`lookupSuppressedEmails` and that suite stays green while revoked addresses start blocking
+sends again.
+
+The new fake in `handleUploadLeads.suppression-prefilter.test.ts` records whether the filter
+was applied and honours it, so it does not have this hole. The older fake was left alone to
+keep the incident diff surgical.

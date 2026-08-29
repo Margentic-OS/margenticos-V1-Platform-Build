@@ -13,6 +13,7 @@
 
 import { randomUUID } from 'crypto'
 import { createClient } from '@supabase/supabase-js'
+import { asServiceRoleClient } from '@/lib/supabase/service-role'
 import { Database } from '@/types/database'
 import { checkCandidates } from './dedupe'
 import { normaliseLinkedInUrl } from './normalise-linkedin'
@@ -25,7 +26,7 @@ function genUUID(): string {
   return randomUUID()
 }
 
-const supabase = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY)
+const supabase = asServiceRoleClient(createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY))
 
 async function seedTestRows(): Promise<void> {
   console.log('Seeding test rows into DRY RUN TEST organisation...')

@@ -1,3 +1,4 @@
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/reply-handling/draft-orchestrator.ts
 //
 // Deterministic orchestrator for Tier 2 / Tier 3 reply drafting (ADR-018, ADR-019).
@@ -15,7 +16,7 @@ import { routeIntent } from './route-intent'
 import { loadOrgContext } from './load-org-context'
 import { draftReply, type FaqMatch as DrafterFaqMatch } from '@/lib/agents/reply-draft-agent'
 
-type SupabaseServiceClient = SupabaseClient<Database>
+type SupabaseServiceClient = ServiceRoleClient
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

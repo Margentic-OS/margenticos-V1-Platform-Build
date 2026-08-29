@@ -1,3 +1,4 @@
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/reply-handling/send-approved-draft.ts
 //
 // Orchestrates sending an operator-approved reply draft via Instantly.
@@ -27,7 +28,7 @@ import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/c
 import { extractFaq } from '@/lib/agents/faq-extraction-agent'
 import { loadOrgContext } from './load-org-context'
 
-type SupabaseServiceClient = SupabaseClient<Database>
+type SupabaseServiceClient = ServiceRoleClient
 
 // ── Result types ──────────────────────────────────────────────────────────────
 

@@ -1,3 +1,4 @@
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/reply-handling/load-org-context.ts
 //
 // Loads organisation context needed by the reply draft orchestrator.
@@ -8,7 +9,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
 
-type SupabaseServiceClient = SupabaseClient<Database>
+type SupabaseServiceClient = ServiceRoleClient
 
 // Minimum meaningful content length — fewer non-whitespace chars indicates
 // the document was saved as a placeholder or with corrupt content.

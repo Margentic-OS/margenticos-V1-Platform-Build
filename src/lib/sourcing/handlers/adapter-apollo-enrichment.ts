@@ -1,3 +1,4 @@
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/sourcing/handlers/adapter-apollo-enrichment.ts
 //
 // Apollo people enrichment handler - Phase B.
@@ -27,7 +28,7 @@ import { shouldUseMockEnrichment } from '@/lib/sourcing/enrichment-mode'
 import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 import { toIso2CountryCode } from '@/lib/sourcing/country-code'
 
-type SupabaseServiceClient = ReturnType<typeof createClient<Database>>
+type SupabaseServiceClient = ServiceRoleClient
 
 interface ApolloMatch {
   id: string

@@ -1,3 +1,4 @@
+import { asServiceRoleClient, type ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/reply-handling/get-client-visible-replies.ts
 //
 // SINGLE CHOKEPOINT for all client-facing reply reads.
@@ -57,7 +58,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { Database, Json } from '@/types/database'
 
-type SupabaseServiceClient = SupabaseClient<Database>
+type SupabaseServiceClient = ServiceRoleClient
 
 // The 5 intents clients are allowed to see: positive/engaged signals.
 //
@@ -120,10 +121,14 @@ function serviceRoleClient(): SupabaseServiceClient {
       'returns zero rows silently.'
     )
   }
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    { auth: { autoRefreshToken: false, persistSession: false } }
+  // asServiceRoleClient is applied to the SAME expression that passes the service-role
+  // key, which is the only place the brand may be claimed.
+  return asServiceRoleClient(
+    createClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
   )
 }
 

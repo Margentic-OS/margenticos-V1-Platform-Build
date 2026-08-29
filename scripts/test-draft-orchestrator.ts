@@ -8,6 +8,7 @@
 // Drafter is NOT called in most paths — manual_required / draft_failed gates fire first.
 
 import { createClient } from '@supabase/supabase-js'
+import { asServiceRoleClient } from '../src/lib/supabase/service-role'
 import type { Database } from '../src/types/database'
 import { randomUUID } from 'crypto'
 import { readFileSync } from 'fs'
@@ -38,7 +39,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   process.exit(1)
 }
 
-const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+const supabase = asServiceRoleClient(createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_KEY))
 
 import { orchestrateDraft } from '../src/lib/reply-handling/draft-orchestrator'
 

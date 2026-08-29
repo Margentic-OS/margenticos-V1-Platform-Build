@@ -1,3 +1,4 @@
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/reply-handling/process-reply.ts
 //
 // Stateless reply processor. Called by /api/cron/process-replies on each cron tick.
@@ -41,7 +42,7 @@ import { InstantlyFlagError } from '@/lib/integrations/handlers/instantly/types'
 import { orchestrateDraft } from './draft-orchestrator'
 import { sendFirstReplyEmail } from '@/lib/notifications/send-first-reply-email'
 
-type SupabaseServiceClient = SupabaseClient<Database>
+type SupabaseServiceClient = ServiceRoleClient
 
 const CLASSIFIER_RETRY_LIMIT = 3
 const POSITIVE_BOOKING_CONFIDENCE_THRESHOLD = 0.90
