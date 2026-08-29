@@ -1,0 +1,262 @@
+// THE GUARD ON PROMPT TEXT. Added 2026-08-29.
+//
+// WHY THIS EXISTS. Prompt text is the only code in this repository that reaches a
+// model without passing through a compiler, a linter or a type. The markdown is read
+// from disk at runtime by loadSystemPrompt(); the template literals are compiled but
+// their CONTENTS are just a string, so tsc has nothing to say about what is in them.
+// A client name pasted into either one ships.
+//
+// WHAT WAS ALREADY HERE, because the brief said nothing reads these files and that is
+// not accurate. Three scans already do:
+//   prompt-industry-agnostic.test.ts   industry, country, public body, statute, standard
+//   prompt-tool-agnostic.test.ts       vendor names
+//   rule-text-category-level.test.ts   Rules 1-10 of the shared voice spec
+// All three are real and all three are baseline ratchets. What none of them covers is
+// the part that matters most here: they scan FIVE markdown files, and there are
+// FOURTEEN prompt sources. The ~1,300 lines of prompt text living in TypeScript
+// template literals — the research writer alone is 669 — have never been scanned by
+// anything. That gap is what this file closes, along with two categories none of them
+// checks: buyer archetypes asserted as defaults, and money or headcount figures.
+//
+// HOW IT WORKS, and the limit stated plainly. This is a DENY LIST, not a detector. It
+// cannot know every company in the world and does not try. It holds the exact terms the
+// two prior investigations found, plus a few structural patterns (a currency symbol
+// before a digit, a magnitude, a headcount band, a corporate suffix). It will not catch
+// a company name it has never seen and that carries no suffix. It WILL catch every one
+// of the specific things the swap pass is about to remove, the day one of them comes
+// back. Regression cover, not discovery.
+
+import { describe, it, expect } from 'vitest'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { PROMPT_SOURCES, RUNTIME_MARKDOWN, readSource, extractTemplateLiteral } from './prompt-sources'
+import { FORBIDDEN, BUYER_ARCHETYPE, NAMED_INDUSTRY } from './prompt-forbidden-content.data'
+
+const ROOT = process.cwd()
+
+interface Violation { source: string; line: number; category: string; label: string; match: string; text: string }
+
+function scanAll(): Violation[] {
+  const out: Violation[] = []
+  for (const s of PROMPT_SOURCES) {
+    const { label, lines } = readSource(s)
+    for (const { n, text } of lines) {
+      for (const { category, patterns } of FORBIDDEN) {
+        const hit = patterns.map(p => ({ p, m: text.match(p.re) })).find(x => x.m)
+        if (hit && hit.m) {
+          out.push({ source: label, line: n, category, label: hit.p.label, match: hit.m[0], text: text.trim().slice(0, 110) })
+          break
+        }
+      }
+    }
+  }
+  return out
+}
+
+const report = (v: Violation[]) =>
+  v.map(x => `  ${x.source}:${x.line} [${x.category} / ${x.label}] «${x.match}» ${x.text}`).join('\n')
+
+// ─── The measurement ──────────────────────────────────────────────────────────
+//
+// MEASURED 2026-08-29 on a6ae4df, before anything was changed. 44 violations across
+// 8 of the 14 sources. This number may only go DOWN.
+const BASELINE_TOTAL = 44
+
+const BASELINE_BY_SOURCE: Record<string, number> = {
+  'docs/prompts/icp-agent.md': 9,
+  'docs/prompts/positioning-agent.md': 4,
+  'docs/prompts/tov-agent.md': 1,
+  'docs/prompts/messaging-agent.md': 12,
+  'docs/prompts/faq-extraction-agent.md': 2,
+  'docs/prompts/reply-draft-agent.md': 3,
+  'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 9,
+  'src/lib/agents/research/write-opening.ts:buildFloorPrompt': 0,
+  'src/lib/agents/research/write-opening.ts:buildJudgePrompt': 0,
+  'src/lib/agents/research/prompts/synthesis-prompt.ts:buildSynthesisPrompt': 3,
+  'src/lib/agents/reply-classifier.ts:SYSTEM_PROMPT': 0,
+  'src/lib/agents/faq-seed-agent.ts:buildSystemPrompt': 0,
+  'src/lib/composition/personalization.ts:systemPrompt': 0,
+  'src/lib/agents/revision/run-revision.ts:buildRevisionPrompt': 1,
+}
+
+describe('prompt text carries no client-specific content', () => {
+  // ═════════════════════════════════════════════════════════════════════════
+  // EXPECTED TO FAIL. This is the goal state, and it is red on purpose.
+  //
+  // WHAT UNBLOCKS IT: the swap pass that removes the 44 violations listed by
+  // `npx vitest run prompt-forbidden-content` from the prompt sources. When the
+  // last one goes, THIS TEST STARTS FAILING BY PASSING — vitest treats a passing
+  // it.fails as a failure — and that is the signal to delete the `.fails` and the
+  // baseline below, leaving a plain assertion of zero.
+  //
+  // IT IS NOT THE PROTECTION. The ratchet immediately below it is. This one only
+  // records where we are going, so the goal cannot be quietly forgotten.
+  // ═════════════════════════════════════════════════════════════════════════
+  it.fails('GOAL: zero violations across every prompt source', () => {
+    const v = scanAll()
+    expect(v, `${v.length} violations:\n${report(v)}`).toEqual([])
+  })
+
+  // THE ONE THAT ACTUALLY PROTECTS, and it is green today. A new violation written
+  // tomorrow fails this the same day, without waiting for the swap pass.
+  it('no source exceeds the count measured on 2026-08-29', () => {
+    const v = scanAll()
+    for (const s of PROMPT_SOURCES) {
+      const label = s.kind === 'markdown' ? s.path : `${s.path}:${s.symbol}`
+      const allowed = BASELINE_BY_SOURCE[label]
+      expect(allowed, `${label} has no recorded baseline`).toBeTypeOf('number')
+      const mine = v.filter(x => x.source === label)
+      expect(
+        mine.length,
+        `${label}: ${mine.length} violations, baseline ${allowed}. Baselines may only go down.\n${report(mine)}`,
+      ).toBeLessThanOrEqual(allowed)
+    }
+  })
+
+  it('the baseline has not been raised to make a failure go away', () => {
+    // Guards the guard, the same way prompt-industry-agnostic.test.ts does. The
+    // recorded total is what a future edit reaches for first, so it is asserted
+    // against the literal measured before any prompt was touched.
+    expect(Object.values(BASELINE_BY_SOURCE).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(BASELINE_TOTAL)
+    expect(BASELINE_TOTAL).toBe(44)
+    expect(Object.keys(BASELINE_BY_SOURCE)).toHaveLength(PROMPT_SOURCES.length)
+  })
+
+  it('found real prompt text to scan, so nothing above passes vacuously', () => {
+    // The failure this catches is a scan that reads nothing and reports zero. The
+    // extractor throwing on a renamed symbol is the other half of the same guard.
+    let totalLines = 0
+    for (const s of PROMPT_SOURCES) {
+      const { label, lines } = readSource(s)
+      expect(lines.length, `${label} scanned no lines`).toBeGreaterThan(0)
+      totalLines += lines.length
+    }
+    expect(totalLines).toBeGreaterThan(5000)
+  })
+})
+
+// ─── RULE ZERO: the deny list must never reach a prompt ──────────────────────
+
+describe('the deny list is data and nothing builds a prompt from it', () => {
+  const DENY_FILE = 'prompt-forbidden-content.data'
+
+  function walk(dir: string, acc: string[] = []): string[] {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry)
+      if (statSync(full).isDirectory()) { walk(full, acc); continue }
+      if (/\.tsx?$/.test(entry)) acc.push(full)
+    }
+    return acc
+  }
+
+  it('no module outside this test imports it', () => {
+    // THE WHOLE POINT OF THE FILE'S EXISTENCE IS ALSO ITS WORST FAILURE MODE. It
+    // holds the exact strings we ban, so importing it into anything that assembles
+    // prompt text would inject the ban list into a prompt. Asserted across ALL of
+    // src/ and scripts/ rather than a curated list of "prompt-building modules",
+    // because a curated list is a second list to keep in step and this one only has
+    // to be right once.
+    const offenders = [...walk(join(ROOT, 'src')), ...walk(join(ROOT, 'scripts'))]
+      .filter(f => !f.endsWith('prompt-forbidden-content.test.ts'))
+      .filter(f => !f.endsWith('prompt-forbidden-content.data.ts'))
+      .filter(f => readFileSync(f, 'utf-8').includes(DENY_FILE))
+      .map(f => relative(ROOT, f))
+
+    expect(offenders, `these import the deny list:\n  ${offenders.join('\n  ')}`).toEqual([])
+  })
+
+  it('no prompt source contains the deny list itself, by any route', () => {
+    // The stronger version of the same rule, checked against the OUTPUT rather than
+    // the imports. An import is one way the list could reach a prompt; a copy-paste
+    // is another, and this catches both. Uses a phrase unique to the data file.
+    for (const s of PROMPT_SOURCES) {
+      const { label, lines } = readSource(s)
+      const text = lines.map(l => l.text).join('\n')
+      expect(text.includes('DATA FILE. NOT A MODULE'), `${label} contains deny-list header text`).toBe(false)
+      expect(text.includes(DENY_FILE), `${label} names the deny-list module`).toBe(false)
+    }
+  })
+})
+
+// ─── The registry cannot go stale ────────────────────────────────────────────
+
+describe('the prompt source registry stays in step with the code', () => {
+  it('every loadSystemPrompt resolves to a markdown file in the registry', () => {
+    // THE PARALLEL-LIST GUARD. PROMPT_SOURCES is a hand-written list, and a
+    // hand-written list of things to check is exactly the shape that goes stale and
+    // reports success over a shrinking set. This reads the WORLD — every
+    // loadSystemPrompt in the codebase — and fails if one names a prompt file the
+    // registry has never heard of.
+    const files = [
+      ...readdirSync(join(ROOT, 'src/agents')).map(f => join(ROOT, 'src/agents', f)),
+      ...readdirSync(join(ROOT, 'src/lib/agents')).map(f => join(ROOT, 'src/lib/agents', f)),
+    ].filter(f => f.endsWith('.ts') && statSync(f).isFile())
+
+    const referenced = new Set<string>()
+    for (const f of files) {
+      const src = readFileSync(f, 'utf-8')
+      if (!src.includes('loadSystemPrompt')) continue
+      for (const m of src.matchAll(/'docs',\s*'prompts',\s*'([a-z0-9-]+\.md)'/g)) {
+        referenced.add(`docs/prompts/${m[1]}`)
+      }
+    }
+
+    expect(referenced.size, 'found no loadSystemPrompt prompt paths at all, so this passed vacuously').toBeGreaterThan(0)
+    const missing = [...referenced].filter(p => !RUNTIME_MARKDOWN.includes(p))
+    expect(missing, `runtime-loaded prompt files missing from PROMPT_SOURCES:\n  ${missing.join('\n  ')}`).toEqual([])
+  })
+
+  it('every registered template literal still resolves', () => {
+    // extractTemplateLiteral throws on a renamed or deleted symbol. Called here so
+    // a rename fails loudly instead of silently dropping a prompt from coverage.
+    for (const s of PROMPT_SOURCES) {
+      if (s.kind !== 'template-literal') continue
+      expect(() => extractTemplateLiteral(join(ROOT, s.path), s.symbol), `${s.path}:${s.symbol}`).not.toThrow()
+    }
+  })
+
+  it('the extractor reads whole prompts, not just the first literal', () => {
+    // REGRESSION TEST FOR A REAL BUG IN THIS FILE'S FIRST DRAFT. The extractor took
+    // "the next backtick after the declaration" and on run-revision.ts stopped at a
+    // one-line helper, scanning 1 line of an ~81-line prompt builder and reporting a
+    // clean pass. Pinned to a floor well above 1 so the truncation cannot come back.
+    const lines = extractTemplateLiteral(join(ROOT, 'src/lib/agents/revision/run-revision.ts'), 'buildRevisionPrompt')
+    expect(lines.length).toBeGreaterThan(50)
+    const writer = extractTemplateLiteral(join(ROOT, 'src/lib/agents/research/write-opening.ts'), 'buildWriterPrompt')
+    expect(writer.length).toBeGreaterThan(500)
+  })
+})
+
+// ─── The patterns themselves ─────────────────────────────────────────────────
+
+describe('the deny-list patterns discriminate', () => {
+  const hits = (ps: { label: string; re: RegExp }[], s: string) => ps.some(p => p.re.test(s))
+
+  it('flags a buyer archetype asserted as a default', () => {
+    expect(hits(BUYER_ARCHETYPE, 'The buyer is typically the founder of the business.')).toBe(true)
+    expect(hits(BUYER_ARCHETYPE, '"title": "e.g. Founder / Managing Director",')).toBe(true)
+  })
+
+  it('does NOT flag the rule that forbids assuming one', () => {
+    // The negation guard, tested directly rather than through the real files. This
+    // is the difference between a scan people trust and one they exempt: without it
+    // the pattern fired on "Do not assume the prospect is a founder", which is the
+    // prohibition working correctly.
+    expect(hits(BUYER_ARCHETYPE, 'Do not assume the prospect is a founder.')).toBe(false)
+    expect(hits(BUYER_ARCHETYPE, "Never assume the reader is the owner.")).toBe(false)
+    expect(hits(BUYER_ARCHETYPE, 'Read the buyer title from the ICP document.')).toBe(false)
+  })
+
+  it('does NOT flag ordinary English that happens to contain an industry word', () => {
+    // Both of these were real false positives before the patterns were narrowed.
+    expect(hits(NAMED_INDUSTRY, 'Vary the sentence construction across variants.')).toBe(false)
+    expect(hits(NAMED_INDUSTRY, 'agreement, hostility, or pure logistics')).toBe(false)
+  })
+
+  it('still flags the industry terms those narrowings were meant to keep', () => {
+    // The other half. A narrowing that switches the pattern off is not a narrowing.
+    expect(hits(NAMED_INDUSTRY, 'aimed at a construction firm')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'a logistics provider in the region')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'founder-led consulting firms')).toBe(true)
+  })
+})
