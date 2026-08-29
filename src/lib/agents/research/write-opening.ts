@@ -1366,6 +1366,27 @@ function cleanOpening(raw: string): string {
   return text
 }
 
+/**
+ * One writer attempt, reported as it finishes. PURE TELEMETRY: nothing here is read by
+ * the loop, and a caller that omits `onAttempt` gets byte-identical behaviour.
+ *
+ * IT EXISTS BECAUSE `OpeningResult.gate_failures` CANNOT BE COUNTED. That field carries
+ * the failures of the FINAL attempt, and only when that attempt was the one that gated.
+ * An attempt gated on the first try and rescued on the second leaves no trace in it at
+ * all, and a prospect whose last attempt lost on the judge reports an empty array however
+ * many gates it tripped on the way. So a histogram built from that field is not a count of
+ * gate failures, it is a count of prospects whose last attempt happened to be gated, and
+ * the two are far apart. Measuring the gates needs every attempt, which is this.
+ */
+export interface AttemptObservation {
+  /** Zero-based. Attempt 0 is the first write, so any value above 0 is a retry. */
+  attempt: number
+  /** How this attempt ended. Only 'gated' can carry deterministic gate failures. */
+  kind: 'gated' | 'collided' | 'floored' | 'compared'
+  /** The deterministic gates this attempt tripped. Empty for every other kind. */
+  gate_failures: string[]
+}
+
 export interface WriteAndJudgeParams {
   apiKey: string
   clientName: string
@@ -1395,6 +1416,12 @@ export interface WriteAndJudgeParams {
    * per-prospect registry would only ever reserve against itself.
    */
   uniqueness?: BatchUniquenessRegistry
+  /**
+   * Called once per attempt, as each finishes. Observation only: the return value is
+   * discarded and nothing in the loop branches on it, so omitting it changes nothing.
+   * See AttemptObservation for why the returned gate_failures cannot serve this purpose.
+   */
+  onAttempt?: (observation: AttemptObservation) => void
 }
 
 /**
@@ -1674,6 +1701,14 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   for (let i = 0; i < maxAttempts; i++) {
     const a = await attempt(feedback)
     last = a
+
+    // Reported here rather than inside `attempt` so there is exactly one emit per
+    // iteration and the index is the loop's own, not a second counter to keep in step.
+    params.onAttempt?.({
+      attempt: i,
+      kind: a.kind,
+      gate_failures: a.kind === 'gated' ? a.gates : [],
+    })
 
     if (a.kind === 'compared') {
       comparisons.push(a.c)
