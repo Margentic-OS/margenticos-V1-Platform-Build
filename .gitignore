@@ -85,3 +85,8 @@ dogfood-prospects-batch-1.csv
 # grants and is genuinely local state.
 !.claude/settings.json
 !.claude/hooks/
+
+# Writer re-run exports. Real prospect copy and judge reasoning, produced by
+# scripts/export-writer-run.ts for before-and-after comparison. Local measurement
+# artifacts, and prospect-identifying content that has no business in the repository.
+.writer-export/

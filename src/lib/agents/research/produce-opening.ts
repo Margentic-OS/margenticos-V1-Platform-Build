@@ -13,7 +13,7 @@ import {
   getVariantEmail1Frame,
 } from '@/lib/composition/compose-sequence'
 import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
-import { writeAndJudgeOpening, type OpeningResult } from './write-opening'
+import { writeAndJudgeOpening, type OpeningResult, type AttemptObservation } from './write-opening'
 import { resolveBuyer } from './resolve-buyer'
 import { logger } from '@/lib/logger'
 import type { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
@@ -55,6 +55,11 @@ export interface ProduceOpeningInput {
   icpBuyerTitle?: string | null
   /** Batch-scoped. Absent on a single-prospect run, where there is nothing to collide with. */
   uniqueness?: BatchUniquenessRegistry
+  /**
+   * Per-attempt telemetry, passed straight through to the writer. Observation only, and
+   * omitted by both production callers, so it changes nothing about what a prospect gets.
+   */
+  onAttempt?: (observation: AttemptObservation) => void
 }
 
 /**
@@ -95,6 +100,7 @@ export async function produceOpening({
   variantId,
   icpBuyerTitle,
   uniqueness,
+  onAttempt,
 }: ProduceOpeningInput): Promise<OpeningResult> {
   const frame = getVariantEmail1Frame(messagingContent, variantId)
 
@@ -144,5 +150,6 @@ export async function produceOpening({
     },
     prospectId: ctx.id,
     uniqueness,
+    onAttempt,
   })
 }

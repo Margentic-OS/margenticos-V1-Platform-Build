@@ -9597,3 +9597,100 @@ of "every named entity in the writer prompt's worked examples", measured 2026-08
 list is a second list that has to be kept in step with the prompt by hand, which is the
 parallel-array shape. Deriving it from the prompt, or asserting the prompt against it, would
 turn this backlog entry into a test.
+
+## SESSION 2026-08-29, branch writer-export — re-running the writer without touching prospects
+
+`scripts/export-writer-run.ts` runs writer, floor and judge over already-researched
+prospects and writes nothing. Built so the same prospects can be measured before and after
+a change without the first measurement destroying the baseline for the second.
+
+Proved rather than asserted, over the 24 prospects holding a `personalisation_question`:
+all three personalisation columns byte-identical before and after, and `agent_runs`,
+`prospect_research_results` and the count of prospects with a null `segment_id` all moved
+by zero. That last one is the control for `loadProspectContext`, which stamps a segment
+and is the write most likely to happen by accident.
+
+- [pre-c0] NO MESSAGING DOCUMENT SATISFIES `active AND approved` FOR THE LIVE ORG RIGHT NOW.
+  Found 2026-08-29 by this script failing on prospect 1. It is NOT a fault in the script:
+  `fetchApprovedMessagingDoc` requires both, and the org holds
+
+      v3  2026-08-29 16:52  active    pending     <- generated today, 2 messaging-generation runs
+      v2  2026-08-19 23:31  archived  approved    <- the 24 shipped openings were written against this
+      v1  2026-08-07 20:32  archived  approved
+
+  RESEARCH AND COMPOSE ARE BROKEN FOR THIS ORGANISATION UNTIL THIS IS RESOLVED, not just
+  this script. Generating a messaging document makes it active and pending AND archives the
+  previously approved one, so there is a window where nothing matches. Whether that window
+  should exist at all is the real question here: the generation step currently takes the
+  client from "has approved copy" to "has none" with no intermediate state.
+  NEXT ACTION IS DOUG'S, because it decides what gets sent: approve v3, or reactivate v2.
+
+- [monitor] THE $0.10-$0.14 PER-PROSPECT ESTIMATE FOR A REUSE RUN IS WRONG, AND THE METHOD
+  IS WHY. Measured 2026-08-29 over 24 prospects: $0.0139 each, 85 calls, 3.0 calls on a
+  clean prospect.
+
+  The estimate came from pro-rating the measured $0.159 four-call figure by call count:
+  drop synthesis, keep three of four, so about three quarters. THAT ASSUMES THE FOUR CALLS
+  COST THE SAME AND THEY DO NOT. Synthesis carries the raw source dump as input, the whole
+  LinkedIn, Apollo, website and web-search payload. The writer, floor and judge carry
+  distilled candidates and one short email. Pro-rating by count prices the cheap three at
+  the expensive one's rate.
+
+  Bounds, so the figure is not over-read. $0.0139 is the WARM-CACHE measurement: 88.5% of
+  input tokens were cache reads and cache WRITES were zero, because a smoke test had run
+  minutes earlier. Recomputing the same tokens at worst case: $0.053 with no cache at all,
+  $0.064 if every cached token were a fresh 5-minute write. So the real range is roughly
+  $0.014 to $0.064, and even the ceiling is below the old floor.
+
+  Consequence worth carrying: the writer, floor and judge trio is well under 10% of a
+  full research prospect. The money is in synthesis and its sources, not in the writing.
+
+  STILL NOT AN INVOICE. Derived from returned usage. Reconcile against a console day
+  before quoting it to anyone, per the standing rule.
+
+- [research] A COHORT SELECTED ON `personalisation_question` IS SELECTED ON OUTCOME, and
+  its win rate cannot be compared to a batch write rate. `updateProspect` writes that column
+  only when the judge picked the written version, so every prospect in the set won by
+  construction and the set's prior rate is 100%, not 92.3%.
+
+  Measured from the rows, which reconciles the recorded baseline exactly:
+
+      2026-08-20   15 prospects   12 won   80.0%
+      2026-08-25   13 prospects   12 won   92.3%   <- this is the recorded 92.3%
+      combined     30 prospects   24 won   80.0%
+
+  The 24 are the 12 + 12 winners. So 21/24 = 87.5% on the rerun is a CONDITIONAL RE-WIN
+  RATE, "given the judge chose the written version once, how often does it choose a fresh
+  one", and not a write rate. It happens to land between the two batch figures, which makes
+  it easy to quote as if it were one. It is not.
+
+  WHAT WOULD MAKE IT A WRITE RATE: include the 6 prospects from those same runs that
+  currently hold `signal_relevance = 'no_signal'` and no trigger. They are the losers of
+  the same batches and they are what turns the set back into a population.
+
+- [monitor] ALL THREE RERUN LOSSES HAD `strong_material` AND SPENT BOTH RETRIES; the two
+  prospects with weak material won on the first attempt. n=24 and 3 losses, so this is an
+  observation and not a finding. Retry cost is real though: mean $0.0097 at zero retries,
+  $0.0177 at one, $0.0228 at two, and the two-retry group won 1 of 4. If it holds at larger
+  n, the second retry is buying little on exactly the prospects it was added for.
+
+- [monitor] THE RERUN WROTE A SUBJECT FOR 20 OF 24 PROSPECTS AND ALL 24 STORED ROWS HAVE
+  `personalisation_subject` NULL. Not a defect: the subject is newer than the stored copy.
+  Worth knowing before any before-and-after comparison, because that column moving from
+  null to populated is a change in what would ship, and it is not the writer's prose
+  changing.
+
+- [post-build] `OpeningResult.gate_failures` CANNOT BE COUNTED AND LOOKS LIKE IT CAN. It
+  holds the FINAL attempt's failures, and only when that attempt was the one that gated. A
+  prospect gated on attempt 1 and rescued on attempt 2 leaves nothing in it; one whose last
+  attempt lost on the judge reports an empty array however many gates it tripped. Counting
+  it yields "prospects whose last attempt happened to be gated", a different quantity with
+  a similar name.
+
+  `writeAndJudgeOpening` now takes an optional `onAttempt` callback, off by default and
+  omitted by both production callers, which reports every attempt. Measured across 38
+  attempts: length 4, untraceable_claim 3, missing_question 1, unclassified 0.
+
+  WHAT IS STILL MISSING: nothing in production consumes `onAttempt`, so the live agents
+  still discard per-attempt gate data. Wiring it into the batch summary would make gate
+  pressure visible on real runs rather than only under this script.
