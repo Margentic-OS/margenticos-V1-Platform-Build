@@ -340,12 +340,12 @@ Why this works: assertion opener, population named by SITUATION rather than by s
 title or size, concrete detail, short verdict sentence to close.
 
 Passage 2 (contrarian insight):
-"Most consultants who finally get predictable pipeline didn't fix their outreach by working
-harder at it. They removed themselves from running it entirely. The consistency comes from
-the engine, not the effort."
+"The ones who finally get predictable pipeline didn't fix their outreach by working harder
+at it. They removed themselves from running it entirely. The consistency comes from the
+engine, not the effort."
 
-Why this works: specific population named, committed counter-intuitive claim, 10-word
-verdict that stands alone.
+Why this works: population named by SITUATION rather than by sector, job title or size,
+committed counter-intuitive claim, short verdict that stands alone.
 
 Passage 3 (cold outreach hook):
 "Your pipeline shouldn't reset to zero every time a referral dries up."
@@ -445,6 +445,24 @@ Default to 2 to 4 words. Maximum 40 characters. One-word subject lines are permi
 they reference the prospect's company name, a specific trigger event, or a named topic.
 Empty subject lines are banned for Email 1. Never exceed 6 words on a first touch.
 
+Aim for 21 to 40 characters, which is roughly three to seven words. Published 2026
+benchmarks put the optimal band there, and the reason is mobile truncation rather than
+anything about the writing: a subject inside the band arrives whole in a phone's preview
+pane, and one past the top of it is cut mid-thought, so the reader is shown something other
+than what was written. Where this band and the two-to-four-word default above it disagree,
+the character count governs, because characters are what gets truncated.
+
+THE TOP OF THE BAND IS ENFORCED. THE BOTTOM IS NOT, and that asymmetry is deliberate.
+Forty characters is a hard cap in code and a variant over it is rejected. Twenty-one is a
+target to write towards and nothing checks it. A gate there would reject an otherwise sound
+variant and spend one of this run's limited generation calls rewriting a single line, and
+the only metric it could be chasing is open rate, which mail-client privacy features now
+inflate to the point where it is directional at best. Spending a regeneration to move a
+number that cannot be read accurately is the wrong trade.
+
+So write into the band, and do not pad to reach it. If the sharpest subject available lands
+under twenty-one characters, send the sharpest one. Short and specific beats stretched.
+
 Use all lowercase. Capitalise only proper nouns: the prospect's first name, their company
 name, product names, and city names. Title Case signals marketing email. ALL CAPS is banned
 anywhere in the subject. This rule is grounded in Gong's 85M+ cold email dataset and AWeber
@@ -524,7 +542,7 @@ Return the sharpest of the three with its character count.
 
 The word "feast" or "famine" may not appear in any subject line.
 
-Ten example subject lines:
+Example subject lines:
 companyName series a hiring / companyName onboarding / founder to founder /
 saw your post on pricing / q4 pipeline / mutualConnection suggested /
 companyName retention / the timing question / pipeline after referrals
