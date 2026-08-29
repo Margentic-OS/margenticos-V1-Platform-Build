@@ -9507,3 +9507,48 @@ sends again.
 The new fake in `handleUploadLeads.suppression-prefilter.test.ts` records whether the filter
 was applied and honours it, so it does not have this hole. The older fake was left alone to
 keep the incident diff surgical.
+
+### [PROMPT-01] The writer prompt still names about a dozen real people and companies
+
+Deferred 2026-08-29, during the swap pass that took `buildWriterPrompt` from 9
+forbidden-content violations to 0.
+
+The scan that measures this file can only see the categories in its deny list, and the
+category it caught here was **named industry or sector**. Real NAMES it cannot see at all,
+by design: enumerating them in a deny list would publish them, so the data file catches only
+a corporate suffix or a domain, and `buildWriterPrompt`'s names carry neither.
+
+So the count is 0 and the following are still in the prompt that ships to the model on every
+writer call, inside worked examples:
+
+  Taffet, HydrospherIQ, Jason, Pani, Visteon, Blue Sky, Chamber, Stanford GSB,
+  Hollywood Food Coalition, Sovern LA, SCG, DTCC / Treasury / SEC, and CAVE at two sites.
+
+**Why it matters more here than in most prompts.** The prompt itself records that its
+examples have been lifted verbatim into real prospect emails eight times. A real company
+name in a worked example is therefore not a tidiness problem; it is a name that can land in
+a stranger's inbox.
+
+**Why it was not done in the same pass.** Three of them are pinned verbatim by tests whose
+stated purpose is that those failures are retained: `both FAILING examples are retained`,
+`carries both real failures verbatim`, and `extends the absence ban to implied choice`. The
+examples took nine iterations to arrive at, a swap that quietly changes what one teaches
+would fail no test, and rewriting those pins is a judgement call about each example rather
+than a substitution. `Visteon` in particular sits on the same line as one of the nine hits
+and was left while `Knot Consulting` next to it was removed, which is the clearest single
+illustration that this is unfinished rather than decided.
+
+**One of them is not a plain substitution.** `"the CAVE stand"` was rephrased in this pass
+rather than swapped, because its job is to show that a definite noun phrase naming something
+specific of theirs is permitted, against the bare categories the same line rejects
+(`"exhibitions"`). A generic placeholder gives `"the stand"`, which IS the bare category. The
+two remaining CAVE sites are ordinary substitutions and were left with the rest.
+
+**What would make this checkable rather than remembered.** The deny list cannot hold names,
+so the honest instrument is structural: `findSentenceInitialNames` already knows how to spot
+a proper noun that no finding supports, and
+`src/lib/style/__tests__/sentence-initial-names.test.ts` already carries a hand-written list
+of "every named entity in the writer prompt's worked examples", measured 2026-08-28. That
+list is a second list that has to be kept in step with the prompt by hand, which is the
+parallel-array shape. Deriving it from the prompt, or asserting the prompt against it, would
+turn this backlog entry into a test.

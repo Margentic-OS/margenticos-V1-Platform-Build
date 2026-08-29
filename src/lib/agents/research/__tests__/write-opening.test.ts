@@ -483,7 +483,7 @@ describe('the writer prompt targets load before resolution, not length', () => {
   it('carries the hard and easy pair verbatim, plus a rewrite of the hard one', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     // The real hard sentence, with its diagnosis.
-    expect(flat).toContain('Consulting firms that rely on conference appearances for new conversations')
+    expect(flat).toContain('Independent firms that rely on conference appearances for new conversations')
     expect(flat).toContain('Ten words before the verb')
     expect(flat).toContain('Three relative clauses, one nested inside another')
     // The real easy sentence, to show the fix is not "make it shorter".
@@ -869,7 +869,7 @@ describe('the writer may not hand back the approved offer line', () => {
 describe('the bridge examples come from outside the client industry', () => {
   const prompt = () => buildWriterPrompt()
 
-  it('uses four industries that are not consulting, agencies or outbound', () => {
+  it('uses four industries deliberately foreign to the prospect', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('A dentist:')
     expect(flat).toContain('A commercial builder:')
@@ -1094,7 +1094,7 @@ describe('the bridge may attribute, but only to the sender', () => {
     expect(flat).toContain('are not softer versions of the same thing')
     expect(flat).toContain('a verdict wearing a larger number')
     // Both real offenders, quoted so they cannot come back as "acceptable hedging".
-    expect(flat).toContain("Here's the assumption most consulting founders make")
+    expect(flat).toContain("Here's the assumption most founders make")
     expect(flat).toContain('Most firms at this stage find')
   })
 
@@ -1273,7 +1273,7 @@ describe('two more things the bridge may not assume', () => {
     expect(flat).toContain('THE ABSENCE BAN COVERS IMPLIED CHOICE')
     expect(flat).toContain('When your feed points elsewhere, the people who might hire you do not know HydrospherIQ exists.')
     expect(flat).toContain('it implies he chose that')
-    expect(flat).toContain('Never tell a founder what he has decided to put first')
+    expect(flat).toContain('Never tell the reader what they have decided to put first')
   })
 })
 
@@ -1396,7 +1396,7 @@ describe('two smaller bridge faults', () => {
 
   it('carries the empty change-of-state construction verbatim', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('Outreach for the consulting side sits until it does not.')
+    expect(flat).toContain('Outreach for the new-business side sits until it does not.')
     expect(flat).toContain('"Until it does not" is a shape where a fact should be')
   })
 
@@ -1416,7 +1416,7 @@ describe('the new failing examples do not become the next thing copied', () => {
       'The right buyers hear it on the day.',
       'A product shop builds an audience of people who browse.',
       'The founders who need you next are reading that feed.',
-      'Outreach for the consulting side sits until it does not.',
+      'Outreach for the new-business side sits until it does not.',
     ]) {
       const idx = p.indexOf(quote)
       expect(idx).toBeGreaterThan(-1)

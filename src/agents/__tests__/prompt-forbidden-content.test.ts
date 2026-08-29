@@ -71,7 +71,18 @@ const report = (v: Violation[]) =>
 // taken. Mutation-tested both ways rather than reasoned about. Putting the writer's line
 // back takes buildWriterPrompt to 10 against a baseline of 9, and putting the judge's line
 // back takes buildJudgePrompt to 1 against a baseline of 0. Both fail this test.
-const BASELINE_TOTAL = 44
+//
+// THE FIGURE THE RATCHET MAY NEVER EXCEED. Kept as the introduction measurement rather than
+// overwritten each time the baseline drops, so a later edit cannot walk the number back up
+// one ratchet at a time and still satisfy a guard that only compares against itself.
+const BASELINE_TOTAL_AT_INTRODUCTION = 44
+
+// RATCHETED DOWN 2026-08-29, same day, by the swap pass over buildWriterPrompt. Nine hits
+// on a named sector inside its worked examples went to zero: eight were a placeholder
+// substitution, one was rule prose naming the client's own sector as the thing the bridge
+// examples deliberately avoid, which had to be said at category level instead. No other
+// source moved, and no pattern was narrowed to get here.
+const BASELINE_TOTAL = 35
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/icp-agent.md': 9,
@@ -80,7 +91,7 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/messaging-agent.md': 12,
   'docs/prompts/faq-extraction-agent.md': 2,
   'docs/prompts/reply-draft-agent.md': 3,
-  'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 9,
+  'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 0,
   'src/lib/agents/research/write-opening.ts:buildFloorPrompt': 0,
   'src/lib/agents/research/write-opening.ts:buildJudgePrompt': 0,
   'src/lib/agents/research/prompts/synthesis-prompt.ts:buildSynthesisPrompt': 3,
@@ -128,8 +139,13 @@ describe('prompt text carries no client-specific content', () => {
     // Guards the guard, the same way prompt-industry-agnostic.test.ts does. The
     // recorded total is what a future edit reaches for first, so it is asserted
     // against the literal measured before any prompt was touched.
-    expect(Object.values(BASELINE_BY_SOURCE).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(BASELINE_TOTAL)
-    expect(BASELINE_TOTAL).toBe(44)
+    // EXACT, not <=. The per-source table and the declared total are two lists of the same
+    // fact, and the shape that goes wrong is one being edited without the other. Equality
+    // is what stops a source's figure being dropped while the total still looks plausible.
+    expect(Object.values(BASELINE_BY_SOURCE).reduce((a, b) => a + b, 0)).toBe(BASELINE_TOTAL)
+    expect(BASELINE_TOTAL).toBeLessThanOrEqual(BASELINE_TOTAL_AT_INTRODUCTION)
+    expect(BASELINE_TOTAL_AT_INTRODUCTION).toBe(44)
+    expect(BASELINE_TOTAL).toBe(35)
     expect(Object.keys(BASELINE_BY_SOURCE)).toHaveLength(PROMPT_SOURCES.length)
   })
 

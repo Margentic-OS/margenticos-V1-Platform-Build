@@ -282,7 +282,7 @@ THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT.
 This is the rule that matters most and the one most easily broken. You can see what they
 did. You cannot see their pipeline, their calendar, their marketing results, or whether
 any of it is working. Writing as though you can is presumptuous, it is frequently wrong,
-and a founder who reads a wrong claim about their own business stops reading.
+and anyone who reads a wrong claim about their own business stops reading.
 
 So the bridge may say what is TYPICALLY true of firms in this position. It may never say
 what IS true of this prospect's pipeline, diary, marketing or results.
@@ -292,8 +292,8 @@ their content, their brand may all be working perfectly. You have no way of know
 that is precisely the sentence that earns a defensive reply instead of a meeting.
 
 VERDICT, and this one is not just presumptuous but wrong:
-  observation: "The hiring post for a Manager of Delivery and Operations says the client
-   load is real and growing."
+  observation: "The hiring post for a new delivery role says the client load is real and
+   growing."
   bridge: "What a Chamber event and a strong network cannot do is put Blue Sky in front of
    the right buyers before that new capacity is already spoken for."
 A chamber event and a strong network is exactly how a great many consultancies fill
@@ -361,8 +361,8 @@ THE ABSENCE BAN COVERS IMPLIED CHOICE.
 This shipped: "When your feed points elsewhere, the people who might hire you do not know
 HydrospherIQ exists."
 That is not "you have no posts". It is "your posts are for somebody else's company", which
-is worse, because it implies he chose that. Never tell a founder what he has decided to
-put first.
+is worse, because it implies he chose that. Never tell the reader what they have decided
+to put first.
 
 THE GAP IS ABOUT PEOPLE WHO HAVE NOT MET THEM YET.
 
@@ -383,9 +383,9 @@ FAILING: "The right buyers hear it on the day. Then the event ends, and most of 
 The gap is the room that already saw him speak. Those people have met him.
 
 FAILING: "A product shop builds an audience of people who browse. The founders ready to hire
- a consultant rarely find you through the same door."
+ you rarely find you through the same door."
 The gap is the audience she has already built. Worse, she probably launched the shop in
-order to bring consulting work in, so this also tells her the thing she just built is not
+order to bring client work in, so this also tells her the thing she just built is not
 working, which is banned above.
 
 FAILING: "The founders who need you next are reading that feed."
@@ -413,7 +413,7 @@ sit under the one you wrote.
 
 A SENTENCE STATES WHAT HAPPENS. IT DOES NOT GESTURE AT A CHANGE OF STATE.
 
-FAILING: "Outreach for the consulting side sits until it does not."
+FAILING: "Outreach for the new-business side sits until it does not."
 "Until it does not" is a shape where a fact should be. Nothing is named: not when, not what
 changes it, not what happens in the meantime. Say the thing that happens.
 
@@ -436,7 +436,7 @@ own experience. It is true, it is checkable against nothing, and the reader can 
 with it without being contradicted about their own business.
 
 NOT ALLOWED, and this is the trap: attributing to THEIR peer group as fact. "Here's the
-assumption most consulting founders make" and "Most firms at this stage find" are not softer
+assumption most founders make" and "Most firms at this stage find" are not softer
 versions of the same thing. They still tell the reader what he thinks, and they claim a
 bigger sample while doing it. The question is always whose experience is being reported.
 Yours is honest. Theirs is a verdict wearing a larger number.
@@ -478,12 +478,12 @@ comparing notes see one template with the nouns swapped.
 So your bridge must not share a sentence shape with another prospect in this batch. Vary
 the CONSTRUCTION, not just the nouns.
 
-EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY, DELIBERATELY. None of them is about
-consulting, agencies or outbound. THE SHAPE IS WHAT TRANSFERS. EVERY WORD IN THEM IS
-UNUSABLE HERE, because a sentence about scaffolding or wedding albums pasted into this
-email is obviously wrong on sight. That is the point: the last two batches lifted the
-examples almost verbatim and the batch gate threw the attempts away. Read them for
-structure and then write your own sentence out of your own prospect's facts.
+EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY TO YOUR PROSPECT'S, DELIBERATELY. THE
+SHAPE IS WHAT TRANSFERS. EVERY WORD IN THEM IS UNUSABLE HERE, because a sentence about
+scaffolding or wedding albums pasted into this email is obviously wrong on sight. That is
+the point: the last two batches lifted the examples almost verbatim and the batch gate
+threw the attempts away. Read them for structure and then write your own sentence out of
+your own prospect's facts.
 
   A CONDITIONAL. Puts their own situation on the left of the sentence.
     A dentist: "When the chairs are full six weeks out, nobody is phoning the patients who
@@ -592,7 +592,7 @@ second pass: the reader has to carry all of it until the verb finally says what 
 doing.
 
 HARD, and this shipped:
-  "Consulting firms that rely on conference appearances for new conversations often find
+  "Independent firms that rely on conference appearances for new conversations often find
    the pipeline moves in cycles that follow the conference calendar rather than delivery
    demand."
 Ten words before the verb. Three relative clauses, one nested inside another. Every word
@@ -627,7 +627,7 @@ Say the thing instead. If you find yourself reaching for a machine, a current, a
 a runway, you have stopped describing their week and started decorating it.
 
 ABSTRACT, and this shipped:
-  "A day job and active delivery leave the consulting pipeline running on whatever is
+  "A day job and active delivery leave the sales pipeline running on whatever is
    left. That remainder tends to shrink before it grows."
 Nobody can picture a remainder.
 
@@ -674,7 +674,7 @@ holding, and a category leaves them holding nothing.
 
 Two of these shipped last week. Both have concrete nouns throughout and both fail:
 
-FAILING: "Outreach for the consulting side gets whatever hours remain, and those tend to
+FAILING: "Outreach for the new-business side gets whatever hours remain, and those tend to
  shrink before they grow."
 Hours do not grow. Point the camera and there is nothing to film.
 PLAIN: "Outreach gets whatever hours are left at the end of the day. Most weeks nobody gets
@@ -701,7 +701,8 @@ shipped:
    "around their dates" is four words standing in for a whole sentence.
 
 THE SUBJECT IS THEM, OR A THING THAT BELONGS TO THEM. "your posts". "your diary". "you
-took". "the CAVE stand". NOT a bare category: "every LinkedIn post", "board dates",
+took". The stand they took at a show, with the show named from the findings rather than
+left as "the stand". NOT a bare category: "every LinkedIn post", "board dates",
 "exhibitions", "outreach". A category is nobody. The reader has to work out that you mean
 them, and at the speed this gets read they will not bother.
 
@@ -784,7 +785,7 @@ happen, not what is happening to her.
 
 NEVER OPEN BY NAMING WHAT THEY LACK. No "there is no", no "nothing about", no "with no
 case studies", no lists of what is missing from their site or their feed. A senior seller
-does not tell a founder their website is thin. Notice something that IS there instead.
+does not tell the reader their website is thin. Notice something that IS there instead.
 
 ${FIRMOGRAPHIC_RULE_TEXT}
 
@@ -796,7 +797,7 @@ FAILING:
 Third person, about him rather than to him. A dossier entry. It leads nowhere.
 
 FAILING:
-  "You left Visteon at SVP level in December 2022. Knot Consulting has been the full focus
+  "You left Visteon at SVP level in December 2022. Your own firm has been the full focus
    since July 2023."
 Second person and still wrong. It recites his own CV back at him. He knows all of it.
 
