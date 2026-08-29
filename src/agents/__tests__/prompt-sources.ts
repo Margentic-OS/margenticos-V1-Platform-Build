@@ -7,6 +7,11 @@
 // prompt text that live in template literals under src/. Scanning the wrong set
 // while reporting success is the failure this whole file exists to avoid.
 //
+// SEVEN MARKDOWN FILES ARE SCANNED, SIX OF THEM RUNTIME-LOADED. The seventh is
+// shared-voice-spec.md, which no loader reads and which is prompt text anyway because
+// it is copied by hand into four of the other six. `loadedAtRuntime` is what separates
+// the two, so "scanned" and "loadable" stay different questions with different answers.
+//
 // ONE LIST OF PAIRS, never two parallel arrays. Each entry names both the location
 // and how to extract it, so a source cannot be added without saying how it is read.
 //
@@ -20,17 +25,30 @@ import { join } from 'node:path'
 import { exemptRegions, redactExampleQuotes } from './prompt-scan'
 
 export type PromptSource =
-  | { kind: 'markdown'; path: string; note: string }
+  | { kind: 'markdown'; path: string; note: string; loadedAtRuntime: boolean }
   | { kind: 'template-literal'; path: string; symbol: string; note: string }
 
 export const PROMPT_SOURCES: PromptSource[] = [
   // ── Markdown, read from disk at runtime by a loadSystemPrompt() ──
-  { kind: 'markdown', path: 'docs/prompts/icp-agent.md',            note: 'icp-generation-agent.ts' },
-  { kind: 'markdown', path: 'docs/prompts/positioning-agent.md',    note: 'positioning-generation-agent.ts' },
-  { kind: 'markdown', path: 'docs/prompts/tov-agent.md',            note: 'tov-generation-agent.ts' },
-  { kind: 'markdown', path: 'docs/prompts/messaging-agent.md',      note: 'messaging-generation-agent.ts' },
-  { kind: 'markdown', path: 'docs/prompts/faq-extraction-agent.md', note: 'faq-extraction-agent.ts' },
-  { kind: 'markdown', path: 'docs/prompts/reply-draft-agent.md',    note: 'reply-draft-agent.ts' },
+  { kind: 'markdown', path: 'docs/prompts/icp-agent.md',            note: 'icp-generation-agent.ts',        loadedAtRuntime: true },
+  { kind: 'markdown', path: 'docs/prompts/positioning-agent.md',    note: 'positioning-generation-agent.ts', loadedAtRuntime: true },
+  { kind: 'markdown', path: 'docs/prompts/tov-agent.md',            note: 'tov-generation-agent.ts',        loadedAtRuntime: true },
+  { kind: 'markdown', path: 'docs/prompts/messaging-agent.md',      note: 'messaging-generation-agent.ts',  loadedAtRuntime: true },
+  { kind: 'markdown', path: 'docs/prompts/faq-extraction-agent.md', note: 'faq-extraction-agent.ts',        loadedAtRuntime: true },
+  { kind: 'markdown', path: 'docs/prompts/reply-draft-agent.md',    note: 'reply-draft-agent.ts',           loadedAtRuntime: true },
+
+  // ── Markdown that reaches a model by COPY rather than by loader ──
+  //
+  // THE CANONICAL SPEC IS NOT LOADED AT RUNTIME AND IS STILL PROMPT TEXT. Its content is
+  // hand-copied into the four document prompts under "## Shared voice rules", so anything
+  // written here reaches a model on the next re-sync. That re-sync is a MANUAL procedure
+  // documented in the file's own header; no script performs it and nothing checks it ran.
+  //
+  // Scanning the four copies and not the source is the shape where a correction to a copy
+  // is reverted by the next sync and the scan reports success throughout. Two exemplar
+  // passages and a caption were corrected in messaging-agent.md on 2026-08-29 while their
+  // originals sat untouched here, which is exactly that, and it is why this entry exists.
+  { kind: 'markdown', path: 'docs/prompts/shared-voice-spec.md',    note: 'copied by hand into the four document prompts', loadedAtRuntime: false },
 
   // ── TypeScript template literals, sent as a system prompt ──
   { kind: 'template-literal', path: 'src/lib/agents/research/write-opening.ts',            symbol: 'buildWriterPrompt',    note: 'the research writer, ~9.3k tokens' },
@@ -45,8 +63,14 @@ export const PROMPT_SOURCES: PromptSource[] = [
 
 // The markdown prompt files a loadSystemPrompt() is allowed to resolve to. Derived
 // from PROMPT_SOURCES rather than restated, so the two cannot disagree.
+//
+// `loadedAtRuntime` IS REQUIRED, NOT OPTIONAL, and that is the whole guard. A markdown
+// entry added without it is a COMPILE ERROR, which is the notification that somebody has
+// to decide whether a loadSystemPrompt may resolve to it. Defaulting the field would make
+// the shared spec silently loadable the day the next unscanned file is added.
 export const RUNTIME_MARKDOWN = PROMPT_SOURCES
   .filter((s): s is Extract<PromptSource, { kind: 'markdown' }> => s.kind === 'markdown')
+  .filter(s => s.loadedAtRuntime)
   .map(s => s.path)
 
 export interface SourceText { label: string; lines: { n: number; text: string }[] }

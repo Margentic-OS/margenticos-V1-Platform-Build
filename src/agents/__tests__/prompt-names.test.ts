@@ -74,9 +74,27 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 49
 //   synthesis-prompt.ts   "Apollo" is a registered VENDOR in a provenance example, which
 //                         is ADR-001 tool-agnosticism, a different rule with a different
 //                         fix. Swapping it here would make a silent architectural call.
-const BASELINE_TOTAL = 37
+//
+// THE CANONICAL SPEC ADDED TO THE REGISTRY 2026-08-29, BRINGING TWO HITS WITH IT. The total
+// moves 37 -> 39 and NO EXISTING PER-SOURCE FIGURE MOVES. That is a source joining the scan,
+// not a baseline being walked back up: the introduction figure below is untouched at 49, and
+// 39 is still under it, which is the assertion that tells the two apart.
+//
+// THE TWO WERE ALWAYS THERE AND NOTHING WAS LOOKING. Neither is a real organisation or
+// person, and neither is newly written:
+//   L12   "Verbatim"  the word, quoted, in this file's own sync-rule header. A capitalised
+//                     ordinary word inside quotes, which is the known false-positive shape
+//                     this check documents rather than exempts.
+//   L174  "IP"        an acronym inside Rule 7's "Wrong final sentence" example. It exists
+//                     only here: recorded divergence 5 is that the four prompts carry a
+//                     shorter Rule 7 example with no worked wrong sentence, so no scanned
+//                     file has ever contained this line.
+// Recorded rather than fixed, because editing rule text is a different change from adding a
+// source to the registry, and mixing them makes both harder to review.
+const BASELINE_TOTAL = 39
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
+  'docs/prompts/shared-voice-spec.md': 2,
   'docs/prompts/icp-agent.md': 0,
   'docs/prompts/positioning-agent.md': 1,
   'docs/prompts/tov-agent.md': 0,
@@ -126,7 +144,10 @@ describe('prompt examples name nothing real', () => {
 
   it('found real examples to scan, so nothing above passes vacuously', () => {
     // The failure this catches is a span extractor that matches nothing and reports a
-    // clean sweep. Measured 2026-08-29: 896 spans across the fourteen sources.
+    // clean sweep. Measured 2026-08-29: 896 spans across fourteen sources, and 1,099 across
+    // fifteen once the shared spec joined. The floor stays at the figure that was argued for
+    // rather than tracking the newest measurement, so it keeps catching an extractor that
+    // reads nothing without being re-set every time a source is added.
     let spans = 0
     let capitalised = 0
     for (const s of PROMPT_SOURCES) {

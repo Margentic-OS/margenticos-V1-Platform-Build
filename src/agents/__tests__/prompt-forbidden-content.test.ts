@@ -89,9 +89,25 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 44
 // with one that qualifies its population by SITUATION, and the caption now names that as
 // what it is teaching. No other source moved and no pattern was narrowed to get here: the
 // same scan re-run over the untouched thirteen returns the same thirteen figures.
+//
+// THE CANONICAL SPEC ADDED TO THE REGISTRY 2026-08-29, and it brings ZERO with it. That is
+// a measurement, not an assumption: shared-voice-spec.md scores 0 against the deny list,
+// measured before its corrections were applied and again after, so the total stays 34 and
+// no existing per-source figure moves.
+//
+// A ZERO IS NOT A CLEAN BILL OF HEALTH HERE, and recording it without saying so would be
+// the reassuring kind of wrong. The file carried the exemplar passage and the caption that
+// this scan's own baseline notes describe as a violation in messaging-agent.md, and scored
+// zero on both. NAMED_INDUSTRY is word-bounded on the singular, so the plural form of the
+// sector noun is invisible to it, and no pattern matches a caption that INSTRUCTS the
+// assertion rather than making it. The 35 -> 34 drop recorded above is attributed to that
+// caption and is actually the currency figure removed in the same commit; the caption was
+// never counted. So this entry is regression cover for what the deny list can see, and the
+// class that motivated adding the file is measured at zero by a scan that cannot see it.
 const BASELINE_TOTAL = 34
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
+  'docs/prompts/shared-voice-spec.md': 0,
   'docs/prompts/icp-agent.md': 9,
   'docs/prompts/positioning-agent.md': 4,
   'docs/prompts/tov-agent.md': 1,
