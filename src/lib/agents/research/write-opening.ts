@@ -1185,7 +1185,7 @@ export function checkOpeningGates(
 }
 
 /**
- * The subject gate. THREE CHECKS, AND IT FAILS SOFT.
+ * The subject gate. EVERY CHECK IN IT FAILS SOFT.
  *
  * WHY THIS IS NOT INSIDE checkOpeningGates, having been asked for there. That function's
  * return value IS the hard-failure channel: writeOnce pushes it into `gates`, a non-empty
@@ -1197,7 +1197,8 @@ export function checkOpeningGates(
  *
  * A non-empty return means DISCARD THE SUBJECT, not fail the attempt.
  *
- * The three, and why each:
+ * Each check, and why it earns its place. NO COUNT IS STATED, for the reason given above
+ * checkOpeningGates: this line read "The three" while the list below it held four.
  *   traceability  a name invented in the subject is worse than one invented in the body.
  *                 It is the line every recipient reads, including the ones who read
  *                 nothing else.
