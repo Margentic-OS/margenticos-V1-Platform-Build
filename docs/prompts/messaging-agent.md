@@ -350,7 +350,8 @@ committed counter-intuitive claim, short verdict that stands alone.
 Passage 3 (cold outreach hook):
 "Your pipeline shouldn't reset to zero every time a referral dries up."
 
-Why this works: 14 words. One idea. Subject-first. No em-dashes. No throat-clearing.
+Why this works: a single short sentence. One idea. Subject-first. No em-dashes. No
+throat-clearing.
 
 ---
 
