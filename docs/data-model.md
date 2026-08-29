@@ -289,7 +289,18 @@ Fields:
   id
   organisation_id
   first_name / last_name / email / company_name / role / linkedin_url
-  personalisation_trigger — the Trigger-Bridge-Value output from research
+  personalisation_trigger — the observation and bridge written by research. Replaces
+                            Email 1's P2 slot at composition. NULL means the variant's
+                            authored opener ships unchanged.
+  personalisation_question — the written closing question. Replaces the variant's approved
+                            CTA. NULL keeps the approved one. Set and cleared with
+                            personalisation_trigger.
+  personalisation_subject — the written Email 1 subject, derived from the observation
+                            above. Replaces the variant's authored subject_line at
+                            composition, on the researched path only. NULL keeps the
+                            authored subject. NOT always set when the trigger is: the
+                            subject has its own gate and it FAILS SOFT, so an opening can
+                            ship with the authored subject above it.
   research_source         — apollo / web_search / website / pain_proxy
   suppressed              — true means no further contact, ever
   suppressed_at / suppression_reason

@@ -595,8 +595,8 @@ The durable queue is a separate build. See BACKLOG.
 
 ### The guard on finished copy
 
-`updateProspect` writes `personalisation_trigger` and `personalisation_question` on **every**
-run. It is not an append and it is not conditional:
+`updateProspect` writes `personalisation_trigger`, `personalisation_question` and
+`personalisation_subject` on **every** run. It is not an append and it is not conditional:
 
 ```
 personalisation_trigger: opening.written_won ? opening.opening : null
@@ -606,6 +606,12 @@ On a SEND verdict the stored opening is replaced with new wording. On a HOLD ver
 set to NULL, destroying the existing one. The judge holds often enough for this to matter:
 of the 15 researched prospects in the client-zero organisation on 2026-08-20, 12 held a
 trigger and 3 held NULL.
+
+`personalisation_subject` is CLEARED with the trigger but not always SET with it. The subject
+has its own gate, and that gate fails soft: an opening can win the judge while its subject was
+discarded, in which case the column stays NULL and the variant's authored subject ships above
+the researched body. The two states are indistinguishable downstream and are meant to be:
+composition reads NULL as "use the authored subject" either way.
 
 So the research entry point **refuses** to run on any prospect that already holds a trigger,
 unless the caller passes `allow_overwrite_trigger: true`. The dashboard route never passes

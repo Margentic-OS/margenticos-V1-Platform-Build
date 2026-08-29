@@ -20,6 +20,10 @@ import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/fir
 import { checkSentenceInitialNames } from '@/lib/style/sentence-initial-names'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
 import { readabilityScore } from '@/lib/style/readability'
+// The subject character cap lives with the messaging agent's other limits and is
+// imported rather than restated: a second copy of a number is a second thing to keep
+// in step by hand, and CLAUDE.md names that constant as the source of truth.
+import { EMAIL_SUBJECT_LIMITS } from '@/agents/messaging-generation-agent'
 import { BatchUniquenessRegistry, uniquenessFeedback } from './batch-uniqueness'
 import type { ObservationCandidate, TokenUsage } from './types'
 import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage } from './types'
@@ -99,6 +103,15 @@ export interface OpeningResult {
   bridge: string | null
   /** The closing question that shipped, set and cleared together with `opening`. */
   question: string | null
+  /**
+   * The Email 1 subject written from the observation, or null.
+   *
+   * NULL FOR TWO DIFFERENT REASONS, and both mean the same thing downstream: either the
+   * whole attempt fell back to the template, or the opening shipped and only the subject
+   * was rejected by its own soft gate. Composition treats null as "use the variant's
+   * authored subject", so it never has to tell the two apart.
+   */
+  subject: string | null
   /** True when the written opening beat the approved template on the final comparison. */
   written_won: boolean
   /** True when the writer was given feedback and tried again at least once. */
@@ -805,11 +818,34 @@ CONSTRAINTS, and there are only four:
   something the findings do not support.
   Do not pitch and do not name the service. The offer line does that.
 
-Return your answer as exactly three labelled blocks and nothing else:
+THE SUBJECT LINE. YOU WRITE IT, AND YOU WRITE IT LAST.
+
+Last, because it comes out of the observation. Until now it was written before anyone knew
+what the observation would say, so it routinely named a framing the email then never
+mentioned. The subject is the first thing they read, and a subject the first line does not
+answer reads as a template, whatever the first line says.
+
+So read your own observation back and name the thing it is about.
+
+  It comes from your observation. Not from the offer line, not from a finding you did not use.
+  All lower case.
+  No full stop, no question mark and no exclamation mark at the end.
+  Never their first name and never their company's name.
+  At most ${EMAIL_SUBJECT_LIMITS.email1MaxChars} characters, spaces included.
+  Nothing in it that is not in the findings, on the same terms as the observation.
+  No figure from their record: no revenue, no headcount, no funding, no money amount.
+  The same ban that applies to the body applies here, and harder, because the subject is
+  read by everyone the email reaches, including everyone who never opens it.
+
+A subject breaking any of those is thrown away and the client's approved subject ships in
+its place. Nothing else about your answer is affected, so do not spend words defending it.
+
+Return your answer as exactly four labelled blocks and nothing else, in this order:
 
 OBSERVATION: <the thing you noticed, its own paragraph>
 BRIDGE: <the pattern, its own paragraph>
-QUESTION: <the closing question, ending in a question mark>`
+QUESTION: <the closing question, ending in a question mark>
+SUBJECT: <the subject line, on one line>`
 }
 
 // ─── The judge prompt ────────────────────────────────────────────────────────
@@ -1148,6 +1184,68 @@ export function checkOpeningGates(
   return failures
 }
 
+/**
+ * The subject gate. THREE CHECKS, AND IT FAILS SOFT.
+ *
+ * WHY THIS IS NOT INSIDE checkOpeningGates, having been asked for there. That function's
+ * return value IS the hard-failure channel: writeOnce pushes it into `gates`, a non-empty
+ * `gates` ends the attempt, and the attempt loop then spends one of two or three tries on
+ * a rewrite. Putting a subject failure into that array would buy a new subject with a
+ * retry that the BODY needed, and an exhausted attempt ships the approved template, which
+ * is worse copy than any subject this could reject. So the checks live here, beside the
+ * gates and sharing their traceability helper, and the caller keeps them off that channel.
+ *
+ * A non-empty return means DISCARD THE SUBJECT, not fail the attempt.
+ *
+ * The three, and why each:
+ *   traceability  a name invented in the subject is worse than one invented in the body.
+ *                 It is the line every recipient reads, including the ones who read
+ *                 nothing else.
+ *   length        the same cap the messaging agent enforces on an authored subject. A
+ *                 subject truncated by the mail client is a subject that says something
+ *                 other than what was written.
+ *   no question   the body is allowed exactly one question mark and the CTA is it. A
+ *                 subject that asks one spends the email's only question before the
+ *                 reader has reached the ask.
+ *   firmographics  a revenue band, a headcount or a funding figure. The messaging agent
+ *                 applies this ban to email BODIES and has never applied it to a subject
+ *                 line, which was harmless only while every subject was human-authored.
+ *                 It stops being harmless the moment subjects are generated. The figure
+ *                 is usually IN the findings, so traceability above cannot catch it:
+ *                 being in the findings is what makes it dangerous. It reads as a
+ *                 database lookup, it may be wrong, and a wrong number is worse in the
+ *                 subject than anywhere else because it is read by everyone who is
+ *                 shown the email, including those who never open it.
+ */
+export function checkSubjectGates(subject: string, findingsText: string): string[] {
+  const failures: string[] = []
+  const text = subject.trim()
+  if (!text) return failures
+
+  const untraceable = untraceableClaims(text, findingsText)
+  if (untraceable.length > 0) {
+    failures.push(`subject claims not traceable to any finding: ${untraceable.join(', ')}`)
+  }
+
+  if (text.length > EMAIL_SUBJECT_LIMITS.email1MaxChars) {
+    failures.push(`subject is ${text.length} characters, cap is ${EMAIL_SUBJECT_LIMITS.email1MaxChars}`)
+  }
+
+  if (text.includes('?')) {
+    failures.push('subject asks a question: the closing question is the email\'s only question')
+  }
+
+  // The SAME array, therefore the same soft-fail path as the three above by construction:
+  // there is no second channel a firmographic hit could take, and no way to add one
+  // without editing the single `return` below.
+  const figures = findFirmographicFigures(text)
+  if (figures.length > 0) {
+    failures.push(`subject quotes ${figures.join(' and ')} from the prospect's record: qualify by role, stage or situation instead`)
+  }
+
+  return failures
+}
+
 // ─── Findings block ──────────────────────────────────────────────────────────
 
 /** Ranked findings with provenance. Ranking is what the six tests are now for. */
@@ -1247,11 +1345,12 @@ export interface WriteAndJudgeParams {
   p3: string
   cta: string
   /**
-   * Builds the complete Email 1. `question` is optional so the TEMPLATE side of the
-   * comparison keeps its own approved CTA: both emails must be complete and genuinely
-   * sendable, or the comparison is not honest.
+   * Builds the complete Email 1, subject line included. `question` and `subject` are both
+   * optional so the TEMPLATE side of the comparison keeps its own approved CTA and its own
+   * approved subject: both emails must be complete and genuinely sendable, or the
+   * comparison is not honest.
    */
-  composeEmail1: (opening: string, question?: string | null) => string
+  composeEmail1: (opening: string, question?: string | null, subject?: string | null) => string
   /** The variant's own approved opening, the version the written one has to beat. */
   templateOpening: string
   prospectId: string
@@ -1264,13 +1363,34 @@ export interface WriteAndJudgeParams {
 }
 
 /**
- * Splits the writer's three labelled blocks.
+ * The trailing SUBJECT block, matched at the start of a line so it can be both READ and
+ * REMOVED. Removal is what the unlabelled fallback below needs: that path treats whatever
+ * it is given as prose, so without this the literal text "SUBJECT: ..." would be collapsed
+ * into the observation and shipped as the first line of a real email.
+ *
+ * Anchored to a line start rather than matched anywhere, so a prospect's own prose
+ * containing the word cannot truncate the reply.
+ */
+const SUBJECT_BLOCK = /(?:^|\n)[ \t]*SUBJECT:[\s\S]*$/i
+
+/**
+ * Splits the writer's four labelled blocks.
  *
  * The observation and the bridge are returned separately because they are now separate
  * paragraphs in the email AND because the bridge alone is what the batch-uniqueness gate
  * measures. `opening` is the two joined by a blank line, which is what gets stored and
  * composed: composition replaces the P2 slot with it verbatim, and a trigger containing
  * its own blank line becomes two paragraphs when the body is re-joined.
+ *
+ * `subject` is the Email 1 subject line, written from the observation the writer just
+ * produced. It is the LAST block, and it is optional in the sense that an absent or
+ * unusable one costs nothing: the caller falls back to the variant's authored subject.
+ * Absent means empty string, never undefined, so no caller has to distinguish the two.
+ *
+ * EVERY BOUNDARY IS AN EXPLICIT LOOKAHEAD. QUESTION used to capture to end of string and
+ * survived only because the next line took its first line via split. That is incidental
+ * correctness: it would have broken silently the moment anything multi-line followed it,
+ * which is exactly what SUBJECT now is on the malformed path.
  *
  * OPENING: is still accepted as a fallback label. A writer that returns the old two-block
  * format would otherwise lose its whole observation to the regex and ship a bridge on its
@@ -1280,31 +1400,43 @@ export function parseWriterOutput(raw: string): {
   observation: string
   bridge: string
   question: string
+  subject: string
   opening: string
 } {
-  const obsMatch = raw.match(/OBSERVATION:\s*([\s\S]*?)(?=\n\s*(?:BRIDGE|QUESTION):|$)/i)
-  const bridgeMatch = raw.match(/BRIDGE:\s*([\s\S]*?)(?=\n\s*QUESTION:|$)/i)
-  const legacyMatch = raw.match(/OPENING:\s*([\s\S]*?)(?=\n\s*QUESTION:|$)/i)
-  const qMatch = raw.match(/QUESTION:\s*([\s\S]+)/i)
+  const obsMatch = raw.match(/OBSERVATION:\s*([\s\S]*?)(?=\n\s*(?:BRIDGE|QUESTION|SUBJECT):|$)/i)
+  const bridgeMatch = raw.match(/BRIDGE:\s*([\s\S]*?)(?=\n\s*(?:QUESTION|SUBJECT):|$)/i)
+  const legacyMatch = raw.match(/OPENING:\s*([\s\S]*?)(?=\n\s*(?:QUESTION|SUBJECT):|$)/i)
+  const qMatch = raw.match(/QUESTION:\s*([\s\S]*?)(?=\n\s*SUBJECT:|$)/i)
+  const subjectMatch = raw.match(/SUBJECT:\s*([\s\S]+)/i)
 
   const question = cleanOpening(qMatch?.[1] ?? '').split('\n')[0].trim()
+  // One line, same treatment as the question. A subject is a single line by definition.
+  const subject = cleanOpening(subjectMatch?.[1] ?? '').split('\n')[0].trim()
 
   // Preferred path: both labels present.
   if (obsMatch && bridgeMatch) {
     const observation = collapseParagraph(cleanOpening(obsMatch[1]))
     const bridge = collapseParagraph(cleanOpening(bridgeMatch[1]))
-    return { observation, bridge, question, opening: joinOpening(observation, bridge) }
+    return { observation, bridge, question, subject, opening: joinOpening(observation, bridge) }
   }
 
   // Fallback: the old single OPENING block, or an unlabelled reply. Split on the blank
   // line if the writer left one, otherwise treat the whole thing as the observation so
   // nothing is silently dropped. The bridge gate then sees an empty bridge and rejects,
   // which is the correct outcome: a malformed reply must not ship.
-  const whole = cleanOpening(legacyMatch?.[1] ?? (obsMatch?.[1] ?? bridgeMatch?.[1] ?? raw))
+  //
+  // The SUBJECT block is stripped FIRST. Only the `raw` branch can still be carrying it,
+  // because the three labelled captures already stop at it, but the strip is applied to
+  // the resolved string rather than to that one branch: it costs nothing and it cannot
+  // then be missed if the branches are ever reordered. `subject` above was read from the
+  // untouched `raw`, so stripping here loses nothing.
+  const whole = cleanOpening(
+    (legacyMatch?.[1] ?? obsMatch?.[1] ?? bridgeMatch?.[1] ?? raw).replace(SUBJECT_BLOCK, ''),
+  )
   const parts = whole.split(/\n{2,}/).map(x => x.trim()).filter(Boolean)
   const observation = collapseParagraph(parts[0] ?? '')
   const bridge = collapseParagraph(parts.slice(1).join(' '))
-  return { observation, bridge, question, opening: joinOpening(observation, bridge) }
+  return { observation, bridge, question, subject, opening: joinOpening(observation, bridge) }
 }
 
 /** One paragraph on one logical line. Soft-wraps the model inserts are not paragraphs. */
@@ -1338,7 +1470,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
 
   const writeOnce = async (
     feedback: string | null,
-  ): Promise<{ observation: string; bridge: string; opening: string; question: string; gates: string[] }> => {
+  ): Promise<{ observation: string; bridge: string; opening: string; question: string; subject: string; gates: string[] }> => {
     // The questions already gone in this batch, listed rather than implied. Shown on every
     // retry, not just a collision retry: the writer that is rewriting for length is equally
     // capable of walking into a taken question on the way past.
@@ -1350,8 +1482,8 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     // Assignment first: the prompt instructs the writer to read the offer line BEFORE the
     // findings, so it has to physically precede them.
     const user = feedback
-      ? `${assignment}\n\n## Findings\n\n${findings}${takenBlock}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the three labelled blocks.`
-      : `${assignment}\n\n## Findings\n\n${findings}\n\nWrite the observation, the bridge and the closing question. Return ONLY the three labelled blocks.`
+      ? `${assignment}\n\n## Findings\n\n${findings}${takenBlock}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the four labelled blocks.`
+      : `${assignment}\n\n## Findings\n\n${findings}\n\nWrite the observation, the bridge, the closing question and the subject line. Return ONLY the four labelled blocks.`
     // cacheSystem: the writer prompt is the big stable one, and this is the call that runs
     // up to three times per prospect.
     const writerCall = await callModel(client, WRITER_MODEL, writerSystem, user, 700, `writer for prospect ${params.prospectId}`, true)
@@ -1365,6 +1497,25 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     const question = scrubAITells(parsed.question, `research/writer/${params.prospectId}`)
     const opening = joinOpening(observation, bridge)
 
+    // THE SUBJECT FAILS SOFT, AND THIS IS THE WHOLE OF THAT MECHANISM.
+    //
+    // Its failures go into their own array and are never added to `gates`. `gates` is what
+    // ends an attempt, so an unusable subject cannot consume one of the two or three the
+    // prospect gets. It is logged and dropped, `subject` becomes the empty string, and
+    // composition then ships the variant's authored subject: the same subject that ships
+    // today, which is the state this change is improving on rather than risking.
+    const subjectFailures = checkSubjectGates(parsed.subject, findings)
+    if (subjectFailures.length > 0) {
+      logger.warn('research/write-opening: generated subject discarded, authored subject will ship', {
+        prospect_id: params.prospectId,
+        subject: parsed.subject,
+        reasons: subjectFailures,
+      })
+    }
+    const subject = subjectFailures.length > 0
+      ? ''
+      : scrubAITells(parsed.subject, `research/writer/${params.prospectId}`)
+
     // The cap covers the whole written block, so gate the combined text.
     const gates = checkOpeningGates(
       `${opening} ${question}`.trim(), params.prospectFirstName, findings, params.p3,
@@ -1376,14 +1527,19 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     // an observation with no bridge names a fact and then asks for a meeting.
     if (!observation) gates.push('writer returned no observation')
     if (!bridge) gates.push('writer returned no bridge')
-    return { observation, bridge, opening, question, gates }
+    // Deliberately NOT gated: a missing subject is the fallback working, not a failure.
+    return { observation, bridge, opening, question, subject, gates }
   }
 
   // THE FLOOR. Runs on the personalised email alone, before any comparison, and can only
   // disqualify. A comparison picks a winner, so without this a flawed personalised email
   // ships whenever its template happens to be worse.
-  const floorCheck = async (opening: string, question: string): Promise<FloorCheck> => {
-    const email = params.composeEmail1(opening, question)
+  const floorCheck = async (opening: string, question: string, subject: string): Promise<FloorCheck> => {
+    // The subject goes in. The floor asks whether the email claims private knowledge, and
+    // the subject is part of the email: a line asserting something unknowable is no safer
+    // for being above the greeting rather than below it. Empty means the authored subject
+    // ships, which is what composeEmail1 falls back to.
+    const email = params.composeEmail1(opening, question, subject || null)
     const floorCall = await callModel(client, JUDGE_MODEL, floorSystem, email, 300, `floor for prospect ${params.prospectId}`)
     record(floorCall.usage)
     return parseFloor(floorCall.text)
@@ -1396,6 +1552,13 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     question: string,
     floor: FloorCheck,
   ): Promise<JudgeComparison> => {
+    // NO SUBJECT OVERRIDE HERE, ON PURPOSE. The judge prompt states that the two drafts
+    // "differ only in how they open", and that is what makes its single question answerable:
+    // the approved P3 and CTA are common to both so neither can be the deciding factor.
+    // Varying the subject as well would give it a second axis and quietly turn a comparison
+    // of openings into a comparison of two different things. Both sides therefore carry the
+    // variant's authored subject. The generated subject is checked by its own gate and read
+    // by the floor, which is where a subject can actually be disqualified.
     const writtenEmail = params.composeEmail1(opening, question)
     const writtenLabel: 'A' | 'B' = Math.random() < 0.5 ? 'A' : 'B'
     const emailA = writtenLabel === 'A' ? writtenEmail : templateEmail
@@ -1426,7 +1589,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     | { kind: 'gated'; gates: string[]; opening: string; question: string }
     | { kind: 'collided'; reason: string; opening: string; question: string }
     | { kind: 'floored'; floor: FloorCheck; opening: string; question: string }
-    | { kind: 'compared'; c: JudgeComparison }
+    | { kind: 'compared'; c: JudgeComparison; subject: string }
 
   const attempt = async (feedback: string | null): Promise<Attempt> => {
     const w = await writeOnce(feedback)
@@ -1445,7 +1608,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
       return { kind: 'collided', reason: uniquenessFeedback(collisions), opening: w.opening, question: w.question }
     }
 
-    const floor = await floorCheck(w.opening, w.question)
+    const floor = await floorCheck(w.opening, w.question, w.subject)
     if (floor.claims_private) {
       logger.warn('research/write-opening: floor disqualified the personalised version', {
         prospect_id: params.prospectId, reason: floor.reason,
@@ -1458,7 +1621,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     // The template won, so nothing of this attempt ships. Holding the reservation would
     // block a later prospect from a shape that was never actually used.
     if (!c.written_won) params.uniqueness?.release(params.prospectId)
-    return { kind: 'compared', c }
+    return { kind: 'compared', c, subject: w.subject }
   }
 
   const feedbackFrom = (a: Attempt): string =>
@@ -1483,7 +1646,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
         return {
           usage,
           opening: a.c.opening, observation: a.c.observation, bridge: a.c.bridge,
-          question: a.c.question, written_won: true,
+          question: a.c.question, subject: a.subject || null, written_won: true,
           retry_used: i > 0, retries_used: i, strong_material: strongMaterial,
           comparisons, judge_reasoning: a.c.reason, gate_failures: [],
         }
@@ -1510,7 +1673,8 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
 
   return {
     usage,
-    opening: null, observation: null, bridge: null, question: null, written_won: false,
+    opening: null, observation: null, bridge: null, question: null, subject: null,
+    written_won: false,
     retry_used: retries > 0, retries_used: retries, strong_material: strongMaterial,
     comparisons, judge_reasoning: reason,
     gate_failures: last?.kind === 'gated' ? last.gates : [],

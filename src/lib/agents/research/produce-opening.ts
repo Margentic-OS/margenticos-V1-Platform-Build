@@ -98,8 +98,17 @@ export async function produceOpening({
     // first_name resolved so the judge reads exactly what the prospect receives.
     // question omitted keeps the variant's approved CTA, which is how the template side
     // of the comparison stays a complete, genuinely sendable email.
-    composeEmail1: (text: string, question?: string | null) =>
-      composeEmail1WithOpening(messagingContent, variantId, text, question ?? null, ctx.first_name).body,
+    //
+    // RENDERED WITH ITS SUBJECT LINE, not as a bare body. The reader of this string is a
+    // model being asked to judge a finished email, and an email without a subject is not
+    // one. `subject` omitted keeps the variant's authored subject, so the template side of
+    // the comparison stays complete too.
+    composeEmail1: (text: string, question?: string | null, subject?: string | null) => {
+      const email1 = composeEmail1WithOpening(
+        messagingContent, variantId, text, question ?? null, ctx.first_name, subject ?? null,
+      )
+      return `Subject: ${email1.subject_line ?? ''}\n\n${email1.body}`
+    },
     prospectId: ctx.id,
     uniqueness,
   })

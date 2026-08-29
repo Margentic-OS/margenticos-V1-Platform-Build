@@ -9015,6 +9015,105 @@ Also: must land behind a per-org flag.
 
 ---
 
+## SESSION 2026-08-28, branch subject-line — the Email 1 subject on the researched path
+
+### What shipped
+
+Email 1's subject is now written by the research writer, from its own observation, as a
+fourth labelled block inside the model call that already produces the observation. No new
+model call, no extra cost. Emails 2 to 4 are untouched. The non-researched path is
+untouched: the variant's authored subject ships, exactly as before.
+
+Stored in `prospects.personalisation_subject` (migration
+`20260828120000_add_personalisation_subject.sql`, applied and verified live 2026-08-28).
+Substituted at composition, gated on the researched path AND a non-empty stored value, which
+is the same gate `personalisation_question` uses.
+
+### The measurement that motivated it, and how it differs from the brief
+
+Measured on the 24 prospects carrying a written closing question, comparing each variant's
+authored Email 1 subject against that prospect's own trigger text:
+
+  24 of 24  the subject contains a content word appearing nowhere in the trigger
+  21 of 24  the subject and the trigger share NO content word at all
+
+The brief that commissioned the work said 11 of 24. The real figure is worse under both
+readings. The reason is structural rather than a matter of degree: three of the four
+variants in the current documents carry a subject naming the client's own category, and the
+observation that replaces P2 names something about the prospect, so the two have no reason
+to overlap at all. The single-figure framing understated it.
+
+### [post-build] The subject gate has four checks. One of them is new to this codebase.
+
+`checkSubjectGates` in `src/lib/agents/research/write-opening.ts`: traceability, the
+character cap, no question mark, and no firmographic figure. The fourth is new because
+`validateEmails` in the messaging agent applies `BANNED_FIRMOGRAPHIC` to email BODIES only.
+A subject line has only ever been length-checked. That was harmless while every subject was
+human-authored and stopped being harmless the moment subjects became generated.
+
+All four FAIL SOFT. A rejected subject is logged, discarded, and replaced by the authored
+one. It never fails the attempt and never increments the attempt count, because an
+exhausted attempt ships the fallback template, which is worse copy than any subject the
+gate would reject.
+
+Checked and recorded: all 20 authored Email 1 subject lines across the 5 active approved
+messaging documents pass `findFirmographicFigures` today. They are not gated and must not
+be: they are client-approved copy and a fallback that can itself be rejected has nowhere
+left to fall.
+
+### [post-build] Two dormant things deleted, and one left behind
+
+DELETED. A hardcoded default value proposition in `composeSequence`, naming the buyer type
+as a universal fact, together with the live `fetchApprovedPositioningHook` read that ran
+once per prospect to try to avoid it. Both were dead: the only consumer is `generateBridge`,
+inside the `BRIDGE_ENABLED` branch, false since 2026-08-19.
+
+DELETED. `buildRoleProxy`'s hardcoded pain sentence, which asserted one specific problem as
+the thing every prospect in every industry has.
+
+STILL THERE, and proposed rather than done:
+
+  1. `buildRoleProxy` itself has no purpose without that sentence. It now returns an empty
+     string. It should be deleted along with the whole `role_proxy` trigger source, which is
+     unreachable behind `TRIGGER_FALLBACKS_ENABLED = false`, and with `pluraliseRoleTitle`
+     if nothing else claims it.
+  2. `ComposeDocs.positioningValueHook` is now read by nothing. `fetchComposeDocs` still
+     populates it, once per segment rather than once per prospect, so it costs one query per
+     batch and no wrong copy. Not removed here because `ComposeDocs` and
+     `fetchApprovedPositioningHook` are both exported and removing them is a wider API
+     change than the deletion that orphaned it.
+
+Neither was removed unasked. Both are one small commit each.
+
+### [post-build] The judge still compares two emails with the SAME subject
+
+Deliberate. The judge prompt states that the two drafts "differ only in how they open", and
+that is what makes its single question answerable. Varying the subject as well would give it
+a second axis and quietly turn a comparison of openings into a comparison of two different
+things. So both sides carry the variant's authored subject.
+
+The FLOOR does see the generated subject, because the floor asks whether the email claims
+private knowledge and a subject line is as capable of that as any paragraph.
+
+If subject quality later needs a model's opinion rather than four deterministic checks, that
+is a change to the judge prompt and to what it is told it is comparing, not a one-line
+substitution. Do not make it by accident.
+
+### [post-build] One mutation the tests cannot catch, stated so it is not over-trusted
+
+`parseWriterOutput`'s QUESTION regex now stops at an explicit `SUBJECT:` lookahead instead
+of capturing to end of string. Reverting that lookahead fails NO test, and no test can be
+written that it would fail, because `.split('\n')[0]` on the next line truncates the capture
+to one line either way. The two versions are behaviourally identical today.
+
+The lookahead is still worth having: it makes the boundary a second, independent guard
+rather than leaving the split as the only thing holding it. But it is covered by
+construction, not by a red test, and this entry says so rather than letting a future reader
+assume otherwise. Every other guard added in this session WAS mutation-tested and each one
+turned a test red.
+
+---
+
 ## 2026-08-28 — messaging agent timeout investigation: logged, not fixed
 
 Recorded from the measurement in the messaging timeout session. Each of these was found

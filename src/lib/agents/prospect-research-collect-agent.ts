@@ -331,6 +331,7 @@ export async function runProspectResearchCollect({
 const EMPTY_OPENING = {
   opening: null,
   question: null,
+  subject: null,
   bridge: null,
   observation: null,
   written_won: false,
