@@ -50,6 +50,67 @@ a gate nobody has tested. NONE FLIPS ITSELF and none warns when the date passes.
 week's logs, decide, then change one constant. Record what the logs showed in the full
 entry when you do, and delete the line from this block.
 
+## INTAKE V2: THE FOUR QUESTIONS, AS A REQUIREMENT (2026-08-29, branch skip-visibility)
+
+[pre-c1] THIS IS THE BUILDABLE FORM OF "RESTRUCTURE INTAKE". Each question below was
+discovered the same way: a document came out wrong, and the cause traced to something
+intake never asked. They are collected here because four named questions can be built in an
+afternoon and "restructure intake" cannot be started at all.
+
+INTAKE IS WRITE-ONCE WITH NO EDIT PATH. Every one of these helps FUTURE clients and none of
+the five that exist today. That is why each has a separate entry describing what was done
+instead for the data on hand. Do not treat this list as a fix for a live document.
+
+WHEN BUILDING, BUILD ALL FOUR AT ONCE. They share a migration, a form section and a
+completeness recalculation, and shipping them one at a time pays that cost four times.
+
+  Q1. WHO PAYS, separately from who is served.
+      Field: buying organisation, and the role that signs.
+      Evidence: 360 Bia Og. "We provide hot school lunches to children in Ireland on a
+      contractual basis with the government." Delivered to children, bought by the state.
+      The research query builder extracts "children in Ireland" and researches the wrong
+      population. Grammar cannot separate delivered-to from bought-by.
+      Currently: made visible, not fixed. ResearchPlan.descriptorNote names the researched
+      population in suggestion_reason so the operator can see it is wrong.
+      Full entry: search "INTAKE HAS NO FIELD FOR WHO PAYS".
+
+  Q2. WHAT COUNTRY OR COUNTRIES THE BUSINESS OPERATES IN.
+      Field: country of operation, multi-select. NOT currency.
+      Evidence: CLAUDE.md's geography rule forbids inferring a market from currency, and
+      EUR spans twenty-odd countries. ADR-043 removed the currency inference for exactly
+      that reason and geography now comes from the ccTLD of the client's own website.
+      Currently: three of the five live organisations are on a .com and get NO geographic
+      hint at all, so their research queries are unscoped. Broader beats wrong, and this
+      question is the only thing that makes it neither.
+      See ADR-043 and ADR-044.
+
+  Q3. WHAT SEPARATES A TIER ONE BUYER FROM A TIER TWO BUYER, situationally.
+      Field: one sentence on what makes a buyer ideal rather than merely acceptable, in
+      terms other than size.
+      Evidence: docs/prompts/icp-agent.md carries a self-check, "Is Tier 1 meaningfully
+      different from Tier 2, not just 'bigger' but situationally distinct?". That check
+      exists because the model keeps returning tiers that differ only by headcount or
+      revenue band, and it is being asked to invent a distinction intake never supplied.
+      A self-check is not a source. It can only catch the failure, never fix it.
+      Currently: the model guesses, and the guess reads as analysis.
+
+  Q4. HOW THIS CLIENT'S BUYERS REFER TO THEMSELVES.
+      Field: buyer self-descriptor, free text.
+      ALREADY LOGGED SEPARATELY as "[pre-c1] Buyer self-descriptor field added to intake
+      questionnaire". Listed here so the set is complete and gets built in one pass rather
+      than as a fifth separate change. Do not duplicate it; the original entry holds the
+      detail on the messaging agent defaulting to "founders".
+
+WHAT WOULD CHANGE IN CODE. Q1 becomes a third source in resolveBuyerDescriptor, ahead of
+'service_recipient', and descriptorNote stops firing for clients who answered it. Q2 becomes
+the first source in geographyFromIntake, ahead of the ccTLD. Q3 and Q4 are prompt inputs
+only and need no builder change.
+
+NOT A CLIENT ZERO BLOCKER. Doug is client zero and his own intake is one of the five that
+cannot be edited. This is [pre-c1]: it must exist before a paying client fills in an intake
+form, because that is the last moment it is free.
+
+
 ## THE POSITIONING AGENT'S RESEARCH BUILDER STILL HAS THE BUG THE ICP ONE JUST LOST (2026-08-29, branch research-query-builder)
 
 [pre-c1] `buildResearchQueries` in src/agents/positioning-generation-agent.ts was NOT touched
@@ -107,6 +168,9 @@ for the five that exist, so it could not have been this session's fix. Shape whe
 built: a question that asks for the buying organisation and the role that signs, separately
 from who consumes the service. Until then `resolveBuyerDescriptor` reads it as a third
 source ahead of `service_recipient` and the note stops being emitted for that client.
+
+THIS IS Q1 OF FOUR. Build it with the other three, not on its own: search
+"INTAKE V2: THE FOUR QUESTIONS". They share a migration and a form section.
 
 RELATED, worth deciding at the same time: there is still no country field, so
 `geographyFromIntake` gets nothing from a .com and three of the five organisations have no

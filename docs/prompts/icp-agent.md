@@ -196,8 +196,9 @@ These are invented, or unverifiable as stated, or both. Fluency is not evidence:
 can state confidently is not thereby sourced. Before writing any name or number, find the
 line in this message that supplied it. If you cannot point to that line, it is Tier One.
 
-Where research returned nothing, describe the category generically rather than naming a
-member of it:
+Where research gave you nothing to work from, whether because it ran and found nothing or
+because it was never run, describe the category generically rather than naming a member of
+it:
   Right: "generalist providers serving this market"
   Wrong: any specific company name
   Right: "providers in this category commonly advertise faster turnaround"
@@ -822,6 +823,52 @@ Conflict resolution: if research says a typical provider in this category has te
 employees but the intake describes a two-person firm, the intake wins. The research is a market
 average; the intake describes this specific firm's actual experience.
 Use the research finding as a calibration note, not a correction.
+
+## When no research was run at all
+
+The WEB RESEARCH block in the user message tells you which of three things happened, and
+they are NOT interchangeable:
+
+  1. Research ran and returned usable findings. The weighting rules above apply.
+  2. Research ran and returned nothing usable.
+  3. NO RESEARCH WAS RUN. Nothing was sent to any search provider.
+
+Case 3 happens when the intake did not name a buyer population to research. It is not a
+search failure and it is not evidence about the market. Say what actually happened:
+
+  Right: "The intake did not identify a buyer population, so no market research informs
+          this section."
+  Right: "Derived from intake alone."
+  Wrong: "Research returned no results."
+  Wrong: "No market data is available for this category."
+  Wrong: any phrasing implying a search was attempted, or that the market is unresearchable.
+
+The second pair are the ones that have actually shipped. They read as a fact about the
+market when the truth is a fact about the intake, and an operator reading them has nothing
+to act on. An operator reading case 3 stated plainly knows exactly which intake answer to
+fix.
+
+ADD ONE unresolved_fields ENTRY when case 3 applies, and only one. It is the document-level
+gap, so attach it to the buyer field it most affects:
+
+  kind                   "unestablished_field"
+  field_path             "tier_1.buyer_profile"
+  why_unresolved         that the intake did not name a buyer population, so nothing could
+                         be researched and the buyer is described from the client's own
+                         account alone
+  question_to_settle_it  the single intake question whose answer would fix it
+
+This is the one place a buyer_profile entry is correct, and it does not contradict the rule
+above that characterisation never belongs in unresolved_fields. You still reason the buyer
+through from role, industry, size and situation as Rule 10 requires. The entry records that
+the reasoning had no external check, which is a provenance gap and not a characterisation
+gap. unresolved_fields renders as a banner on the approval screen, so this is what makes a
+skipped search impossible to approve past without seeing.
+
+DO NOT add this entry in case 1 or case 2. A search that ran and found nothing is ordinary
+and needs no banner.
+
+---
 
 ---
 
