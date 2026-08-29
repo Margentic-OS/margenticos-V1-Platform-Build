@@ -137,3 +137,46 @@ export function redactExampleQuotes(line: string): string {
   if (!EXAMPLE_LABEL.test(line)) return line
   return line.replace(/["\u201c\u201d][^"\u201c\u201d]*["\u201c\u201d]/g, '\u00abexample\u00bb')
 }
+
+// ─── Example spans, for the inverted name check ───────────────────────────────
+//
+// WHY QUOTED SPANS ARE THE DEFINITION OF "EXAMPLE". Every one of the fourteen prompt
+// sources marks its examples the same way: the specimen text sits inside quotes, and the
+// prose around it explains what the specimen teaches. That is a STRUCTURAL property of how
+// these files are written, not a convention this scan is imposing on them, so it does not
+// need a per-file marker and cannot be silently opted out of by dropping one.
+//
+// A span may run over several lines. The writer prompt's worked examples routinely do, and
+// a line-by-line matcher misses every one of them: measured on 2026-08-29, matching within
+// single lines found 40 capitalised tokens where spanning found 143. Reporting the smaller
+// number as a clean result is the failure this whole family of scans exists to avoid, so
+// the joined text is matched and the offset is mapped back to a line afterwards.
+//
+// THE LIMIT, STATED RATHER THAN DISCOVERED LATER. Only quoted text is examined. A real name
+// in ordinary prose outside quotes is NOT seen by this. That is deliberate: prose names its
+// own subject constantly ("the Moore statement", a section heading) and gating on it would
+// bury the specimens under commentary. Examples are where a name gets copied into a real
+// email, which is the risk being managed.
+export interface ExampleSpan { from: number; to: number; text: string }
+
+export function exampleSpans(lines: { n: number; text: string }[]): ExampleSpan[] {
+  const joined = lines.map(l => l.text).join('\n')
+  // Offset -> line number, precomputed rather than recounted per match.
+  const lineAt: number[] = []
+  lines.forEach((l, i) => {
+    const len = l.text.length + (i < lines.length - 1 ? 1 : 0)
+    for (let k = 0; k < len; k++) lineAt.push(l.n)
+  })
+
+  const out: ExampleSpan[] = []
+  const re = /["“]([^"“”]{3,600})["”]/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(joined))) {
+    out.push({
+      from: lineAt[m.index] ?? lines[0]?.n ?? 0,
+      to: lineAt[Math.min(m.index + m[0].length - 1, lineAt.length - 1)] ?? 0,
+      text: m[1],
+    })
+  }
+  return out
+}
