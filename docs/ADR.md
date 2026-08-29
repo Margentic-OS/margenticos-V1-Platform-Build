@@ -2358,6 +2358,26 @@ Consequences:
 - Rollout is behind an explicit database flag per job type (system_flags), never
   inferred from environment shape. The inline paths stay until each type is proven.
 
+What this ADR does NOT cover, added 2026-08-29:
+  The Context above names three units of slow work: enrichment, research, and
+  SEQUENCE COMPOSITION. The queue shipped for the first two only. src/lib/queue/
+  enqueue/ holds exactly two files, enrich.ts and research.ts, and the live job_queue
+  table holds exactly two job types.
+
+  Lead upload and composition are still an inline Vercel SERVER ACTION.
+  handleUploadLeads at src/app/dashboard/operator/clients/[id]/actions.ts:220 runs
+  under a ~60s server-action timeout, composes in chunks of COMPOSE_CHUNK_SIZE=50
+  (actions.ts:204) via Promise.all, and calls uploadLeads once per campaign with no
+  batching, no timeout guard and no resume. There is no enqueue call in that file.
+
+  So the 500-prospect upload ceiling is OPEN, not solved by this ADR. The first send
+  of 24 was safe; 500 is not buildable on the current path. Tracked in Notion Backlog
+  as "Move lead upload onto the job queue before the 500-prospect run", Pre-C0.
+
+  This paragraph exists because the ADR previously read as though the whole problem
+  had been solved, and an ADR that overstates its own scope stops the next person
+  looking. Same failure class as a doc asserting a policy was dropped when it was not.
+
 Rejected alternatives:
 - Extending agent_runs. See above.
 - Vercel Queues. Real and would work, but it is a second durable store alongside
