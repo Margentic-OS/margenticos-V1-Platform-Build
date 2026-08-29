@@ -111,7 +111,7 @@ cannot be edited. This is [pre-c1]: it must exist before a paying client fills i
 form, because that is the last moment it is free.
 
 
-## THE POSITIONING AGENT'S RESEARCH BUILDER STILL HAS THE BUG THE ICP ONE JUST LOST (2026-08-29, branch research-query-builder)
+## RESOLVED 2026-08-29: THE POSITIONING AGENT'S RESEARCH BUILDER (was: still has the bug the ICP one just lost)
 
 [pre-c1] `buildResearchQueries` in src/agents/positioning-generation-agent.ts was NOT touched
 by either the 2026-08-28 fix or the 2026-08-29 one. It is still the original code, and it
@@ -141,6 +141,27 @@ harness: scripts/prove-research-queries.ts, extended to the positioning builder,
 NOTE the shared test. src/agents/__tests__/research-queries-agnostic.test.ts now asserts
 DIFFERENT empty-intake contracts for the two agents, and says why inline. When positioning
 gains a skip path, that divergence should collapse back to one contract.
+
+────────────────────────────────────────────────────────────────────────────────────────
+RESOLVED 2026-08-29, branch positioning-research-queries, ADR-045. Kept rather than
+deleted because the reasoning about WHY the two builders are not the same shape is still
+the reason the code looks as it does.
+
+Done: all three defects above, plus a FOURTH found while measuring, which was that
+`service` fell back to `offer_deliverables` and that field is an outcome in all five live
+answers. The shared rules moved to src/lib/agents/research-descriptors.ts so the divergence
+cannot recur. The divergent empty-intake contract in research-queries-agnostic.test.ts has
+collapsed back to one, as anticipated above.
+
+Two further bugs surfaced only by porting, both the same shape as the original and both
+fixed in the shared module:
+  - condense() stripped a first-person opener using a FIXED VERB LIST, so "We manufacture
+    industrial fasteners" kept its "We" and was rejected outright. The list can never be
+    complete and its incompleteness lost research entirely.
+  - The three-word prose floor was applied to a parsed category name, rejecting
+    "industrial fasteners". There are now two named floors, MIN_PROSE_WORDS and
+    MIN_PHRASE_WORDS, chosen explicitly at every call site.
+────────────────────────────────────────────────────────────────────────────────────────
 
 
 ## INTAKE HAS NO FIELD FOR WHO PAYS, ONLY FOR WHO IS SERVED (2026-08-29, branch research-query-builder)

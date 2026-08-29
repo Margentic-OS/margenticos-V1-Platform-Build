@@ -13,41 +13,69 @@ import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const REF = 'origin/main'
-const SRC = 'src/agents/icp-generation-agent.ts'
 const START = '// ─── Research query builder ─'
 const END = '// ─── Prompt construction ─'
 
-const shipped = execFileSync('git', ['show', `${REF}:${SRC}`], { encoding: 'utf8' })
-const sha = execFileSync('git', ['rev-parse', '--short', REF], { encoding: 'utf8' }).trim()
+// Both document agents build their own research queries and both get proved the same way.
+//
+// EACH TARGET PINS ITS OWN REF, and that is the whole reason this is a table rather than a
+// constant. "Before" means the commit before THAT agent's fix, not whatever main happens to
+// be today. Pointing both at origin/main would silently make the ICP before-column equal to
+// its after-column the moment the ICP fix merged, and the proof table would show a change
+// that changed nothing while looking exactly as green as a real one.
+const TARGETS = [
+  {
+    // ef20336 is the merge immediately before the ICP research-query fix (ADR-044).
+    ref: 'ef20336',
+    src: 'src/agents/icp-generation-agent.ts',
+    out: 'scripts/__before__research-queries.ts',
+    from: 'buildResearchQueries',
+    to: 'buildResearchQueriesBefore',
+  },
+  {
+    // c7d42c1 is main immediately before the positioning port. The positioning builder is
+    // untouched from the start of the project up to that commit.
+    ref: 'c7d42c1',
+    src: 'src/agents/positioning-generation-agent.ts',
+    out: 'scripts/__before__positioning-research-queries.ts',
+    from: 'buildResearchQueries',
+    to: 'buildPositioningQueriesBefore',
+  },
+] as const
 
-const lines = shipped.split('\n')
-const startIdx = lines.findIndex(l => l.startsWith(START))
-const endIdx = lines.findIndex(l => l.startsWith(END))
-if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
-  throw new Error(`Could not locate the research-query block in ${REF}:${SRC}`)
-}
+for (const target of TARGETS) {
+  const sha = execFileSync('git', ['rev-parse', '--short', target.ref], { encoding: 'utf8' }).trim()
+  const shipped = execFileSync('git', ['show', `${target.ref}:${target.src}`], { encoding: 'utf8' })
 
-const block = lines.slice(startIdx + 1, endIdx).join('\n').trim()
+  const lines = shipped.split('\n')
+  const startIdx = lines.findIndex(l => l.startsWith(START))
+  const endIdx = lines.findIndex(l => l.startsWith(END))
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+    throw new Error(`Could not locate the research-query block in ${target.ref}:${target.src}`)
+  }
 
-// The block must actually contain the entry point, or the slice silently captured
-// the wrong region and the proof table would compare nothing against something.
-if (!block.includes('export function buildResearchQueries')) {
-  throw new Error('Extracted block does not contain buildResearchQueries — refusing to write')
-}
+  const block = lines.slice(startIdx + 1, endIdx).join('\n').trim()
 
-const renamed = block
-  .replace(/export function buildResearchQueries\b/, 'export function buildResearchQueriesBefore')
-  // Only the entry point is exported; the helpers would collide with the live module's
-  // names if anything ever imported both from one file.
-  .replace(/^export (function|const) (?!buildResearchQueriesBefore)/gm, '$1 ')
+  // The block must actually contain the entry point, or the slice silently captured the
+  // wrong region and the proof table would compare nothing against something.
+  if (!block.includes(`export function ${target.from}`)) {
+    throw new Error(
+      `Extracted block from ${target.src} does not contain ${target.from} — refusing to write`)
+  }
 
-const header = `// AUTO-EXTRACTED from ${REF} (${sha}) by scripts/regen-before-research-queries.ts.
+  const renamed = block
+    .replace(new RegExp(`export function ${target.from}\\b`), `export function ${target.to}`)
+    // Only the entry point is exported; the helpers would collide with the live module's
+    // names if anything ever imported both from one file.
+    .replace(new RegExp(`^export (function|const|type|interface) (?!${target.to})`, 'gm'), '$1 ')
+
+  const header = `// AUTO-EXTRACTED from ${target.ref} (${sha}) by scripts/regen-before-research-queries.ts.
 // DO NOT EDIT. Regenerate with:
 //   npx tsx scripts/regen-before-research-queries.ts
 //
-// This is the builder as it SHIPPED, sliced out of the origin/main file rather than
-// retyped, so the "before" column of the proof table is evidence and not a recollection.
+// This is ${target.src} as it SHIPPED at ${target.ref}, the commit immediately before the
+// fix this proves. Sliced out of that commit rather than retyped, so the "before" column
+// of the proof table is evidence and not a recollection.
 
 export interface IntakeRow {
   field_key: string
@@ -59,5 +87,6 @@ export interface IntakeRow {
 
 `
 
-writeFileSync(join(process.cwd(), 'scripts/__before__research-queries.ts'), header + renamed + '\n')
-console.log(`Wrote scripts/__before__research-queries.ts from ${REF} (${sha}), ${renamed.split('\n').length} lines`)
+  writeFileSync(join(process.cwd(), target.out), header + renamed + '\n')
+  console.log(`Wrote ${target.out} from ${target.ref} (${sha}), ${renamed.split('\n').length} lines`)
+}

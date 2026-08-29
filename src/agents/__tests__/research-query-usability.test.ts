@@ -19,13 +19,13 @@
 // would prove the checks match their own examples and nothing about what people write.
 
 import { describe, it, expect } from 'vitest'
+import { buildResearchPlan } from '../icp-generation-agent'
 import {
-  buildResearchPlan,
   usableDescriptor,
   geographyFromIntake,
   recipientFromServiceDescription,
   resolveBuyerDescriptor,
-} from '../icp-generation-agent'
+} from '@/lib/agents/research-descriptors'
 
 function row(field_key: string, response_value: string) {
   return { field_key, field_label: field_key, response_value, section: 's', is_critical: true }
