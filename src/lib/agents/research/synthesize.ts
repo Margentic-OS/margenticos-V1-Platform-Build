@@ -47,13 +47,36 @@ export interface DetectedSignal {
 
 export interface ClientDocContext {
   clientName:         string
+  /**
+   * The ICP's tier-1 buyer title, RAW, alongside the prose summary that already renders
+   * it. Both come from the same read of the same field, so there is one source and no
+   * second parse to drift.
+   *
+   * Raw and not the summary because the consumers want different things from it.
+   * icpSummary is several lines of prose built for a synthesis prompt to reason over.
+   * The writer and the judge want the noun phrase alone, to name a reader with.
+   *
+   * NULL WHEN THE DOCUMENT NAMES NO BUYER, never a placeholder. See resolve-buyer.ts.
+   */
+  buyerTitle:         string | null
   icpSummary:         string
   positioningSummary: string
   valuePropContext:   string
   tovRules:           string
 }
 
-async function loadClientContext(clientId: string, segmentId: string | null): Promise<ClientDocContext> {
+/**
+ * EXPORTED for the inline research path, which needs the buyer title at its produceOpening
+ * call site and otherwise has no way to reach it: synthesizeResearch loads this context and
+ * discards it, returning only SynthesisOutput.
+ *
+ * A SECOND READ RATHER THAN WIDENING SynthesisOutput, because the inline path has two
+ * branches and only one of them synthesizes. The stored-findings branch makes zero calls
+ * and never loads this context at all, so a widened SynthesisOutput would carry the buyer
+ * title on one branch and nothing on the other, and the reuse path would silently fall to
+ * the tier-3 fallback for prospects whose ICP names a buyer perfectly well.
+ */
+export async function loadClientContext(clientId: string, segmentId: string | null): Promise<ClientDocContext> {
   const supabase = getServiceClient()
 
   // Resolve primary segment if the prospect has no segment_id (defensive fallback).
@@ -100,6 +123,10 @@ async function loadClientContext(clientId: string, segmentId: string | null): Pr
 
   // ICP summary: tier 1 buyer title + company type + top push forces.
   let icpSummary = 'No ICP document available yet.'
+  // HOISTED so the raw title survives the block that renders it into prose. Assigned from
+  // the same `buyer` read below and nowhere else: two reads of one field is the drift shape
+  // this codebase keeps paying for.
+  let buyerTitle: string | null = null
   if (icpDoc) {
     const t1 = icpDoc.tier_1 as Record<string, unknown> | undefined
     const buyer  = (t1?.buyer_profile as Record<string, unknown> | undefined)?.title as string | undefined
@@ -118,6 +145,8 @@ async function loadClientContext(clientId: string, segmentId: string | null): Pr
     //
     // Each line is now emitted only if its value is real, and a document with none of
     // them says so, which is what gives the model something honest to reason about.
+    buyerTitle = buyer ?? null
+
     const icpLines = [
       buyer ? `Their ideal client: ${buyer}.` : '',
       stage ? `Company stage: ${stage}.` : '',
@@ -172,7 +201,7 @@ async function loadClientContext(clientId: string, segmentId: string | null): Pr
     if (parts.length) tovRules = parts.join('\n')
   }
 
-  return { clientName, icpSummary, positioningSummary, valuePropContext, tovRules }
+  return { clientName, buyerTitle, icpSummary, positioningSummary, valuePropContext, tovRules }
 }
 
 // ─── Research section formatter ───────────────────────────────────────────────

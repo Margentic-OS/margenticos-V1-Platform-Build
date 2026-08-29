@@ -213,6 +213,19 @@ export interface ProspectContext {
   last_name: string | null
   company_name: string | null
   role: string | null
+  /**
+   * The SOURCED job title, and the one the writer and the judge are briefed with.
+   *
+   * SEPARATE FROM `role` ON PURPOSE, because they are separate columns with separate
+   * writers. `prospects.job_title` is what the sourcing orchestrator writes; `prospects.role`
+   * is only ever written by the old research agent and is NULL for every sourced prospect.
+   * Measured 2026-08-29: role populated on 1 of 48 prospects, job_title on 29 of 48.
+   *
+   * The same wrong-column read has already been found and fixed twice outside research,
+   * once where it sent no job title at all to the outbound provider and once in the tier
+   * review UI. Research was the third instance.
+   */
+  job_title: string | null
   email: string | null
   linkedin_url: string | null
   website_url: string | null

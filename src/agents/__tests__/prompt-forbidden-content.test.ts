@@ -60,6 +60,17 @@ const report = (v: Violation[]) =>
 //
 // MEASURED 2026-08-29 on a6ae4df, before anything was changed. 44 violations across
 // 8 of the 14 sources. This number may only go DOWN.
+//
+// RE-MEASURED 2026-08-29 UNDER A WIDER NET, and this is the part worth reading before
+// trusting the number. Two patterns were added to BUYER_ARCHETYPE that day, closing the
+// bare-buyer-noun blind spot (PG-02, CD-02). The total under the wider deny list is still
+// 44 and no per-source figure moved, so nothing here was relaxed to accommodate them.
+//
+// The two lines that motivated the patterns were REMOVED in the same change, and they were
+// never part of the 44: neither was caught by any pattern that existed when the 44 was
+// taken. Mutation-tested both ways rather than reasoned about. Putting the writer's line
+// back takes buildWriterPrompt to 10 against a baseline of 9, and putting the judge's line
+// back takes buildJudgePrompt to 1 against a baseline of 0. Both fail this test.
 const BASELINE_TOTAL = 44
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
@@ -245,6 +256,44 @@ describe('the deny-list patterns discriminate', () => {
     expect(hits(BUYER_ARCHETYPE, 'Do not assume the prospect is a founder.')).toBe(false)
     expect(hits(BUYER_ARCHETYPE, "Never assume the reader is the owner.")).toBe(false)
     expect(hits(BUYER_ARCHETYPE, 'Read the buyer title from the ICP document.')).toBe(false)
+  })
+
+  // ── The blind spot closed on 2026-08-29 (PG-02, CD-02) ──
+  //
+  // BOTH SIDES OF BOTH NEW PATTERNS, because a pattern that cannot fire is not a
+  // narrowing, it is an outage that reports success. The whole reason these were needed
+  // is that the scan returned zero for buildJudgePrompt while its one question named an
+  // archetype outright, and a check that cannot see the class it was written to find is
+  // the failure shape nothing downstream can notice.
+  it('flags a bare buyer noun asserted as simple fact, which nothing caught before', () => {
+    // The two lines that actually shipped, verbatim as they stood before this change.
+    expect(hits(BUYER_ARCHETYPE,
+      'You are writing to a founder you respect, who runs a real business and gets a lot of these.')).toBe(true)
+    expect(hits(BUYER_ARCHETYPE,
+      'Both go out under your name. Which one could a busy founder read once, at speed, without')).toBe(true)
+    // The plural-plus-copula frame, on its own.
+    expect(hits(BUYER_ARCHETYPE, 'Founders are busy people who skim.')).toBe(true)
+    expect(hits(BUYER_ARCHETYPE, 'Managing directors are the ones who sign.')).toBe(true)
+    expect(hits(BUYER_ARCHETYPE, 'Owners were the original audience for this.')).toBe(true)
+  })
+
+  it('does NOT flag the prohibition, nor a worked example about the CLIENT\'s own audience', () => {
+    // The prohibition, in the plural frame this time.
+    expect(hits(BUYER_ARCHETYPE, 'Do not assume founders are the buyer.')).toBe(false)
+    expect(hits(BUYER_ARCHETYPE, 'Never write as though you are writing to a founder.')).toBe(false)
+    expect(hits(BUYER_ARCHETYPE, 'The reader is not a founder unless the ICP says so.')).toBe(false)
+
+    // WORKED EXAMPLE COPY, where the plural noun names the PROSPECT'S customers rather
+    // than our reader. The writer prompt teaches from roughly a dozen of these, and a
+    // pattern that allowed a clause between the noun and the verb would bury the real
+    // hits under them. Requiring the copula to be adjacent is what separates the two.
+    expect(hits(BUYER_ARCHETYPE, 'The founders who need you next are not reading your feed yet.')).toBe(false)
+    expect(hits(BUYER_ARCHETYPE, 'The founders I speak to describe the same split.')).toBe(false)
+
+    // And the replacement text, which must not trip the pattern that motivated it.
+    expect(hits(BUYER_ARCHETYPE, 'You are writing to the person the ASSIGNMENT block names.')).toBe(false)
+    expect(hits(BUYER_ARCHETYPE,
+      'Who is reading it: not stated. Assume nothing about their role or seniority.')).toBe(false)
   })
 
   it('does NOT flag ordinary English that happens to contain an industry word', () => {

@@ -36,6 +36,7 @@ import type { ProspectContext, RawSourceData } from '../types'
 
 const CLIENT_CTX: ClientDocContext = {
   clientName:         'Northwind Advisory',
+  buyerTitle:         'Operations Lead',
   icpSummary:         'Their ideal client: operations lead at growth stage.',
   positioningSummary: 'They shorten the gap between a signed contract and a working system.',
   valuePropContext:   'Core pain solved: "projects stall between sale and delivery"',
@@ -56,6 +57,7 @@ function prospect(overrides: Partial<ProspectContext> = {}): ProspectContext {
     last_name: 'Okoro',
     company_name: 'Meridian Systems',
     role: 'Head of Delivery',
+    job_title: 'Head of Delivery',
     email: 'ada@example.com',
     linkedin_url: 'https://www.linkedin.com/in/example',
     website_url: 'https://example.com',

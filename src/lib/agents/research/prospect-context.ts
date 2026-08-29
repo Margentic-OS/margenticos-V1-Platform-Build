@@ -50,7 +50,7 @@ export async function loadProspectContext(
 ): Promise<LoadedProspect> {
   const { data: prospect, error: fetchError } = await supabase
     .from('prospects')
-    .select('id, first_name, last_name, company_name, role, email, linkedin_url, website_url, organisation_id, segment_id, variant_id, apollo_enrichment_data')
+    .select('id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, organisation_id, segment_id, variant_id, apollo_enrichment_data')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id)
     .single()
@@ -89,6 +89,7 @@ export async function loadProspectContext(
       last_name:       prospect.last_name,
       company_name:    prospect.company_name,
       role:            prospect.role,
+      job_title:       prospect.job_title,
       email:           prospect.email,
       linkedin_url:    prospect.linkedin_url,
       website_url:     prospect.website_url,

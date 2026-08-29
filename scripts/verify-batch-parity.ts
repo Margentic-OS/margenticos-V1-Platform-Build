@@ -170,7 +170,7 @@ async function run(prospectId: string): Promise<void> {
   // touches. segment_id comes from the snapshot regardless, which is what phase 2 uses.
   const { data: p, error: pErr } = await supabase
     .from('prospects')
-    .select('id, first_name, last_name, company_name, role, email, linkedin_url, website_url, organisation_id')
+    .select('id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, organisation_id')
     .eq('id', prospectId)
     .eq('organisation_id', clientId)
     .single()
@@ -184,6 +184,7 @@ async function run(prospectId: string): Promise<void> {
     last_name:       p.last_name as string | null,
     company_name:    p.company_name as string | null,
     role:            p.role as string | null,
+    job_title:       p.job_title as string | null,
     email:           p.email as string | null,
     linkedin_url:    p.linkedin_url as string | null,
     website_url:     p.website_url as string | null,
