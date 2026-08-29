@@ -10,6 +10,11 @@ import {
 // Needs the TEST database. Run:
 //   npx dotenv -e .env.test.local -- npx vitest run src/lib/metrics/get-client-visible-campaign-metrics.test.ts
 
+// A test fake is the one legitimate place to assert the ServiceRoleClient brand: the fake
+// is not a real client at all, so no key can be checked. Declared once here rather than
+// cast at each call, so the assertion stays visible and countable.
+const brandedFake = (c: unknown) => c as import('@/lib/supabase/service-role').ServiceRoleClient
+
 describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
   let supabase: SupabaseClient<Database>
   let testOrgA: string
@@ -226,7 +231,7 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
 
   it('operator variant returns bouncedCount at runtime (ALL metrics)', async () => {
     // CRITICAL: Call the operator-only function against the same org
-    const result = await getAllCampaignMetricsForOrg(supabase, testOrgA)
+    const result = await getAllCampaignMetricsForOrg(brandedFake(supabase), testOrgA)
 
     // RUNTIME ASSERTION: the returned object MUST have bouncedCount property
     expect(result).toHaveProperty('bouncedCount')
@@ -242,12 +247,12 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
 
   it('operator variant is org-scoped: returns ZERO cross-org data', async () => {
     // Org A queries
-    const resultOrgA = await getAllCampaignMetricsForOrg(supabase, testOrgA)
+    const resultOrgA = await getAllCampaignMetricsForOrg(brandedFake(supabase), testOrgA)
     expect(resultOrgA.sentCount).toBe(100)
     expect(resultOrgA.bouncedCount).toBe(2)
 
     // Org B queries
-    const resultOrgB = await getAllCampaignMetricsForOrg(supabase, testOrgB)
+    const resultOrgB = await getAllCampaignMetricsForOrg(brandedFake(supabase), testOrgB)
     expect(resultOrgB.sentCount).toBe(200)
     expect(resultOrgB.bouncedCount).toBe(4)
 
@@ -258,7 +263,7 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
 
   it('client and operator variants are still distinct shapes', async () => {
     const clientResult = await getClientVisibleCampaignMetrics(testOrgA)
-    const operatorResult = await getAllCampaignMetricsForOrg(supabase, testOrgA)
+    const operatorResult = await getAllCampaignMetricsForOrg(brandedFake(supabase), testOrgA)
 
     // They agree on the facts they share.
     expect(clientResult.sentCount).toBe(operatorResult.sentCount)

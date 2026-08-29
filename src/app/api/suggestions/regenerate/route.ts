@@ -22,6 +22,12 @@ import { runPositioningGenerationAgent } from '@/agents/positioning-generation-a
 import { runTovGenerationAgent } from '@/agents/tov-generation-agent'
 import { runMessagingGenerationAgent } from '@/agents/messaging-generation-agent'
 import type { RegenerationNotes } from '@/lib/agents/regeneration-notes'
+// The SAME sender and the SAME templates the /api/agents/* routes use. Deliberately
+// reused rather than reimplemented: two notification paths for one outcome is how the
+// two paths drifted apart in the first place.
+import { sendTransactionalEmail } from '@/lib/email/send'
+import { suggestionReadyTemplate, suggestionReadySubject } from '@/lib/email/templates/suggestion-ready'
+import { agentFailureTemplate, agentFailureSubject } from '@/lib/email/templates/agent-failure'
 
 export const maxDuration = 300
 
@@ -243,10 +249,63 @@ export async function POST(request: NextRequest) {
   const regenerationNotes: RegenerationNotes | undefined =
     operatorNote || clientNote ? { operator_note: operatorNote, client_note: clientNote } : undefined
 
+  // THIS ROUTE USED TO NOTIFY ON NEITHER OUTCOME.
+  //
+  // /api/agents/messaging emails the operator on success AND on failure. This route,
+  // which is the one the dashboard's regenerate button actually calls, sent nothing
+  // either way. Same outcome, two paths, one silent. On 2026-08-28 two messaging
+  // regenerations failed at the 240s guard and produced no signal anywhere except a row
+  // in agent_runs: no approvals entry, no email, nothing on the page. The operator waited,
+  // assumed it was slow, and the failure was found by reading the database.
+  //
+  // Notification must not be able to fail the run, so every send is wrapped and its error
+  // is logged rather than thrown. A failed email about a failed agent is still only one
+  // failure.
+  const notifyOperator = async (
+    kind: 'ready' | 'failed',
+    orgName: string,
+    errorMessage?: string,
+  ) => {
+    const operatorEmail = process.env.RESEND_OPERATOR_EMAIL
+    if (!operatorEmail) return
+    try {
+      await sendTransactionalEmail({
+        to: operatorEmail,
+        subject: kind === 'ready'
+          ? suggestionReadySubject(orgName, document_type)
+          : agentFailureSubject(orgName, document_type),
+        html: kind === 'ready'
+          ? suggestionReadyTemplate({ orgName, orgId: client_id, docType: document_type })
+          : agentFailureTemplate({ orgName, orgId: client_id, docType: document_type, error: errorMessage ?? 'unknown error' }),
+      })
+    } catch (emailErr) {
+      logger.warn('Regenerate route: operator notification failed', {
+        client_id,
+        document_type,
+        kind,
+        error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+      })
+    }
+  }
+
   // Wrap agent execution in after() so it survives the response.
   // Vercel freezes the function immediately after response unless work is registered
   // via after(). This ensures agent.complete() and agent.fail() can write to the database.
   after(async () => {
+    // Resolved inside after() so a slow lookup cannot delay the 202. Falls back to the id
+    // rather than skipping the email: a notification naming an id is still a notification.
+    let orgName = client_id
+    try {
+      const { data: org } = await supabase
+        .from('organisations')
+        .select('name')
+        .eq('id', client_id)
+        .single()
+      if (org?.name) orgName = org.name
+    } catch {
+      // Keep the id fallback.
+    }
+
     try {
       await AGENT_MAP[document_type]({
         organisation_id: client_id,
@@ -254,13 +313,16 @@ export async function POST(request: NextRequest) {
         is_refresh: isRefresh,
         regeneration_notes: regenerationNotes,
       })
+      await notifyOperator('ready', orgName)
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
       logger.error('Regenerate route: agent run failed', {
         client_id,
         document_type,
         caller_role: isOperator ? 'operator' : 'client',
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       })
+      await notifyOperator('failed', orgName, message)
     }
   })
 

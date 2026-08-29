@@ -1,3 +1,4 @@
+import { asServiceRoleClient, type ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/metrics/get-client-visible-campaign-metrics.ts
 //
 // SINGLE CHOKEPOINT for all client-facing campaign metrics reads.
@@ -53,7 +54,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 import { CLIENT_VISIBLE_INTENTS } from '@/lib/reply-handling/get-client-visible-replies'
 
-type SupabaseServiceClient = SupabaseClient<Database>
+type SupabaseServiceClient = ServiceRoleClient
 
 export interface ClientVisibleCampaignMetrics {
   // PEOPLE the sequence has started for. Not emails.
@@ -88,10 +89,14 @@ function serviceRoleClient(): SupabaseServiceClient {
       'returns zero rows silently.'
     )
   }
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    { auth: { autoRefreshToken: false, persistSession: false } }
+  // asServiceRoleClient is applied to the SAME expression that passes the service-role
+  // key, which is the only place the brand may be claimed.
+  return asServiceRoleClient(
+    createClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
   )
 }
 

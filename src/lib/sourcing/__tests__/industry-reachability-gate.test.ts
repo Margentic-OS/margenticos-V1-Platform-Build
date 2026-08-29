@@ -141,6 +141,11 @@ function makeSupabase(spec: unknown, state: FakeState): SupabaseClient {
   } as unknown as SupabaseClient
 }
 
+// A test fake is the one legitimate place to assert the ServiceRoleClient brand: the fake
+// is not a real client at all, so no key can be checked. Declared once here rather than
+// cast at each call, so the assertion stays visible and countable.
+const brandedFake = (c: unknown) => c as import('@/lib/supabase/service-role').ServiceRoleClient
+
 describe('APOLLO_TARGETED_INDUSTRIES', () => {
   it('is non-empty', () => {
     // An empty list would make every intersection empty and refuse every run.
@@ -193,7 +198,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
       state,
     )
 
-    const result = await runSourcing(supabase, ORG, 'operator_manual', 10)
+    const result = await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
 
     expect(result.error).toBeDefined()
     expect(result.error).toContain('Sourcing refused')
@@ -216,7 +221,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
     const state: FakeState = { agentRuns: [] }
     const supabase = makeSupabase(baseSpec(CLIENT_ZERO_INDUSTRIES), state)
 
-    const result = await runSourcing(supabase, ORG, 'operator_manual', 10)
+    const result = await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
 
     // It still fails, but at the SEARCH step and for a different reason, which is
     // what proves the gate passed rather than that nothing was checked.
@@ -236,7 +241,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
       state,
     )
 
-    await runSourcing(supabase, ORG, 'operator_manual', 10)
+    await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
 
     const partial = warn.mock.calls.find(c =>
       String(c[0]).includes('not targeted by the handler query'),
@@ -254,7 +259,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
     const state: FakeState = { agentRuns: [] }
     const supabase = makeSupabase(baseSpec([]), state)
 
-    await runSourcing(supabase, ORG, 'operator_manual', 10)
+    await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
 
     const unchecked = warn.mock.calls.find(c =>
       String(c[0]).includes('ICP names no industries'),
@@ -273,7 +278,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
       state,
     )
 
-    const result = await runSourcing(supabase, ORG, 'operator_manual', 10)
+    const result = await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
 
     expect(result.error).not.toContain('Sourcing refused')
     expect(result.error).toContain('APOLLO_API_KEY')
@@ -283,7 +288,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
     const state: FakeState = { agentRuns: [] }
     const supabase = makeSupabase(baseSpec([]), state)
 
-    const result = await runSourcing(supabase, ORG, 'operator_manual', 10)
+    const result = await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
 
     // An empty list is the spec declining to constrain industry, not a disagreement.
     // There is no intersection to be empty, so there is nothing to refuse.

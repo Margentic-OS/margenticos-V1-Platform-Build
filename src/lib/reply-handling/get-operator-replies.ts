@@ -1,3 +1,4 @@
+import { asServiceRoleClient, type ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/reply-handling/get-operator-replies.ts
 //
 // THE OPERATOR'S VIEW OF REPLIES. Deliberately NOT the client chokepoint.
@@ -132,7 +133,7 @@ export interface OperatorRepliesForOrg {
   groups: OperatorReplyGroup[]
 }
 
-type SupabaseServiceClient = SupabaseClient<Database>
+type SupabaseServiceClient = ServiceRoleClient
 
 function serviceRoleClient(): SupabaseServiceClient {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -145,10 +146,14 @@ function serviceRoleClient(): SupabaseServiceClient {
       'can return zero rows silently.'
     )
   }
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    { auth: { autoRefreshToken: false, persistSession: false } }
+  // asServiceRoleClient is applied to the SAME expression that passes the service-role
+  // key, which is the only place the brand may be claimed.
+  return asServiceRoleClient(
+    createClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
   )
 }
 

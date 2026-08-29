@@ -1,3 +1,4 @@
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/sourcing/dedupe.ts
 //
 // Deduplication verdict engine for prospect sourcing.
@@ -21,7 +22,7 @@ import { logger } from '@/lib/logger'
 import { normaliseLinkedInUrl } from './normalise-linkedin'
 import { getDedupeVerdict } from './dedupe-verdict'
 
-type SupabaseServiceClient = ReturnType<typeof createClient<Database>>
+type SupabaseServiceClient = ServiceRoleClient
 
 export type CandidateVerdict =
   | 'suppressed_match'

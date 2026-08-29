@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 import { logger } from '@/lib/logger'
 import type {
   SourcingTriggerType,
@@ -58,7 +59,10 @@ function serializeError(err: unknown): string {
  * Logs to agent_runs table.
  */
 export async function runSourcing(
-  supabase: SupabaseClient,
+  // ServiceRoleClient, not SupabaseClient. The orchestrator writes prospects and reads
+  // the dedupe tables, and it was typed as a bare SupabaseClient with no row types at all,
+  // which accepted a session client silently.
+  supabase: ServiceRoleClient,
   client_id: string,
   trigger_type: SourcingTriggerType,
   target_batch_size: number
@@ -112,7 +116,9 @@ export async function runSourcing(
       )
     }
 
-    const spec = icpDoc.icp_filter_spec as ICPFilterSpec
+    // `as unknown as` because the column is Json. This compiled as a direct cast only
+    // while the client was an untyped SupabaseClient; typing the client surfaced it.
+    const spec = icpDoc.icp_filter_spec as unknown as ICPFilterSpec
 
     // ── Step 2.5: Inspect the STORED spec ─────────────────────────────────────
     // Stored specs are frozen at promotion time and nothing recomputes them, so this

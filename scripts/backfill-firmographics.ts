@@ -1,12 +1,13 @@
 // Backfill firmographics for the 29 enriched prospects
 import { createClient } from '@supabase/supabase-js'
+import { asServiceRoleClient } from '../src/lib/supabase/service-role'
 import type { Database } from '../src/types/database'
 
 async function backfill() {
-  const supabase = createClient<Database>(
+  const supabase = asServiceRoleClient(createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  ))
 
   const orgId = '0ed34697-0fa9-4f08-ac15-d3504ac45caf'
 

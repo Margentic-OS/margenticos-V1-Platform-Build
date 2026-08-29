@@ -483,8 +483,20 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
                      existed only to make a separate Email 4 subject workable, and the
                      separate subject was the mistake. Do not reinstate either.
   Email 1 body:      50 to 80 words, hard cap 90, floor 50
-  Email 2 body:      30 to 70 words, must be NO LONGER THAN Email 1 (equal passes)
-  Email 3 body:      30 to 70 words, must be NO LONGER THAN Email 2 (equal passes)
+  Email 2 body:      30 to 85 words. NOT chained to Email 1. The coupling was DELETED on
+                     2026-08-28, not relaxed. All four emails are written in one response,
+                     so Email 1's final word count does not exist while Email 2 is being
+                     written: the rule demanded a target the model could not read. Measured
+                     across 15 attempts in two runs, Email 2 landed 62 to 79 words against
+                     an Email 1 of 56 to 71, and the pair of rules cost EIGHT failed
+                     single-variant API calls in one run, which is what exhausted the 240s
+                     guard. 85 is mean + 3sd of that observed distribution. Do not reinstate
+                     the coupling to "restore the taper": the taper is carried by the bands
+                     themselves (85 / 70 / 50).
+  Email 3 body:      30 to 70 words, must be NO LONGER THAN Email 2 (equal passes).
+                     This is the SAME shape as the deleted Email 2 rule and is kept
+                     deliberately: it binds only when Email 2 lands near its 30-word floor,
+                     and it was not implicated in any measured failure. See BACKLOG MSG-02.
   Email 4 body:      up to 50 words. NO FLOOR. A breakup at 26 words is not a defect,
                      and the old floor of 30 cost a full regeneration call each time
   Sign-off:          TWO mandatory lines at the end of every email body, consecutive,

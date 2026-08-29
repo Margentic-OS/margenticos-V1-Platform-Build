@@ -10,6 +10,7 @@
 // refuses anything that would not finish in time.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 import { runSourcing } from '@/lib/sourcing/orchestrator'
 import type { SourcingTriggerType } from '@/lib/sourcing/types'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
@@ -37,7 +38,8 @@ export const SOURCING_MAX_BATCH_SIZE = 500
 
 export interface SourcingEntryInput {
   /** Service-role client. Supplied by the caller so the route and the CLI share one client. */
-  supabase: SupabaseClient
+  // ServiceRoleClient: this path writes prospects and reads the dedupe tables.
+  supabase: ServiceRoleClient
   organisation_id: string
   /** How many prospects to ask the sourcing handler for. */
   target_batch_size: number
@@ -184,7 +186,8 @@ export async function runSourcingForOrg({
 
 /** The start time of a sourcing run still in flight for this organisation, if there is one. */
 async function findInFlightRun(
-  supabase: SupabaseClient,
+  // ServiceRoleClient: this path writes prospects and reads the dedupe tables.
+  supabase: ServiceRoleClient,
   organisation_id: string,
 ): Promise<string | null> {
   const since = new Date(Date.now() - IN_FLIGHT_WINDOW_MS).toISOString()

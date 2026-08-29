@@ -154,7 +154,13 @@ export default async function ClientDetailPage({
       .eq('organisation_id', org.id)
       .eq('field_key', 'company_revenue_range')
       .maybeSingle(),
-    getAllCampaignMetricsForOrg(supabase, org.id),
+    // serviceRole, not supabase. getAllCampaignMetricsForOrg declares a service-role
+    // client and was handed the SSR session client, with the correct client already in
+    // scope four lines up. It returned the right numbers only because the operator RLS
+    // policies on campaigns, meetings and reply_handling_actions happen to be permissive
+    // (verified live). Tighten any of those three and this page would have started
+    // showing zeros with no error. Found by the ServiceRoleClient brand, 2026-08-29.
+    getAllCampaignMetricsForOrg(serviceRole, org.id),
   ])
 
   const instantlyApiActive = flagResult.data?.is_active ?? false

@@ -25,6 +25,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { asServiceRoleClient } from '@/lib/supabase/service-role'
 import * as Sentry from '@sentry/nextjs'
 import { Database } from '@/types/database'
 import { logger } from '@/lib/logger'
@@ -62,10 +63,10 @@ export async function POST(request: NextRequest) {
     MONITOR_CONFIG
   )
 
-  const supabase = createClient<Database>(
+  const supabase = asServiceRoleClient(createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  ))
 
   // ── Resolve API key + base URL ─────────────────────────────────────────────
   let apiKey: string

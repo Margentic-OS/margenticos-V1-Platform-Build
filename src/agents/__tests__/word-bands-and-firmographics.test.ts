@@ -60,9 +60,49 @@ describe('the descending rule allows equal lengths', () => {
     expect(issuesFor(emails, 3).some(i => i.includes('longer than'))).toBe(false)
   })
 
-  it('still rejects Email 2 longer than Email 1', () => {
+  // REVERSED 2026-08-28, deliberately. This used to assert that Email 2 longer than
+  // Email 1 was rejected. That coupling asked the model to hit a target it cannot see:
+  // all four emails are written in one response, so Email 1's final word count does not
+  // exist while Email 2 is being written. Measured across 15 attempts in two runs, it
+  // caused eight failed single-variant API calls in one run and exhausted the 240s guard.
+  it('accepts Email 2 longer than Email 1', () => {
     const emails = [email(1, bodyOf(55)), email(2, bodyOf(65)), email(3, bodyOf(50)), email(4, bodyOf(40))]
-    expect(issuesFor(emails, 2).some(i => i.includes('longer than email 1'))).toBe(true)
+    expect(issuesFor(emails, 2).some(i => i.includes('longer than'))).toBe(false)
+  })
+
+  it('accepts the exact shape that failed in production: Email 2 at 74, Email 1 at 62', () => {
+    const emails = [email(1, bodyOf(62)), email(2, bodyOf(74)), email(3, bodyOf(50)), email(4, bodyOf(40))]
+    expect(issuesFor(emails, 2)).toEqual([])
+  })
+
+  // Email 3 keeps its coupling to Email 2. Same shape, kept on purpose and logged in
+  // BACKLOG; it binds far less often now Email 2 may run to 85.
+  it('still rejects Email 3 longer than Email 2', () => {
+    const emails = [email(1, bodyOf(70)), email(2, bodyOf(50)), email(3, bodyOf(60)), email(4, bodyOf(40))]
+    expect(issuesFor(emails, 3).some(i => i.includes('longer than email 2'))).toBe(true)
+  })
+})
+
+describe('the Email 2 band', () => {
+  it('is 30 to 85', () => {
+    expect(EMAIL_WORD_LIMITS.email2MinWords).toBe(30)
+    expect(EMAIL_WORD_LIMITS.email2MaxWords).toBe(85)
+  })
+
+  it('covers every Email 2 length measured in the two failed runs on 2026-08-28', () => {
+    // The full observed set, first-pass and retry attempts across both runs.
+    const observed = [62, 68, 68, 69, 70, 71, 72, 74, 74, 74, 75, 75, 76, 77, 79]
+    for (const wc of observed) {
+      const emails = [email(1, bodyOf(60)), email(2, bodyOf(wc)), email(3, bodyOf(50)), email(4, bodyOf(40))]
+      expect({ wc, issues: issuesFor(emails, 2) }).toEqual({ wc, issues: [] })
+    }
+  })
+
+  it('still rejects 86 and 29', () => {
+    const over = [email(1, bodyOf(60)), email(2, bodyOf(86)), email(3, bodyOf(50)), email(4, bodyOf(40))]
+    expect(issuesFor(over, 2).some(i => i.includes('word count'))).toBe(true)
+    const under = [email(1, bodyOf(60)), email(2, bodyOf(29)), email(3, bodyOf(25)), email(4, bodyOf(20))]
+    expect(issuesFor(under, 2).some(i => i.includes('word count'))).toBe(true)
   })
 })
 

@@ -1,3 +1,4 @@
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 // src/lib/integrations/polling/instantly.ts
 //
 // Instantly V2 event polling — the Instantly-specific source handler.
@@ -101,7 +102,7 @@ export const INSTANTLY_LEAD_STATUS_UNSUBSCRIBED = -2
 // This flag gates nothing but the warning below. It is not a send gate and never was.
 export const INSTANTLY_LEAD_STATUS_VERIFIED = true
 
-type SupabaseServiceClient = SupabaseClient<Database>
+type SupabaseServiceClient = ServiceRoleClient
 
 export interface PollResult {
   written: number

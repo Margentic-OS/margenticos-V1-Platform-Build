@@ -543,7 +543,7 @@ founder typed it on their phone between meetings.
 #### Length and structure rules
 
 Email 1: 50 to 80 words, hard cap 90. Below 50 is rejected.
-Email 2: 30 to 70 words, and no longer than Email 1.
+Email 2: 30 to 85 words. It is NOT chained to Email 1's length.
 Email 3: 30 to 70 words, and no longer than Email 2.
 Email 4: up to 50 words. There is NO minimum. A breakup email at 26 words is fine.
 
@@ -952,7 +952,8 @@ Draft email 1 using the observation angle and a one-to-many CTA.
 Draft email 2 using the pattern and implicit proof angle. CTA must be a pattern recognition question ("Does that sound like where you are?" or "Is that the pattern you're seeing?"). Never use case study metrics. Never offer a resource or deliverable.
 Draft email 3 using a contrarian insight from the positioning document and the meeting ask.
 Draft email 4 as the breakup with no guilt and a clean close.
-Confirm each email is shorter than the one before it and within word-count limits.
+Confirm email 3 is no longer than email 2, and that every email is within its own
+word-count band. Email 2 is not chained to Email 1's length.
 Confirm each email has one question maximum, no banned vocabulary, no banned structures,
 no em dashes, no I/We openers, and a first-name-only sign-off.
 Apply the tone of voice document on top of the structural draft.
@@ -989,8 +990,8 @@ Do not reference the first message. Write as if it's the first contact.
    The platform recomputes this value from your text, overwrites what you reported, and
    validates the computed number. Reporting a flattering count achieves nothing.
    Bands: Email 1 is 50 to 80 words with a hard cap of 90 and a floor of 50. Email 2 is
-   30 to 70 and no longer than Email 1. Email 3 is 30 to 70 and no longer than
-   Email 2. Email 4 is up to 50 with no minimum.
+   30 to 85, judged on its own and NOT against Email 1's length. Email 3 is 30 to 70 and
+   no longer than Email 2. Email 4 is up to 50 with no minimum.
    Email 3 is the tightest brief in the sequence. If you are over, cut the contrarian
    observation first, not the ask. The ask is the point of this email.
 
@@ -1295,8 +1296,8 @@ Before returning, ask yourself for each email in each variant:
 - Does the observation slot open with something other than I or We?
 - Does it contain at most one question mark? Count them. Two is a hard rejection.
 - Does it name the prospect's situation before it names any result?
-- Is the word count inside its band? Email 1 is 50 to 90, Email 2 is 30 to 70 and no longer
-  than Email 1, Email 3 is 30 to 70 and no longer than Email 2, Email 4 is up to 50 with no
+- Is the word count inside its band? Email 1 is 50 to 90, Email 2 is 30 to 85 judged on its
+  own, Email 3 is 30 to 70 and no longer than Email 2, Email 4 is up to 50 with no
   minimum.
 - Does it sound like the founder described in the TOV guide, or like a marketing template?
 - Does it connect back to the core_message?
