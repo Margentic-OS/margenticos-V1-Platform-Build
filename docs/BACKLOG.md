@@ -9694,3 +9694,79 @@ and is the write most likely to happen by accident.
   WHAT IS STILL MISSING: nothing in production consumes `onAttempt`, so the live agents
   still discard per-attempt gate data. Wiring it into the batch summary would make gate
   pressure visible on real runs rather than only under this script.
+
+## STRATEGY DOCUMENT PROMOTION — ONE CLICK CAN LEAVE AN ORG WITH NOTHING THAT RESOLVES
+
+- [pre-c1] promote_strategy_doc_version un-approves the document it replaces (2026-08-29)
+
+  `promote_strategy_doc_version` archives the current ACTIVE document and inserts the
+  replacement with `client_approval_status` hardcoded to `'pending'`. Every resolver that
+  matters requires BOTH `status='active'` AND `client_approval_status='approved'`, so
+  between the promotion and the client's approval NOTHING RESOLVES. There is no warning
+  before, no notification after, and no undo.
+
+  Reached from two places, neither of which looks destructive at the point of clicking:
+    `POST /api/suggestions/[id]/approve` -> `approve_document_suggestion` -> promote
+    `POST /api/documents/revise`         -> promote directly
+
+  OBSERVED INSTANCE, org `0ed34697-0fa9-4f08-ac15-d3504ac45caf`:
+    2026-08-29 16:52:06.215833+00  suggestion `7925bfa1` approved by
+                                   doug@margenticos.com. messaging v2 (client-approved
+                                   2026-08-19 23:32:11) archived, v3 inserted pending.
+    ... org left with zero resolvable messaging documents for 2h47m ...
+    2026-08-29 19:39:34.14505+00   corrected by hand, raw SQL, v2 back to active.
+
+  The same click on org `7fedb726-73ec-4a24-906b-ad8bc7ef1b50` one second later
+  (16:52:07.679997) produced the identical state. That one was rescued at 16:52:14.69 by a
+  separate `force-approve` call, `approval_source='operator'`. The rescue is what makes the
+  two orgs look different; the promotion behaved identically for both. Nothing warned that
+  the second click was required.
+
+  WHICH DOCUMENT TYPES CARRY THE RISK, and what each one does when nothing resolves.
+  promote_strategy_doc_version is type-agnostic: it takes `p_doc_type` from the caller, and
+  the CHECK constraint permits icp, positioning, tov and messaging. So all four can enter
+  the window. They do not fail alike:
+
+    messaging   HARD. Throws.
+                `fetchApprovedMessagingDoc` src/lib/composition/compose-sequence.ts:471
+                Composition dies for every prospect. Research phase 1 dies too, because
+                `prospect-research-sources-agent.ts:179` calls the same function. Its own
+                comment at :174 already names this window as the reason the messaging
+                CONTENT is snapshotted rather than pointed at.
+                Also blocks `syncSequenceShell`, operator/clients/[id]/actions.ts:908.
+
+    icp         HARD for SOURCING, SOFT for composition. Two different answers, which is
+                why the question is worth asking per type rather than assuming.
+                  throws:  src/lib/sourcing/orchestrator.ts:89 ("no client-approved ICP
+                           document found"), src/lib/sourcing/tiering-trigger.ts:74,
+                           src/lib/sourcing/handlers/adapter-apollo-enrichment.ts:151
+                  soft:    `fetchApprovedIcpPainPoint` compose-sequence.ts:704 falls back
+                           to a generic role proxy and logs at ERROR level, deliberately:
+                           every prospect in the segment then gets the same opener. Copy
+                           degrades silently, nothing crashes.
+                NOTE: approving an ICP does NOT break research the way approving a
+                messaging document does. Research breaks on the MESSAGING resolver.
+
+    positioning SOFT. `fetchApprovedPositioningHook` compose-sequence.ts:563 returns
+                undefined and the hook is simply absent from the composed email.
+
+    tov         NO active+approved resolver exists. `load-org-context.ts:61` filters on
+                `status='active'` only and ignores approval entirely, so a TOV promotion
+                changes which document reply-handling reads but never empties it.
+
+  All four also feed `assertStrategyApproved` (src/lib/approval/assertStrategyApproved.ts),
+  which gates lead upload on all four being approved. Any one of them in the window blocks
+  upload for the whole organisation.
+
+- [pre-c1] No route, action or RPC un-archives a strategy document (2026-08-29)
+
+  Recovery from the item above requires raw SQL against production. Confirmed by search:
+  the only three writers of `client_approval_status` are `documents/approve` ('client'),
+  `operator/documents/force-approve` ('operator') and `cron/strategy-doc-auto-approve`
+  ('auto'), and all three only approve a document that is ALREADY `status='active'`. On
+  2026-08-29 `force-approve` was the wrong tool by construction: the only active messaging
+  document was the one that must not be approved, so using it would have shipped the copy
+  the recovery existed to avoid. Nothing rolls a promotion back.
+
+  Recording the shape rather than a fix, per the standing rule that a backlog entry states
+  the problem and the session that acts on it decides the remedy.

@@ -1989,23 +1989,55 @@ export function validateEmails(
       })
     }
 
-    // Revenue, headcount and funding figures lifted from the prospect's record.
-    for (const term of BANNED_FIRMOGRAPHIC) {
-      if (term.pattern.test(body)) {
-        violations.push({
-          email: pos,
-          issue: `body quotes ${term.label} from the prospect's firmographic record. Qualify the population by role, stage or situation instead. The revenue band belongs in targeting, not in the email.`,
-        })
-      }
-    }
+    // Revenue, headcount, funding figures and internal jargon, over BOTH the body and the
+    // subject line.
+    //
+    // THE SUBJECT USED TO BE EXEMPT, and not on purpose. Both bans were written as
+    // `test(body)` and the subject was checked for length and null-ness only, so
+    // "£500k revenue question" passed a validator that already owned every pattern needed
+    // to catch it. The detector was never pointed at the line every recipient reads,
+    // including the ones who open nothing. checkSubjectGates in write-opening.ts closed
+    // the same hole for the GENERATED subject and said so in its own comment; this closes
+    // it for the AUTHORED one.
+    //
+    // ONE LOOP OVER A PAIR, not two copies keyed on a field name. The defect was two
+    // near-identical blocks that both said `body`, which is the shape where adding a third
+    // scanned surface means remembering to edit two places. There is now no way to scan a
+    // surface for firmographics without also scanning it for jargon, and no index
+    // arithmetic to get wrong.
+    //
+    // A HIT REJECTS THE VARIANT, exactly as a body hit does. A subject is one line and the
+    // regeneration costs one call against MAX_ANTHROPIC_CALLS, which is a real cost. It is
+    // still the right call: there is no fallback subject to drop back to the way the
+    // research writer can discard a generated subject and keep the authored one, so
+    // report-only here means the figure ships. Measured before the change: 0 of 32 subject
+    // lines across all 5 active messaging documents would fail, so the expected retry rate
+    // is not what the budget was written to defend against.
+    const scanned: ReadonlyArray<{ surface: 'body' | 'subject line'; text: string }> = [
+      { surface: 'body', text: body },
+      { surface: 'subject line', text: email.subject_line ?? '' },
+    ]
 
-    // Internal jargon the buyer never introduced. "ICP" is our word for their customers.
-    for (const term of BANNED_JARGON) {
-      if (term.pattern.test(body)) {
-        violations.push({
-          email: pos,
-          issue: `body uses internal jargon "${term.label}". The buyer did not introduce this word. Say it in their language.`,
-        })
+    for (const { surface, text } of scanned) {
+      if (!text) continue
+
+      for (const term of BANNED_FIRMOGRAPHIC) {
+        if (term.pattern.test(text)) {
+          violations.push({
+            email: pos,
+            issue: `${surface} quotes ${term.label} from the prospect's firmographic record. Qualify the population by role, stage or situation instead. The revenue band belongs in targeting, not in the email.`,
+          })
+        }
+      }
+
+      // Internal jargon the buyer never introduced. "ICP" is our word for their customers.
+      for (const term of BANNED_JARGON) {
+        if (term.pattern.test(text)) {
+          violations.push({
+            email: pos,
+            issue: `${surface} uses internal jargon "${term.label}". The buyer did not introduce this word. Say it in their language.`,
+          })
+        }
       }
     }
 

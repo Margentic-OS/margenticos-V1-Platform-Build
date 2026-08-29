@@ -82,13 +82,20 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 44
 // substitution, one was rule prose naming the client's own sector as the thing the bridge
 // examples deliberately avoid, which had to be said at category level instead. No other
 // source moved, and no pattern was narrowed to get here.
-const BASELINE_TOTAL = 35
+//
+// RATCHETED DOWN AGAIN 2026-08-29 by the subject-parity pass, 35 -> 34. One hit, in
+// messaging-agent.md, on the caption of the peer-pattern exemplar passage: it instructed
+// "specific buyer type named" and the passage under it obliged. The passage was replaced
+// with one that qualifies its population by SITUATION, and the caption now names that as
+// what it is teaching. No other source moved and no pattern was narrowed to get here: the
+// same scan re-run over the untouched thirteen returns the same thirteen figures.
+const BASELINE_TOTAL = 34
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/icp-agent.md': 9,
   'docs/prompts/positioning-agent.md': 4,
   'docs/prompts/tov-agent.md': 1,
-  'docs/prompts/messaging-agent.md': 12,
+  'docs/prompts/messaging-agent.md': 11,
   'docs/prompts/faq-extraction-agent.md': 2,
   'docs/prompts/reply-draft-agent.md': 3,
   'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 0,
@@ -145,7 +152,7 @@ describe('prompt text carries no client-specific content', () => {
     expect(Object.values(BASELINE_BY_SOURCE).reduce((a, b) => a + b, 0)).toBe(BASELINE_TOTAL)
     expect(BASELINE_TOTAL).toBeLessThanOrEqual(BASELINE_TOTAL_AT_INTRODUCTION)
     expect(BASELINE_TOTAL_AT_INTRODUCTION).toBe(44)
-    expect(BASELINE_TOTAL).toBe(35)
+    expect(BASELINE_TOTAL).toBe(34)
     expect(Object.keys(BASELINE_BY_SOURCE)).toHaveLength(PROMPT_SOURCES.length)
   })
 
