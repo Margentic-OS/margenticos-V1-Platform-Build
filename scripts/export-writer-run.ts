@@ -15,6 +15,18 @@
 // So this reproduces the paid half of a reuse run and stops before the two writes.
 //
 // ═════════════════════════════════════════════════════════════════════════════
+// WHAT THE OUTPUT CONTAINS, AND WHY IT IS NOT COMMITTED
+//
+// Both files hold REAL PROSPECT TEXT: the copy the writer produced for a named prospect,
+// now including the attempts that were rejected, and the copy already stored against that
+// prospect's row. They go to .writer-export/, which is in .gitignore, and that is the
+// whole of the mechanism. Nothing here writes anywhere else and nothing here commits.
+//
+// If the output directory is ever moved, move the .gitignore entry in the same edit. A
+// diagnostic file naming a real person is exactly the thing this repository being PUBLIC
+// makes expensive, and the gitignore entry is the only thing standing between the two.
+//
+// ═════════════════════════════════════════════════════════════════════════════
 // WHY IT CANNOT WRITE, WHICH IS A STRUCTURAL CLAIM AND NOT AN INTENTION
 //
 // Two independent mechanisms, because the two failure modes are different.
@@ -87,7 +99,7 @@ import {
   loadClientName,
   type MessagingContent,
 } from '@/lib/agents/research/produce-opening'
-import type { AttemptObservation } from '@/lib/agents/research/write-opening'
+import type { AttemptObservation, JudgeComparison } from '@/lib/agents/research/write-opening'
 import { loadClientContext } from '@/lib/agents/research/synthesize'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
@@ -247,10 +259,28 @@ interface ProspectRecord {
   judge_reasoning: string
   /** The final attempt's deterministic failures, in the order the gates ran. */
   gate_failures: string[]
-  /** Every attempt, so gate failures on rescued attempts are counted rather than lost. */
+  /**
+   * Every attempt, so gate failures on rescued attempts are counted rather than lost.
+   *
+   * NOW CARRIES THE TEXT OF EVERY ATTEMPT, the rejected ones included. Four prospects fell
+   * back to template in the last run and the losing words survived nowhere, so those four
+   * failures could be counted and not read. The observation, bridge, question and subject
+   * of each attempt are on the observation itself, alongside the judge's verdict on the
+   * attempts that reached one.
+   */
   attempts: AttemptObservation[]
   retries_used: number
-  comparisons: number
+  /**
+   * EVERY COMPARISON IN FULL, not the length of the array.
+   *
+   * This field used to be `opening.comparisons.length`. A prospect that lost the first
+   * comparison and was rewritten had two verdicts and this recorded the digit 2, so the
+   * reasoning on the non-final one was thrown away by the export after the loop had gone
+   * to the trouble of keeping it. `comparison_count` below is the number, for anyone who
+   * only wanted that.
+   */
+  comparisons: JudgeComparison[]
+  comparison_count: number
 
   usage: TokenUsage
   usd: number
@@ -396,7 +426,8 @@ async function runOne(
     gate_failures:    opening.gate_failures,
     attempts,
     retries_used:     opening.retries_used,
-    comparisons:      opening.comparisons.length,
+    comparisons:      opening.comparisons,
+    comparison_count: opening.comparisons.length,
     usage:            opening.usage,
     usd:              usdForUsage(opening.usage),
     stored_before: {
@@ -422,7 +453,7 @@ function renderText(records: ProspectRecord[], startedAt: string): string {
     L.push(rule('-'))
     L.push(`PROSPECT ${r.prospect_id}   variant ${r.variant_id}   findings from ${r.source_result_id}`)
     L.push(`messaging document ${r.messaging_doc_id}${r.messaging_doc_version ? ` v${r.messaging_doc_version}` : ''}`)
-    L.push(`candidates ${r.candidate_count}   strong_material ${r.strong_material}   retries ${r.retries_used}   comparisons ${r.comparisons}`)
+    L.push(`candidates ${r.candidate_count}   strong_material ${r.strong_material}   retries ${r.retries_used}   comparisons ${r.comparison_count}`)
     L.push(rule('-'))
 
     L.push('')
@@ -448,10 +479,40 @@ function renderText(records: ProspectRecord[], startedAt: string): string {
     }
 
     L.push('')
-    L.push('  ATTEMPTS:')
+    L.push('  ATTEMPTS, INCLUDING THE REJECTED ONES:')
     for (const a of r.attempts) {
       const gates = a.gate_failures.map(f => classifyGateFailure(f)).join(', ')
       L.push(`    attempt ${a.attempt}: ${a.kind}${gates ? ` (${gates})` : ''}`)
+      // The words that failed. Printed under every attempt rather than only the losing
+      // ones: a rescued attempt's text is what the retry was measured against, and reading
+      // the pair is the only way to see what the feedback actually changed.
+      L.push(`      observation: ${JSON.stringify(a.observation)}`)
+      L.push(`      bridge     : ${JSON.stringify(a.bridge)}`)
+      L.push(`      question   : ${JSON.stringify(a.question)}`)
+      L.push(`      subject    : ${JSON.stringify(a.subject)}`)
+      if (a.subject_discarded !== null) {
+        L.push(`      subject rejected by its own soft gate: ${JSON.stringify(a.subject_discarded)}`)
+      }
+      if (a.judge_reasoning !== null) {
+        L.push(`      judge ${a.judge_written_won ? 'WON' : 'lost'}: ${a.judge_reasoning}`)
+      }
+      if (a.gate_failures.length > 0) {
+        a.gate_failures.forEach(f => L.push(`      gate [${classifyGateFailure(f)}] ${f}`))
+      }
+    }
+
+    // EVERY COMPARISON, not just the final one. r.judge_reasoning above is the last
+    // verdict; a rewritten prospect has an earlier one and it is the more interesting of
+    // the two, because it is the verdict the rewrite was answering.
+    if (r.comparisons.length > 0) {
+      L.push('')
+      L.push('  COMPARISONS, in order:')
+      r.comparisons.forEach((c, i) => {
+        L.push(`    ${i + 1}. written was ${c.written_label}, judge chose ${c.chosen_label} ` +
+               `-> written ${c.written_won ? 'WON' : 'lost'}`)
+        L.push(`       ${c.reason}`)
+        L.push(`       floor: ${c.floor.claims_private ? 'DISQUALIFIED' : 'passed'} - ${c.floor.reason}`)
+      })
     }
 
     L.push('')
@@ -539,6 +600,7 @@ async function main() {
       'Nothing was written. produceOpening receives no database client; the script reads through an allowlist proxy.',
       'Ran serially, so the prompt cache hit rate is the best available and the cost is a floor for a concurrent batch.',
       'Cost is derived from usage returned by the API. The Anthropic console is the ground truth.',
+      'Records carry real prospect text for every attempt, rejected attempts included. .writer-export/ is gitignored; do not commit these files.',
     ],
   }
 
