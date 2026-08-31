@@ -104,7 +104,31 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 44
 // caption and is actually the currency figure removed in the same commit; the caption was
 // never counted. So this entry is regression cover for what the deny list can see, and the
 // class that motivated adding the file is measured at zero by a scan that cannot see it.
-const BASELINE_TOTAL = 34
+//
+// THE NET WIDENED 2026-08-31 AND THE TOTAL WENT UP, 34 -> 35. Read this before treating it
+// as a ratchet being walked back, because the two look identical if you only read the number.
+//
+// NAMED_INDUSTRY was word-bounded on the singular, which is the limit the entry above states
+// and does not draw the consequence of. Making it plural-aware surfaced FIVE lines in three
+// surface forms that had never been visible to any scan: two in messaging-agent.md, one in
+// reply-draft-agent.md, one in buildWriterPrompt, one in buildSynthesisPrompt. FOUR WERE
+// FIXED in the same commit and cost nothing here.
+//
+// THE FIFTH IS RECORDED RATHER THAN FIXED, and it is the whole of the +1:
+// buildWriterPrompt goes 0 -> 1. It is rule prose, the verdict line under a worked example,
+// and that file is the research writer's teaching corpus. Editing it in a scan-closing commit
+// is how a nine-iteration example gets damaged by a drive-by. It is a real hit and it stays
+// visible as one.
+//
+// WHAT TELLS THIS APART FROM A BASELINE BEING RAISED TO HIDE A FAILURE: no per-source figure
+// moved except the one the widening newly reached, every other source re-measured identical,
+// the introduction figure below is untouched at 44, and 35 is still under it. The same shape
+// is recorded in prompt-names.test.ts when the canonical spec joined that registry.
+//
+// THE THREE DEAD FRAGMENT ENTRIES REPAIRED IN THE SAME COMMIT COST ZERO. Measured, not
+// assumed: each was re-scanned alone and newly flagged no lines at all. They were dead
+// entries, not suppressed hits, so repairing them changed no count anywhere.
+const BASELINE_TOTAL = 35
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/shared-voice-spec.md': 0,
@@ -114,7 +138,7 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/messaging-agent.md': 11,
   'docs/prompts/faq-extraction-agent.md': 2,
   'docs/prompts/reply-draft-agent.md': 3,
-  'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 0,
+  'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 1,
   'src/lib/agents/research/write-opening.ts:buildFloorPrompt': 0,
   'src/lib/agents/research/write-opening.ts:buildJudgePrompt': 0,
   'src/lib/agents/research/prompts/synthesis-prompt.ts:buildSynthesisPrompt': 3,
@@ -168,7 +192,7 @@ describe('prompt text carries no client-specific content', () => {
     expect(Object.values(BASELINE_BY_SOURCE).reduce((a, b) => a + b, 0)).toBe(BASELINE_TOTAL)
     expect(BASELINE_TOTAL).toBeLessThanOrEqual(BASELINE_TOTAL_AT_INTRODUCTION)
     expect(BASELINE_TOTAL_AT_INTRODUCTION).toBe(44)
-    expect(BASELINE_TOTAL).toBe(34)
+    expect(BASELINE_TOTAL).toBe(35)
     expect(Object.keys(BASELINE_BY_SOURCE)).toHaveLength(PROMPT_SOURCES.length)
   })
 
@@ -346,5 +370,66 @@ describe('the deny-list patterns discriminate', () => {
     expect(hits(NAMED_INDUSTRY, 'aimed at a construction firm')).toBe(true)
     expect(hits(NAMED_INDUSTRY, 'a logistics provider in the region')).toBe(true)
     expect(hits(NAMED_INDUSTRY, 'founder-led consulting firms')).toBe(true)
+  })
+
+  // ── The plural blind spot, closed 2026-08-31 ──
+  //
+  // BOTH SIDES, because a pattern that cannot fire is an outage that reports success, and
+  // one that fires on everything is an outage that reports failure. The plural is the form
+  // prompt text actually uses, since prompts generalise over a population.
+
+  it('flags a sector named in the PLURAL, which was invisible before', () => {
+    // The three surface forms that were sitting in the gap, measured on 2026-08-31.
+    expect(hits(NAMED_INDUSTRY, 'Most consultants who get there built an engine.')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'a great many consultancies fill capacity that way')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'niche labels such as boutique law firms')).toBe(true)
+    // And the rest of the list, so the fix is not three special cases.
+    expect(hits(NAMED_INDUSTRY, 'aimed at construction firms')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'logistics companies in the region')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'healthcare providers and manufacturers')).toBe(true)
+  })
+
+  it('the repaired fragment entries match the nouns they were written for', () => {
+    // THESE ALL RETURNED FALSE BEFORE THE REPAIR. Three entries ended mid-word and then
+    // demanded a word boundary, so each matched nothing while reading as covered. Pinned
+    // here so a future edit cannot truncate one back to a stem.
+    expect(hits(NAMED_INDUSTRY, 'a recruitment agency')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'two recruitment agencies')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'an accountancy')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'small accountancies')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'a catering supplier')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'catering supplies')).toBe(true)
+    // The same defect inside the two qualified groups.
+    expect(hits(NAMED_INDUSTRY, 'a construction company')).toBe(true)
+    expect(hits(NAMED_INDUSTRY, 'logistics industries')).toBe(true)
+  })
+
+  it('going plural did NOT widen it onto the two documented false positives', () => {
+    // The narrowings that cost real debugging must survive the widening. Both of these
+    // are ordinary English and neither names an industry.
+    expect(hits(NAMED_INDUSTRY, 'Vary the sentence construction across variants.')).toBe(false)
+    expect(hits(NAMED_INDUSTRY, 'agreement, hostility, or pure logistics')).toBe(false)
+    // The plural of each, which is the shape the widening could have let through.
+    expect(hits(NAMED_INDUSTRY, 'two different sentence constructions')).toBe(false)
+    expect(hits(NAMED_INDUSTRY, 'the logistics of getting everyone there')).toBe(false)
+  })
+
+  it('the prohibition form stays unflagged where a negation guard owns it', () => {
+    // THE NEGATION SIDE OF THE BRIEF, and it belongs to BUYER_ARCHETYPE, which is where
+    // NOT_NEGATED lives. Asserted here alongside the plural work because widening one
+    // category must not disturb the other's guard. The plural of the prohibition is
+    // included: making a pattern plural-aware is exactly when a negation guard breaks.
+    expect(hits(BUYER_ARCHETYPE, 'Do not assume the prospect is a founder.')).toBe(false)
+    expect(hits(BUYER_ARCHETYPE, 'Do not assume the prospects are founders.')).toBe(false)
+    expect(hits(BUYER_ARCHETYPE, 'Never assume the readers are owners.')).toBe(false)
+
+    // AND WHY NAMED_INDUSTRY DOES NOT GET THE SAME GUARD, recorded as a measurement so the
+    // next reader does not add one as an obvious improvement. A sector noun in prompt text
+    // is a hit whatever the grammar around it: the prompt still contains the sector. The
+    // guard was tried on 2026-08-31 and silenced positioning-agent.md L38, where "no other
+    // consulting firm" puts a prohibition word inside the lookbehind's 40-character reach
+    // and the sector noun is not a prohibition at all. So this fires, correctly, and the
+    // line stays in that file's recorded baseline rather than being made invisible.
+    expect(hits(NAMED_INDUSTRY, 'that sentence should apply to no other consulting firm')).toBe(true)
   })
 })

@@ -286,7 +286,7 @@ addressed to them. Keep its nouns, its dates and its numbers.
 
 Writing generic ICP framing instead is a silent failure, and it happened twice in
 fifteen: a candidate scored six out of six, was selected, and the prospect received
-"Most founders of boutique DEI consultancies at this stage hit the same wall"
+"Most [peer category] at this stage hit the same wall"
 instead of the observation that had just been verified. Code now compares the two
 and substitutes the raw observation when they do not match, which reads worse than
 your rephrasing would have. Rephrase the winner.

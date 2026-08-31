@@ -46,9 +46,41 @@ export const NAMED_INDUSTRY: Pattern[] = [
   //                  arrangements" and names no industry at all.
   // Both now require an industry noun after them. Narrowing the pattern is the
   // correct response to a false positive; exempting the line is not.
+  //
+  // ── PLURALS, added 2026-08-31. The blind spot this pattern was born with ──
+  //
+  // EVERY NOUN HERE WAS WORD-BOUNDED ON THE SINGULAR, so the trailing \b made the plural
+  // form invisible: the pattern reached the "s" and demanded a word boundary that a
+  // letter cannot provide. A sector named in the plural therefore scored ZERO, and the
+  // plural is the form prompt text actually reaches for, because prompts generalise over
+  // a population rather than naming one company.
+  //
+  // This scan's own baseline notes said so and the consequence was not drawn:
+  // "NAMED_INDUSTRY is word-bounded on the singular, so the plural form of the sector
+  // noun is invisible to it". Measured on 2026-08-31, five lines across four sources were
+  // sitting in that gap, in three surface forms. Four were fixed in the same commit. The
+  // fifth is in buildWriterPrompt and is recorded in the baseline instead, deliberately:
+  // that file is the writer's teaching corpus and its examples are not edited in passing.
+  //
+  // NO NEGATION GUARD HERE, and that is measured rather than assumed. BUYER_ARCHETYPE
+  // carries NOT_NEGATED because an archetype assertion and its prohibition read alike to
+  // a regex. This category is different: a sector noun in prompt text is a hit whatever
+  // the surrounding grammar, because the prompt still contains the sector. Adding the same
+  // lookbehind here was tried and SILENCED A REAL HIT, positioning-agent.md L38, where
+  // "no other consulting firm" put a prohibition word within the lookbehind's reach and
+  // the sector noun is doing nothing of the kind. A guard that removes a true positive is
+  // a weakening, not a narrowing.
+  //
+  // ── FRAGMENT ENTRIES REPAIRED, same date, a defect independent of the plurals ──
+  //
+  // THREE ENTRIES ENDED MID-WORD AND THEN DEMANDED A WORD BOUNDARY, so each could match
+  // nothing at all: a truncated stem is only useful as a PREFIX, and \b is exactly what
+  // stops it being one. Each is now spelled out to its full noun and its plural. All
+  // three were dead the whole time they were listed, which is worse than absent: a term
+  // written down reads as covered.
   {
     label: 'named industry or sector',
-    re: /\b(consult(ing|ant|ancy)|school catering|catering suppl|logistics (compan|firm|provider|sector|industry|business|operator)|SaaS|manufactur(ing|er)|recruitment agenc|law firm|accountanc|hospitality|construction (firm|compan|industry|sector|business)|e-?commerce|fintech|healthcare provider)\b/i,
+    re: /\b(consult(ing|ants?|anc(y|ies))|school catering|catering suppl(y|ies|ier|iers)|logistics (compan(y|ies)|firms?|providers?|sectors?|industr(y|ies)|business(es)?|operators?)|SaaS|manufactur(ing|ers?)|recruitment agenc(y|ies)|law firms?|accountanc(y|ies)|hospitality|construction (firms?|compan(y|ies)|industr(y|ies)|sectors?|business(es)?)|e-?commerce|fintech|healthcare providers?)\b/i,
   },
 ]
 

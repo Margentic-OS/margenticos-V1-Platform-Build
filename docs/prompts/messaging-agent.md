@@ -74,9 +74,9 @@ or quality."
 
 ### Rule 3: Specificity over category
 
-Every strategic claim needs one supporting specific: a named buyer type, a named
-situation, an observable behaviour, or a direct quote from the intake. A number counts
-only when this message supplied it.
+Every strategic claim needs one supporting specific: a named situation, an observable
+behaviour, or a direct quote from the intake. A number counts only when this message
+supplied it.
 
 "Firms in this market struggle with inconsistent revenue" is a category claim. It fails.
 
@@ -670,9 +670,9 @@ Wrong:
   mansplained-to.
 Right:
   Para 1: [same description, or a prospect-specific trigger]
-  Para 2: "Most consultants who get there built an outbound engine that runs without them.
+  Para 2: "Most of the people who get there built an outbound engine that runs without them.
            Calls land in the diary regardless of which week they're in."
-  Two improvements: (1) "Most consultants who get there" names its own subject; doesn't
+  Two improvements: (1) "Most of the people who get there" names its own subject; doesn't
   depend on para 1. (2) The voice is descriptive of peers, not prescriptive of the reader.
   The reader infers the relevance to themselves rather than being told.
 
