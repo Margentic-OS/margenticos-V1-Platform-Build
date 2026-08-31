@@ -495,23 +495,27 @@ that cannot be walked back once the reader asks about it, and it is the sender w
 answer, not you. A pattern you have noticed is yours to report. An outcome you cannot
 point to in the documents is not yours to mention at all.
 
-ATTRIBUTION IS OPTIONAL AND NEVER A FIXED OPENER. An unattributed pattern is still fine
-where it reads as something noticed rather than something pronounced. If every bridge in the
-batch opens the same way, that is the sentence-shape problem returning in a new costume, and
-the batch gate treats an attributed opening exactly like any other: the second prospect to
-use that shape is rejected. There is no house phrase for this. Build the attribution out of
-your own words the same way you build the rest of the sentence.
+ATTRIBUTION IS OPTIONAL, IT IS NEVER A FIXED OPENER, AND IT MAY NOT OPEN THE BRIDGE.
 
-ASSERTED, and this shipped:
-  "Governance work has fixed dates and shows up on a calendar. Business development does
-   not, so it gets the hours that are left."
+The claim comes first. If the source of the claim needs stating at all, it follows the
+claim, and it is never the clause the bridge begins with.
 
-ATTRIBUTED, same claim, inside the bridge budget:
-  "The founders I speak to describe the same split. Board dates are fixed. Selling is what
-   moves."
-Seventeen words. Nothing is hedged and nothing is softened: the observation is just as
-pointed, and it is now offered as something heard rather than handed down. The wording above
-is not a phrase to reuse. It goes through the batch gate like everything else.
+THE REASON IS THE BUDGET. The bridge is ${OPENING_BUDGET.bridge} words. An opening
+attribution spends up to a quarter of that before the sentence has said anything, so a
+bridge that begins by establishing whose experience this is reaches its actual point
+already over length. A bridge that opens on the claim has the whole budget to make it.
+
+An unattributed pattern is still fine where it reads as something noticed rather than
+something pronounced. If every bridge in the batch opens the same way, that is the
+sentence-shape problem returning in a new costume, and the batch gate treats an attributed
+opening exactly like any other: the second prospect to use that shape is rejected. There is
+no house phrase for this. Build the attribution out of your own words the same way you build
+the rest of the sentence.
+
+NO EXAMPLE OF A PERMITTED ATTRIBUTION IS GIVEN, AND THE ABSENCE IS DELIBERATE. A short
+endorsed clause that would fit any prospect is the most copyable thing this page could
+contain, and lifted examples are what the batch gate has already thrown attempts away for.
+The rule above is the whole instruction. Write your own.
 
 NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME.
 
@@ -1427,6 +1431,63 @@ export interface AttemptObservation {
   kind: 'gated' | 'collided' | 'floored' | 'compared'
   /** The deterministic gates this attempt tripped. Empty for every other kind. */
   gate_failures: string[]
+
+  // ─── THE TEXT ITSELF, ON EVERY ATTEMPT INCLUDING THE REJECTED ONES ─────────
+  //
+  // Added because the kind and the gate codes say an attempt failed and never say WHAT
+  // failed. A rejected attempt's words lived only inside the loop and were overwritten by
+  // the next one, so a prospect that fell back to template left a verdict with no text
+  // behind it and its failure could not be read at all, only counted.
+  //
+  // These are the writer's output AFTER scrubAITells and after the parse, which is the
+  // form that was actually judged. Reporting the raw reply instead would describe a
+  // string no gate ever saw.
+  /** The observation paragraph this attempt produced. Empty when the writer returned none. */
+  observation: string
+  /** The bridge paragraph this attempt produced. Empty when the writer returned none. */
+  bridge: string
+  /** The closing question this attempt produced. Empty when the writer returned none. */
+  question: string
+  /**
+   * The subject that WOULD HAVE SHIPPED from this attempt. Empty means no subject ships
+   * and the variant's authored one is used instead.
+   *
+   * Empty for two different reasons, which is why `subject_discarded` sits beside it: the
+   * writer returned nothing, or it returned something that its own soft gate threw away.
+   * A reader of an empty string alone cannot tell those apart, and that is the shape this
+   * whole field set exists to stop.
+   */
+  subject: string
+  /**
+   * The subject the writer produced when the soft gate rejected it, else null. This is the
+   * losing text the gate discarded, and it is discarded silently on the shipping path by
+   * design: an unusable subject must not consume one of the two or three attempts.
+   */
+  subject_discarded: string | null
+
+  // ─── THE JUDGE'S VERDICT, ON EVERY COMPARISON RATHER THAN THE LAST ─────────
+  //
+  // OpeningResult.judge_reasoning carries the FINAL comparison only. An attempt that lost
+  // the comparison and was then rewritten had its verdict overwritten by the rewrite's,
+  // so the reason the first version lost was unavailable however useful it was.
+  /** The judge's sentence for THIS attempt's comparison. Null unless kind is 'compared'. */
+  judge_reasoning: string | null
+  /** Whether the written version beat the template HERE. Null unless kind is 'compared'. */
+  judge_written_won: boolean | null
+}
+
+/**
+ * The five pieces of text one attempt produced, plus the subject its own soft gate threw
+ * away. Named once and shared by the attempt union inside the loop and by
+ * AttemptObservation, so the reported text is BY CONSTRUCTION the text the loop held
+ * rather than a second copy assembled at the emit and free to drift from it.
+ */
+export type AttemptText = Pick<
+  AttemptObservation,
+  'observation' | 'bridge' | 'question' | 'subject' | 'subject_discarded'
+> & {
+  /** The observation and the bridge joined, which is what composition ships. */
+  opening: string
 }
 
 export interface WriteAndJudgeParams {
@@ -1572,9 +1633,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   // The template keeps its OWN approved CTA. Passing no question is what makes that true.
   const templateEmail = params.composeEmail1(params.templateOpening, null)
 
-  const writeOnce = async (
-    feedback: string | null,
-  ): Promise<{ observation: string; bridge: string; opening: string; question: string; subject: string; gates: string[] }> => {
+  const writeOnce = async (feedback: string | null): Promise<AttemptText & { gates: string[] }> => {
     // The questions already gone in this batch, listed rather than implied. Shown on every
     // retry, not just a collision retry: the writer that is rewriting for length is equally
     // capable of walking into a taken question on the way past.
@@ -1619,6 +1678,11 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     const subject = subjectFailures.length > 0
       ? ''
       : scrubAITells(parsed.subject, `research/writer/${params.prospectId}`)
+    // RETURNED AS WELL AS LOGGED. The log line above is the operational signal; this is
+    // the diagnostic record, and a losing subject that exists only in a log cannot be read
+    // back alongside the attempt it belonged to. Null when nothing was discarded, which is
+    // what tells "the gate rejected one" apart from "the writer returned none".
+    const subject_discarded = subjectFailures.length > 0 ? parsed.subject : null
 
     // The cap covers the whole written block, so gate the combined text.
     const gates = checkOpeningGates(
@@ -1632,7 +1696,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     if (!observation) gates.push('writer returned no observation')
     if (!bridge) gates.push('writer returned no bridge')
     // Deliberately NOT gated: a missing subject is the fallback working, not a failure.
-    return { observation, bridge, opening, question, subject, gates }
+    return { observation, bridge, opening, question, subject, subject_discarded, gates }
   }
 
   // THE FLOOR. Runs on the personalised email alone, before any comparison, and can only
@@ -1689,15 +1753,31 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   const strongMaterial = params.candidates.some(c => c.passes_all)
   const maxAttempts = strongMaterial ? 3 : 2
 
-  type Attempt =
-    | { kind: 'gated'; gates: string[]; opening: string; question: string }
-    | { kind: 'collided'; reason: string; opening: string; question: string }
-    | { kind: 'floored'; floor: FloorCheck; opening: string; question: string }
-    | { kind: 'compared'; c: JudgeComparison; subject: string }
+  // AN INTERSECTION, NOT THE SAME FIELDS REPEATED PER VARIANT, and that is the whole of
+  // why a rejected attempt's text is now reachable.
+  //
+  // The union used to carry `opening` and `question` written out three times and `subject`
+  // on one variant only, so the observation, the bridge and the subject of everything
+  // except a completed comparison were simply not in the type. That is the parallel-lists
+  // shape: four variants and one field set to keep in step by hand, and adding a variant
+  // without its text produced no error. Written this way there is one list, and a variant
+  // that does not carry the text cannot be expressed.
+  type Attempt = AttemptText & (
+    | { kind: 'gated'; gates: string[] }
+    | { kind: 'collided'; reason: string }
+    | { kind: 'floored'; floor: FloorCheck }
+    | { kind: 'compared'; c: JudgeComparison }
+  )
 
   const attempt = async (feedback: string | null): Promise<Attempt> => {
     const w = await writeOnce(feedback)
-    if (w.gates.length > 0) return { kind: 'gated', gates: w.gates, opening: w.opening, question: w.question }
+    // The text every branch below carries, lifted once. `gates` is deliberately not in it:
+    // it belongs to the gated variant and nothing else may read it.
+    const text: AttemptText = {
+      observation: w.observation, bridge: w.bridge, opening: w.opening,
+      question: w.question, subject: w.subject, subject_discarded: w.subject_discarded,
+    }
+    if (w.gates.length > 0) return { ...text, kind: 'gated', gates: w.gates }
 
     // THE BRIDGE GATE. Reserved synchronously, before either model call below, so two
     // prospects running concurrently cannot both pass a clean check and then both commit
@@ -1709,7 +1789,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
         kinds: [...new Set(collisions.map(c => c.kind))],
         keys: collisions.map(c => c.key).slice(0, 3),
       })
-      return { kind: 'collided', reason: uniquenessFeedback(collisions), opening: w.opening, question: w.question }
+      return { ...text, kind: 'collided', reason: uniquenessFeedback(collisions) }
     }
 
     const floor = await floorCheck(w.opening, w.question, w.subject)
@@ -1718,14 +1798,14 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
         prospect_id: params.prospectId, reason: floor.reason,
       })
       params.uniqueness?.release(params.prospectId)
-      return { kind: 'floored', floor, opening: w.opening, question: w.question }
+      return { ...text, kind: 'floored', floor }
     }
 
     const c = await compare(w.observation, w.bridge, w.opening, w.question, floor)
     // The template won, so nothing of this attempt ships. Holding the reservation would
     // block a later prospect from a shape that was never actually used.
     if (!c.written_won) params.uniqueness?.release(params.prospectId)
-    return { kind: 'compared', c, subject: w.subject }
+    return { ...text, kind: 'compared', c }
   }
 
   const feedbackFrom = (a: Attempt): string =>
@@ -1750,6 +1830,21 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
       attempt: i,
       kind: a.kind,
       gate_failures: a.kind === 'gated' ? a.gates : [],
+      // Copied field by field rather than spread from `a`, because `a` also carries the
+      // per-kind members (`gates`, `reason`, `floor`, `c`) and `opening`, and a spread
+      // would put all of them into the observation and into the exported JSON. The names
+      // cannot drift from the type: AttemptObservation is where AttemptText is Picked
+      // FROM, so renaming a member here is a compile error at both ends rather than a
+      // field that silently stops being reported.
+      observation: a.observation,
+      bridge: a.bridge,
+      question: a.question,
+      subject: a.subject,
+      subject_discarded: a.subject_discarded,
+      // Null for every kind but 'compared', because no other kind reached the judge. An
+      // absent verdict and a verdict of "no reasoning returned" are different facts.
+      judge_reasoning: a.kind === 'compared' ? a.c.reason : null,
+      judge_written_won: a.kind === 'compared' ? a.c.written_won : null,
     })
 
     if (a.kind === 'compared') {

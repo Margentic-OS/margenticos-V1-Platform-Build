@@ -145,9 +145,11 @@ describe('prompt examples name nothing real', () => {
   it('found real examples to scan, so nothing above passes vacuously', () => {
     // The failure this catches is a span extractor that matches nothing and reports a
     // clean sweep. Measured 2026-08-29: 896 spans across fourteen sources, and 1,099 across
-    // fifteen once the shared spec joined. The floor stays at the figure that was argued for
-    // rather than tracking the newest measurement, so it keeps catching an extractor that
-    // reads nothing without being re-set every time a source is added.
+    // fifteen once the shared spec joined. 1,098 on 2026-08-31, when the writer prompt's
+    // endorsed ATTRIBUTED example was deleted along with the rule it illustrated. The floor
+    // stays at the figure that was argued for rather than tracking the newest measurement,
+    // so it keeps catching an extractor that reads nothing without being re-set every time a
+    // source is added.
     let spans = 0
     let capitalised = 0
     for (const s of PROMPT_SOURCES) {
