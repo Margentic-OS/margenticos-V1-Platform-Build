@@ -42,7 +42,15 @@ function ruleBlock(path: string): string {
 // Shapes that have actually appeared in this repo's rule text, plus the obvious neighbours.
 const BANNED: Array<{ label: string; re: RegExp }> = [
   // Sectors and industries. "consulting" is the one this codebase keeps reaching for.
-  { label: 'named industry or sector', re: /\b(consult(ing|ant|ancy)|school catering|catering suppl|logistics|SaaS|manufactur(ing|er)|recruitment agenc|law firm|accountanc|hospitality|construction|e-?commerce|fintech|healthcare provider)\b/i },
+  // THREE ENTRIES ENDED MID-WORD AND THEN DEMANDED A WORD BOUNDARY, repaired 2026-08-31.
+  // Same defect and the same repair PR #19 applied in the sibling deny-list data module,
+  // which a RULE ZERO guard stops this file naming outright. A truncated stem is only
+  // useful as a PREFIX, and \b is exactly what stops it being one, so each was dead for
+  // the whole time it was listed, which is worse than absent: a term written down reads as
+  // covered. Measured at +0 across all five sources, so the empty result this file asserts
+  // is unchanged. The plural gap is still open here too and is left alone, because closing
+  // it moved a count elsewhere and a widening has to be argued on its own evidence.
+  { label: 'named industry or sector', re: /\b(consult(ing|ant|ancy)|school catering|catering suppl(y|ies|ier|iers)|logistics|SaaS|manufactur(ing|er)|recruitment agenc(y|ies)|law firm|accountanc(y|ies)|hospitality|construction|e-?commerce|fintech|healthcare provider)\b/i },
   // Countries, nationalities and named markets.
   { label: 'named country or nationality', re: /\b(Ireland|Irish|United Kingdom|Britain|British|England|Scotland|Wales|United States|America|American|Germany|German|France|French|Spain|Spanish|Canada|Canadian|Australia|Australian)\b/ },
   // Public bodies, regulators, programmes, statutes and schemes.
@@ -155,6 +163,12 @@ describe('shared rule text is category-level', () => {
     expect(scan('the Department of Transport').length).toBeGreaterThan(0)
     expect(scan('ISO 9001 compliance').length).toBeGreaterThan(0)
     expect(scan('McKinsey reports').length).toBeGreaterThan(0)
+    // The three entries repaired on 2026-08-31, each of which matched nothing at all
+    // before the repair. A dead entry and a correct one both score zero against the real
+    // files, so only a probe like this can tell them apart.
+    expect(scan('a catering supplier').length).toBeGreaterThan(0)
+    expect(scan('a recruitment agency').length).toBeGreaterThan(0)
+    expect(scan('an accountancy practice').length).toBeGreaterThan(0)
     // And must not fire on ordinary category-level prose.
     expect(scan('a public body or government agency')).toEqual([])
     expect(scan('the sector the buyer operates in')).toEqual([])

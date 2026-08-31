@@ -28,7 +28,29 @@ const INDUSTRY: Pattern[] = [
   // prompt. A false positive in a scan people are meant to trust is how exemptions get
   // asked for, so the pattern requires an industry noun after it rather than being
   // exempted at the line.
-  { label: 'named industry or sector', re: /\b(consult(ing|ant|ancy)|school catering|catering suppl|logistics|SaaS|manufactur(ing|er)|recruitment agenc|law firm|accountanc|hospitality|construction (firm|compan|industry|sector|business)|e-?commerce|fintech|healthcare provider)\b/i },
+  //
+  // FOUR ENTRIES ENDED MID-WORD AND THEN DEMANDED A WORD BOUNDARY, repaired 2026-08-31.
+  // A truncated stem is only useful as a PREFIX, and \b is exactly what stops it being one:
+  // the pattern reached the stem's last letter and asked for a boundary that the following
+  // letter cannot provide. Each was dead for the whole time it was listed, which is worse
+  // than absent, because a term written down reads as covered. The one inside the
+  // construction group is the worst of them, because the phrasing it was most likely to
+  // meet is the one it could never match.
+  //
+  // Repaired to the same form PR #19 used for this defect in the sibling deny-list data
+  // module. That form is copied, not re-derived. Named by description rather than by
+  // filename on purpose: a RULE ZERO guard flags any file under src/ that contains that
+  // module's name, and it matches a mention in a comment as readily as a real import.
+  // Measured one at a time and all together: +0 hits on every one of the five
+  // sources below, so these were dead entries rather than suppressed hits, and every
+  // baseline in this file is untouched.
+  //
+  // THE PLURALS ARE A SEPARATE, STILL-OPEN GAP and are deliberately not touched here. Most
+  // nouns in this pattern are still bounded on the singular, so the plural form remains
+  // invisible to it. Closing that in the sibling data file MOVED a count, which is a
+  // widening that has to be argued for on its own evidence rather than smuggled into a
+  // repair measured at zero.
+  { label: 'named industry or sector', re: /\b(consult(ing|ant|ancy)|school catering|catering suppl(y|ies|ier|iers)|logistics|SaaS|manufactur(ing|er)|recruitment agenc(y|ies)|law firm|accountanc(y|ies)|hospitality|construction (firm|compan(y|ies)|industry|sector|business)|e-?commerce|fintech|healthcare provider)\b/i },
   { label: 'named country or nationality', re: /\b(Ireland|Irish|United Kingdom|Britain|British|England|Scotland|Wales|United States|America|American|Germany|German|France|French|Spain|Spanish|Canada|Canadian|Australia|Australian)\b/ },
   { label: 'named public body or programme', re: /\bDepartment of [A-Z]|\bMinistry of [A-Z]|\b(HSE|NHS|safefood|An Taisce|Green Schools|Green Flag|Hot School Meals|Revenue Commissioners|Companies House|HMRC|IRS|FDA|FCA|SEC)\b/ },
   { label: 'named statute or regulation', re: /\b(GDPR|CCPA|HIPAA|Sarbanes[- ]Oxley|SOX|Companies Act|Data Protection Act)\b/ },
@@ -144,6 +166,13 @@ describe('the exemptions are structurally capped', () => {
     expect(probe('the Department of Transport')).toBe(true)
     expect(probe('ISO 9001 compliance')).toBe(true)
     expect(probe('a construction firm')).toBe(true)
+    // The four entries repaired on 2026-08-31. Each ended mid-word and was then followed
+    // by \b, so each matched nothing at all. These fail if a fragment is reintroduced,
+    // which the hit counts cannot do: a dead entry and a correct one both score zero.
+    expect(probe('a catering supplier')).toBe(true)
+    expect(probe('a recruitment agency')).toBe(true)
+    expect(probe('an accountancy practice')).toBe(true)
+    expect(probe('a construction company')).toBe(true)
     // The false positive that would have been exempted at the line instead of fixed.
     expect(probe('Parallel sentence construction across consecutive sentences')).toBe(false)
     expect(probe('a public body or government agency')).toBe(false)
