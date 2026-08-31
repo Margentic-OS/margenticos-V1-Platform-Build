@@ -259,12 +259,18 @@ describe('legitimate copy is not rejected', () => {
   })
 })
 
-describe('report-only, and the flip', () => {
-  it('ships in report mode', () => {
-    expect(SENTENCE_INITIAL_GATE_MODE).toBe('report')
+describe('blocking, and the report-only path it replaced', () => {
+  // FLIPPED 2026-08-31. Was 'report'. The flip is the point of the change, so it is
+  // asserted rather than left to be inferred from behaviour: a constant nothing checks is
+  // a constant that can be reverted by accident.
+  it('ships in BLOCK mode', () => {
+    expect(SENTENCE_INITIAL_GATE_MODE).toBe('block')
   })
 
-  it('returns no failures in report mode, however bad the copy is', () => {
+  it('now returns a failure at the shipped mode, with no mode argument passed', () => {
+    // The production call site passes no mode, so this is the call production makes. It is
+    // the test that would have stayed green through the whole observation week and gone
+    // red the moment the constant flipped, which is exactly what it is for.
     const failures = checkSentenceInitialNames(
       productionBlock(
         'You took two board seats early this year.',
@@ -273,6 +279,24 @@ describe('report-only, and the flip', () => {
       ),
       UNRELATED_FINDINGS,
       { prospectId: 'p1' },
+    )
+    expect(failures).toHaveLength(1)
+    expect(failures[0]).toContain('Verdantis Partners')
+  })
+
+  // KEPT, NOT DELETED. The report path is still reachable through the parameter and is
+  // what any future gate of this shape will be introduced behind. A path with no test is
+  // a path that has quietly stopped working by the time someone next needs it.
+  it('the report path still returns nothing, however bad the copy is', () => {
+    const failures = checkSentenceInitialNames(
+      productionBlock(
+        'You took two board seats early this year.',
+        'Verdantis Partners sees that pattern often.',
+        'Worth a look?',
+      ),
+      UNRELATED_FINDINGS,
+      { prospectId: 'p1' },
+      'report',
     )
     expect(failures).toEqual([])
   })
@@ -301,8 +325,8 @@ describe('report-only, and the flip', () => {
   })
 })
 
-describe('wired into checkOpeningGates without changing its behaviour today', () => {
-  it('adds no failure while the mode is report', () => {
+describe('wired into checkOpeningGates, and now blocking through it', () => {
+  it('adds the failure to the gate list, which is what the flip changed', () => {
     const failures = checkOpeningGates(
       productionBlock(
         'You took two board seats early this year.',
@@ -312,13 +336,37 @@ describe('wired into checkOpeningGates without changing its behaviour today', ()
       null, UNRELATED_FINDINGS, undefined,
       undefined, { prospectId: 'p1' },
     )
+    expect(failures.filter(f => f.includes('opens a sentence with a name'))).toHaveLength(1)
+  })
+
+  // THE CASE THAT COSTS MONEY IF IT IS WRONG. Now that the gate blocks, a false positive
+  // is a discarded writer attempt and another Sonnet call, so the no-false-rejection
+  // property is asserted through the REAL production entry point rather than only through
+  // the pure function.
+  it('does not reject a real opening whose names all trace to the findings', () => {
+    const findings = `1. Taffet added two board seats in early 2026.
+   source: linkedin | post 2026-02-10`
+    const failures = checkOpeningGates(
+      productionBlock(
+        'You took two board seats early this year.',
+        'Taffet reaches a different reader than the buyer does.',
+        'Worth a look?',
+      ),
+      null, findings, undefined, undefined, { prospectId: 'p1' },
+    )
     expect(failures.filter(f => f.includes('opens a sentence with a name'))).toEqual([])
   })
 
-  // WITHOUT THIS TEST THE WIRING IS UNPROTECTED. In report mode the check returns an empty
-  // array, so deleting the call in checkOpeningGates changes no gate result and no other
-  // test goes red. The log line is the only observable effect there is during the
-  // observation week, so the log line is what proves the call happens at all.
+  // KEPT AFTER THE FLIP, WITH ITS REASON REWRITTEN RATHER THAN LEFT STALE. While the mode
+  // was 'report' this was the ONLY thing protecting the wiring: the check returned an empty
+  // array, so deleting the call in checkOpeningGates changed no gate result and no other
+  // test went red. That is no longer true, and the test above it would now catch a deleted
+  // call on its own.
+  //
+  // It still earns its place, because it is the only assertion on the LOG, and the log is
+  // what a human reads when this gate rejects something. It also pins the mode that reaches
+  // the log line, so a half-done revert that flips the constant without the tests is caught
+  // here as well as above.
   //
   // This is the monitor-sweep shape: a check that runs, reports success, and never reached
   // the thing it was supposed to protect.
@@ -334,7 +382,7 @@ describe('wired into checkOpeningGates without changing its behaviour today', ()
     )
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('sentence-initial-gate'),
-      expect.objectContaining({ prospectId: 'p-wiring', mode: 'report' }),
+      expect.objectContaining({ prospectId: 'p-wiring', mode: 'block' }),
     )
   })
 
@@ -374,5 +422,84 @@ describe('the vocabulary', () => {
     expect(isOrdinaryWord('Founders')).toBe(true) // founder -> found
     expect(isOrdinaryWord('Scaled')).toBe(true)   // scale, dropped e
     expect(isOrdinaryWord('Tried')).toBe(true)    // try, ied -> y
+  })
+
+  // THE ONE FALSE POSITIVE THE 2026-08-31 REPLAY FOUND, and the family it belongs to.
+  // Every other rule in lemmaCandidates is a SUFFIX rule, and an irregular past tense
+  // escapes all of them by changing the stem instead of adding to it.
+  it('resolves irregular past tense and past participle forms', () => {
+    // The measured case: "Saw your post from last week: networking presentations..."
+    expect(isOrdinaryWord('Saw')).toBe(true)      // see
+    expect(isOrdinaryWord('Went')).toBe(true)     // go
+    expect(isOrdinaryWord('Took')).toBe(true)     // take
+    expect(isOrdinaryWord('Built')).toBe(true)    // build
+    expect(isOrdinaryWord('Brought')).toBe(true)  // bring
+    expect(isOrdinaryWord('Told')).toBe(true)     // tell
+    expect(isOrdinaryWord('Written')).toBe(true)  // write
+    expect(isOrdinaryWord('Understood')).toBe(true) // understand
+  })
+
+  // THE MAP IS CANDIDATES, NOT AN ALLOWLIST, and that distinction is the safety property.
+  // A form only resolves if its LEMMA is already in the vocabulary, so the map can never
+  // admit a word the list does not already carry. Without this test the difference between
+  // the two designs is invisible, and the next person to widen it would not know the
+  // constraint existed.
+  it('does not admit an irregular form whose lemma is absent from the vocabulary', () => {
+    // "draw" and "rise" are not in the list, so their irregular forms stay caught even
+    // though both are in the map. "Drew" and "Rose" are common names, so this matters.
+    expect(isOrdinaryWord('Drew')).toBe(false)
+    expect(isOrdinaryWord('Rose')).toBe(false)
+  })
+
+  it('an irregular form does not rescue a name that merely looks like one', () => {
+    for (const name of ['taffet', 'sovern', 'visteon', 'pani', 'verdantis']) {
+      expect(isOrdinaryWord(name)).toBe(false)
+    }
+  })
+})
+
+describe('traceability matches whole words, not substrings', () => {
+  // MEASURED over the 262 real findings blocks in prospect_research_results: a bare
+  // `includes` falsely cleared "SEC" in 104 of the 120 blocks it matched, via
+  // "section"/"sector"/"second"/"securities", and "Pani" in 38, via "companies".
+  const CARRIER_FINDINGS = `1. The company has grown across several sections of the market.
+   source: website | about page`
+
+  it('does not clear "Pani" because "companies" contains it', () => {
+    const findings = `1. Most companies in that position hire slowly.
+   source: website | about page`
+    const hits = findSentenceInitialNames(
+      productionBlock('You hired twice this year.', 'Pani has been growing since then.', 'Worth a look?'),
+      findings,
+    )
+    expect(hits.map(h => h.word)).toContain('Pani')
+  })
+
+  it('does not clear "SEC" because "section" and "second" contain it', () => {
+    const hits = findSentenceInitialNames(
+      productionBlock('You hired twice this year.', 'SEC rules changed for firms like that.', 'Worth a look?'),
+      CARRIER_FINDINGS,
+    )
+    expect(hits.map(h => h.word)).toContain('SEC')
+  })
+
+  // THE OTHER DIRECTION, WHICH IS THE ONE THAT COSTS COPY. Tightening traceability makes
+  // the gate stricter, so the risk is now rejecting a name the findings really did supply.
+  it('still clears a name the findings supply as a whole word', () => {
+    const findings = `1. Pani Group added two board members in 2026.
+   source: linkedin | post 2026-02-10`
+    expect(findSentenceInitialNames(
+      productionBlock('You hired twice this year.', 'Pani has been growing since then.', 'Worth a look?'),
+      findings,
+    )).toEqual([])
+  })
+
+  it('clears a name adjacent to punctuation, which is not a word character', () => {
+    const findings = `1. Two board seats, at Sovern LA and elsewhere.
+   source: linkedin | post 2026-02-10`
+    expect(findSentenceInitialNames(
+      productionBlock('You hired twice this year.', 'Sovern LA has been growing.', 'Worth a look?'),
+      findings,
+    )).toEqual([])
   })
 })

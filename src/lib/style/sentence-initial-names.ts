@@ -110,8 +110,52 @@ import { isOrdinaryWord } from './ordinary-words'
 // only thing the observation week is for.
 //
 // TO FLIP: change this to 'block', and record in BACKLOG what the week's logs showed.
+//
+// ─── FLIPPED TO 'block' ON 2026-08-31 ────────────────────────────────────────
+//
+// THE OBSERVATION WEEK DID NOT HAPPEN, AND NOTHING ABOVE THIS LINE IS WITHDRAWN. The
+// reasoning for wanting one still stands; what changed is that it could not be had. The
+// writer HAS NOT RUN IN PRODUCTION SINCE THIS GATE MERGED, so the log the week was meant
+// to fill is empty, and waiting longer would have produced another empty log rather than
+// evidence. An OFFLINE REPLAY over stored copy was substituted for it. Recorded in
+// docs/BACKLOG.md as fact.
+//
+// THE CORPUS. 60 real openings, replayed in the PRODUCTION SHAPE, meaning the joined
+// opening plus the closing question rather than the trigger alone:
+//   36  every opening stored in prospects.personalisation_trigger, all organisations,
+//       each judged against its own findings rebuilt with buildFindingsBlock. TWELVE of
+//       these have EMPTY findings, so nothing in them is traceable and every token falls
+//       through to the vocabulary. Those twelve are the harshest cases in the corpus and
+//       they are where the one false positive was found. They were dropped by the first
+//       version of the replay and including them is what surfaced it.
+//   24  the fresh writer outputs in .writer-export, judged against the findings behind
+//       their own source_result_id.
+//
+// THE RESULT. 142 sentence-initial tokens examined: 65 cleared by traceability, 77 cleared
+// as ordinary English, ZERO HITS. The flip is on a measured zero false-positive rate, not
+// on an argument. Before the two fixes below the same replay produced ONE.
+//
+// TWO FIXES WENT IN FIRST, BOTH FOUND BY THE REPLAY RATHER THAN BY READING:
+//
+//   1. THE IRREGULAR VERB GAP. "Saw your post from last week" was rejected. "see" is in
+//      the vocabulary, "saw" is not, and every rule in lemmaCandidates is a SUFFIX rule,
+//      which an irregular past tense escapes by changing the stem. Fixed with an
+//      irregular-form map in ordinary-words.ts. That was the only false positive in the
+//      whole corpus.
+//
+//   2. THE TRACEABILITY SUBSTRING WEAKNESS. Traceability was a bare `includes`, so a short
+//      name sitting inside a longer ordinary word was cleared as though the findings had
+//      supplied it. Measured over the 262 real findings blocks: "SEC" was falsely cleared
+//      by 104 of them via "section"/"sector"/"second"/"securities", and "Pani" by 38 via
+//      "companies". Now matched on word boundaries.
+//
+// THE SPLICE CONTROL, over the same 60 openings, each entity judged only against findings
+// that do not already name it: 13 of 16 before, 15 of 16 after for this gate alone, and
+// 16 of 16 for the production path once untraceableClaims is counted. The one this gate
+// still does not catch alone is "Blue Sky", covered by untraceableClaims on the tail
+// "Sky"; see the multi-token note on the run-building loop below.
 export type SentenceInitialGateMode = 'report' | 'block'
-export const SENTENCE_INITIAL_GATE_MODE: SentenceInitialGateMode = 'report'
+export const SENTENCE_INITIAL_GATE_MODE: SentenceInitialGateMode = 'block'
 
 /** Review date, for the BACKLOG entry and for whoever finds this later. */
 export const SENTENCE_INITIAL_GATE_REVIEW_AFTER = '2026-09-04'
@@ -137,6 +181,55 @@ function hasNameOrthography(word: string): boolean {
   // A capital anywhere after the first letter: HydrospherIQ, FinTechIQ, LinkedIn.
   if (/^\p{Lu}.*\p{Lu}/u.test(word) && !/^\p{Lu}+$/u.test(word)) return true
   return /\p{Ll}\p{Lu}/u.test(word)
+}
+
+/**
+ * True when the findings contain this word AS A WORD, not merely as a run of characters.
+ *
+ * ─── WHY THIS IS NOT `haystack.includes(word)` ───────────────────────────────
+ *
+ * It was, and that is a hole. A bare substring test clears any short name that happens to
+ * sit inside a longer ordinary word, and the findings block is full of ordinary words.
+ *
+ * MEASURED 2026-08-31, against the 262 real findings blocks stored in
+ * prospect_research_results rather than against invented examples:
+ *
+ *   SEC   substring-cleared by 120 blocks, only 16 of which actually name it.
+ *         104 FALSE CLEARS, carried by "section", "sector", "second", "securities".
+ *   Pani  substring-cleared by 57 blocks, only 19 of which actually name it.
+ *         38 FALSE CLEARS, carried by "companies".
+ *
+ * Two corrections worth keeping, because both were assumed wrong first. The Pani carrier
+ * is "companies", not "company": "company" contains "pan", not "pani". And SEC, not Pani,
+ * is the worst case in the set, by a factor of nearly three. Neither fact survives being
+ * reasoned about; both came from running the comparison over the real corpus.
+ *
+ * "Sole", "Knot", "Ito" and "Cave" were checked the same way and collide with nothing, so
+ * they are not listed as though they did.
+ *
+ * The shorter the name, the likelier the collision, and short names are exactly the ones
+ * the three-character floor already leaves thinly covered.
+ *
+ * ─── DELIBERATELY NOT APPLIED TO untraceableClaims ───────────────────────────
+ *
+ * The comment this replaces said "the same case-insensitive substring test the existing
+ * gate uses, so the two agree". They no longer agree, and that is a choice rather than an
+ * oversight.
+ *
+ * untraceableClaims in write-opening.ts is ALREADY BLOCKING in production. Tightening its
+ * traceability test makes it STRICTER, so it would begin rejecting openings that ship
+ * today, and the cost of that lands on live copy rather than on a report-only log. This
+ * gate is the one being flipped and the one that has been measured, so this is the one
+ * that gets the fix. Widening it to untraceableClaims is a separate change with its own
+ * measurement, and it is recorded in BACKLOG rather than smuggled in here.
+ *
+ * `\b` is not used: it treats a hyphen and an apostrophe as boundaries in ways that differ
+ * from cleanToken, which keeps both inside a token. Letters and digits are the only
+ * characters that continue a word here, which matches how the tokens were built.
+ */
+function isTraceable(clean: string, haystack: string): boolean {
+  const escaped = clean.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'u').test(haystack)
 }
 
 /** Strips surrounding punctuation and the possessive, matching the existing gate. */
@@ -169,12 +262,25 @@ export function findSentenceInitialNames(text: string, findingsText: string): Se
 
     // TRACEABILITY FIRST, and it short-circuits. A word the findings supplied is the
     // prospect's own name, company or market, and no further question is worth asking.
-    // Same case-insensitive substring test the existing gate uses, so the two agree.
-    if (haystack.includes(clean.toLowerCase())) return
+    if (isTraceable(clean, haystack)) return
 
     // A capitalised RUN is read as one name, so "Sovern LA" is judged on "Sovern" rather
     // than falling through the three-character floor on "LA". The run is for the message
     // only; the verdict is taken on the first token, which is the one nothing else checks.
+    //
+    // THE VERDICT IS STILL FIRST-TOKEN ONLY, DELIBERATELY, AND THIS IS THE RESIDUAL GAP.
+    // "Blue Sky" leaks here because "Blue" is ordinary English, so the run is cleared on
+    // its first token while "Sky" is never judged. Taking the verdict across the whole run
+    // would catch it, and was NOT done, because every token after the first is not
+    // sentence-initial and is therefore ALREADY CHECKED by untraceableClaims. Judging them
+    // here would double-report the same word from two gates. The production path does
+    // catch "Blue Sky", on the tail, which is what the paired test at the bottom of
+    // sentence-initial-names.test.ts asserts.
+    //
+    // The true residual gap is narrower than "multi-token names": a run whose first token
+    // is ordinary English AND whose every remaining token is under the three-character
+    // floor, e.g. "Blue Ox". Closing that means changing how the two gates divide the
+    // work, not editing this loop, so it is in BACKLOG rather than done here.
     const run: string[] = [clean]
     for (let j = i + 1; j < words.length; j++) {
       const next = cleanToken(words[j])
