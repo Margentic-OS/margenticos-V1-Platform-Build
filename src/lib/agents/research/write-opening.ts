@@ -230,8 +230,16 @@ First, the observation: the thing you noticed about this specific person. You ca
 they posted, what they published, who they hired, where they spoke, what roles they have
 held and when. Say one of those.
 
-Second, the bridge: its own paragraph, naming the problem your target is, as a PATTERN
-that is typically true of firms in the situation you just described.
+Second, the bridge: its own paragraph, naming the CONSEQUENCE that follows from the
+observation above it, as a PATTERN that is typically true of firms in the situation you
+just described. The consequence you name is the one that lands on the problem your target
+is.
+
+A CONSEQUENCE MAY BE AN ABSENCE. IT DOES NOT HAVE TO BE. Where something genuinely is
+absent, naming it stays permitted, on the terms set out lower down. Where it is not, do
+not manufacture one in order to have something to name. Nothing in these instructions
+requires a bridge to find a gap, and an absence asserted against an observation that does
+not support it is worse than no personalisation at all.
 
 Third, the closing question. It goes where [YOUR CLOSING QUESTION GOES HERE] sits, after the offer
 line. It is the obvious thing to ask THIS person once they have read the observation, the
@@ -357,20 +365,43 @@ follow-up. He probably has people. Claiming to know their CAPACITY, or what thei
 and is not getting to, is the same error as claiming to know their pipeline. Say what tends
 to happen. Never say who is or is not doing it.
 
-THE ABSENCE BAN COVERS IMPLIED CHOICE.
+THE ABSENCE BAN. IT COVERS THE OBSERVATION AND THE BRIDGE, BOTH.
+
+"Opening" in these instructions means the observation and the bridge together. This ban is
+written about the opening, so it governs BOTH paragraphs. A bridge names what they lack
+just as easily as an observation does, and nothing here exempts it.
+
+NEVER NAME WHAT THEY LACK. No "there is no", no "nothing about", no "with no case
+studies", no lists of what is missing from their site or their feed. A senior seller does
+not tell the reader their website is thin. Notice something that IS there instead.
+
+WHAT THE BAN IS ACTUALLY ABOUT. It is not a ban on absence, and reading it as one is what
+drives bridges back to the generic. The fault is DELIVERING A VERDICT ON THE READER.
+
+An absence stated as a fact about a THING is permitted. An absence that implies a
+conclusion about their JUDGEMENT is not.
+
+The same is true of something PRESENT. A sentence about what they do post, who they did
+hire or where they did speak carries a verdict just as readily. Being built on something
+visible exempts nothing.
+
+SO, IN ONE LINE: the bridge states a consequence, never a judgement, whether it is built on
+something present or something absent.
+
+THE BAN COVERS IMPLIED CHOICE.
 This shipped: "When your feed points elsewhere, the people who might hire you do not know
 HydrospherIQ exists."
 That is not "you have no posts". It is "your posts are for somebody else's company", which
 is worse, because it implies he chose that. Never tell the reader what they have decided
 to put first.
 
-THE GAP IS ABOUT PEOPLE WHO HAVE NOT MET THEM YET.
+THE CONSEQUENCE MUST NOT TURN THE OFFER LINE INTO A DIFFERENT JOB.
 
 Go back to the offer line. Work out whether it promises to GENERATE new conversations or to
-follow up on ones that already exist. If it generates, then the gap you name has to be about
-buyers who have never encountered this prospect. Naming a gap about an audience they already
-have turns the offer line into an offer to chase their own followers, which is a different
-job and not the one on the page.
+follow up on ones that already exist. If it generates, then the consequence you name must
+not be one that only an audience they already have could answer. Naming a gap about an
+audience they already have turns the offer line into an offer to chase their own followers,
+which is a different job and not the one on the page.
 
 This holds for any client whose offer line generates rather than follows up. It is not a
 fact about one product, it is a fact about what the paragraph underneath your bridge says.
@@ -394,6 +425,21 @@ They are already reading it. There is no gap in that sentence at all.
 WORKING: "The first clients in a new market usually come through people you already know. In
  London, those relationships have not had time to form yet."
 The gap is people who do not know her. Nobody has to be re-engaged for that to be true.
+
+THIS RULE RULES ONE DESTINATION OUT. IT DOES NOT CHOOSE THE OTHER. It says where the
+consequence may not land. It does not send every bridge to the same place regardless of
+what you observed, and a consequence that satisfies it while not following from your
+observation has still failed.
+
+Where the observation shows visible activity, the consequence engages with that activity.
+Concede what is plainly working, then name the specific thing that activity does not reach.
+Never assert an absence of effort against evidence of effort.
+
+Never name a channel, a source of work, or a way of operating that the observation does not
+evidence.
+
+If no consequence follows from an observation, that observation was the wrong one to choose.
+Pick another finding.
 
 THE BRIDGE MUST FOLLOW FROM ITS OWN OBSERVATION.
 
@@ -782,10 +828,6 @@ AIMED RIGHT, same observation, pattern-framed and pointed at what that question 
 Now she is short of the right conversations, which is what being asked about more
 conversations answers. And it claims nothing about her results: it says what tends to
 happen, not what is happening to her.
-
-NEVER OPEN BY NAMING WHAT THEY LACK. No "there is no", no "nothing about", no "with no
-case studies", no lists of what is missing from their site or their feed. A senior seller
-does not tell the reader their website is thin. Notice something that IS there instead.
 
 ${FIRMOGRAPHIC_RULE_TEXT}
 

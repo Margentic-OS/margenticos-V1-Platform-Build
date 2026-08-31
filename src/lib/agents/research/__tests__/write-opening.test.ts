@@ -193,13 +193,17 @@ describe('prompt shape', () => {
   it('the writer prompt establishes the senior persona and bans absence openers', () => {
     const p = buildWriterPrompt()
     expect(p).toContain('senior BDR with fifteen years')
-    expect(p).toContain('NEVER OPEN BY NAMING WHAT THEY LACK')
+    // HEADING CHANGED when the ban moved to sit with its own exception. It read "NEVER
+    // OPEN BY NAMING WHAT THEY LACK", and "open" was resolvable only by reading
+    // joinOpening. The ban is unchanged in force; it now says which paragraphs it covers.
+    expect(p).toContain('NEVER NAME WHAT THEY LACK')
+    expect(p).not.toContain('NEVER OPEN BY NAMING WHAT THEY LACK')
   })
 
   it('the writer prompt still bans absence openers and names what IS observable', () => {
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
-    expect(p).toContain('NEVER OPEN BY NAMING WHAT THEY LACK')
+    expect(p).toContain('NEVER NAME WHAT THEY LACK')
     expect(flat).toContain('Notice something that IS there instead')
     // Says explicitly what is visible, so the writer is not guessing at the boundary.
     expect(flat).toContain('what they posted, what they published, who they hired')
@@ -1270,7 +1274,10 @@ describe('two more things the bridge may not assume', () => {
 
   it('extends the absence ban to implied choice, with Jason verbatim', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('THE ABSENCE BAN COVERS IMPLIED CHOICE')
+    // "THE ABSENCE BAN COVERS..." forward-referenced a ban 426 lines below it, so the
+    // reader met the exception first. The ban now sits directly above, and the heading
+    // resolves locally.
+    expect(flat).toContain('THE BAN COVERS IMPLIED CHOICE')
     expect(flat).toContain('When your feed points elsewhere, the people who might hire you do not know HydrospherIQ exists.')
     expect(flat).toContain('it implies he chose that')
     expect(flat).toContain('Never tell the reader what they have decided to put first')
@@ -1336,14 +1343,14 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
 
 // ─── The gap points at strangers, and the bridge follows its own observation ──
 
-describe('the gap is about people who have not met them yet', () => {
+describe('the offer line rules one destination out without choosing the other', () => {
   const prompt = () => buildWriterPrompt()
 
   it('derives the rule from the offer line rather than naming a service', () => {
     // Stated as a principle so it holds for any client whose offer line generates rather
     // than follows up. Naming the product would make it one client's rule.
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('THE GAP IS ABOUT PEOPLE WHO HAVE NOT MET THEM YET')
+    expect(flat).toContain('THE CONSEQUENCE MUST NOT TURN THE OFFER LINE INTO A DIFFERENT JOB')
     expect(flat).toContain('Go back to the offer line')
     expect(flat).toContain('whether it promises to GENERATE new conversations or to follow up on ones that already exist')
     expect(flat).toContain('It is not a fact about one product')
@@ -1371,6 +1378,108 @@ describe('the gap is about people who have not met them yet', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('The first clients in a new market usually come through people you already know.')
     expect(flat).toContain('The gap is people who do not know her')
+  })
+})
+
+// ─── THE THREE RULE CHANGES OF 2026-08-31 ────────────────────────────────────
+//
+// WHY THESE EXIST. buildWriterPrompt taught the absence shape by EXAMPLE: ten endorsed
+// worked examples landed the bridge on an absence, including both canonical clean
+// bridges, and exactly one example was faulted for lacking one. No RULE ever asked for an
+// absence. The only rule that came close legislated where a gap may sit while treating its
+// existence as settled somewhere else, and it was not settled anywhere. The measured
+// consequence: where the observation showed visible activity, the bridge asserted an
+// absence that contradicted it.
+//
+// These tests hold the rules, not the examples. No example was touched in that pass, on
+// purpose, so the next measurement reads how much of the fault the rules alone carried.
+describe('the bridge names a consequence, and an absence is permitted but never required', () => {
+  const prompt = () => buildWriterPrompt()
+
+  it('the job definition asks for a consequence, not for a problem or a gap', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    // ESTABLISHED IN THE JOB DEFINITION, which is the point: every rule that assumes an
+    // absence sits below this, so it has to be settled before they are read.
+    expect(flat).toContain('naming the CONSEQUENCE that follows from the observation above it')
+  })
+
+  it('permits an absence without requiring one', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('A CONSEQUENCE MAY BE AN ABSENCE. IT DOES NOT HAVE TO BE.')
+    expect(flat).toContain('do not manufacture one in order to have something to name')
+    expect(flat).toContain('Nothing in these instructions requires a bridge to find a gap')
+  })
+
+  it('the offer-line rule constrains the consequence without choosing it', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    // WHAT WAS KEPT: a gap about an audience they already have still turns the offer line
+    // into a different job. That half was always right.
+    expect(flat).toContain('Never name a gap about converting, following up with, or re-engaging an audience they already have')
+    // WHAT CHANGED: it no longer sends every bridge to strangers regardless of the
+    // observation.
+    expect(flat).toContain('THIS RULE RULES ONE DESTINATION OUT. IT DOES NOT CHOOSE THE OTHER.')
+    expect(flat).not.toContain('the gap you name has to be about buyers who have never encountered this prospect')
+  })
+
+  it('makes the bridge engage with visible activity rather than deny it', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    // THE MEASURED FAULT THIS ANSWERS: two real prospects showing plain evidence of effort
+    // were told that effort was absent.
+    expect(flat).toContain('Where the observation shows visible activity, the consequence engages with that activity')
+    expect(flat).toContain('Never assert an absence of effort against evidence of effort')
+  })
+
+  it('bans naming a channel or way of operating the observation does not evidence', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('Never name a channel, a source of work, or a way of operating that the observation does not evidence')
+  })
+
+  it('sends a consequence-free observation back rather than inventing a consequence', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('that observation was the wrong one to choose')
+    expect(flat).toContain('Pick another finding')
+  })
+})
+
+describe('the absence ban states its own scope and its own subject', () => {
+  const prompt = () => buildWriterPrompt()
+
+  it('says which paragraphs it covers, without a lookup into joinOpening', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    // THE OLD PHRASING was "never OPEN by naming what they lack", governing an example
+    // that is a BRIDGE. "Opening" means observation and bridge together, and the only way
+    // to learn that was to read joinOpening in another part of this file.
+    expect(flat).toContain('"Opening" in these instructions means the observation and the bridge together')
+    expect(flat).toContain('so it governs BOTH paragraphs')
+  })
+
+  it('locates the fault in the verdict, not in the absence', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('It is not a ban on absence')
+    expect(flat).toContain('The fault is DELIVERING A VERDICT ON THE READER')
+    expect(flat).toContain('An absence stated as a fact about a THING is permitted')
+    expect(flat).toContain('An absence that implies a conclusion about their JUDGEMENT is not')
+  })
+
+  it('applies the same test to something present, which is the half that was missing', () => {
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('The same is true of something PRESENT')
+    expect(flat).toContain('Being built on something visible exempts nothing')
+    expect(flat).toContain('the bridge states a consequence, never a judgement, whether it is built on something present or something absent')
+  })
+
+  it('sits with its own exception rather than 426 lines from it', () => {
+    // THE ORIGINAL FAULT, and it is a distance, so the assertion has to be one too. The
+    // ban and the exception that names it were 426 lines apart and a reader met the
+    // exception first. A substring check on either would pass in both worlds.
+    const lines = prompt().split('\n')
+    const ban = lines.findIndex(l => l.includes('NEVER NAME WHAT THEY LACK'))
+    const exception = lines.findIndex(l => l.includes('THE BAN COVERS IMPLIED CHOICE'))
+    expect(ban).toBeGreaterThan(-1)
+    expect(exception).toBeGreaterThan(-1)
+    // The ban comes FIRST. That ordering is the whole repair.
+    expect(ban).toBeLessThan(exception)
+    expect(exception - ban).toBeLessThan(40)
   })
 })
 
