@@ -168,8 +168,7 @@ should produce clean output to begin with.]
 
 The organisation's strategy documents (TOV, Positioning) may contain industry-specific
 language naming the niche they serve (e.g. "founder-led consulting firms", "B2B SaaS
-founders", "boutique law firms"). Your draft must NOT echo this niche-specific language
-back to the prospect.
+founders"). Your draft must NOT echo this niche-specific language back to the prospect.
 
 The prospect already knows what their business is. Quoting their niche label back at
 them is a tell that the writer is reading from a script.
