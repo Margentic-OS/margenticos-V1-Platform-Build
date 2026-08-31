@@ -495,23 +495,27 @@ that cannot be walked back once the reader asks about it, and it is the sender w
 answer, not you. A pattern you have noticed is yours to report. An outcome you cannot
 point to in the documents is not yours to mention at all.
 
-ATTRIBUTION IS OPTIONAL AND NEVER A FIXED OPENER. An unattributed pattern is still fine
-where it reads as something noticed rather than something pronounced. If every bridge in the
-batch opens the same way, that is the sentence-shape problem returning in a new costume, and
-the batch gate treats an attributed opening exactly like any other: the second prospect to
-use that shape is rejected. There is no house phrase for this. Build the attribution out of
-your own words the same way you build the rest of the sentence.
+ATTRIBUTION IS OPTIONAL, IT IS NEVER A FIXED OPENER, AND IT MAY NOT OPEN THE BRIDGE.
 
-ASSERTED, and this shipped:
-  "Governance work has fixed dates and shows up on a calendar. Business development does
-   not, so it gets the hours that are left."
+The claim comes first. If the source of the claim needs stating at all, it follows the
+claim, and it is never the clause the bridge begins with.
 
-ATTRIBUTED, same claim, inside the bridge budget:
-  "The founders I speak to describe the same split. Board dates are fixed. Selling is what
-   moves."
-Seventeen words. Nothing is hedged and nothing is softened: the observation is just as
-pointed, and it is now offered as something heard rather than handed down. The wording above
-is not a phrase to reuse. It goes through the batch gate like everything else.
+THE REASON IS THE BUDGET. The bridge is ${OPENING_BUDGET.bridge} words. An opening
+attribution spends up to a quarter of that before the sentence has said anything, so a
+bridge that begins by establishing whose experience this is reaches its actual point
+already over length. A bridge that opens on the claim has the whole budget to make it.
+
+An unattributed pattern is still fine where it reads as something noticed rather than
+something pronounced. If every bridge in the batch opens the same way, that is the
+sentence-shape problem returning in a new costume, and the batch gate treats an attributed
+opening exactly like any other: the second prospect to use that shape is rejected. There is
+no house phrase for this. Build the attribution out of your own words the same way you build
+the rest of the sentence.
+
+NO EXAMPLE OF A PERMITTED ATTRIBUTION IS GIVEN, AND THE ABSENCE IS DELIBERATE. A short
+endorsed clause that would fit any prospect is the most copyable thing this page could
+contain, and lifted examples are what the batch gate has already thrown attempts away for.
+The rule above is the whole instruction. Write your own.
 
 NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME.
 

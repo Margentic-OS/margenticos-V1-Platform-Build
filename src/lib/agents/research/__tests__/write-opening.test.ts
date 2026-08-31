@@ -822,6 +822,76 @@ describe('the opening may not carry its own question mark', () => {
 })
 
 
+// ─── ATTRIBUTION MAY NOT OPEN THE BRIDGE ─────────────────────────────────────
+//
+// THE MEASUREMENT THAT BOUGHT THE RULE. The prompt already said attribution was optional
+// and never a fixed opener, and it was becoming one anyway: 2 of 24 bridges opened with an
+// attribution in one run and 6 of 20 in the next. Those openers spend 5 to 15 words before
+// the claim begins, against a bridge budget of 22, and one of them spent 15. Mean bridge
+// length rose from 19.2 words to 23.0 between the two runs, and all four length-gate
+// failures in the second run were on over-budget bridges.
+//
+// "Optional" was doing no work, because nothing said WHERE. The rule now fixes the
+// position: the claim first, the source after it if at all.
+//
+// AND THE ENDORSED EXAMPLE WENT WITH IT, which is the part worth noticing. The old rule
+// sat directly above a worked ATTRIBUTED example whose whole first clause was an
+// attribution. A page with eight recorded instances of an example being lifted verbatim
+// into a prospect's email was teaching, by example, the exact shape the prose forbade.
+// Tightening the words and leaving that example in place would have changed nothing.
+// Nothing replaces it: an example of a permitted attribution is precisely the short,
+// prospect-agnostic clause most likely to be copied.
+
+describe('attribution may not open the bridge', () => {
+  const flat = () => buildWriterPrompt().replace(/\s+/g, ' ')
+
+  it('states the position, not just that attribution is optional', () => {
+    expect(flat()).toContain('IT MAY NOT OPEN THE BRIDGE')
+    expect(flat()).toContain('The claim comes first')
+    expect(flat()).toContain('it is never the clause the bridge begins with')
+  })
+
+  it('gives the budget as the reason, at category level', () => {
+    // CLAUDE.md: a rule states WHY. The number is interpolated from OPENING_BUDGET rather
+    // than typed, so the prompt and the gate cannot disagree about what the budget is.
+    const f = flat()
+    expect(f).toContain('THE REASON IS THE BUDGET')
+    expect(f).toContain(`The bridge is ${OPENING_BUDGET.bridge} words`)
+    expect(f).toContain('before the sentence has said anything')
+  })
+
+  // ─── THE MUTATION TEST ─────────────────────────────────────────────────────
+  //
+  // Restoring the old rule text turns this red. Without it the two assertions above are
+  // satisfied by ADDING the new prose beside the old, which is the change that would look
+  // done and leave the endorsed attribution-first example in the prompt for the writer to
+  // copy. Both halves of the old passage are named: the sentence that was too weak, and
+  // the worked example that contradicted its replacement.
+  it('the old rule and its attribution-first example are gone, not merely added to', () => {
+    const f = flat()
+    expect(f, 'the old, weaker sentence is back')
+      .not.toContain('ATTRIBUTION IS OPTIONAL AND NEVER A FIXED OPENER')
+    expect(f, 'the endorsed example opening on an attribution is back')
+      .not.toContain('ATTRIBUTED, same claim, inside the bridge budget')
+    expect(f, 'the endorsed attribution-first clause is back')
+      .not.toContain('The founders I speak to describe the same split')
+  })
+
+  it('offers no worked example of a permitted attribution, and says so', () => {
+    expect(flat()).toContain('NO EXAMPLE OF A PERMITTED ATTRIBUTION IS GIVEN')
+  })
+
+  it('still keeps attribution optional and still subject to the batch gate', () => {
+    // The two properties the old passage carried that the tightening does NOT change.
+    // Restricting where an attribution may sit is not the same as requiring one.
+    const f = flat()
+    expect(f).toContain('ATTRIBUTION IS OPTIONAL')
+    expect(f).toContain('An unattributed pattern is still fine')
+    expect(f).toContain('There is no house phrase for this')
+  })
+})
+
+
 describe('the writer is asked for the same number of blocks in both turns', () => {
   it('stops the lifting by making the words unusable rather than by warning harder', () => {
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
@@ -1113,24 +1183,11 @@ describe('the bridge may attribute, but only to the sender', () => {
     expect(flat).not.toMatch(/no clients yet|first client(?:s)? we/i)
   })
 
-  it('keeps attribution optional and subject to the batch gate', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('ATTRIBUTION IS OPTIONAL AND NEVER A FIXED OPENER')
-    expect(flat).toContain('There is no house phrase for this')
-  })
-
-  it('carries the Daedra pair, asserted beside attributed', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('Governance work has fixed dates and shows up on a calendar')
-    expect(flat).toContain('The founders I speak to describe the same split. Board dates are fixed. Selling is what moves.')
-    expect(flat).toContain('is not a phrase to reuse')
-  })
-
-  it('the attributed rewrite obeys the rules it sits under', () => {
-    const rewrite = 'The founders I speak to describe the same split. Board dates are fixed. Selling is what moves.'
-    expect(countAbstractNouns(rewrite)).toBe(0)
-    expect(rewrite.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
-  })
+  // WHERE THE REST OF THIS RULE IS NOW TESTED. Three tests stood here covering the
+  // paragraph that said attribution was optional, and the worked ASSERTED/ATTRIBUTED pair
+  // beneath it. That passage was replaced by a rule fixing attribution's POSITION, and the
+  // endorsed example went with it because its first clause was an attribution. See
+  // "attribution may not open the bridge" above.
 })
 
 // ─── The camera test and plain verbs ────────────────────────────────────────
