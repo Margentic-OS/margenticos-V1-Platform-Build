@@ -74,9 +74,9 @@ or quality."
 
 ### Rule 3: Specificity over category
 
-Every strategic claim needs one supporting specific: a named buyer type, a named
-situation, an observable behaviour, or a direct quote from the intake. A number counts
-only when this message supplied it.
+Every strategic claim needs one supporting specific: a named situation, an observable
+behaviour, or a direct quote from the intake. A number counts only when this message
+supplied it.
 
 "Firms in this market struggle with inconsistent revenue" is a category claim. It fails.
 
