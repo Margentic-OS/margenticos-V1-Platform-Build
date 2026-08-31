@@ -34,10 +34,10 @@ bottom, under headings nobody scans, which is the same as not writing them.
                VENDOR_GATE_MODE = 'report' in src/lib/agents/vendor-name-gate.ts
                Full entry: search "THE OUTPUT-SIDE VENDOR GATE IS BUILT"
 
-  2026-09-04   FLIP DECISION: the SENTENCE-INITIAL NAME GATE.
-               SENTENCE_INITIAL_GATE_MODE = 'report' in
-               src/lib/style/sentence-initial-names.ts
-               Full entry: search "REVIEW 2026-09-04"
+  DONE         FLIP DECISION: the SENTENCE-INITIAL NAME GATE. Flipped to 'block' on
+  2026-08-31   2026-08-31, ahead of the review date. THE OBSERVATION WEEK DID NOT HAPPEN.
+               An offline replay over 60 stored openings was substituted for it.
+               Full entry: search "FLIPPED 2026-08-31"
 
   NO DATE     DO NOT FLIP: the FINITE-VERB GATE.
               FINITE_VERB_GATE_MODE = 'report' in src/lib/style/finite-verb.ts
@@ -45,10 +45,18 @@ bottom, under headings nobody scans, which is the same as not writing them.
               before it was committed and it is NOT a flip candidate on that evidence.
               Full entry: search "THE FINITE-VERB GATE IS MEASURED AND MUST NOT BLOCK"
 
-All three are report-only gates shipped on the same rule: a gate nobody has watched fire is
-a gate nobody has tested. NONE FLIPS ITSELF and none warns when the date passes. Read the
+These were three report-only gates shipped on the same rule: a gate nobody has watched fire
+is a gate nobody has tested. NONE FLIPS ITSELF and none warns when the date passes. Read the
 week's logs, decide, then change one constant. Record what the logs showed in the full
 entry when you do, and delete the line from this block.
+
+ONE OF THE THREE HAS NOW FLIPPED, AND NOT THE WAY THE RULE ANTICIPATED. The
+sentence-initial gate's observation week produced no logs at all, because the writer never
+ran. The rule assumes a gate in production sees traffic, and a gate merged into a code path
+that is not being exercised sees none. The vendor gate at 2026-09-04 is behind the SAME
+writer and is therefore in the SAME position: expect its log to be empty too, and expect to
+have to replay it offline rather than read a week of nothing. Do not read an empty log as
+evidence of a clean week.
 
 ## VERIFIED LIVE: THE CASE 3 SKIP PATH, AND ONE THING IT REVEALED (2026-08-29)
 
@@ -8618,46 +8626,162 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   collision count jumps, the fix is not the mask, it is MIN_SHARED_SENTENCE_WORDS or the
   IGNORED_FRAMES set. Do it when sentence-frames.ts is next open for another reason.
 
-- [pre-c1] [gate] [REVIEW 2026-09-04] READ THE SENTENCE-INITIAL GATE'S OBSERVATION WEEK
-  AND DECIDE THE FLIP. THIS IS THE REMINDER. THERE IS NO DATE IN THE CODE.
+- [gate] FLIPPED 2026-08-31. THE SENTENCE-INITIAL NAME GATE NOW BLOCKS. THE OBSERVATION
+  WEEK DID NOT HAPPEN.
 
-  Deliberately a line in this file and not a timer. Nothing in the repository flips itself,
-  and nothing warns when the date passes. If this is being read after 2026-09-04 and the
-  mode is still 'report', the review has not happened yet and this item is still live.
+  SENTENCE_INITIAL_GATE_MODE = 'block' in src/lib/style/sentence-initial-names.ts. Merged
+  report-only 2026-08-28, flipped 2026-08-31, four days ahead of its own review date.
 
-  Merged 2026-08-28. SENTENCE_INITIAL_GATE_MODE = 'report' in
-  src/lib/style/sentence-initial-names.ts.
+  WHAT WAS SUPPOSED TO HAPPEN AND DID NOT. The gate shipped behind one week of report-only
+  logging, on the rule that a gate nobody has watched fire is a gate nobody has tested. That
+  week produced NO LOG LINES, because THE WRITER HAS NOT RUN IN PRODUCTION SINCE THE GATE
+  MERGED. The log the review was to read is empty, and it is empty for want of traffic
+  rather than for want of hits. Waiting until 2026-09-04 would have produced another empty
+  log, not evidence.
 
-  WHERE TO LOOK. One log line, from the research writer:
-      warn "sentence-initial-gate: name-shaped word opening a sentence, not in findings"
-  Each hit carries prospectId, word, run, signal ('orthography' or 'not-english') and the
-  full sentence.
+  WHAT WAS SUBSTITUTED FOR IT. An offline replay of the gate over stored copy, in the
+  PRODUCTION SHAPE, meaning the joined opening plus the closing question rather than the
+  trigger alone. Corpus, 60 real openings:
+    36  every opening in prospects.personalisation_trigger, all organisations, each judged
+        against its own findings rebuilt with buildFindingsBlock. TWELVE of these have
+        EMPTY findings, so nothing in them is traceable and every sentence-initial token
+        falls through to the vocabulary. Those twelve are the harshest cases in the corpus.
+        The first version of the replay SKIPPED them as a data gap and reported zero hits;
+        including them is what surfaced the only false positive there was.
+    24  the fresh writer outputs in .writer-export, judged against the findings behind
+        their own source_result_id.
 
-  THE TWO QUESTIONS TO ANSWER, IN THIS ORDER.
+  THE RESULT. 142 sentence-initial tokens examined: 65 cleared by traceability, 77 cleared
+  as ordinary English, ZERO HITS. Before the two fixes below, ONE.
 
-  1. IS ANY LOGGED HIT ORDINARY ENGLISH? Go through the words one at a time. A hit whose
-     word is an ordinary English word is a FALSE POSITIVE and would have cost a writer
-     attempt after the flip. The fix is to ADD THAT WORD to src/lib/style/ordinary-words.ts.
-     Do not add an exemption, do not special-case the sentence. See the vocabulary item
-     below for why adding is always the safe move.
-     Expect zero. Every one of the fifteen distinct sentence-initial words measured across
-     the 24 stored openings is already in the list.
+  TWO FIXES WENT IN FIRST, BOTH FOUND BY THE REPLAY RATHER THAN BY READING THE CODE:
+    1. THE IRREGULAR VERB GAP. "Saw your post from last week" was rejected. "see" is in the
+       vocabulary, "saw" is not, and every rule in lemmaCandidates is a SUFFIX rule, which
+       an irregular past tense escapes by changing the stem. Fixed with an IRREGULAR_FORMS
+       map in ordinary-words.ts, 163 forms, of which 76 resolve and 87 are inert because
+       their lemma is not in the vocabulary. Deliberately a map of CANDIDATES and not extra
+       words in the list: a form only resolves if its lemma is already there, so it cannot
+       admit anything the vocabulary does not already carry. "Drew" and "Rose" stay caught
+       for exactly that reason.
+    2. THE TRACEABILITY SUBSTRING WEAKNESS. Traceability was a bare `includes`, so a short
+       name inside a longer ordinary word was cleared as though the findings supplied it.
+       Measured over the 262 real findings blocks in prospect_research_results: "SEC" was
+       falsely cleared by 104 of the 120 blocks it matched, via "section", "sector",
+       "second" and "securities"; "Pani" by 38, via "companies". Now matched on word
+       boundaries. SEC was not previously known to be leaking and is the worse of the two.
 
-  2. IS THE COUNT LOW ENOUGH THAT BLOCKING WOULD NOT BURN WRITER ATTEMPTS? There are only
-     2 to 3 attempts per prospect and exhausting them falls back to the template, so this
-     is a quality question, not a tidiness one. Measure hits PER PROSPECT, not in total:
-     one prospect logging six hits is one rejected attempt, six prospects logging one each
-     is six. Rough reading:
-       zero hits                  -> flip to 'block'. This is the expected outcome.
-       hits, all genuine names    -> flip to 'block'. The gate is doing its job and the
-                                     writer gets a specific message it can act on.
-       any hit that is ordinary   -> DO NOT FLIP. Add the words, keep report-only, and
-       English                       review again after another week of clean logs.
+  THE SPLICE CONTROL, over the same 60 openings, each entity judged only against findings
+  that do not already name it: 13 of 16 before and 15 of 16 after for this gate alone,
+  16 of 16 for the production path once untraceableClaims is counted.
 
-  TO FLIP: change SENTENCE_INITIAL_GATE_MODE to 'block' and record here what the logs
-  showed, including the count and whether anything was added to the vocabulary. The
-  blocking path already has a passing test, so the flip is a one-word change and not a
-  leap.
+  A NOTE ON THE HARNESS, because it repeated a documented mistake before catching it. The
+  replay cross-checked its own token walk against the real exported function and reported
+  zero mismatches. That check was VACUOUS: on a clean corpus both sides return empty, and
+  comparing two empty sets agrees no matter how wrong the replica is. Confirmed by
+  mutation, changing the replica's three-character floor to four produced ZERO mismatches.
+  Re-run over the splice corpus, where 502 of 576 blocks produce hits, the same mutation
+  produced 35. Same shape as the fake that does not honour a filter, and the same lesson:
+  a check that cannot fail is not a check.
+
+- [gate] THE SAME SUBSTRING WEAKNESS IS STILL IN untraceableClaims, DELIBERATELY LEFT.
+
+  src/lib/agents/research/write-opening.ts, untraceableClaims. It clears a capitalised word
+  when `findingsText.toLowerCase().includes(word.toLowerCase())`, which is the exact test
+  measured above as falsely clearing "SEC" in 104 of 120 real findings blocks and "Pani" in
+  38 of 57. The sentence-initial gate was fixed on 2026-08-31; this one was not, and the two
+  no longer agree.
+
+  WHY IT WAS LEFT. untraceableClaims IS ALREADY BLOCKING in production. Tightening it makes
+  it STRICTER, so it would start rejecting openings that ship today, and the cost lands on
+  live copy rather than on a report-only log. The gate being flipped is the one that had
+  been measured, so it is the one that got the fix.
+
+  WHAT DOING IT PROPERLY LOOKS LIKE. Replay untraceableClaims over the same 60-opening
+  corpus with the boundary test, count how many openings that already shipped would newly
+  fail, and read every one before changing anything. Only the SHORT tokens can be affected,
+  so the count should be small, but it is the direction that costs writer attempts and it
+  must not be guessed.
+
+- [gate] RESIDUAL GAP IN THE SENTENCE-INITIAL GATE: A RUN WHOSE FIRST TOKEN IS ORDINARY
+  ENGLISH AND WHOSE REST IS UNDER THE THREE-CHARACTER FLOOR.
+
+  The verdict is taken on the FIRST token of a capitalised run only. "Blue Sky" therefore
+  passes this gate, because "Blue" is ordinary English and "Sky" is never judged here. That
+  is not a leak in production: "Sky" is not sentence-initial, so untraceableClaims catches
+  it, and the paired test at the bottom of sentence-initial-names.test.ts asserts exactly
+  that seam.
+
+  The genuine gap is narrower than "multi-token names", and worth stating precisely so it is
+  not over-fixed: a run whose first token is ordinary English AND whose every remaining
+  token is under the three-character floor. "Blue Ox". Nothing checks either token.
+
+  NOT FIXED HERE, AND NOT BY EXTENDING THE VERDICT TO THE WHOLE RUN. Every token after the
+  first is already checked by untraceableClaims, so judging them here would double-report
+  the same word from two gates. Closing it means changing how the two gates divide the work,
+  which is a larger change than it looks and needs its own measurement.
+
+- [phase2] [gate] THE VOCABULARY'S MARKET-SPECIFIC BLOCK IS A RULE ZERO DEFECT. MEASURED
+  2026-08-31, REPORTED ONLY, NOT FIXED.
+
+  src/lib/style/ordinary-words.ts ends with a block of 175 tokens of one industry's
+  vocabulary. CLAUDE.md's industry-agnosticism rule asks of any feature: "Would this work
+  correctly for an AI voice calling company, a SaaS business, or a logistics firm?" This
+  block does not, and the consequence is concrete rather than theoretical: a word that is
+  ordinary English for a consultancy but missing for a logistics firm becomes a REJECTED
+  EMAIL for the logistics firm, now that the gate blocks.
+
+  "Advisory" and "Delivery" are the worked example. Both appear ONLY in this block, so a
+  client in another industry loses that cover entirely, and "delivery" is a word a logistics
+  firm would use constantly.
+
+  THE SIZE OF THE PROBLEM, measured rather than estimated:
+
+    175  tokens in the block
+     19  already present in another block, so they lose nothing if this block goes
+    156  unique to it, and these are the whole of the exposure
+
+  Of those 156, classified against the CLAUDE.md test:
+
+     21  genuinely consulting/coaching-specific
+         advisory coach coaching consultancy consultant consulting copywriting freelance
+         influencer intake mandate mentor messaging methodology nurture positioning
+         prospecting retainer seminar testimonial workshop
+
+     32  sales and marketing operations, general to any firm that does outbound at all
+         acquisition advertising bio blog campaign churn conversion demo ecommerce exposure
+         funnel headline inbound keyword listing newsletter niche objection onboarding
+         outbound outreach pitch podcast qualification quota segment sponsor sponsorship
+         traction upsell visibility webinar
+
+    103  GENERAL BUSINESS ENGLISH, which a logistics or SaaS firm uses unchanged
+         audit automation bandwidth benchmark bid bill billing booking bottleneck broker
+         calendar capability clause commission compliance credential deadline delivery diary
+         discount distribution downturn enquiry enterprise engagement equity escalation
+         estimate executive exhibition expansion expertise fee forecast franchise governance
+         headcount hiring introduction inventory invoice leadership ledger legacy licence
+         license logistics manufacturing margin merger metric milestone momentum negotiation
+         outsourcing overhead partnership payroll pension pilot placement pledge portfolio
+         premium presentation pricing procurement publisher quote recruitment refresh
+         registration regulation regulator renewal reputation retention roadmap rollout
+         roster salary sales scaling slot specialist staffing stakeholder startup
+         subscription supplier tender territory threshold ticket tier timeline transaction
+         transformation turnover vendor venture workflow workload
+
+  SO ONLY 21 OF THE 175 ARE ACTUALLY MARKET-SPECIFIC, ABOUT 12%. The block is mislabelled
+  more than it is misbuilt: 103 tokens are general business English sitting under a heading
+  that says they are not, and they should simply be merged into the noun block, where no
+  future reader will read them as one industry's jargon and hesitate to rely on them.
+
+  THE CLASSIFICATION IS A JUDGEMENT AND IS RECORDED SO IT CAN BE ARGUED WITH. The 32 in the
+  middle tier are the debatable ones. They are general to outbound, which every client of
+  this platform does by definition, so the practical answer is probably that only the 21
+  are a problem at all.
+
+  WHY THIS IS NOT FIXED HERE. The brief that surfaced it said report only. It is also the
+  wrong shape for a drive-by: the safe direction is ADDING words, and the right fix is to
+  merge the 103 into the general block and DECIDE, deliberately, whether the 21 stay. That
+  is a decision about who this platform serves, not a tidy-up, and widening the block while
+  passing through would have made the Rule Zero defect worse rather than better.
 
 - [asset] THE ORDINARY-ENGLISH VOCABULARY IS A REUSABLE ASSET, NOT A FILE BELONGING TO ONE
   GATE. AND THE FIX FOR A FALSE POSITIVE IS ALWAYS TO ADD A WORD.

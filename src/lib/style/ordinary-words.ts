@@ -234,6 +234,82 @@ const ORDINARY = new Set(
 /** How many distinct words the list holds. Asserted in the tests so a botched edit shows. */
 export const ORDINARY_WORD_COUNT = ORDINARY.size
 
+// Irregular past tense and past participle forms, mapped to their lemma.
+//
+// ─── WHY A MAP HERE AND NOT MORE WORDS IN THE LIST ABOVE ─────────────────────
+//
+// Measured 2026-08-31: replaying the gate over every stored opening surfaced exactly one
+// false positive, "Saw", in "Saw your post from last week: networking presentations...".
+// "see" is in the vocabulary, "saw" is not, and every rule in lemmaCandidates below is a
+// SUFFIX rule. An irregular past tense changes the stem, so no suffix rule can reach it
+// and the word reads as an invented name.
+//
+// This is an INFLECTION, and the list above is explicitly a list of LEMMAS: "Inflected
+// forms are handled by isOrdinaryWord below rather than listed here". Putting "saw" in the
+// vocabulary would break that invariant and start a second, unbounded list of forms to
+// maintain by hand. So the fix goes where the other inflection rules already live.
+//
+// IT ALSO SELF-LIMITS, WHICH THE OTHER OPTION DOES NOT. These are CANDIDATES. A form only
+// resolves if its lemma is already in the vocabulary, so this map can never admit a word
+// the list does not already carry. "drew" proposes "draw", "draw" is not in the list, and
+// "Drew" stays caught. Adding forms to the vocabulary directly would have no such check.
+//
+// MEASURED, NOT ASSUMED. 163 forms are listed and 76 of them resolve; the other 87 are
+// INERT because their lemma is absent from the vocabulary above. "Rose", "Drew", "Bore",
+// "Stole" and "Woke" are all in that inert 80, so the obvious proper-noun risks this map
+// looked like it carried it does not actually carry. Checked with the real isOrdinaryWord
+// rather than read off the map, because the map alone does not tell you which half you are
+// in. Adding "rise" or "draw" to the vocabulary later would silently activate them, which
+// is worth knowing before doing it.
+//
+// ACCEPTED TRADE-OFF, STATED RATHER THAN DISCOVERED LATER. Of the 76 that do resolve, the
+// ones that are also plausible proper nouns are "Fell", "Won" and "Sat". Each now opens a
+// sentence unchallenged. That is the direction this file already commits to at the top
+// ("Adding a word makes the gate MORE permissive and can only cause a missed leak, never a
+// blocked email") and that sentence-initial-names.ts states as AMBIGUITY RESOLVES TO
+// ALLOW. A sentence opening "Won" is far more often the verb than a name, and the cost of
+// the other reading is a rejected email and a wasted writer attempt.
+//
+// RULE ZERO. Irregular English verb forms name no industry, no buyer and no market. This
+// map is as neutral for a logistics firm as for a consultancy, which is the test the
+// market-specific block further up this file fails.
+const IRREGULAR_FORMS: Record<string, string[]> = {
+  arose: ['arise'], ate: ['eat'], awoke: ['awake'], bade: ['bid'], beat: ['beat'],
+  became: ['become'], began: ['begin'], begun: ['begin'], beheld: ['behold'], bent: ['bend'],
+  bit: ['bite'], bitten: ['bite'], blew: ['blow'], blown: ['blow'], bore: ['bear'],
+  borne: ['bear'], bought: ['buy'], bound: ['bind'], broke: ['break'], broken: ['break'],
+  brought: ['bring'], built: ['build'], burnt: ['burn'], caught: ['catch'], chose: ['choose'],
+  chosen: ['choose'], clung: ['cling'], crept: ['creep'], dealt: ['deal'], dove: ['dive'],
+  drank: ['drink'], drawn: ['draw'], drew: ['draw'], driven: ['drive'], drove: ['drive'],
+  dug: ['dig'], eaten: ['eat'], fallen: ['fall'], fed: ['feed'], fell: ['fall'],
+  felt: ['feel'], fled: ['flee'], flew: ['fly'], flown: ['fly'], forbade: ['forbid'],
+  forgave: ['forgive'], forgot: ['forget'], forgotten: ['forget'], fought: ['fight'],
+  found: ['find'], froze: ['freeze'], frozen: ['freeze'], gave: ['give'], given: ['give'],
+  gone: ['go'], got: ['get'], gotten: ['get'], grew: ['grow'], grown: ['grow'],
+  heard: ['hear'], held: ['hold'], hid: ['hide'], hidden: ['hide'], hung: ['hang'],
+  kept: ['keep'], knew: ['know'], known: ['know'], laid: ['lay'], lain: ['lie'],
+  leant: ['lean'], learnt: ['learn'], led: ['lead'], left: ['leave'], lent: ['lend'],
+  lit: ['light'], lost: ['lose'], made: ['make'], meant: ['mean'], met: ['meet'],
+  mistook: ['mistake'], overcame: ['overcome'], oversaw: ['oversee'], paid: ['pay'],
+  proven: ['prove'], ran: ['run'], rang: ['ring'], rebuilt: ['rebuild'], rewrote: ['rewrite'],
+  ridden: ['ride'], risen: ['rise'], rode: ['ride'], rose: ['rise'], rung: ['ring'],
+  said: ['say'], sang: ['sing'], sank: ['sink'], sat: ['sit'], saw: ['see'], seen: ['see'],
+  sent: ['send'], sewn: ['sew'], shaken: ['shake'], shone: ['shine'], shook: ['shake'],
+  shot: ['shoot'], showed: ['show'], shown: ['show'], shrank: ['shrink'], slept: ['sleep'],
+  slid: ['slide'], sold: ['sell'], sought: ['seek'], sown: ['sow'], spent: ['spend'],
+  spilt: ['spill'], spoke: ['speak'], spoken: ['speak'], sprang: ['spring'], spun: ['spin'],
+  stole: ['steal'], stolen: ['steal'], stood: ['stand'], strove: ['strive'],
+  struck: ['strike'], strung: ['string'], stuck: ['stick'], stung: ['sting'], sung: ['sing'],
+  sunk: ['sink'], swam: ['swim'], swept: ['sweep'], swore: ['swear'], swum: ['swim'],
+  swung: ['swing'], taken: ['take'], taught: ['teach'], thought: ['think'], threw: ['throw'],
+  thrown: ['throw'], told: ['tell'], took: ['take'], tore: ['tear'], torn: ['tear'],
+  trod: ['tread'], underlay: ['underlie'], understood: ['understand'],
+  undertook: ['undertake'], undone: ['undo'], upheld: ['uphold'], went: ['go'],
+  withdrawn: ['withdraw'], withdrew: ['withdraw'], withheld: ['withhold'], woke: ['wake'],
+  woken: ['wake'], won: ['win'], wore: ['wear'], worn: ['wear'], wound: ['wind'],
+  wove: ['weave'], written: ['write'], wrote: ['write'], wrung: ['wring'],
+}
+
 /**
  * Candidate lemmas for an inflected form, so the list above can stay lemma-sized.
  *
@@ -244,6 +320,11 @@ export const ORDINARY_WORD_COUNT = ORDINARY.size
 function lemmaCandidates(word: string): string[] {
   const out = [word]
   const add = (w: string) => { if (w.length >= 2) out.push(w) }
+
+  // Irregular past tense and past participle, which no suffix rule below can reach.
+  // Proposed as candidates like every other rule here, so the lemma still has to be in
+  // the vocabulary for the word to be allowed.
+  for (const lemma of IRREGULAR_FORMS[word] ?? []) add(lemma)
 
   // Plurals and third person: shows -> show, buyers -> buyer, companies -> company
   if (word.endsWith('ies')) { add(word.slice(0, -3) + 'y') }
