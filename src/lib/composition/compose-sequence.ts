@@ -22,6 +22,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { generateBridge, countWords } from './personalization'
 import { OPT_OUT_FOOTER } from './opt-out-footer'
+import { checkComposedQuestionCount } from '@/lib/style/composed-question-count'
 import { assignVariantDeterministically } from './variant-assignment'
 
 // Private type alias derived from getServiceClient (defined at bottom of file).
@@ -310,6 +311,30 @@ export async function composeSequence({
   // Runs after word_count and after the bridge headroom check so neither ever sees it.
   const emailsWithFooter = appendOptOutFooter(composedEmails)
 
+  // Step 5b. One question per composed Email 1. REPORT ONLY.
+  //
+  // HERE, AND AFTER THE FOOTER, ON PURPOSE. This is the last point at which the email
+  // exists in the form the prospect receives it, so it is the only point where a question
+  // contributed by the document and a question contributed by the writer are both visible.
+  // Every other enforcement of this rule runs upstream of that join and cannot see it.
+  //
+  // The check strips the footer itself, so running after the append reads the shipped
+  // artifact without counting the legal notice. See composed-question-count.ts.
+  //
+  // Deliberately NOT placed in composeEmail1WithOpening. That function is called
+  // repeatedly per prospect by the writer, floor and judge loop on candidate copy that may
+  // never ship, and on the template side of the comparison. Checking there would log
+  // several times per prospect about emails nobody sends. This runs once, on the one that
+  // does.
+  const email1ToSend = emailsWithFooter.find(e => e.sequence_position === 1)
+  if (email1ToSend) {
+    checkComposedQuestionCount(email1ToSend.body, {
+      prospectId: prospect.id,
+      clientId: client_id,
+      variantId,
+    })
+  }
+
   // Step 6. Return the composed sequence.
   return {
     prospect_id,
@@ -419,8 +444,68 @@ export function composeEmail1WithOpening(
   return { ...email1, body: email1.body.replace(/\{\{first_name\}\}/g, firstName ?? '') }
 }
 
-/** The authored P3 and CTA of a variant's Email 1, verbatim. Fed to the writer so the
- *  opening it writes leads into the copy that actually follows it. */
+/**
+ * The number of content paragraphs the positional read below REQUIRES, after the greeting
+ * is dropped: the observation slot, the offer line, the CTA question, and the sign-off
+ * block. It is the authored frame of five minus P1.
+ *
+ * EXACTLY, not AT LEAST. A fifth content paragraph does not append harmlessly to the end;
+ * it shifts everything after the insertion point, and the read is bounded by fixed indices
+ * rather than by the array, so nothing goes out of range and nothing fails.
+ */
+export const EMAIL1_FRAME_CONTENT_PARAGRAPHS = 4
+
+/**
+ * The authored P3 and CTA of a variant's Email 1, verbatim. Fed to the writer so the
+ * opening it writes leads into the copy that actually follows it.
+ *
+ * ─── WHY THIS THROWS ON A SHAPE MISMATCH ─────────────────────────────────────
+ *
+ * The read is POSITIONAL and it stays positional: index 0 is the authored opener, index 1
+ * is the offer line, index 2 is the CTA. Nothing here identifies a paragraph by content,
+ * so the indices are correct only while the document has the frame they were written for.
+ *
+ * Before this guard the mismatch was silent in the worst available way. `paras[1] ?? ''`
+ * cannot go out of range, so a document with a different paragraph count did not fail, did
+ * not warn, and did not return an empty string either. It returned a REAL paragraph from
+ * the document, promoted into a slot that is not its own, and handed it to the writer
+ * labelled as the offer line. A wrong answer that is well-formed is indistinguishable from
+ * a right one at every layer downstream.
+ *
+ * MEASURED 2026-09-01 across every messaging document in the database, active and
+ * archived, all organisations: one document has five content paragraphs where the read
+ * expects four. On that document index 2 returns the paragraph before the CTA rather than
+ * the CTA, and the writer is briefed to lead into a closing question that is not the one
+ * the prospect will read.
+ *
+ * ─── THROW, NOT A STRUCTURED ERROR, AND WHY ──────────────────────────────────
+ *
+ * Considered and rejected. Three reasons, in order of weight:
+ *
+ *   1. THERE IS NO CORRECT FALLBACK VALUE. The caller wants the offer line. If the shape
+ *      is wrong, this function does not know which paragraph that is, and an empty string
+ *      is not a safe default: the writer prompt is built around having an offer line to
+ *      lead into, so an empty one produces a differently-wrong briefing rather than a
+ *      refusal. Every value this could return silently is a value the caller would use.
+ *
+ *   2. A STRUCTURED ERROR RE-CREATES THE HOLE ONE LEVEL UP. It only helps if every caller
+ *      handles it, and an unhandled branch is the same silent promotion in a new place.
+ *      The function already throws for the sibling failure (no email at position 1); two
+ *      conventions for two shape failures in one function is worse than one.
+ *
+ *   3. THE BLAST RADIUS IS BOUNDED AND IT IS NOT THE SEND. Nothing on the composition path
+ *      calls this: composeSequence and composeEmail1WithOpening read paragraphs by their
+ *      distance from the END of the body, which is why the five-paragraph document composes
+ *      correctly today. The only production caller is produceOpening, so a throw fails
+ *      RESEARCH for one prospect. That prospect then ships the variant's approved template
+ *      email, which is complete and sendable. No send is lost; a personalisation is.
+ *
+ * ─── WHAT THE WRITER RECEIVES WHEN THIS FAILS ────────────────────────────────
+ *
+ * Nothing. This runs on produceOpening's first line, before the buyer is resolved and
+ * before writeAndJudgeOpening is called, so the writer is never invoked and cannot be
+ * briefed with a wrong offer line. That ordering is the point and is pinned by a test.
+ */
 export function getVariantEmail1Frame(
   messagingDoc: MessagingContent,
   variantId: string,
@@ -436,11 +521,23 @@ export function getVariantEmail1Frame(
     .filter(p => p.length > 0)
     .filter(p => !/^\{\{first_name\}\},?\s*$/.test(p))
 
+  if (paras.length !== EMAIL1_FRAME_CONTENT_PARAGRAPHS) {
+    // No paragraph text in the message. The count and the position are what a reader needs
+    // to find the document, and the body is client copy that does not belong in a log line.
+    throw new Error(
+      `getVariantEmail1Frame: variant "${variantId}" Email 1 has ${paras.length} content ` +
+      `paragraphs after the greeting, and the positional read requires exactly ` +
+      `${EMAIL1_FRAME_CONTENT_PARAGRAPHS} (observation slot, offer line, CTA, sign-off). ` +
+      `Reading it positionally would promote some other paragraph into the offer line. ` +
+      `Fix the messaging document rather than relaxing this check.`,
+    )
+  }
+
   return {
     subject: email1.subject_line,
-    authoredOpening: paras[0] ?? '',
-    p3: paras[1] ?? '',
-    cta: paras[2] ?? '',
+    authoredOpening: paras[0],
+    p3: paras[1],
+    cta: paras[2],
   }
 }
 
