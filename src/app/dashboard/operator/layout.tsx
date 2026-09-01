@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { OperatorSidebar } from '@/components/dashboard/OperatorSidebar'
 import { EnrichmentModeBanner } from '@/components/operator/enrichment-mode-banner'
+import { resolveEnrichmentMode } from '@/lib/sourcing/enrichment-mode'
 
 export default async function OperatorLayout({
   children,
@@ -31,6 +32,12 @@ export default async function OperatorLayout({
     .is('archived_at', null)
     .order('name')
 
+  // ── 4. Enrichment mode for the banner ─────────────────────────────────────
+  // Resolved here rather than inside the banner because this is where an operator
+  // session exists. The banner used to fetch it itself with the anon key, which
+  // cannot read integrations_registry, and swallowed the failure as "test mode".
+  const enrichmentMode = await resolveEnrichmentMode(supabase)
+
   return (
     <div className="flex min-h-screen bg-surface-shell">
       {/*
@@ -45,7 +52,7 @@ export default async function OperatorLayout({
       </Suspense>
       <div className="flex-1 flex flex-col min-w-0">
         <div className="p-4 border-b bg-white">
-          <EnrichmentModeBanner />
+          <EnrichmentModeBanner mode={enrichmentMode} />
         </div>
         {children}
       </div>
