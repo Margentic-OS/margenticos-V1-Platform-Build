@@ -210,18 +210,12 @@ describe('prompt shape', () => {
     expect(p).not.toContain('There is no blog, no case studies')
   })
 
-  it('the writer prompt bans verdicts and carries both real failures verbatim', () => {
+  it('the writer prompt bans verdicts, and no longer illustrates one', () => {
+    // PURPOSE SURVIVES. The rule is the ban. The three worked verdicts it carried were
+    // removed with every other example on this branch.
     const p = buildWriterPrompt()
-    const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT')
-    // The first: the bridge that was actually wrong, not merely presumptuous.
-    expect(flat).toContain('What a Chamber event and a strong network cannot do')
-    // The second: invented outright.
-    expect(flat).toContain('a firm that size fills its diary through relationships')
-    // The corrected half no longer belongs to the first case. The writer reproduced it
-    // almost verbatim, so it was re-welded to a print shop, whose facts belong to nobody
-    // in the batch.
-    expect(flat).toContain('Your existing customers filled the first press')
+    expect(p.replace(/\s+/g, ' ')).toContain('never tell them something they are doing is not working')
   })
 
   it('no longer offers the model that seeded the batch collapse', () => {
@@ -239,28 +233,22 @@ describe('prompt shape', () => {
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('PATTERN FRAMING IS NOT PERMISSION TO GO GENERIC')
-    expect(flat).toContain('Most firms at this stage find pipeline slips')
     expect(flat).toContain('reads as a non-sequitur without its observation')
   })
 
-  it('the writer prompt requires clarity on one reading, with the Stephen riddle', () => {
+  it('the writer prompt requires clarity on one reading', () => {
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('EVERY SENTENCE MUST BE CLEAR ON ONE READING')
-    // Correctly pattern-framed and still a riddle: stance alone is not enough.
-    expect(flat).toContain('goes uncontested to whoever stayed visible')
+    // The rule the riddle illustrated: stance alone is not enough.
+    expect(flat).toContain('correctly pattern-framed and still fail here')
   })
 
-  it('the writer prompt aims the bridge at the offer, with the Shevonne failure verbatim', () => {
+  it('the writer prompt aims the bridge at the offer', () => {
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('START BY READING THE OFFER LINE')
-    expect(p).toContain('AIMED WRONG:')
-    expect(p).toContain('AIMED RIGHT')
-    // The real failure, verbatim.
-    expect(flat).toContain('The clients you actually want are a different current')
-    expect(flat).toContain('Is getting more conversations in front of you something')
-    // And the explicit test for aiming.
+    // The explicit test for aiming survives; the worked failure under it does not.
     expect(flat).toContain('that is not quite my problem')
   })
 
@@ -302,10 +290,14 @@ describe('prompt shape', () => {
     expect(OPENING_MAX_WORDS).toBe(67)
   })
 
-  it('both FAILING examples are retained', () => {
-    const p = buildWriterPrompt()
-    expect(p).toContain('Jason left Pani as Director of Product')
-    expect(p).toContain('You left Visteon at SVP level')
+  it('the two dossier failures are stated as rules, not as quoted copy', () => {
+    // THE TEST'S OLD PURPOSE GOES WITH THE EXAMPLES. It existed to keep two quoted
+    // openings in the prompt. What it protected is now prose.
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('Writing in the third person, about them rather than to them, is a dossier entry')
+    expect(flat).toContain('reciting their own CV back at them is still wrong')
+    expect(flat).not.toContain('Jason left Pani')
+    expect(flat).not.toContain('You left Visteon')
   })
 })
 
@@ -377,19 +369,23 @@ describe('the writer prompt carries the question job and the Shevonne failure', 
     expect(flat).toContain('ASSIGNMENT block')
   })
 
-  it('passes the four approved CTAs as register anchors', () => {
+  it('carries no approved CTA of its own, and defers register to the assignment', () => {
+    // PURPOSE SURVIVES, MECHANISM CHANGED. Register still reaches the writer, but only
+    // through the variant's own CTA in the ASSIGNMENT block, which is per-prospect text
+    // outside the cached system prompt. The four anchors were the most-copied specimens
+    // on the page: six of twelve prospects returned one word for word.
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('Is pipeline consistency something you\'re actively trying to fix?')
-    expect(flat).toContain('Is getting more conversations in front of you something you\'re working on?')
-    expect(flat).toContain('Is this a gap you\'re looking to close?')
-    expect(flat).toContain('Worth a look to see if it fits where you are?')
+    expect(flat).not.toContain('Is pipeline consistency something you\'re actively trying to fix?')
+    expect(flat).not.toContain('Is getting more conversations in front of you something you\'re working on?')
+    expect(flat).not.toContain('Is this a gap you\'re looking to close?')
+    expect(flat).not.toContain('Worth a look to see if it fits where you are?')
+    expect(flat).toContain('The approved question for this particular variant is named in the ASSIGNMENT block')
   })
 
-  it('carries the Shevonne browsers-versus-buyers failure verbatim, with a correction', () => {
+  it('states the question-aim rule without illustrating it', () => {
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('builds an audience of browsers before it builds a pipeline of buyers')
-    expect(flat).toContain('She does not want more. She wants different ones.')
-    expect(flat).toContain('Is turning that audience into the right kind of buyer something you\'re working on?')
+    expect(flat).toContain('THE QUESTION MUST ASK ABOUT THE PROBLEM YOU JUST NAMED')
+    expect(flat).not.toContain('builds an audience of browsers')
   })
 
   it('the cap fits the tightest variant with room to spare', () => {
@@ -416,21 +412,16 @@ describe('the writer prompt enforces one fact per sentence', () => {
     expect(flat).toContain('a sentence they go back over has already lost')
   })
 
-  it('carries both real cramped examples verbatim', () => {
+  it('keeps the diagnosis of the cramped shape, without the shape', () => {
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
-    // The first, and the diagnosis of why it fails.
-    expect(flat).toContain('DTCC tokenization, Treasury clearing, SEC crypto posture, shows where the thinking is')
     expect(flat).toContain('a verb whose subject is three clauses back')
-    // The second.
-    expect(flat).toContain('Hollywood Food Coalition and Sovern LA, on top of running SCG full-time is a real load')
-    expect(flat).toContain('An appositive list swallows the subject')
+    expect(flat).toContain('an appositive list that swallows the subject')
   })
 
-  it('pairs each cramped example with a clean rewrite of the same facts', () => {
+  it('still says the fix is the joins, not the facts', () => {
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('Taffet publishes regulatory commentary regularly')
-    expect(flat).toContain('You took two board seats in early 2026, at Hollywood Food Coalition and Sovern LA')
-    // And says explicitly that only the joins moved, so it is not read as "make it shorter".
+    expect(flat).toContain('sentences that each carry a single idea')
+    // The line that stops it being read as "make it shorter".
     expect(flat).toContain('Only the joins moved')
   })
 })
@@ -484,19 +475,13 @@ describe('the writer prompt targets load before resolution, not length', () => {
     expect(flat).toContain('roughly four words before the main verb')
   })
 
-  it('carries the hard and easy pair verbatim, plus a rewrite of the hard one', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    // The real hard sentence, with its diagnosis.
-    expect(flat).toContain('Independent firms that rely on conference appearances for new conversations')
-    expect(flat).toContain('Ten words before the verb')
-    expect(flat).toContain('Three relative clauses, one nested inside another')
-    // The real easy sentence, to show the fix is not "make it shorter".
-    expect(flat).toContain('Founders who move that fast often find the first clients come quickly')
-    expect(flat).toContain('Barely shorter')
-    // And the rewrite of the hard one, same facts.
-    expect(flat).toContain('Conferences deliver in bursts')
-    expect(flat).toContain('The pipeline tends to follow the event calendar')
-    expect(flat).toContain('Nothing was dropped and nothing was softened')
+  it('keeps the diagnosis of load, without the two sentences that carried it', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('ten words before the verb')
+    expect(flat).toContain('three relative clauses, one nested inside another')
+    // The half that stops the fix being read as "make it shorter".
+    expect(flat).toContain('barely shorter')
+    expect(flat).toContain('Nothing is dropped and nothing is softened')
   })
 })
 
@@ -510,41 +495,15 @@ describe('the writer prompt varies the bridge construction', () => {
     expect(flat).toContain('eleven bridges built on that frame')
   })
 
-  it('offers four genuinely different shapes, each labelled', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
+  it('offers four genuinely different shapes, each labelled, none illustrated', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('A CONDITIONAL')
     expect(flat).toContain('WHAT USUALLY HAPPENS NEXT')
     expect(flat).toContain('A CONTRAST')
     expect(flat).toContain('A CONSEQUENCE')
-    // The illustrations moved out of consulting entirely, because two batches lifted the
-    // in-industry ones almost verbatim and the batch gate then threw the attempts away.
-    expect(flat).toContain('When the chairs are full six weeks out')
-    expect(flat).toContain('A big site keeps the crews busy for a year')
-    expect(flat).toContain('Peak season fills the trucks without a single sales call')
-    expect(flat).toContain('That books out the summer')
-  })
-
-  it('the four worked shapes do not collide with each other', () => {
-    // A worked example that shares a skeleton with another worked example teaches the
-    // opposite of what this section is for.
-    const examples = [
-      'When the calendar fills that fast, prospecting is usually what gives.',
-      'A move like that runs on existing relationships for the first few months. After that it gets harder.',
-      'Delivery has a deadline. Business development never does, so it waits.',
-      'That leaves one person deciding, every week, whether to sell or to deliver.',
-    ]
-    // Deliberately distinct questions: this test is about the bridges, and "question 1?"
-    // versus "question 2?" would normalise to the same key and fail for the wrong reason.
-    const questions = [
-      'Is that a gap you are looking to close?',
-      'Worth a look to see if it fits?',
-      'Is protecting that time something you are working on?',
-      'Is any of this on your list for the quarter?',
-    ]
-    const reg = new BatchUniquenessRegistry()
-    examples.forEach((ex, i) => {
-      expect(reg.reserve(`example-${i}`, ex, questions[i])).toEqual([])
-    })
+    // The illustrations are gone. Naming the shape is now the whole instruction.
+    expect(flat).not.toContain('A dentist:')
+    expect(flat).not.toContain('A wedding photographer:')
   })
 
   it('states the batch rule, not just the preference', () => {
@@ -558,9 +517,9 @@ describe('the writer prompt treats the approved questions as register, not a men
   const prompt = () => buildWriterPrompt()
 
   it('says write, do not pick', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('WRITE THE CLOSING QUESTION. DO NOT PICK ONE')
-    expect(flat).toContain('They are not a menu')
+    expect(flat).toContain('It is not a menu')
     expect(flat).toContain('Your default is to WRITE a question for this prospect')
     expect(flat).toContain('which will be rare')
   })
@@ -575,9 +534,9 @@ describe('the writer prompt treats the approved questions as register, not a men
   // now asserted on both halves: the prompt points at the assignment, the assignment carries
   // the question and repeats the framing.
   it('extends the register-only framing to the variant CTA it is handed', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('The approved question for this particular variant is named in the ASSIGNMENT block')
-    expect(flat).toContain('the same applies to it')
+    expect(flat).toContain('It is not a menu and it is not an instruction to reuse it')
 
     const assignment = buildWriterAssignment({ clientName: 'Acme', buyer: 'THE_BUYER_TITLE', p3: 'x', cta: 'Worth a look?' })
       .replace(/\s+/g, ' ')
@@ -892,19 +851,6 @@ describe('attribution may not open the bridge', () => {
 })
 
 
-describe('the writer is asked for the same number of blocks in both turns', () => {
-  it('stops the lifting by making the words unusable rather than by warning harder', () => {
-    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
-    // Warning was tried twice and failed twice: "development is usually what gives" off
-    // "prospecting is usually what gives", then "Delivery has a deadline" verbatim. The
-    // examples are now from other industries, so a lift is wrong on sight.
-    expect(flat).toContain('EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY')
-    expect(flat).toContain('EVERY WORD IN THEM IS UNUSABLE HERE')
-    expect(flat).toContain('write your own sentence out of your own prospect\'s facts')
-  })
-})
-
-
 describe('the writer may not hand back the approved offer line', () => {
   const P3 = 'We get qualified conversations into the diary without pulling you out of delivery.'
   const FINDINGS_TEXT = 'Bob took on Publisher and CEO at Fitch Media alongside Fitch Consulting.'
@@ -940,16 +886,8 @@ describe('the writer may not hand back the approved offer line', () => {
 
 // ─── Cross-industry bridge examples, and concrete nouns ─────────────────────
 
-describe('the bridge examples come from outside the client industry', () => {
+describe('the bridge shapes are named and never illustrated', () => {
   const prompt = () => buildWriterPrompt()
-
-  it('uses four industries deliberately foreign to the prospect', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('A dentist:')
-    expect(flat).toContain('A commercial builder:')
-    expect(flat).toContain('A freight broker:')
-    expect(flat).toContain('A wedding photographer:')
-  })
 
   it('keeps the four constructions and labels none as preferred', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -960,54 +898,6 @@ describe('the bridge examples come from outside the client industry', () => {
     expect(flat).not.toContain('preferred answer')
   })
 
-  it('says the words are unusable, not merely that copying is discouraged', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('THE SHAPE IS WHAT TRANSFERS')
-    expect(flat).toContain('EVERY WORD IN THEM IS UNUSABLE HERE')
-  })
-
-  it('no longer carries the two phrases that were lifted and then rejected', () => {
-    // One prospect returned "development is usually what gives" off "prospecting is
-    // usually what gives"; a second lifted "Delivery has a deadline" verbatim into its
-    // bridge. Both collided and cost the prospect. The bridge examples are gone, so they
-    // cannot recur.
-    const p = prompt()
-    const examplesSection = p.slice(
-      p.indexOf('EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY'),
-      p.indexOf('There are more shapes than these four'),
-    )
-    expect(examplesSection).not.toContain('prospecting is usually what gives')
-    expect(examplesSection).not.toContain('Delivery has a deadline')
-  })
-
-  it('the four examples do not collide with each other under the batch gate', () => {
-    const examples = [
-      'When the chairs are full six weeks out, nobody is phoning the patients who missed a check-up.',
-      'A big site keeps the crews busy for a year. The tenders for the next one get written in the last month, if at all.',
-      'Peak season fills the trucks without a single sales call. February does not, and by then nobody has spoken to a new shipper since October.',
-      'That books out the summer. It also means every enquiry for next spring arrives while you are editing somebody else\'s album.',
-    ]
-    const questions = [
-      'Is that a gap you are looking to close?',
-      'Worth a look to see if it fits?',
-      'Is protecting that time something you are working on?',
-      'Is any of this on your list for the quarter?',
-    ]
-    const reg = new BatchUniquenessRegistry()
-    examples.forEach((ex, i) => {
-      expect(reg.reserve(`example-${i}`, ex, questions[i])).toEqual([])
-    })
-  })
-
-  it('the examples themselves are concrete', () => {
-    // An example carrying a banned noun would teach the opposite of the section below it.
-    const flat = buildWriterPrompt()
-    const examplesSection = flat.slice(
-      flat.indexOf('A CONDITIONAL'),
-      flat.indexOf('There are more shapes than these four'),
-    )
-    expect(countAbstractNouns(examplesSection)).toBe(0)
-  })
 })
 
 describe('the writer prompt bans abstract nouns and metaphors', () => {
@@ -1025,10 +915,10 @@ describe('the writer prompt bans abstract nouns and metaphors', () => {
   })
 
   it('keeps load and output as judgement calls with both readings shown', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('Load and output are judgement calls, not bans')
     expect(flat).toContain('a real operational load')
-    expect(flat).toContain('that output shows')
+    expect(flat).toContain('"that output"')
   })
 
   it('bans metaphors outright', () => {
@@ -1037,25 +927,13 @@ describe('the writer prompt bans abstract nouns and metaphors', () => {
     expect(flat).toContain('a picture the reader has to unpack')
   })
 
-  it('carries both real abstract failures verbatim, each with a concrete rewrite', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('That remainder tends to shrink before it grows')
+  it('keeps the abstraction diagnosis, without the sentences that carried it', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('Nobody can picture a remainder')
-    expect(flat).toContain('Outreach gets the hours that are left')
-    expect(flat).toContain('The regions that come after tend to need a different engine')
-    expect(flat).toContain('The first two markets were built on people you already knew')
+    expect(flat).toContain('A metaphor does work a plain sentence should do')
+    expect(flat).toContain('names the place, the people and what is missing')
   })
 
-  it('keeps the working bridge as the standard to aim at', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('CONCRETE, already working, and this is the standard')
-    expect(flat).toContain('Delivery has a deadline. Business development never does, so it waits')
-  })
-
-  it('the concrete rewrites in the prompt score zero on the report-only check', () => {
-    expect(countAbstractNouns('A day job and delivery both come first. Outreach gets the hours that are left, and there are fewer of those every week.')).toBe(0)
-    expect(countAbstractNouns('The first two markets were built on people you already knew. In the UK you do not know anyone yet, and the introductions have to start from nothing.')).toBe(0)
-  })
 })
 
 
@@ -1196,13 +1074,10 @@ describe('the writer prompt runs a camera test, not a reading age', () => {
   const prompt = () => buildWriterPrompt()
 
   it('drops the reading-age line and says why it failed', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    // It was in the prompt for two batches and stopped neither "hours shrink before they
-    // grow" nor "become a conversation", because it measures word difficulty and the
-    // problem is figurative language.
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).not.toContain('Someone reading at eleven years old should follow it')
     expect(flat).toContain('a reading age measures how hard the WORDS are')
-    expect(flat).toContain('eight easy words and it describes nothing')
+    expect(flat).toContain('Eight easy words can describe nothing at all')
   })
 
   it('states the camera test and where the abstraction now hides', () => {
@@ -1213,10 +1088,10 @@ describe('the writer prompt runs a camera test, not a reading age', () => {
     expect(flat).toContain('the abstraction moved into the verbs and the endings')
   })
 
-  it('carries the filmable and unfilmable pair', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('"Hours shrink before they grow" is unfilmable')
-    expect(flat).toContain('a calendar with a date on it, and something pushed to next week')
+  it('says what the camera can and cannot see, without a worked pair', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('Nobody can photograph an hour shrinking')
+    expect(flat).toContain('A calendar with a date on it, and something pushed to next week')
   })
 
   it('gives the verb rule as a do and a do-not list', () => {
@@ -1237,27 +1112,13 @@ describe('the writer prompt runs a camera test, not a reading age', () => {
     expect(flat).toContain('"goes to whoever was in the room last" beats "rather than from anything systematic"')
   })
 
-  it('carries two real failures verbatim, each with a plain rewrite', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    // The first.
-    expect(flat).toContain('those tend to shrink before they grow')
-    expect(flat).toContain('Outreach gets whatever hours are left at the end of the day. Most weeks nobody gets to it.')
-    // The second.
-    expect(flat).toContain('before they become a conversation')
-    expect(flat).toContain('Some of the people who heard it are ready to buy. They will not email you first.')
+  it('keeps both camera diagnoses, without the four sentences that carried them', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('Hours do not grow')
+    expect(flat).toContain('People do not become conversations')
+    expect(flat).toContain('An inbox with nothing in it is filmable')
   })
 
-  it('the plain rewrites obey every rule they sit under', () => {
-    const rewrites = [
-      'Outreach gets whatever hours are left at the end of the day. Most weeks nobody gets to it.',
-      'Some of the people who heard it are ready to buy. They will not email you first.',
-    ]
-    for (const r of rewrites) {
-      expect(countFigurativeVerbs(r)).toBe(0)
-      expect(countAbstractNouns(r)).toBe(0)
-      expect(r.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
-    }
-  })
 })
 
 
@@ -1276,17 +1137,18 @@ describe('the bridge states one true thing', () => {
     expect(flat).toContain('the bridge EXPLAINS when it should STATE')
   })
 
-  it('carries both working bridges verbatim as the standard', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('The founders who need you next are not reading your feed yet.')
-    expect(flat).toContain('The next qualified sales conversation tends to wait for the next event.')
+  it('states the rule without two endorsed bridges under it', () => {
+    // THE TEST'S PURPOSE GOES WITH THE EXAMPLES. Both "working" bridges it pinned were
+    // endorsed specimens, which is the category with every recorded copy incident.
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('the bridge EXPLAINS when it should STATE')
+    expect(flat).not.toContain('are not reading your feed yet')
   })
 
-  it('carries all three causal failures verbatim', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('When delivery runs first for 13 months, that tends to be what stays visible.')
-    expect(flat).toContain('before the next event is on the calendar, are where the pipeline has to run on something else')
-    expect(flat).toContain('the follow-up after a moment like that rarely gets its own slot')
+  it('bans the causal shapes by name rather than by specimen', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('NO CAUSAL CONSTRUCTIONS')
+    expect(flat).not.toContain('When delivery runs first for 13 months')
   })
 
   it('bans the causal constructions by name', () => {
@@ -1309,11 +1171,10 @@ describe('the bridge states one true thing', () => {
     expect(flat).toContain('the reader joins them without any help from you')
   })
 
-  it('requires the observation and bridge to be read together, with the real contradiction', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
+  it('requires the observation and bridge to be read together', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('THEY MUST NOT CONTRADICT EACH OTHER')
-    expect(flat).toContain('The observation says his feed is regulatory news')
-    expect(flat).toContain('Both cannot be true')
+    expect(flat).toContain('The reader is the one who notices')
   })
 })
 
@@ -1321,82 +1182,19 @@ describe('two more things the bridge may not assume', () => {
   const prompt = () => buildWriterPrompt()
 
   it('bans assuming they have nobody, and ties it to the pipeline ban', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('DO NOT ASSUME THEY HAVE NOBODY')
-    expect(flat).toContain('With three active CEO roles, the follow-up after a moment like that rarely gets its own slot')
-    expect(flat).toContain('He probably has people')
+    expect(flat).toContain('They probably have people')
     expect(flat).toContain('same error as claiming to know their pipeline')
     expect(flat).toContain('Never say who is or is not doing it')
   })
 
-  it('extends the absence ban to implied choice, with Jason verbatim', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    // "THE ABSENCE BAN COVERS..." forward-referenced a ban 426 lines below it, so the
-    // reader met the exception first. The ban now sits directly above, and the heading
-    // resolves locally.
+  it('extends the absence ban to implied choice', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('THE BAN COVERS IMPLIED CHOICE')
-    expect(flat).toContain('When your feed points elsewhere, the people who might hire you do not know HydrospherIQ exists.')
-    expect(flat).toContain('it implies he chose that')
     expect(flat).toContain('Never tell the reader what they have decided to put first')
   })
 })
-
-describe('the corrected pattern example is welded to facts nobody in the batch has', () => {
-  const prompt = () => buildWriterPrompt()
-
-  it('is about a print shop, not a hire and a network', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('PATTERN, corrected, and deliberately about a PRINT SHOP')
-    expect(flat).toContain('You added a second large-format press in March.')
-    expect(flat).toContain('Your existing customers filled the first press. The second one needs work that has not been quoted yet.')
-  })
-
-  it('no longer carries the phrasing that was reproduced almost verbatim', () => {
-    // One prospect returned "A network fills the first months after a hire like that. The
-    // months after it are the harder ones." That was the seventh instance of example copying.
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).not.toContain('A network fills the first months after a hire like that')
-    expect(flat).not.toContain('The months after it are the harder ones')
-  })
-
-  it('records why it was re-welded, so it is not quietly reverted', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('seventh time an example in this prompt has been copied')
-    expect(flat).toContain('Presses and quotes belong to nobody in your batch')
-  })
-
-  it('the corrected bridge obeys every rule it now sits under', () => {
-    const bridge = 'Your existing customers filled the first press. The second one needs work that has not been quoted yet.'
-    expect(countFigurativeVerbs(bridge)).toBe(0)
-    expect(countAbstractNouns(bridge)).toBe(0)
-    expect(bridge.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
-    // Two sentences, no conditional, no "because".
-    expect(bridge).not.toMatch(/\bbecause\b|\bwhen\b/i)
-    expect(bridge.split(/(?<=\.)\s+/).filter(Boolean)).toHaveLength(2)
-  })
-
-  it('does not collide with the other worked examples under the batch gate', () => {
-    const examples = [
-      'Your existing customers filled the first press. The second one needs work that has not been quoted yet.',
-      'When the chairs are full six weeks out, nobody is phoning the patients who missed a check-up.',
-      'A big site keeps the crews busy for a year. The tenders for the next one get written in the last month, if at all.',
-      'Peak season fills the trucks without a single sales call. February does not, and by then nobody has spoken to a new shipper since October.',
-      "That books out the summer. It also means every enquiry for next spring arrives while you are editing somebody else's album.",
-    ]
-    const questions = [
-      'Is that a gap you are looking to close?',
-      'Worth a look to see if it fits?',
-      'Is protecting that time something you are working on?',
-      'Is any of this on your list for the quarter?',
-      'Has that come up for you this year?',
-    ]
-    const reg = new BatchUniquenessRegistry()
-    examples.forEach((ex, i) => {
-      expect(reg.reserve(`example-${i}`, ex, questions[i])).toEqual([])
-    })
-  })
-})
-
 
 // ─── The gap points at strangers, and the bridge follows its own observation ──
 
@@ -1418,24 +1216,12 @@ describe('the offer line rules one destination out without choosing the other', 
     expect(flat).toContain('Never name a gap about converting, following up with, or re-engaging an audience they already have')
   })
 
-  it('carries all three failing bridges verbatim, each with what is wrong', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    // The first.
-    expect(flat).toContain('The right buyers hear it on the day. Then the event ends, and most of them do not follow up first.')
-    expect(flat).toContain('the room that already saw him speak')
-    // The second, which fails twice over.
-    expect(flat).toContain('A product shop builds an audience of people who browse.')
-    expect(flat).toContain('tells her the thing she just built is not working, which is banned above')
-    // The third.
-    expect(flat).toContain('The founders who need you next are reading that feed.')
-    expect(flat).toContain('There is no gap in that sentence at all')
+  it('bans the three ways of naming an audience they already have, without specimens', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('Never name a gap about converting, following up with, or re-engaging an audience they already have')
+    expect(flat).not.toContain('The right buyers hear it on the day')
   })
 
-  it('carries the working example and says why it works', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('The first clients in a new market usually come through people you already know.')
-    expect(flat).toContain('The gap is people who do not know her')
-  })
 })
 
 // ─── THE THREE RULE CHANGES OF 2026-08-31 ────────────────────────────────────
@@ -1543,10 +1329,9 @@ describe('the absence ban states its own scope and its own subject', () => {
 describe('the bridge follows from its own observation', () => {
   const prompt = () => buildWriterPrompt()
 
-  it('states the rule and carries the Daedra mismatch', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
+  it('states the rule that the bridge follows its own observation', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('THE BRIDGE MUST FOLLOW FROM ITS OWN OBSERVATION')
-    expect(flat).toContain('Board seats and LinkedIn posts are two different subjects')
     expect(flat).toContain('wondering when the subject changed')
   })
 
@@ -1560,42 +1345,94 @@ describe('the bridge follows from its own observation', () => {
 describe('two smaller bridge faults', () => {
   const prompt = () => buildWriterPrompt()
 
-  it('carries the empty change-of-state construction verbatim', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('Outreach for the new-business side sits until it does not.')
-    expect(flat).toContain('"Until it does not" is a shape where a fact should be')
+  it('names the empty change-of-state construction', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    // The banned SHAPE stays, quoted as a fragment. The sentence built on it does not.
+    expect(flat).toContain('"until it does not" is a shape where a fact should be')
+    expect(flat).not.toContain('Outreach for the new-business side sits')
   })
 
-  it('carries the longest and still-explaining bridge, with the fix', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('the advisory work fills the diary, and the question of who to go after next stays unresolved long after the call ends')
+  it('keeps the budget lesson, without the bridge that taught it', () => {
+    const flat = buildWriterPrompt().replace(/\s+/g, ' ')
+    expect(flat).toContain('The longest bridge in the last batch was 32 words')
     expect(flat).toContain('Two sentences, each standing on its own, and inside the bridge budget')
   })
 })
 
-describe('the new failing examples do not become the next thing copied', () => {
-  it('every quoted FAILING bridge is labelled as failing, not as a model', () => {
-    // Seven instances of example-copying so far, all from examples labelled as good. These
-    // are all labelled FAILING, which is the only reason it is safe to quote them verbatim.
+
+// ─── THE NO-EXAMPLES EXPERIMENT ──────────────────────────────────────────────
+//
+// WHAT THIS BRANCH DID. Every worked example was removed from buildWriterPrompt and the
+// rules kept. 77 quoted specimens, 68 of them distinct. The premise: this file has eight
+// recorded instances of an example being copied verbatim into a real prospect's email, and
+// two rounds of rule changes moved none of the four measured faults, so the examples may
+// have been overriding the rules.
+//
+// THIS TEST GENERALISES `RULE ZERO` IN writer-four-rules.test.ts, which asserted the same
+// property over four rule blocks. It now covers the whole prompt.
+
+describe('the writer prompt carries no worked example', () => {
+  // Quoted spans are extracted by SPLITTING on the quote character, not by a paired
+  // regex. A regex with a length floor backtracks past a short pair and silently shifts
+  // the parity, so from that point on it reports the text BETWEEN quotations as if it
+  // were quoted. That version reported 25 spans, none of them real.
+  function quotedSpans(text: string): string[] {
+    const parts = text.replace(/\s+/g, ' ').split('"')
+    expect((parts.length - 1) % 2, 'unbalanced quote characters in the prompt').toBe(0)
+    return parts.filter((_, i) => i % 2 === 1)
+  }
+
+  // Every quoted span long enough to be lifted into an email. Each one is a banned SHAPE
+  // the rule names, a permitted phrase, or a phrase from the shared firmographic rule.
+  // None is a sendable observation, bridge or closing question.
+  const ALLOWED = [
+    'when X, that tends to be Y',
+    'with no case studies',
+    "Here's the assumption most founders make",
+    'Most firms at this stage find',
+    'Firms that X often find Y',
+    'a real operational load',
+    'goes to whoever was in the room last',
+    'rather than from anything systematic',
+    'The next conversation',
+    'the next sales conversation',
+    'that is not quite my problem',
+    'your last three posts',
+  ]
+
+  it('every quoted span of 20+ characters is a named shape, not a sendable sentence', () => {
+    const long = quotedSpans(buildWriterPrompt()).filter(q => q.length >= 20)
+    expect(long.sort()).toEqual([...ALLOWED].sort())
+  })
+
+  it('names nobody: no prospect, company, school or place survives in the prompt', () => {
+    // Measured on main: all 33 unvouched capitalised tokens flagged by prompt-names.test.ts
+    // lived inside worked examples. Removing the examples takes that source to zero.
     const p = buildWriterPrompt()
-    for (const quote of [
-      'The right buyers hear it on the day.',
-      'A product shop builds an audience of people who browse.',
-      'The founders who need you next are reading that feed.',
-      'Outreach for the new-business side sits until it does not.',
+    for (const name of [
+      'Chamber', 'Blue Sky', 'HydrospherIQ', 'London', 'DTCC', 'Treasury', 'Taffet',
+      'Hollywood', 'Sovern', 'SCG', 'Stanford', 'GSB', 'CAVE', 'Jason', 'Pani', 'Visteon',
     ]) {
-      const idx = p.indexOf(quote)
-      expect(idx).toBeGreaterThan(-1)
-      // The nearest label above the quote must be FAILING.
-      const before = p.slice(0, idx)
-      expect(before.lastIndexOf('FAILING')).toBeGreaterThan(before.lastIndexOf('WORKING'))
+      expect(p, `${name} is back in the prompt`).not.toContain(name)
     }
   })
 
-  it('the one WORKING bridge quoted here is Makesha own, already shipped and hers', () => {
+  it('carries no FAILING / WORKING / CRAMPED / ABSTRACT specimen labels', () => {
+    // The labels are how a worked example was introduced. No label, no example.
     const p = buildWriterPrompt()
-    const idx = p.indexOf('The first clients in a new market usually come through people you already know.')
-    const before = p.slice(0, idx)
-    expect(before.lastIndexOf('WORKING')).toBeGreaterThan(before.lastIndexOf('FAILING'))
+    for (const label of [
+      // 'AIMED WRONG' without the colon is rule prose further down ("THE BRIDGE IS AIMED
+      // WRONG"), so the label form is what is asserted, not the phrase.
+      'FAILING:', 'WORKING:', 'AIMED WRONG:', 'AIMED RIGHT,', 'CRAMPED:', 'CLEAN:',
+      'ABSTRACT,', 'CONCRETE,', 'HARD, and this shipped', 'EASY, and this shipped',
+      'PATTERN, corrected', 'VERDICT,', 'THE THREE WORKED PAIRS',
+    ]) {
+      expect(p, `specimen label back in the prompt: ${label}`).not.toContain(label)
+    }
+  })
+
+  it('the prompt is still a zero-argument constant', () => {
+    expect(buildWriterPrompt.length).toBe(0)
+    expect(buildWriterPrompt()).toBe(buildWriterPrompt())
   })
 })

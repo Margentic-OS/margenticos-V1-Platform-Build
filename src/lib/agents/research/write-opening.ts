@@ -139,10 +139,11 @@ export interface OpeningResult {
 
 // ─── The writer prompt ───────────────────────────────────────────────────────
 //
-// Deliberately almost ruleless. Tonight's failures came from optimising rules, so the
-// standard is set by four labelled examples taken from real output rather than by a
-// rulebook. Examples get copied, which is exactly why these four are the ones present:
-// they define the target better than any description of it would.
+// EXPERIMENT, BRANCH `no-examples`. Every worked example has been removed and the rules
+// kept. The premise being tested: this file has eight recorded instances of an example
+// being copied verbatim into a real prospect's email, and two rounds of rule changes moved
+// none of the four measured faults, so the examples may be overriding the rules. What
+// stands here is the rules alone. Judge the output, then merge or delete the branch.
 
 /**
  * The per-run assignment: who the client is, the fixed offer line, and the approved
@@ -249,42 +250,22 @@ commitment and easy to answer. No meeting request, no calendar link, no "worth a
 
 WRITE THE CLOSING QUESTION. DO NOT PICK ONE.
 
-These four are the client's own approved closing questions. They are here to show you
-REGISTER AND LENGTH. They are not a menu and they are not four options to choose between:
-  "Is pipeline consistency something you're actively trying to fix?"
-  "Is getting more conversations in front of you something you're working on?"
-  "Is this a gap you're looking to close?"
-  "Worth a look to see if it fits where you are?"
+The approved question for this particular variant is named in the ASSIGNMENT block. It is
+there to show you REGISTER AND LENGTH. It is not a menu and it is not an instruction to
+reuse it.
 
-The approved question for this particular variant is named in the ASSIGNMENT block, and the
-same applies to it.
-
-Your default is to WRITE a question for this prospect. Using one of the four verbatim is
+Your default is to WRITE a question for this prospect. Using the approved one verbatim is
 permitted only when it genuinely is the right question for this person, which will be rare,
 because a question written for the problem you just named will almost always beat a generic
 one. Twelve prospects came back and six of them carried the same approved question word for
-word. That is what happens when register anchors get read as a shortlist, and it undoes the
+word. That is what happens when a register anchor gets read as a shortlist, and it undoes the
 work the observation and the bridge just did.
 
 And no two prospects in this batch may get the same closing question. If you are told your
 question is already taken, do not reword it slightly. Ask about a different aspect of the
 problem.
 
-THE QUESTION MUST ASK ABOUT THE PROBLEM YOU JUST NAMED. This is where a fixed question
-used to go wrong, and the failure is worth reading:
-
-FAILING, three rewrites running:
-  bridge: "The product side builds an audience of browsers before it builds a pipeline of
-   buyers."
-  question it ran into: "Is getting more conversations in front of you something you're
-   working on?"
-The bridge diagnoses her correctly: she has an audience, and the wrong kind. Then the
-question asks whether she wants MORE conversations. She does not want more. She wants
-different ones. The email diagnoses her and then asks about somebody else's problem.
-
-CORRECTED, same bridge, asking about what was actually named:
-  "Is turning that audience into the right kind of buyer something you're working on?"
-Same register, same length, and now it asks about the problem the email just described.
+THE QUESTION MUST ASK ABOUT THE PROBLEM YOU JUST NAMED.
 
 THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT.
 
@@ -300,46 +281,10 @@ And never tell them something they are doing is not working. Their network, thei
 their content, their brand may all be working perfectly. You have no way of knowing, and
 that is precisely the sentence that earns a defensive reply instead of a meeting.
 
-VERDICT, and this one is not just presumptuous but wrong:
-  observation: "The hiring post for a new delivery role says the client load is real and
-   growing."
-  bridge: "What a Chamber event and a strong network cannot do is put Blue Sky in front of
-   the right buyers before that new capacity is already spoken for."
-A chamber event and a strong network is exactly how a great many consultancies fill
-capacity. We told him the thing that works does not work.
-
-PATTERN, corrected, and deliberately about a PRINT SHOP:
-  observation: "You added a second large-format press in March."
-  bridge: "Your existing customers filled the first press. The second one needs work that
-   has not been quoted yet."
-Nothing here claims anyone's network has failed. It states what is true and stops, and it
-leaves the reader to decide whether it is happening to them.
-
-The corrected version used to be about a hire and a network, written from a real prospect's
-observation. A prospect in the next batch returned it almost word for word, which is the
-seventh time an example in this prompt has been copied. Presses and quotes belong to nobody
-in your batch, so the words cannot travel. Take the move.
-
-VERDICT again, invented outright:
-  "Eleven years in, a firm that size fills its diary through relationships, and
-   relationships only reach so far."
-We have no idea how Taffet fills its diary. We made it up and then built on it.
-
 THE BRIDGE STATES ONE TRUE THING. IT NEVER EXPLAINS WHY.
 
 The observations are finished. Every remaining problem in these emails is in the bridge, and
 they all have one cause: the bridge EXPLAINS when it should STATE.
-
-WORKS, and both of these say one true thing and then stop:
-  "The founders who need you next are not reading your feed yet."
-  "The next qualified sales conversation tends to wait for the next event."
-
-FAILS, and all three are causal constructions the reader has to assemble before they can
-agree with anything:
-  "When delivery runs first for 13 months, that tends to be what stays visible."
-  "The weeks after the last one, before the next event is on the calendar, are where the
-   pipeline has to run on something else."
-  "the follow-up after a moment like that rarely gets its own slot."
 
 NO CAUSAL CONSTRUCTIONS. No "when X, that tends to be Y". No "because". No condition the
 reader has to hold in their head while they resolve the consequence. Say the consequence
@@ -377,16 +322,10 @@ NO EXAMPLE IS GIVEN, AND THE ABSENCE IS DELIBERATE. The shapes are named above, 
 is the whole instruction, and a worked example here would be a ready-made sentence to copy.
 
 READ THE OBSERVATION AND THE BRIDGE TOGETHER BEFORE YOU RETURN THEM. THEY MUST NOT
-CONTRADICT EACH OTHER. This shipped:
-  observation: his LinkedIn posts for the last 60 days are all external regulatory news.
-  bridge: "When delivery runs first for 13 months, that tends to be what stays visible."
-The observation says his feed is regulatory news. The bridge says what stays visible is
-delivery. Both cannot be true, and the reader is the one who notices.
+CONTRADICT EACH OTHER. The reader is the one who notices.
 
 DO NOT ASSUME THEY HAVE NOBODY.
-This shipped: "With three active CEO roles, the follow-up after a moment like that rarely
-gets its own slot." It assumes that because he holds three roles, nobody is doing the
-follow-up. He probably has people. Claiming to know their CAPACITY, or what their team is
+They probably have people. Claiming to know their CAPACITY, or what their team is
 and is not getting to, is the same error as claiming to know their pipeline. Say what tends
 to happen. Never say who is or is not doing it.
 
@@ -414,11 +353,7 @@ SO, IN ONE LINE: the bridge states a consequence, never a judgement, whether it 
 something present or something absent.
 
 THE BAN COVERS IMPLIED CHOICE.
-This shipped: "When your feed points elsewhere, the people who might hire you do not know
-HydrospherIQ exists."
-That is not "you have no posts". It is "your posts are for somebody else's company", which
-is worse, because it implies he chose that. Never tell the reader what they have decided
-to put first.
+Never tell the reader what they have decided to put first.
 
 THE CONSEQUENCE MUST NOT TURN THE OFFER LINE INTO A DIFFERENT JOB.
 
@@ -433,23 +368,6 @@ fact about one product, it is a fact about what the paragraph underneath your br
 
 Never name a gap about converting, following up with, or re-engaging an audience they
 already have.
-
-FAILING: "The right buyers hear it on the day. Then the event ends, and most of them do not
- follow up first."
-The gap is the room that already saw him speak. Those people have met him.
-
-FAILING: "A product shop builds an audience of people who browse. The founders ready to hire
- you rarely find you through the same door."
-The gap is the audience she has already built. Worse, she probably launched the shop in
-order to bring client work in, so this also tells her the thing she just built is not
-working, which is banned above.
-
-FAILING: "The founders who need you next are reading that feed."
-They are already reading it. There is no gap in that sentence at all.
-
-WORKING: "The first clients in a new market usually come through people you already know. In
- London, those relationships have not had time to form yet."
-The gap is people who do not know her. Nobody has to be re-engaged for that to be true.
 
 THIS RULE RULES ONE DESTINATION OUT. IT DOES NOT CHOOSE THE OTHER. It says where the
 consequence may not land. It does not send every bridge to the same place regardless of
@@ -493,14 +411,8 @@ Pick another finding.
 THE BRIDGE MUST FOLLOW FROM ITS OWN OBSERVATION.
 
 The bridge is about the same thing the observation named. Not a second, unrelated point that
-happens to be true of the same person.
-
-FAILING, and both halves are fine on their own:
-  observation: two board seats in early 2026, on top of running the firm full time.
-  bridge: "Your LinkedIn posts reach people who already respect the work."
-Board seats and LinkedIn posts are two different subjects. The second paragraph does not
-follow from the first, so the reader arrives at it wondering when the subject changed. If
-the observation is board seats, the bridge is about what board commitments do to the week.
+happens to be true of the same person. Where it names a different subject, the reader arrives
+at it wondering when the subject changed.
 
 THE CHECK: read your two paragraphs in order and ask whether the bridge could sit under ANY
 other observation. If it could, it is not following from yours. Rewrite it so it could only
@@ -508,23 +420,18 @@ sit under the one you wrote.
 
 A SENTENCE STATES WHAT HAPPENS. IT DOES NOT GESTURE AT A CHANGE OF STATE.
 
-FAILING: "Outreach for the new-business side sits until it does not."
-"Until it does not" is a shape where a fact should be. Nothing is named: not when, not what
-changes it, not what happens in the meantime. Say the thing that happens.
+A construction like "until it does not" is a shape where a fact should be. Nothing is named:
+not when, not what changes it, not what happens in the meantime. Say the thing that happens.
 
 AND KEEP IT INSIDE THE BUDGET. The longest bridge in the last batch was 32 words and it was
-also the one still explaining:
-FAILING: "the advisory work fills the diary, and the question of who to go after next stays
- unresolved long after the call ends."
-One sentence carrying a clause, a second clause and a trailing qualifier. Two sentences, each
-standing on its own, and inside the bridge budget.
+also the one still explaining: one sentence carrying a clause, a second clause and a trailing
+qualifier. Two sentences, each standing on its own, and inside the bridge budget.
 
 YOU MAY ATTRIBUTE THE PATTERN, BUT ONLY TO YOURSELF.
 
-A bridge stated flatly as how the world works is the bluntness that reads presumptuous.
-"Governance work has fixed dates and shows up on a calendar. Business development does not."
-is delivered as fact about their category, and the reader either agrees or has been told
-they are wrong about their own week.
+A bridge stated flatly as how the world works is the bluntness that reads presumptuous. It is
+delivered as fact about their category, and the reader either agrees or has been told they
+are wrong about their own week.
 
 ALLOWED: attributing the pattern to what YOU have seen or heard. That is a claim about your
 own experience. It is true, it is checkable against nothing, and the reader can disagree
@@ -590,7 +497,7 @@ you have heard, and the clause has to say so.
 NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME.
 
 "Firms that X often find Y" is one construction. It is not the only one, and it used to be
-the shape of nearly every worked example on this page. Twelve prospects came back with
+the shape of nearly every bridge this prompt endorsed. Twelve prospects came back with
 eleven bridges built on that frame, three of them close to word-identical. When every
 bridge in a batch has the same skeleton the personalisation is decorative: two recipients
 comparing notes see one template with the nouns swapped.
@@ -598,28 +505,13 @@ comparing notes see one template with the nouns swapped.
 So your bridge must not share a sentence shape with another prospect in this batch. Vary
 the CONSTRUCTION, not just the nouns.
 
-EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY TO YOUR PROSPECT'S, DELIBERATELY. THE
-SHAPE IS WHAT TRANSFERS. EVERY WORD IN THEM IS UNUSABLE HERE, because a sentence about
-scaffolding or wedding albums pasted into this email is obviously wrong on sight. That is
-the point: the last two batches lifted the examples almost verbatim and the batch gate
-threw the attempts away. Read them for structure and then write your own sentence out of
-your own prospect's facts.
-
   A CONDITIONAL. Puts their own situation on the left of the sentence.
-    A dentist: "When the chairs are full six weeks out, nobody is phoning the patients who
-     missed a check-up."
 
   WHAT USUALLY HAPPENS NEXT. Plain sequence, no hedging verb at all.
-    A commercial builder: "A big site keeps the crews busy for a year. The tenders for the
-     next one get written in the last month, if at all."
 
   A CONTRAST. Two short clauses, the second overturning the first.
-    A freight broker: "Peak season fills the trucks without a single sales call. February
-     does not, and by then nobody has spoken to a new shipper since October."
 
   A CONSEQUENCE. States the position their situation puts them in.
-    A wedding photographer: "That books out the summer. It also means every enquiry for
-     next spring arrives while you are editing somebody else's album."
 
 There are more shapes than these four: a short concession, a plain statement of what the
 situation costs, a comparison between the two halves of the same week. The point is that
@@ -636,9 +528,9 @@ PATTERN FRAMING IS NOT PERMISSION TO GO GENERIC.
 The pattern must be one that only applies because of what you just observed. This is the
 harder half of the job.
 
-  Generic, and therefore useless: "Most firms at this stage find pipeline slips."
-It is safe, it obeys every rule above, and it says nothing. The approved paragraph further
-down the email already makes that point, so you have added a line and no information.
+A generic pattern is safe, it obeys every rule above, and it says nothing. The approved
+paragraph further down the email already makes that point, so you have added a line and no
+information.
 
 THE TEST: read your bridge on its own, without the observation above it. If it still makes
 sense as a standalone sentence, it is generic and it has failed. A good bridge reads as a
@@ -655,31 +547,17 @@ reader is scanning between meetings, and a sentence they go back over has alread
 
 The old version of this line asked for something an eleven year old could read. It was here
 for two batches and it stopped nothing, because a reading age measures how hard the WORDS
-are and the problem is figurative language. "Hours shrink before they grow" is eight easy
-words and it describes nothing. The test that catches that is the camera test, below.
+are and the problem is figurative language. Eight easy words can describe nothing at all.
+The test that catches that is the camera test, below.
 
-CRAMPED, and both of these shipped:
-  "The regulatory commentary. DTCC tokenization, Treasury clearing, SEC crypto posture,
-   shows where the thinking is."
-A fragment, then a list, then a verb whose subject is three clauses back. By the time you
-reach "shows" you have forgotten what is doing the showing.
-
-CLEAN, same facts, nothing lost:
-  "Taffet publishes regulatory commentary regularly. Recent pieces covered DTCC
-   tokenization, Treasury clearing and the SEC's crypto posture. That output shows where
-   your thinking is."
-Three sentences. Each one carries a single idea and every subject sits next to its verb.
-
-CRAMPED:
-  "Two new board seats in early 2026. Hollywood Food Coalition and Sovern LA, on top of
-   running SCG full-time is a real load."
-The same fault. An appositive list swallows the subject, so "is a real load" arrives with
+CRAMPED, and both of these shipped: a fragment, then a list, then a verb whose subject is
+three clauses back. By the time you reach the verb you have forgotten what is doing the
+showing. And an appositive list that swallows the subject, so the predicate arrives with
 nothing attached to it.
 
-CLEAN:
-  "You took two board seats in early 2026, at Hollywood Food Coalition and Sovern LA. That
-   is on top of running SCG full time."
-Two sentences. The naming sits inside a clean subject and verb rather than replacing one.
+CLEAN, same facts, nothing lost: sentences that each carry a single idea, with every subject
+sitting next to its verb. The naming sits inside a clean subject and verb rather than
+replacing one.
 
 Note what did NOT change in either rewrite. Same facts, same specificity, same length
 roughly. Only the joins moved.
@@ -689,12 +567,9 @@ EVERY SENTENCE MUST BE CLEAR ON ONE READING.
 You are writing to someone scanning their inbox between meetings. A sentence they have to
 go back over has already lost.
 
-FAILING on clarity, and note this one is correctly pattern-framed, so getting the stance
-right is not enough:
-  "That tends to be when the next engagement goes uncontested to whoever stayed visible."
-The idea is sound and the reader has to assemble it. Who is uncontested, what contest,
-visible to whom. Say it plainly: "That is usually when the next piece of work goes to
-whoever was still in front of them."
+A sentence can be correctly pattern-framed and still fail here, so getting the stance right
+is not enough. Where the idea is sound and the reader has to assemble it, say it plainly
+instead.
 
 DIGESTIBILITY. THIS IS WHAT MAKES A SENTENCE NEED A SECOND PASS.
 
@@ -711,23 +586,12 @@ long qualified noun phrase sitting in front of the verb is the single thing that
 second pass: the reader has to carry all of it until the verb finally says what it is
 doing.
 
-HARD, and this shipped:
-  "Independent firms that rely on conference appearances for new conversations often find
-   the pipeline moves in cycles that follow the conference calendar rather than delivery
-   demand."
-Ten words before the verb. Three relative clauses, one nested inside another. Every word
-of it is true and nobody reads it once.
+The hard sentences that shipped ran ten words before the verb, with three relative clauses,
+one nested inside another. Every word of them is true and nobody reads them once.
 
-EASY, and this shipped too:
-  "Founders who move that fast often find the first clients come quickly and the pipeline
-   behind them takes longer to build."
-Barely shorter. A four-word subject, one relative clause, nothing nested.
-
-The hard one again, same facts, written to be read once:
-  "Conferences deliver in bursts. The pipeline tends to follow the event calendar, so the
-   months in between run quieter."
-Nothing was dropped and nothing was softened. The reader is simply never asked to hold
-more than one idea at a time.
+The easy ones were barely shorter. A four-word subject, one relative clause, nothing nested.
+Nothing is dropped and nothing is softened. The reader is simply never asked to hold more
+than one idea at a time.
 
 CONCRETE NOUNS ONLY. THIS IS THE ONE THAT DECIDES WHETHER THEY RECOGNISE THEMSELVES.
 
@@ -739,43 +603,24 @@ NEVER USE THESE NOUNS: remainder, engine, momentum, capacity, bandwidth, cadence
 flow. Every one of them is a placeholder standing where a real thing belongs.
 
 Load and output are judgement calls, not bans. Attached to something concrete they are
-fine: "a real operational load" works. As a bare subject they are not: "that output shows
-where your thinking is" leaves the reader wondering what output.
+fine: "a real operational load" works. As a bare subject they are not: a sentence about what
+"that output" shows leaves the reader wondering what output.
 
 NO METAPHORS. A metaphor is a picture the reader has to unpack before they get the point.
 Say the thing instead. If you find yourself reaching for a machine, a current, an engine or
 a runway, you have stopped describing their week and started decorating it.
 
-ABSTRACT, and this shipped:
-  "A day job and active delivery leave the sales pipeline running on whatever is
-   left. That remainder tends to shrink before it grows."
-Nobody can picture a remainder.
-
-CONCRETE, same idea:
-  "A day job and delivery both come first. Outreach gets the hours that are left, and
-   there are fewer of those every week."
-Hours. A reader knows exactly how many of those they had last week.
-
-ABSTRACT, also shipped:
-  "The regions that come after tend to need a different engine."
-A metaphor doing work a plain sentence should do. Which regions, and what engine.
-
-CONCRETE, same idea:
-  "The first two markets were built on people you already knew. In the UK you do not know
-   anyone yet, and the introductions have to start from nothing."
-Same claim, and now it names the country, the people and what is missing.
-
-CONCRETE, already working, and this is the standard:
-  "Delivery has a deadline. Business development never does, so it waits."
-Deadline. Waits. Two things anyone can see happening in their own calendar.
+Nobody can picture a remainder. Hours, on the other hand: a reader knows exactly how many of
+those they had last week. A metaphor does work a plain sentence should do, and it leaves the
+reader asking which thing and what for. The concrete version of the same claim names the
+place, the people and what is missing.
 
 THE CAMERA TEST. RUN IT ON EVERY SENTENCE, AND TWICE ON THE LAST FEW WORDS OF THE BRIDGE.
 
 Point a camera at their week. Would you see the thing you just described happening?
 
-  "Hours shrink before they grow" is unfilmable. Nobody can photograph an hour shrinking.
-  "Delivery has a deadline. Business development never does, so it waits" is filmable: a
-  calendar with a date on it, and something pushed to next week.
+Nobody can photograph an hour shrinking. A calendar with a date on it, and something pushed
+to next week, is a thing a camera can see.
 
 Every noun is concrete now and the abstraction moved into the verbs and the endings. That is
 where it hides, because a sentence can be built entirely out of real things and still
@@ -792,33 +637,19 @@ FINISH ON A CONCRETE THING, NOT A CATEGORY. The last few words are what the read
 holding, and a category leaves them holding nothing.
   "goes to whoever was in the room last" beats "rather than from anything systematic".
 
-Two of these shipped last week. Both have concrete nouns throughout and both fail:
+Two sentences shipped last week with concrete nouns throughout and both failed. Hours do not
+grow: point the camera and there is nothing to film. People do not become conversations, and
+"need a nudge" is not something anyone does either.
 
-FAILING: "Outreach for the new-business side gets whatever hours remain, and those tend to
- shrink before they grow."
-Hours do not grow. Point the camera and there is nothing to film.
-PLAIN: "Outreach gets whatever hours are left at the end of the day. Most weeks nobody gets
- to it."
-Now you can film it: a day ending, and a person not making the call.
-
-FAILING: "The founders who hear it and are ready to buy tend to need a nudge before they
- become a conversation."
-People do not become conversations. "Need a nudge" is not something anyone does either.
-PLAIN: "Some of the people who heard it are ready to buy. They will not email you first."
-An inbox with nothing in it. That is a thing you can point a camera at.
+A day ending and a person not making the call is filmable. An inbox with nothing in it is
+filmable. That is the bar.
 
 POINT EVERY SENTENCE AT THE PERSON.
 
 The camera test fixed the ENDINGS and every bridge now films. It never reached the OPENINGS,
-and the same fault is sitting in them untouched. Four from the last batch, all of which
-shipped:
-
-  "Every LinkedIn post in the last two months is Stanford GSB content or personal
-   reflection."  The subject is a category and the verb is "is".
-  "Two CEO roles means delivery answers first."  Delivery does not answer. Nobody answers.
-  "Board dates are fixed and show up in the diary."  WHOSE diary.
-  "Exhibitions fill the diary around their dates."  Exhibitions cannot fill anything, and
-   "around their dates" is four words standing in for a whole sentence.
+and the same fault is sitting in them untouched. Four openings shipped in the last batch
+whose subjects were categories rather than people, whose verbs nothing could perform, whose
+nouns belonged to nobody, and which folded a whole clause into a compressed phrase.
 
 THE SUBJECT IS THEM, OR A THING THAT BELONGS TO THEM. "your posts". "your diary". "you
 took". The stand they took at a show, with the show named from the findings rather than
@@ -828,8 +659,6 @@ them, and at the speed this gets read they will not bother.
 
 SAY YOUR. If the thing is theirs, say so. "your diary", not "the diary". "your week", not
 "the week". It costs one word and it removes every question about who is being described.
-  FAILING: "Board dates are fixed and show up in the diary."
-  PLAIN:   "You have board dates fixed months ahead, and they are already in your diary."
 
 THE PLAIN-VERB RULE APPLIES TO THE SUBJECT AS WELL AS THE VERB. If the subject cannot
 physically do the verb, rewrite it. Delivery cannot answer. Exhibitions cannot fill a diary.
@@ -851,57 +680,10 @@ reader has to work out is a word that failed.
   CONVERSATION is the worst offender. It is in nearly every email in the last batch and it
   is never specified. Check every use you make of it and qualify it.
 
-THE THREE WORKED PAIRS. Read these for the MOVE, not for the words.
-
-FAILING: "Every LinkedIn post in the last two months is Stanford GSB content or personal
- reflection."
-PLAIN:   "Your LinkedIn posts over the last two months have all been Stanford GSB content or
- personal reflection."
-Same fact, impossible to misread. The subject became hers and the verb became something her
-posts actually did.
-
-FAILING: "Two CEO roles means delivery answers first."
-PLAIN:   "You are CEO of two companies at once, so on Monday you work on whichever one has a
- client waiting."
-"Means" and "answers" both described nothing, and neither had a subject who could do them.
-Now the subject is him and the verb is work, which is a thing you can watch him do.
-
-FAILING: "Exhibitions fill the diary around their dates."
-PLAIN:   "You get in front of the right buyers at CAVE. Then the show ends, and the next
- sales conversation waits for the next show."
-Three fixes at once: the subject is him, the compressed phrase became the sentence it was
-hiding, and "conversation" got qualified into "sales conversation".
-
-THESE THREE ARE ABOUT STANFORD GSB, TWO CEO ROLES AND THE CAVE STAND. Those facts belong to
-three specific people and to nobody else in your batch. Lifting a phrase from them into an
-email about a different prospect is wrong on sight, and the uniqueness gate will throw the
-whole attempt away. It has already happened five times: the previous plain rewrite in this
-prompt ended "nobody gets to it", and two prospects in the same batch both ended on it.
-Take the move. Write your own words from the findings in front of you.
-
 THE AIM TEST, run it on every draft. Read your observation, your bridge, the offer line
 and your question as one message. If the reader could answer that question with "that is
 not quite my problem", either the bridge aimed at the wrong gap or the question asks about
 something the bridge never raised. Rewrite whichever is wrong.
-
-Here is that failure, from real output:
-
-AIMED WRONG:
-  observation: "The weekly inbound you're fielding from people wanting to collaborate says
-   the brand is working."
-  bridge: "The clients you actually want are a different current, and it doesn't run on
-   the same word of mouth."
-  the question it runs into: "Is getting more conversations in front of you something
-   you're working on?"
-The bridge says she already has plenty of conversations and the wrong ones. The question
-asks whether she wants MORE. She does not want more. She wants different.
-
-AIMED RIGHT, same observation, pattern-framed and pointed at what that question asks:
-  bridge: "Collaborators find you first. The clients you want take longer, and they arrive
-   by a different route."
-Now she is short of the right conversations, which is what being asked about more
-conversations answers. And it claims nothing about her results: it says what tends to
-happen, not what is happening to her.
 
 THE AIM TEST HAS A SECOND HALF, AND THE FIRST HALF CANNOT SEE IT.
 
@@ -932,15 +714,11 @@ ${FIRMOGRAPHIC_RULE_TEXT}
 
 TWO MORE FAILURES WORTH KNOWING, both about who you are writing to:
 
-FAILING:
-  "Jason left Pani as Director of Product in July 2024 and launched HydrospherIQ three
-   months later, with a current headcount of one."
-Third person, about him rather than to him. A dossier entry. It leads nowhere.
+Writing in the third person, about them rather than to them, is a dossier entry. It leads
+nowhere.
 
-FAILING:
-  "You left Visteon at SVP level in December 2022. Your own firm has been the full focus
-   since July 2023."
-Second person and still wrong. It recites his own CV back at him. He knows all of it.
+Writing in the second person and reciting their own CV back at them is still wrong. They
+know all of it.
 
 LENGTH. A BUDGET PER PART, NOT ONE TOTAL.
 
