@@ -9907,35 +9907,94 @@ and is the write most likely to happen by accident.
   Recording the shape rather than a fix, per the standing rule that a backlog entry states
   the problem and the session that acts on it decides the remedy.
 
+- [standing rule, set 2026-09-01] A PRECISION FIGURE MUST CARRY ITS CORPUS.
+
+  Any precision, accuracy, hit-rate or false-positive figure written into a code comment or
+  into this file states the corpus it was measured on AND its size, in the same place as the
+  figure. "8 for 8 genuine" and "roughly three quarters precise" both shipped without one,
+  were read as properties of the detector, and were properties of a corpus of 24 prospects
+  generated repeatedly. On independent denominators the same two signals read 30% and 53%.
+
+  A figure whose provenance cannot be established is marked CORPUS UNVERIFIED where it sits,
+  and no corpus is invented for it. Three were marked that way on 2026-09-01: the 11.4%
+  six-test pass rate in sources/web-search.ts (denominator recorded nowhere), the judge's
+  "0 of 13" in research/write-opening.ts (no record ties it to a run), and "four of four"
+  in style/firmographic.ts (sample size, source and date all unrecorded).
+
+  THE TRAP THIS EXISTS FOR is not a wrong number. It is a number measured on a corpus that
+  repeats the same subject, where the hit count looks like a sample size and is not. Count
+  DISTINCT SUBJECTS, and record that count, not the number of hits.
+
 - [monitor] The writer's back-reference check is REPORT ONLY and cannot block yet (2026-09-01)
 
   `OPENING_REFERENCE_MODE` in src/lib/style/opening-reference.ts is `'report'`. The check
   runs on every writer attempt through `checkOpeningGates`, logs each hit as
   `writer-back-reference: would reject`, and returns an empty array, so it rejects nothing.
 
-  MEASURED before it was wired, over 44 real openings replayed offline with zero model
-  calls: 24 stored in `prospects.personalisation_trigger` and 20 from the compare-run
-  export. It flags 14 of 24 and 13 of 20. Gating today would reject 27 of 44, SEVEN OF
-  THEM WRONGLY, and a wrong rejection costs a writer attempt and can drop the prospect to
-  the approved template, which is worse copy than any of the seven sentences it would
-  reject.
+  TWO MEASUREMENTS ARE RECORDED HERE, NOT ONE. The second corrects the first, and the first
+  is kept so the correction is visible rather than the old number being quietly overwritten.
+  Both were replayed offline through the shipped `findOpeningReferences`, zero model calls.
 
-  The seven false positives are four distinct shapes, all in the demonstrative signal:
-    a degree modifier                       "a firm this young"
-    a relative pronoun                      "the firm that already has the answers"
-    a complementiser                        "is that client development sits"
-    an antecedent inside the SAME sentence  three of the four observation-pass hits
-  The pronominal-"one" signal is 8 for 8 genuine and is the shape the human read found.
+  CORPUS A: 44 openings drawn from AT MOST 24 DISTINCT PROSPECTS. 24 stored in
+  `prospects.personalisation_trigger`, plus 20 from the compare-run export, which
+  re-generated the same population. 36 rows carry a stored trigger and only 24 have a bridge
+  paragraph; the other 12 are the older single-paragraph format, so THERE IS NOTHING IN THEM
+  TO SCAN and their silence is not evidence. The export holds 24 records and 4 have no
+  observation or bridge at all, having lost the judge comparison or hit a length gate.
 
-  BEFORE FLIPPING TO 'block': exclude those four shapes, re-run the replay, and confirm a
-  measured zero. Record what the replay showed here, the way the sentence-initial gate's
-  flip was recorded. Do not flip on the argument alone. Review after 2026-09-15.
+  CORPUS B: 41 openings from 41 DISTINCT PROSPECTS, each generated once. Every prospect
+  researched 2026-09-01 whose stored trigger carries both paragraphs.
 
-  THE CORPUS IS SMALLER THAN IT LOOKS, and this is the part not to over-trust. 36 rows
-  carry a stored trigger and only 24 have a bridge paragraph; the other 12 are the older
-  single-paragraph format, so THERE IS NOTHING IN THEM TO SCAN and their silence is not
-  evidence. The export holds 24 records and 4 have no observation or bridge at all, having
-  lost the judge comparison or hit a length gate and fallen back to the template.
+                                corpus A                corpus B
+                                44 openings             41 openings
+                                <=24 prospects          41 prospects
+    openings flagged              27 of 44                30 of 41
+    demonstrative hits            29                      30
+    demonstrative precision       ~76%  (22 of 29)        53%  (16 of 30)
+    pronominal-one hits            8                      10
+    pronominal-one precision      100%  (8 of 8)          30%  (3 of 10)
+    unanchored it/they/them        0                       0
+
+  WHY THEY DISAGREE, which matters more than either column. CORPUS A WAS 24 PROSPECTS
+  GENERATED REPEATEDLY, so its hits are CORRELATED BY PROSPECT: the same sentence,
+  regenerated, counted again. The effective sample was far smaller than the hit count made
+  it look. "The pronominal-'one' signal is 8 for 8 genuine" was written from that corpus and
+  read as a precise signal; on independent denominators the same signal is 3 of 10. A
+  perfect score over a handful of repeated sentences was never evidence of precision.
+
+  THE FALSE-POSITIVE SHAPES, hand-read over all 40 corpus B hits. The demonstrative signal's
+  14 misses are FIVE shapes, not the three first recorded:
+    a relative pronoun                    5   "a gap that rarely opens"
+    an antecedent in the SAME sentence    4   "the hours that are left ... those hours go last"
+    a complementiser                      2   "find that new conversations wait"
+    a deictic "this"                      2   "this business", "this February"
+    a degree modifier                     1   "a reputation that strong"
+
+  THE DEICTIC "this" SHAPE IS NEW and was not in the first record. It points at the world the
+  reader is standing in, not backwards at a noun, so nothing can go missing when the
+  paragraph above is replaced at composition. It comes from the observation pass, and it is
+  the shape most likely to recur, because the observation is written about the present.
+
+  All seven pronominal-"one" misses are the same-sentence shape, and all are ordinary English.
+
+  THE "ZERO OVERLAP" ARGUMENT ALSO DID NOT SURVIVE. On corpus A the two signals hit disjoint
+  openings, which read as proof that the pronominal-"one" shape was carrying cases the
+  existing detector could not reach. On corpus B the openings split 7 flagged by both, 20 by
+  demonstratives alone, 3 by pronominal-"one" alone, 11 clean. Of those 3, ONE is genuine.
+  The shape earns its place by one opening in 41. It is kept, because one opening is still
+  one the existing detector cannot reach and the check is cheap and report-only.
+
+  BEFORE FLIPPING TO 'block': NOT ON A DATE. The previous version of this entry said "Review
+  after 2026-09-15" and that date is removed, because there is no day on which this becomes
+  flippable. It becomes flippable on EVIDENCE: a SENTENCE-SCOPED variant of the check, one
+  that clears a pointer whose antecedent sits in its own sentence, measured clean on a corpus
+  large enough that clean means something. One opening per prospect, and enough of them that
+  the denominator carries weight.
+
+  THREE OF THREE IS NOT THAT EVIDENCE. Sentence-scoping would remove all seven
+  pronominal-"one" false positives on corpus B, leaving its three genuine hits and reading
+  3 of 3. Three is a handful, and the same signal read 8 for 8 immediately before falling to
+  3 of 10 on real denominators. Record what any future replay shows here.
 
 - [post-build] findBackReferences tests demonstratives without looking for an antecedent (2026-09-01)
 

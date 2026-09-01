@@ -254,9 +254,12 @@ export const ORDINARY_WORD_COUNT = ORDINARY.size
 // the list does not already carry. "drew" proposes "draw", "draw" is not in the list, and
 // "Drew" stays caught. Adding forms to the vocabulary directly would have no such check.
 //
-// MEASURED, NOT ASSUMED. 163 forms are listed and 76 of them resolve; the other 87 are
-// INERT because their lemma is absent from the vocabulary above. "Rose", "Drew", "Bore",
-// "Stole" and "Woke" are all in that inert 80, so the obvious proper-noun risks this map
+// MEASURED, NOT ASSUMED, over THIS MAP as it stands: 163 forms are listed and 76 of them
+// resolve; the other 87 are INERT because their lemma is absent from the vocabulary above.
+// Re-counted 2026-09-01 by running the shipped isOrdinaryWord over every key rather than by
+// arithmetic; the figure previously read "inert 80" here, which was a transcription slip for
+// 87. "Rose", "Drew", "Bore", "Stole" and "Woke" are all in that inert 87, so the obvious
+// proper-noun risks this map
 // looked like it carried it does not actually carry. Checked with the real isOrdinaryWord
 // rather than read off the map, because the map alone does not tell you which half you are
 // in. Adding "rise" or "draw" to the vocabulary later would silently activate them, which

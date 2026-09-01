@@ -211,7 +211,20 @@ Fields:
   plain_text      — plain text version for agent consumption
   status          — draft / active / archived
   generated_at    — when the agent generated this version
-  last_updated_at — when last changed
+  last_updated_at — NOT a modification timestamp, despite the name. Nothing in src/
+                    writes it: every reference is a read, and some render it to the
+                    client as "updated N ago". Its only writers are the SQL functions
+                    approve_document_suggestion and the segment variants, which set it
+                    on the ARCHIVE step only. So it marks a STATUS TRANSITION.
+  updated_at      — when the row last actually changed. Maintained by the trigger
+                    strategy_documents_set_updated_at (BEFORE UPDATE, set_updated_at()),
+                    the same convention campaigns, intake_responses, integrations_registry,
+                    meetings, organisations, patterns and prospects use. Added 2026-09-01,
+                    backfilled to created_at for all 55 existing rows, because none of
+                    them was modified at migration time. This is the column to read when
+                    the question is "has this document changed since it was approved";
+                    before it existed, an in-place edit to an active document moved no
+                    timestamp at all and that question could not be answered.
   update_trigger  — initial / signal_suggestion / intake_update / manual
   is_stale        — operator flag, set true after 60 days without update
   created_at

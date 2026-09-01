@@ -62,6 +62,14 @@ export const BANNED_FIRMOGRAPHIC: ReadonlyArray<{ pattern: RegExp; label: string
   // "solo practitioner segment", "solo album". The four measured false positives are all
   // attributive and the real incident is adverbial, so the split is clean.
   //
+  // CORPUS UNVERIFIED. "Four of four" is recorded above and in the narrowing note, and one
+  // of the four is identifiable (this prompt's own exemplar passage, copied into a live
+  // active messaging document). The set the four were drawn from is recorded nowhere: not
+  // its size, not its source, not the date it was sampled. Searched 2026-09-01 across
+  // docs/BACKLOG.md and docs/ADR.md and found nothing, so no corpus is invented for it here.
+  // The GRAMMATICAL argument below stands on its own and is what the code implements; the
+  // count is not load-bearing. Re-measure before quoting "four of four" as a precision rate.
+  //
   // So: fire only when "solo" is NOT followed by a word it could be modifying. Trailing
   // punctuation, end of sentence, or one of the closed-class words that can only continue
   // a clause. AMBIGUITY RESOLVES TO PASS by construction: any word not on that short list
