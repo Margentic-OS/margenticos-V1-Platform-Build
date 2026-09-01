@@ -828,11 +828,19 @@
   on carry the subset and never make the duplicate call. The gap is legacy-only, bounded at
   28 rows, and shrinking to zero as those rows age out.
 
-  HOW TO DO IT ANYWAY, if a reason ever appears: scripts/backfill-firmographics.ts already
-  has the shape (enrichment_status = 'enriched' AND a null-column predicate at line 18) and
-  reports credits_consumed at line 52. Change the predicate to apollo_enrichment_data and
-  point it at the org. It is a one-line change, not a build. The reason not to do it is
-  price, not difficulty.
+  HOW TO DO IT ANYWAY, if a reason ever appears. This used to say "scripts/backfill-
+  firmographics.ts already has the shape, change one predicate". THAT SCRIPT WAS DELETED
+  2026-09-01 and must not be recreated in the same form. It called
+  enrichProspectsForOrganisation DIRECTLY, and every credit guard lives one level up in
+  enrichment-trigger.ts: the enrichment_status IS NULL predicate, the
+  enrichment_credit_consumed_at IS NULL predicate, and the enrichment_locked_at lock. The
+  script saw none of them, and its selection deliberately targeted rows that were ALREADY
+  enriched, so it re-bought the same people at 1.00 credit each on every invocation for as
+  long as the null column stayed null. That is the mechanism behind the 10 August figure:
+  twelve runs, 303 records requested against 29 real people, 141 credits actually charged.
+  If a backfill is ever genuinely wanted, it goes through the trigger, or it carries its own
+  copy of all three guards and stamps enrichment_credit_consumed_at before the call. The
+  reason not to do it is still price, not difficulty.
 
 - [pre-c1, LIVE DEFECT, found while declining the backfill] The country exclusion cannot
   fire for any prospect verified through the trigger.
@@ -1187,15 +1195,19 @@
   alongside the capability, and have QUEUE_CONFIG read them. Not worth building
   speculatively for a single registered vendor per capability.
 
-- [pre-c1] The four CLI research/enrich entry points stay on the inline path.
-  scripts/run-research.ts, scripts/backfill-firmographics.ts,
-  src/lib/agents/rerun-three-prospects.ts, src/lib/agents/test-prospect-research-run.ts.
+- [pre-c1] The remaining CLI research entry points stay on the inline path.
+  scripts/run-research.ts, src/lib/agents/rerun-three-prospects.ts,
+  src/lib/agents/test-prospect-research-run.ts.
   They are operator tools run from a terminal with no 300s limit, and routing them
   through the queue would stop them returning results to the terminal. Only the two
   routes and the one server action are switched by the flags. Decided 2026-08-24.
-  Note that backfill-firmographics.ts calls enrichProspectsForOrganisation DIRECTLY,
-  bypassing enrichment-trigger's lock entirely. That is pre-existing and unchanged by
-  the queue, but it means the queue's guarantees do not cover that script.
+  This list held a fourth entry, scripts/backfill-firmographics.ts, with a note that it
+  called enrichProspectsForOrganisation DIRECTLY and bypassed enrichment-trigger's lock
+  entirely. That note was correct and the script was DELETED 2026-09-01 rather than left
+  documented. See the declined apollo_enrichment_data backfill above for what it cost.
+  The general point survives the deletion: the queue's guarantees, and the credit guards,
+  cover the trigger and the two routes. Any script that reaches past them into the handler
+  is outside all of it.
 
 
 ---
