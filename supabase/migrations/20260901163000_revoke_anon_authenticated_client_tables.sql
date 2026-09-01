@@ -1,4 +1,4 @@
--- 20260901120000_revoke_anon_authenticated_client_tables.sql
+-- 20260901163000_revoke_anon_authenticated_client_tables.sql
 --
 -- Status: APPLIED (verified live 2026-09-01)
 --   Applied via MCP apply_migration as `revoke_anon_authenticated_client_tables`.
