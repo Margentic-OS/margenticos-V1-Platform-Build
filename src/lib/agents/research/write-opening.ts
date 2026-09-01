@@ -19,6 +19,7 @@ import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/firmographic'
 import { checkSentenceInitialNames } from '@/lib/style/sentence-initial-names'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
+import { checkOpeningReferences } from '@/lib/style/opening-reference'
 import { readabilityScore } from '@/lib/style/readability'
 // The subject character cap lives with the messaging agent's other limits and is
 // imported rather than restated: a second copy of a number is a second thing to keep
@@ -351,6 +352,30 @@ DO NOT BUILD A CAUSAL CHAIN BACK TO THE OBSERVATION. The observation is sitting 
 above the bridge, and the reader joins them without any help from you. Explaining the join
 is what produces the sentences nobody can parse.
 
+NEVER POINT BACK. NAME THE THING AGAIN.
+
+This is not the rule above wearing different words, and reading it as one is why the fault
+keeps shipping. The rule above is about sentence LENGTH and causal shape. This one is about
+REFERENCE, and a short sentence breaks it exactly as easily as a long one.
+
+NO SENTENCE MAY DEPEND ON THE READER CARRYING A REFERENCE BACK FROM A PREVIOUS SENTENCE. If
+the subject was named above, NAME IT AGAIN. Do not point at it.
+
+Pointing is any word standing in for something already named instead of naming it: a
+demonstrative binding a noun, a bare pronoun, and "one" or "ones" used in place of the thing
+itself. All three ask the reader to hold the earlier sentence in their head and resolve a
+pointer against it before your sentence means anything. At the speed this is read, they will
+not do it. They will skim the sentence, get nothing from it, and move on.
+
+The cost of naming it again is one or two words. The cost of pointing is the whole sentence.
+
+THIS APPLIES INSIDE THE BRIDGE, not only between the observation and the bridge. Your second
+sentence pointing back at your own first sentence is the same fault and is the more common
+half of it.
+
+NO EXAMPLE IS GIVEN, AND THE ABSENCE IS DELIBERATE. The shapes are named above, naming them
+is the whole instruction, and a worked example here would be a ready-made sentence to copy.
+
 READ THE OBSERVATION AND THE BRIDGE TOGETHER BEFORE YOU RETURN THEM. THEY MUST NOT
 CONTRADICT EACH OTHER. This shipped:
   observation: his LinkedIn posts for the last 60 days are all external regulatory news.
@@ -435,8 +460,32 @@ Where the observation shows visible activity, the consequence engages with that 
 Concede what is plainly working, then name the specific thing that activity does not reach.
 Never assert an absence of effort against evidence of effort.
 
+NEVER ASSERT WHAT THE FINDINGS DO NOT EVIDENCE.
+
 Never name a channel, a source of work, or a way of operating that the observation does not
 evidence.
+
+THAT LINE HAS BEEN HERE AND IT HAS NOT HELD, so it is stated at category level rather than
+left as a coda to the rule above it.
+
+ANY CLAIM ABOUT HOW THEIR WORK ARRIVES MUST BE TRACEABLE TO A FINDING. How they win clients,
+where the work comes from, who sends it to them, how they get found. If the findings do not
+say it, you do not know it, and the bridge may not imply it.
+
+ANY CLAIM ABOUT WHAT THEY ARE OR ARE NOT DOING MUST BE TRACEABLE TO A FINDING. This is the
+half that keeps failing, and it fails in one specific direction. A finding showing one kind
+of activity is evidence of THAT ACTIVITY AND OF NOTHING ELSE. It is never evidence that
+something else is absent. Seeing what somebody published tells you what they published. It
+tells you nothing about what else they run, what their team runs, or what is already under
+way somewhere you cannot see.
+
+IMPLYING IT COUNTS AS ASSERTING IT. The sentence does not have to make the claim outright.
+If the reader would have to accept an unevidenced claim about their own business for your
+sentence to be true, your sentence makes that claim, and hedging the verb does not repair it.
+
+THE TEST: point at the finding that makes your sentence true. Not the finding that makes it
+plausible. The one that makes it TRUE. If you cannot put your finger on it, the sentence is
+not yours to write, and the fix is a different sentence rather than a softer one.
 
 If no consequence follows from an observation, that observation was the wrong one to choose.
 Pick another finding.
@@ -516,6 +565,27 @@ NO EXAMPLE OF A PERMITTED ATTRIBUTION IS GIVEN, AND THE ABSENCE IS DELIBERATE. A
 endorsed clause that would fit any prospect is the most copyable thing this page could
 contain, and lifted examples are what the batch gate has already thrown attempts away for.
 The rule above is the whole instruction. Write your own.
+
+ATTRIBUTION MUST BE HONEST ABOUT WHOSE EXPERIENCE IT IS.
+
+The two rules above govern WHERE an attribution may sit and WHOSE it may be. This one
+governs WHAT IT MAY CLAIM, and it is the one that has shipped a false statement.
+
+ATTRIBUTION MAY ONLY CLAIM WHAT THE SENDER HAS ACTUALLY DONE.
+
+Reporting what people in a given position describe is honest, and it is the entire value of
+an attributed pattern: it is a real claim about a real thing the sender has heard. Claiming
+to have BEEN IN their situation is a different claim, and it is only available if the
+approved documents say the sender has been in it.
+
+The distinction is not a matter of tone and it is not a hedge. Having talked to people in a
+position and having occupied that position are two different facts about the sender. One is
+true. Writing the other because it sounds warmer is a claim the reader can disprove with a
+single reply, and it is the sender who has to answer it.
+
+BEFORE YOU WRITE AN ATTRIBUTED CLAUSE, DECIDE WHICH OF THE TWO YOU ARE CLAIMING, AND WRITE
+THE ONE THAT IS TRUE. If you are not certain the sender has lived it, you are reporting what
+you have heard, and the clause has to say so.
 
 NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME.
 
@@ -832,6 +902,31 @@ AIMED RIGHT, same observation, pattern-framed and pointed at what that question 
 Now she is short of the right conversations, which is what being asked about more
 conversations answers. And it claims nothing about her results: it says what tends to
 happen, not what is happening to her.
+
+THE AIM TEST HAS A SECOND HALF, AND THE FIRST HALF CANNOT SEE IT.
+
+Everything above checks the question against the BRIDGE. A question can pass that completely,
+match the bridge exactly, and still ask about something THE OFFER LINE CANNOT DO. Reading the
+bridge and the question together will never surface that, because both of them agree.
+
+THE QUESTION MUST ASK ABOUT SOMETHING THE APPROVED OFFER LINE CAN ACTUALLY ANSWER.
+
+Read the offer line again and work out what it does. Then read your question and ask whether
+a yes to it is something that offer could act on. If the answer is no, the email has just
+promised something it does not do.
+
+That is the worst reply the email can earn. Not silence: interest, in the wrong thing. The
+sender has to open by withdrawing what the question offered, and the prospect learns the
+personalisation was aimed at a job nobody is selling.
+
+IF THE BRIDGE NAMES A GAP THE OFFER CANNOT CLOSE, THE BRIDGE IS AIMED WRONG, AND SO IS THE
+QUESTION THAT FOLLOWS FROM IT. Rewrite the bridge first. A question repaired on its own then
+disagrees with the paragraph above it, which is the failure the first half of this test
+catches.
+
+SO RUN IT TWICE, EVERY DRAFT. Bridge against question. Then question against the offer line.
+A draft that passes the first and fails the second is the most personal email in the batch,
+asking for the wrong thing.
 
 ${FIRMOGRAPHIC_RULE_TEXT}
 
@@ -1233,6 +1328,23 @@ export function checkOpeningGates(
   // Guarded on `params` because it is optional: tests call this function with the parts
   // undefined, and with nothing to attribute a hit to there is nothing worth logging.
   if (params) {
+    // POINTING BACK INSTEAD OF NAMING THE THING AGAIN. Report-only on this commit: the
+    // function returns an empty array while OPENING_REFERENCE_MODE says 'report', and logs
+    // every hit with the prospect, the part and the sentence.
+    //
+    // RUN ON THE PARTS AND NOT ON `opening`, for the reason the block below already gives
+    // and for a second one specific to this check. The parts are what the detector's
+    // paragraph model needs: the observation and the bridge are two paragraphs with a
+    // known order, and joinOpening has already flattened that ordering away by the time
+    // `opening` exists.
+    //
+    // NOT GATED, ON A MEASUREMENT RATHER THAN ON CAUTION. Replayed over 44 real openings it
+    // would reject 21 of them, three wrongly. See opening-reference.ts for the numbers, the
+    // three false-positive sentences, and what has to be true before this can block.
+    failures.push(...checkOpeningReferences(
+      params.observation, params.bridge, { prospectId: context?.prospectId ?? 'unknown' },
+    ))
+
     for (const [part, text] of [['observation', params.observation], ['bridge', params.bridge]] as const) {
       // Named logContext, not context: a local called `context` would shadow the
       // parameter it is built from and never initialise.
