@@ -5,8 +5,13 @@
 // Selection criteria (Amendment 2):
 // (a) enriched rows where independent_email_status IS NULL (never verified)
 // (b) enriched rows where independent_email_status='Grey-listed' AND
-//     independent_verified_at < (now - 6 hours) AND
-//     verification_attempt_count < 3 (re-verifiable within retry window)
+//     independent_verified_at < (now - 6 hours)
+// AND, ACROSS BOTH, verification_attempt_count < MAX_RETRY_ATTEMPTS.
+//
+// The cap used to sit inside branch (b) only. Branch (a) had no bound at all, so a row whose
+// probe threw stayed NULL and was re-selected every ten minutes for as long as it existed.
+// Measured on 2026-09-01: 34 rows in one organisation, all carrying the same provider error,
+// re-probed on every sweep with no state that could ever stop them.
 //
 // Lock pattern: verification_locked_at column, stale-reclaim after 30 minutes
 // Rate limit: 30 emails per minute (enforced by batch spacing)
@@ -19,7 +24,15 @@ import { checkSendEligibility } from '@/lib/sourcing/send-eligibility-rules'
 
 const STALE_LOCK_THRESHOLD_MINUTES = 30
 const GREY_LISTED_RETRY_WINDOW_HOURS = 6
-const MAX_RETRY_ATTEMPTS = 3
+/**
+ * How many times one address may be probed before it is left alone.
+ *
+ * Read here AND by the verify-pending cron route, which picks the organisation to serve.
+ * Exported rather than duplicated: two copies of this number is the shape where the row
+ * selector and the organisation selector drift apart and the sweep nominates an
+ * organisation whose every row it will then decline to select.
+ */
+export const MAX_RETRY_ATTEMPTS = 3
 const FREE_DAILY_LIMIT = 100
 const RATE_LIMIT_PER_MINUTE = 30
 
@@ -154,7 +167,7 @@ export async function verifyEnrichedBatch(
     // (a) enriched rows where independent_email_status IS NULL
     // (b) enriched rows where independent_email_status='Grey-listed'
     //     AND independent_verified_at < (now - 6 hours)
-    //     AND verification_attempt_count < 3
+    // AND, across both, verification_attempt_count < MAX_RETRY_ATTEMPTS
 
     const staleThresholdISO = new Date(
       Date.now() - GREY_LISTED_RETRY_WINDOW_HOURS * 60 * 60 * 1000,
@@ -184,8 +197,30 @@ export async function verifyEnrichedBatch(
       .eq('organisation_id', organisationId)
       .eq('enrichment_status', 'enriched')
       .or(
-        `independent_email_status.is.null,and(independent_email_status.eq.Grey-listed,independent_verified_at.lt.${staleThresholdISO},verification_attempt_count.lt.${MAX_RETRY_ATTEMPTS})`,
+        `independent_email_status.is.null,and(independent_email_status.eq.Grey-listed,independent_verified_at.lt.${staleThresholdISO})`,
       )
+      // THE RETRY CAP, HOISTED OUT OF THE BRANCH IT USED TO LIVE IN.
+      //
+      // It was written inside the Grey-listed half of the .or() above, which left the
+      // never-verified half unbounded: a row that fails on a provider error keeps a NULL
+      // status, so it satisfied `independent_email_status.is.null` on every sweep, forever.
+      // The counter was already being incremented on the failure path, and the comment there
+      // says it exists precisely to stop this. It was written and never read.
+      //
+      // Chained filters are ANDed by PostgREST, so as its own filter the cap governs BOTH
+      // branches and any branch added later. That is the point of putting it here rather than
+      // repeating it inside each arm: a new arm cannot be written that escapes it.
+      //
+      // TERMINAL STATE. There is no new column and no new status string. A row that runs out
+      // of attempts is already distinguishable from one that has never been tried:
+      //   never attempted -> verification_attempt_count = 0, last_verification_error IS NULL
+      //   given up on     -> verification_attempt_count >= MAX_RETRY_ATTEMPTS,
+      //                      independent_email_status IS NULL, last_verification_error set
+      // Checked live before relying on it: zero rows carry a NULL attempt count (the column
+      // defaults to 0 and every writer reads-then-increments), and no row at count 0 carries
+      // an error. A NULL count would be excluded by this filter, which is the one way this
+      // could strand a never-tried row; the column default is what prevents it.
+      .lt('verification_attempt_count', MAX_RETRY_ATTEMPTS)
       // THE STALE RECLAIM THE HEADER HAS ALWAYS PROMISED, and which did not exist.
       // STALE_LOCK_THRESHOLD_MINUTES was declared at the top of this file and referenced
       // nowhere in the repo, while the filter below read `.is(locked_at, null)` only. So a
