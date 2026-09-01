@@ -57,6 +57,7 @@ import {
   summariseIneligible,
   type IneligibleReason,
 } from '@/lib/sourcing/send-eligibility-policy'
+import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
 
 export type ResearchScope = 'unresearched' | 'researched'
 
@@ -118,7 +119,21 @@ export async function enqueueResearchForOrganisation(
   }
 
   // ── Select ─────────────────────────────────────────────────────────────────
-  let query = supabase
+  //
+  // THE TIER GATE, applied here and in research-batch-entry.ts in the same commit, for the
+  // reason this file's header gives: a prospect must be eligible under ONE definition or
+  // flipping queue_research changes WHICH prospects get researched rather than only how.
+  //
+  // Filtered in the query rather than counted in the loop below, deliberately, and matching
+  // `.eq('suppressed', false)` directly above it. Both say the same thing: a disqualified
+  // prospect is not part of this organisation's research population at all, so it is not a
+  // skip to be explained to the operator. The skip reporting below is for prospects that ARE
+  // in the population and were passed over on a spend judgement about their address.
+  //
+  // It also runs BEFORE the trigger guard, which matters: 9 of the rejected rows in the live
+  // organisation already hold personalisation copy, and without this the guard would refuse
+  // an entire legitimate batch on behalf of prospects that should never have been researched.
+  let query = excludeTierRejected(supabase
     .from('prospects')
     // The three verification columns are RAW on purpose. See send-eligibility-policy.ts:
     // email_send_eligible is materialised at verification time and defaults to false, so it
@@ -131,7 +146,7 @@ export async function enqueueResearchForOrganisation(
     .select('id, personalisation_trigger, independent_verified_at, independent_email_status, email_send_ineligible_reason, verification_provider, second_pass_status, second_pass_provider')
     .eq('organisation_id', organisationId)
     .eq('suppressed', false)
-    .limit(maxProspects)
+    .limit(maxProspects))
 
   query = scope === 'unresearched'
     ? query.is('current_research_result_id', null)

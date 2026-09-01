@@ -13,6 +13,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE, MAX_RETRY_ATTEMPTS } from '../verification-trigger'
 import { myemailverifierHandler } from '../handlers/adapter-myemailverifier'
+import { TIER_NOT_REJECTED_FILTER } from '../tier-verdict'
+
+/**
+ * A rejection reason, deliberately NOT one of the real ones.
+ *
+ * The gate is on the PRESENCE of a reason, never on what it says, and a fixture carrying a
+ * real reason string would read as though the value mattered. It also would not catch the
+ * legacy value already in the live data that REMOVAL_REASONS no longer lists.
+ */
+const A_REJECTION = 'a-rejection-reason-the-gate-never-reads'
+
 
 const ORG = 'org-1'
 
@@ -21,6 +32,25 @@ interface FakeRow {
   email: string | null
   country?: string | null
   verification_attempt_count?: number
+  /**
+   * The tier verdict. Defaults to a QUALIFIED row, because the tier gate added 2026-09-01
+   * refuses rejected rows: a fixture without these would still be selected, and a test
+   * that wanted the gate to bite has to say so.
+   */
+  sourced_tier?: string | null
+  tiering_reason?: string | null
+}
+
+/**
+ * The tier gate, as the database would apply it:
+ *   sourced_tier IS NOT NULL OR tiering_reason IS NULL
+ * A fixture that omits the columns is a qualified prospect; one that sets sourced_tier to
+ * null and a reason is a rejected one.
+ */
+function notRejected(r: FakeRow): boolean {
+  const tier = r.sourced_tier === undefined ? 'tier_1' : r.sourced_tier
+  const reason = r.tiering_reason === undefined ? null : r.tiering_reason
+  return tier !== null || reason === null
 }
 
 /** Records every update payload, keyed by the ids it was applied to. */
@@ -40,6 +70,8 @@ function fakeSupabase(rows: FakeRow[], opts: { dailyCount?: number; countError?:
       // implement cannot test that filter: the rows come back whole either way, and deleting
       // the filter from the real query fails nothing. This one is applied in then().
       const ltFilters: Array<[string, number]> = []
+      /** Every or-filter string the query applied. See or() below. */
+      const orFilters: string[] = []
 
       const chain: Record<string, unknown> = {
         select(_cols: string, o?: { count?: string; head?: boolean }) {
@@ -49,7 +81,15 @@ function fakeSupabase(rows: FakeRow[], opts: { dailyCount?: number; countError?:
         eq(col: string, val: string) { if (col === 'id') ids = [val]; return chain },
         in(_col: string, vals: string[]) { ids = vals; return chain },
         is() { return chain },
-        or() { return chain },
+        // HONOURED FOR THE TIER FILTER, not swallowed. This method returned `chain` for
+        // every or-filter, which is the shape CLAUDE.md calls out: the rows come back whole
+        // either way, so deleting the filter from the real query fails nothing.
+        //
+        // Only the tier filter is applied. The other two or-filters this query uses (the
+        // verified/grey-listed branch and the stale-lock branch) are still ignored, and that
+        // is stated rather than hidden: this fake can test the tier gate and cannot test
+        // those. A test that needed them would have to teach this fake about them first.
+        or(expr: string) { orFilters.push(expr); return chain },
         not() { return chain },
         gte() { return chain },
         lt(col: string, val: number) { ltFilters.push([col, val]); return chain },
@@ -83,7 +123,16 @@ function fakeSupabase(rows: FakeRow[], opts: { dailyCount?: number; countError?:
             )
             return
           }
+          const tierGated = orFilters.includes(TIER_NOT_REJECTED_FILTER)
           const selectable = rows.filter(r =>
+            // sourced_tier IS NOT NULL OR tiering_reason IS NULL. Applied only when the
+            // real query actually asked for it, so removing the gate from production
+            // changes what this fake returns.
+            //
+            // The defaults key off `undefined`, not `??`: a fixture that explicitly sets
+            // sourced_tier to null means REJECTED, and `?? 'tier_1'` would quietly convert
+            // exactly the row under test into a qualified one.
+            (!tierGated || notRejected(r)) &&
             ltFilters.every(([col, val]) =>
               col === 'verification_attempt_count'
                 ? (r.verification_attempt_count ?? 0) < val
@@ -249,5 +298,47 @@ describe('BUG 5 — the never-verified branch had no retry cap', () => {
 
     expect(execute).not.toHaveBeenCalled()
     expect(run.total_verified).toBe(0)
+  })
+})
+
+describe('THE TIER GATE — verification does not spend quota on a prospect tiering rejected', () => {
+  // Measured on the live organisation 2026-09-01: 15 unsuppressed rows had been rejected by
+  // tiering and every one of them had been verified. The free tier is 100 addresses a day,
+  // so each one of those took the day's budget away from a prospect that could be emailed.
+  it('never probes a rejected prospect', async () => {
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client, applied } = fakeSupabase([
+      { id: 'rejected', email: 'nope@b.com', sourced_tier: null, tiering_reason: A_REJECTION },
+    ])
+
+    await verifyEnrichedBatch(client, ORG, 5)
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(payloadsFor(applied, 'rejected')).toHaveLength(0)
+  })
+
+  // The other half, and the reason the gate is excludeTierRejected rather than
+  // requireTierPresent. A prospect tiering has not reached yet is still worth verifying:
+  // holding it back would make the cheap step wait on the expensive one for no reason.
+  it('still probes a prospect tiering has not reached yet', async () => {
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client } = fakeSupabase([
+      { id: 'pending', email: 'yes@b.com', sourced_tier: null, tiering_reason: null },
+    ])
+
+    await verifyEnrichedBatch(client, ORG, 5)
+
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('still probes a prospect tiering qualified', async () => {
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client } = fakeSupabase([
+      { id: 'qualified', email: 'yes@b.com', sourced_tier: 'tier_1', tiering_reason: 'tier_1 (score 90)' },
+    ])
+
+    await verifyEnrichedBatch(client, ORG, 5)
+
+    expect(execute).toHaveBeenCalledTimes(1)
   })
 })

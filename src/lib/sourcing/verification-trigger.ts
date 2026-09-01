@@ -21,6 +21,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { myemailverifierHandler, type VerificationResult } from '@/lib/sourcing/handlers/adapter-myemailverifier'
 import { checkSendEligibility } from '@/lib/sourcing/send-eligibility-rules'
+import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
 
 const STALE_LOCK_THRESHOLD_MINUTES = 30
 const GREY_LISTED_RETRY_WINDOW_HOURS = 6
@@ -191,7 +192,7 @@ export async function verifyEnrichedBatch(
     const cappedBatchSize = Math.min(maxBatchSize, dailyRemaining)
 
     // Select (a) unverified, (b) Grey-listed retryable
-    const { data: lockableProspects, error: lockError } = await supabase
+    const lockableQuery = supabase
       .from('prospects')
       .select('id, email, country')
       .eq('organisation_id', organisationId)
@@ -230,6 +231,18 @@ export async function verifyEnrichedBatch(
       // Chained filters are ANDed by PostgREST, so this reads:
       //   (never verified OR grey-listed and retryable) AND (unlocked OR lock gone stale)
       .or(`verification_locked_at.is.null,verification_locked_at.lt.${staleLockThresholdISO}`)
+
+    // ── THE TIER GATE ────────────────────────────────────────────────────────
+    //
+    // Verification quota is spent per address and the free tier is 100 a day, so probing a
+    // prospect tiering has already rejected takes the day's budget away from one that could
+    // actually be emailed. Measured 2026-09-01: 15 unsuppressed rejected rows in the live
+    // organisation had all been verified.
+    //
+    // excludeTierRejected, not requireTierPresent: a prospect tiering has not reached yet is
+    // still worth verifying, and holding it back would make verification wait on tiering for
+    // no reason. Only a REJECTION stops it. See src/lib/sourcing/tier-verdict.ts.
+    const { data: lockableProspects, error: lockError } = await excludeTierRejected(lockableQuery)
       .limit(cappedBatchSize)
 
     if (lockError) {

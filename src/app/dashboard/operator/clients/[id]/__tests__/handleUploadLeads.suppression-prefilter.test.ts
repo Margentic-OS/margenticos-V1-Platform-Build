@@ -77,6 +77,8 @@ const CLEAN_ID = 'prospect-clean'
 const SUPPRESSED_ID = 'prospect-suppressed'
 const SUPPRESSED_EMAIL = 'bounced@example.invalid'
 const CLEAN_EMAIL = 'reachable@example.invalid'
+const REJECTED_ID = 'prospect-tier-rejected'
+const REJECTED_EMAIL = 'wrong-person@example.invalid'
 
 // Ids transitioned pending -> uploading by the claim. This is the observation that
 // matters: presence here means the address entered the send pipeline.
@@ -268,6 +270,14 @@ function seed() {
   ]
   // Mirrors the shape of the one real production row from the bounce proof: a
   // normalised address, live (not revoked).
+  // Disqualified by tiering, and otherwise perfectly sendable: a deliverable address, an
+  // approved review status, not suppressed. Every clause of the send gate passes except the
+  // tier one, so this row is claimed the moment that clause goes missing.
+  prospects.push({
+    id: REJECTED_ID, organisation_id: ORG, email: REJECTED_EMAIL, suppressed: false,
+    client_review_status: 'approved', outbound_upload_status: 'pending',
+    sourced_tier: null, email_send_eligible: true,
+  })
   suppressions = [{ email: SUPPRESSED_EMAIL, revoked_at: null }]
 }
 
@@ -303,5 +313,22 @@ describe('handleUploadLeads suppression pre-filter', () => {
     await handleUploadLeads(ORG)
 
     expect(claimedIds).toContain(SUPPRESSED_ID)
+  })
+})
+
+describe('handleUploadLeads — the send gate is one predicate, not three hand-copies', () => {
+  // The claim, the suppression pre-filter and the operator's "ready to send" count were
+  // three verbatim copies of the same seven filters, agreeing only because nobody had
+  // edited one of them yet. They now all call applySendGate in src/lib/sourcing/send-gate.ts.
+  //
+  // The tier clause is the one that matters most here: it is the last thing standing
+  // between a prospect tiering rejected and the outbound provider, and 11 such rows in the
+  // live organisation hold email_send_eligible = true, which is a true statement about
+  // their addresses and no statement at all about whether they should be contacted.
+  it('never claims a prospect tiering rejected, even with a deliverable address', async () => {
+    await handleUploadLeads(ORG)
+
+    expect(claimedIds).toContain(CLEAN_ID)
+    expect(claimedIds).not.toContain(REJECTED_ID)
   })
 })

@@ -43,6 +43,7 @@ import {
   FRESH_SECONDS_PER_PROSPECT,
 } from '../research-batch-entry'
 import { runSourcingForOrg, SOURCING_MAX_BATCH_SIZE } from '../sourcing-entry'
+import { TIER_NOT_REJECTED_FILTER } from '@/lib/sourcing/tier-verdict'
 
 // ─── Stub client ──────────────────────────────────────────────────────────────
 //
@@ -59,10 +60,11 @@ interface TableLog {
   not: Array<[string, string, unknown]>
   neq: Array<[string, unknown]>
   gte: Array<[string, unknown]>
+  or: string[]
 }
 
 function emptyLog(): TableLog {
-  return { select: null, eq: [], in: [], is: [], not: [], neq: [], gte: [] }
+  return { select: null, eq: [], in: [], is: [], not: [], neq: [], gte: [], or: [] }
 }
 
 function stubClient(tables: Record<string, Row[]>) {
@@ -71,7 +73,6 @@ function stubClient(tables: Record<string, Row[]>) {
   function builderFor(table: string) {
     const log = logs[table] ?? (logs[table] = emptyLog())
     const rows = tables[table] ?? []
-    const result = { data: rows, error: null }
 
     const builder: Record<string, unknown> = {
       select: (c: string) => { log.select = c; return builder },
@@ -81,12 +82,23 @@ function stubClient(tables: Record<string, Row[]>) {
       not: (c: string, op: string, v: unknown) => { log.not.push([c, op, v]); return builder },
       neq: (c: string, v: unknown) => { log.neq.push([c, v]); return builder },
       gte: (c: string, v: unknown) => { log.gte.push([c, v]); return builder },
+      // HONOURED for the tier gate, not merely logged. This stub returns whatever the test
+      // says the table holds regardless of filters, which is fine for the filters the tests
+      // assert on directly through `logs`. The tier gate is different: it must actually
+      // REMOVE rows, or a rejected prospect would still reach the guards below and this
+      // file would pass in a world where the gate had been deleted.
+      or: (expr: string) => { log.or.push(expr); return builder },
       order: () => builder,
       limit: () => builder,
       single: async () => (rows.length > 0
         ? { data: rows[0], error: null }
         : { data: null, error: { message: 'no rows' } }),
-      then: <T,>(onOk: (v: typeof result) => T) => Promise.resolve(result).then(onOk),
+      then: <T,>(onOk: (v: { data: Row[]; error: null }) => T) => {
+        const gated = log.or.includes(TIER_NOT_REJECTED_FILTER)
+          ? rows.filter(r => r.sourced_tier !== null || r.tiering_reason === null)
+          : rows
+        return Promise.resolve({ data: gated, error: null }).then(onOk)
+      },
     }
     return builder
   }
@@ -112,6 +124,13 @@ const prospect = (id: string, trigger: string | null = null) => ({
   independent_verified_at: '2026-08-10T00:00:00Z',
   independent_email_status: 'Valid',
   email_send_ineligible_reason: null,
+  // A QUALIFIED tier verdict, for the same reason the verification columns are here: the
+  // tier gate added 2026-09-01 removes rejected rows before any guard below runs, so a
+  // fixture without these would be filtered out and every assertion in this file would
+  // pass against an empty batch. The gate's own behaviour is tested in
+  // research-batch-entry-tier-gate.test.ts.
+  sourced_tier: 'tier_1' as string | null,
+  tiering_reason: 'tier_1 (score 90)' as string | null,
 })
 
 const okSummary = {

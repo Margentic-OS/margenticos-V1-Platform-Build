@@ -6,6 +6,17 @@
 
 import { describe, it, expect } from 'vitest'
 import { enqueueResearchForOrganisation } from '../enqueue/research'
+import { TIER_NOT_REJECTED_FILTER } from '@/lib/sourcing/tier-verdict'
+
+/**
+ * A rejection reason, deliberately NOT one of the real ones.
+ *
+ * The gate is on the PRESENCE of a reason, never on what it says, and a fixture carrying a
+ * real reason string would read as though the value mattered. It also would not catch the
+ * legacy value already in the live data that REMOVAL_REASONS no longer lists.
+ */
+const A_REJECTION = 'a-rejection-reason-the-gate-never-reads'
+
 
 const ORG = 'org-a'
 
@@ -32,6 +43,26 @@ interface FakeProspect {
   verified_at?: string | null
   email_status?: string | null
   ineligible_reason?: string | null
+  /**
+   * The tier verdict. Defaults to a QUALIFIED prospect, for the same reason the
+   * verification fields do: the tier gate added 2026-09-01 refuses rejected rows, so a
+   * fixture without these would be filtered out and the assertions would pass vacuously.
+   */
+  sourced_tier?: string | null
+  tiering_reason?: string | null
+}
+
+/**
+ * The tier gate, as the database applies it:
+ *   sourced_tier IS NOT NULL OR tiering_reason IS NULL
+ *
+ * The defaults key off `undefined` rather than `??`, because a fixture that explicitly sets
+ * sourced_tier to null is the rejected row under test and `??` would quietly qualify it.
+ */
+function notRejected(p: FakeProspect): boolean {
+  const tier = p.sourced_tier === undefined ? 'tier_1' : p.sourced_tier
+  const reason = p.tiering_reason === undefined ? null : p.tiering_reason
+  return tier !== null || reason === null
 }
 
 /** A client whose organisations, prospects and job_queue tables answer the enqueue query. */
@@ -103,15 +134,22 @@ function fake(
         return chain
       }
       // prospects
+      const orFilters: string[] = []
       const chain: Record<string, unknown> = {
         select: () => chain,
         eq: (c: string, v: unknown) => { filters[c] = v; return chain },
         limit: () => chain,
         is: (c: string) => { filters[`${c}_isNull`] = true; return chain },
         not: (c: string) => { filters[`${c}_notNull`] = true; return chain },
+        // HONOURED, not swallowed. This method did not exist, so the tier gate would have
+        // thrown rather than being ignored; it is implemented here so the gate is actually
+        // APPLIED, which is what makes deleting it from the real query fail a test.
+        or: (expr: string) => { orFilters.push(expr); return chain },
         then: (resolve: (v: unknown) => void) => {
           const wantResearched = filters.current_research_result_id_notNull === true
+          const tierGated = orFilters.includes(TIER_NOT_REJECTED_FILTER)
           const rows = prospects
+            .filter(p => !tierGated || notRejected(p))
             .filter(p => (p.suppressed ?? false) === false)
             .filter(p => (p.researched ?? false) === wantResearched)
             .map(p => ({
@@ -448,5 +486,57 @@ describe('enqueueResearchForOrganisation — prospects mid-way through a batch r
     await enqueueResearchForOrganisation(spy, ORG, 'unresearched', 'test')
 
     expect(askedJobTypes).toEqual(['research', 'research_sources', 'research_collect'])
+  })
+})
+
+describe('enqueueResearchForOrganisation — the tier gate', () => {
+  // Research is the most expensive step in the pipeline, roughly 60 times what composition
+  // costs per prospect. Measured on the live organisation 2026-09-01: 10 prospects tiering
+  // had rejected had been researched anyway, and 9 of them carry finished personalisation
+  // copy that can never be used.
+  it('never enqueues a prospect tiering rejected', async () => {
+    const f = fake([
+      { id: 'qualified', personalisation_trigger: null },
+      { id: 'rejected', personalisation_trigger: null, sourced_tier: null, tiering_reason: A_REJECTION },
+    ])
+
+    const result = await enqueueResearchForOrganisation(f.client, ORG, 'unresearched', 'test')
+
+    expect(result.ok).toBe(true)
+    expect(f.enqueued.map(j => j.p_prospect_id ?? j.prospect_id)).toEqual(['qualified'])
+  })
+
+  // THE GATE RUNS BEFORE THE TRIGGER GUARD, and this is the case that proves it.
+  //
+  // 9 of the live rejected rows hold personalisation copy. If the tier gate ran after the
+  // trigger guard, those rows would refuse an entire legitimate batch on behalf of
+  // prospects that should never have been researched in the first place.
+  it('a rejected prospect holding shipped copy does not refuse the batch', async () => {
+    const f = fake([
+      { id: 'qualified', personalisation_trigger: null },
+      {
+        id: 'rejected', personalisation_trigger: 'An opening that already shipped.',
+        sourced_tier: null, tiering_reason: A_REJECTION,
+      },
+    ])
+
+    const result = await enqueueResearchForOrganisation(f.client, ORG, 'unresearched', 'test')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('expected success')
+    expect(result.created).toBe(1)
+  })
+
+  it('still enqueues a prospect tiering has not reached yet', async () => {
+    // excludeTierRejected, not requireTierPresent: a pending prospect is a normal prospect.
+    const f = fake([
+      { id: 'pending', personalisation_trigger: null, sourced_tier: null, tiering_reason: null },
+    ])
+
+    const result = await enqueueResearchForOrganisation(f.client, ORG, 'unresearched', 'test')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('expected success')
+    expect(result.created).toBe(1)
   })
 })
