@@ -2365,9 +2365,9 @@ What this ADR does NOT cover, added 2026-08-29:
   table holds exactly two job types.
 
   Lead upload and composition are still an inline Vercel SERVER ACTION.
-  handleUploadLeads at src/app/dashboard/operator/clients/[id]/actions.ts:220 runs
+  handleUploadLeads at src/app/dashboard/operator/clients/[id]/actions.ts:222 runs
   under a ~60s server-action timeout, composes in chunks of COMPOSE_CHUNK_SIZE=50
-  (actions.ts:204) via Promise.all, and calls uploadLeads once per campaign with no
+  (actions.ts:206) via Promise.all, and calls uploadLeads once per campaign with no
   batching, no timeout guard and no resume. There is no enqueue call in that file.
 
   So the 500-prospect upload ceiling is OPEN, not solved by this ADR. The first send
