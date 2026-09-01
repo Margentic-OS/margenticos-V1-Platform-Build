@@ -2208,6 +2208,7 @@ export type Database = {
           segment_id: string | null
           status: string
           update_trigger: string | null
+          updated_at: string
           version: string
         }
         Insert: {
@@ -2230,6 +2231,7 @@ export type Database = {
           segment_id?: string | null
           status?: string
           update_trigger?: string | null
+          updated_at?: string
           version?: string
         }
         Update: {
@@ -2252,6 +2254,7 @@ export type Database = {
           segment_id?: string | null
           status?: string
           update_trigger?: string | null
+          updated_at?: string
           version?: string
         }
         Relationships: [
