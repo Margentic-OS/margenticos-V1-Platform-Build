@@ -15,6 +15,7 @@ import {
 } from '@/lib/composition/compose-sequence'
 import { composedToVariables, assertCompleteVariables } from '@/lib/composition/custom-variables'
 import { logger } from '@/lib/logger'
+import { claimNotification } from '@/lib/notifications/claim-notification'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import type { ProspectForUpload, DfyOrderResult } from '@/lib/integrations/handlers/instantly/types'
 import { findBlockedProspects } from '@/lib/suppression/send-gate'
@@ -1075,56 +1076,47 @@ export async function updateWarmupCompletedAt(
   // Fire email if completing (not clearing)
   if (completed) {
     try {
-      // Dedup via notifications_log
-      const { error: logError } = await supabase
-        .from('notifications_log')
-        .insert({
-          organisation_id: orgId,
-          notification_type: 'warming_complete',
-          subject_id: orgId,
-        })
+      // notifications_log is service-role only. This ran through the session client
+      // and failed 42501 every time; because the send was gated on the insert
+      // succeeding, the warming_complete email was never sent at all.
+      const claim = await claimNotification(await createServiceRoleClient(), {
+        organisationId: orgId,
+        notificationType: 'warming_complete',
+        subjectId: orgId,
+      })
 
-      if (logError && logError.code !== '23505') {
-        // Log error but don't fail the completion
-        logger.error('updateWarmupCompletedAt: failed to log notification', {
-          organisation_id: orgId,
-          error: logError.message,
-        })
-      } else if (!logError || logError.code === '23505') {
-        // Send email if first time, skip if already sent
-        if (!logError) {
-          const { data: clientUser } = await supabase
-            .from('users')
-            .select('email')
-            .eq('organisation_id', orgId)
-            .eq('role', 'client')
-            .single()
+      if (claim === 'claimed') {
+        const { data: clientUser } = await supabase
+          .from('users')
+          .select('email')
+          .eq('organisation_id', orgId)
+          .eq('role', 'client')
+          .single()
 
-          if (clientUser?.email) {
-            const { warmingCompleteTemplate, warmingCompleteSubject, warmingCompleteTemplateText } =
-              await import('@/lib/email/templates/warming-complete')
+        if (clientUser?.email) {
+          const { warmingCompleteTemplate, warmingCompleteSubject, warmingCompleteTemplateText } =
+            await import('@/lib/email/templates/warming-complete')
 
-            // Calculate send date: 1 day after confirmation (when warming_completed_at was set)
-            // Tied to the actual confirmation time, not a fixed offset from warmup start
-            const sendDateObj = new Date(warmupCompletedAt!)
-            sendDateObj.setDate(sendDateObj.getDate() + 1)
-            const sendDate = sendDateObj.toLocaleDateString('en-GB', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })
+          // Calculate send date: 1 day after confirmation (when warming_completed_at was set)
+          // Tied to the actual confirmation time, not a fixed offset from warmup start
+          const sendDateObj = new Date(warmupCompletedAt!)
+          sendDateObj.setDate(sendDateObj.getDate() + 1)
+          const sendDate = sendDateObj.toLocaleDateString('en-GB', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          })
 
-            await sendTransactionalEmail({
-              to: clientUser.email,
-              subject: warmingCompleteSubject(sendDate),
-              html: warmingCompleteTemplate({ sendDate }),
-              text: warmingCompleteTemplateText({ sendDate }),
-            })
+          await sendTransactionalEmail({
+            to: clientUser.email,
+            subject: warmingCompleteSubject(sendDate),
+            html: warmingCompleteTemplate({ sendDate }),
+            text: warmingCompleteTemplateText({ sendDate }),
+          })
 
-            logger.info('updateWarmupCompletedAt: warming_complete email sent', {
-              organisation_id: orgId,
-            })
-          }
+          logger.info('updateWarmupCompletedAt: warming_complete email sent', {
+            organisation_id: orgId,
+          })
         }
       }
     } catch (err) {
