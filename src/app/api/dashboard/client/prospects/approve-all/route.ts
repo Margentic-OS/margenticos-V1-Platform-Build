@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
+import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -35,15 +36,24 @@ export async function POST(request: Request) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
-    // Build update query with proper filters
-    let query = adminClient
+    // Build update query with proper filters.
+    //
+    // THE TIER GATE. This route is a send-path consumer even though it sends nothing: it is
+    // what moves a prospect to 'approved', which is one of the seven conditions the send gate
+    // checks. Approving a prospect tiering rejected walks it right up to that gate and leaves
+    // a single clause standing between it and Instantly.
+    //
+    // excludeTierRejected, not requireTierPresent, matching every other upstream consumer: a
+    // prospect tiering has not reached yet is a normal prospect awaiting a verdict, and the
+    // send gate refuses it on its own until one exists.
+    let query = excludeTierRejected(adminClient
       .from('prospects')
       .update({
         client_review_status: 'approved',
         client_review_auto_approved_at: new Date().toISOString(),
       })
       .eq('organisation_id', organisationId)
-      .in('client_review_status', [null, 'pending_review'])
+      .in('client_review_status', [null, 'pending_review']))
 
     // Exclude removed prospects
     if (removedIds.length > 0) {

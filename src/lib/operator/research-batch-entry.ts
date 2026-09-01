@@ -24,6 +24,7 @@ import {
   summariseIneligible,
   type IneligibleReason,
 } from '@/lib/sourcing/send-eligibility-policy'
+import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
 
 // ── Runtime budget ────────────────────────────────────────────────────────────
 //
@@ -319,7 +320,17 @@ async function selectProspects(
 ): Promise<SelectResult> {
   // Suppressed prospects are excluded everywhere. They are opted out or disqualified and
   // researching them spends money on copy that can never be sent.
-  let query = supabase
+  //
+  // THE TIER GATE. Identical rule to the queue path (src/lib/queue/enqueue/research.ts),
+  // from the same module, applied in the same commit, for the same reason the eligibility
+  // gate below is shared: two copies of this rule would let the two paths research
+  // different sets. Filtered in the query alongside `suppressed`, not counted as a skip:
+  // a disqualified prospect is not in the research population.
+  //
+  // NOTE this applies even when explicit prospect_ids are supplied, matching the send-
+  // eligibility gate below. An operator naming ids by hand is where a quiet spend on a
+  // disqualified prospect is most likely, not least.
+  let query = excludeTierRejected(supabase
     .from('prospects')
     // Raw verification columns, not email_send_eligible. See send-eligibility-policy.ts for
     // why the materialised column is the wrong input here.
@@ -329,7 +340,7 @@ async function selectProspects(
     // money spent resolving it would buy nothing.
     .select('id, personalisation_trigger, independent_verified_at, independent_email_status, email_send_ineligible_reason, verification_provider, second_pass_status, second_pass_provider')
     .eq('organisation_id', organisation_id)
-    .eq('suppressed', false)
+    .eq('suppressed', false))
 
   if (prospect_ids && prospect_ids.length > 0) {
     // The organisation_id filter above is what enforces isolation: an id belonging to

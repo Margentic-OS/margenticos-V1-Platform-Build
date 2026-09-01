@@ -10017,3 +10017,46 @@ and is the write most likely to happen by accident.
   `hasAntecedentBefore` treatment the pronoun check already has, and to MUTATION-TEST it
   against the messaging agent's own corpus before merging, not only against the writer's.
   The two corpora disagree and the gate that matters most is the one already blocking.
+
+- [security] Verification writes email_send_eligible longhand, bypassing the function that
+  calls itself the single source of truth (2026-09-01)
+
+  `resolveSendEligibility` in src/lib/sourcing/send-eligibility-resolver.ts opens with "THE
+  SINGLE SOURCE OF TRUTH FOR SEND ELIGIBILITY" and explains that the column is only ever
+  written from that one function. It is not. There are two live writers and only one of
+  them calls it:
+
+    second-pass-trigger.ts:557   `email_send_eligible: decision.eligible`   <- via resolver
+    verification-trigger.ts:525  `eligibilityCheck.is_eligible && result.send_eligible`
+
+  The second is the longhand expression the resolver's own header quotes as the problem it
+  was created to remove. The two agree today, which is exactly why nothing has noticed.
+  They can stop agreeing the moment either the country rule or the first-pass verdict
+  mapping changes on one side only.
+
+  Found while wiring the tier gate 2026-09-01. NOT fixed there: routing the first pass
+  through the resolver changes what gets written to a column the send gate reads as its last
+  word, and that belongs in a commit that can measure the before and after on real rows
+  rather than one about tiering.
+
+  Whoever takes this: the resolver takes canonical verdicts, so the first pass needs
+  `toCanonicalVerdict` applied to its raw status before it can call it. Check what that does
+  to a status the mapping does not know, because the longhand version has no such concept.
+
+- [security] scripts/run-mev.ts is a third writer of email_send_eligible with no country
+  check (2026-09-01)
+
+  scripts/run-mev.ts:76 writes `email_send_eligible: result.send_eligible` straight from the
+  vendor handler. It does not call `checkSendEligibility`, so no country exclusion is
+  applied, and it does not call `resolveSendEligibility`, so it is blind to the second pass.
+  Running it against a list containing an excluded jurisdiction marks those rows sendable.
+
+  This is the same shape as the backfill script deleted on 2026-09-01 in 8f82e05: a
+  convenience script that writes production columns through a path none of the guards cover.
+  The verdicts currently in the database were largely written by this script, per the header
+  of verification-trigger-safety.test.ts.
+
+  Whoever takes this: the likely answer is deletion, as with the backfill script. The
+  capability it provides already exists behind POST /api/operator/verify-enriched, which goes
+  through verifyEnrichedBatch and therefore through the country check, the retry cap, the
+  daily free-tier budget and the tier gate. Confirm nothing still calls it first.

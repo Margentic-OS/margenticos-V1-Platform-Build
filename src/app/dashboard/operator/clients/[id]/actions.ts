@@ -15,6 +15,7 @@ import {
 } from '@/lib/composition/compose-sequence'
 import { composedToVariables, assertCompleteVariables } from '@/lib/composition/custom-variables'
 import { logger } from '@/lib/logger'
+import { applySendGate } from '@/lib/sourcing/send-gate'
 import { claimNotification } from '@/lib/notifications/claim-notification'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import type { ProspectForUpload, DfyOrderResult } from '@/lib/integrations/handlers/instantly/types'
@@ -299,16 +300,10 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   // Blocked prospects are deliberately left as 'pending' rather than marked failed.
   // This is an optimisation, and an optimisation must not mutate send state. They are
   // simply excluded again on every subsequent run.
-  const { data: claimCandidates, error: candidateError } = await supabase
-    .from('prospects')
-    .select('id, email')
-    .eq('organisation_id', orgId)
-    .eq('outbound_upload_status', 'pending')
-    .not('email', 'is', null)
-    .not('sourced_tier', 'is', null)
-    .eq('email_send_eligible', true)
-    .eq('client_review_status', 'approved')
-    .eq('suppressed', false)
+  const { data: claimCandidates, error: candidateError } = await applySendGate(
+    supabase.from('prospects').select('id, email'),
+    orgId,
+  )
 
   if (candidateError) {
     return { ok: false, error: `Send gate pre-filter failed: ${candidateError.message}` }
@@ -340,16 +335,12 @@ export async function handleUploadLeads(orgId: string): Promise<UploadLeadsResul
   // Separate UPDATE+SELECT (not mutation.select with inner join) avoids silent failure
   // if campaigns join yields no matches.
   const nowISO = new Date().toISOString()
-  let claimQuery = supabase
-    .from('prospects')
-    .update({ outbound_upload_status: 'uploading', outbound_upload_attempted_at: nowISO })
-    .eq('organisation_id', orgId)
-    .eq('outbound_upload_status', 'pending')
-    .not('email', 'is', null)
-    .not('sourced_tier', 'is', null)             // Only send tiered prospects
-    .eq('email_send_eligible', true)              // Send eligibility gate
-    .eq('client_review_status', 'approved')       // Client gatekeeper
-    .eq('suppressed', false)                       // Suppression gate
+  let claimQuery = applySendGate(
+    supabase
+      .from('prospects')
+      .update({ outbound_upload_status: 'uploading', outbound_upload_attempted_at: nowISO }),
+    orgId,
+  )
 
   // Exclude anything the pre-filter blocked. Narrowing only — see the note above.
   if (preFilteredIds.length > 0) {

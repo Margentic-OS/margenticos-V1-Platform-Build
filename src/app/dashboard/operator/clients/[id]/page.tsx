@@ -19,6 +19,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import { applySendGate } from '@/lib/sourcing/send-gate'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { WaitingOnYouBlock } from './WaitingOnYouBlock'
 import { ClientProfileBlock } from './ClientProfileBlock'
@@ -98,16 +99,13 @@ export default async function ClientDetailPage({
       .eq('capability', 'instantly_api_active')
       .eq('tool_name', 'instantly')
       .maybeSingle(),
-    serviceRole
-      .from('prospects')
-      .select('id', { count: 'exact', head: true })
-      .eq('organisation_id', org.id)
-      .eq('outbound_upload_status', 'pending')
-      .not('sourced_tier', 'is', null)
-      .eq('email_send_eligible', true)
-      .eq('client_review_status', 'approved')
-      .eq('suppressed', false)
-      .not('email', 'is', null),
+    // The operator's "ready to send" count. Uses the SAME predicate the claim uses, from
+    // src/lib/sourcing/send-gate.ts, because a count that disagrees with the claim is a
+    // number the operator has no way to check.
+    applySendGate(
+      serviceRole.from('prospects').select('id', { count: 'exact', head: true }),
+      org.id,
+    ),
     supabase
       .from('campaigns')
       .select('id, external_id, name, shell_synced_at, shell_step_count, status, started_at, paused_at')
