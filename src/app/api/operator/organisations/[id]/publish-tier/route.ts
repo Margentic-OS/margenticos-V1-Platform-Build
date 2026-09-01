@@ -13,6 +13,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { claimNotification } from '@/lib/notifications/claim-notification'
+import { asServiceRoleClient } from '@/lib/supabase/service-role'
 import * as Sentry from '@sentry/nextjs'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import { listReadyTemplate, listReadyTemplateText, listReadySubject } from '@/lib/email/templates/list-ready'
@@ -166,22 +168,15 @@ export async function POST(
 
     if (publishedCount > 0) {
       try {
-        // Check if email already sent for this batch today
-        const { data: existingLog } = await supabase
-          .from('notifications_log')
-          .select('id')
-          .eq('organisation_id', organisationId)
-          .eq('notification_type', 'list_ready')
-          .eq('subject_id', batchId)
-          .single()
+        // notifications_log is service-role only. claimNotification takes a branded
+        // ServiceRoleClient, so the session client that broke this cannot be passed.
+        const claim = await claimNotification(asServiceRoleClient(adminClient), {
+          organisationId,
+          notificationType: 'list_ready',
+          subjectId: batchId,
+        })
 
-        if (!existingLog) {
-          // Log notification (creates unique constraint entry)
-          await supabase.from('notifications_log').insert({
-            organisation_id: organisationId,
-            notification_type: 'list_ready',
-            subject_id: batchId,
-          })
+        if (claim === 'claimed') {
 
           // Fetch total published count across ALL tiers (matches what UI shows)
           // The client sees all tiers together on the page, so email shows total prospect count
