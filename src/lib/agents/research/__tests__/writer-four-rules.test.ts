@@ -1,8 +1,21 @@
-// The four writer rules added 2026-09-01, from a human read of 20 shipped emails.
+// The writer rules added 2026-09-01, from a human read of 20 shipped emails.
+//
+// THERE WERE FOUR AND THERE ARE NOW THREE. Rule 3, "attribution must be honest about whose
+// experience it is", is DELETED along with the position rule it was placed beside. The
+// corpus says those two rules created the construction they governed: 0% attributed bridge
+// openings before either existed, 9.8% with both present, and "In my experience" in no
+// opening written before 2026-08-31 and in 16 after. A rule that only ever caused the
+// thing it regulates is not a rule worth keeping, and a ban replacing it would put the
+// word in front of the writer just as effectively. The absence is asserted in
+// write-opening.test.ts, under "the prompt rules nothing about attribution beyond the
+// sender-only rule". The file name is left alone, and so is the numbering: the describes
+// below read RULE 1, RULE 2, RULE 4, and the gap is the point. Renaming the file or
+// closing the gap would tidy the deletion out of sight and break the link from every
+// commit message and review that already points at rule 3 by number.
 //
 // EACH RULE GETS A TEST THAT GOES RED WHEN THAT RULE ALONE IS REVERTED. That is the whole
 // design brief for this file: a single test asserting "the prompt is long" would pass with
-// any three of the four removed, which is the shape that lets a rule quietly disappear.
+// any two of the three removed, which is the shape that lets a rule quietly disappear.
 //
 // The prompt assertions match on the RULE'S OWN LOAD-BEARING CLAUSE rather than on its
 // heading. A heading can survive while the instruction under it is gutted, and matching the
@@ -72,28 +85,6 @@ describe('RULE 2: never assert what the findings do not evidence', () => {
   })
 })
 
-describe('RULE 3: attribution must be honest about whose experience it is', () => {
-  it('states what attribution may claim', () => {
-    expect(prompt).toContain('ATTRIBUTION MAY ONLY CLAIM WHAT THE SENDER HAS ACTUALLY DONE')
-  })
-
-  it('separates reporting what people describe from claiming to have lived it', () => {
-    const rule = prompt.slice(prompt.indexOf('ATTRIBUTION MUST BE HONEST'))
-    expect(rule).toMatch(/Reporting what people in a given position describe is honest/)
-    expect(rule).toMatch(/Claiming\s+to have BEEN IN their situation/)
-  })
-
-  it('sits with the rule that attribution may not open the bridge', () => {
-    // "Put them together" was the instruction. Proved by ORDER, not by both merely existing.
-    const placement = prompt.indexOf('ATTRIBUTION IS OPTIONAL, IT IS NEVER A FIXED OPENER')
-    const honesty = prompt.indexOf('ATTRIBUTION MUST BE HONEST ABOUT WHOSE EXPERIENCE IT IS')
-    expect(placement).toBeGreaterThan(-1)
-    expect(honesty).toBeGreaterThan(placement)
-    // Adjacent, not merely both present somewhere in a 45k-character prompt.
-    expect(honesty - placement).toBeLessThan(2000)
-  })
-})
-
 describe('RULE 4: the closing question must ask what the offer line can answer', () => {
   it('states the rule', () => {
     expect(prompt).toContain(
@@ -117,14 +108,13 @@ describe('RULE 4: the closing question must ask what the offer line can answer',
   })
 })
 
-describe('RULE ZERO: the four rules illustrate nothing', () => {
+describe('RULE ZERO: the remaining rules illustrate nothing', () => {
   // THE FAILURE THIS GUARDS. write-opening.ts has eight recorded instances of a worked
   // example being copied verbatim into a prospect's email. A quoted sentence inside a new
   // rule is a ready-made sentence to lift, so these four carry none.
   const RULES = [
     'NEVER POINT BACK. NAME THE THING AGAIN.',
     'NEVER ASSERT WHAT THE FINDINGS DO NOT EVIDENCE.',
-    'ATTRIBUTION MUST BE HONEST ABOUT WHOSE EXPERIENCE IT IS.',
     'THE AIM TEST HAS A SECOND HALF, AND THE FIRST HALF CANNOT SEE IT.',
   ]
 

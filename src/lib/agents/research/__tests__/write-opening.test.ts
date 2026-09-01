@@ -822,72 +822,85 @@ describe('the opening may not carry its own question mark', () => {
 })
 
 
-// ─── ATTRIBUTION MAY NOT OPEN THE BRIDGE ─────────────────────────────────────
+// ─── THE PROMPT SAYS NOTHING ABOUT WHERE AN ATTRIBUTION SITS OR WHAT IT CLAIMS ─
 //
-// THE MEASUREMENT THAT BOUGHT THE RULE. The prompt already said attribution was optional
-// and never a fixed opener, and it was becoming one anyway: 2 of 24 bridges opened with an
-// attribution in one run and 6 of 20 in the next. Those openers spend 5 to 15 words before
-// the claim begins, against a bridge budget of 22, and one of them spent 15. Mean bridge
-// length rose from 19.2 words to 23.0 between the two runs, and all four length-gate
-// failures in the second run were on over-budget bridges.
+// TWO RULES STOOD HERE AND BOTH ARE DELETED, on the measurement that bought them being
+// read the other way round.
 //
-// "Optional" was doing no work, because nothing said WHERE. The rule now fixes the
-// position: the claim first, the source after it if at all.
+// WHAT WAS MEASURED. Attribution constructions in bridge openings, by corpus: 0% in
+// openings written BEFORE either rule existed, 9.8% under the prompt with both present,
+// 27% with the worked examples removed. "In my experience" appears in no opening written
+// before 2026-08-31 and in 16 written after. The two rules landed 2026-08-31 (223d7f4)
+// and 2026-09-01 (6d81b9f), and the construction appeared only after them.
 //
-// AND THE ENDORSED EXAMPLE WENT WITH IT, which is the part worth noticing. The old rule
-// sat directly above a worked ATTRIBUTED example whose whole first clause was an
-// attribution. A page with eight recorded instances of an example being lifted verbatim
-// into a prospect's email was teaching, by example, the exact shape the prose forbade.
-// Tightening the words and leaving that example in place would have changed nothing.
-// Nothing replaces it: an example of a permitted attribution is precisely the short,
-// prospect-agnostic clause most likely to be copied.
+// SO THEY DID NOT CONSTRAIN A FAULT. THEY ADVERTISED A CONSTRUCTION THE WRITER WAS NOT
+// USING. An earlier investigation had already counted 49 unattributed worked examples
+// against 1 attributed, concluded the writer had nothing to imitate, and recorded the
+// decision to leave attribution available and unused with no attributed example added.
+// Ten of twelve prospects were winning without it. The rules were written to govern a
+// construction whose only measured cause was the rules themselves.
+//
+// NOTHING REPLACES THEM, AND A BAN WOULD BE THE SAME MISTAKE. "Never attribute" is another
+// rule about attribution, and the evidence is that mentioning it at all is what caused
+// this. The prompt is silent on the subject, and this file asserts the silence rather than
+// leaving it to be re-filled by the next person who reads a draft and reaches for a rule.
+//
+// WHAT IS STILL RULED, and why it is not the same thing: "the bridge may attribute, but
+// only to the sender" further down this file. That rule predates both of these by eleven
+// days (8f439df, 2026-08-20) and was live throughout the 0% window, so the measurement
+// above exonerates it rather than implicating it. It also owns NEVER ASSERT A TRACK
+// RECORD, which is a truthfulness guard about invented client work, not a rule about how
+// often the writer reaches for an attributed clause.
 
-describe('attribution may not open the bridge', () => {
+describe('the prompt rules nothing about attribution beyond the sender-only rule', () => {
   const flat = () => buildWriterPrompt().replace(/\s+/g, ' ')
-
-  it('states the position, not just that attribution is optional', () => {
-    expect(flat()).toContain('IT MAY NOT OPEN THE BRIDGE')
-    expect(flat()).toContain('The claim comes first')
-    expect(flat()).toContain('it is never the clause the bridge begins with')
-  })
-
-  it('gives the budget as the reason, at category level', () => {
-    // CLAUDE.md: a rule states WHY. The number is interpolated from OPENING_BUDGET rather
-    // than typed, so the prompt and the gate cannot disagree about what the budget is.
-    const f = flat()
-    expect(f).toContain('THE REASON IS THE BUDGET')
-    expect(f).toContain(`The bridge is ${OPENING_BUDGET.bridge} words`)
-    expect(f).toContain('before the sentence has said anything')
-  })
 
   // ─── THE MUTATION TEST ─────────────────────────────────────────────────────
   //
-  // Restoring the old rule text turns this red. Without it the two assertions above are
-  // satisfied by ADDING the new prose beside the old, which is the change that would look
-  // done and leave the endorsed attribution-first example in the prompt for the writer to
-  // copy. Both halves of the old passage are named: the sentence that was too weak, and
-  // the worked example that contradicted its replacement.
-  it('the old rule and its attribution-first example are gone, not merely added to', () => {
+  // Reinstating either deleted rule turns one of these red. Each matches the rule's own
+  // load-bearing clause as well as its heading, so a reinstatement that reworded the
+  // heading and kept the instruction is caught too. Matching the heading alone would let
+  // the instruction come back under a new title, which is the shape this guards.
+  it('the position rule is gone, heading and instruction alike', () => {
     const f = flat()
-    expect(f, 'the old, weaker sentence is back')
-      .not.toContain('ATTRIBUTION IS OPTIONAL AND NEVER A FIXED OPENER')
-    expect(f, 'the endorsed example opening on an attribution is back')
-      .not.toContain('ATTRIBUTED, same claim, inside the bridge budget')
-    expect(f, 'the endorsed attribution-first clause is back')
-      .not.toContain('The founders I speak to describe the same split')
+    expect(f, 'the position rule heading is back').not.toContain('IT MAY NOT OPEN THE BRIDGE')
+    expect(f, 'the position instruction is back')
+      .not.toContain('it is never the clause the bridge begins with')
+    expect(f, 'the budget justification is back').not.toContain('THE REASON IS THE BUDGET')
+    expect(f, 'the no-example clause is back')
+      .not.toContain('NO EXAMPLE OF A PERMITTED ATTRIBUTION IS GIVEN')
   })
 
-  it('offers no worked example of a permitted attribution, and says so', () => {
-    expect(flat()).toContain('NO EXAMPLE OF A PERMITTED ATTRIBUTION IS GIVEN')
+  it('the honesty rule is gone, heading and instruction alike', () => {
+    const f = flat()
+    expect(f, 'the honesty rule heading is back')
+      .not.toContain('ATTRIBUTION MUST BE HONEST ABOUT WHOSE EXPERIENCE IT IS')
+    expect(f, 'the honesty instruction is back')
+      .not.toContain('ATTRIBUTION MAY ONLY CLAIM WHAT THE SENDER HAS ACTUALLY DONE')
+    expect(f, 'the lived-it distinction is back')
+      .not.toContain('Claiming to have BEEN IN their situation')
   })
 
-  it('still keeps attribution optional and still subject to the batch gate', () => {
-    // The two properties the old passage carried that the tightening does NOT change.
-    // Restricting where an attribution may sit is not the same as requiring one.
+  it('no ban replaced them, which would be the same mistake pointing the other way', () => {
+    // A prohibition is still a rule about attribution, and still puts the word in front of
+    // the writer. The deletion is only worth anything if nothing fills the space.
     const f = flat()
-    expect(f).toContain('ATTRIBUTION IS OPTIONAL')
-    expect(f).toContain('An unattributed pattern is still fine')
-    expect(f).toContain('There is no house phrase for this')
+    expect(f).not.toMatch(/NEVER ATTRIBUTE/i)
+    expect(f).not.toMatch(/DO NOT ATTRIBUTE/i)
+    expect(f).not.toMatch(/attribution is (?:banned|forbidden|not allowed|never)/i)
+  })
+
+  // THE HALF THAT MUST NOT COME BACK EITHER, and it is not implied by the deletions. The
+  // endorsed ATTRIBUTED example was deleted on 2026-08-31 alongside the rule it
+  // illustrated. It is the single most copyable thing this page could carry: a short
+  // prospect-agnostic clause, on a page with eight recorded instances of a worked example
+  // being lifted verbatim into a prospect's email. Removing the rules is not a reason to
+  // put the example back, and an example endorsing the construction would advertise it
+  // harder than the prose ever did.
+  it('no worked example of an attribution returns with the rules going', () => {
+    const f = flat()
+    expect(f).not.toContain('ATTRIBUTED, same claim, inside the bridge budget')
+    expect(f).not.toContain('The founders I speak to describe the same split')
   })
 })
 
@@ -1183,11 +1196,19 @@ describe('the bridge may attribute, but only to the sender', () => {
     expect(flat).not.toMatch(/no clients yet|first client(?:s)? we/i)
   })
 
-  // WHERE THE REST OF THIS RULE IS NOW TESTED. Three tests stood here covering the
-  // paragraph that said attribution was optional, and the worked ASSERTED/ATTRIBUTED pair
-  // beneath it. That passage was replaced by a rule fixing attribution's POSITION, and the
-  // endorsed example went with it because its first clause was an attribution. See
-  // "attribution may not open the bridge" above.
+  // WHAT USED TO STAND HERE, AND WHY NOTHING DOES NOW. Three tests covered the paragraph
+  // saying attribution was optional and the worked ASSERTED/ATTRIBUTED pair beneath it.
+  // That passage became a rule fixing attribution's POSITION on 2026-08-31, and the
+  // endorsed example went with it because its first clause was an attribution. The
+  // position rule and the honesty rule that joined it on 2026-09-01 are both now deleted:
+  // measured against the corpus they advertised the construction rather than constraining
+  // it. See "the prompt rules nothing about attribution beyond the sender-only rule"
+  // above, which asserts their absence.
+  //
+  // THIS RULE IS NOT THOSE RULES. It predates them by eleven days and was live throughout
+  // the window that measured 0% attributed openings, so it is untouched by that finding.
+  // The three tests above it here cover what it still owns: the sender-only permission,
+  // the peer-group ban, and the track-record prohibition.
 })
 
 // ─── The camera test and plain verbs ────────────────────────────────────────
