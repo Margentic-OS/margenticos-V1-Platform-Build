@@ -11,7 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE } from '../verification-trigger'
+import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE, MAX_RETRY_ATTEMPTS } from '../verification-trigger'
 import { myemailverifierHandler } from '../handlers/adapter-myemailverifier'
 
 const ORG = 'org-1'
@@ -36,6 +36,10 @@ function fakeSupabase(rows: FakeRow[], opts: { dailyCount?: number; countError?:
       // 'rows' = the lockable-prospect select. 'count' = the daily free-tier head count.
       // 'single' = the attempt-count read on the failure path.
       let mode: 'rows' | 'count' | 'single' = 'rows'
+      // HONOURED, not swallowed. A fake that returns `chain` for a filter it does not
+      // implement cannot test that filter: the rows come back whole either way, and deleting
+      // the filter from the real query fails nothing. This one is applied in then().
+      const ltFilters: Array<[string, number]> = []
 
       const chain: Record<string, unknown> = {
         select(_cols: string, o?: { count?: string; head?: boolean }) {
@@ -48,6 +52,7 @@ function fakeSupabase(rows: FakeRow[], opts: { dailyCount?: number; countError?:
         or() { return chain },
         not() { return chain },
         gte() { return chain },
+        lt(col: string, val: number) { ltFilters.push([col, val]); return chain },
         order() { return chain },
         limit() { return chain },
         maybeSingle() {
@@ -78,8 +83,15 @@ function fakeSupabase(rows: FakeRow[], opts: { dailyCount?: number; countError?:
             )
             return
           }
+          const selectable = rows.filter(r =>
+            ltFilters.every(([col, val]) =>
+              col === 'verification_attempt_count'
+                ? (r.verification_attempt_count ?? 0) < val
+                : true,
+            ),
+          )
           resolve({
-            data: rows.map(r => ({ id: r.id, email: r.email, country: r.country ?? null })),
+            data: selectable.map(r => ({ id: r.id, email: r.email, country: r.country ?? null })),
             error: null,
           })
         },
@@ -204,4 +216,38 @@ describe('BUG 3 — the outbound probe must be able to give up', () => {
       /Email verification failed/,
     )
   }, 30_000)
+})
+
+describe('BUG 5 — the never-verified branch had no retry cap', () => {
+  // Measured on 2026-09-01: 34 enriched rows in one organisation, every one carrying the same
+  // provider error, every one still selected on every ten-minute sweep. The cap lived inside
+  // the Grey-listed arm of the .or() only, and a failed probe leaves the status NULL, so a row
+  // that could never succeed satisfied the unbounded arm forever. The counter was already
+  // being written on the failure path. Nothing read it.
+  it('stops probing a never-verified row once it has used its attempts', async () => {
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client } = fakeSupabase([
+      { id: 'spent', email: 'spent@b.com', verification_attempt_count: MAX_RETRY_ATTEMPTS },
+      { id: 'left', email: 'left@b.com', verification_attempt_count: MAX_RETRY_ATTEMPTS - 1 },
+    ])
+
+    await verifyEnrichedBatch(client, ORG, 5)
+
+    // Behavioural, not a read of the query builder: the spent row costs nothing because no
+    // call is made for it, and the row with an attempt left is still served.
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledWith('left@b.com')
+  })
+
+  it('stops probing a row that has run past the cap', async () => {
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client } = fakeSupabase([
+      { id: 'over', email: 'over@b.com', verification_attempt_count: MAX_RETRY_ATTEMPTS + 1 },
+    ])
+
+    const run = await verifyEnrichedBatch(client, ORG, 5)
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(run.total_verified).toBe(0)
+  })
 })

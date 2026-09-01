@@ -39,7 +39,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
-import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE } from '@/lib/sourcing/verification-trigger'
+import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE, MAX_RETRY_ATTEMPTS } from '@/lib/sourcing/verification-trigger'
 
 export const dynamic = 'force-dynamic'
 // The trigger sleeps 2s per address for rate limiting, so a batch is mostly deliberate
@@ -114,6 +114,14 @@ async function findOrganisationWithPendingVerification(
     .eq('enrichment_status', 'enriched')
     .is('independent_email_status', null)
     .not('email', 'is', null)
+    // THE SAME RETRY CAP verifyEnrichedBatch APPLIES, because this query has to agree with it.
+    //
+    // This picks the organisation; the trigger picks the rows. Bounding only the trigger turns
+    // a money bug into a starvation bug: rows that have run out of attempts stay NULL, they are
+    // the oldest work on the platform, so this query would keep nominating their organisation
+    // while the trigger selected nothing from it, and no other organisation would ever be
+    // reached. Same constant, imported, not a second copy of the number.
+    .lt('verification_attempt_count', MAX_RETRY_ATTEMPTS)
     .is('organisations.archived_at', null)
     .order('created_at', { ascending: true })
     .limit(1)
