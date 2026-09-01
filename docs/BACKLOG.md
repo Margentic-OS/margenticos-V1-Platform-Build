@@ -9894,3 +9894,55 @@ and is the write most likely to happen by accident.
 
   Recording the shape rather than a fix, per the standing rule that a backlog entry states
   the problem and the session that acts on it decides the remedy.
+
+- [monitor] The writer's back-reference check is REPORT ONLY and cannot block yet (2026-09-01)
+
+  `OPENING_REFERENCE_MODE` in src/lib/style/opening-reference.ts is `'report'`. The check
+  runs on every writer attempt through `checkOpeningGates`, logs each hit as
+  `writer-back-reference: would reject`, and returns an empty array, so it rejects nothing.
+
+  MEASURED before it was wired, over 44 real openings replayed offline with zero model
+  calls: 24 stored in `prospects.personalisation_trigger` and 20 from the compare-run
+  export. It flags 14 of 24 and 13 of 20. Gating today would reject 27 of 44, SEVEN OF
+  THEM WRONGLY, and a wrong rejection costs a writer attempt and can drop the prospect to
+  the approved template, which is worse copy than any of the seven sentences it would
+  reject.
+
+  The seven false positives are four distinct shapes, all in the demonstrative signal:
+    a degree modifier                       "a firm this young"
+    a relative pronoun                      "the firm that already has the answers"
+    a complementiser                        "is that client development sits"
+    an antecedent inside the SAME sentence  three of the four observation-pass hits
+  The pronominal-"one" signal is 8 for 8 genuine and is the shape the human read found.
+
+  BEFORE FLIPPING TO 'block': exclude those four shapes, re-run the replay, and confirm a
+  measured zero. Record what the replay showed here, the way the sentence-initial gate's
+  flip was recorded. Do not flip on the argument alone. Review after 2026-09-15.
+
+  THE CORPUS IS SMALLER THAN IT LOOKS, and this is the part not to over-trust. 36 rows
+  carry a stored trigger and only 24 have a bridge paragraph; the other 12 are the older
+  single-paragraph format, so THERE IS NOTHING IN THEM TO SCAN and their silence is not
+  evidence. The export holds 24 records and 4 have no observation or bridge at all, having
+  lost the judge comparison or hit a length gate and fallen back to the template.
+
+- [post-build] findBackReferences tests demonstratives without looking for an antecedent (2026-09-01)
+
+  `findBackReferences` in src/lib/style/back-reference.ts has two signals and they are not
+  symmetric. The PRONOUN check calls `hasAntecedentBefore` and clears a pronoun whose
+  referent is named earlier in the same paragraph. The DEMONSTRATIVE check does no such
+  test: any demonstrative binding a noun is a hit, whether or not the noun it points at
+  sits in its own sentence.
+
+  So a correct English sentence that names a thing and then refers to it within the same
+  sentence is flagged. Measured 2026-09-01, three of the four hits from the writer's
+  observation pass are exactly this, and every one of them is good copy.
+
+  NOT FIXED IN THE COMMIT THAT FOUND IT, deliberately. `findBackReferences` gates the
+  MESSAGING AGENT IN BLOCK MODE today. Teaching its demonstrative check to look for an
+  antecedent would change what that live gate rejects, measured against a different corpus,
+  inside a commit about the research writer. That is a drive-by change to a hard gate.
+
+  Whoever takes this: the fix is to give the demonstrative check the same
+  `hasAntecedentBefore` treatment the pronoun check already has, and to MUTATION-TEST it
+  against the messaging agent's own corpus before merging, not only against the writer's.
+  The two corpora disagree and the gate that matters most is the one already blocking.
