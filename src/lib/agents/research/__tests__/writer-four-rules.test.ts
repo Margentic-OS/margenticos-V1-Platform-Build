@@ -72,28 +72,6 @@ describe('RULE 2: never assert what the findings do not evidence', () => {
   })
 })
 
-describe('RULE 3: attribution must be honest about whose experience it is', () => {
-  it('states what attribution may claim', () => {
-    expect(prompt).toContain('ATTRIBUTION MAY ONLY CLAIM WHAT THE SENDER HAS ACTUALLY DONE')
-  })
-
-  it('separates reporting what people describe from claiming to have lived it', () => {
-    const rule = prompt.slice(prompt.indexOf('ATTRIBUTION MUST BE HONEST'))
-    expect(rule).toMatch(/Reporting what people in a given position describe is honest/)
-    expect(rule).toMatch(/Claiming\s+to have BEEN IN their situation/)
-  })
-
-  it('sits with the rule that attribution may not open the bridge', () => {
-    // "Put them together" was the instruction. Proved by ORDER, not by both merely existing.
-    const placement = prompt.indexOf('ATTRIBUTION IS OPTIONAL, IT IS NEVER A FIXED OPENER')
-    const honesty = prompt.indexOf('ATTRIBUTION MUST BE HONEST ABOUT WHOSE EXPERIENCE IT IS')
-    expect(placement).toBeGreaterThan(-1)
-    expect(honesty).toBeGreaterThan(placement)
-    // Adjacent, not merely both present somewhere in a 45k-character prompt.
-    expect(honesty - placement).toBeLessThan(2000)
-  })
-})
-
 describe('RULE 4: the closing question must ask what the offer line can answer', () => {
   it('states the rule', () => {
     expect(prompt).toContain(
@@ -117,14 +95,14 @@ describe('RULE 4: the closing question must ask what the offer line can answer',
   })
 })
 
-describe('RULE ZERO: the four rules illustrate nothing', () => {
+describe('RULE ZERO: the surviving rules illustrate nothing', () => {
   // THE FAILURE THIS GUARDS. write-opening.ts has eight recorded instances of a worked
   // example being copied verbatim into a prospect's email. A quoted sentence inside a new
-  // rule is a ready-made sentence to lift, so these four carry none.
+  // rule is a ready-made sentence to lift, so these carry none. RULE 3 was attribution
+  // honesty and is gone with the rest of the attribution prose, so three remain.
   const RULES = [
     'NEVER POINT BACK. NAME THE THING AGAIN.',
     'NEVER ASSERT WHAT THE FINDINGS DO NOT EVIDENCE.',
-    'ATTRIBUTION MUST BE HONEST ABOUT WHOSE EXPERIENCE IT IS.',
     'THE AIM TEST HAS A SECOND HALF, AND THE FIRST HALF CANNOT SEE IT.',
   ]
 

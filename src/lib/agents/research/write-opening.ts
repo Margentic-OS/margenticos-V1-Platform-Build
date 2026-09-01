@@ -490,6 +490,14 @@ not yours to write, and the fix is a different sentence rather than a softer one
 If no consequence follows from an observation, that observation was the wrong one to choose.
 Pick another finding.
 
+NEVER ASSERT A TRACK RECORD. Do not claim a client relationship, a past engagement, a
+delivered result, or a case study unless the approved documents you were given state it
+outright. Anything not in those documents did not happen for the purposes of this email.
+This is not a question of tone. A claim about work that was never done is the one thing
+that cannot be walked back once the reader asks about it, and it is the sender who has to
+answer, not you. An outcome you cannot point to in the documents is not yours to mention
+at all.
+
 THE BRIDGE MUST FOLLOW FROM ITS OWN OBSERVATION.
 
 The bridge is about the same thing the observation named. Not a second, unrelated point that
@@ -518,74 +526,6 @@ FAILING: "the advisory work fills the diary, and the question of who to go after
  unresolved long after the call ends."
 One sentence carrying a clause, a second clause and a trailing qualifier. Two sentences, each
 standing on its own, and inside the bridge budget.
-
-YOU MAY ATTRIBUTE THE PATTERN, BUT ONLY TO YOURSELF.
-
-A bridge stated flatly as how the world works is the bluntness that reads presumptuous.
-"Governance work has fixed dates and shows up on a calendar. Business development does not."
-is delivered as fact about their category, and the reader either agrees or has been told
-they are wrong about their own week.
-
-ALLOWED: attributing the pattern to what YOU have seen or heard. That is a claim about your
-own experience. It is true, it is checkable against nothing, and the reader can disagree
-with it without being contradicted about their own business.
-
-NOT ALLOWED, and this is the trap: attributing to THEIR peer group as fact. "Here's the
-assumption most founders make" and "Most firms at this stage find" are not softer
-versions of the same thing. They still tell the reader what he thinks, and they claim a
-bigger sample while doing it. The question is always whose experience is being reported.
-Yours is honest. Theirs is a verdict wearing a larger number.
-
-NEVER ASSERT A TRACK RECORD. Do not claim a client relationship, a past engagement, a
-delivered result, or a case study unless the approved documents you were given state it
-outright. Anything not in those documents did not happen for the purposes of this email.
-This is not a question of tone. A claim about work that was never done is the one thing
-that cannot be walked back once the reader asks about it, and it is the sender who has to
-answer, not you. A pattern you have noticed is yours to report. An outcome you cannot
-point to in the documents is not yours to mention at all.
-
-ATTRIBUTION IS OPTIONAL, IT IS NEVER A FIXED OPENER, AND IT MAY NOT OPEN THE BRIDGE.
-
-The claim comes first. If the source of the claim needs stating at all, it follows the
-claim, and it is never the clause the bridge begins with.
-
-THE REASON IS THE BUDGET. The bridge is ${OPENING_BUDGET.bridge} words. An opening
-attribution spends up to a quarter of that before the sentence has said anything, so a
-bridge that begins by establishing whose experience this is reaches its actual point
-already over length. A bridge that opens on the claim has the whole budget to make it.
-
-An unattributed pattern is still fine where it reads as something noticed rather than
-something pronounced. If every bridge in the batch opens the same way, that is the
-sentence-shape problem returning in a new costume, and the batch gate treats an attributed
-opening exactly like any other: the second prospect to use that shape is rejected. There is
-no house phrase for this. Build the attribution out of your own words the same way you build
-the rest of the sentence.
-
-NO EXAMPLE OF A PERMITTED ATTRIBUTION IS GIVEN, AND THE ABSENCE IS DELIBERATE. A short
-endorsed clause that would fit any prospect is the most copyable thing this page could
-contain, and lifted examples are what the batch gate has already thrown attempts away for.
-The rule above is the whole instruction. Write your own.
-
-ATTRIBUTION MUST BE HONEST ABOUT WHOSE EXPERIENCE IT IS.
-
-The two rules above govern WHERE an attribution may sit and WHOSE it may be. This one
-governs WHAT IT MAY CLAIM, and it is the one that has shipped a false statement.
-
-ATTRIBUTION MAY ONLY CLAIM WHAT THE SENDER HAS ACTUALLY DONE.
-
-Reporting what people in a given position describe is honest, and it is the entire value of
-an attributed pattern: it is a real claim about a real thing the sender has heard. Claiming
-to have BEEN IN their situation is a different claim, and it is only available if the
-approved documents say the sender has been in it.
-
-The distinction is not a matter of tone and it is not a hedge. Having talked to people in a
-position and having occupied that position are two different facts about the sender. One is
-true. Writing the other because it sounds warmer is a claim the reader can disprove with a
-single reply, and it is the sender who has to answer it.
-
-BEFORE YOU WRITE AN ATTRIBUTED CLAUSE, DECIDE WHICH OF THE TWO YOU ARE CLAIMING, AND WRITE
-THE ONE THAT IS TRUE. If you are not certain the sender has lived it, you are reporting what
-you have heard, and the clause has to say so.
 
 NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME.
 

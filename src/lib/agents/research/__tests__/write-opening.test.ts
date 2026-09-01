@@ -822,72 +822,52 @@ describe('the opening may not carry its own question mark', () => {
 })
 
 
-// ─── ATTRIBUTION MAY NOT OPEN THE BRIDGE ─────────────────────────────────────
+// ─── THE PROMPT SAYS NOTHING ABOUT ATTRIBUTION ───────────────────────────────
 //
-// THE MEASUREMENT THAT BOUGHT THE RULE. The prompt already said attribution was optional
-// and never a fixed opener, and it was becoming one anyway: 2 of 24 bridges opened with an
-// attribution in one run and 6 of 20 in the next. Those openers spend 5 to 15 words before
-// the claim begins, against a bridge budget of 22, and one of them spent 15. Mean bridge
-// length rose from 19.2 words to 23.0 between the two runs, and all four length-gate
-// failures in the second run were on over-budget bridges.
+// WHAT THIS ARM IS. Three consecutive rule blocks discussed attribution: WHERE it may sit
+// (position and budget), WHOSE it may be (the sender, never the peer group), and WHAT it
+// may claim (only what the sender has actually done). All three are deleted. No
+// replacement and no ban were added, because a rule saying never attribute is another
+// twenty lines about attribution, and the whole question is whether the prose is what
+// produces the shape.
 //
-// "Optional" was doing no work, because nothing said WHERE. The rule now fixes the
-// position: the claim first, the source after it if at all.
+// THE MEASUREMENTS THAT LED HERE. The prompt has held ZERO endorsed attributed bridge
+// specimens since 223d7f4 on 2026-08-31, and the writer produced the construction anyway:
+// 4 of 41 with rules and examples present, 10 of 37 with all 77 worked examples removed,
+// 7 of 39 with two of the three rule blocks deleted. The third block survived that arm,
+// and it alone carries "BEFORE YOU WRITE AN ATTRIBUTED CLAUSE" and "the clause has to say
+// so", so no arm had measured the prompt with attribution actually absent.
 //
-// AND THE ENDORSED EXAMPLE WENT WITH IT, which is the part worth noticing. The old rule
-// sat directly above a worked ATTRIBUTED example whose whole first clause was an
-// attribution. A page with eight recorded instances of an example being lifted verbatim
-// into a prospect's email was teaching, by example, the exact shape the prose forbade.
-// Tightening the words and leaving that example in place would have changed nothing.
-// Nothing replaces it: an example of a permitted attribution is precisely the short,
-// prospect-agnostic clause most likely to be copied.
+// THIS IS THE MUTATION GUARD FOR THE ARM. Restoring any of the three blocks turns it red,
+// and so does restoring the endorsed example deleted in 223d7f4.
 
-describe('attribution may not open the bridge', () => {
+describe('the writer prompt says nothing about attribution', () => {
   const flat = () => buildWriterPrompt().replace(/\s+/g, ' ')
 
-  it('states the position, not just that attribution is optional', () => {
-    expect(flat()).toContain('IT MAY NOT OPEN THE BRIDGE')
-    expect(flat()).toContain('The claim comes first')
-    expect(flat()).toContain('it is never the clause the bridge begins with')
+  it('uses no form of the word anywhere in the prompt', () => {
+    // The whole deletion in one assertion. All fourteen occurrences of the stem sat inside
+    // the three blocks, so one scan covers all three and cannot be satisfied by deleting
+    // two of them.
+    expect(flat()).not.toMatch(/attribut/i)
   })
 
-  it('gives the budget as the reason, at category level', () => {
-    // CLAUDE.md: a rule states WHY. The number is interpolated from OPENING_BUDGET rather
-    // than typed, so the prompt and the gate cannot disagree about what the budget is.
+  it('none of the three rule headings is back', () => {
     const f = flat()
-    expect(f).toContain('THE REASON IS THE BUDGET')
-    expect(f).toContain(`The bridge is ${OPENING_BUDGET.bridge} words`)
-    expect(f).toContain('before the sentence has said anything')
+    expect(f, 'the sender-only block is back')
+      .not.toContain('YOU MAY ATTRIBUTE THE PATTERN, BUT ONLY TO YOURSELF')
+    expect(f, 'the position block is back')
+      .not.toContain('IT MAY NOT OPEN THE BRIDGE')
+    expect(f, 'the honesty block is back')
+      .not.toContain('ATTRIBUTION MUST BE HONEST ABOUT WHOSE EXPERIENCE IT IS')
   })
 
-  // ─── THE MUTATION TEST ─────────────────────────────────────────────────────
-  //
-  // Restoring the old rule text turns this red. Without it the two assertions above are
-  // satisfied by ADDING the new prose beside the old, which is the change that would look
-  // done and leave the endorsed attribution-first example in the prompt for the writer to
-  // copy. Both halves of the old passage are named: the sentence that was too weak, and
-  // the worked example that contradicted its replacement.
-  it('the old rule and its attribution-first example are gone, not merely added to', () => {
+  it('the endorsed attribution-first example stays deleted', () => {
+    // Carried over from the 2026-08-31 mutation test. The rule that guard was attached to
+    // is gone; the guard it bought is not. That clause is the most copyable sentence the
+    // page ever held.
     const f = flat()
-    expect(f, 'the old, weaker sentence is back')
-      .not.toContain('ATTRIBUTION IS OPTIONAL AND NEVER A FIXED OPENER')
-    expect(f, 'the endorsed example opening on an attribution is back')
-      .not.toContain('ATTRIBUTED, same claim, inside the bridge budget')
-    expect(f, 'the endorsed attribution-first clause is back')
-      .not.toContain('The founders I speak to describe the same split')
-  })
-
-  it('offers no worked example of a permitted attribution, and says so', () => {
-    expect(flat()).toContain('NO EXAMPLE OF A PERMITTED ATTRIBUTION IS GIVEN')
-  })
-
-  it('still keeps attribution optional and still subject to the batch gate', () => {
-    // The two properties the old passage carried that the tightening does NOT change.
-    // Restricting where an attribution may sit is not the same as requiring one.
-    const f = flat()
-    expect(f).toContain('ATTRIBUTION IS OPTIONAL')
-    expect(f).toContain('An unattributed pattern is still fine')
-    expect(f).toContain('There is no house phrase for this')
+    expect(f).not.toContain('ATTRIBUTED, same claim, inside the bridge budget')
+    expect(f).not.toContain('The founders I speak to describe the same split')
   })
 })
 
@@ -1059,7 +1039,7 @@ describe('the writer prompt bans abstract nouns and metaphors', () => {
 })
 
 
-// ─── The per-part budget, and attribution ───────────────────────────────────
+// ─── The per-part budget ────────────────────────────────────────────────────
 
 describe('the budget is per part and sits below the gate', () => {
   it('sums to the stated target', () => {
@@ -1153,24 +1133,14 @@ describe('a length failure names the part that is over', () => {
   })
 })
 
-describe('the bridge may attribute, but only to the sender', () => {
+describe('the writer prompt forbids asserting a track record', () => {
   const prompt = () => buildWriterPrompt()
 
-  it('allows the sender own experience and says why', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('YOU MAY ATTRIBUTE THE PATTERN, BUT ONLY TO YOURSELF')
-    expect(flat).toContain('a claim about your own experience')
-  })
-
-  it('rules out the peer group as fact, and says it is not the softer option', () => {
-    const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('attributing to THEIR peer group as fact')
-    expect(flat).toContain('are not softer versions of the same thing')
-    expect(flat).toContain('a verdict wearing a larger number')
-    // Both real offenders, quoted so they cannot come back as "acceptable hedging".
-    expect(flat).toContain("Here's the assumption most founders make")
-    expect(flat).toContain('Most firms at this stage find')
-  })
+  // WHERE THIS RULE NOW SITS, AND WHY IT MOVED. It was written inside the block that let
+  // the sender attribute a pattern to their own experience, and it is not about
+  // attribution: it is a truthfulness guard about inventing client work. When the three
+  // attribution blocks were deleted it moved to the end of the findings-traceability
+  // section, next to the other rules about what a claim has to be traceable to.
 
   it('forbids asserting a track record, and says nothing about how many clients exist', () => {
     const flat = prompt().replace(/\s+/g, ' ')
@@ -1183,11 +1153,27 @@ describe('the bridge may attribute, but only to the sender', () => {
     expect(flat).not.toMatch(/no clients yet|first client(?:s)? we/i)
   })
 
-  // WHERE THE REST OF THIS RULE IS NOW TESTED. Three tests stood here covering the
-  // paragraph that said attribution was optional, and the worked ASSERTED/ATTRIBUTED pair
-  // beneath it. That passage was replaced by a rule fixing attribution's POSITION, and the
-  // endorsed example went with it because its first clause was an attribution. See
-  // "attribution may not open the bridge" above.
+  it('sits with the findings-traceability rules, not stranded on its own', () => {
+    // Proved by ORDER, not by presence. The rule lost its neighbours when the attribution
+    // blocks went, so a test that only checks it is still in the prompt would pass with it
+    // left anywhere at all.
+    const p = prompt()
+    const traceability = p.indexOf('NEVER ASSERT WHAT THE FINDINGS DO NOT EVIDENCE')
+    const record = p.indexOf('NEVER ASSERT A TRACK RECORD')
+    const next = p.indexOf('THE BRIDGE MUST FOLLOW FROM ITS OWN OBSERVATION')
+    expect(traceability).toBeGreaterThan(-1)
+    expect(record).toBeGreaterThan(traceability)
+    expect(next).toBeGreaterThan(record)
+  })
+
+  it('drops the clause inside it that presupposed attribution', () => {
+    // "A pattern you have noticed is yours to report" sat in this rule as the positive half
+    // of a contrast. It licenses the construction without using the word, so it went with
+    // the blocks. The negative half is a complete rule standing on its own.
+    const flat = prompt().replace(/\s+/g, ' ')
+    expect(flat).not.toContain('A pattern you have noticed is yours to report')
+    expect(flat).toContain('An outcome you cannot point to in the documents is not yours to mention')
+  })
 })
 
 // ─── The camera test and plain verbs ────────────────────────────────────────
