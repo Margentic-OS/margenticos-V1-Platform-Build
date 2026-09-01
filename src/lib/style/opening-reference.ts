@@ -31,9 +31,8 @@
 //
 // ─── PRONOMINAL "one" IS DETECTED HERE AND NOT IN back-reference.ts ──────────
 //
-// STATED PLAINLY BECAUSE THE MEASUREMENT INVERTS THE OBVIOUS ASSUMPTION. The four faults a
-// human read pulled out of 20 shipped openings were all the SAME shape, and findBackReferences
-// catches NONE of them:
+// The four faults a human read pulled out of 20 shipped openings were all the SAME shape,
+// and findBackReferences catches NONE of them:
 //
 //   "the ones who don't know them yet"   "the ones who did not attend"
 //   "the current one"                    "the next one on the calendar"
@@ -42,13 +41,23 @@
 // demonstrative gate cannot see them: there is no demonstrative. The pronoun gate cannot see
 // them: "one" and "ones" are listed in NON_NOUN_FOLLOWERS, which is correct there and makes
 // them invisible here. They fall out as definite-article hits, which are report-only and fire
-// on 22 of 24 openings, so they arrive buried in noise that can never be gated.
+// on 22 of 24 corpus A openings, so they arrive buried in noise that can never be gated.
 //
-// MEASURED 2026-09-01 over both corpora: demonstratives flag 8 of the 20 export openings and
-// pronominal-"one" flags 4 more, WITH ZERO OVERLAP. Wiring only the existing detector would
-// have reported success while missing every case the read actually found. That is the shape
-// CLAUDE.md calls a check that cannot see the class it was written to find, so the shape is
-// detected here rather than left out and called covered.
+// THE "ZERO OVERLAP" CLAIM THAT ORIGINALLY JUSTIFIED THIS FILE DID NOT SURVIVE FRESH DATA,
+// and it is corrected here rather than left standing. On corpus A the two signals hit
+// disjoint openings, which read as proof that wiring only the existing detector would have
+// reported success while missing every case the human read found. Re-measured on corpus B
+// (both corpora defined below), the openings split:
+//
+//   flagged by BOTH signals            7
+//   demonstratives alone              20
+//   pronominal-"one" alone             3   <- of these, ONE is genuine and two are not
+//   clean                             11
+//
+// So this shape earns its place by ONE OPENING IN 41, not by the disjoint set the first
+// measurement suggested. It is kept, because one opening is still one the existing detector
+// cannot reach and the signal is cheap and report-only, but the original argument for it was
+// stronger than the evidence and is not repeated here.
 //
 // It is NOT added to findBackReferences itself, because that function gates the messaging
 // agent in BLOCK mode today and this shape has never been measured against authored email
@@ -68,53 +77,83 @@ import { findBackReferences } from './back-reference'
 // measured at a zero false-positive rate. It cannot be flipped on the strength of the
 // numbers below.
 //
-// MEASURED 2026-09-01 over 44 real openings, replayed offline with zero model calls: 24
-// stored in prospects.personalisation_trigger and 20 from the compare-run export. The
-// numbers come from findOpeningReferences itself, not from a replay that reimplements it.
+// TWO MEASUREMENTS ARE RECORDED, NOT ONE, because the second corrects the first and the
+// DIFFERENCE between them is the thing worth carrying. Both come from findOpeningReferences
+// itself, replayed offline with zero model calls, not from a replay that reimplements it.
 //
-// TWO CORPORA WERE SMALLER THAN THEY LOOK, and saying so is the point. 36 rows carry a
-// stored trigger and only 24 have a bridge paragraph; the other 12 are the older
-// single-paragraph format, so there is NOTHING IN THEM TO SCAN and they are not a clean
-// bill of health. The export holds 24 records and 4 have no observation or bridge at all,
-// having lost the judge comparison or hit a length gate and fallen back to the template.
+// CORPUS A, measured 2026-09-01. 44 openings drawn from AT MOST 24 DISTINCT PROSPECTS: 24
+// stored in prospects.personalisation_trigger, plus 20 from the compare-run export, which
+// re-generated the same population. 36 rows carry a stored trigger and only 24 have a bridge
+// paragraph; the other 12 are the older single-paragraph format, so THERE IS NOTHING IN THEM
+// TO SCAN and their silence is not a clean bill of health. The export holds 24 records and 4
+// have no observation or bridge at all, having lost the judge comparison or hit a length gate.
 //
-//                          stored (24)   export (20)
-//   openings flagged          14            13
-//   demonstrative hits        17            12
-//   pronominal-one hits        4             4
-//   unanchored it/they/them    0             0
+// CORPUS B, measured 2026-09-01. 41 openings from 41 DISTINCT PROSPECTS, each generated once:
+// every prospect researched that day whose stored trigger carries both paragraphs.
 //
-// PRONOMINAL-"one" IS 8 FOR 8 GENUINE, and it is the shape the human read actually found.
+//                              corpus A                corpus B
+//                              44 openings             41 openings
+//                              <=24 prospects          41 prospects
+//   openings flagged             27 of 44                30 of 41
+//   demonstrative hits           29                      30
+//   demonstrative precision      ~76%  (22 of 29)        53%  (16 of 30)
+//   pronominal-one hits           8                      10
+//   pronominal-one precision     100%  (8 of 8)          30%  (3 of 10)
+//   unanchored it/they/them       0                       0
 //
-// THE DEMONSTRATIVE SIGNAL IS ROUGHLY THREE QUARTERS PRECISE, read by hand over all 29:
-// seven are false positives, in three distinct shapes, and all three are the ambiguity
-// NON_NOUN_FOLLOWERS exists to suppress, escaping it on a word that list does not carry.
-//   a degree modifier            "a firm this young"
-//   a relative pronoun           "the firm that already has the answers"
-//   a complementiser             "is that client development sits"
-// A FOURTH SHAPE COMES FROM THE OBSERVATION PASS SPECIFICALLY: a demonstrative whose
-// antecedent sits in ITS OWN SENTENCE. Three of the four observation hits are that, and
-// they are correct English. The demonstrative check in back-reference.ts does not test for
-// an antecedent at all, unlike the pronoun check beside it, which is why they land here.
+// WHY THE TWO DISAGREE, and this is the part to carry rather than either set of numbers.
+// CORPUS A WAS 24 PROSPECTS GENERATED REPEATEDLY, so its hits are CORRELATED BY PROSPECT:
+// the same sentence, regenerated, is counted again. Its effective sample was far smaller
+// than its hit count made it look, and a perfect 8 for 8 spread over a handful of repeated
+// sentences is not evidence that a signal is precise. Corpus B is one opening per prospect,
+// so its denominators are real and independent. READ CORPUS B. Corpus A is kept only so the
+// correction stays visible instead of the old number being quietly overwritten.
 //
-// THAT WEAKNESS IS INHERITED AND DELIBERATELY NOT FIXED HERE. findBackReferences gates the
-// messaging agent in BLOCK mode today. Teaching its demonstrative check to look for an
-// antecedent would change what that live gate rejects, measured against a different corpus,
-// in a commit about the writer. It is recorded in BACKLOG instead.
+// THE FALSE-POSITIVE SHAPES, hand-read over all 40 corpus B hits. The demonstrative signal's
+// 14 misses are FIVE shapes, and all five are the ambiguity NON_NOUN_FOLLOWERS exists to
+// suppress, escaping it on a word that list does not carry:
 //
-// SO THIS CANNOT BLOCK TODAY, and the arithmetic is the reason rather than the principle:
-// gating now would reject 27 of 44 openings, seven of them wrongly. At two or three writer
-// attempts per prospect a wrong rejection costs a Sonnet call and can drop the prospect to
-// the approved template, which is worse copy than any of the seven sentences above. The
-// prompt rule lands first. This measures whether it worked.
+//   a relative pronoun                    5   "a gap that rarely opens"
+//   an antecedent in the SAME sentence    4   "the hours that are left ... those hours go last"
+//   a complementiser                      2   "find that new conversations wait"
+//   a deictic "this"                      2   "this business", "this February"
+//   a degree modifier                     1   "a reputation that strong"
 //
-// TO FLIP: change to 'block', and only after the false-positive shapes above are excluded
-// and a fresh replay measures them at zero. Record what the replay showed in BACKLOG.
+// THE DEICTIC "this" SHAPE IS NEW AND WAS NOT IN THE FIRST RECORD. It points at the world the
+// reader is standing in, not backwards at a noun. Nothing is being referred to, so there is
+// nothing that can go missing when the paragraph above is replaced at composition. It comes
+// from the observation pass specifically, and it is the shape most likely to recur, because
+// the observation is written about the present.
+//
+// ALL SEVEN pronominal-"one" misses are the same-sentence shape: an apposition, or a noun
+// named in the same sentence. Every one of them is ordinary English.
+//
+// THAT SAME-SENTENCE WEAKNESS IS INHERITED AND DELIBERATELY NOT FIXED HERE. The demonstrative
+// check in back-reference.ts does not test for an antecedent at all, unlike the pronoun check
+// beside it. findBackReferences gates the messaging agent in BLOCK mode today, so teaching it
+// to look for an antecedent would change what that live gate rejects, measured against a
+// different corpus, inside a commit about the writer. It is recorded in BACKLOG instead.
+//
+// SO THIS CANNOT BLOCK, and the arithmetic is the reason rather than the principle. Gating on
+// corpus B would reject 30 of 41 openings, and 21 of the 40 hits behind them are wrong. At two
+// or three writer attempts per prospect a wrong rejection costs a Sonnet call and can drop the
+// prospect to the approved template, which is worse copy than any sentence it would reject.
+// The prompt rule lands first. This measures whether it worked.
+//
+// TO FLIP: NOT ON A DATE. No review date is recorded here, and the absence is deliberate.
+// There is no day on which this becomes flippable; it becomes flippable on EVIDENCE, and the
+// evidence is specific: a SENTENCE-SCOPED variant of this check, one that clears a pointer
+// whose antecedent sits in its own sentence, measured clean on a corpus large enough that
+// "clean" means something. One opening per prospect, and enough of them that the denominator
+// carries weight.
+//
+// THREE OF THREE ON CORPUS B IS NOT THAT EVIDENCE. Sentence-scoping would remove all seven
+// pronominal-"one" false positives, leaving its three genuine hits and reading 3 of 3. Three
+// is a handful, and the same signal read 8 for 8 on corpus A immediately before falling to
+// 3 of 10 once the denominators were independent. A perfect score on a tiny corpus is what
+// this entry exists to warn about. Record what any future replay shows in BACKLOG.
 export type OpeningReferenceMode = 'report' | 'block'
 export const OPENING_REFERENCE_MODE: OpeningReferenceMode = 'report'
-
-/** Review date, for the BACKLOG entry and for whoever finds this later. */
-export const OPENING_REFERENCE_REVIEW_AFTER = '2026-09-15'
 
 /**
  * "one" or "ones" standing in for a noun named earlier.
@@ -165,7 +204,7 @@ function scanPart(text: string, part: 'observation' | 'bridge'): OpeningReferenc
     hits.push({ part, kind: 'pronoun', phrase: p.pronoun, sentence: p.context })
   }
   // Definite articles are deliberately NOT read: report-only in the source detector, and
-  // measured here at 41 of 44 openings, which is noise rather than signal.
+  // measured at 41 of the 44 corpus A openings, which is noise rather than signal.
 
   for (const m of trimmed.matchAll(PRONOMINAL_ONE)) {
     hits.push({ part, kind: 'pronominal-one', phrase: m[0], sentence: sentenceContaining(trimmed, m[0]) })

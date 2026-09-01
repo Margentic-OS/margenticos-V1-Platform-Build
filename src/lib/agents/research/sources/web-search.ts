@@ -13,6 +13,16 @@
 // ~35% of Anthropic cost per prospect, won 0 of 11 clean shipped openings, and has the
 // worst six-test pass rate of the five sources at 11.4%.
 //
+// THE CORPUS BEHIND THOSE THREE FIGURES, because a rate without one is not a fact.
+// The cost share and the 0 of 11 come from the 2026-08-25 console day, reconciled against
+// the invoice and recorded in docs/BACKLOG.md, which also states plainly that N=11 IS SMALL
+// and that the contaminated cohort implied a 22.8% touch rate.
+// THE 11.4% DENOMINATOR IS UNVERIFIED. The six-test pass rates for the other sources come
+// from the 105 fresh research runs on file (see sources/linkedin.ts, which states its
+// corpus), and this figure is quoted alongside them in BACKLOG, but the number of web
+// search CANDIDATES it was computed over is recorded nowhere. Do not requote 11.4% as
+// though its denominator were known. Re-measure it before it decides anything.
+//
 // It survives because those numbers measure CONVERSION and the argument for keeping it is
 // about COVERAGE. This is the only source that reports what the outside world says about
 // a prospect. Apollo has employment history, LinkedIn has what they post themselves, the

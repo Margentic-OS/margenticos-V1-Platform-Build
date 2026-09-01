@@ -1005,7 +1005,11 @@ SUBJECT: <the subject line, on one line>`
 //
 // A CHOICE, NOT A GATE. The first version framed this as a gatekeeper with a free
 // rejection: "HOLD costs nothing, when in doubt HOLD". An absolute bar plus a costless
-// no means nothing ever passes, and nothing did, 0 of 13. It also started rejecting the
+// no means nothing ever passes, and nothing did, 0 of 13. CORPUS UNVERIFIED: "13" is
+// almost certainly the 13-prospect run of 2026-08-25 that the cost and write-rate figures
+// elsewhere are measured on, but no record ties this figure to that run, so the denominator
+// is not established and is not asserted here. The DIRECTION is what this note is for and
+// that does not depend on the count. It also started rejecting the
 // client's own approved P3 as generic, which proved it was grading cold email as a
 // category rather than doing the job in front of it.
 //
