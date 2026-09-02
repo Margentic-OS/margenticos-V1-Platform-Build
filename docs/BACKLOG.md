@@ -23,6 +23,107 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## SOURCING REVIEW UX PASS — WHAT WAS LEFT OUT (2026-09-02, branch sourcing-ux)
+
+- [post-build] THREE ROWS CARRY tiering_reason = 'geography_excluded', AND TWO OF THEM
+  STILL HOLD tier_1. Deliberately not touched: pre-existing data, and Doug's call.
+
+  Measured on production 2026-09-02, all three in the MargenticOS organisation:
+
+      id a547b044…  sourced_tier tier_1   tiering_reason geography_excluded
+      id ecc5f9d2…  sourced_tier tier_1   tiering_reason geography_excluded
+      id 7f2bb406…  sourced_tier NULL     tiering_reason geography_excluded
+
+  All three created 2026-08-10 and all three updated at 2026-08-29 16:57:02.573249+00,
+  the same second, which means one bulk statement rather than the classifier.
+
+  WHY THE TWO tier_1 ROWS MATTER. excludeTierRejected is
+  (sourced_tier IS NOT NULL OR tiering_reason IS NULL), so a row with a tier PASSES the
+  gate whatever its reason says. Those two are therefore inside the research population,
+  inside the client's tier 1 count, and rendered on the quality review screen under Tier 1.
+  Only the third one, with a NULL tier, is excluded.
+
+  'geography_excluded' is not in REMOVAL_REASONS and tier-classification.ts does not write
+  it. tier-verdict.ts already refers to "a LEGACY reason value that tier-classification.ts
+  no longer writes"; this is it, named. The UI now renders it verbatim rather than hiding
+  it, so it will keep showing up until it is decided.
+
+  All three also read email_send_eligible = false with email_send_ineligible_reason NULL,
+  so the send gate blocks them and records no reason.
+
+  DECIDE: are these three rejected, or are the two tiered ones legitimate tier 1 prospects
+  carrying a stale reason? Then either clear the reason or clear the tier. Do not "tidy"
+  them without deciding, because the tier is what currently governs spend on them.
+
+- [post-build] THE VENDOR-NAME GATE CANNOT SEE WHAT IS ALREADY IN THE TREE, AND ONLY THE
+  SOURCING REVIEW SCREEN HAS BEEN SWEPT.
+
+  .claude/hooks/pre-commit-gate.sh inspects ADDED lines only, which is correct: it is what
+  lets the commit that REMOVES a name through. The consequence is that a vendor name
+  already committed is invisible to it forever, and six were sitting in visible copy on one
+  screen. They are fixed. The rest of src/ has not been looked at.
+
+  NEXT ACTION: one sweep of the whole tree, then decide whether a periodic full-tree scan
+  belongs in the suite as a test rather than in the hook. A hook is the right control for
+  new code and cannot be the control for old code.
+
+- [phase2] PER-BATCH COUNTERS NEED A COLUMN, A MIGRATION AND A BACKFILL DECISION. Split out
+  of the 2026-09-02 UX pass on Doug's instruction, to be decided as its own prompt.
+
+  THE PROBLEM, measured: after sourcing 100 prospects on top of an existing 29, the tier 1
+  card reads 93 and there is no way to separate the cohorts. Every count on the screen sums
+  every batch the organisation has ever had.
+
+  WHY IT IS NOT A UI CHANGE. There is NO batch identifier anywhere. prospects has no
+  sourcing_batch_id or sourcing_run_id, and there is no sourcing_runs table; the table list
+  holds agent_runs, enrichment_runs, synthesis_batches and synthesis_batch_entries and
+  nothing that groups a sourcing run. Checked in information_schema, not assumed.
+
+  The only thing separating the two live cohorts is created_at, and they happen to separate
+  cleanly:
+
+      2026-08-10 20:00    29 prospects    t1 23  t2 5   t3 0   removed 1
+      2026-09-01 17:00   100 prospects    t1 70  t2 10  t3 5   removed 15
+
+  So a backfill is possible for the rows that exist today. What needs deciding first is the
+  identifier's shape: a run id written by the sourcing orchestrator is the honest version
+  and means every existing row gets a synthetic one.
+
+- [research] A CRON THAT ENQUEUES NEWLY-ELIGIBLE PROSPECTS FOR RESEARCH. Proposed
+  2026-09-02, NOT built, awaiting Doug's answer on its guards.
+
+  THE DEFECT IT WOULD FIX. Nothing notices when a prospect becomes eligible. The pool grew
+  from 14 to 31 to 29 to 21 to 5 across one session as first-pass verification and the
+  second pass completed underneath, and the only way to discover it was to re-click the
+  research button. Enqueue-all is not the missing piece; a trigger is.
+
+  SHAPE: like verify-pending and verify-catch-all, which already do exactly this for their
+  own stage. pg_cron, Bearer CRON_SECRET, one route, selection through
+  selectProspectsForResearch so the cron and the button cannot disagree about who is
+  eligible (that function exists as of this branch and is already the single definition).
+
+  THE GUARDS ARE THE OPEN QUESTION, because this spends money with nobody watching:
+    - a per-organisation enable flag, so it is off until switched on per client
+    - a daily ceiling per organisation, so a bad filter cannot drain a budget overnight
+    - or an operator-armed window, where arming it lasts N hours and then lapses
+
+  TRADE-OFF, stated: a flag alone is the simplest and the least safe, because "on" is
+  permanent and unattended. A ceiling bounds the damage but not the surprise. An armed
+  window is the only one that fails CLOSED by default, and it is also the only one that
+  reintroduces a manual step, which is what this exists to remove.
+
+- [post-build] FIVE ORPHANED TEST ORGANISATIONS IN THE INTEGRATION DATABASE, from hook
+  timeouts during the 2026-09-02 session. Names begin "Pipeline Poll Test ". Not deleted:
+  a delete is a destructive operation and needs Doug's yes, even in the test project. The
+  statement, for when it is approved:
+
+      DELETE FROM organisations WHERE name LIKE 'Pipeline Poll Test %';
+
+  Related and larger: that database holds 439 ACTIVE organisations left behind by other
+  suites over time. getMetricsForOrganisations exists partly because reading all of them is
+  about four thousand round trips. Worth a cleanup pass and a look at why afterAll leaves
+  rows when a hook times out.
+
 ## DATED ACTIONS — READ THIS BLOCK FIRST. IT IS THE ONLY PLACE DATES ARE COLLECTED.
 
 NOTHING IN THIS CODEBASE FIRES ON A DATE. Every item below happens only because somebody
