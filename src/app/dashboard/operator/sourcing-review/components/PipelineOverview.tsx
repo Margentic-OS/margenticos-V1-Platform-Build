@@ -36,7 +36,12 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { EnrichAndTierButton } from './EnrichAndTierButton'
 import { SourceProspectsButton } from './SourceProspectsButton'
 import { ResearchProspectsButton } from './ResearchProspectsButton'
-import type { PipelineMetrics } from '@/lib/operator/sourcing-metrics'
+import type { PipelineMetrics, TierMetrics } from '@/lib/operator/sourcing-metrics'
+import {
+  NOT_SENDABLE_LABELS,
+  DISQUALIFIER_LABELS,
+  type NotSendableReason,
+} from '@/lib/operator/prospect-status'
 
 const POLL_INTERVAL_MS = 30_000
 
@@ -50,6 +55,60 @@ interface PipelineOverviewProps {
    * Apollo handler and the service-role client into the browser bundle.
    */
   sourcingMaxBatchSize: number
+}
+
+/**
+ * One tier's card.
+ *
+ * SHOWS TWO NUMBERS, NOT ONE. The headline is how many prospects tiering kept; underneath is
+ * how many of those can actually be emailed. A card reading "Tier 1: 93" when 73 are
+ * mailable is not a rounding error, it is the number a campaign gets planned around, and it
+ * was wrong by 20 on production the day this was written.
+ *
+ * The reasons are glossed from prospect-status.ts and never rendered as raw codes: the
+ * stored values name countries.
+ */
+function TierCard({
+  label,
+  tier,
+  labelColor,
+  cardClass,
+}: {
+  label: string
+  tier: TierMetrics
+  labelColor: string
+  cardClass: string
+}) {
+  const notSendable = tier.total - tier.sendable
+  const reasons = Object.entries(tier.notSendableByReason) as Array<[NotSendableReason, number]>
+
+  return (
+    <div className={cardClass}>
+      <p className={`text-xs uppercase font-normal tracking-[0.07em] ${labelColor} mb-2`}>
+        {label}
+      </p>
+      <p className="text-2xl font-medium text-text-primary">{tier.total}</p>
+
+      {tier.total > 0 && (
+        <p className="text-xs text-text-secondary mt-1">
+          {tier.sendable} can be emailed
+          {notSendable > 0 ? `, ${notSendable} cannot` : ''}
+        </p>
+      )}
+
+      {reasons.length > 0 && (
+        <ul className="mt-1 space-y-0.5">
+          {reasons
+            .sort((a, b) => b[1] - a[1])
+            .map(([reason, count]) => (
+              <li key={reason} className="text-xs text-text-secondary">
+                {count} {NOT_SENDABLE_LABELS[reason].toLowerCase()}
+              </li>
+            ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 export function PipelineOverview({
@@ -141,7 +200,7 @@ export function PipelineOverview({
 
       {metrics.map((org) => {
         const isSelected = currentClient === org.organisation_id || selectedClientId === org.organisation_id
-        const enrichedCount = org.tier_1_count + org.tier_2_count + org.tier_3_count
+        const enrichedCount = org.tiers.tier_1.total + org.tiers.tier_2.total + org.tiers.tier_3.total
 
         return (
           <div
@@ -186,40 +245,32 @@ export function PipelineOverview({
                 </div>
               )}
 
-              {/* Tier 1 */}
+              {/* The three tiers, from one component so they cannot drift apart. */}
               {enrichedCount > 0 && (
-                <div className="bg-[#EBF5E6] rounded-[8px] p-3 border border-[#BDDAB0]">
-                  <p className="text-xs uppercase font-normal tracking-[0.07em] text-[#3B6D11] mb-2">
-                    Tier 1
-                  </p>
-                  <p className="text-2xl font-medium text-text-primary">
-                    {org.tier_1_count}
-                  </p>
-                </div>
+                <TierCard
+                  label="Tier 1"
+                  tier={org.tiers.tier_1}
+                  labelColor="text-[#3B6D11]"
+                  cardClass="bg-[#EBF5E6] rounded-[8px] p-3 border border-[#BDDAB0]"
+                />
               )}
 
-              {/* Tier 2 */}
               {enrichedCount > 0 && (
-                <div className="bg-[#EAF3DE] rounded-[8px] p-3 border border-[#C0DD97]">
-                  <p className="text-xs uppercase font-normal tracking-[0.07em] text-[#5D7F23] mb-2">
-                    Tier 2
-                  </p>
-                  <p className="text-2xl font-medium text-text-primary">
-                    {org.tier_2_count}
-                  </p>
-                </div>
+                <TierCard
+                  label="Tier 2"
+                  tier={org.tiers.tier_2}
+                  labelColor="text-[#5D7F23]"
+                  cardClass="bg-[#EAF3DE] rounded-[8px] p-3 border border-[#C0DD97]"
+                />
               )}
 
-              {/* Tier 3 */}
               {enrichedCount > 0 && (
-                <div className="bg-[#F0ECE4] rounded-[8px] p-3">
-                  <p className="text-xs uppercase font-normal tracking-[0.07em] text-[#9A9488] mb-2">
-                    Tier 3
-                  </p>
-                  <p className="text-2xl font-medium text-text-primary">
-                    {org.tier_3_count}
-                  </p>
-                </div>
+                <TierCard
+                  label="Tier 3"
+                  tier={org.tiers.tier_3}
+                  labelColor="text-[#9A9488]"
+                  cardClass="bg-[#F0ECE4] rounded-[8px] p-3"
+                />
               )}
 
               {/* Removed. Shown beside the tiers because the tier counts on their own
@@ -233,9 +284,66 @@ export function PipelineOverview({
                   <p className="text-2xl font-medium text-text-primary">
                     {org.removed_count}
                   </p>
+                  {/* WHICH disqualifier, not just how many. The count alone says a filter
+                      ran; it does not say whether the filter is behaving. An unrecognised
+                      code renders as itself rather than vanishing. */}
+                  <ul className="mt-1 space-y-0.5">
+                    {Object.entries(org.removed_by_reason)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([code, count]) => (
+                        <li key={code} className="text-xs text-text-secondary">
+                          {count} {(DISQUALIFIER_LABELS[code] ?? code).toLowerCase()}
+                        </li>
+                      ))}
+                  </ul>
                 </div>
               )}
             </div>
+
+            {/* ── VERIFICATION THAT FAILED ──────────────────────────────────────
+                Previously visible NOWHERE in the product. A third of a cohort sat on
+                provider 403 and 429 responses for ninety minutes and the screen showed
+                nothing at all: the prospects simply never appeared downstream, which reads
+                as "still working" rather than "stopped".
+
+                The provider is not named. The stored error text contains a vendor name and
+                rendering the column would put it on screen; only the status survives. See
+                prospect-status.ts. */}
+            {org.verification_failures.count > 0 && (
+              <div className="mb-4 px-3 py-2 rounded-[6px] bg-[#FDEEE8] border border-[#EFBCAA] text-xs text-[#8B2020]">
+                <p className="font-medium mb-0.5">
+                  {org.verification_failures.count} prospect
+                  {org.verification_failures.count === 1 ? '' : 's'} failed email verification
+                </p>
+                <p>
+                  {Object.entries(org.verification_failures.byStatus)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([status, count]) =>
+                      status === 'unknown'
+                        ? `${count} with no status recorded`
+                        : `${count} on HTTP ${status}`)
+                    .join(', ')}
+                  .
+                  {org.verification_failures.givenUp > 0 && (
+                    <>
+                      {' '}
+                      {org.verification_failures.givenUp} have used every attempt, so nothing
+                      will retry them without being asked.
+                    </>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {/* The breakdowns above are of a sample. Said out loud, because a truncated
+                explanation that does not announce itself reads as a complete one. */}
+            {org.breakdowns_truncated && (
+              <div className="mb-4 px-3 py-2 rounded-[6px] bg-[#FEF7E6] border border-[#F0D080] text-xs text-[#7A4800]">
+                This client has more prospects than the status read examines, so the
+                sendable, removal and verification breakdowns above cover only part of them.
+                The headline counts are complete.
+              </div>
+            )}
 
             {/* Run the pipeline: source, then research. Both run inside one request and
                 refuse a batch too large to finish, so neither needs a queue yet. */}

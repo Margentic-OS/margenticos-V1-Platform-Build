@@ -44,15 +44,44 @@ import {
   readResearchPath,
   type ResearchVerdict,
 } from '@/lib/operator/research-verdict'
+import {
+  whyNotSendable,
+  parseTieringReason,
+  readVerificationFailure,
+  VERIFICATION_MAX_ATTEMPTS,
+  type NotSendableReason,
+} from '@/lib/operator/prospect-status'
+
+/**
+ * One tier's headline number, and how much of it can actually be emailed.
+ *
+ * The two are separate fields rather than one because they answer different questions and
+ * an operator needs both: total is how many prospects tiering kept, sendable is how many
+ * of those a campaign can use. On production 2026-09-02 those were 93 and 73.
+ */
+export interface TierMetrics {
+  total: number
+  sendable: number
+  /** Why the rest cannot be emailed. Empty when total === sendable. */
+  notSendableByReason: Partial<Record<NotSendableReason, number>>
+}
+
+/** Verification that failed and, in most cases, has stopped retrying. */
+export interface VerificationFailureMetrics {
+  count: number
+  /** Provider HTTP status to how many prospects hit it. No provider name; see prospect-status.ts. */
+  byStatus: Record<string, number>
+  /** How many have exhausted their attempts, so nothing will retry them without a nudge. */
+  givenUp: number
+}
 
 export interface PipelineMetrics {
   organisation_id: string
   organisation_name: string
   pending_review_count: number
   approved_unenriched_count: number
-  tier_1_count: number
-  tier_2_count: number
-  tier_3_count: number
+  /** Per tier: how many, and how many of those can be emailed. */
+  tiers: Record<'tier_1' | 'tier_2' | 'tier_3', TierMetrics>
   /**
    * Enriched but not yet tiered.
    *
@@ -63,8 +92,138 @@ export interface PipelineMetrics {
   enriched_untiered_count: number
   /** Enriched, then removed by a tiering disqualifier. Not the same as not-yet-tiered. */
   removed_count: number
+  /**
+   * Which disqualifier removed them, keyed by the canonical code. Glossed at the point of
+   * render, never here: the codes stay canonical in the payload.
+   */
+  removed_by_reason: Record<string, number>
+  /** Verification that failed. Previously visible nowhere in the product. */
+  verification_failures: VerificationFailureMetrics
+  /**
+   * True when the status read below hit its ceiling, so the breakdowns are of a SAMPLE.
+   *
+   * Declared rather than left to be inferred. A truncated breakdown that does not say it is
+   * truncated is the silent-failure shape this file's header is about, one level down: the
+   * headline counts would be right and the explanation of them quietly incomplete.
+   */
+  breakdowns_truncated: boolean
   /** What the research control would do if clicked. See research-verdict.ts. */
   research: ResearchVerdict
+}
+
+/**
+ * Ceiling on the per-organisation status read.
+ *
+ * The headline counts are head-only SQL counts and are not bounded by this. Only the
+ * BREAKDOWNS are, because deriving them needs the verification verdict, which is a
+ * TypeScript policy rather than a column. When the ceiling is reached the payload says so.
+ */
+export const STATUS_ROW_LIMIT = 2000
+
+/** The columns the breakdowns are derived from. One read, three answers. */
+const STATUS_COLUMNS =
+  'sourced_tier, tiering_reason, enrichment_status, email_send_eligible, ' +
+  'email_send_ineligible_reason, independent_verified_at, independent_email_status, ' +
+  'verification_provider, second_pass_status, second_pass_provider, ' +
+  'last_verification_error, verification_attempt_count'
+
+interface StatusRow {
+  sourced_tier: string | null
+  tiering_reason: string | null
+  enrichment_status: string | null
+  email_send_eligible: boolean | null
+  email_send_ineligible_reason: string | null
+  independent_verified_at: string | null
+  independent_email_status: string | null
+  verification_provider: string | null
+  second_pass_status: string | null
+  second_pass_provider: string | null
+  last_verification_error: string | null
+  verification_attempt_count: number | null
+}
+
+function emptyTier(): TierMetrics {
+  return { total: 0, sendable: 0, notSendableByReason: {} }
+}
+
+/**
+ * Sendability, removal reasons and verification failures, from one read.
+ *
+ * The three tiers are built from a DERIVED list rather than a literal, so a fourth tier
+ * cannot be added upstream and silently have no slot here. See the `as` warning in
+ * CLAUDE.md: a hand-written literal cast to a Record is exactly the shape that hid a
+ * missing job type until thirty tests failed at once.
+ */
+async function readBreakdowns(
+  supabase: SupabaseClient,
+  organisationId: string,
+): Promise<{
+  tiers: Record<'tier_1' | 'tier_2' | 'tier_3', TierMetrics>
+  removedByReason: Record<string, number>
+  verificationFailures: VerificationFailureMetrics
+  truncated: boolean
+}> {
+  const TIER_KEYS = ['tier_1', 'tier_2', 'tier_3'] as const
+
+  const { data, error } = await supabase
+    .from('prospects')
+    .select(STATUS_COLUMNS)
+    .eq('organisation_id', organisationId)
+    .limit(STATUS_ROW_LIMIT)
+
+  if (error) {
+    throw new Error(`Could not read prospect status for ${organisationId}: ${error.message}`)
+  }
+
+  const rows = (data ?? []) as unknown as StatusRow[]
+
+  const tiers = Object.fromEntries(
+    TIER_KEYS.map(key => [key, emptyTier()]),
+  ) as Record<(typeof TIER_KEYS)[number], TierMetrics>
+
+  const removedByReason: Record<string, number> = {}
+  const byStatus: Record<string, number> = {}
+  let failureCount = 0
+  let givenUp = 0
+
+  for (const row of rows) {
+    const tierKey = TIER_KEYS.find(k => k === row.sourced_tier)
+    if (tierKey) {
+      const tier = tiers[tierKey]
+      tier.total += 1
+      const reason = whyNotSendable(row)
+      if (reason === null) tier.sendable += 1
+      else tier.notSendableByReason[reason] = (tier.notSendableByReason[reason] ?? 0) + 1
+    } else if (row.enrichment_status === 'enriched' && row.tiering_reason !== null) {
+      // Removed by a disqualifier. parseTieringReason keeps an unrecognised value visible
+      // under its own text rather than dropping it; the live data has one such legacy code.
+      const verdict = parseTieringReason(row.tiering_reason)
+      const code =
+        verdict.kind === 'disqualified' ? verdict.code
+        : verdict.kind === 'unrecognised' ? verdict.raw
+        : row.tiering_reason
+      removedByReason[code] = (removedByReason[code] ?? 0) + 1
+    }
+
+    const failure = readVerificationFailure(
+      row.last_verification_error,
+      row.verification_attempt_count,
+      VERIFICATION_MAX_ATTEMPTS,
+    )
+    if (failure) {
+      failureCount += 1
+      if (failure.givenUp) givenUp += 1
+      const key = failure.status === null ? 'unknown' : String(failure.status)
+      byStatus[key] = (byStatus[key] ?? 0) + 1
+    }
+  }
+
+  return {
+    tiers,
+    removedByReason,
+    verificationFailures: { count: failureCount, byStatus, givenUp },
+    truncated: rows.length >= STATUS_ROW_LIMIT,
+  }
 }
 
 /** One `head: true` count against prospects, scoped to an organisation. */
@@ -126,19 +285,14 @@ export async function getMetricsForOrganisations(
       const [
         pendingReview,
         approvedUnenriched,
-        tier1,
-        tier2,
-        tier3,
         enrichedUntiered,
         removed,
+        breakdowns,
         research,
       ] = await Promise.all([
         countProspects(supabase, org.id, q => q.eq('sourcing_review_status', 'pending_review')),
         countProspects(supabase, org.id, q =>
           q.eq('sourcing_review_status', 'approved').is('enrichment_status', null)),
-        countProspects(supabase, org.id, q => q.eq('sourced_tier', 'tier_1')),
-        countProspects(supabase, org.id, q => q.eq('sourced_tier', 'tier_2')),
-        countProspects(supabase, org.id, q => q.eq('sourced_tier', 'tier_3')),
         countProspects(supabase, org.id, q =>
           q.eq('enrichment_status', 'enriched').is('sourced_tier', null)),
         // Removed by the tiering disqualifiers, as opposed to not yet tiered. Both have
@@ -148,6 +302,7 @@ export async function getMetricsForOrganisations(
           q.eq('enrichment_status', 'enriched')
             .is('sourced_tier', null)
             .not('tiering_reason', 'is', null)),
+        readBreakdowns(supabase, org.id),
         getResearchVerdict(supabase, org.id, 'unresearched', pathState),
       ])
 
@@ -156,11 +311,12 @@ export async function getMetricsForOrganisations(
         organisation_name: org.name,
         pending_review_count: pendingReview,
         approved_unenriched_count: approvedUnenriched,
-        tier_1_count: tier1,
-        tier_2_count: tier2,
-        tier_3_count: tier3,
+        tiers: breakdowns.tiers,
         enriched_untiered_count: enrichedUntiered,
         removed_count: removed,
+        removed_by_reason: breakdowns.removedByReason,
+        verification_failures: breakdowns.verificationFailures,
+        breakdowns_truncated: breakdowns.truncated,
         research,
       }
     }),
