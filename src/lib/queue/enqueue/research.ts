@@ -82,6 +82,68 @@ export type ResearchScope = 'unresearched' | 'researched'
  */
 export type ResearchEnqueueJobType = 'research' | 'research_sources'
 
+// ═════════════════════════════════════════════════════════════════════════════
+// SELECTING AND ENQUEUING ARE SEPARATE FUNCTIONS, AND THAT SEPARATION IS THE POINT
+//
+// The dashboard used to compute the research count itself, as
+//
+//     current_research_result_id IS NULL AND suppressed = false
+//
+// while this file selected on that PLUS the tier gate, PLUS send-eligibility, PLUS the
+// live-job filter. Two predicates for one number, kept in step by hand, and they drifted.
+//
+// MEASURED ON PRODUCTION 2026-09-02, before this split existed: the button read
+// "Research 21 prospects", this function selected 17, and 0 of those 17 were eligible
+// (13 unresolved catch-all, 3 never verified, 1 undeliverable). The click enqueued
+// nothing and returned an error. That is a DEAD BUTTON on the main workflow, and it had
+// been reported as a cosmetic label bug.
+//
+// So the population is computed ONCE, by selectProspectsForResearch, and both the label
+// and the action read it. describeResearchSelection turns a selection into the
+// operator-facing verdict, and it is the ONLY place the refusal wording lives, so the
+// sentence shown BEFORE the click and the sentence returned AFTER it cannot disagree.
+//
+// WHICH prospects are eligible did not change in that move. The query, the three filters
+// and their order are what they were; they moved together, in one piece.
+
+/**
+ * What the research population looks like right now.
+ *
+ * Facts only. No wording, no refusals, no judgement about whether the operator should be
+ * allowed to proceed. describeResearchSelection does that part, separately, so the label
+ * can render the same verdict without the risk of a second opinion.
+ */
+export interface ResearchSelection {
+  scope: ResearchScope
+  /** Rows matching org + tier gate + suppressed + scope. The population. */
+  selected: number
+  /** Of the population, how many already hold finished copy. Non-zero blocks the BATCH. */
+  withTrigger: number
+  /** Of the population, how many survived the send-eligibility gate. */
+  eligible: number
+  /** Why the rest were skipped. One entry per skipped prospect, so counts are derivable. */
+  skippedReasons: IneligibleReason[]
+  /** Eligible, but already held by a live research job of some phase. */
+  skippedLiveElsewhere: number
+  /** The ids that would be enqueued if the action ran at this moment. */
+  enqueueable: string[]
+}
+
+/** What an operator needs to be told, derived from a selection and nothing else. */
+export interface ResearchVerdict {
+  /**
+   * The number the button must show, and the number the action will act on.
+   *
+   * Zero whenever anything blocks, including the trigger guard, so a label built on this
+   * can never promise work that the click will refuse.
+   */
+  actionable: number
+  /** Non-null when nothing can be enqueued. The full reason, in the operator's words. */
+  blocked: string | null
+  /** Plain-English counts by reason for the spend filter, or null when nothing was skipped. */
+  skippedBreakdown: string | null
+}
+
 export interface EnqueueResearchSuccess {
   ok: true
   /** Rows matching org + suppressed + scope, BEFORE the eligibility filter. */
@@ -95,14 +157,18 @@ export interface EnqueueResearchSuccess {
   scope: ResearchScope
 }
 
-export async function enqueueResearchForOrganisation(
+/**
+ * Read the research population for one organisation. Writes nothing.
+ *
+ * Safe to call on every render and on every poll: it is three reads and no side effects.
+ * That is what makes it usable as the label's source as well as the action's.
+ */
+export async function selectProspectsForResearch(
   supabase: SupabaseClient,
   organisationId: string,
   scope: ResearchScope,
-  enqueuedBy: string,
   maxProspects = 5000,
-  jobType: ResearchEnqueueJobType = 'research',
-): Promise<EnqueueResearchSuccess | { ok: false; error: string }> {
+): Promise<{ ok: true; selection: ResearchSelection } | { ok: false; error: string }> {
   // ── Organisation must exist and be active ──────────────────────────────────
   const { data: org, error: orgError } = await supabase
     .from('organisations')
@@ -159,26 +225,11 @@ export async function enqueueResearchForOrganisation(
 
   const rows = data ?? []
 
-  if (rows.length === 0) {
-    const what = scope === 'unresearched'
-      ? 'Every prospect in this organisation has already been researched.'
-      : 'No prospect in this organisation has been researched yet, so there is nothing to re-run.'
-    return { ok: false, error: `Nothing to research. ${what}` }
-  }
-
   // ── GUARD: never silently rewrite an opening that already exists ───────────
-  const withTrigger = rows.filter(r => r.personalisation_trigger != null)
-  if (withTrigger.length > 0) {
-    return {
-      ok: false,
-      error:
-        `Refused: ${withTrigger.length} of ${rows.length} selected prospects already have a ` +
-        'personalisation trigger, and researching them again overwrites it with new wording, or ' +
-        'clears it entirely if the judge holds. Re-running finished copy has to be asked for ' +
-        'explicitly. It is not available from the dashboard. Use the CLI with ' +
-        '--allow-overwrite-trigger if that is genuinely what you want.',
-    }
-  }
+  //
+  // Counted, not thrown. The refusal is describeResearchSelection's to word, because the
+  // label has to be able to say the same thing before the operator clicks.
+  const withTrigger = rows.filter(r => r.personalisation_trigger != null).length
 
   // ── GATE: do not pay for research on a prospect we already know we cannot email ──
   //
@@ -189,8 +240,8 @@ export async function enqueueResearchForOrganisation(
   // refusing the batch because one address is a catch-all would be obstructive.
   //
   // It must not be silent, though, or it becomes the next invisible behaviour. Counts by
-  // reason go into the result and the log, and a batch that filters down to nothing
-  // returns an error naming why rather than a bare "nothing to do".
+  // reason go into the selection, and from there into the LABEL as well as the log, which
+  // is the change: they used to reach the operator only when the batch filtered to zero.
   const eligible: string[] = []
   const skippedReasons: IneligibleReason[] = []
   for (const row of rows) {
@@ -206,18 +257,6 @@ export async function enqueueResearchForOrganisation(
     else skippedReasons.push(verdict.reason)
   }
 
-  if (eligible.length === 0) {
-    return {
-      ok: false,
-      error:
-        `Nothing to research. All ${rows.length} prospects were filtered out as not worth ` +
-        `researching: ${summariseIneligible(skippedReasons)}. Research costs roughly 60 times ` +
-        'what composition costs per prospect, so it does not run on addresses we already know ' +
-        'we cannot email. Verify the prospects, or revisit the catch-all policy in ' +
-        'src/lib/sourcing/send-eligibility-policy.ts.',
-    }
-  }
-
   // ── GATE: a prospect mid-way through a BATCH run is not available to this path ──
   //
   // Added 2026-08-26 with the batch split, and it is a spend guard, not tidiness.
@@ -231,51 +270,142 @@ export async function enqueueResearchForOrganisation(
   // the 10 August 2026 incident: 141 credits for 29 prospects.
   //
   // job_queue_one_live_research_per_prospect makes it impossible at the database level,
-  // and would raise 23505 out of enqueue_job and abort this loop part-way through. This
-  // filter exists so the operator gets a sentence naming the reason instead. The index
-  // stays the guarantee; a race that slips past this still hits it.
+  // and would raise 23505 out of enqueue_job and abort an enqueue loop part-way through.
+  // This filter exists so the operator gets a sentence instead. The index stays the
+  // guarantee; a race that slips past this still hits it.
   //
   // SKIPS rather than refusing the whole batch, matching the eligibility gate above and
   // not the trigger guard: nothing destructive happens, the work is simply already in
   // progress somewhere else.
+  //
+  // SKIPPED ENTIRELY WHEN NOTHING IS ELIGIBLE, because prospectsWithLiveResearchJob
+  // returns an empty set for an empty id list anyway and this function is now called on
+  // every poll rather than once per click.
   const liveElsewhere = await prospectsWithLiveResearchJob(supabase, organisationId, eligible)
   const enqueueable = eligible.filter(id => !liveElsewhere.has(id))
 
-  if (enqueueable.length === 0) {
-    // THE MESSAGE MUST NOT DESCRIBE A PATH THAT IS NOT RUNNING.
-    //
-    // This used to tell every operator that the wait "can mean waiting on a batch for up to
-    // 24 hours", unconditionally. On the single-job path there is no batch and no 24-hour
-    // wait: a held prospect is in an ordinary research job that finishes in minutes, so the
-    // advice to wait for a batch to collect describes something that will never happen. An
-    // operator following it would sit out a 24-hour window for work already finished.
-    //
-    // jobType IS the flag. The route reads queue_research_sources and passes
-    // 'research_sources' when it is on and 'research' when it is off
-    // (research-prospects/route.ts), so branching on the parameter is branching on the flag
-    // without a second read of it.
-    //
-    // THE LIMIT OF THIS, stated rather than left to be discovered: prospectsWithLiveResearchJob
-    // spans all three research job types, so with the flag OFF a prospect could in principle
-    // still be held by a batch job left over from when it was ON, and would then get the
-    // single-job message. queue_research_collect is deliberately left on as a drain valve
-    // (see flags.ts), so that window is real but bounded by the last batch draining. Measured
-    // 2026-09-01: no batch job of either phase has ever been enqueued, so nothing is in that
-    // state today. Reporting the holding job's actual type would remove the caveat entirely
-    // and is the right fix if the batch path is ever turned on for real.
-    const batchPath = jobType === 'research_sources'
+  return {
+    ok: true,
+    selection: {
+      scope,
+      selected: rows.length,
+      withTrigger,
+      eligible: eligible.length,
+      skippedReasons,
+      skippedLiveElsewhere: liveElsewhere.size,
+      enqueueable,
+    },
+  }
+}
 
-    return {
-      ok: false,
-      error: batchPath
-        ? `Nothing to research. All ${eligible.length} eligible prospects already have a ` +
+/**
+ * Turn a selection into what the operator is told. Pure: no reads, no writes.
+ *
+ * THE ONLY PLACE THE REFUSAL WORDING LIVES. The button calls this to decide its label and
+ * the enqueue calls it to decide its error, so a click can never produce a sentence the
+ * screen had not already shown.
+ *
+ * The order of the checks is the order the guards used to run in, and it is deliberate:
+ * an empty population is reported as an empty population, the destructive guard outranks
+ * the spend filter, and the spend filter outranks work already in progress.
+ */
+export function describeResearchSelection(
+  selection: ResearchSelection,
+  jobType: ResearchEnqueueJobType,
+): ResearchVerdict {
+  const skippedBreakdown = selection.skippedReasons.length > 0
+    ? summariseIneligible(selection.skippedReasons)
+    : null
+
+  const blocked = ((): string | null => {
+    if (selection.selected === 0) {
+      const what = selection.scope === 'unresearched'
+        ? 'Every prospect in this organisation has already been researched.'
+        : 'No prospect in this organisation has been researched yet, so there is nothing to re-run.'
+      return `Nothing to research. ${what}`
+    }
+
+    if (selection.withTrigger > 0) {
+      return (
+        `Refused: ${selection.withTrigger} of ${selection.selected} selected prospects already have a ` +
+        'personalisation trigger, and researching them again overwrites it with new wording, or ' +
+        'clears it entirely if the judge holds. Re-running finished copy has to be asked for ' +
+        'explicitly. It is not available from the dashboard. Use the CLI with ' +
+        '--allow-overwrite-trigger if that is genuinely what you want.'
+      )
+    }
+
+    if (selection.eligible === 0) {
+      return (
+        `Nothing to research. All ${selection.selected} prospects were filtered out as not worth ` +
+        `researching: ${summariseIneligible(selection.skippedReasons)}. Research costs roughly 60 times ` +
+        'what composition costs per prospect, so it does not run on addresses we already know ' +
+        'we cannot email. Verify the prospects, or revisit the catch-all policy in ' +
+        'src/lib/sourcing/send-eligibility-policy.ts.'
+      )
+    }
+
+    if (selection.enqueueable.length === 0) {
+      // THE MESSAGE MUST NOT DESCRIBE A PATH THAT IS NOT RUNNING.
+      //
+      // This used to tell every operator that the wait "can mean waiting on a batch for up to
+      // 24 hours", unconditionally. On the single-job path there is no batch and no 24-hour
+      // wait: a held prospect is in an ordinary research job that finishes in minutes, so the
+      // advice to wait for a batch to collect describes something that will never happen. An
+      // operator following it would sit out a 24-hour window for work already finished.
+      //
+      // jobType IS the flag. The route reads queue_research_sources and passes
+      // 'research_sources' when it is on and 'research' when it is off
+      // (research-prospects/route.ts), so branching on the parameter is branching on the flag
+      // without a second read of it.
+      //
+      // THE LIMIT OF THIS, stated rather than left to be discovered: prospectsWithLiveResearchJob
+      // spans all three research job types, so with the flag OFF a prospect could in principle
+      // still be held by a batch job left over from when it was ON, and would then get the
+      // single-job message. queue_research_collect is deliberately left on as a drain valve
+      // (see flags.ts), so that window is real but bounded by the last batch draining. Measured
+      // 2026-09-01: no batch job of either phase has ever been enqueued, so nothing is in that
+      // state today. Reporting the holding job's actual type would remove the caveat entirely
+      // and is the right fix if the batch path is ever turned on for real.
+      return jobType === 'research_sources'
+        ? `Nothing to research. All ${selection.eligible} eligible prospects already have a ` +
           'research job in progress, which on this path can mean waiting up to 24 hours for ' +
           'the batch to come back. Their sources are already paid for and stored, so ' +
           're-running them now would buy the same data twice. Wait for the batch to collect.'
-        : `Nothing to research. All ${eligible.length} eligible prospects already have a ` +
+        : `Nothing to research. All ${selection.eligible} eligible prospects already have a ` +
           'research job in progress. Wait for those jobs to finish, then try again. If they ' +
-          'are not moving, check the queue for jobs stuck in claimed.',
+          'are not moving, check the queue for jobs stuck in claimed.'
     }
+
+    return null
+  })()
+
+  return {
+    // Zero whenever anything blocks, INCLUDING the trigger guard. A label that showed
+    // enqueueable.length while the trigger guard was about to refuse the batch would be
+    // the same class of defect this whole split exists to remove.
+    actionable: blocked === null ? selection.enqueueable.length : 0,
+    blocked,
+    skippedBreakdown,
+  }
+}
+
+export async function enqueueResearchForOrganisation(
+  supabase: SupabaseClient,
+  organisationId: string,
+  scope: ResearchScope,
+  enqueuedBy: string,
+  maxProspects = 5000,
+  jobType: ResearchEnqueueJobType = 'research',
+): Promise<EnqueueResearchSuccess | { ok: false; error: string }> {
+  const read = await selectProspectsForResearch(supabase, organisationId, scope, maxProspects)
+  if (!read.ok) return read
+
+  const { selection } = read
+  const verdict = describeResearchSelection(selection, jobType)
+
+  if (verdict.blocked !== null) {
+    return { ok: false, error: verdict.blocked }
   }
 
   // ── THE ONE PLACE THE TWO PATHS DIFFER ───────────────────────────────────
@@ -289,34 +419,34 @@ export async function enqueueResearchForOrganisation(
     ? await enqueueJobsForProspects(supabase, {
         jobType: 'research',
         organisationId,
-        prospectIds: enqueueable,
+        prospectIds: selection.enqueueable,
         enqueuedBy,
       })
-    : await enqueueBatchPhaseJobs(supabase, organisationId, enqueueable, enqueuedBy)
+    : await enqueueBatchPhaseJobs(supabase, organisationId, selection.enqueueable, enqueuedBy)
 
   logger.info('enqueue-research: complete', {
     organisation_id: organisationId,
     job_type: jobType,
     scope,
-    selected: rows.length,
-    eligible: eligible.length,
-    skipped_ineligible: skippedReasons.length,
-    skipped_breakdown: skippedReasons.length > 0 ? summariseIneligible(skippedReasons) : null,
+    selected: selection.selected,
+    eligible: selection.eligible,
+    skipped_ineligible: selection.skippedReasons.length,
+    skipped_breakdown: verdict.skippedBreakdown,
     // Not the same as already_queued below. That one counts this job type's own
     // duplicates; this counts prospects held by ANOTHER research job type, which during
     // a batch rollout is the interesting number.
-    skipped_live_elsewhere: liveElsewhere.size,
+    skipped_live_elsewhere: selection.skippedLiveElsewhere,
     created: created.length,
     already_queued: alreadyQueued.length,
   })
 
   return {
     ok: true,
-    selected: rows.length,
+    selected: selection.selected,
     created: created.length,
     alreadyQueued: alreadyQueued.length,
-    skippedIneligible: skippedReasons.length,
-    skippedBreakdown: skippedReasons.length > 0 ? summariseIneligible(skippedReasons) : null,
+    skippedIneligible: selection.skippedReasons.length,
+    skippedBreakdown: verdict.skippedBreakdown,
     scope,
   }
 }

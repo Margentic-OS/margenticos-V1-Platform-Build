@@ -5,7 +5,11 @@
 // WHICH prospects get researched rather than only how.
 
 import { describe, it, expect } from 'vitest'
-import { enqueueResearchForOrganisation } from '../enqueue/research'
+import {
+  enqueueResearchForOrganisation,
+  selectProspectsForResearch,
+  describeResearchSelection,
+} from '../enqueue/research'
 import { TIER_NOT_REJECTED_FILTER } from '@/lib/sourcing/tier-verdict'
 
 /**
@@ -574,5 +578,127 @@ describe('enqueueResearchForOrganisation — the tier gate', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error('expected success')
     expect(result.created).toBe(1)
+  })
+})
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// THE LABEL AND THE ACTION CANNOT DIVERGE
+//
+// This is the regression suite for the defect measured on production 2026-09-02: the
+// button read "Research 21 prospects" while the action selected 17 and could enqueue 0.
+// The click returned an error. A dead button on the main workflow.
+//
+// The fix was structural rather than a corrected copy of the predicate: the population is
+// selected once and both readers use it. These tests are what makes that structural rather
+// than merely current. Each one asserts a PAIR — what the screen would say against what the
+// click would do — because testing either alone is what let the two drift for months.
+
+describe('the research label and the research action agree', () => {
+  /**
+   * The invariant, stated once and asserted on every shape below.
+   *
+   * Runs the selection the LABEL would run, then runs the ACTION against the same client,
+   * and requires that what the label promised is what the action delivered. Note it uses
+   * two separate calls against one fake, exactly as the page and the route do: if they
+   * shared a cached result the test would prove nothing about divergence.
+   */
+  async function assertLabelMatchesAction(prospects: FakeProspect[], opts: Parameters<typeof fake>[1] = {}) {
+    const { client } = fake(prospects, opts)
+
+    const read = await selectProspectsForResearch(client, ORG, 'unresearched')
+    if (!read.ok) throw new Error(`selection failed: ${read.error}`)
+    const verdict = describeResearchSelection(read.selection, 'research')
+
+    const action = await enqueueResearchForOrganisation(fake(prospects, opts).client, ORG, 'unresearched', 'test')
+
+    if (verdict.blocked !== null) {
+      // A blocked label must correspond to a refused action, with the SAME sentence.
+      expect(action.ok).toBe(false)
+      if (action.ok) throw new Error('unreachable')
+      expect(action.error).toBe(verdict.blocked)
+      expect(verdict.actionable).toBe(0)
+    } else {
+      expect(action.ok).toBe(true)
+      if (!action.ok) throw new Error('unreachable')
+      expect(action.created).toBe(verdict.actionable)
+    }
+
+    return { verdict, action }
+  }
+
+  it('a clean batch: the label promises what the action enqueues', async () => {
+    const { verdict } = await assertLabelMatchesAction([
+      { id: 'p1', personalisation_trigger: null },
+      { id: 'p2', personalisation_trigger: null },
+    ])
+    expect(verdict.actionable).toBe(2)
+  })
+
+  it('THE 2026-09-02 SHAPE: a population that is entirely ineligible reads ZERO, not its size', async () => {
+    // Thirteen catch-alls and three never-verified, which is the live organisation on the
+    // day, scaled down. The old label would have said 4 and the click would have failed.
+    const { verdict } = await assertLabelMatchesAction([
+      { id: 'c1', personalisation_trigger: null, email_status: 'Catch All' },
+      { id: 'c2', personalisation_trigger: null, email_status: 'Catch All' },
+      { id: 'n1', personalisation_trigger: null, verified_at: null, email_status: null },
+      { id: 'n2', personalisation_trigger: null, verified_at: null, email_status: null },
+    ])
+    expect(verdict.actionable).toBe(0)
+    expect(verdict.blocked).toMatch(/All 4 prospects were filtered out/)
+    // And the reason reaches the screen, rather than only the log.
+    expect(verdict.skippedBreakdown).toMatch(/2 catch-all domain/)
+    expect(verdict.skippedBreakdown).toMatch(/2 never verified/)
+  })
+
+  it('the tier gate is inside the label, so a rejected row is never counted', async () => {
+    const { verdict } = await assertLabelMatchesAction([
+      { id: 'kept', personalisation_trigger: null },
+      { id: 'rejected', personalisation_trigger: null, sourced_tier: null, tiering_reason: A_REJECTION },
+    ])
+    expect(verdict.actionable).toBe(1)
+  })
+
+  it('the live-job filter is inside the label, so work in progress is never re-promised', async () => {
+    const { verdict } = await assertLabelMatchesAction(
+      [
+        { id: 'free', personalisation_trigger: null },
+        { id: 'busy', personalisation_trigger: null },
+      ],
+      { liveResearchJobs: ['busy'] },
+    )
+    expect(verdict.actionable).toBe(1)
+  })
+
+  it('THE TRIGGER GUARD DRIVES THE LABEL TO ZERO, not to the enqueueable count', async () => {
+    // The subtle one. Two prospects are perfectly enqueueable; a third holds finished copy
+    // and refuses the WHOLE batch. A label showing enqueueable.length would read 2 and the
+    // click would refuse — the same defect class, one guard further along.
+    const { verdict } = await assertLabelMatchesAction([
+      { id: 'p1', personalisation_trigger: null },
+      { id: 'p2', personalisation_trigger: null },
+      { id: 'p3', personalisation_trigger: 'copy that has already shipped' },
+    ])
+    expect(verdict.actionable).toBe(0)
+    expect(verdict.blocked).toMatch(/1 of 3 selected prospects already have a personalisation trigger/)
+  })
+
+  it('an empty population reads zero and says which scope found nothing', async () => {
+    const { verdict } = await assertLabelMatchesAction([])
+    expect(verdict.actionable).toBe(0)
+    expect(verdict.blocked).toMatch(/already been researched/)
+  })
+
+  it('reports the spend breakdown on a batch that is NOT blocked, which used to be thrown away', async () => {
+    // The old code computed skippedReasons on every run and surfaced them only when the
+    // batch filtered to zero. So a pool quietly shrinking under the operator was invisible
+    // in exactly the case where work still proceeded.
+    const { verdict } = await assertLabelMatchesAction([
+      { id: 'good', personalisation_trigger: null },
+      { id: 'catchall', personalisation_trigger: null, email_status: 'Catch All' },
+    ])
+    expect(verdict.actionable).toBe(1)
+    expect(verdict.blocked).toBeNull()
+    expect(verdict.skippedBreakdown).toBe('1 catch-all domain')
   })
 })

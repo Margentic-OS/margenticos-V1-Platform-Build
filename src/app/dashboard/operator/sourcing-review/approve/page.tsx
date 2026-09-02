@@ -3,14 +3,15 @@ import { redirect, notFound } from 'next/navigation'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { Gate1ApproveBatch } from '../components/Gate1ApproveBatch'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
+import { APPROVAL_PAGE_SIZE } from '@/lib/operator/sourcing-metrics'
 
 export default async function ApprovePage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string }>
+  searchParams: Promise<{ client?: string; page?: string }>
 }) {
   const supabase = await createClient()
-  const { client: clientParam } = await searchParams
+  const { client: clientParam, page: pageParam } = await searchParams
 
   // ── 1. Authenticated ───────────────────────────────────────────────────────
   const { data: { user } } = await supabase.auth.getUser()
@@ -47,13 +48,21 @@ export default async function ApprovePage({
 
   if (!orgResult.data) notFound()
 
-  // ── 5. Fetch pending review prospects ──────────────────────────────────────
-  const { data: prospects } = await supabase
+  // ── 5. Fetch ONE PAGE of pending prospects, plus the true total ────────────
+  //
+  // The total comes from the count rather than from the length of what was fetched. Those
+  // are the same number only while everything fits on one page, and the whole defect being
+  // fixed here is that the screen reported the page as if it were the batch.
+  const requestedPage = Math.max(1, Number.parseInt(pageParam ?? '1', 10) || 1)
+  const from = (requestedPage - 1) * APPROVAL_PAGE_SIZE
+
+  const { data: prospects, count: totalPending } = await supabase
     .from('prospects')
-    .select('*')
+    .select('*', { count: 'exact' })
     .eq('organisation_id', organisationId)
     .eq('sourcing_review_status', 'pending_review')
     .order('created_at', { ascending: false })
+    .range(from, from + APPROVAL_PAGE_SIZE - 1)
 
   const icpSummary: { targetTitle?: string; revenueRange?: string } = {}
   if (icpResult.data?.icp_filter_spec) {
@@ -71,13 +80,16 @@ export default async function ApprovePage({
       <OperatorTopbar
         eyebrow="Operator view"
         title="Approve pending prospects"
-        subtitle={`${prospects?.length || 0} awaiting approval`}
+        subtitle={`${totalPending ?? 0} awaiting approval`}
         userEmail={user.email}
       />
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 max-w-[1040px]">
           <Gate1ApproveBatch
             prospects={prospects || []}
+            totalPending={totalPending ?? 0}
+            page={requestedPage}
+            pageSize={APPROVAL_PAGE_SIZE}
             organisationId={organisationId}
             organisationName={orgResult.data.name}
             icpSummary={icpSummary}

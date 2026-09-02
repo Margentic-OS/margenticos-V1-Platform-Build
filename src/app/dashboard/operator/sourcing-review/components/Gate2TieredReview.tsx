@@ -3,8 +3,14 @@
 import { useState, useMemo, useTransition } from 'react'
 import Link from 'next/link'
 import type { Database } from '@/types/database'
-import { logger } from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url/normalize'
+import {
+  parseTieringReason,
+  whyNotSendable,
+  DISQUALIFIER_LABELS,
+  SCORE_COMPONENT_LABELS,
+  NOT_SENDABLE_LABELS,
+} from '@/lib/operator/prospect-status'
 
 type Prospect = Database['public']['Tables']['prospects']['Row']
 
@@ -36,18 +42,12 @@ interface Gate2TieredReviewProps {
   removedCount: number
 }
 
-// Plain-English gloss for each removal reason the classifier writes. A reason with
-// no entry here still renders, under its raw code: an unglossed reason must show up
-// as an odd-looking row rather than vanish, because a reason this map has not caught
-// up with is exactly the one worth seeing.
-const REMOVAL_REASON_LABELS: Record<string, string> = {
-  email_unverified: 'Email not verified',
-  no_title: 'No job title',
-  not_decision_maker: 'Not a decision-maker',
-  company_too_large: 'Company over 100 people',
-  industry_excluded: 'Industry excluded by the ICP',
-  industry_not_consulting: 'Industry off-specification',
-}
+// The removal-reason gloss lives in prospect-status.ts, with the rest of the
+// operator-facing wording for these codes. It used to be a second copy here, and the copy
+// had drifted: it said "Company over 100 people", hard-coding a threshold that belongs to
+// the ICP specification and is not this component's to assert, and it explained one code
+// using internal vocabulary a screen should not carry. A code with no gloss still renders,
+// under its raw value, because an unglossed reason must look odd rather than disappear.
 
 const tierConfig = {
   tier_1: {
@@ -71,6 +71,57 @@ const tierConfig = {
     borderColor: '',
     description: 'Verified email, seniority, significantly relaxed fit.',
   },
+}
+
+/** tiering_reason, rendered as what it says rather than as the string it is stored in. */
+function TieringReasonCell({ reason }: { reason: string | null }) {
+  const verdict = parseTieringReason(reason)
+
+  if (verdict.kind === 'not_tiered') {
+    return <span className="text-text-secondary">Not tiered yet</span>
+  }
+
+  if (verdict.kind === 'disqualified') {
+    return (
+      <span className="text-[#8B2020]">{DISQUALIFIER_LABELS[verdict.code] ?? verdict.code}</span>
+    )
+  }
+
+  // Carried through verbatim rather than hidden. The live data holds one legacy code that
+  // the classifier no longer writes, and it is exactly the row worth noticing.
+  if (verdict.kind === 'unrecognised') {
+    return <span className="text-[#7A4800] font-mono">{verdict.raw}</span>
+  }
+
+  return (
+    <div className="text-text-secondary">
+      <span className="font-medium text-text-primary">{verdict.score}</span>
+      <span className="ml-1">
+        (
+        {verdict.components
+          .map(c => `${SCORE_COMPONENT_LABELS[c.name] ?? c.name} ${c.points}`)
+          .join(', ')}
+        )
+      </span>
+    </div>
+  )
+}
+
+/** Whether the send path will actually send to this address, and if not, why not. */
+function SendabilityCell({ prospect }: { prospect: Prospect }) {
+  const reason = whyNotSendable(prospect)
+
+  if (reason === null) {
+    return (
+      <span className="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-[#EBF5E6] text-[#3B6D11] border border-[#BDDAB0]">
+        Yes
+      </span>
+    )
+  }
+
+  return (
+    <span className="text-xs text-[#8B2020]">{NOT_SENDABLE_LABELS[reason]}</span>
+  )
 }
 
 function ProspectRow({ prospect }: { prospect: Prospect }) {
@@ -118,21 +169,21 @@ function ProspectRow({ prospect }: { prospect: Prospect }) {
           <span className="text-text-secondary text-xs italic">not enriched</span>
         )}
       </td>
-      <td className="px-4 py-3 text-xs max-w-[140px] truncate" title={prospect.tiering_reason || undefined}>
-        {prospect.tiering_reason ? (
-          <span className="text-text-secondary">{prospect.tiering_reason}</span>
-        ) : (
-          <span className="text-text-secondary text-xs">—</span>
-        )}
+      {/* WHY THIS PROSPECT LANDED IN THIS TIER.
+          This cell used to render tiering_reason raw, inside a 140-pixel truncate. For a
+          kept prospect the stored value is
+              tier_1 (score 100): industry 45, seniority 35, headcount 20
+          so what an operator actually saw was "tier_1 (score 100)..." and the part that
+          explains the score was cut off. The reason was on screen and unreadable. */}
+      <td className="px-4 py-3 text-xs">
+        <TieringReasonCell reason={prospect.tiering_reason} />
       </td>
+
+      {/* CAN THIS BE EMAILED, which is the question, rather than whether a verification
+          row exists. On production 2026-09-02 the platform held 132 prospects reading
+          "verified" and 89 that could actually be emailed. */}
       <td className="px-4 py-3">
-        {prospect.email_status === 'verified' ? (
-          <span className="inline-block px-2 py-0.5 rounded-sm text-xs font-medium bg-[#EBF5E6] text-[#3B6D11] border border-[#BDDAB0]">
-            Verified
-          </span>
-        ) : (
-          <span className="text-text-secondary text-xs">{prospect.email_status || 'unknown'}</span>
-        )}
+        <SendabilityCell prospect={prospect} />
       </td>
     </tr>
   )
@@ -166,6 +217,10 @@ function TierSection({
             <span className={`text-xs font-medium px-2 py-1 rounded-sm ${config.bgColor} ${config.textColor} ${config.borderColor ? `border ${config.borderColor}` : ''}`}>
               {prospects.length} prospects
             </span>
+            {/* The second number, because the first one is not the number a campaign gets. */}
+            <span className="text-xs text-text-secondary">
+              {prospects.filter(p => whyNotSendable(p) === null).length} can be emailed
+            </span>
           </div>
         </button>
       </div>
@@ -188,8 +243,8 @@ function TierSection({
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Industry</th>
                   <th className="px-4 py-3 text-left font-medium text-text-primary">LinkedIn</th>
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Website</th>
-                  <th className="px-4 py-3 text-left font-medium text-text-primary">Tier reason</th>
-                  <th className="px-4 py-3 text-left font-medium text-text-primary">Email status</th>
+                  <th className="px-4 py-3 text-left font-medium text-text-primary">Why this tier</th>
+                  <th className="px-4 py-3 text-left font-medium text-text-primary">Can be emailed</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E8E2D8]">
@@ -256,7 +311,7 @@ export function Gate2TieredReview({
       <div className="bg-white rounded-[10px] border border-border-card p-6">
         <div className="flex items-start justify-between mb-4">
           <h2 className="text-base font-medium text-text-primary">
-            Quality review: {totalEnriched} enriched prospects
+            Check quality, then publish: {totalEnriched} enriched prospects
           </h2>
           <button
             onClick={handlePublishAll}
@@ -279,25 +334,27 @@ export function Gate2TieredReview({
           </div>
         )}
 
+        {/* Both numbers, at the top of the screen. The tier total is how many prospects
+            tiering kept; the second line is how many of those a campaign can actually use.
+            On production the day this shipped those were 93 and 73. */}
         <div className="grid grid-cols-3 gap-4 mb-6">
-          <div>
-            <p className="text-xs uppercase font-normal tracking-[0.07em] text-[#3B6D11] mb-1">
-              Tier 1
-            </p>
-            <p className="text-2xl font-medium text-text-primary">{tiering.tier_1.length}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase font-normal tracking-[0.07em] text-[#5D7F23] mb-1">
-              Tier 2
-            </p>
-            <p className="text-2xl font-medium text-text-primary">{tiering.tier_2.length}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase font-normal tracking-[0.07em] text-[#9A9488] mb-1">
-              Tier 3
-            </p>
-            <p className="text-2xl font-medium text-text-primary">{tiering.tier_3.length}</p>
-          </div>
+          {([
+            ['Tier 1', tiering.tier_1, 'text-[#3B6D11]'],
+            ['Tier 2', tiering.tier_2, 'text-[#5D7F23]'],
+            ['Tier 3', tiering.tier_3, 'text-[#9A9488]'],
+          ] as const).map(([label, rows, colour]) => (
+            <div key={label}>
+              <p className={`text-xs uppercase font-normal tracking-[0.07em] ${colour} mb-1`}>
+                {label}
+              </p>
+              <p className="text-2xl font-medium text-text-primary">{rows.length}</p>
+              {rows.length > 0 && (
+                <p className="text-xs text-text-secondary mt-1">
+                  {rows.filter(p => whyNotSendable(p) === null).length} can be emailed
+                </p>
+              )}
+            </div>
+          ))}
         </div>
 
         <p className="text-xs text-text-secondary">
@@ -326,7 +383,7 @@ export function Gate2TieredReview({
               .map(([reason, count]) => (
                 <div key={reason} className="bg-[#FAEEDA] rounded-[8px] p-3 border border-[#F0D080]">
                   <p className="text-xs uppercase font-normal tracking-[0.07em] text-[#7A4800] mb-2">
-                    {REMOVAL_REASON_LABELS[reason] ?? reason}
+                    {DISQUALIFIER_LABELS[reason] ?? reason}
                   </p>
                   <p className="text-2xl font-medium text-text-primary">{count}</p>
                   <p className="text-xs text-text-secondary mt-1 font-mono">{reason}</p>

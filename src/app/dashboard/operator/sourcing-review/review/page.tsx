@@ -88,7 +88,7 @@ export default async function ReviewPage({
     <>
       <OperatorTopbar
         eyebrow="Operator view"
-        title="Quality review"
+        title="Check quality and publish"
         subtitle={
           removedCount > 0
             ? `${tier1.length + tier2.length + tier3.length} enriched prospects, ${removedCount} removed`

@@ -10,7 +10,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/database'
-import { approveProspects } from '@/lib/sourcing/approval'
+import { approveProspects, approveAllPendingProspects } from '@/lib/sourcing/approval'
 import { logger } from '@/lib/logger'
 import { requireOperator } from '@/lib/supabase/require-operator'
 
@@ -64,6 +64,37 @@ export async function POST(
 
     // Parse request body
     const body = await request.json()
+
+    // ── TWO SHAPES, AND THE WIDE ONE CARRIES NO IDS ─────────────────────────
+    //
+    // approve_all_pending exists because the approval screen is paginated and the browser
+    // only holds one page. An "approve everything" built from the ids a tab happened to
+    // load would have its scope decided by a fetch, which is the defect the pagination was
+    // fixing. This shape is a predicate evaluated server-side against the database as it is
+    // at the moment of the click.
+    if (body.approve_all_pending === true) {
+      logger.info('approve-prospects: operator triggered, all pending', {
+        operator_id: user.id,
+        organisation_id: organisationId,
+      })
+
+      const allResult = await approveAllPendingProspects(supabase, organisationId)
+
+      logger.info('approve-prospects: all pending approved', {
+        operator_id: user.id,
+        organisation_id: organisationId,
+        approved_count: allResult.approved_count,
+      })
+
+      return NextResponse.json({
+        ok: true,
+        result: {
+          approved_count: allResult.approved_count,
+          timestamp: allResult.timestamp,
+        },
+      })
+    }
+
     const prospectIds = body.prospect_ids || []
 
     if (!Array.isArray(prospectIds)) {

@@ -128,6 +128,82 @@ export async function prospectsWithLiveResearchJob(
   return new Set((data ?? []).map(row => row.prospect_id as string))
 }
 
+/** Research job types, in one place, so a count and a cancel cannot disagree about scope. */
+export const RESEARCH_JOB_TYPES = ['research', 'research_sources', 'research_collect'] as const
+
+/**
+ * How many research jobs are QUEUED for this organisation. Not claimed, not done.
+ *
+ * Queued is the only state a stop can honestly act on, so it is the only state counted. A
+ * button that counted claimed jobs too would promise to stop work that is already inside
+ * its HTTP calls.
+ */
+export async function countQueuedResearchJobs(
+  supabase: SupabaseClient,
+  organisationId: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from('job_queue')
+    .select('id', { count: 'exact', head: true })
+    .eq('organisation_id', organisationId)
+    .in('job_type', RESEARCH_JOB_TYPES as unknown as string[])
+    .eq('state', 'queued')
+
+  // FAIL LOUD, matching prospectsWithLiveResearchJob. A zero returned on error reads as
+  // "nothing to stop", which is the one answer that must never be guessed.
+  if (error) throw new Error(`Could not count queued research jobs: ${error.message}`)
+  return count ?? 0
+}
+
+/**
+ * Cancel research jobs that have NOT STARTED. Returns how many were cancelled.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════
+ * WHY THIS TOUCHES ONLY state = 'queued', AND WHAT THAT COSTS
+ *
+ * Cancelling a QUEUED job is clean. claim_jobs only ever selects state = 'queued', so a
+ * cancelled row is never picked up; no money has been spent; and the prospect is
+ * immediately free to be enqueued again, because job_queue_one_live_research_per_prospect
+ * and job_queue_one_live_per_target are both partial on ('queued','claimed').
+ *
+ * Cancelling a CLAIMED job is not clean, and this deliberately does not:
+ *
+ *   - It would not stop the spend. The worker is already inside its calls to the data
+ *     sources and the model. Nothing here can reach into a running executor.
+ *   - complete_job and fail_job are both scoped AND state = 'claimed'. A row flipped to
+ *     'cancelled' underneath a running worker would match NEITHER, so the worker would
+ *     finish, update zero rows, and leave a row that says cancelled about work that
+ *     completed. Widening those two functions was considered and rejected: they are the
+ *     retry policy and the spend guard for every job type, and loosening their state
+ *     predicate to buy a cosmetic improvement on one button is the wrong trade.
+ *
+ * So the bound on what a stop cannot prevent is the in-flight ceiling: at most
+ * QUEUE_CONFIG.research.maxInFlight prospects, whose work is already paid for. The button
+ * is labelled with the number it CAN stop and claims nothing about the rest.
+ */
+export async function cancelQueuedResearchJobs(
+  supabase: SupabaseClient,
+  organisationId: string,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from('job_queue')
+    .update({ state: 'cancelled', lease_expires_at: null, updated_at: new Date().toISOString() })
+    .eq('organisation_id', organisationId)
+    .in('job_type', RESEARCH_JOB_TYPES as unknown as string[])
+    // THE WHOLE GUARD IS THIS LINE. A claimed job must not be touched; see above.
+    .eq('state', 'queued')
+    .select('id')
+
+  if (error) throw new Error(`Could not cancel queued research jobs: ${error.message}`)
+
+  const cancelled = (data ?? []).length
+  logger.info('job-queue: cancelled queued research jobs', {
+    organisation_id: organisationId,
+    cancelled,
+  })
+  return cancelled
+}
+
 /**
  * Enqueue many prospects for one organisation.
  *

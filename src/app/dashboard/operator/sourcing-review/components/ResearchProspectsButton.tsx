@@ -1,11 +1,19 @@
 'use client'
 
 import { useState } from 'react'
+import type { ResearchVerdict } from '@/lib/operator/research-verdict'
 
 interface ResearchProspectsButtonProps {
   organisationId: string
-  /** Prospects in this organisation that have never produced a research result. */
-  unresearchedCount: number
+  /**
+   * What a click would do, from the enqueue's OWN selection function.
+   *
+   * NOT a count computed on the page. The label used to read
+   * `current_research_result_id IS NULL AND suppressed = false`, which is one of four
+   * predicates the action applies, and on 2026-09-02 it read 21 against an actionable 0.
+   * A label and its action cannot diverge if they are the same function call.
+   */
+  verdict: ResearchVerdict
 }
 
 type Status = 'idle' | 'researching' | 'success' | 'error' | 'queued'
@@ -21,11 +29,81 @@ interface ResearchResult {
   distinct_questions: number
 }
 
-export function ResearchProspectsButton({ organisationId, unresearchedCount }: ResearchProspectsButtonProps) {
+export function ResearchProspectsButton({ organisationId, verdict }: ResearchProspectsButtonProps) {
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ResearchResult | null>(null)
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null)
+  const [stopping, setStopping] = useState(false)
+  const [stopResult, setStopResult] = useState<{ cancelled: number; stillRunning: number } | null>(null)
+  const [stopError, setStopError] = useState<string | null>(null)
+
+  /**
+   * Cancel research that has NOT STARTED.
+   *
+   * The label carries the number this can actually stop, and the result names what is still
+   * running rather than implying everything halted. A worker already holding a job is inside
+   * its calls to the data sources and the model; nothing here reaches it, and the money for
+   * those is already committed. Saying so is the whole design: a stop that quietly left work
+   * running would be worse than no stop at all.
+   */
+  async function handleStop() {
+    setStopping(true)
+    setStopError(null)
+    setStopResult(null)
+    try {
+      const res = await fetch(`/api/operator/organisations/${organisationId}/cancel-research`, {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Could not stop research')
+      setStopResult({ cancelled: data.result.cancelled, stillRunning: data.result.still_running })
+    } catch (err) {
+      setStopError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setStopping(false)
+    }
+  }
+
+  /** The stop control, shown wherever there is queued work, whatever the button above says. */
+  function StopControl() {
+    if (stopResult) {
+      return (
+        <div className="text-xs text-[#7A4800] bg-[#FEF7E6] px-3 py-2 rounded-[6px] border border-[#F0D080]">
+          Stopped {stopResult.cancelled} that had not started.
+          {stopResult.stillRunning > 0
+            ? ` ${stopResult.stillRunning} already running and cannot be stopped: that work is
+                 in progress and already paid for. It will finish on its own.`
+            : ' Nothing was already running.'}
+        </div>
+      )
+    }
+
+    if (verdict.stoppable === 0) return null
+
+    return (
+      <div className="space-y-1">
+        <button
+          onClick={handleStop}
+          disabled={stopping}
+          className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-white text-[#8B2020] border border-[#EFBCAA] hover:bg-[#FDEEE8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {stopping
+            ? 'Stopping...'
+            : `Stop ${verdict.stoppable} not yet started`}
+        </button>
+        <p className="text-xs text-text-secondary">
+          Cancels queued research only. Anything already running finishes: it is mid-call and
+          already paid for.
+        </p>
+        {stopError && (
+          <div className="px-3 py-2 rounded-[6px] bg-[#FDEEE8] border border-[#EFBCAA] text-xs text-[#8B2020]">
+            {stopError}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   async function handleResearch() {
     setStatus('researching')
@@ -87,16 +165,19 @@ export function ResearchProspectsButton({ organisationId, unresearchedCount }: R
 
   if (status === 'queued') {
     return (
-      <div className="flex items-center gap-2">
-        <button
-          onClick={handleResearch}
-          className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-white text-[#1C3A2A] border border-[#BDDAB0] hover:bg-[#EBF5E6] transition-colors"
-        >
-          Queue more
-        </button>
-        <span className="text-xs text-[#3B6D11]">
-          {queuedMessage} You can close this tab.
-        </span>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleResearch}
+            className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-white text-[#1C3A2A] border border-[#BDDAB0] hover:bg-[#EBF5E6] transition-colors"
+          >
+            Queue more
+          </button>
+          <span className="text-xs text-[#3B6D11]">
+            {queuedMessage} You can close this tab.
+          </span>
+        </div>
+        <StopControl />
       </div>
     )
   }
@@ -140,23 +221,45 @@ export function ResearchProspectsButton({ organisationId, unresearchedCount }: R
     )
   }
 
+  const { actionable, blocked, skippedBreakdown } = verdict
+
   return (
     <div className="space-y-2">
       <button
         onClick={handleResearch}
-        disabled={unresearchedCount === 0}
+        disabled={actionable === 0}
         className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-[#1C3A2A] text-white hover:bg-[#152e21] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {status === 'error'
           ? 'Retry research'
-          : unresearchedCount === 0
-            ? 'Nothing left to research'
-            : `Research ${unresearchedCount} prospect${unresearchedCount === 1 ? '' : 's'}`}
+          : actionable === 0
+            ? 'Nothing to research'
+            : `Research ${actionable} prospect${actionable === 1 ? '' : 's'}`}
       </button>
 
-      {unresearchedCount > 0 && (
+      {/* THE REASON, SHOWN BEFORE THE CLICK RATHER THAN AFTER IT.
+          This text is the same string the API returns when the click is refused, from
+          describeResearchSelection, so the screen cannot say one thing and the response
+          another. Previously a disabled button said only "Nothing left to research", and
+          an enabled one that was about to refuse said nothing at all. */}
+      {blocked && (
+        <div className="px-3 py-2 rounded-[6px] bg-[#FEF7E6] border border-[#F0D080] text-xs text-[#7A4800]">
+          {blocked}
+        </div>
+      )}
+
+      {/* Counts by reason for prospects the spend filter passed over. These were computed
+          on every run and thrown away unless the batch filtered to zero, which is how a
+          pool that shrinks under you stayed invisible. */}
+      {skippedBreakdown && (
+        <div className="text-xs text-text-secondary">
+          Passed over on spend grounds: {skippedBreakdown}.
+        </div>
+      )}
+
+      {actionable > 0 && (
         <div className="text-xs text-[#7A4800] bg-[#FEF7E6] px-3 py-2 rounded-[6px] border border-[#F0D080]">
-          Research calls the Anthropic API and, for a prospect with nothing on file, four data
+          Research calls a language model and, for a prospect with nothing on file, four data
           sources. It runs only on prospects that have never been researched.
         </div>
       )}
@@ -166,6 +269,10 @@ export function ResearchProspectsButton({ organisationId, unresearchedCount }: R
           {error}
         </div>
       )}
+
+      {/* Reachable even when nothing can be enqueued. Work already in the queue is exactly
+          what needs stopping when the button above says there is nothing left to add. */}
+      <StopControl />
     </div>
   )
 }

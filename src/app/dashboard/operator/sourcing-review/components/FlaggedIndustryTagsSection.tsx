@@ -130,7 +130,7 @@ function TagGroup({
     <div className="bg-white rounded-[10px] border border-border-card p-4">
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h4 className="font-medium text-text-primary mb-1">Apollo tag: {apolloTag}</h4>
+          <h4 className="font-medium text-text-primary mb-1">Source tag: {apolloTag}</h4>
           <p className="text-xs text-text-secondary">{prospects.length} prospect{prospects.length !== 1 ? 's' : ''} with this tag</p>
         </div>
       </div>
@@ -249,7 +249,13 @@ function ProspectApproveRow({ prospect }: { prospect: Prospect }) {
 }
 
 export function FlaggedIndustryTagsSection({ prospects }: FlaggedIndustryTagsSectionProps) {
-  // Group flagged prospects by Apollo industry tag
+  // Group flagged prospects by the sourcing tool's own industry tag.
+  //
+  // THE PROP AND VARIABLE NAMES STILL CARRY THE VENDOR NAME; THE VISIBLE COPY NO LONGER
+  // DOES. The rendered strings were changed because a tool name must not reach a label.
+  // The identifiers were left because renaming them is a wider change through the handler
+  // that produces them, and doing it inside a UI pass would bury it. Noted here rather
+  // than left to be discovered.
   const groupedByTag = useMemo(() => {
     const groups: Record<string, Prospect[]> = {}
 
@@ -277,7 +283,7 @@ export function FlaggedIndustryTagsSection({ prospects }: FlaggedIndustryTagsSec
         <h3 className="font-medium text-[#7A4800] mb-2">Industry tags needing mapping</h3>
         <p className="text-xs text-[#7A4800]">
           {Object.values(groupedByTag).reduce((sum, group) => sum + group.length, 0)} prospects from {tagsByCount.length}{' '}
-          unmapped Apollo tag{tagsByCount.length !== 1 ? 's' : ''}. Map each tag to teach the system about new industries.
+          unmapped source tag{tagsByCount.length !== 1 ? 's' : ''}. Map each tag to teach the system about new industries.
         </p>
       </div>
 
