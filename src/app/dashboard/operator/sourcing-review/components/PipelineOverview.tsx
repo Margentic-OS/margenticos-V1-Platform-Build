@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { EnrichAndTierButton } from './EnrichAndTierButton'
 import { SourceProspectsButton } from './SourceProspectsButton'
 import { ResearchProspectsButton } from './ResearchProspectsButton'
+import type { ResearchVerdict } from '@/lib/operator/research-verdict'
 
 interface PipelineMetrics {
   organisation_id: string
@@ -15,9 +16,13 @@ interface PipelineMetrics {
   tier_2_count: number
   tier_3_count: number
   enriched_untiered_count: number
-  unresearched_count: number
   /** Enriched, then removed by a tiering disqualifier. Not the same as not-yet-tiered. */
   removed_count: number
+  /**
+   * What the research control would do if clicked, from the action's OWN selection
+   * function. Not a count computed here. See research-verdict.ts for why.
+   */
+  research: ResearchVerdict
 }
 
 interface PipelineOverviewProps {
@@ -152,7 +157,7 @@ export function PipelineOverview({ metrics, selectedClientId, sourcingMaxBatchSi
               />
               <ResearchProspectsButton
                 organisationId={org.organisation_id}
-                unresearchedCount={org.unresearched_count}
+                verdict={org.research}
               />
             </div>
 

@@ -1,11 +1,19 @@
 'use client'
 
 import { useState } from 'react'
+import type { ResearchVerdict } from '@/lib/operator/research-verdict'
 
 interface ResearchProspectsButtonProps {
   organisationId: string
-  /** Prospects in this organisation that have never produced a research result. */
-  unresearchedCount: number
+  /**
+   * What a click would do, from the enqueue's OWN selection function.
+   *
+   * NOT a count computed on the page. The label used to read
+   * `current_research_result_id IS NULL AND suppressed = false`, which is one of four
+   * predicates the action applies, and on 2026-09-02 it read 21 against an actionable 0.
+   * A label and its action cannot diverge if they are the same function call.
+   */
+  verdict: ResearchVerdict
 }
 
 type Status = 'idle' | 'researching' | 'success' | 'error' | 'queued'
@@ -21,7 +29,7 @@ interface ResearchResult {
   distinct_questions: number
 }
 
-export function ResearchProspectsButton({ organisationId, unresearchedCount }: ResearchProspectsButtonProps) {
+export function ResearchProspectsButton({ organisationId, verdict }: ResearchProspectsButtonProps) {
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ResearchResult | null>(null)
@@ -140,23 +148,45 @@ export function ResearchProspectsButton({ organisationId, unresearchedCount }: R
     )
   }
 
+  const { actionable, blocked, skippedBreakdown } = verdict
+
   return (
     <div className="space-y-2">
       <button
         onClick={handleResearch}
-        disabled={unresearchedCount === 0}
+        disabled={actionable === 0}
         className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-[#1C3A2A] text-white hover:bg-[#152e21] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {status === 'error'
           ? 'Retry research'
-          : unresearchedCount === 0
-            ? 'Nothing left to research'
-            : `Research ${unresearchedCount} prospect${unresearchedCount === 1 ? '' : 's'}`}
+          : actionable === 0
+            ? 'Nothing to research'
+            : `Research ${actionable} prospect${actionable === 1 ? '' : 's'}`}
       </button>
 
-      {unresearchedCount > 0 && (
+      {/* THE REASON, SHOWN BEFORE THE CLICK RATHER THAN AFTER IT.
+          This text is the same string the API returns when the click is refused, from
+          describeResearchSelection, so the screen cannot say one thing and the response
+          another. Previously a disabled button said only "Nothing left to research", and
+          an enabled one that was about to refuse said nothing at all. */}
+      {blocked && (
+        <div className="px-3 py-2 rounded-[6px] bg-[#FEF7E6] border border-[#F0D080] text-xs text-[#7A4800]">
+          {blocked}
+        </div>
+      )}
+
+      {/* Counts by reason for prospects the spend filter passed over. These were computed
+          on every run and thrown away unless the batch filtered to zero, which is how a
+          pool that shrinks under you stayed invisible. */}
+      {skippedBreakdown && (
+        <div className="text-xs text-text-secondary">
+          Passed over on spend grounds: {skippedBreakdown}.
+        </div>
+      )}
+
+      {actionable > 0 && (
         <div className="text-xs text-[#7A4800] bg-[#FEF7E6] px-3 py-2 rounded-[6px] border border-[#F0D080]">
-          Research calls the Anthropic API and, for a prospect with nothing on file, four data
+          Research calls a language model and, for a prospect with nothing on file, four data
           sources. It runs only on prospects that have never been researched.
         </div>
       )}

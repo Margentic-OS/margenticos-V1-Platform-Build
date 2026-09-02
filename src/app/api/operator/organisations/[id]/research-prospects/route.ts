@@ -49,6 +49,7 @@ import type { Database } from '@/types/database'
 import { runResearchBatchForOrg, type ResearchScope } from '@/lib/operator/research-batch-entry'
 import { isQueueEnabled } from '@/lib/queue/flags'
 import { enqueueResearchForOrganisation } from '@/lib/queue/enqueue/research'
+import { HALF_ENABLED_BATCH_PATH_REFUSAL } from '@/lib/operator/research-verdict'
 import { logger } from '@/lib/logger'
 import { requireOperator } from '@/lib/supabase/require-operator'
 
@@ -142,13 +143,9 @@ export async function POST(
     if (batched) {
       const collectEnabled = await isQueueEnabled(supabase, 'research_collect')
       if (!collectEnabled) {
-        return NextResponse.json({
-          error:
-            'Refused: the batch research path is enabled (queue_research_sources) but its ' +
-            'collection half is not (queue_research_collect). Phase 1 would buy sources and ' +
-            'submit a batch that nothing would ever read, which spends money on work that ' +
-            'cannot finish. Turn queue_research_collect on first, then retry.',
-        }, { status: 409 })
+        // The string lives in research-verdict.ts so the dashboard can show this refusal
+        // BEFORE the click rather than only after it. One copy, two readers.
+        return NextResponse.json({ error: HALF_ENABLED_BATCH_PATH_REFUSAL }, { status: 409 })
       }
     }
 

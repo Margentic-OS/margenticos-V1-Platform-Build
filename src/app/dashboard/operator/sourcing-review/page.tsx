@@ -1,9 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { PipelineOverview } from './components/PipelineOverview'
-import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import { SOURCING_MAX_BATCH_SIZE } from '@/lib/operator/sourcing-entry'
+import { getResearchVerdict } from '@/lib/operator/research-verdict'
+import type { Database } from '@/types/database'
 
 export default async function SourcingReviewPage({
   searchParams,
@@ -25,6 +27,16 @@ export default async function SourcingReviewPage({
     .single()
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  // ── Service client, for the two tables the session cannot read ─────────────
+  //
+  // ADR-027. Created only after the operator gate above, and used only for the research
+  // verdict. job_queue and system_flags have RLS on, zero policies and no authenticated
+  // grant, so the session client cannot answer "what would this button do" at all.
+  const serviceClient = createServiceClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
 
   // ── 3. Fetch all organisations for the operator (active only) ────────────
   const { data: orgs } = await supabase
@@ -60,6 +72,17 @@ export default async function SourcingReviewPage({
         .select('id, sourcing_review_status, enrichment_status, sourced_tier, tiering_reason, current_research_result_id, suppressed', { count: 'exact' })
         .eq('organisation_id', org.id)
 
+      // THE RESEARCH NUMBER IS NOT COUNTED HERE, AND THAT IS THE FIX.
+      //
+      // It used to be `current_research_result_id IS NULL AND suppressed = false`, counted
+      // in this file. The enqueue applies that plus a tier gate, plus send-eligibility,
+      // plus a live-job filter, plus a trigger guard that can refuse the whole batch. Two
+      // predicates for one number, and on 2026-09-02 they read 21 and 0.
+      //
+      // Now the label asks the action's own selection function what it would do. There is
+      // no second predicate left to drift.
+      const researchVerdict = await getResearchVerdict(serviceClient, org.id)
+
       if (!result.data) {
         return {
           organisation_id: org.id,
@@ -70,8 +93,8 @@ export default async function SourcingReviewPage({
           tier_2_count: 0,
           tier_3_count: 0,
           enriched_untiered_count: 0,
-          unresearched_count: 0,
           removed_count: 0,
+          research: researchVerdict,
         }
       }
 
@@ -92,12 +115,6 @@ export default async function SourcingReviewPage({
       const removed = prospects.filter(
         p => p.enrichment_status === 'enriched' && p.sourced_tier === null && p.tiering_reason !== null
       ).length
-      // Matches the 'unresearched' scope the research entry point selects: never researched
-      // and not suppressed. Suppressed prospects are excluded because researching copy that
-      // can never be sent spends money for nothing.
-      const unresearched = prospects.filter(
-        p => p.current_research_result_id === null && p.suppressed === false
-      ).length
 
       return {
         organisation_id: org.id,
@@ -108,8 +125,8 @@ export default async function SourcingReviewPage({
         tier_2_count: tier2,
         tier_3_count: tier3,
         enriched_untiered_count: enrichedUntiered,
-        unresearched_count: unresearched,
         removed_count: removed,
+        research: researchVerdict,
       }
     })
   )
