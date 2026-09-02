@@ -36,6 +36,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { EnrichAndTierButton } from './EnrichAndTierButton'
 import { SourceProspectsButton } from './SourceProspectsButton'
 import { ResearchProspectsButton } from './ResearchProspectsButton'
+import { SourcingRunList } from './SourcingRunList'
 import type { PipelineMetrics, TierMetrics } from '@/lib/operator/sourcing-metrics'
 import {
   NOT_SENDABLE_LABELS,
@@ -211,7 +212,7 @@ export function PipelineOverview({
                 : 'border-border-card bg-white hover:bg-[#FAFAF8]'
             }`}
           >
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-1 flex items-center justify-between">
               <h3 className="text-base font-medium text-text-primary">
                 {org.organisation_name}
               </h3>
@@ -221,6 +222,16 @@ export function PipelineOverview({
                 </span>
               )}
             </div>
+
+            {/* EVERY VIEW NAMES ITS SCOPE. These cards are an all-time sum across every
+                sourcing run this client has had, and saying so is the point: an
+                unlabelled 93 was read as one batch when it was five. The per-run split
+                is below. */}
+            <p className="text-xs text-text-secondary mb-4">
+              {org.batches.length > 0
+                ? `All ${org.batches.length} sourcing run${org.batches.length === 1 ? '' : 's'} added together. Per run below.`
+                : 'All prospects for this client.'}
+            </p>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               {/* Pending review stage */}
@@ -345,9 +356,11 @@ export function PipelineOverview({
               </div>
             )}
 
+            <SourcingRunList org={org} />
+
             {/* Run the pipeline: source, then research. Both run inside one request and
                 refuse a batch too large to finish, so neither needs a queue yet. */}
-            <div className="space-y-3 mb-6 pb-6 border-b border-border-card">
+            <div className="space-y-3 mb-6 pb-6 mt-6 border-t border-b border-border-card pt-6">
               <SourceProspectsButton
                 organisationId={org.organisation_id}
                 maxBatchSize={sourcingMaxBatchSize}

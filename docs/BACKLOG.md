@@ -67,27 +67,90 @@
   belongs in the suite as a test rather than in the hook. A hook is the right control for
   new code and cannot be the control for old code.
 
-- [phase2] PER-BATCH COUNTERS NEED A COLUMN, A MIGRATION AND A BACKFILL DECISION. Split out
-  of the 2026-09-02 UX pass on Doug's instruction, to be decided as its own prompt.
+- [DONE 2026-09-02] PER-BATCH COUNTERS. Built on branch batch-identity: sourcing_runs
+  table, prospects.sourcing_run_id, backfill, and a per-run funnel on the review screen.
 
-  THE PROBLEM, measured: after sourcing 100 prospects on top of an existing 29, the tier 1
-  card reads 93 and there is no way to separate the cohorts. Every count on the screen sums
-  every batch the organisation has ever had.
-
-  WHY IT IS NOT A UI CHANGE. There is NO batch identifier anywhere. prospects has no
-  sourcing_batch_id or sourcing_run_id, and there is no sourcing_runs table; the table list
-  holds agent_runs, enrichment_runs, synthesis_batches and synthesis_batch_entries and
-  nothing that groups a sourcing run. Checked in information_schema, not assumed.
-
-  The only thing separating the two live cohorts is created_at, and they happen to separate
-  cleanly:
+  THE PREMISE RECORDED HERE WAS WRONG AND IS CORRECTED BELOW. This entry previously said:
 
       2026-08-10 20:00    29 prospects    t1 23  t2 5   t3 0   removed 1
       2026-09-01 17:00   100 prospects    t1 70  t2 10  t3 5   removed 15
 
-  So a backfill is possible for the rows that exist today. What needs deciding first is the
-  identifier's shape: a run id written by the sourcing orchestrator is the honest version
-  and means every existing row gets a synthetic one.
+  and called them two cohorts. THE FIRST LINE IS FOUR RUNS, NOT ONE. agent_runs records
+  them individually, 42, 27 and 85 seconds apart:
+
+      20:39:09  written 25      20:40:35  written 1      20:42:57  written 0
+      20:40:08  written 2       20:42:12  written 1
+
+  25 + 2 + 1 + 1 = 29. The clustering that produced the old line used a 30-minute gap and
+  merged them, which is exactly the failure mode the entry warned about in the abstract
+  while committing it in practice. No gap threshold separates those five without also
+  splitting the 3-minute-long 25-prospect run into pieces.
+
+  WHAT THIS MEANS FOR ANYONE READING THE OLD NUMBERS. Any per-cohort rate computed from
+  the "29" line is an average over four runs of very different sizes, three of which wrote
+  one or two prospects because dedupe rejected the rest. Do not quote it as a batch.
+
+  The backfill did NOT use clustering. It used the run windows in agent_runs, which
+  attributed all 129 prospects exactly, each to one run, matching each run's own recorded
+  written count.
+
+- [post-build] 75 PROSPECTS WERE DELETED AND NOTHING RECORDS THAT THEY EVER EXISTED.
+  Found 2026-09-02 while backfilling run identities. Not to investigate now; recorded
+  because the general fact matters more than these particular rows.
+
+  Three completed sourcing runs on 2026-08-10 each recorded "written 25" and have ZERO
+  surviving prospects:
+
+      03:16:00   written 25   present 0
+      13:53:08   written 25   present 0
+      14:09:42   written 25   present 0
+
+  THE GENERAL POINT: PROSPECT DELETION LEAVES NO TRACE. There is no soft-delete, no
+  deleted_at, no audit row and no log. A prospect that is gone is indistinguishable from
+  one that was never created, and the only reason this was noticed at all is that the run
+  records survived and disagreed with the rows. Had the deletion happened before run
+  records existed, nothing would have shown it.
+
+  The three run records are kept and render on the review screen as "wrote 25, none still
+  here", which is currently the ONLY place in the product where a deletion is visible.
+
+  DECIDE LATER: whether prospects need a soft delete, or an audit trigger, or neither. It
+  matters most for anything already uploaded to the outbound provider, because our gates
+  govern upload and not delivery (ADR-034) and a deleted prospect row does not stop a
+  sequence.
+
+- [post-build] agent_runs LETS A CLIENT READ SOURCING FAILURE PROSE. Found 2026-09-02
+  while choosing where the batch identity should live. NOT a leak between clients, which
+  is why it is here and not treated as an incident.
+
+  The policy, read live from pg_policies:
+
+      table       agent_runs
+      policy      clients_read_own_agent_runs
+      command     SELECT
+      roles       {authenticated}
+      using       organisation_id = (SELECT users.organisation_id FROM users
+                                     WHERE users.id = auth.uid() AND users.role = 'client')
+
+  So a logged-in client can read every agent_runs row for THEIR OWN organisation, which
+  includes output_summary and error_message for sourcing. That is prose such as
+  "candidates returned 25, written 0, dropped 25 (duplicate_person_key: 25)" and, on the
+  nine failed runs of 2026-08-09, messages naming vendor rate limits, a 422 response and
+  one "[object Object]".
+
+  Nothing renders this in the client dashboard today; it is reachable only by querying the
+  API directly with a client session. The scoping is correct and no other organisation's
+  data is exposed.
+
+  WHY IT WAS NOT FIXED IN THAT BRANCH: revoking or narrowing a live client-facing policy
+  is a separate change with its own blast radius, and the branch's own table
+  (sourcing_runs) was made operator-only precisely so it does not add to this. Adding
+  target-versus-written columns to a client-readable table would have exposed miss rate,
+  and that is what was avoided.
+
+  DECIDE: either drop the client policy on agent_runs entirely (nothing client-facing
+  reads it), or restrict it to a column subset via a security_invoker view. Dropping it is
+  simpler and probably right.
 
 - [research] A CRON THAT ENQUEUES NEWLY-ELIGIBLE PROSPECTS FOR RESEARCH. Proposed
   2026-09-02, NOT built, awaiting Doug's answer on its guards.

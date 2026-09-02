@@ -60,6 +60,9 @@ function baseSpec(industries: string[]) {
 
 interface FakeState {
   agentRuns: Record<string, unknown>[]
+  /** Rows inserted into sourcing_runs, and the patches later applied to each. */
+  sourcingRuns: Record<string, unknown>[]
+  sourcingRunPatches: Record<string, unknown>[]
 }
 
 function makeSupabase(spec: unknown, state: FakeState): SupabaseClient {
@@ -89,6 +92,8 @@ function makeSupabase(spec: unknown, state: FakeState): SupabaseClient {
     integrations_registry: integrationsRegistry,
   }
 
+  let nextRunId = 0
+
   function unimplemented(method: string) {
     return () => {
       throw new Error(
@@ -117,12 +122,39 @@ function makeSupabase(spec: unknown, state: FakeState): SupabaseClient {
           }
           return { data: rows[0], error: null }
         },
-        insert: async (row: Record<string, unknown>) => {
+        insert: (row: Record<string, unknown>) => {
+          // sourcing_runs is inserted then READ BACK for its id, so it needs a chain
+          // rather than a bare promise. agent_runs is awaited directly. Both are recorded,
+          // because a fake that accepts a write without recording it cannot test the write.
+          if (table === 'sourcing_runs') {
+            const id = `run-${++nextRunId}`
+            state.sourcingRuns.push({ id, ...row })
+            const inserted: Record<string, unknown> = {
+              select: () => inserted,
+              single: async () => ({ data: { id }, error: null }),
+            }
+            return inserted
+          }
           if (table !== 'agent_runs') {
             throw new Error(`fake supabase: unexpected insert into ${table}`)
           }
           state.agentRuns.push(row)
-          return { error: null }
+          return Promise.resolve({ error: null })
+        },
+        update: (patch: Record<string, unknown>) => {
+          if (table !== 'sourcing_runs') {
+            throw new Error(`fake supabase: unexpected update on ${table}`)
+          }
+          // The patch is recorded WITH its filter, so a test can tell a terminal write on
+          // the right row from one on the wrong row. Returning a bare success would make
+          // both look identical.
+          const updated: Record<string, unknown> = {
+            eq: (column: string, value: unknown) => {
+              state.sourcingRunPatches.push({ ...patch, __where: { [column]: value } })
+              return Promise.resolve({ error: null })
+            },
+          }
+          return updated
         },
         // Everything the orchestrator could reach but must not in these tests.
         is: unimplemented('is'),
@@ -131,7 +163,6 @@ function makeSupabase(spec: unknown, state: FakeState): SupabaseClient {
         or: unimplemented('or'),
         limit: unimplemented('limit'),
         order: unimplemented('order'),
-        update: unimplemented('update'),
         delete: unimplemented('delete'),
         maybeSingle: unimplemented('maybeSingle'),
       }
@@ -192,7 +223,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
   })
 
   it('refuses the run when no spec industry is targeted by the handler query', async () => {
-    const state: FakeState = { agentRuns: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
     const supabase = makeSupabase(
       baseSpec(['Primary and Secondary Education', 'Higher Education']),
       state,
@@ -218,7 +249,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
   })
 
   it('allows the run when at least one spec industry is targeted', async () => {
-    const state: FakeState = { agentRuns: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
     const supabase = makeSupabase(baseSpec(CLIENT_ZERO_INDUSTRIES), state)
 
     const result = await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
@@ -235,7 +266,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
     // the industries that ARE targeted. Without this line the difference between
     // "searched for the 15 you named" and "searched for 12 of them" is invisible.
     const warn = vi.spyOn(logger, 'warn')
-    const state: FakeState = { agentRuns: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
     const supabase = makeSupabase(
       baseSpec(['Management Consulting', 'Higher Education', 'Agriculture']),
       state,
@@ -256,7 +287,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
 
   it('says out loud when the spec constrains no industry at all', async () => {
     const warn = vi.spyOn(logger, 'warn')
-    const state: FakeState = { agentRuns: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
     const supabase = makeSupabase(baseSpec([]), state)
 
     await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
@@ -271,7 +302,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
   })
 
   it('allows the run on partial coverage, and does not refuse', async () => {
-    const state: FakeState = { agentRuns: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
     const supabase = makeSupabase(
       // One targeted, one not.
       baseSpec(['Management Consulting', 'Higher Education']),
@@ -285,7 +316,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
   })
 
   it('does not refuse when the spec names no industries at all', async () => {
-    const state: FakeState = { agentRuns: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
     const supabase = makeSupabase(baseSpec([]), state)
 
     const result = await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
@@ -294,5 +325,58 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
     // There is no intersection to be empty, so there is nothing to refuse.
     expect(result.error).not.toContain('Sourcing refused')
     expect(result.error).toContain('APOLLO_API_KEY')
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// THE RUN RECORD
+//
+// These assert the two properties the batch identity depends on, and both are
+// mutation-testable: delete the startSourcingRun call and the first goes red; move it
+// below the ICP read and the second does.
+describe('Sourcing orchestrator: the run record', () => {
+  it('creates the run record BEFORE reading the ICP, so a failed run still has one', async () => {
+    // No approved ICP at all, so the run dies at step 1. Nine real runs failed this way on
+    // 2026-08-09 and left nothing to look at; those are exactly the runs worth seeing.
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
+    const supabase = makeSupabase(null, state)
+    // Remove the approved ICP the fake would otherwise return.
+    const noIcp = {
+      from: (table: string) =>
+        table === 'strategy_documents'
+          ? { select: () => noIcp.from(table), eq: () => noIcp.from(table),
+              single: async () => ({ data: null, error: { message: 'no rows' } }) }
+          : (supabase as unknown as { from: (t: string) => unknown }).from(table),
+    }
+
+    const result = await runSourcing(brandedFake(noIcp), ORG, 'operator_manual', 10)
+
+    expect(result.error).toBeDefined()
+    expect(state.sourcingRuns).toHaveLength(1)
+    expect(state.sourcingRuns[0]).toMatchObject({
+      organisation_id: ORG,
+      status: 'running',
+      target_batch_size: 10,
+    })
+  })
+
+  it('closes the record as failed, on the row it opened', async () => {
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
+    // An empty industries list, deliberately. This test is about the run record's terminal
+    // write, not about industry matching, and naming a real industry here would put a
+    // sector into a fixture that has no need of one.
+    const supabase = makeSupabase({ industries: [] }, state)
+
+    // No vendor key in the test environment, so the run fails at the search step.
+    const result = await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
+
+    expect(result.error).toBeDefined()
+
+    const terminal = state.sourcingRunPatches.filter(p => p.status === 'failed')
+    expect(terminal).toHaveLength(1)
+    // On the row it opened, not on some other row. A terminal write aimed at the wrong id
+    // succeeds silently and leaves the real row stuck reading 'running' forever.
+    expect(terminal[0].__where).toEqual({ id: state.sourcingRuns[0].id })
+    expect(terminal[0].completed_at).toEqual(expect.any(String))
   })
 })

@@ -44,6 +44,13 @@ export interface SourcingEntryInput {
   /** How many prospects to ask the sourcing handler for. */
   target_batch_size: number
   trigger_type?: SourcingTriggerType
+  /**
+   * The operator who clicked. Recorded on the run record.
+   *
+   * The route always had this and threw it away. Optional here because the CLI has no
+   * operator, and a run with nobody to attribute it to is a real case rather than an error.
+   */
+  created_by?: string | null
 }
 
 export type SourcingEntryResult =
@@ -53,6 +60,8 @@ export type SourcingEntryResult =
       candidates_qualified: number
       run_timestamp: string
       estimated_seconds: number
+      /** The batch this run created. NULL if the run record could not be written. */
+      sourcing_run_id: string | null
     }
   | { ok: false; error: string }
 
@@ -74,6 +83,7 @@ export async function runSourcingForOrg({
   organisation_id,
   target_batch_size,
   trigger_type = 'operator_manual',
+  created_by = null,
 }: SourcingEntryInput): Promise<SourcingEntryResult> {
   // ── Validate the batch size ────────────────────────────────────────────────
   if (!Number.isInteger(target_batch_size) || target_batch_size < 1) {
@@ -138,7 +148,12 @@ export async function runSourcingForOrg({
   })
 
   try {
-    const result = await runSourcing(supabase, organisation_id, trigger_type, target_batch_size)
+    // The agent_runs id is passed through so the two records stay tied together rather than
+    // becoming rival histories of the same run.
+    const result = await runSourcing(supabase, organisation_id, trigger_type, target_batch_size, {
+      created_by,
+      agent_run_id: run.run_id,
+    })
 
     // runSourcing NEVER throws. Every failure path returns a zero-count result carrying an
     // error string, so a caller that only watches for an exception reads a total failure as
@@ -171,6 +186,7 @@ export async function runSourcingForOrg({
       candidates_qualified: result.candidates_qualified,
       run_timestamp: result.run_timestamp,
       estimated_seconds: Math.round(estimatedSeconds),
+      sourcing_run_id: result.sourcing_run_id,
     }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)

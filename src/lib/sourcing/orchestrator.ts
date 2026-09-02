@@ -11,6 +11,7 @@ import { inspectFilterSpec } from '@/lib/sourcing/inspect-filter-spec'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import { apolloHandler } from '@/lib/sourcing/handlers/adapter-apollo'
 import { checkCandidates, type ProspectCandidate } from '@/lib/sourcing/dedupe'
+import { startSourcingRun, type SourcingRunHandle } from '@/lib/sourcing/sourcing-run-record'
 
 // Serialize any error (Error, Supabase, or unknown) to human-readable message
 function serializeError(err: unknown): string {
@@ -65,10 +66,41 @@ export async function runSourcing(
   supabase: ServiceRoleClient,
   client_id: string,
   trigger_type: SourcingTriggerType,
-  target_batch_size: number
+  target_batch_size: number,
+  // Provenance for the run record. Optional so the CLI and the existing tests keep their
+  // four-argument call; the record is created either way, just without a clicker.
+  provenance?: { created_by?: string | null; agent_run_id?: string | null }
 ): Promise<SourcingRunResult> {
   const operationId = `sourcing-${client_id.slice(0, 8)}-${trigger_type}`
   const runStartedAt = new Date().toISOString()
+
+  // ── The run record ────────────────────────────────────────────────────────
+  //
+  // CREATED FIRST, before the ICP read below, so a run that dies on a missing or NULL
+  // filter spec still leaves a record. Nine runs failed exactly that way on 2026-08-09.
+  // Its icp_document_id is attached once step 1 has one.
+  //
+  // Every prospect written in step 7 carries this id. It is written at insert and never
+  // updated: dedupe drops a prospect a later run re-encounters, so "which run sourced
+  // this prospect" has exactly one answer forever.
+  const runRecord: SourcingRunHandle = await startSourcingRun({
+    supabase,
+    organisation_id: client_id,
+    target_batch_size,
+    trigger_type,
+    created_by: provenance?.created_by ?? null,
+    agent_run_id: provenance?.agent_run_id ?? null,
+  })
+
+  // What the run had reached when it ended, success or failure. Hoisted out of the try so
+  // the catch below can record a PARTIAL result rather than a zero one: a run that returned
+  // 25 candidates and died having inserted 12 really did insert 12, and those 12 rows point
+  // at the record. Reporting zero would make the record disagree with its own rows.
+  const progress = {
+    candidates_returned: 0,
+    prospects_written: 0,
+    dropped_by_reason: {} as Record<string, number>,
+  }
 
   logger.info('Sourcing orchestrator: run started', {
     operation_id: operationId,
@@ -119,6 +151,10 @@ export async function runSourcing(
     // `as unknown as` because the column is Json. This compiled as a direct cast only
     // while the client was an untyped SupabaseClient; typing the client surfaced it.
     const spec = icpDoc.icp_filter_spec as unknown as ICPFilterSpec
+
+    // Which spec this batch was filtered against. Specs are frozen at promotion and nothing
+    // recomputes them, so this is the first question asked when a batch comes back wrong.
+    await runRecord.attachIcpDocument(icpDoc.id)
 
     // ── Step 2.5: Inspect the STORED spec ─────────────────────────────────────
     // Stored specs are frozen at promotion time and nothing recomputes them, so this
@@ -338,6 +374,8 @@ export async function runSourcing(
       throw new Error(`Sourcing failed at search step: ${errorMsg}`)
     }
 
+    progress.candidates_returned = candidates.length
+
     logger.info('Sourcing orchestrator: search returned candidates', {
       operation_id: operationId,
       client_id,
@@ -389,6 +427,16 @@ export async function runSourcing(
       }
     }
 
+    // DERIVED FROM THE VERDICTS THEMSELVES, not from the verdictCounts literal above.
+    // That literal names today's four drop reasons by hand; a fifth verdict would be
+    // counted by neither it nor a column, and the prospects lost to it would simply not
+    // appear anywhere. Walking the map means a new reason lands here the moment it exists.
+    for (const verdict of verdicts.values()) {
+      const v = verdict as string
+      if (v === 'new') continue
+      progress.dropped_by_reason[v] = (progress.dropped_by_reason[v] ?? 0) + 1
+    }
+
     logger.info('Sourcing orchestrator: dedupe check complete', {
       operation_id: operationId,
       client_id,
@@ -418,6 +466,8 @@ export async function runSourcing(
       try {
         const { error: insertError } = await supabase.from('prospects').insert({
           organisation_id: client_id,
+          // The batch identity. Written here and nowhere else, and never updated.
+          sourcing_run_id: runRecord.run_id,
           source_person_key: candidate.source_person_key,
           first_name: candidate.first_name || null,
           job_title: candidate.job_title || null,
@@ -444,6 +494,7 @@ export async function runSourcing(
         }
 
         writtenCount++
+        progress.prospects_written = writtenCount
       } catch (err) {
         const errorMsg = serializeError(err)
         logger.error('Sourcing orchestrator: prospect insert failed', {
@@ -522,6 +573,12 @@ export async function runSourcing(
       summary: outputSummary,
     })
 
+    await runRecord.complete({
+      candidates_returned: candidates.length,
+      prospects_written: writtenCount,
+      dropped_by_reason: progress.dropped_by_reason,
+    })
+
     const runCompletedAt = new Date().toISOString()
     const durationMs = new Date(runCompletedAt).getTime() - new Date(runStartedAt).getTime()
 
@@ -551,6 +608,7 @@ export async function runSourcing(
       candidates_sourced: candidates.length,
       candidates_qualified: writtenCount,
       run_timestamp: now,
+      sourcing_run_id: runRecord.run_id,
     }
   } catch (err) {
     const errorMsg = serializeError(err)
@@ -560,6 +618,8 @@ export async function runSourcing(
       client_id,
       error: errorMsg,
     })
+
+    await runRecord.fail(errorMsg, progress)
 
     // Log failure to agent_runs
     const runCompletedAt = new Date().toISOString()
@@ -590,6 +650,7 @@ export async function runSourcing(
       candidates_sourced: 0,
       candidates_qualified: 0,
       run_timestamp: new Date().toISOString(),
+      sourcing_run_id: runRecord.run_id,
       error: errorMsg,
     }
   }

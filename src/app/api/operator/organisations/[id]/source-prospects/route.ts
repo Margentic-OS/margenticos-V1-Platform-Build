@@ -94,6 +94,7 @@ export async function POST(
       organisation_id: organisationId,
       target_batch_size: targetBatchSize,
       trigger_type: 'operator_manual',
+      created_by: user.id,
     })
 
     if (!result.ok) {
@@ -121,6 +122,7 @@ export async function POST(
         candidates_qualified: result.candidates_qualified,
         run_timestamp: result.run_timestamp,
         estimated_seconds: result.estimated_seconds,
+        sourcing_run_id: result.sourcing_run_id,
       },
     })
   } catch (err) {

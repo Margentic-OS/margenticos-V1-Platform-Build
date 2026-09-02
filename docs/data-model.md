@@ -1,5 +1,6 @@
 # data-model.md — Database Tables, Fields, RLS Policies
-# Last updated: 2026-08-21 — suppressed_emails added (global bounce/unsubscribe list, closes audit D2).
+# Last updated: 2026-09-02 — sourcing_runs added (batch identity), prospects.sourcing_run_id.
+# Previously 2026-08-21 — suppressed_emails added (global bounce/unsubscribe list, closes audit D2).
 # Previously April 2026 — pipeline_unlock_manual_override added to organisations; sequence_position documented on document_suggestions; generated types written to src/types/database.ts
 # Written for non-developers. Update this file whenever a table is added or changed.
 # The spec is in /prd/sections/03-data-model.md — this is the living reference.
@@ -324,6 +325,79 @@ RLS:
   Client:   no access (prospects never exposed to clients directly)
 
 ---
+
+**sourcing_run_id (added 2026-09-02).** Which sourcing run added this prospect. Written
+once, when the prospect is inserted, and never updated: dedupe drops a prospect a later run
+re-encounters, so the answer cannot change.
+
+The foreign key is ON DELETE RESTRICT, which means a run record cannot be deleted while
+prospects point at it. The alternatives were both worse: CASCADE would delete real
+prospects, which cost real money, because somebody tidied a run record; SET NULL would
+silently un-batch a whole cohort and send the screen back to summing everything with
+nothing to say why.
+
+NULL is allowed and means "belongs to no recorded run". Nineteen prospects are in that
+state: twelve in an organisation archived before run logging existed, and seven test
+fixtures. They are SHOWN on the review screen as their own group rather than hidden,
+because a total that quietly omits rows is the defect the batch identity exists to remove.
+
+## Table: sourcing_runs
+
+**What it is.** One row per sourcing run. This is the batch identity: it is what lets the
+review screen show "this batch" rather than "everything this client has ever had".
+
+**Why it exists.** Before 2026-09-02 there was no batch identifier on prospects at all.
+Every count on the pipeline review screen summed every cohort the organisation had ever
+had, so the Tier 1 card read 93 with no way to tell that it was five separate runs.
+
+**Columns.**
+
+| Column | What it holds |
+|---|---|
+| id | the batch identity |
+| organisation_id | whose batch. Foreign key to organisations |
+| started_at / completed_at | when. completed_at NULL means still running, or died |
+| status | running, completed or failed |
+| target_batch_size | how many were asked for. NULL only on backfilled rows (see below) |
+| candidates_returned | how many the sourcing tool sent back |
+| prospects_written | how many were new and were kept |
+| dropped_by_reason | how many were already known, as an object keyed by dedupe verdict |
+| error_message | why it failed |
+| trigger_type | operator_manual today; 'backfilled' on reconstructed rows |
+| icp_document_id | which ICP version the run filtered against |
+| created_by | which operator clicked. NULL for the command-line runner |
+| agent_run_id | the matching agent_runs row, so the two histories stay tied together |
+| backfilled_at | set ONLY on rows reconstructed from history. See below |
+
+**dropped_by_reason is an object, not four columns, and that is deliberate.** Four columns
+named after today's four dedupe reasons would be a second list that has to be kept in step
+by hand with the list in the orchestrator. A fifth reason would then produce no error at
+all: it would simply have no column, its count would vanish, and a batch that lost
+prospects to it would look like a batch that did not. The object is built from the reasons
+that actually fired, so a new one appears the moment it exists.
+
+**No cost columns, deliberately.** Enrichment credits and paid verification calls are
+recorded per prospect and can be reached through prospects.sourcing_run_id. Model spend is
+recorded NOWHERE: research makes four model calls per prospect and the job queue records
+only which sources were attempted, never tokens or cost. A cost column here would be right
+for new batches and quietly understated for every older one, so there is none until the
+largest part of the cost is actually measured.
+
+**backfilled_at, and why it matters when reading these numbers.** Eleven rows were
+reconstructed on 2026-09-02 from the run log that already existed. Their counts were parsed
+out of an English sentence rather than written down as they happened, so they are as good
+as that log and no better. The screen says so on those rows. A row without backfilled_at
+was recorded as it ran.
+
+**Security.** RLS enabled, zero policies, and the grants revoked underneath it by name:
+anon and authenticated have no privilege at all, service_role has all. Operator-only, and
+clients cannot read it. This was checked by reading has_table_privilege back for all three
+roles rather than assuming the REVOKE worked, because REVOKE ... FROM PUBLIC is a silent
+no-op on this platform. See the CLAUDE.md database security rules.
+
+**What to check if it breaks.** If the review screen shows no runs, check that rows exist
+for the organisation. If a batch line disagrees with the card above it, the screen already
+says so in words; the difference should be exactly the prospects belonging to no run.
 
 ## Table: signals
 

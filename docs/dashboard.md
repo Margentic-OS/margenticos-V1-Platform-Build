@@ -46,6 +46,49 @@ What to check if it breaks:
   handler and the service-role client into the browser bundle. The batch-size cap is passed
   down as a prop from the server page for that reason.
 
+#### Sourcing runs list (added 2026-09-02)
+
+Underneath the cards, one line per sourcing run, newest first, newest already open.
+
+**Why a list and not "the latest batch".** The first instinct was to default to the most
+recent batch, because the operator's question is almost always "how did the thing I just
+did go". Measurement changed the answer: on 2026-08-10 FOUR runs happened inside three
+minutes, writing 25, 2, 1 and 1 prospects. "The latest batch" would have silently picked
+one of those four and shown 1, which is the same lie by omission as the all-time sum, only
+smaller. The list makes the real shape visible instead of choosing for the reader.
+
+**Every line names its scope and its date.** A number is never shown here without the run
+and the day it belongs to. A default that is not visibly a filter is precisely the defect
+this screen change was made to fix.
+
+**More than one run can be open at once**, so two batches can be compared. An accordion
+would keep the screen shorter and make the second most useful thing on it impossible.
+
+**The funnel, per run.** Added, approved, enriched, kept by tiering, email verified, can be
+emailed, researched, has an opening line. Each stage shows what was lost from the stage
+above it and why, using the same reason glosses the cards use.
+
+**Three things it deliberately makes visible:**
+
+1. **Prospects belonging to no recorded run** get their own group. They are counted in the
+   cards, so hiding them would make the cards and the lines disagree with no explanation.
+2. **A reconciliation sentence** at the bottom: so many in the runs above, plus so many
+   from no recorded run, equals the client total. It is computed and displayed rather than
+   assumed, because a silent disagreement between a card and a batch line is the exact
+   failure this was built to prevent.
+3. **A run whose prospects no longer exist** still gets a line, reading "wrote 25, none
+   still here". Three runs are in that state. This is currently the ONLY place in the
+   product where a prospect deletion is visible at all. See BACKLOG.
+
+**Where the numbers come from.** All of them come from countRow in
+src/lib/operator/sourcing-metrics.ts, the same function that produces the cards, walked
+over the same rows from the same read. A batch line and the card above it cannot mean
+different things by "tier 1", because there is only one place either is decided.
+
+**What to check if it breaks.** If a run is missing, check sourcing_runs for that
+organisation. If the reconciliation sentence does not add up, the per-run stage counts are
+bounded by STATUS_ROW_LIMIT and the screen says so separately when that ceiling is reached.
+
 ### Operator quality review — /dashboard/operator/sourcing-review/review
 
 What it shows: the enriched prospects grouped into tier 1, 2 and 3, AND, since 2026-08-27,

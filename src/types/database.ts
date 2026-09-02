@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -1533,6 +1533,7 @@ export type Database = {
           source_person_key: string | null
           sourced_tier: string | null
           sourcing_review_status: string | null
+          sourcing_run_id: string | null
           suppressed: boolean
           suppressed_at: string | null
           suppression_reason: string | null
@@ -1614,6 +1615,7 @@ export type Database = {
           source_person_key?: string | null
           sourced_tier?: string | null
           sourcing_review_status?: string | null
+          sourcing_run_id?: string | null
           suppressed?: boolean
           suppressed_at?: string | null
           suppression_reason?: string | null
@@ -1695,6 +1697,7 @@ export type Database = {
           source_person_key?: string | null
           sourced_tier?: string | null
           sourcing_review_status?: string | null
+          sourcing_run_id?: string | null
           suppressed?: boolean
           suppressed_at?: string | null
           suppression_reason?: string | null
@@ -1743,6 +1746,13 @@ export type Database = {
             columns: ["segment_id"]
             isOneToOne: false
             referencedRelation: "segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prospects_sourcing_run_id_fkey"
+            columns: ["sourcing_run_id"]
+            isOneToOne: false
+            referencedRelation: "sourcing_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -2183,6 +2193,102 @@ export type Database = {
             columns: ["prospect_id"]
             isOneToOne: false
             referencedRelation: "prospects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sourcing_runs: {
+        Row: {
+          agent_run_id: string | null
+          backfilled_at: string | null
+          candidates_returned: number
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          dropped_by_reason: Json
+          error_message: string | null
+          icp_document_id: string | null
+          id: string
+          organisation_id: string
+          prospects_written: number
+          started_at: string
+          status: string
+          target_batch_size: number
+          trigger_type: string
+          updated_at: string
+        }
+        Insert: {
+          agent_run_id?: string | null
+          backfilled_at?: string | null
+          candidates_returned?: number
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          dropped_by_reason?: Json
+          error_message?: string | null
+          icp_document_id?: string | null
+          id?: string
+          organisation_id: string
+          prospects_written?: number
+          started_at?: string
+          status?: string
+          target_batch_size: number
+          trigger_type: string
+          updated_at?: string
+        }
+        Update: {
+          agent_run_id?: string | null
+          backfilled_at?: string | null
+          candidates_returned?: number
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          dropped_by_reason?: Json
+          error_message?: string | null
+          icp_document_id?: string | null
+          id?: string
+          organisation_id?: string
+          prospects_written?: number
+          started_at?: string
+          status?: string
+          target_batch_size?: number
+          trigger_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sourcing_runs_agent_run_id_fkey"
+            columns: ["agent_run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sourcing_runs_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sourcing_runs_icp_document_id_fkey"
+            columns: ["icp_document_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sourcing_runs_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sourcing_runs_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
             referencedColumns: ["id"]
           },
         ]
@@ -3012,6 +3118,15 @@ export type Database = {
         }
         Relationships: []
       }
+      mon_024: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
       queue_depth: {
         Row: {
           claimed: number | null
@@ -3294,12 +3409,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3323,11 +3438,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3348,11 +3463,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3373,11 +3488,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3390,11 +3505,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
