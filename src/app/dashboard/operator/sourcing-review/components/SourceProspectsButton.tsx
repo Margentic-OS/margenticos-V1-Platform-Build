@@ -114,7 +114,7 @@ export function SourceProspectsButton({ organisationId, maxBatchSize }: SourcePr
       </div>
 
       <div className="text-xs text-[#7A4800] bg-[#FEF7E6] px-3 py-2 rounded-[6px] border border-[#F0D080]">
-        Sourcing spends Apollo credits. It needs an ICP that the client has approved.
+        Sourcing spends sourcing credits. It needs a filter specification the client has approved.
       </div>
 
       {status === 'error' && error && (

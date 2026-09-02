@@ -136,7 +136,8 @@ export function Gate1ApproveBatch({
         </div>
 
         <p className="text-xs text-text-secondary">
-          From Apollo search with ICP filter applied. Ready to proceed to enrichment.
+          From the prospect search, with the client's filter specification applied. Ready to
+          proceed to enrichment.
         </p>
       </div>
 
@@ -213,7 +214,7 @@ export function Gate1ApproveBatch({
       {/* Warning */}
       <div className="bg-[#FEF7E6] rounded-[10px] border border-[#F0D080] p-4">
         <p className="text-sm font-medium text-[#7A4800] mb-1">
-          Enrichment will consume Apollo credits
+          Enrichment spends enrichment credits
         </p>
         <p className="text-xs text-[#7A4800] mb-3">
           Currently in test mode. No live API calls will be made. Activation of live enrichment requires a separate step.

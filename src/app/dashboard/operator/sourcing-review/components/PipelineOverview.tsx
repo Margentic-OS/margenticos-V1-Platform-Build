@@ -361,12 +361,18 @@ export function PipelineOverview({
             {/* Action buttons */}
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2">
+                {/* ── NAMED BY WHAT IT DOES, WITH ITS COUNT ─────────────────────
+                    This said "Review pending" and the one below said "Review quality".
+                    Two buttons starting with the same verb, neither naming its action,
+                    and an operator could not tell which one approved prospects. This is
+                    the approval step: it is where prospects are approved for enrichment,
+                    so it says so, and it carries the number it will act on. */}
                 {org.pending_review_count > 0 && (
                   <Link
                     href={`/dashboard/operator/sourcing-review/approve?client=${org.organisation_id}`}
                     className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-[#1C3A2A] text-white hover:bg-[#152e21] transition-colors"
                   >
-                    Review pending
+                    Approve {org.pending_review_count} prospect{org.pending_review_count === 1 ? '' : 's'}
                   </Link>
                 )}
 
@@ -380,12 +386,16 @@ export function PipelineOverview({
                     survived. Gating this on enrichedCount alone hid the quality screen
                     in exactly the case where its removal breakdown is the only thing
                     that explains where the batch went. */}
+                {/* The other step, named for the decision it leads to. Publishing for
+                    client review happens on that screen and nothing on this one said so. */}
                 {(enrichedCount > 0 || org.removed_count > 0) && (
                   <Link
                     href={`/dashboard/operator/sourcing-review/review?client=${org.organisation_id}`}
                     className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-[#1C3A2A] text-white hover:bg-[#152e21] transition-colors"
                   >
-                    {enrichedCount > 0 ? 'Review quality' : 'See why all were removed'}
+                    {enrichedCount > 0
+                      ? `Check ${enrichedCount} and publish for the client`
+                      : 'See why all were removed'}
                   </Link>
                 )}
 
@@ -397,7 +407,7 @@ export function PipelineOverview({
               {/* Spend & dormant warning */}
               {org.approved_unenriched_count > 0 && (
                 <div className="text-xs text-[#7A4800] bg-[#FEF7E6] px-3 py-2 rounded-[6px] border border-[#F0D080]">
-                  <p className="font-medium mb-0.5">Enrich and tier will consume Apollo credits</p>
+                  <p className="font-medium mb-0.5">Enrich and tier spends enrichment credits</p>
                   <p>Currently in test mode. No live API calls will be made yet.</p>
                 </div>
               )}

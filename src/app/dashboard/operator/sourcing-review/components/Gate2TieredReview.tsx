@@ -311,7 +311,7 @@ export function Gate2TieredReview({
       <div className="bg-white rounded-[10px] border border-border-card p-6">
         <div className="flex items-start justify-between mb-4">
           <h2 className="text-base font-medium text-text-primary">
-            Quality review: {totalEnriched} enriched prospects
+            Check quality, then publish: {totalEnriched} enriched prospects
           </h2>
           <button
             onClick={handlePublishAll}
