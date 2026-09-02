@@ -36,6 +36,20 @@ function spec(industries: string[]): ICPFilterSpec {
     keywords: [],
     keywords_excluded: [],
     notes: '',
+    // Rule Zero: the fragments here are abstract tokens, not job titles. This test is
+    // about disqualifier plumbing, and a real title in a fixture is one copy-paste away
+    // from a real title in the derivation prompt.
+    buyer_criterion: {
+      status: 'derived',
+      accept: [{ fragment: 'qualifying-role', rank: 'primary' }],
+      reject: [],
+      statement: 'Test fixture.',
+      evidence: [],
+      unsettled_reason: null,
+      sanity: null,
+      derived_at: '2026-09-02T00:00:00.000Z',
+      model: 'test',
+    },
   }
 }
 
@@ -58,7 +72,7 @@ function prospect(over: Partial<ProspectRow>): ProspectRow {
     organisation_id: ORG,
     email_status: 'verified',
     enrichment_status: 'enriched',
-    job_title: 'Founder',
+    job_title: 'qualifying-role',
     company_headcount: 10,
     company_industry: 'management consulting',
     company_name: 'Acme Consulting',
@@ -320,11 +334,11 @@ describe('classifyTier: every disqualifier returns a registered reason', () => {
   // down one disqualifier path and reads the reason it returned. A new disqualifier
   // whose reason is not registered shows up as removed_other in the log above.
   const cases: Array<[string, EnrichedProspect]> = [
-    ['email_unverified', { id: 'x', organisation_id: ORG, email_status: 'unknown', enrichment_status: 'enriched', job_title: 'Founder', company_headcount: 10, company_industry: 'management consulting', company_name: 'A Consulting' }],
+    ['email_unverified', { id: 'x', organisation_id: ORG, email_status: 'unknown', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'management consulting', company_name: 'A Consulting' }],
     ['no_title', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: null, company_headcount: 10, company_industry: 'management consulting', company_name: 'A Consulting' }],
-    ['not_decision_maker', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'Intern', company_headcount: 10, company_industry: 'management consulting', company_name: 'A Consulting' }],
-    ['company_too_large', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'Founder', company_headcount: 500, company_industry: 'management consulting', company_name: 'A Consulting' }],
-    ['industry_not_consulting', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'Founder', company_headcount: 10, company_industry: 'restaurants', company_name: 'Bistro Ltd' }],
+    ['not_decision_maker', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'other-role', company_headcount: 10, company_industry: 'management consulting', company_name: 'A Consulting' }],
+    ['company_too_large', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 500, company_industry: 'management consulting', company_name: 'A Consulting' }],
+    ['industry_not_consulting', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'restaurants', company_name: 'Bistro Ltd' }],
   ]
 
   it.each(cases)('%s is a registered removal reason', async (expected, input) => {
@@ -343,7 +357,7 @@ describe('classifyTier: every disqualifier returns a registered reason', () => {
         organisation_id: ORG,
         email_status: 'verified',
         enrichment_status: 'enriched',
-        job_title: 'Founder',
+        job_title: 'qualifying-role',
         company_headcount: 10,
         company_industry: 'marketing & advertising',
         company_name: 'Ad Shop',

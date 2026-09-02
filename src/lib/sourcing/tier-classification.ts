@@ -6,6 +6,11 @@ import {
   mapApolloToSpecIndustryWithDatabase,
   loadIndustryTagMappings,
 } from './industry-mapping'
+import {
+  evaluateBuyerCriterion,
+  seniorityScoreFor,
+  type BuyerVerdict,
+} from './buyer-criterion'
 
 export interface EnrichedProspect {
   id: string
@@ -48,21 +53,20 @@ interface TierResult {
   tiering_reason: string
 }
 
-// Decision-maker seniority patterns
-const DECISION_MAKER_PATTERNS = [
-  'founder',
-  'co-founder',
-  'co founder',
-  'owner',
-  'ceo',
-  'chief executive',
-  'chief executive officer',
-  'managing partner',
-  'managing director',
-  'principal',
-  'partner',
-  'president',
-]
+// ─── The hardcoded decision-maker list is DELETED, not parameterised ─────────
+//
+// DECISION_MAKER_PATTERNS was twelve title fragments applied identically to every
+// client. It is a Rule Zero violation that stayed invisible only because every
+// prospect sourced so far happened to fit it, and because one live client in a market
+// that shares none of its vocabulary passed it by a coincidental substring collision.
+//
+// Who a client's buyer is now comes from that client's own documents, through
+// spec.buyer_criterion. See src/agents/buyer-criterion-agent.ts.
+//
+// calculateSeniorityScore used to re-list the same fragments inline as a points
+// ladder, and had already drifted from the list above: it had no band for one entry
+// and scored another only on an exact match. Both now read the one criterion, through
+// a single evaluation per prospect, so there is no second copy left to drift.
 
 // Consultancy evidence patterns
 const CONSULTANCY_PATTERNS = [
@@ -74,22 +78,6 @@ const CONSULTANCY_PATTERNS = [
   'coach',
   'fractional',
 ]
-
-/**
- * Check if job title indicates decision-maker seniority.
- */
-export function isDecisionMaker(jobTitle: string | null): boolean {
-  if (!jobTitle) return false
-
-  const titleLower = jobTitle.toLowerCase()
-  const titleVariants = titleLower
-    .split(/[&/|+]|and/)
-    .map(part => part.trim())
-
-  return DECISION_MAKER_PATTERNS.some(pattern =>
-    titleVariants.some(variant => variant.includes(pattern))
-  )
-}
 
 /**
  * Check if company or person has evidence of being a consultancy/advisory/coaching business.
@@ -107,30 +95,18 @@ function hasConsultancyEvidence(prospect: EnrichedProspect): boolean {
 }
 
 /**
- * Calculate seniority score based on job title.
- * Returns 0-35 points based on decision-maker patterns.
+ * Seniority points for a prospect, from the SAME verdict the disqualifier used.
+ *
+ * The verdict is computed once per prospect in classifyTier and passed in, rather than
+ * re-derived here. Re-deriving is how the old inline ladder drifted from the list it
+ * was supposed to mirror.
+ *
+ * A survivor always scores, because a prospect the criterion rejects never reaches
+ * scoring. The zero cases are a client with no criterion yet and a prospect with no
+ * title, both of which reach here only by failing open.
  */
-function calculateSeniorityScore(jobTitle: string | null): number {
-  if (!jobTitle) return 0
-
-  const titleLower = jobTitle.toLowerCase()
-  const titleVariants = titleLower
-    .split(/[&/|+]|and/)
-    .map(part => part.trim())
-
-  for (const variant of titleVariants) {
-    if (variant.includes('founder') || variant.includes('co-founder') || variant.includes('co founder') || variant.includes('owner')) {
-      return 35 // founder/owner/co-founder
-    }
-    if (variant.includes('ceo') || variant.includes('chief executive') || variant.includes('managing partner') || variant.includes('managing director')) {
-      return 30 // CEO/chief executive/managing partner/managing director
-    }
-    if (variant.includes('principal') || variant.includes('partner') || (variant === 'president')) {
-      return 25 // principal/partner/president
-    }
-  }
-
-  return 0
+function calculateSeniorityScore(verdict: BuyerVerdict): number {
+  return seniorityScoreFor(verdict)
 }
 
 /**
@@ -231,8 +207,15 @@ export async function classifyTier(
     }
   }
 
-  // Disqualifier 3: Not a decision-maker
-  if (!isDecisionMaker(prospect.job_title)) {
+  // Disqualifier 3: not this client's buyer.
+  //
+  // Evaluated ONCE and reused by the fit score below. The same evaluation runs before
+  // enrichment in enrichment-selection.ts, so a prospect reaching here has usually
+  // already passed it; this is the second gate for anything enriched before the
+  // criterion existed, and for the paths that do not run the pre-enrichment gate.
+  const buyerVerdict = evaluateBuyerCriterion(icpFilterSpec.buyer_criterion, prospect.job_title)
+
+  if (buyerVerdict.decision === 'reject') {
     return {
       prospect_id: prospectId,
       sourced_tier: null,
@@ -303,7 +286,7 @@ export async function classifyTier(
 
   // STAGE 2: FIT SCORE (0-100) for survivors
   const industryScore = calculateIndustryScore(prospect, icpFilterSpec, databaseMappings)
-  const seniorityScore = calculateSeniorityScore(prospect.job_title)
+  const seniorityScore = calculateSeniorityScore(buyerVerdict)
   const headcountScore = calculateHeadcountScore(prospect.company_headcount)
 
   const fitScore = industryScore + seniorityScore + headcountScore

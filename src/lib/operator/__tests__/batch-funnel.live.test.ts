@@ -112,6 +112,51 @@ async function metrics(): Promise<PipelineMetrics> {
   return all[0]
 }
 
+describe('a rejection recorded BEFORE enrichment lands in the same removed count', () => {
+  // PROOF THAT THE SEQUENCING CHANGE DID NOT COST A NUMBER.
+  //
+  // The buyer criterion is applied before we pay to enrich, so a prospect it rejects has
+  // enrichment_status NULL and carries its verdict in tiering_reason, exactly like every
+  // rejection that arrives after enrichment. It must therefore be counted by the same
+  // `removed` and `removed_by_reason` the operator already reads.
+  //
+  // countRow used to require enrichment_status === 'enriched' alongside the reason. That
+  // conjunct was never part of what makes a row a removal; it was true of every removal
+  // only because every disqualifier used to run after enrichment. Left in place, these
+  // rows would have been counted as neither removed nor anything else and would have left
+  // the funnel silently, which is the failure this module exists to prevent.
+  //
+  // Measured before and after in one test, against a real database, so the delta is the
+  // claim rather than an absolute that some other seed could satisfy.
+  it('increments removed and names the reason, with enrichment_status still NULL', async () => {
+    const before = await metrics()
+    const removedBefore = before.removed_count
+    const reasonBefore = before.removed_by_reason['not_decision_maker'] ?? 0
+
+    const gateRejectedId = await seedProspect({
+      sourcing_review_status: 'approved',
+      // NULL, because nothing was enriched and nothing was paid for.
+      enrichment_status: null,
+      sourced_tier: null,
+      tiering_reason: 'not_decision_maker',
+      sourcing_run_id: runWithProspects,
+    })
+
+    const after = await metrics()
+
+    expect(after.removed_count).toBe(removedBefore + 1)
+    expect(after.removed_by_reason['not_decision_maker'] ?? 0).toBe(reasonBefore + 1)
+
+    // And it is NOT counted as still waiting to be enriched. It never will be enriched,
+    // so leaving it in that queue figure would drift it permanently upward.
+    expect(after.approved_unenriched_count).toBe(before.approved_unenriched_count)
+
+    await supabase.from('prospects').delete().eq('id', gateRejectedId)
+    const cleaned = await metrics()
+    expect(cleaned.removed_count).toBe(removedBefore)
+  })
+})
+
 describe('batch funnels reconcile with the organisation-wide cards', () => {
   it('sums the batch lines plus the unattributed group to the card figure', async () => {
     const m = await metrics()

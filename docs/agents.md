@@ -800,3 +800,49 @@ Reply Handling Agent      — entry point: reply-handling-agent.ts
                             Model: claude-haiku-4-5-20251001
                             Classifies replies and executes positive reply auto-response.
                             Phase one: positive replies only.
+
+---
+
+## Buyer Criterion Agent — entry point: src/agents/buyer-criterion-agent.ts
+
+**Model:** claude-opus-4-6
+
+**What it does, in plain English.** It reads a client's own approved strategy documents and
+their intake answers, and works out who that client should actually be emailing. Not "senior
+people" in general: the specific person who owns the problem that client solves, who can
+authorise the money, and who can get the decision made.
+
+**Why it exists.** Until now this was a fixed list of twelve job-title fragments applied to
+every client identically, written for consulting firms. Any client in another market was
+being judged by consulting vocabulary. It also ran after we had already paid to enrich each
+prospect, so people we were always going to reject cost money first.
+
+**What it produces.**
+  1. Fragments the system matches against a prospect's job title, ranked primary or secondary.
+  2. Fragments that disqualify, for roles named after the person they support.
+  3. A plain-English statement of who the buyer is and why, plus the evidence from the
+     client's documents. This is meant to be read aloud on an onboarding call. It is how you
+     check the system's judgement before it starts filtering real prospects.
+
+**Where it is stored.** Inside the existing ICP filter spec, as `buyer_criterion`. It is
+approved with the ICP and re-derived whenever a new ICP is approved. There is no separate
+document and no extra approval step.
+
+**What connects to it.** `persistIcpFilterSpec` calls it after an ICP is promoted.
+`gateProspectsBeforeEnrichment` applies the result before any enrichment spend, and
+`classifyTier` applies the same rule again after enrichment.
+
+**What to check if it breaks.**
+  - If enrichment is spending on people it should reject, check whether the client's spec has
+    a `buyer_criterion` at all, and what its `status` is. Only `derived` filters anything.
+  - If a client's pipeline suddenly has no prospects, check the `sanity` note on the
+    criterion. A criterion that rejects nearly everything is supposed to be caught and
+    switched off before it does that, but read the note to confirm.
+  - Three statuses mean "do not filter": `unsettled` (the documents do not say who decides),
+    `out_of_band` (it accepts or rejects almost everything), and simply missing. All three
+    enrich everyone and raise a warning to the operator, which is deliberate: a broken filter
+    must not quietly stop a client's pipeline.
+
+**The rule that matters most.** The prompt must never contain an example job title, industry,
+or buyer type. An example gets copied into every client's answer, including clients in
+markets where it makes no sense. There is a test that fails the build if one appears.

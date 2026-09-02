@@ -1,3 +1,5 @@
+import type { BuyerCriterion } from '@/lib/sourcing/buyer-criterion'
+
 // ICP Filter Spec derivation.
 // Deterministic extraction from an approved ICP document JSON into the
 // ADR-015 filter spec schema. Used by the TAM gate and sourcing orchestrator.
@@ -137,6 +139,19 @@ export interface ICPFilterSpec {
   keywords_excluded: string[]
   notes: string
   unmatched_industries?: string[]     // Non-canonical industries flagged for operator review
+  /**
+   * Who this client will actually EMAIL, derived from this client's own documents.
+   *
+   * NOT THE SAME THING AS seniority_levels, and the two must never be conflated.
+   * seniority_levels is what we ask the sourcing provider for and is deliberately wide,
+   * because a provider derives seniority from job title and is coarse; narrowing it was
+   * measured at 29,139 rows against 72,458. This is the narrower question of who, out of
+   * that wide result, is worth paying to enrich.
+   *
+   * Optional because every spec written before this field existed lacks one. Absent means
+   * the gate fails OPEN and warns. See src/lib/sourcing/buyer-criterion.ts.
+   */
+  buyer_criterion?: BuyerCriterion
 }
 
 // ─── Layer G: ONE list of spec fields, and a compile-time guard on it ─────────
@@ -174,9 +189,15 @@ export const FILTER_SPEC_FIELDS = [
   'keywords_excluded',
 ] as const
 
+// buyer_criterion is METADATA rather than a FILTER field, and the distinction is
+// load-bearing. The orchestrator's manifest check iterates FILTER_SPEC_FIELDS and
+// demands that the sourcing handler support each one. This constrains OUR gate, not the
+// handler's query: the handler never sees it, and listing it as a filter field would
+// make the manifest check report a divergence for every client on every run.
 export const FILTER_SPEC_METADATA_FIELDS = [
   'notes',
   'unmatched_industries',
+  'buyer_criterion',
 ] as const
 
 export type FilterSpecField = typeof FILTER_SPEC_FIELDS[number]
