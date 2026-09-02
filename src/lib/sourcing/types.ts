@@ -33,6 +33,8 @@ export interface SourcingRunResult {
   candidates_sourced: number
   candidates_qualified: number
   run_timestamp: string
+  /** The batch identity every prospect this run wrote points at. NULL if the record could not be created. */
+  sourcing_run_id: string | null
   error?: string
 }
 

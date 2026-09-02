@@ -108,6 +108,7 @@ function stubClient(tables: Record<string, Row[]>) {
 }
 
 const ORG = 'org-1'
+const OPERATOR_ID = 'operator-1'
 const activeOrg = [{ id: ORG, name: 'Test Org' }]
 
 /**
@@ -489,6 +490,47 @@ describe('sourcing entry', () => {
 
     await runSourcingForOrg({ supabase: client, organisation_id: ORG, target_batch_size: 40 })
 
-    expect(sourcingSpy).toHaveBeenCalledWith(expect.anything(), ORG, 'operator_manual', 40)
+    expect(sourcingSpy).toHaveBeenCalledWith(
+      expect.anything(), ORG, 'operator_manual', 40, expect.anything(),
+    )
+  })
+
+  // THE PROVENANCE ARGUMENT IS ASSERTED BY VALUE, not with expect.anything().
+  //
+  // created_by is the whole reason the route stopped discarding user.id, and agent_run_id
+  // is what keeps the sourcing_runs row and its agent_runs row from becoming rival
+  // histories of one run. Both are optional parameters threaded through three functions,
+  // so dropping either is a silent change: the run still succeeds, the record is still
+  // written, and only a column nobody looks at goes quietly NULL.
+  it('threads the operator id and the agent run id into the run record', async () => {
+    const { client } = stubClient({ organisations: activeOrg, agent_runs: [] })
+
+    await runSourcingForOrg({
+      supabase: client,
+      organisation_id: ORG,
+      target_batch_size: 40,
+      created_by: OPERATOR_ID,
+    })
+
+    expect(sourcingSpy).toHaveBeenCalledWith(
+      expect.anything(), ORG, 'operator_manual', 40,
+      expect.objectContaining({
+        created_by: OPERATOR_ID,
+        agent_run_id: expect.any(String),
+      }),
+    )
+  })
+
+  // A run nobody clicked is a real case, not an error: the committed CLI has no operator.
+  // It must record NULL rather than inventing an id or refusing to run.
+  it('records no clicker when the caller is the CLI', async () => {
+    const { client } = stubClient({ organisations: activeOrg, agent_runs: [] })
+
+    await runSourcingForOrg({ supabase: client, organisation_id: ORG, target_batch_size: 40 })
+
+    expect(sourcingSpy).toHaveBeenCalledWith(
+      expect.anything(), ORG, 'operator_manual', 40,
+      expect.objectContaining({ created_by: null }),
+    )
   })
 })
