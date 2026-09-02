@@ -283,7 +283,7 @@ question asks whether she wants MORE conversations. She does not want more. She 
 different ones. The email diagnoses her and then asks about somebody else's problem.
 
 CORRECTED, same bridge, asking about what was actually named:
-  "Is turning that audience into the right kind of buyer something you're working on?"
+  "Is turning browsers into the right kind of buyer something you're working on?"
 Same register, same length, and now it asks about the problem the email just described.
 
 THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT.
@@ -304,13 +304,13 @@ VERDICT, and this one is not just presumptuous but wrong:
   observation: "The hiring post for a new delivery role says the client load is real and
    growing."
   bridge: "What a Chamber event and a strong network cannot do is put Blue Sky in front of
-   the right buyers before that new capacity is already spoken for."
+   the right buyers before the new delivery hire is already busy."
 A chamber event and a strong network is exactly how a great many consultancies fill
 capacity. We told him the thing that works does not work.
 
 PATTERN, corrected, and deliberately about a PRINT SHOP:
   observation: "You added a second large-format press in March."
-  bridge: "Your existing customers filled the first press. The second one needs work that
+  bridge: "Your existing customers filled the first press. The second press needs work that
    has not been quoted yet."
 Nothing here claims anyone's network has failed. It states what is true and stops, and it
 leaves the reader to decide whether it is happening to them.
@@ -348,9 +348,9 @@ WORKS, and both of these say one true thing and then stop:
 FAILS, and all three are causal constructions the reader has to assemble before they can
 agree with anything:
   "When delivery runs first for 13 months, that tends to be what stays visible."
-  "The weeks after the last one, before the next event is on the calendar, are where the
+  "The weeks after the last event, before the next event is on the calendar, are where the
    pipeline has to run on something else."
-  "the follow-up after a moment like that rarely gets its own slot."
+  "the follow-up after a public appearance rarely gets its own slot."
 
 NO CAUSAL CONSTRUCTIONS. No "when X, that tends to be Y". No "because". No condition the
 reader has to hold in their head while they resolve the consequence. Say the consequence
@@ -378,11 +378,25 @@ itself. All three ask the reader to hold the earlier sentence in their head and 
 pointer against it before your sentence means anything. At the speed this is read, they will
 not do it. They will skim the sentence, get nothing from it, and move on.
 
+A MISSING VERB IS A POINTER TOO. "does not", "is not", "never does", with the verb itself
+left out, sends the reader back to the previous sentence to fetch it. It is the same fault
+as a pronoun and it is harder to see, because nothing in the sentence looks like a pointer.
+Say the verb again.
+
+AND A NOUN PHRASE POINTS WITHOUT ANY DEMONSTRATIVE IN IT. "whichever one", "each one", "the
+next one", "the last one", "the opening", "the feed". Every one of them stands in for
+something named in an earlier sentence. If the reader has to work out WHICH one, or WHOSE
+feed, or WHAT opening, you have pointed at it rather than named it.
+
 The cost of naming it again is one or two words. The cost of pointing is the whole sentence.
 
 THIS APPLIES INSIDE THE BRIDGE, not only between the observation and the bridge. Your second
 sentence pointing back at your own first sentence is the same fault and is the more common
 half of it.
+
+THE TEST, AND IT IS MECHANICAL. Cover every sentence above the one you are reading. Does
+that sentence still say who and what it is about? If a word in it now has nothing to attach
+to, that word is a pointer. Put the thing itself there instead.
 
 NO EXAMPLE IS GIVEN, AND THE ABSENCE IS DELIBERATE. The shapes are named above, naming them
 is the whole instruction, and a worked example here would be a ready-made sentence to copy.
@@ -395,7 +409,7 @@ The observation says his feed is regulatory news. The bridge says what stays vis
 delivery. Both cannot be true, and the reader is the one who notices.
 
 DO NOT ASSUME THEY HAVE NOBODY.
-This shipped: "With three active CEO roles, the follow-up after a moment like that rarely
+This shipped: "With three active CEO roles, the follow-up after a public appearance rarely
 gets its own slot." It assumes that because he holds three roles, nobody is doing the
 follow-up. He probably has people. Claiming to know their CAPACITY, or what their team is
 and is not getting to, is the same error as claiming to know their pipeline. Say what tends
@@ -445,8 +459,8 @@ fact about one product, it is a fact about what the paragraph underneath your br
 Never name a gap about converting, following up with, or re-engaging an audience they
 already have.
 
-FAILING: "The right buyers hear it on the day. Then the event ends, and most of them do not
- follow up first."
+FAILING: "The right buyers hear the talk on the day. Then the event ends, and most buyers do
+ not follow up first."
 The gap is the room that already saw him speak. Those people have met him.
 
 FAILING: "A product shop builds an audience of people who browse. The founders ready to hire
@@ -455,11 +469,11 @@ The gap is the audience she has already built. Worse, she probably launched the 
 order to bring client work in, so this also tells her the thing she just built is not
 working, which is banned above.
 
-FAILING: "The founders who need you next are reading that feed."
+FAILING: "The founders who need you next are reading your feed already."
 They are already reading it. There is no gap in that sentence at all.
 
-WORKING: "The first clients in a new market usually come through people you already know. In
- London, those relationships have not had time to form yet."
+WORKING: "The first clients in a new market usually come through people you already know.
+ London is full of people who have never heard of you."
 The gap is people who do not know her. Nobody has to be re-engaged for that to be true.
 
 THIS RULE RULES ONE DESTINATION OUT. IT DOES NOT CHOOSE THE OTHER. It says where the
@@ -562,15 +576,15 @@ your own prospect's facts.
 
   WHAT USUALLY HAPPENS NEXT. Plain sequence, no hedging verb at all.
     A commercial builder: "A big site keeps the crews busy for a year. The tenders for the
-     next one get written in the last month, if at all."
+     next site get written in the last month, if at all."
 
   A CONTRAST. Two short clauses, the second overturning the first.
     A freight broker: "Peak season fills the trucks without a single sales call. February
-     does not, and by then nobody has spoken to a new shipper since October."
+     fills nothing, and by February nobody has spoken to a new shipper since October."
 
   A CONSEQUENCE. States the position their situation puts them in.
-    A wedding photographer: "That books out the summer. It also means every enquiry for
-     next spring arrives while you are editing somebody else's album."
+    A wedding photographer: "The wedding season books out your summer. The enquiries for
+     next spring arrive while you are editing somebody else's album."
 
 There are more shapes than these four: a short concession, a plain statement of what the
 situation costs, a comparison between the two halves of the same week. The point is that
@@ -617,7 +631,7 @@ reach "shows" you have forgotten what is doing the showing.
 
 CLEAN, same facts, nothing lost:
   "Taffet publishes regulatory commentary regularly. Recent pieces covered DTCC
-   tokenization, Treasury clearing and the SEC's crypto posture. That output shows where
+   tokenization, Treasury clearing and the SEC's crypto posture. The commentary shows where
    your thinking is."
 Three sentences. Each one carries a single idea and every subject sits next to its verb.
 
@@ -628,8 +642,8 @@ The same fault. An appositive list swallows the subject, so "is a real load" arr
 nothing attached to it.
 
 CLEAN:
-  "You took two board seats in early 2026, at Hollywood Food Coalition and Sovern LA. That
-   is on top of running SCG full time."
+  "You took two board seats in early 2026, at Hollywood Food Coalition and Sovern LA. Both
+   seats sit on top of running SCG full time."
 Two sentences. The naming sits inside a clean subject and verb rather than replacing one.
 
 Note what did NOT change in either rewrite. Same facts, same specificity, same length
@@ -642,10 +656,11 @@ go back over has already lost.
 
 FAILING on clarity, and note this one is correctly pattern-framed, so getting the stance
 right is not enough:
-  "That tends to be when the next engagement goes uncontested to whoever stayed visible."
+  "A quiet month tends to be when the next engagement goes uncontested to whoever stayed
+   visible."
 The idea is sound and the reader has to assemble it. Who is uncontested, what contest,
-visible to whom. Say it plainly: "That is usually when the next piece of work goes to
-whoever was still in front of them."
+visible to whom. Say it plainly: "A quiet month is usually when the next piece of work goes
+to whoever stayed in front of the people who might hire."
 
 DIGESTIBILITY. THIS IS WHAT MAKES A SENTENCE NEED A SECOND PASS.
 
@@ -699,7 +714,7 @@ a runway, you have stopped describing their week and started decorating it.
 
 ABSTRACT, and this shipped:
   "A day job and active delivery leave the sales pipeline running on whatever is
-   left. That remainder tends to shrink before it grows."
+   left. The remainder tends to shrink before it grows."
 Nobody can picture a remainder.
 
 CONCRETE, same idea:
@@ -717,7 +732,7 @@ CONCRETE, same idea:
 Same claim, and now it names the country, the people and what is missing.
 
 CONCRETE, already working, and this is the standard:
-  "Delivery has a deadline. Business development never does, so it waits."
+  "Delivery has a deadline. Business development has no deadline, so it waits."
 Deadline. Waits. Two things anyone can see happening in their own calendar.
 
 THE CAMERA TEST. RUN IT ON EVERY SENTENCE, AND TWICE ON THE LAST FEW WORDS OF THE BRIDGE.
@@ -725,7 +740,7 @@ THE CAMERA TEST. RUN IT ON EVERY SENTENCE, AND TWICE ON THE LAST FEW WORDS OF TH
 Point a camera at their week. Would you see the thing you just described happening?
 
   "Hours shrink before they grow" is unfilmable. Nobody can photograph an hour shrinking.
-  "Delivery has a deadline. Business development never does, so it waits" is filmable: a
+  "Delivery has a deadline. Business development has no deadline, so it waits" is filmable: a
   calendar with a date on it, and something pushed to next week.
 
 Every noun is concrete now and the abstraction moved into the verbs and the endings. That is
@@ -748,14 +763,15 @@ Two of these shipped last week. Both have concrete nouns throughout and both fai
 FAILING: "Outreach for the new-business side gets whatever hours remain, and those tend to
  shrink before they grow."
 Hours do not grow. Point the camera and there is nothing to film.
-PLAIN: "Outreach gets whatever hours are left at the end of the day. Most weeks nobody gets
- to it."
+PLAIN: "Outreach gets whatever hours are left at the end of the day. Most weeks nobody makes
+ the call."
 Now you can film it: a day ending, and a person not making the call.
 
-FAILING: "The founders who hear it and are ready to buy tend to need a nudge before they
- become a conversation."
+FAILING: "The founders who hear the talk and are ready to buy tend to need a nudge before
+ they become a conversation."
 People do not become conversations. "Need a nudge" is not something anyone does either.
-PLAIN: "Some of the people who heard it are ready to buy. They will not email you first."
+PLAIN: "Some of the people who heard the talk are ready to buy. The ready buyers will not
+ email you first."
 An inbox with nothing in it. That is a thing you can point a camera at.
 
 POINT EVERY SENTENCE AT THE PERSON.
@@ -812,8 +828,8 @@ Same fact, impossible to misread. The subject became hers and the verb became so
 posts actually did.
 
 FAILING: "Two CEO roles means delivery answers first."
-PLAIN:   "You are CEO of two companies at once, so on Monday you work on whichever one has a
- client waiting."
+PLAIN:   "You are CEO of two companies at once, so on Monday you work on the company that
+ has a client waiting."
 "Means" and "answers" both described nothing, and neither had a subject who could do them.
 Now the subject is him and the verb is work, which is a thing you can watch him do.
 
@@ -826,8 +842,8 @@ hiding, and "conversation" got qualified into "sales conversation".
 THESE THREE ARE ABOUT STANFORD GSB, TWO CEO ROLES AND THE CAVE STAND. Those facts belong to
 three specific people and to nobody else in your batch. Lifting a phrase from them into an
 email about a different prospect is wrong on sight, and the uniqueness gate will throw the
-whole attempt away. It has already happened five times: the previous plain rewrite in this
-prompt ended "nobody gets to it", and two prospects in the same batch both ended on it.
+whole attempt away. It has already happened five times: an earlier version of a plain
+rewrite above ended "nobody gets to it", and two prospects in the same batch both ended on it.
 Take the move. Write your own words from the findings in front of you.
 
 THE AIM TEST, run it on every draft. Read your observation, your bridge, the offer line
