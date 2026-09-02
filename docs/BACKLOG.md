@@ -10386,3 +10386,89 @@ SOMETHING THAT WAS NOT HAPPENING.
   `enrichment_status` NULL. The three named on 2026-08-27 (`email_unverified` after a
   later verification, `company_too_large` after re-enrichment, and any disqualifier
   changed in CODE rather than by a spec change) are unchanged and still open.
+
+
+## Buyer criterion — after the first live derivations, 2026-09-02
+
+- [post-build, 2026-09-02] NON-DETERMINISM IN A GATE THAT DECIDES SPEND.
+  The buyer criterion is produced by a model call. Same prompt, same documents, same
+  client, two runs an hour apart, and the two answers were not the same:
+
+    run 1 reject list   10 fragments, including four naming sales and marketing roles
+                        and one naming an operations role
+    run 2 reject list   5 fragments. The other five were simply absent.
+    run 1 accept list   carried an abbreviation of one role
+    run 2 accept list   did not carry it
+
+  Both runs rejected exactly the same 14 prospects on the 100-prospect cohort, with zero
+  differences in either direction. THAT AGREEMENT IS THE MISLEADING PART. The cohort
+  cannot contain a title the provider filter never returns, and the filter returns only
+  owner, founder, c_suite and partner. So every fragment the two runs disagreed about
+  governs a population the measurement is structurally blind to. The gate is stable where
+  it is measured and drifts where it is not, and the place it drifts is exactly the place
+  no check looks.
+
+  This matters because the criterion decides SPEND. A fragment that appears in one
+  derivation and not the next is the difference between paying to enrich a population and
+  discarding it, decided by a sampling difference nobody sees. Today it is bounded: one
+  client generates volume, and its ICP is narrow. It stops being bounded at client three,
+  or the first time the provider query becomes spec-driven and starts returning titles
+  outside the four seniorities above.
+
+  The sanity band does NOT address this. It catches a criterion that is catastrophically
+  wrong, not one that is differently wrong between runs, and both runs measured 89.3%.
+
+  Options not taken, recorded so the next person does not re-derive them: pin the model
+  call and store the response so a criterion is derived once and versioned rather than
+  re-derived; derive N times and keep only fragments that appear in all N; or make the
+  operator's approval of the plain-English statement the thing that promotes a criterion
+  to gating, so no un-read derivation ever filters anything. The third is the only one
+  that also fixes the row below.
+
+- [post-build, 2026-09-02] THE BUYER CRITERION STATEMENT RENDERS NOWHERE.
+  `deriveBuyerCriterion` produces a plain-English statement of who the client's buyer is
+  and the evidence from their own documents that supports it, written deliberately to be
+  read aloud on an onboarding call. It is stored in `icp_filter_spec.buyer_criterion` and
+  NOTHING DISPLAYS IT. Not the operator sourcing screens, not the client dashboard. The
+  only way to read it today is to query the database.
+
+  That is not a cosmetic gap. ADR-046 records that the sanity band cannot catch a missing
+  spelling variant: three wrong rejections in a hundred moves the acceptance rate by three
+  points, nowhere near the 5% to 95% band. The statement is the ONLY defence against that
+  class, and a defence nobody can read is not a defence. It is also the only place the
+  system explains a judgement it made on the client's behalf about who they should be
+  talking to.
+
+  It should appear on the client dashboard alongside the four strategy documents. It is
+  derived from those documents, it is approved with the ICP, and it regenerates with the
+  ICP, so it belongs in the same place they do rather than in an operator-only view. The
+  operator needs it too, most usefully at the point of approving an ICP, which is the
+  moment the criterion is written.
+
+  Until it renders, a criterion can start filtering a client's prospects without any human
+  having read the sentence explaining what it will do.
+
+- [post-build, 2026-09-02] "DIRECTOR" MEANS DIFFERENT THINGS IN DIFFERENT MARKETS, and
+  the derivation does not know which market it is deriving for.
+  Recorded for a future pass, not acted on. In some markets a director is a company
+  officer with authority to bind the business; in others it is mid-management several
+  layers below anyone who controls spend. The derivation returned a bare `director`
+  fragment for a client whose buyer is a founder, which would have accepted sales,
+  marketing and business-development directors at firms whose own ICP disqualifies having
+  an internal sales function. It was cut by hand before the criterion was stored.
+
+  The fix is not a longer reject list. The derivation should account for the countries the
+  client actually sells into, which the ICP document states in prose and which the filter
+  spec carries as `person_countries`, so title seniority is read in the market where the
+  title is used. Note that `person_countries` is itself a hardcoded default today and does
+  NOT reflect what a client's document says: see the deriveFilterSpec row above, where one
+  live client's spec carries three countries while their ICP names one. Those two are the
+  same fix and should be done together.
+
+- [DONE 2026-09-02] The buyer criteria for both organisations with a spec were derived and
+  written to their existing `icp_filter_spec` rows, reviewed fragment by fragment before
+  the write, with two bare fragments cut by hand. Verified by read-back with an
+  order-insensitive deep comparison: a raw JSON.stringify comparison reports a false
+  mismatch, because jsonb does not preserve key order. Without the backfill both clients
+  would have scored seniority 0 on every newly tiered prospect until an ICP was
+  re-approved.
