@@ -484,19 +484,39 @@ describe('the writer prompt targets load before resolution, not length', () => {
     expect(flat).toContain('roughly four words before the main verb')
   })
 
-  it('carries the hard and easy pair verbatim, plus a rewrite of the hard one', () => {
+  it('carries the hard and easy pair, plus a rewrite of the hard one', () => {
+    // REFRAMED, NOT REMOVED. Both halves used to be built on "[population] often find X",
+    // which is the shape "NEVER TELL THE READER WHAT PEOPLE LIKE THEM THINK" now bans, and
+    // the EASY half was endorsed. The prompt was showing the banned frame working one page
+    // after banning it. The structural lesson is what this test guards, so the assertions
+    // are on the STRUCTURE each half demonstrates, not on the sentences it happens to use.
     const flat = prompt().replace(/\s+/g, ' ')
-    // The real hard sentence, with its diagnosis.
-    expect(flat).toContain('Independent firms that rely on conference appearances for new conversations')
-    expect(flat).toContain('Ten words before the verb')
+    // The hard sentence: a long qualified subject, and the diagnosis that names why.
+    expect(flat).toContain('The pipeline at firms that rely on the conference appearances that bring in new conversations')
+    expect(flat).toContain('Fifteen words before the verb')
     expect(flat).toContain('Three relative clauses, one nested inside another')
-    // The real easy sentence, to show the fix is not "make it shorter".
-    expect(flat).toContain('Founders who move that fast often find the first clients come quickly')
+    // The easy sentence, to show the fix is not "make it shorter".
+    expect(flat).toContain('The first clients come quickly at a firm that moves that fast')
     expect(flat).toContain('Barely shorter')
+    expect(flat).toContain('A three-word subject, one relative clause, nothing nested')
     // And the rewrite of the hard one, same facts.
     expect(flat).toContain('Conferences deliver in bursts')
     expect(flat).toContain('The pipeline tends to follow the event calendar')
     expect(flat).toContain('Nothing was dropped and nothing was softened')
+  })
+
+  it('neither half of the pair uses the banned frame any more', () => {
+    // SCOPED TO THE PAIR ON PURPOSE. The frame survives twice elsewhere in the prompt and
+    // both survivors are REJECTED specimens: the construction that collapsed across a batch,
+    // and the one labelled generic and therefore useless. A rejected instance of a banned
+    // shape is the prompt working. An ENDORSED one is the contradiction this closes, so the
+    // assertion runs on the digestibility block and nowhere else.
+    const p = prompt()
+    const from = p.indexOf('DIGESTIBILITY. THIS IS WHAT MAKES A SENTENCE NEED A SECOND PASS')
+    const to = p.indexOf('CONCRETE NOUNS ONLY')
+    expect(from).toBeGreaterThan(-1)
+    expect(to).toBeGreaterThan(from)
+    expect(p.slice(from, to)).not.toMatch(/often find|firms .{0,40}find\b|founders .{0,40}find\b/i)
   })
 })
 
@@ -868,6 +888,80 @@ describe('the writer prompt says nothing about attribution', () => {
     const f = flat()
     expect(f).not.toContain('ATTRIBUTED, same claim, inside the bridge budget')
     expect(f).not.toContain('The founders I speak to describe the same split')
+  })
+})
+
+
+// ─── THE PEER-GROUP PROHIBITION, RESTORED WITHOUT THE WORD ───────────────────
+//
+// WHAT THIS REPAIRS. Deleting the three attribution blocks took a fourth thing with it:
+// the only prohibition on telling the reader what people in their position think. That
+// prohibition lived inside the sender-only block and was collateral, not the target. It is
+// a different fault: sender-attribution is a claim about the WRITER, this is a claim about
+// the READER.
+//
+// STATED WITHOUT THE WORD, DELIBERATELY. The measured finding of the attribution-full arm
+// is that prose discussing the construction is what produces it: 0 of 36 with the prose
+// gone, against 4 of 41, 7 of 39 and 10 of 37 with it present in various amounts. So this
+// rule names the shape it bans and never names the category the old blocks named.
+//
+// NO WORKED EXAMPLE, for the reason RULE ZERO gives: this file has eight recorded instances
+// of an example being lifted verbatim into a prospect's email.
+
+describe('the writer prompt bans telling the reader what people like them think', () => {
+  const flat = () => buildWriterPrompt().replace(/\s+/g, ' ')
+
+  it('states the rule', () => {
+    const f = flat()
+    expect(f).toContain('NEVER TELL THE READER WHAT PEOPLE LIKE THEM THINK')
+    expect(f).toContain('assume, believe, realise, discover or find')
+    expect(f).toContain('Naming a larger population makes it worse, not softer')
+  })
+
+  it('says what to write instead, so the rule is not only a ban', () => {
+    expect(flat()).toContain('Say what happens to a firm in that position instead')
+  })
+
+  it('uses no form of the word the deleted blocks used', () => {
+    // THE WHOLE POINT OF THE REWORDING. A rule that reintroduces the stem reintroduces the
+    // fault the arm was built to measure, and this is what stops that happening by degrees.
+    expect(flat()).not.toMatch(/attribut/i)
+  })
+
+  it('carries no worked example sentence', () => {
+    const from = buildWriterPrompt().indexOf('NEVER TELL THE READER WHAT PEOPLE LIKE THEM THINK')
+    const rest = buildWriterPrompt().slice(from)
+    const block = rest.slice(0, rest.indexOf('THE BRIDGE STATES ONE TRUE THING'))
+    expect(block.length).toBeGreaterThan(100)
+    expect([...block.matchAll(/"([^"]{25,})"/g)].map(m => m[1])).toEqual([])
+  })
+
+  it('sits inside the verdict section, which is the line it narrows', () => {
+    // Proved by ORDER. The rule refines "what is TYPICALLY true of firms in this position",
+    // so a placement test is the only thing that keeps it next to the sentence it qualifies.
+    const p = buildWriterPrompt()
+    const verdict = p.indexOf('THE BRIDGE NAMES A PATTERN. IT NEVER DELIVERS A VERDICT')
+    const rule    = p.indexOf('NEVER TELL THE READER WHAT PEOPLE LIKE THEM THINK')
+    const next    = p.indexOf('THE BRIDGE STATES ONE TRUE THING')
+    expect(verdict).toBeGreaterThan(-1)
+    expect(rule).toBeGreaterThan(verdict)
+    expect(next).toBeGreaterThan(rule)
+  })
+
+  it('no worked example in the prompt still endorses the banned frame', () => {
+    // THE COLLATERAL THIS CLOSES. The digestibility pair was endorsed for STRUCTURE and
+    // both halves were built on the frame, so the prompt was banning a shape one page after
+    // showing it working. Reframed to keep the structural lesson: the HARD half still has a
+    // long qualified subject and a nested relative clause, the EASY half still reaches its
+    // verb in three words.
+    const f = flat()
+    expect(f).not.toContain('Founders who move that fast often find')
+    expect(f).not.toContain('Independent firms that rely on conference appearances for new conversations often find')
+    expect(f).toContain('The first clients come quickly at a firm that moves that fast')
+    expect(f).toContain('The pipeline at firms that rely on the conference appearances that bring in new conversations')
+    // And the gloss the new rule falsified is gone: the generic specimen no longer claims
+    // to obey every rule above it, because it no longer does.
+    expect(f).not.toContain('it obeys every rule above')
   })
 })
 

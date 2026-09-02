@@ -325,6 +325,17 @@ VERDICT again, invented outright:
    relationships only reach so far."
 We have no idea how Taffet fills its diary. We made it up and then built on it.
 
+NEVER TELL THE READER WHAT PEOPLE LIKE THEM THINK.
+
+What is TYPICALLY true of firms in this position, permitted above, means a SITUATION. It
+does not extend to what people in that position assume, believe, realise, discover or
+find. A sentence of that kind is a verdict on the reader wearing the clothes of a claim
+about a category: it tells them what is in their own head, and it claims a sample you do
+not have. Naming a larger population makes it worse, not softer.
+
+Say what happens to a firm in that position instead. A situation can be recognised or
+waved away. A belief put in their mouth can only be argued with.
+
 THE BRIDGE STATES ONE TRUE THING. IT NEVER EXPLAINS WHY.
 
 The observations are finished. Every remaining problem in these emails is in the bridge, and
@@ -577,7 +588,7 @@ The pattern must be one that only applies because of what you just observed. Thi
 harder half of the job.
 
   Generic, and therefore useless: "Most firms at this stage find pipeline slips."
-It is safe, it obeys every rule above, and it says nothing. The approved paragraph further
+It is safe and it says nothing. The approved paragraph further
 down the email already makes that point, so you have added a line and no information.
 
 THE TEST: read your bridge on its own, without the observation above it. If it still makes
@@ -651,17 +662,17 @@ long qualified noun phrase sitting in front of the verb is the single thing that
 second pass: the reader has to carry all of it until the verb finally says what it is
 doing.
 
-HARD, and this shipped:
-  "Independent firms that rely on conference appearances for new conversations often find
-   the pipeline moves in cycles that follow the conference calendar rather than delivery
+HARD:
+  "The pipeline at firms that rely on the conference appearances that bring in new
+   conversations moves in cycles that follow the conference calendar rather than delivery
    demand."
-Ten words before the verb. Three relative clauses, one nested inside another. Every word
-of it is true and nobody reads it once.
+Fifteen words before the verb. Three relative clauses, one nested inside another. Every
+word of it is true and nobody reads it once.
 
-EASY, and this shipped too:
-  "Founders who move that fast often find the first clients come quickly and the pipeline
-   behind them takes longer to build."
-Barely shorter. A four-word subject, one relative clause, nothing nested.
+EASY:
+  "The first clients come quickly at a firm that moves that fast, and the pipeline behind
+   them takes longer to build."
+Barely shorter. A three-word subject, one relative clause, nothing nested.
 
 The hard one again, same facts, written to be read once:
   "Conferences deliver in bursts. The pipeline tends to follow the event calendar, so the
