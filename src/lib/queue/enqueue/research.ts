@@ -242,14 +242,39 @@ export async function enqueueResearchForOrganisation(
   const enqueueable = eligible.filter(id => !liveElsewhere.has(id))
 
   if (enqueueable.length === 0) {
+    // THE MESSAGE MUST NOT DESCRIBE A PATH THAT IS NOT RUNNING.
+    //
+    // This used to tell every operator that the wait "can mean waiting on a batch for up to
+    // 24 hours", unconditionally. On the single-job path there is no batch and no 24-hour
+    // wait: a held prospect is in an ordinary research job that finishes in minutes, so the
+    // advice to wait for a batch to collect describes something that will never happen. An
+    // operator following it would sit out a 24-hour window for work already finished.
+    //
+    // jobType IS the flag. The route reads queue_research_sources and passes
+    // 'research_sources' when it is on and 'research' when it is off
+    // (research-prospects/route.ts), so branching on the parameter is branching on the flag
+    // without a second read of it.
+    //
+    // THE LIMIT OF THIS, stated rather than left to be discovered: prospectsWithLiveResearchJob
+    // spans all three research job types, so with the flag OFF a prospect could in principle
+    // still be held by a batch job left over from when it was ON, and would then get the
+    // single-job message. queue_research_collect is deliberately left on as a drain valve
+    // (see flags.ts), so that window is real but bounded by the last batch draining. Measured
+    // 2026-09-01: no batch job of either phase has ever been enqueued, so nothing is in that
+    // state today. Reporting the holding job's actual type would remove the caveat entirely
+    // and is the right fix if the batch path is ever turned on for real.
+    const batchPath = jobType === 'research_sources'
+
     return {
       ok: false,
-      error:
-        `Nothing to research. All ${eligible.length} eligible prospects already have a ` +
-        'research job in progress, which for the batch path can mean waiting on an ' +
-        'Anthropic batch for up to 24 hours. Their sources are already paid for and ' +
-        'stored, so re-running them now would buy the same data twice. Wait for the ' +
-        'batch to collect.',
+      error: batchPath
+        ? `Nothing to research. All ${eligible.length} eligible prospects already have a ` +
+          'research job in progress, which on this path can mean waiting up to 24 hours for ' +
+          'the batch to come back. Their sources are already paid for and stored, so ' +
+          're-running them now would buy the same data twice. Wait for the batch to collect.'
+        : `Nothing to research. All ${eligible.length} eligible prospects already have a ` +
+          'research job in progress. Wait for those jobs to finish, then try again. If they ' +
+          'are not moving, check the queue for jobs stuck in claimed.',
     }
   }
 
