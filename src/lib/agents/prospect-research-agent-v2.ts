@@ -503,6 +503,11 @@ export async function runProspectResearchAgentV2({
       clientName: await loadClientName(supabase, client_id),
       ctx,
       candidates: synthesis.candidates,
+      // Both live on SynthesisOutput, not on a candidate, so they are the two fields the
+      // writer never saw until now. Null on the stored-findings branch, which reaches no
+      // selection of its own; buildFindingsBlock then marks nothing, which is correct.
+      selectedCandidateId: synthesis.selected_candidate_id,
+      relevanceReason: synthesis.relevance_reason,
       messagingContent: messaging.content,
       variantId,
       icpBuyerTitle: clientCtx.buyerTitle,

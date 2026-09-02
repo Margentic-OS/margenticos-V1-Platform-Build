@@ -261,13 +261,23 @@ async function run(prospectId: string): Promise<void> {
     console.log('   printed in full so a human decides, not the script.')
   }
 
+  // selectedCandidateId and relevanceReason come from the SAME SynthesisOutput as the
+  // candidates on each side, so the two writer briefs stay comparable. Omitting them here
+  // while production passes them would make this script compare a brief no prospect gets,
+  // which is the one thing a parity check must never do.
   const openingBatch = await produceOpening({
     apiKey, clientName: entry.client_name, ctx,
-    candidates: fromSnapshot.candidates, messagingContent: entry.messaging_content, variantId: entry.variant_id,
+    candidates: fromSnapshot.candidates,
+    selectedCandidateId: fromSnapshot.selected_candidate_id,
+    relevanceReason: fromSnapshot.relevance_reason,
+    messagingContent: entry.messaging_content, variantId: entry.variant_id,
   })
   const openingInline = await produceOpening({
     apiKey, clientName: entry.client_name, ctx,
-    candidates: inlineSynthesis.candidates, messagingContent: liveDoc.content as MessagingContent, variantId: entry.variant_id,
+    candidates: inlineSynthesis.candidates,
+    selectedCandidateId: inlineSynthesis.selected_candidate_id,
+    relevanceReason: inlineSynthesis.relevance_reason,
+    messagingContent: liveDoc.content as MessagingContent, variantId: entry.variant_id,
   })
 
   console.log('\n── the shipped opening ──')

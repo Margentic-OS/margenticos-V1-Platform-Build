@@ -239,6 +239,10 @@ export async function runProspectResearchCollect({
       clientName: entry.client_name || await loadClientName(supabase, client_id),
       ctx,
       candidates: synthesis.candidates,
+      // From the SAME SynthesisOutput as the candidates, so phase 2 hands the writer the
+      // selection and the relevance reason that phase 1's synthesis call produced.
+      selectedCandidateId: synthesis.selected_candidate_id,
+      relevanceReason: synthesis.relevance_reason,
       // THE SNAPSHOT, not a fresh fetch. See the header.
       messagingContent: entry.messaging_content,
       variantId: entry.variant_id,
