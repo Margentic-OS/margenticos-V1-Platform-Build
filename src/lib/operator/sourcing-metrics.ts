@@ -120,6 +120,18 @@ export interface PipelineMetrics {
  */
 export const STATUS_ROW_LIMIT = 2000
 
+/**
+ * How many prospects one page of the approval table shows.
+ *
+ * LIVES HERE, NOT IN THE PAGE THAT USES IT. Next.js validates a page module's exports and
+ * rejects any name that is not one of its own recognised fields, so `export const
+ * APPROVAL_PAGE_SIZE` inside approve/page.tsx fails the production build with
+ * "is not a valid Page export field". `npx tsc --noEmit` passes on it, because that rule is
+ * Next's rather than TypeScript's. This is the case CLAUDE.md keeps a local production
+ * build in the receipts for.
+ */
+export const APPROVAL_PAGE_SIZE = 50
+
 /** The columns the breakdowns are derived from. One read, three answers. */
 const STATUS_COLUMNS =
   'sourced_tier, tiering_reason, enrichment_status, email_send_eligible, ' +

@@ -3,16 +3,7 @@ import { redirect, notFound } from 'next/navigation'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { Gate1ApproveBatch } from '../components/Gate1ApproveBatch'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
-
-/**
- * How many prospects one page of the approval table shows.
- *
- * The table used to render `prospects.slice(0, 50)` out of however many the server sent,
- * with a footer reading "Showing 50 of 100 prospects. Scroll to see more" and nowhere to
- * scroll. The other 50 were fetched, shipped to the browser and then discarded by the
- * slice. This is now a real page boundary: the server fetches exactly this many.
- */
-export const APPROVAL_PAGE_SIZE = 50
+import { APPROVAL_PAGE_SIZE } from '@/lib/operator/sourcing-metrics'
 
 export default async function ApprovePage({
   searchParams,
