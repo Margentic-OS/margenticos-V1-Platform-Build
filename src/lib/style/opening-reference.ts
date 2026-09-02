@@ -96,7 +96,7 @@ import { findBackReferences } from './back-reference'
 //                              <=24 prospects          41 prospects
 //   openings flagged             27 of 44                30 of 41
 //   demonstrative hits           29                      30
-//   demonstrative precision      ~76%  (22 of 29)        53%  (16 of 30)
+//   demonstrative precision      ~76%  (22 of 29)        57%  (17 of 30)  <- corrected below
 //   pronominal-one hits           8                      10
 //   pronominal-one precision     100%  (8 of 8)          30%  (3 of 10)
 //   unanchored it/they/them       0                       0
@@ -110,14 +110,37 @@ import { findBackReferences } from './back-reference'
 // correction stays visible instead of the old number being quietly overwritten.
 //
 // THE FALSE-POSITIVE SHAPES, hand-read over all 40 corpus B hits. The demonstrative signal's
-// 14 misses are FIVE shapes, and all five are the ambiguity NON_NOUN_FOLLOWERS exists to
+// misses are FOUR shapes, and all four are the ambiguity NON_NOUN_FOLLOWERS exists to
 // suppress, escaping it on a word that list does not carry:
 //
 //   a relative pronoun                    5   "a gap that rarely opens"
 //   an antecedent in the SAME sentence    4   "the hours that are left ... those hours go last"
 //   a complementiser                      2   "find that new conversations wait"
 //   a deictic "this"                      2   "this business", "this February"
+//
+// A FIFTH SHAPE WAS LISTED HERE AND WAS WRONG. It read:
+//
 //   a degree modifier                     1   "a reputation that strong"
+//
+// CORRECTED 2026-09-02, and the correction is left visible rather than the row deleted,
+// because it moves this signal's precision the right way and the mistake is instructive.
+// "a reputation that strong" was judged in isolation, where a degree word appears to bind
+// nothing. Read with the paragraph above it, it binds outright:
+//
+//   observation: your firm has served 600-plus businesses over nearly 30 years, with
+//                1,500 leaders reading your monthly newsletter
+//   bridge:      "A local reputation that strong fills the room with people who already
+//                know you."
+//
+// "that strong" means AS STRONG AS THOSE FIGURES. Four further instances were measured
+// across the 41-prospect arm and the 103 shipped bridges: "A network that large",
+// "A newsletter that size", "A room that size", "A roster that size". ALL FOUR bind a
+// figure the observation states. Five of five.
+//
+// So corpus B's demonstrative precision is 17 of 30, not 16 of 30: 57%, not 53%. Still far
+// too low to block, and the direction matters more than the point: a degree word cannot be
+// judged without the paragraph above it, and the reason the shape looked innocent is that
+// it was checked against a prompt specimen shown with no observation at all.
 //
 // THE DEICTIC "this" SHAPE IS NEW AND WAS NOT IN THE FIRST RECORD. It points at the world the
 // reader is standing in, not backwards at a noun. Nothing is being referred to, so there is

@@ -390,9 +390,10 @@ feed, or WHAT opening, you have pointed at it rather than named it.
 
 The cost of naming it again is one or two words. The cost of pointing is the whole sentence.
 
-THIS APPLIES INSIDE THE BRIDGE, not only between the observation and the bridge. Your second
-sentence pointing back at your own first sentence is the same fault and is the more common
-half of it.
+THIS APPLIES ACROSS THE JOIN FIRST. A pointer in the bridge reaching up into the observation
+is the most common form of this fault and the one that breaks hardest, because the
+observation is a separate paragraph the reader has already left. It applies inside the
+bridge too: your second sentence pointing back at your own first sentence is the same fault.
 
 THE TEST, AND IT IS MECHANICAL. Cover every sentence above the one you are reading. Does
 that sentence still say who and what it is about? If a word in it now has nothing to attach
@@ -685,7 +686,7 @@ Fifteen words before the verb. Three relative clauses, one nested inside another
 word of it is true and nobody reads it once.
 
 EASY:
-  "The first clients come quickly at a firm that moves that fast, and the pipeline behind
+  "The first clients come quickly at a firm that grows fast, and the pipeline behind
    them takes longer to build."
 Barely shorter. A three-word subject, one relative clause, nothing nested.
 
@@ -856,8 +857,8 @@ Here is that failure, from real output:
 AIMED WRONG:
   observation: "The weekly inbound you're fielding from people wanting to collaborate says
    the brand is working."
-  bridge: "The clients you actually want are a different current, and it doesn't run on
-   the same word of mouth."
+  bridge: "The inbound from collaborators is one current. The clients you actually want
+   arrive on a different current, and collaborator word of mouth does not reach them."
   the question it runs into: "Is getting more conversations in front of you something
    you're working on?"
 The bridge says she already has plenty of conversations and the wrong ones. The question

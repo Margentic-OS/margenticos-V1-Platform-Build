@@ -41,8 +41,15 @@ describe('RULE 1: never point back, name the thing again', () => {
     expect(rule).toMatch(/"one" or "ones"/)
   })
 
-  it('says the rule applies inside the bridge, not only across the two parts', () => {
-    expect(prompt).toContain('THIS APPLIES INSIDE THE BRIDGE')
+  // REWORDED 2026-09-02, and the emphasis is the point of the change rather than a
+  // tidy-up. The rule used to lead with the within-bridge case and call it "the more
+  // common half of it". Measured over the 41-prospect arm, 11 of 17 backward references
+  // point from the BRIDGE INTO THE OBSERVATION and 7 point within the bridge, so the
+  // claim was backwards. The rule now leads with the join and still covers both.
+  it('leads with the join and still covers the within-bridge half', () => {
+    expect(prompt).toContain('THIS APPLIES ACROSS THE JOIN FIRST')
+    expect(prompt).toContain('It applies inside the\nbridge too')
+    expect(prompt).not.toContain('the more common\nhalf of it')
   })
 })
 

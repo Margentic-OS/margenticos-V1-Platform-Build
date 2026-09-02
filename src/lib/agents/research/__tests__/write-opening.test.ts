@@ -258,7 +258,7 @@ describe('prompt shape', () => {
     expect(p).toContain('AIMED WRONG:')
     expect(p).toContain('AIMED RIGHT')
     // The real failure, verbatim.
-    expect(flat).toContain('The clients you actually want are a different current')
+    expect(flat).toContain('The clients you actually want arrive on a different current')
     expect(flat).toContain('Is getting more conversations in front of you something')
     // And the explicit test for aiming.
     expect(flat).toContain('that is not quite my problem')
@@ -496,7 +496,7 @@ describe('the writer prompt targets load before resolution, not length', () => {
     expect(flat).toContain('Fifteen words before the verb')
     expect(flat).toContain('Three relative clauses, one nested inside another')
     // The easy sentence, to show the fix is not "make it shorter".
-    expect(flat).toContain('The first clients come quickly at a firm that moves that fast')
+    expect(flat).toContain('The first clients come quickly at a firm that grows fast')
     expect(flat).toContain('Barely shorter')
     expect(flat).toContain('A three-word subject, one relative clause, nothing nested')
     // And the rewrite of the hard one, same facts.
@@ -957,7 +957,7 @@ describe('the writer prompt bans telling the reader what people like them think'
     const f = flat()
     expect(f).not.toContain('Founders who move that fast often find')
     expect(f).not.toContain('Independent firms that rely on conference appearances for new conversations often find')
-    expect(f).toContain('The first clients come quickly at a firm that moves that fast')
+    expect(f).toContain('The first clients come quickly at a firm that grows fast')
     expect(f).toContain('The pipeline at firms that rely on the conference appearances that bring in new conversations')
     // And the gloss the new rule falsified is gone: the generic specimen no longer claims
     // to obey every rule above it, because it no longer does.

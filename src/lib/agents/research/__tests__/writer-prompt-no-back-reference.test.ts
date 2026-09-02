@@ -67,8 +67,31 @@ const NOUN_PHRASE_POINTER =
 // checked separately below by anchoring on the start of the specimen.
 const BARE_SUBJECT = /(?:^|(?<=[.!?])\s+)(That|This|These|Those|It|They)\s+(?:is|are|was|were|also|tends?|books?|means?|shows?|does|do|will|would|has|have|had|gets?|goes)\b/g
 
-/** Phrases measured as false positives by hand over all 73 specimens. */
-const ALLOWED_PHRASES = new Set(['that size', 'that rely', 'that follow', 'that moves', 'that fast'])
+/**
+ * Phrases measured as false positives by hand over all 73 specimens.
+ *
+ * 'that size' AND 'that fast' WERE HERE AND HAVE BEEN REMOVED, 2026-09-02. They were
+ * allowlisted as degree modifiers binding nothing, which was true of the two specimens in
+ * front of me and FALSE OF THE SHAPE. Measured on live output afterwards: five instances
+ * across the 41-prospect arm and the 103 shipped bridges, and ALL FIVE bind a figure the
+ * observation states.
+ *
+ *   "A network that large"     <- 2,000+ filmmakers across 60+ cities
+ *   "A newsletter that size"   <- 1,500-plus leaders every month
+ *   "A room that size"         <- over 60 entrepreneurs
+ *   "A roster that size"       <- more than a dozen brands
+ *   "A local reputation that strong"  <- 600-plus businesses over nearly 30 years
+ *
+ * The last one is the instance opening-reference.ts cited as its degree-modifier false
+ * positive. It is a true positive, and that file's table is corrected in the same commit.
+ *
+ * WHAT WENT WRONG IS WORTH KEEPING. The allowlist is keyed on the PHRASE, so judging it
+ * against a specimen shown WITHOUT an observation answered the wrong question. A degree
+ * word cannot be judged in isolation: it binds whatever the paragraph above it states, and
+ * a prompt specimen with no paragraph above it is the one place the shape looks innocent.
+ * Only relative pronouns stay, and those are innocent by grammar rather than by context.
+ */
+const ALLOWED_PHRASES = new Set(['that rely', 'that follow', 'that grows'])
 
 /**
  * TWO SPECIMENS WHERE THE POINTER IS THE FAULT BEING TAUGHT, listed by exact text.
@@ -89,6 +112,11 @@ const CONDEMNED_IN_PLACE = new Set([
   // The same sentence was ENDORSED 89 lines above as a CLEAN rewrite until this pass, which
   // is the contradiction the rewrite of that specimen resolved.
   'that output shows where your thinking is',
+  // VERDICT, invented outright. "a firm that size" binds nothing HERE because no
+  // observation is shown with it, which is exactly why the phrase allowlist above was
+  // wrong. The specimen stays because it is labelled and glossed as a verdict; the phrase
+  // no longer gets a free pass anywhere else.
+  'Eleven years in, a firm that size fills its diary through relationships, and relationships only reach so far.',
 ])
 
 /**
