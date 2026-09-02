@@ -34,6 +34,13 @@ import { logger } from '@/lib/logger'
 import { requireOperator } from '@/lib/supabase/require-operator'
 
 export const dynamic = 'force-dynamic'
+// Matches every other long-running route in this repo, and is the Hobby ceiling.
+// This route had no declaration at all, so the INLINE path above ran under the platform
+// default while twelve shorter routes asked for 300. Enrichment spends a credit per prospect
+// through the can_enrich_contact handler, so a timeout mid-batch is money spent on work the
+// caller never hears the result of. The QUEUED path returns immediately and does not need
+// this; the inline path does.
+export const maxDuration = 300
 
 async function buildSessionClient() {
   const cookieStore = await cookies()

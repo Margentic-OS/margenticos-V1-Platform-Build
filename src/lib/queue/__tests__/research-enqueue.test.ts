@@ -428,7 +428,7 @@ describe('enqueueResearchForOrganisation — prospects mid-way through a batch r
     expect(f.enqueued).toHaveLength(1)
   })
 
-  it('returns a named error, not a bare nothing-to-do, when EVERY prospect is mid-batch', async () => {
+  it('returns a named error, not a bare nothing-to-do, when EVERY prospect is held', async () => {
     const f = fake(
       [
         { id: 'p1', personalisation_trigger: null },
@@ -443,8 +443,44 @@ describe('enqueueResearchForOrganisation — prospects mid-way through a batch r
     if (result.ok) throw new Error('unreachable')
     // The operator has to be able to tell "already in progress" from "broken".
     expect(result.error).toMatch(/already have a research job in progress/)
-    expect(result.error).toMatch(/already paid for/)
     expect(f.enqueued).toHaveLength(0)
+  })
+
+  // ── WHICH PATH THE REFUSAL DESCRIBES ──────────────────────────────────────
+  //
+  // The refusal above used to name a 24-hour batch wait unconditionally, on both paths.
+  // With queue_research_sources off there is no batch and no 24-hour wait, so an operator
+  // reading it would wait out a window for work that finishes in minutes.
+  //
+  // jobType is how the flag reaches this function: the route passes 'research_sources' when
+  // queue_research_sources is on and 'research' when it is off. Both branches are asserted,
+  // and each asserts the OTHER branch's wording is absent, because a message that says
+  // everything says nothing.
+
+  it('does NOT promise a 24-hour batch wait on the single-job path', async () => {
+    const f = fake([{ id: 'p1', personalisation_trigger: null }], { liveResearchJobs: ['p1'] })
+
+    const result = await enqueueResearchForOrganisation(f.client, ORG, 'unresearched', 'test', undefined, 'research')
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('unreachable')
+    expect(result.error).toMatch(/already have a research job in progress/)
+    expect(result.error).not.toMatch(/24 hours/)
+    expect(result.error).not.toMatch(/batch/i)
+    expect(result.error).not.toMatch(/already paid for/)
+  })
+
+  it('DOES describe the batch wait on the batch path', async () => {
+    const f = fake([{ id: 'p1', personalisation_trigger: null }], { liveResearchJobs: ['p1'] })
+
+    const result = await enqueueResearchForOrganisation(f.client, ORG, 'unresearched', 'test', undefined, 'research_sources')
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('unreachable')
+    expect(result.error).toMatch(/24 hours/)
+    // The sources are bought and stored on the phase-1 row, which is the reason re-running
+    // costs money rather than just time. That clause is only true on this path.
+    expect(result.error).toMatch(/already paid for/)
   })
 
   it('FAILS LOUD when the live-job lookup errors, rather than enqueuing anyway', async () => {

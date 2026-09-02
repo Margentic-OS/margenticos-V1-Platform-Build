@@ -3,6 +3,10 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
 import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
+// Its own module, not a const here: a Next.js route may only export the handler names and
+// a fixed set of config fields, and `npm run build` refuses anything else. tsc and the
+// whole test suite accepted it as a route export. See client-review-status.ts.
+import { UNREVIEWED_FILTER } from '@/lib/sourcing/client-review-status'
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -38,6 +42,18 @@ export async function POST(request: Request) {
 
     // Build update query with proper filters.
     //
+    // THE UNREVIEWED FILTER. This was `.in('client_review_status', [null, 'pending_review'])`,
+    // which selected NOTHING. SQL IN never matches NULL, and NULL is where an unreviewed
+    // prospect actually sits: the column has no default, so nothing writes 'pending_review'
+    // on the way in. Measured before the fix on the live organisation: 100 rows at NULL, 0 at
+    // 'pending_review', and the route matched 0 of them. It returned ok:true every time,
+    // because an UPDATE matching zero rows is not an error. Approve-all was a no-op that
+    // reported success, which is the same shape as the opt-out footer that was validated and
+    // then discarded.
+    //
+    // 'pending_review' is kept in the filter rather than dropped. It is a legitimate stored
+    // value the review UI can write, and a row sitting at it is unreviewed by any reading.
+    //
     // THE TIER GATE. This route is a send-path consumer even though it sends nothing: it is
     // what moves a prospect to 'approved', which is one of the seven conditions the send gate
     // checks. Approving a prospect tiering rejected walks it right up to that gate and leaves
@@ -53,7 +69,7 @@ export async function POST(request: Request) {
         client_review_auto_approved_at: new Date().toISOString(),
       })
       .eq('organisation_id', organisationId)
-      .in('client_review_status', [null, 'pending_review']))
+      .or(UNREVIEWED_FILTER))
 
     // Exclude removed prospects
     if (removedIds.length > 0) {
