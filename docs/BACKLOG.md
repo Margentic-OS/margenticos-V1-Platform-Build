@@ -10060,3 +10060,88 @@ and is the write most likely to happen by accident.
   capability it provides already exists behind POST /api/operator/verify-enriched, which goes
   through verifyEnrichedBatch and therefore through the country check, the retry cap, the
   daily free-tier budget and the tier gate. Confirm nothing still calls it first.
+
+## SESSION 2026-09-01, branch small-fixes — five small fixes, and what they had in common
+
+Four commits, PR #36. Three deferred items below.
+
+The four defects that were fixed shared one shape, worth naming because it is the shape
+this file keeps recording: EACH ONE REPORTED SUCCESS WHILE DOING NOTHING, OR DESCRIBED
+SOMETHING THAT WAS NOT HAPPENING.
+
+  - approve-all filtered `.in('client_review_status', [null, 'pending_review'])`. SQL IN
+    never matches NULL, every unreviewed row is at NULL, so it matched zero rows. An UPDATE
+    matching zero rows is not an error, so the route returned ok:true every time.
+    Measured live: 100 rows at NULL, 0 at 'pending_review', 0 selected. Now 85, which is
+    100 minus the 15 the tier gate refuses.
+  - the enrich route declared no maxDuration while twelve shorter routes declared 300.
+  - the research refusal named a 24-hour batch wait on a path where no batch runs.
+  - `npm test` and the dotenv-wrapped command ran DIFFERENT SUITES and neither said so.
+    33 tests moved into "skipped" on the plain command, including the cross-organisation
+    boundary checks. A suite reporting 2449 passed while silently skipping its isolation
+    tests looks healthier than one that fails.
+
+- [post-build] A NEXT.JS ROUTE MAY NOT EXPORT ARBITRARY CONSTANTS, AND ONLY `npm run build`
+  SAYS SO (2026-09-01)
+
+  UNREVIEWED_FILTER was first written as an export from approve-all/route.ts. That passed
+  `npx tsc --noEmit` clean and passed all 2493 tests, and FAILED `npm run build`:
+
+      Type error: Route "..." does not match the required types of a Next.js Route.
+        "UNREVIEWED_FILTER" is not a valid Route export field.
+
+  Same family as the circular import already recorded in CLAUDE.md: green typecheck, green
+  suite, red build. It is now in src/lib/sourcing/client-review-status.ts.
+
+  NEXT ACTION: none required, the fix landed. Recorded because the local production build
+  is the ONLY check that catches this class, and it is the one most likely to be skipped
+  when a change looks like a one-line constant.
+
+- [monitor] THE RESEARCH REFUSAL BRANCHES ON jobType, NOT ON THE HOLDING JOB'S REAL TYPE
+  (2026-09-01)
+
+  enqueue/research.ts now picks its refusal wording from the jobType parameter, which is a
+  faithful proxy for queue_research_sources because research-prospects/route.ts derives one
+  from the other.
+
+  THE GAP, stated in the code comment as well: prospectsWithLiveResearchJob spans all three
+  research job types, so with queue_research_sources OFF a prospect could still be held by a
+  batch job left over from when it was ON, and would then get the single-job message telling
+  it to wait for jobs that are actually waiting on a batch. queue_research_collect is
+  deliberately left on as a drain valve, so that window is real but bounded.
+
+  Measured 2026-09-01: job_queue holds 93 'research' rows, all done, and has NEVER held a
+  research_sources or research_collect row. So nothing is in that state today and this is
+  not currently reachable.
+
+  NEXT ACTION: if the batch path is ever turned on for real, make
+  prospectsWithLiveResearchJob return the holding job's type and key the message on that.
+  It already selects job_type and throws it away. That removes the caveat entirely.
+
+- [post-build] `npm test` NOW HARD-FAILS WITHOUT .env.test.local, WHICH IS DELIBERATE BUT
+  WORTH KNOWING BEFORE A FRESH CLONE (2026-09-01)
+
+  vitest.config.ts reads TEST_SUPABASE_URL and TEST_SUPABASE_SERVICE_ROLE_KEY from
+  .env.test.local at config load, and THROWS AT LOAD if it cannot find them, before any test
+  runs. process.env is consulted first, so the dotenv wrapper and exported shell variables
+  still take precedence.
+
+  This is what was asked for and it is better than the previous behaviour, which was exit 1
+  after 30 seconds with 11 identical throws buried among 2449 passes. But note the
+  consequence: a fresh clone with no .env.test.local cannot run ANY test, including the 2450
+  that need no database. Previously it could run them and get a red suite.
+
+  There is no skip flag, deliberately: inventing one was not asked for, and a flag that
+  disables the database tests is a flag that will be left on.
+
+  NEXT ACTION: none unless someone hits it. If a contributor without database credentials
+  ever needs the unit tests, the answer is a documented opt-out that names what it is
+  skipping and prints the count, not a silent fallback. There are no CI workflows in this
+  repo today, so nothing automated is affected.
+
+  ALSO: the enrichment test-mode banner was checked this session and was ALREADY FIXED on
+  2026-09-01. Verified by behaviour rather than by reading it: the old query still reproduces
+  42703 against the live table, resolveEnrichmentMode returns 'live', and the rendered banner
+  says "Live Enrichment Active". No change was made. The fix is better than the one
+  described to this session, because it added a third 'unknown' state rather than leaving
+  the error branch and the safe branch as the same branch.
