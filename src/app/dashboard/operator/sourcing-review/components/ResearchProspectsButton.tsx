@@ -34,6 +34,76 @@ export function ResearchProspectsButton({ organisationId, verdict }: ResearchPro
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ResearchResult | null>(null)
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null)
+  const [stopping, setStopping] = useState(false)
+  const [stopResult, setStopResult] = useState<{ cancelled: number; stillRunning: number } | null>(null)
+  const [stopError, setStopError] = useState<string | null>(null)
+
+  /**
+   * Cancel research that has NOT STARTED.
+   *
+   * The label carries the number this can actually stop, and the result names what is still
+   * running rather than implying everything halted. A worker already holding a job is inside
+   * its calls to the data sources and the model; nothing here reaches it, and the money for
+   * those is already committed. Saying so is the whole design: a stop that quietly left work
+   * running would be worse than no stop at all.
+   */
+  async function handleStop() {
+    setStopping(true)
+    setStopError(null)
+    setStopResult(null)
+    try {
+      const res = await fetch(`/api/operator/organisations/${organisationId}/cancel-research`, {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Could not stop research')
+      setStopResult({ cancelled: data.result.cancelled, stillRunning: data.result.still_running })
+    } catch (err) {
+      setStopError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setStopping(false)
+    }
+  }
+
+  /** The stop control, shown wherever there is queued work, whatever the button above says. */
+  function StopControl() {
+    if (stopResult) {
+      return (
+        <div className="text-xs text-[#7A4800] bg-[#FEF7E6] px-3 py-2 rounded-[6px] border border-[#F0D080]">
+          Stopped {stopResult.cancelled} that had not started.
+          {stopResult.stillRunning > 0
+            ? ` ${stopResult.stillRunning} already running and cannot be stopped: that work is
+                 in progress and already paid for. It will finish on its own.`
+            : ' Nothing was already running.'}
+        </div>
+      )
+    }
+
+    if (verdict.stoppable === 0) return null
+
+    return (
+      <div className="space-y-1">
+        <button
+          onClick={handleStop}
+          disabled={stopping}
+          className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-white text-[#8B2020] border border-[#EFBCAA] hover:bg-[#FDEEE8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {stopping
+            ? 'Stopping...'
+            : `Stop ${verdict.stoppable} not yet started`}
+        </button>
+        <p className="text-xs text-text-secondary">
+          Cancels queued research only. Anything already running finishes: it is mid-call and
+          already paid for.
+        </p>
+        {stopError && (
+          <div className="px-3 py-2 rounded-[6px] bg-[#FDEEE8] border border-[#EFBCAA] text-xs text-[#8B2020]">
+            {stopError}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   async function handleResearch() {
     setStatus('researching')
@@ -95,16 +165,19 @@ export function ResearchProspectsButton({ organisationId, verdict }: ResearchPro
 
   if (status === 'queued') {
     return (
-      <div className="flex items-center gap-2">
-        <button
-          onClick={handleResearch}
-          className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-white text-[#1C3A2A] border border-[#BDDAB0] hover:bg-[#EBF5E6] transition-colors"
-        >
-          Queue more
-        </button>
-        <span className="text-xs text-[#3B6D11]">
-          {queuedMessage} You can close this tab.
-        </span>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleResearch}
+            className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-white text-[#1C3A2A] border border-[#BDDAB0] hover:bg-[#EBF5E6] transition-colors"
+          >
+            Queue more
+          </button>
+          <span className="text-xs text-[#3B6D11]">
+            {queuedMessage} You can close this tab.
+          </span>
+        </div>
+        <StopControl />
       </div>
     )
   }
@@ -196,6 +269,10 @@ export function ResearchProspectsButton({ organisationId, verdict }: ResearchPro
           {error}
         </div>
       )}
+
+      {/* Reachable even when nothing can be enqueued. Work already in the queue is exactly
+          what needs stopping when the button above says there is nothing left to add. */}
+      <StopControl />
     </div>
   )
 }

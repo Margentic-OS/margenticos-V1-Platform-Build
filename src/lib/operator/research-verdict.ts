@@ -36,6 +36,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isQueueEnabled } from '@/lib/queue/flags'
+import { countQueuedResearchJobs } from '@/lib/queue/job-queue'
 import {
   selectProspectsForResearch,
   describeResearchSelection,
@@ -73,6 +74,14 @@ export interface ResearchVerdict {
   /** Counts by reason for prospects the spend filter passed over. Null when none were. */
   skippedBreakdown: string | null
   path: ResearchPath
+  /**
+   * Research jobs that are QUEUED and have not started. The number a stop can act on.
+   *
+   * Claimed jobs are excluded on purpose. See cancelQueuedResearchJobs: nothing can stop
+   * work that is already inside its HTTP calls, and a button that counted those would be
+   * promising something it cannot do.
+   */
+  stoppable: number
 }
 
 /**
@@ -130,8 +139,12 @@ export async function getResearchVerdict(
 ): Promise<ResearchVerdict> {
   const { path, jobType, halfEnabledRefusal } = pathState ?? await readResearchPath(supabase)
 
+  // Read regardless of whether anything is enqueueable: work already in the queue can need
+  // stopping precisely when there is nothing left to add.
+  const stoppable = await countQueuedResearchJobs(supabase, organisationId)
+
   if (halfEnabledRefusal !== null) {
-    return { actionable: 0, blocked: halfEnabledRefusal, skippedBreakdown: null, path }
+    return { actionable: 0, blocked: halfEnabledRefusal, skippedBreakdown: null, path, stoppable }
   }
 
   const read = await selectProspectsForResearch(supabase, organisationId, scope)
@@ -140,7 +153,7 @@ export async function getResearchVerdict(
   // left to research", which is a statement about the data; this is a statement about
   // our ability to see it, and the two must not look the same on screen.
   if (!read.ok) {
-    return { actionable: 0, blocked: read.error, skippedBreakdown: null, path }
+    return { actionable: 0, blocked: read.error, skippedBreakdown: null, path, stoppable }
   }
 
   const verdict = describeResearchSelection(read.selection, jobType)
@@ -150,5 +163,6 @@ export async function getResearchVerdict(
     blocked: verdict.blocked,
     skippedBreakdown: verdict.skippedBreakdown,
     path,
+    stoppable,
   }
 }
