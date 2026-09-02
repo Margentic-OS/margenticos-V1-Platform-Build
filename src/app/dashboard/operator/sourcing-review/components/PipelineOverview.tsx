@@ -1,31 +1,47 @@
 'use client'
 
+// The pipeline review cards.
+//
+// ═════════════════════════════════════════════════════════════════════════════
+// THIS POLLS. THAT IS THE POINT OF THE COMPONENT NOW.
+//
+// Every number here used to come from a React Server Component, which runs once, during
+// the request that produced the HTML. There was no subscription, no interval and no
+// revalidation, so the screen showed the state of the world at the moment it was opened
+// and never corrected itself. Observed seven times in one session, twice on controls that
+// spend money: "Awaiting approval 0" beside 100 pending prospects, a research pool
+// reported as 14 when it was 31, "Nothing to research" twice while jobs ran normally.
+//
+// It seeds from the server render, then re-reads /api/operator/sourcing-metrics, which
+// calls the SAME function the server render called. A first paint and a poll cannot
+// disagree, because there is only one place the numbers are computed.
+//
+// The mechanics match TriageQueue and FaqCurationView rather than inventing a third
+// pattern: 30s interval, ticks only when the tab is visible, immediate tick when it
+// becomes visible again, and refs that guarantee exactly one interval and one listener
+// however many times the effect runs.
+//
+// WHY 30 SECONDS. The queue worker is driven by pg_cron on a one-minute schedule, so
+// polling faster than the thing being watched buys nothing and costs invocations. For
+// scale: that cron already POSTs this deployment 1,440 times a day at up to 280 seconds
+// each. One or two operator tabs at 2 requests a minute is not the expensive thing here.
+//
+// A FAILED POLL KEEPS THE LAST GOOD NUMBERS AND SAYS SO. Rendering zeros on a fetch error
+// would reproduce the exact defect this fixes: "0 awaiting approval" is how an operator
+// reads "the work is done", and it must never be how they read "we could not look".
+
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { EnrichAndTierButton } from './EnrichAndTierButton'
 import { SourceProspectsButton } from './SourceProspectsButton'
 import { ResearchProspectsButton } from './ResearchProspectsButton'
-import type { ResearchVerdict } from '@/lib/operator/research-verdict'
+import type { PipelineMetrics } from '@/lib/operator/sourcing-metrics'
 
-interface PipelineMetrics {
-  organisation_id: string
-  organisation_name: string
-  pending_review_count: number
-  approved_unenriched_count: number
-  tier_1_count: number
-  tier_2_count: number
-  tier_3_count: number
-  enriched_untiered_count: number
-  /** Enriched, then removed by a tiering disqualifier. Not the same as not-yet-tiered. */
-  removed_count: number
-  /**
-   * What the research control would do if clicked, from the action's OWN selection
-   * function. Not a count computed here. See research-verdict.ts for why.
-   */
-  research: ResearchVerdict
-}
+const POLL_INTERVAL_MS = 30_000
 
 interface PipelineOverviewProps {
+  /** The server render's numbers. Seeds the first paint, then the poll takes over. */
   metrics: PipelineMetrics[]
   selectedClientId?: string | null
   /**
@@ -36,9 +52,74 @@ interface PipelineOverviewProps {
   sourcingMaxBatchSize: number
 }
 
-export function PipelineOverview({ metrics, selectedClientId, sourcingMaxBatchSize }: PipelineOverviewProps) {
+export function PipelineOverview({
+  metrics: seedMetrics,
+  selectedClientId,
+  sourcingMaxBatchSize,
+}: PipelineOverviewProps) {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const currentClient = searchParams.get('client')
+
+  const [metrics, setMetrics] = useState<PipelineMetrics[]>(seedMetrics)
+  const [staleSince, setStaleSince] = useState<string | null>(null)
+
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const visibilityTickRef = useRef<(() => void) | null>(null)
+
+  const fetchMetrics = useCallback(async () => {
+    try {
+      const res = await fetch('/api/operator/sourcing-metrics', { credentials: 'same-origin' })
+      if (res.status === 401) { router.push('/login'); return }
+      if (res.status === 403) {
+        setStaleSince('Your account no longer has operator permissions.')
+        return
+      }
+      if (!res.ok) {
+        setStaleSince(`Could not refresh the counts (${res.status}). Showing the last good figures.`)
+        return
+      }
+      const json = await res.json() as { metrics: PipelineMetrics[] }
+      // The whole payload is replaced rather than merged. There is no local edit state on
+      // this screen to preserve, and merging would be a second place for the numbers to be
+      // decided.
+      setMetrics(json.metrics ?? [])
+      setStaleSince(null)
+    } catch {
+      setStaleSince('Lost connection. Showing the last good figures.')
+    }
+  }, [router])
+
+  useEffect(() => {
+    // Clear any stale interval and listener before creating new ones, guarding against
+    // App Router soft-navigation re-mounts that skip the cleanup phase.
+    if (intervalRef.current !== null) clearInterval(intervalRef.current)
+    if (visibilityTickRef.current !== null) {
+      document.removeEventListener('visibilitychange', visibilityTickRef.current)
+    }
+
+    // NO FETCH ON MOUNT. The server render just produced these numbers from the same
+    // function; fetching immediately would spend a request to learn what the page already
+    // knows. The first poll is one interval away.
+    const tick = () => {
+      if (document.visibilityState === 'visible') fetchMetrics()
+    }
+
+    intervalRef.current = setInterval(tick, POLL_INTERVAL_MS)
+    visibilityTickRef.current = tick
+    document.addEventListener('visibilitychange', tick)
+
+    return () => {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+      if (visibilityTickRef.current !== null) {
+        document.removeEventListener('visibilitychange', visibilityTickRef.current)
+        visibilityTickRef.current = null
+      }
+    }
+  }, [fetchMetrics])
 
   if (metrics.length === 0) {
     return (
@@ -50,6 +131,14 @@ export function PipelineOverview({ metrics, selectedClientId, sourcingMaxBatchSi
 
   return (
     <div className="space-y-4">
+      {/* Never rendered as zeros. See the header: a count we could not read and a count
+          that is genuinely zero must not look the same. */}
+      {staleSince && (
+        <div className="px-3 py-2 rounded-[6px] bg-[#FEF7E6] border border-[#F0D080] text-xs text-[#7A4800]">
+          {staleSince}
+        </div>
+      )}
+
       {metrics.map((org) => {
         const isSelected = currentClient === org.organisation_id || selectedClientId === org.organisation_id
         const enrichedCount = org.tier_1_count + org.tier_2_count + org.tier_3_count

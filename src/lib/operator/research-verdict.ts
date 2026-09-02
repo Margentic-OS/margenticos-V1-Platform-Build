@@ -40,6 +40,7 @@ import {
   selectProspectsForResearch,
   describeResearchSelection,
   type ResearchScope,
+  type ResearchEnqueueJobType,
 } from '@/lib/queue/enqueue/research'
 
 /**
@@ -75,6 +76,34 @@ export interface ResearchVerdict {
 }
 
 /**
+ * Which research path is live, and whether it is safely configured.
+ *
+ * READ ONCE PER REQUEST, NOT ONCE PER ORGANISATION. The flags are global; reading them
+ * inside a per-organisation loop asked the same question three times per client for three
+ * identical answers, and the pipeline screen renders every client at once.
+ */
+export interface ResearchPathState {
+  path: ResearchPath
+  /** Which job type an enqueue would create. Drives the wording of the in-progress refusal. */
+  jobType: ResearchEnqueueJobType
+  /** Non-null when the batch path is half-enabled, which blocks every organisation. */
+  halfEnabledRefusal: string | null
+}
+
+/** Read the queue flags in the same order, and with the same meaning, as the route does. */
+export async function readResearchPath(supabase: SupabaseClient): Promise<ResearchPathState> {
+  const batched = await isQueueEnabled(supabase, 'research_sources')
+  const queued = batched || await isQueueEnabled(supabase, 'research')
+  const path: ResearchPath = batched ? 'queue:batch' : queued ? 'queue:single-job' : 'inline'
+  const jobType: ResearchEnqueueJobType = batched ? 'research_sources' : 'research'
+
+  if (batched && !(await isQueueEnabled(supabase, 'research_collect'))) {
+    return { path, jobType, halfEnabledRefusal: HALF_ENABLED_BATCH_PATH_REFUSAL }
+  }
+  return { path, jobType, halfEnabledRefusal: null }
+}
+
+/**
  * Everything the research control needs, for one organisation.
  *
  * ── THE LIMIT OF THIS, STATED RATHER THAN LEFT TO BE DISCOVERED ──
@@ -96,23 +125,13 @@ export async function getResearchVerdict(
   supabase: SupabaseClient,
   organisationId: string,
   scope: ResearchScope = 'unresearched',
+  /** Pre-read flags. Omit and they are read here, which is what a single-organisation caller wants. */
+  pathState?: ResearchPathState,
 ): Promise<ResearchVerdict> {
-  // Read at the same place and in the same order the route reads them, so the path this
-  // reports and the path a click takes are decided by one pair of flag reads.
-  const batched = await isQueueEnabled(supabase, 'research_sources')
-  const queued = batched || await isQueueEnabled(supabase, 'research')
-  const path: ResearchPath = batched ? 'queue:batch' : queued ? 'queue:single-job' : 'inline'
+  const { path, jobType, halfEnabledRefusal } = pathState ?? await readResearchPath(supabase)
 
-  if (batched) {
-    const collectEnabled = await isQueueEnabled(supabase, 'research_collect')
-    if (!collectEnabled) {
-      return {
-        actionable: 0,
-        blocked: HALF_ENABLED_BATCH_PATH_REFUSAL,
-        skippedBreakdown: null,
-        path,
-      }
-    }
+  if (halfEnabledRefusal !== null) {
+    return { actionable: 0, blocked: halfEnabledRefusal, skippedBreakdown: null, path }
   }
 
   const read = await selectProspectsForResearch(supabase, organisationId, scope)
@@ -124,10 +143,7 @@ export async function getResearchVerdict(
     return { actionable: 0, blocked: read.error, skippedBreakdown: null, path }
   }
 
-  const verdict = describeResearchSelection(
-    read.selection,
-    batched ? 'research_sources' : 'research',
-  )
+  const verdict = describeResearchSelection(read.selection, jobType)
 
   return {
     actionable: verdict.actionable,
