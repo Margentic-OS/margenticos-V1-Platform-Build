@@ -119,10 +119,14 @@ export async function POST(
       return NextResponse.json({
         ok: true,
         queued: true,
+        // Present only when the buyer gate did NOT run. The operator who clicked the
+        // button reads this; a warning that only reaches a log stream is not a warning.
+        buyer_gate_warning: enqueued.buyerGateWarning,
         result: {
           selected: enqueued.selected,
           queued: enqueued.created,
           already_queued: enqueued.alreadyQueued,
+          rejected_before_spend: enqueued.rejectedBeforeSpend,
           // Named rather than left to inference: nothing has been enriched at this point
           // and no credit has been spent, so any number here would be a lie.
           message:

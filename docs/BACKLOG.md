@@ -10309,3 +10309,80 @@ SOMETHING THAT WAS NOT HAPPENING.
   says "Live Enrichment Active". No change was made. The fix is better than the one
   described to this session, because it added a third 'unknown' state rather than leaving
   the error branch and the safe branch as the same branch.
+
+
+## Buyer criterion (ADR-046) — what was seen and deliberately left alone, 2026-09-02
+
+- [post-build, 2026-09-02] deriveFilterSpec STILL HARDCODES EVERYTHING EXCEPT INDUSTRIES
+  AND HEADCOUNT, and it is the same Rule Zero violation ADR-046 just removed from
+  tier-classification, one layer up. Deliberately out of scope for that change, which
+  was about the buyer criterion only. All of it is in `deriveFilterSpec`, applied
+  identically to every client:
+
+    job_titles            8 consulting titles, including two that name a consulting role
+    job_titles_excluded   8 titles, including two sales-development role names
+    keywords              4 consulting words
+    person_countries      ['GB','IE','US'], a constant, not derived
+    company_countries     ['GB','IE','US'], a constant, not derived
+    notes                 a paragraph of consulting-specific disqualifiers
+
+  MEASURED ON LIVE DATA, and the geography is the one to look at first. 360 Bia Og's ICP
+  document says their market is "Ireland, with initial concentration in Waterford and
+  surrounding counties". Their derived spec carries THREE countries, GB, IE and US,
+  because that is the hardcoded default. Their spec also carries all eight consulting job
+  titles, for a business that sells meals to primary schools.
+
+  The notes paragraph is additionally STALE, not just generic: it ends "DE and NL
+  included: English-operating consulting founders" while both country lists have said
+  GB/IE/US since the filter was constrained. Two live specs carry that sentence.
+
+  What saves this from being live damage today is that ADR-032 hardcoded the provider
+  query, so `job_titles`, `keywords` and the country lists reach nothing. They are a
+  document that lies rather than a filter that misfires. That stops being true the moment
+  the query becomes spec-driven again, which is the point at which this must be fixed
+  rather than before.
+
+- [post-build, 2026-09-02] "REMOVED" IS COMPUTED IN TWO PLACES AND THE DOCSTRING SAYS IT
+  IS ONE. `countRow` in sourcing-metrics.ts carries a comment reading "THIS IS THE ONLY
+  PLACE ANY OF THESE NUMBERS IS DECIDED". For `removed_count` that is false: it comes
+  from a separate `countProspects` query in `getMetricsForOrganisations`, while `countRow`
+  feeds `removed_by_reason` and every batch line.
+
+  This bit immediately. Moving the buyer check in front of enrichment required dropping
+  the `enrichment_status = 'enriched'` conjunct, and dropping it in `countRow` alone left
+  `removed_by_reason` counting a row that `removed_count` did not. Caught by a live test
+  asserting the delta, not by reading.
+
+  They are not trivially merged: the query is exact, while the walk is capped at
+  STATUS_ROW_LIMIT (2000) and reports itself truncated. Collapsing them changes the
+  truncation semantics of a number on the operator screen, which is a behaviour change and
+  wanted a decision rather than a drive-by fix. Until then the two must be kept in step by
+  hand, which is the parallel-array shape CLAUDE.md warns about.
+
+- [post-build, 2026-09-02] THE VARIANT FAILURE MODE THE SANITY BAND CANNOT SEE.
+  The first live derivation for MargenticOS returned an abbreviation for a role but not
+  its written-out form. Matching is literal, so three real buyers with the written-out
+  title were rejected: the gate removed 17 where 14 was correct. The prompt now states
+  that matching is literal and requires both forms, and the re-derivation was exact.
+
+  Worth keeping because the sanity band would NOT have caught it. Three wrong rejections
+  out of a hundred moves the acceptance rate by three points, nowhere near the 5% to 95%
+  band. The band catches a criterion that is catastrophically wrong, not one that is
+  slightly wrong, and a missing spelling variant is the slightly-wrong shape this design
+  will keep producing. There is no automated check for it today. The plain-English
+  statement is the intended defence, and it only works if an operator actually reads it.
+
+- [post-build, 2026-09-02] 360 BIA OG'S CRITERION IS STORED UNMEASURED. The sanity band
+  needs 25 distinct sourced titles and that organisation has zero prospects, so its
+  criterion is stored with status `derived` and a note saying it was not measured. It
+  therefore GATES without ever having been checked against real titles. That is the
+  intended trade-off, since the alternative is refusing to filter for every new client,
+  but nothing re-measures it once prospects do arrive. A re-measure on first sourcing run
+  would close it.
+
+- [post-build, 2026-09-02] THREE REMOVAL REASONS STILL HAVE NO RE-EVALUATION PATH, and
+  the buyer criterion did NOT add a fourth. Gate rejections are thawed by the existing
+  ADR-037 re-queue, because they carry their verdict in `tiering_reason` and leave
+  `enrichment_status` NULL. The three named on 2026-08-27 (`email_unverified` after a
+  later verification, `company_too_large` after re-enrichment, and any disqualifier
+  changed in CODE rather than by a spec change) are unchanged and still open.

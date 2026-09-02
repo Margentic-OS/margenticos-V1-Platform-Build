@@ -40,6 +40,15 @@ interface ProspectRow {
   enrichment_status: string | null
   enrichment_credit_consumed_at: string | null
   enrichment_locked_at: string | null
+  /**
+   * Explicit, and NULL. The enrichment selection now also requires `tiering_reason IS
+   * NULL`, which is what makes a buyer-gate rejection terminal. The fake honours `.is()`
+   * strictly, so a row that simply omits the key is not selected at all: leaving it out
+   * made every test here select nothing and read as the credit guard working perfectly.
+   */
+  tiering_reason: string | null
+  /** Read by the buyer gate before enrichment. NULL is not judged. */
+  job_title: string | null
   last_name: string | null
   email: string | null
   [k: string]: unknown
@@ -54,6 +63,8 @@ function prospect(n: number, over: Partial<ProspectRow> = {}): ProspectRow {
     enrichment_status: null,
     enrichment_credit_consumed_at: null,
     enrichment_locked_at: null,
+    tiering_reason: null,
+    job_title: null,
     last_name: null,
     email: null,
     ...over,
@@ -67,7 +78,15 @@ type Filter = (row: ProspectRow) => boolean
  * Only the surface this code path touches is implemented.
  */
 function makeDb(rows: ProspectRow[]) {
-  const store = { prospects: rows, enrichment_runs: [] as Record<string, unknown>[] }
+  // strategy_documents is EMPTY on purpose. These tests are about the credit stamp, and
+  // an org with no filter spec is the case where the buyer gate fails open and enriches
+  // everything, which leaves the credit guard as the only thing deciding. Without the key
+  // the fake threw on `store[table].filter`, and the throw aborted the whole batch.
+  const store = {
+    prospects: rows,
+    enrichment_runs: [] as Record<string, unknown>[],
+    strategy_documents: [] as ProspectRow[],
+  }
 
   function builder(table: string) {
     const filters: Filter[] = []

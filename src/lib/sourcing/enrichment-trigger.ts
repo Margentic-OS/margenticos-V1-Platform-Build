@@ -21,6 +21,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { enrichProspectsForOrganisation, type EnrichmentRun } from '@/lib/sourcing/handlers/adapter-apollo-enrichment'
+import {
+  selectEnrichmentEligible,
+  gateProspectsBeforeEnrichment,
+  type SelectedProspect,
+} from '@/lib/sourcing/enrichment-selection'
 
 const STALE_LOCK_THRESHOLD_MINUTES = 30
 
@@ -80,13 +85,13 @@ export async function enrichApprovedBatch(
 
     const staleThresholdISO = new Date(Date.now() - STALE_LOCK_THRESHOLD_MINUTES * 60 * 1000).toISOString()
 
-    const { data: lockedProspects, error: lockError } = await supabase
-      .from('prospects')
-      .select('id, source_person_key')
-      .eq('organisation_id', organisationId)
-      .eq('sourcing_review_status', 'approved')
-      .is('enrichment_status', null)
-      .is('enrichment_credit_consumed_at', null)
+    const { data: lockedProspects, error: lockError } = await selectEnrichmentEligible(
+      supabase,
+      organisationId,
+    )
+      // THE LOCK CLAUSE STAYS HERE, and only here. The shared selector deliberately
+      // omits it: the queue path uses the queue as its lock, and giving both paths a
+      // column lock would give one prospect two competing notions of "in progress".
       .or(`enrichment_locked_at.is.null,enrichment_locked_at.lt.${staleThresholdISO}`)
       .limit(maxBatchSize)
 
@@ -116,13 +121,45 @@ export async function enrichApprovedBatch(
       }
     }
 
-    const prospectIds = lockedProspects.map(p => p.id)
-    const sourcePersonKeys = lockedProspects.map(p => p.source_person_key)
+    // ── Step 1.5: The buyer gate, BEFORE the lock and before any spend ───────
+    //
+    // The rule that used to run after enrichment, moved in front of the money. On the
+    // 100-prospect cohort of 2026-09-01 this rule removed 14 prospects, every one of
+    // them already enriched at one credit each. The job title it reads is written at
+    // sourcing time and is never touched by enrichment (see field-ownership.ts), so
+    // every one of those credits was avoidable with data already on the row.
+    const gate = await gateProspectsBeforeEnrichment(
+      supabase,
+      organisationId,
+      lockedProspects as unknown as SelectedProspect[],
+    )
+
+    if (gate.passed.length === 0) {
+      logger.info('enrichment-trigger: nothing left after the buyer gate', {
+        operation_id: operationId,
+        organisation_id: organisationId,
+        rejected_before_spend: gate.rejected.length,
+      })
+      return {
+        organisation_id: organisationId,
+        batch_size: 0,
+        total_requested_enrichments: 0,
+        unique_enriched_records: 0,
+        missing_records: 0,
+        credits_consumed: 0,
+        enriched_at: new Date().toISOString(),
+        status: 'success',
+      }
+    }
+
+    const prospectIds = gate.passed.map(p => p.id)
+    const sourcePersonKeys = gate.passed.map(p => p.source_person_key)
 
     logger.info('enrichment-trigger: lockable prospects selected', {
       operation_id: operationId,
       organisation_id: organisationId,
       selected_count: prospectIds.length,
+      rejected_before_spend: gate.rejected.length,
     })
 
     // Acquire lock atomically on selected prospects

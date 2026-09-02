@@ -521,6 +521,12 @@ decisions so the agents remain the authoritative source of truth.
 
 Decision:
 Document generation agents (ICP, positioning, tone of voice): claude-opus-4-6
+Buyer criterion derivation (buyer-criterion-agent): claude-opus-4-6
+  Added 2026-09-02 with ADR-046. Opus because it reads every approved document plus intake
+  and answers a judgement question about who owns a problem, which is the same class of
+  synthesis the document agents do. It runs ONCE PER ICP APPROVAL, not per prospect, so the
+  per-run cost is irrelevant next to getting the answer right: a wrong criterion silently
+  discards real buyers before anything is paid for.
 Messaging generation agent: claude-sonnet-4-6 (see update note below)
 Reply drafting (reply-draft-agent): claude-sonnet-4-6
 Prospect research (synthesis, writer, floor judge, judge): claude-sonnet-4-6
@@ -3997,3 +4003,131 @@ messaging prompts. That is a scope decision, not drift: this session was scoped 
 path, and the messaging prompt feeds the send path, which another session was exercising.
 A test asserts the two copies that DO exist are identical, so they cannot drift while the
 other three wait.
+
+---
+
+## ADR-046: The buyer criterion is derived per client and applied before enrichment, and it is not the provider's seniority filter
+
+**Date:** 2026-09-02
+**Status:** Accepted.
+
+NOTE ON NUMBERING: taken as 046 on branch seniority off main e7c7ea0.
+See BACKLOG on ADR numbers racing across parallel branches.
+
+**Context.**
+
+`DECISION_MAKER_PATTERNS` was twelve job-title fragments in `tier-classification.ts`,
+applied identically to every client. It is a Rule Zero violation that had been in
+production since sourcing was built, and it stayed invisible for two reasons. The only
+client generating volume is a consulting firm whose buyers those fragments describe, and
+the one live client in a different market, an Irish school-meals business selling to
+primary schools, passed it by a coincidental substring collision: `principal` is in the
+list because of a consulting title, and it happens to also be an Irish school principal.
+One uncommon title, a Board of Management member or a school bursar, and that client would
+have been silently rejecting its own buyers.
+
+The rule also ran AFTER enrichment. On the 100-prospect cohort of 2026-09-01, 14 of the 15
+removals were `not_decision_maker`, every one already enriched at one credit each. The job
+title it reads is written at sourcing time and is never touched by enrichment
+(`field-ownership.ts` lists `job_title` as a sourced field), so all 14 credits were
+avoidable using data that was already on the row.
+
+**Decision.**
+
+Three things, and the first is the one that is easy to get wrong.
+
+**1. Search breadth and the buyer criterion are different questions.** `seniority_levels`,
+and the provider filter it corresponds to, is what we ASK FOR. It stays deliberately wide,
+because the provider derives seniority from job title and is coarse about it: narrowing it
+to owner and founder measured 29,139 rows against 72,458, because in professional services
+the owner is usually titled Partner. The buyer criterion is who we will actually EMAIL out
+of that wide result. It is narrower and per client. **The gate does not read
+`seniority_levels`, and nothing should ever make it.** Conflating them is how one list came
+to serve two jobs and served neither.
+
+**2. The criterion is derived from the client's own documents, and rides in the existing
+spec.** `deriveBuyerCriterion` reads every ACTIVE strategy document plus intake, not the
+ICP alone: an ICP describes a market, and the positioning document is what says which
+problem the client solves and therefore who owns it. The result is stored as
+`icp_filter_spec.buyer_criterion`, so it is approved with the ICP, regenerates with the
+ICP, and is thawed by the same re-queue. No new document, no new approval step, no new
+table, and no migration.
+
+It produces two outputs, and the second is not optional. Machine-readable fragments the
+gate matches, and a plain-English statement with evidence from the documents, written to
+be read aloud on an onboarding call. The statement is how an operator validates a
+judgement the system made on a client's behalf. A criterion nobody has read is a rule
+nobody has agreed to.
+
+**3. It is applied before enrichment, through one selector both paths call.** The two
+enrichment paths held two copies of the same four eligibility predicates with a comment
+asking the next person to keep them in step. They now call `selectEnrichmentEligible`. The
+lock clause stays out of it: the inline path locks a column, the queue path uses the queue
+as its lock, and giving one prospect two notions of "in progress" would let them disagree.
+
+**Consequences, including the ones that cost something.**
+
+A rejected prospect gets `tiering_reason` set and `sourced_tier` left NULL, which is the
+shape every other rejection already has, so it appears in Removed and in
+`removed_by_reason` under the same bucket. `enrichment_status` stays NULL, because nothing
+was enriched and that column means we paid. That choice is what makes the ADR-037 thaw work
+unchanged: clearing `tiering_reason` returns the row to enrichment eligibility as well as to
+tiering, so there is no half-thaw that frees the reason and leaves the row unenrichable.
+
+Two counts had to change to see these rows, and one of them revealed a defect. `countRow`
+required `enrichment_status = 'enriched'` alongside the reason. That conjunct was never
+part of what makes a row a removal; it was true of every removal only because every
+disqualifier used to run after enrichment. It is dropped. The alternative, stamping
+`enriched` on a prospect we never enriched, would have kept the line untouched at the cost
+of lying in the column that means we paid, and would have fed rows with no email address to
+verification, which selects on exactly that value. It also emerged that `removed_count` is
+computed by a SECOND query rather than by `countRow`, contradicting that function's own
+docstring, and the two had to be fixed together. Logged in BACKLOG.
+
+**Everything fails OPEN, loudly.** No criterion, an unsettled one, one outside the sanity
+band, or a read that throws: every prospect passes, a warning is returned to the operator
+in the HTTP response, and Sentry is notified. Failing closed would stop a client's pipeline
+with no error anyone would think to look for. The cost is real and is accepted: a client
+with no criterion pays to enrich everyone, exactly as today.
+
+**Unsettled is a correct outcome.** Where the documents do not establish who owns the
+problem, who controls the spend, or who can convene the decision, the derivation says so
+and does not gate. That becomes a question on the onboarding call, which is where an open
+question belongs, rather than a judgement the model made quietly on thin evidence.
+
+**The sanity band.** Measured against the client's own sourced titles at derivation time.
+Fewer than 25 distinct titles and it reports itself unchecked rather than presenting noise
+as a finding. Outside 5% to 95% acceptance the criterion is stored `out_of_band` and does
+not gate. The band is deliberately wide: a legitimately narrow criterion against a wide
+provider search accepts a small fraction, and a tighter band would fire on correct
+derivations and teach the operator to ignore it.
+
+**The seniority ladder loses a band.** `calculateSeniorityScore` re-listed the same
+fragments inline and had already drifted from the constant it mirrored. Both now read the
+one criterion, through a single evaluation per prospect. The old three bands (35/30/25)
+become two ranks, primary 35 and secondary 25, because a client-derived list has no natural
+middle. Measured on the cohort's 85 survivors: 3 move tier_2 to tier_3, tier_1 is unchanged
+at 70. Existing rows are not re-tiered, so this only affects future classification.
+
+**Rule Zero is enforced by a test, not by review.** The derivation is ABOUT job titles,
+which makes its prompt the likeliest place in this codebase for a worked example to be
+written, and a worked example there is reproduced verbatim for every client. The prompt
+states the criterion at category level only: who owns the problem, who controls the spend,
+who can convene the decision. `buyer-criterion-agent.test.ts` scans the prompt against a
+banned list of title and industry vocabulary, derived in part from `CANONICAL_INDUSTRIES`
+so a new sector is covered without anyone remembering. Both mutations were verified:
+planting a worked example turns it red, and deleting the assertion turns it red too,
+because a second test reads the file and fails if the scan is not in it. That guard builds
+its own needle by concatenation, because written whole the literal satisfied its own search
+and the first version passed with the real assertion removed.
+
+**Model:** `claude-opus-4-6`. An LLM rather than deterministic code, per ADR-018, because
+the input is prose and no rule engine reads a positioning document and answers who owns the
+problem. Everything downstream is deterministic substring matching that makes no model call.
+
+**Measured.** Against the 100-prospect cohort, the new gate rejects exactly 14 before
+enrichment, the same 14, with zero differences in either direction. The first derivation
+rejected 17: it emitted an abbreviation but not the written-out form of the same role, and
+matching is literal, so three real buyers were wrongly rejected. The prompt now states that
+matching is literal and requires both forms. That failure is worth recording because it is
+the failure mode this design will keep having, and the sanity band would not have caught it.

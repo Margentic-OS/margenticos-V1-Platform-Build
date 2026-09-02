@@ -329,6 +329,11 @@ and the one that matters slips through when he's switching contexts.
 Per ADR-013, current agent model assignments:
 
   Document generation agents (ICP, positioning, TOV):  claude-opus-4-6
+  Buyer criterion derivation:                          claude-opus-4-6
+                                                       Reads every approved document plus
+                                                       intake and derives WHO the client
+                                                       emails. Runs once per ICP approval,
+                                                       not per prospect. See ADR-046.
   Messaging generation agent:                          claude-sonnet-4-6
                                                        (local-dev workaround —
                                                         revert to opus-4-6 when
@@ -1075,6 +1080,28 @@ on verification, and REMOVE what is already in flight. The third does not exist.
 
 ## Database security — four standing rules (learn from 2026-06-05, 2026-08-24 and 2026-08-25)
 
+### Rule: seniority_levels is NOT the buyer criterion, and the gate must never read it
+
+Two different questions, and one list serving both is what this project already got wrong.
+
+  seniority_levels     what we ASK THE PROVIDER FOR. Deliberately wide, because the
+                       provider derives seniority from job title and is coarse.
+                       Narrowing it measured 29,139 rows against 72,458.
+  buyer_criterion      who we will actually EMAIL, out of that wide result. Narrower,
+                       and DERIVED PER CLIENT from that client's own documents.
+
+The pre-enrichment gate and the fit score both read `spec.buyer_criterion` and nothing
+else. Never widen the gate to read `seniority_levels`, and never narrow `seniority_levels`
+to make the gate simpler: those are opposite ends of the pipeline and they trade against
+different things. See ADR-046.
+
+Never reintroduce a hardcoded list of job titles anywhere. `DECISION_MAKER_PATTERNS` was
+twelve fragments applied to every client, it was a Rule Zero violation in production for
+months, and it stayed invisible because the one live client in another market passed it by
+a coincidental substring collision rather than by design.
+
+---
+
 ### Rule: REVOKE FROM PUBLIC is NOT enough on Supabase. Name anon and authenticated.
 
 This is the rule most likely to give you a false sense of safety, because the wrong
@@ -1491,6 +1518,8 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-034  Send eligibility is evaluated once at verification and frozen on the row;
            changing EXCLUDED_COUNTRIES is NOT retroactive, and our gates govern
            UPLOAD, not delivery
+  ADR-046  Buyer criterion derived per client from their own documents, applied before
+           enrichment through one shared selector; it is NOT the provider seniority filter
   ADR-035  A four-state sending-health verdict collapsed onto the sweep's three states;
            insufficient_sends maps to OK deliberately, because a state whose resting
            value would be UNKNOWN makes the check born dark

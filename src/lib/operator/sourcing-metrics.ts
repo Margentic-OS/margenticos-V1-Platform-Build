@@ -296,11 +296,25 @@ function countRow(f: BatchFunnel, row: StatusRow): void {
     const reason = whyNotSendable(row)
     if (reason === null) tier.sendable += 1
     else tier.notSendableByReason[reason] = (tier.notSendableByReason[reason] ?? 0) + 1
-  } else if (row.enrichment_status === 'enriched' && row.tiering_reason !== null) {
+  } else if (row.tiering_reason !== null) {
     // Removed by a disqualifier, as opposed to not yet tiered. Both have sourced_tier NULL;
     // tiering_reason is the discriminator. parseTieringReason keeps an unrecognised value
     // visible under its own text rather than dropping it; the live data has one such
     // legacy code.
+    //
+    // `enrichment_status === 'enriched'` USED TO BE A SECOND CONJUNCT HERE and has been
+    // removed. It was never part of what makes a row a removal: it was true of every
+    // removal only because every disqualifier used to run after enrichment. Now that the
+    // buyer criterion is applied BEFORE we pay, a rejected prospect is enrichment_status
+    // NULL and carries its verdict in tiering_reason exactly like every other rejection,
+    // and the old conjunct would have made those rows count as neither removed nor
+    // anything else. They would have left the funnel silently, which is the shape this
+    // module exists to prevent.
+    //
+    // The alternative was to stamp enrichment_status = 'enriched' on a prospect we never
+    // enriched. That would have kept this line untouched at the cost of lying in the
+    // column that means "we paid for this", inflating the enriched count, and feeding
+    // rows with no email address to verification, which selects on that exact value.
     f.removed += 1
     const verdict = parseTieringReason(row.tiering_reason)
     const code =
@@ -504,16 +518,37 @@ export async function getMetricsForOrganisations(
         research,
       ] = await Promise.all([
         countProspects(supabase, org.id, q => q.eq('sourcing_review_status', 'pending_review')),
+        // Approved and genuinely still WAITING to be enriched.
+        //
+        // `tiering_reason IS NULL` is the same predicate selectEnrichmentEligible uses, and
+        // it is here for the same reason: a prospect the buyer gate rejected before
+        // enrichment is approved and unenriched and will never be enriched. Counting it as
+        // waiting would make this number drift permanently upward against a queue that is
+        // actually empty.
         countProspects(supabase, org.id, q =>
-          q.eq('sourcing_review_status', 'approved').is('enrichment_status', null)),
+          q.eq('sourcing_review_status', 'approved')
+            .is('enrichment_status', null)
+            .is('tiering_reason', null)),
         countProspects(supabase, org.id, q =>
           q.eq('enrichment_status', 'enriched').is('sourced_tier', null)),
-        // Removed by the tiering disqualifiers, as opposed to not yet tiered. Both have
-        // sourced_tier NULL; tiering_reason is the discriminator, because classifyTier
-        // writes one on every path and nothing else sets it. See tier-verdict.ts.
+        // Removed by a disqualifier, as opposed to not yet tiered. Both have sourced_tier
+        // NULL; tiering_reason is the discriminator, because classifyTier writes one on
+        // every path and nothing else sets it. See tier-verdict.ts.
+        //
+        // THIS IS A SECOND COMPUTATION OF "REMOVED" and the docstring on countRow claiming
+        // to be the only one is, for this single number, wrong. countRow feeds
+        // removed_by_reason and every batch line; this query feeds removed_count, because
+        // it is exact where the walk is capped at STATUS_ROW_LIMIT and reports itself
+        // truncated. The two must therefore be kept in step by hand, which is the shape
+        // CLAUDE.md warns about, and it bit immediately: moving the buyer check in front of
+        // enrichment needed the same conjunct dropped in both, and dropping it in one left
+        // removed_by_reason counting a row that removed_count did not. Logged in BACKLOG.
+        //
+        // `enrichment_status = 'enriched'` IS GONE from both. It was never part of what
+        // makes a row a removal. It was true of every removal only because every
+        // disqualifier used to run after enrichment, and the buyer criterion no longer does.
         countProspects(supabase, org.id, q =>
-          q.eq('enrichment_status', 'enriched')
-            .is('sourced_tier', null)
+          q.is('sourced_tier', null)
             .not('tiering_reason', 'is', null)),
         readBreakdowns(supabase, org.id),
         getResearchVerdict(supabase, org.id, 'unresearched', pathState),

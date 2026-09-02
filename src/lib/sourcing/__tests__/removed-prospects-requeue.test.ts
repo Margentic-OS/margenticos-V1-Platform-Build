@@ -38,6 +38,20 @@ function spec(industries: string[]): ICPFilterSpec {
     company_headcount_min: 0, company_headcount_max: 0,
     industries: industries as ICPFilterSpec['industries'],
     industries_excluded: [], keywords: [], keywords_excluded: [], notes: '',
+    // Rule Zero: the fragments here are abstract tokens, not job titles. This test is
+    // about disqualifier plumbing, and a real title in a fixture is one copy-paste away
+    // from a real title in the derivation prompt.
+    buyer_criterion: {
+      status: 'derived',
+      accept: [{ fragment: 'qualifying-role', rank: 'primary' }],
+      reject: [],
+      statement: 'Test fixture.',
+      evidence: [],
+      unsettled_reason: null,
+      sanity: null,
+      derived_at: '2026-09-02T00:00:00.000Z',
+      model: 'test',
+    },
   }
 }
 
@@ -49,7 +63,7 @@ function prospect(over: Partial<Row>): Row {
     organisation_id: ORG,
     email_status: 'verified',
     enrichment_status: 'enriched',
-    job_title: 'Founder',
+    job_title: 'qualifying-role',
     company_headcount: 10,
     company_industry: 'management consulting',
     company_name: 'Acme Consulting',
@@ -200,8 +214,8 @@ describe('tierEnrichedBatch: already-classified prospects do not eat the batch c
     // batch was the three removals and the fresh prospect was never reached, run
     // after run, while the run still reported "completed, 3 classified".
     const { client } = makeSupabase(tieringTables([
-      prospect({ id: 'r1', tiering_reason: 'not_decision_maker', job_title: 'Intern' }),
-      prospect({ id: 'r2', tiering_reason: 'not_decision_maker', job_title: 'Intern' }),
+      prospect({ id: 'r1', tiering_reason: 'not_decision_maker', job_title: 'other-role' }),
+      prospect({ id: 'r2', tiering_reason: 'not_decision_maker', job_title: 'other-role' }),
       prospect({ id: 'r3', tiering_reason: 'industry_not_consulting', company_industry: 'restaurants' }),
       prospect({ id: 'fresh' }),
     ]))

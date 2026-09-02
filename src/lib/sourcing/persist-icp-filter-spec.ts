@@ -4,8 +4,10 @@ import { logger } from '@/lib/logger'
 import {
   deriveFilterSpec,
   type IcpDocument,
+  type ICPFilterSpec,
 } from '@/lib/agents/icp-filter-spec'
 import { inspectFilterSpec } from '@/lib/sourcing/inspect-filter-spec'
+import { deriveBuyerCriterion } from '@/agents/buyer-criterion-agent'
 
 /**
  * Derives and persists the ICP filter spec for a newly promoted strategy document.
@@ -70,7 +72,7 @@ export async function persistIcpFilterSpec(
     // ── 3. Derive the filter spec from ICP content ─────────────────────────────
     // deriveFilterSpec throws if industries are non-canonical.
     // Catch that explicitly and report the invalid names.
-    let spec
+    let spec: ICPFilterSpec
     try {
       spec = deriveFilterSpec(doc.content as IcpDocument)
     } catch (specError) {
@@ -100,6 +102,56 @@ export async function persistIcpFilterSpec(
         await Sentry.flush(2000)
       } catch {}
       return
+    }
+
+    // ── 3.25 Derive this client's buyer criterion ──────────────────────────────
+    //
+    // WHO the client emails, as opposed to what we ask the provider to search. Derived
+    // from every approved document plus intake, not from the ICP alone: an ICP describes
+    // a market, and the positioning document is what says which problem the client solves
+    // and therefore who owns it.
+    //
+    // It rides in the spec, so it is approved with the ICP, regenerates with the ICP, and
+    // is thawed by the same re-queue below. No new document and no new approval step.
+    //
+    // NEVER FAILS THE WRITE. A spec with no criterion makes the gate fail open and warn,
+    // which is a pipeline that spends more than it should. A spec that failed to persist
+    // makes sourcing fail outright. The first is recoverable by approving an ICP; the
+    // second is not recoverable without an operator noticing.
+    try {
+      spec.buyer_criterion = await deriveBuyerCriterion({
+        supabase,
+        organisation_id: doc.organisation_id,
+      })
+
+      if (spec.buyer_criterion.status !== 'derived') {
+        logger.warn('persistIcpFilterSpec: buyer criterion will not gate', {
+          operation_id: operationId,
+          document_id: documentId,
+          organisation_id: doc.organisation_id,
+          status: spec.buyer_criterion.status,
+          reason:
+            spec.buyer_criterion.unsettled_reason ??
+            spec.buyer_criterion.sanity?.note ??
+            null,
+          consequence: 'Enrichment will run unfiltered for this client until it is resolved.',
+        })
+      }
+    } catch (criterionError) {
+      const msg = criterionError instanceof Error ? criterionError.message : String(criterionError)
+      logger.error('persistIcpFilterSpec: buyer criterion derivation failed', {
+        operation_id: operationId,
+        document_id: documentId,
+        organisation_id: doc.organisation_id,
+        error: msg,
+        consequence:
+          'The spec is stored WITHOUT a buyer criterion. Enrichment fails open and warns, ' +
+          'so this client pays to enrich every approved prospect until an ICP is re-approved.',
+      })
+      Sentry.captureException(criterionError, {
+        tags: { component: 'persistIcpFilterSpec', step: 'buyer_criterion' },
+        extra: { operation_id: operationId, document_id: documentId },
+      })
     }
 
     // ── 3.5 Inspect the spec we are about to write ─────────────────────────────
@@ -160,6 +212,13 @@ export async function persistIcpFilterSpec(
     // A new filter spec IS that rule changing. So the moment a new one is stored,
     // the rows the old one removed are cleared back to unclassified and the next
     // tiering run re-decides them against the spec that is actually in force.
+    //
+    // THIS NOW ALSO THAWS THE PRE-ENRICHMENT BUYER GATE, with no second column to
+    // clear. A prospect that gate rejects carries its verdict in tiering_reason and
+    // leaves enrichment_status NULL, so clearing tiering_reason returns it to
+    // enrichment eligibility as well as to tiering. That was the design constraint:
+    // a half-thaw that freed the reason and left the row unenrichable would look
+    // like it had worked.
     //
     // SCOPE, deliberately narrow. Only this organisation, only rows with no tier,
     // only rows that were actually classified. A survivor keeps its tier and is not
