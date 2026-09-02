@@ -515,6 +515,13 @@ not yours to write, and the fix is a different sentence rather than a softer one
 If no consequence follows from an observation, that observation was the wrong one to choose.
 Pick another finding.
 
+EACH FINDING CARRIES A COUNTER-READING: the strongest opposite conclusion the same evidence
+supports, written by the analyst who produced the finding. It tells you how much weight that
+finding will bear, and it is about the conclusion, never about the fact. Where the
+counter-reading is strong, name what is observable and stop, because the conclusion is the
+half that may be wrong; where a finding's counter-reading is marked unhandled or missing,
+build nothing on its conclusion and prefer a different finding.
+
 NEVER ASSERT A TRACK RECORD. Do not claim a client relationship, a past engagement, a
 delivered result, or a case study unless the approved documents you were given state it
 outright. Anything not in those documents did not happen for the purposes of this email.
@@ -1430,13 +1437,84 @@ export function checkSubjectGates(subject: string, findingsText: string): string
 
 // ─── Findings block ──────────────────────────────────────────────────────────
 
-/** Ranked findings with provenance. Ranking is what the six tests are now for. */
-export function buildFindingsBlock(candidates: ObservationCandidate[]): string {
+/**
+ * TWO FUNCTIONS, NOT ONE, AND THE SPLIT IS THE WHOLE POINT OF IT.
+ *
+ * The string buildFindingsBlock returns used to serve two unrelated jobs at once: it was
+ * the writer's user message AND the evidence corpus for untraceableClaims, which asks
+ * whether a proper noun or a number in the written opening appears anywhere in the
+ * findings. That second job is a substring test against a haystack.
+ *
+ * So widening the block widens the gate. The counter-readings added below are prose about
+ * the same evidence and therefore full of the same names, dates and figures. Feeding them
+ * to untraceableClaims would mark as "traceable" any name that appears ONLY in a
+ * counter-reading the writer was told not to build on, and nothing would fail: the gate
+ * would keep running, keep returning an empty array, and quietly stop covering the case it
+ * exists for. That is the shape CLAUDE.md calls a check that cannot see the class it was
+ * written to find.
+ *
+ * buildFindingsEvidence is therefore the OLD block, byte-identical, and it is what the two
+ * gates read. buildFindingsBlock is the prompt text and nothing measures it.
+ */
+
+/**
+ * The evidence corpus for untraceableClaims and checkSentenceInitialNames. Byte-identical
+ * to what buildFindingsBlock returned before the prompt block was extended, so the
+ * traceability gate sees exactly the haystack it has always seen.
+ */
+export function buildFindingsEvidence(candidates: ObservationCandidate[]): string {
   const ranked = [...candidates].sort((a, b) => b.score_total - a.score_total)
   if (ranked.length === 0) return 'No findings.'
   return ranked
     .map((c, i) => `${i + 1}. ${c.observation}\n   source: ${c.source} | ${c.provenance || 'no provenance'}`)
     .join('\n')
+}
+
+/**
+ * The writer's findings block. Ranked by score, with provenance, plus the two things
+ * synthesis computed that the writer cannot derive for itself.
+ *
+ * WHAT IS PASSED, AND WHY ONLY THIS. Synthesis computes a great deal per candidate and
+ * almost none of it is knowledge the writer lacks. The six booleans, score_total,
+ * passes_all, demoted, model_readable_claim and every readability field are all either
+ * downstream of a test the writer does not run, or a gate the writer's own output is
+ * measured against separately a few lines below. Handing them over would tell the writer
+ * how it is about to be marked, which is an invitation to write to the mark.
+ *
+ * The counter-reading is different. It is the one thing here that is genuinely knowledge:
+ * an opposite conclusion the same evidence supports, which the writer cannot work out from
+ * an observation sentence alone because the evidence behind it is not in front of it.
+ *
+ * SCORE STILL ORDERS THE LIST and is still not shown. Ordering is a hint; a number is a
+ * target.
+ */
+export function buildFindingsBlock(
+  candidates: ObservationCandidate[],
+  opts: {
+    /** The candidate synthesis selected, marked in the list. null on a stored-findings run. */
+    selectedCandidateId?: string | null
+    /** Why synthesis judged this prospect's material relevant. One sentence, per result. */
+    relevanceReason?: string | null
+  } = {},
+): string {
+  const ranked = [...candidates].sort((a, b) => b.score_total - a.score_total)
+  if (ranked.length === 0) return 'No findings.'
+
+  const body = ranked
+    .map((c, i) => {
+      const mark = c.id === opts.selectedCandidateId ? ' [SELECTED BY SYNTHESIS]' : ''
+      const counter = c.opposite_reading
+        ? `\n   counter-reading (${c.inference_direction}): ${c.opposite_reading}`
+        : '\n   counter-reading: none supplied, so this finding\'s conclusion is unhandled'
+      return `${i + 1}.${mark} ${c.observation}\n   source: ${c.source} | ${c.provenance || 'no provenance'}${counter}`
+    })
+    .join('\n')
+
+  const reason = opts.relevanceReason?.trim()
+    ? `\n\nWhy this material was judged relevant to what the client solves: ${opts.relevanceReason.trim()}`
+    : ''
+
+  return `${body}${reason}`
 }
 
 // ─── Model calls ─────────────────────────────────────────────────────────────
@@ -1616,6 +1694,13 @@ export interface WriteAndJudgeParams {
   buyer: string
   prospectFirstName: string | null
   candidates: ObservationCandidate[]
+  /**
+   * The candidate synthesis selected, marked for the writer in the findings block.
+   * Optional, and null on a stored-findings run, which reaches no selection of its own.
+   */
+  selectedCandidateId?: string | null
+  /** Synthesis's one-sentence reason this material connects to what the client solves. */
+  relevanceReason?: string | null
   p3: string
   cta: string
   /**
@@ -1731,7 +1816,14 @@ export function joinOpening(observation: string, bridge: string): string {
 
 export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise<OpeningResult> {
   const client = new Anthropic({ apiKey: params.apiKey })
-  const findings = buildFindingsBlock(params.candidates)
+  // THE PROMPT BLOCK AND THE GATE CORPUS ARE DIFFERENT STRINGS. See buildFindingsBlock:
+  // the gates substring-match the written opening against their corpus, so the counter-
+  // readings must not be in it or a name appearing only there becomes traceable.
+  const findings = buildFindingsBlock(params.candidates, {
+    selectedCandidateId: params.selectedCandidateId ?? null,
+    relevanceReason:     params.relevanceReason ?? null,
+  })
+  const findingsEvidence = buildFindingsEvidence(params.candidates)
   // Constant across every prospect, variant and client, which is what makes it cacheable.
   // The parts that used to vary are in the assignment block, prepended to the user message.
   const writerSystem = buildWriterPrompt()
@@ -1782,7 +1874,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     // prospect gets. It is logged and dropped, `subject` becomes the empty string, and
     // composition then ships the variant's authored subject: the same subject that ships
     // today, which is the state this change is improving on rather than risking.
-    const subjectFailures = checkSubjectGates(parsed.subject, findings)
+    const subjectFailures = checkSubjectGates(parsed.subject, findingsEvidence)
     if (subjectFailures.length > 0) {
       logger.warn('research/write-opening: generated subject discarded, authored subject will ship', {
         prospect_id: params.prospectId,
@@ -1801,7 +1893,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
 
     // The cap covers the whole written block, so gate the combined text.
     const gates = checkOpeningGates(
-      `${opening} ${question}`.trim(), params.prospectFirstName, findings, params.p3,
+      `${opening} ${question}`.trim(), params.prospectFirstName, findingsEvidence, params.p3,
       { observation, bridge, question }, { prospectId: params.prospectId },
     )
     if (!question) gates.push('writer returned no closing question')
