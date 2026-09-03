@@ -6,6 +6,7 @@ import { TIER1_BENCHMARKS, BENCHMARKS_LAST_UPDATED } from '@/lib/benchmarks/tier
 import {
   readRate,
   MIN_SENDS_FOR_RATE,
+  MIN_PEOPLE_FOR_RATE,
   MIN_REPLIES_FOR_POSITIVE_RATE,
 } from '@/lib/benchmarks/sample-gate'
 import type { ClientVisibleCampaignMetrics } from '@/lib/metrics/get-client-visible-campaign-metrics'
@@ -56,6 +57,7 @@ function plural(n: number, one: string, many: string): string {
 
 export function BenchmarksView({ metrics }: BenchmarksViewProps) {
   const {
+    contactedCount,
     sentCount,
     repliedCount,
     bouncedCount,
@@ -67,10 +69,30 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
   // Collapsed by default, per the trade-off noted above the copy.
   const [ninetyDaysOpen, setNinetyDaysOpen] = useState(false)
 
-  // Every send-denominated rate shares one gate. See sample-gate.ts for where 400 comes
-  // from; the short version is that below it, one extra email moves the number by more
-  // than the thing the number is meant to distinguish.
-  const reply    = readRate(repliedCount, sentCount, MIN_SENDS_FOR_RATE)
+  // ─── REPLY RATE IS DENOMINATED IN PEOPLE, NOT EMAILS ──────────────────────
+  //
+  // It divided by sentCount until 2026-09-03. A four-step sequence sends up to four
+  // emails to one person, so that denominator counted the same person up to four times
+  // and the rate came out roughly a quarter of what the published figures mean. Measured
+  // on the live campaign: 2 replies from 60 emails reads 3.3%, the same 2 replies from 24
+  // people reads 8.3%. Identical performance, nearly three times apart, and the smaller
+  // number was the one being compared against a range measured the other way.
+  //
+  // contactedCount is the same figure the overview renders as "prospects contacted", read
+  // from campaigns.contacted_count. Do NOT substitute the provider's own field of that
+  // name: see campaign-analytics.ts, where it read 52 against 24 leads.
+  //
+  // WHAT THIS RATE IS, EXACTLY. The numerator is the provider's reply count, which is a
+  // count of REPLIES and not of people who replied. We cannot decompose it: our own
+  // signals rows carry a NULL prospect_id, so "distinct people who replied" is not
+  // available from this database today. So the rate is replies per person contacted,
+  // which is the right denominator and an approximate numerator. It overstates only when
+  // one person replies twice, which is rarer than one person receiving four emails.
+  // Recorded in BACKLOG.
+  const reply    = readRate(repliedCount, contactedCount, MIN_PEOPLE_FOR_RATE)
+
+  // Still send-denominated, deliberately, and flagged for a decision rather than changed
+  // in the same pass. See the report accompanying this change.
   const meeting  = readRate(meetingsBooked, sentCount, MIN_SENDS_FOR_RATE)
   const bounce   = readRate(bouncedCount, sentCount, MIN_SENDS_FOR_RATE)
   const optOut   = readRate(unsubscribedCount, sentCount, MIN_SENDS_FOR_RATE)
@@ -130,8 +152,8 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
         <BenchmarkCard
           label="Reply rate"
           reading={reply}
-          countsLine={`${fmt(repliedCount)} ${plural(repliedCount, 'reply', 'replies')} from ${fmt(sentCount)} sent`}
-          denominatorNoun="emails"
+          countsLine={`${fmt(repliedCount)} ${plural(repliedCount, 'reply', 'replies')} from ${fmt(contactedCount)} ${plural(contactedCount, 'person', 'people')} contacted`}
+          denominatorNoun="people contacted"
           industryRange={TIER1_BENCHMARKS.replyRate.industryRange}
           sourceLabel={TIER1_BENCHMARKS.replyRate.sourceLabel}
         />

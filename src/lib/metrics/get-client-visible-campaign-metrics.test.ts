@@ -178,7 +178,17 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
     // RUNTIME DATA CHECK: values are correct, bounce is absent
     expect(result.sentCount).toBe(100)
     expect(result.repliedCount).toBe(5)
-    expect(result.replyRate).toBe(5)
+
+    // REPLIES PER PERSON CONTACTED, not per email. 5 of 60 people, not 5 of 100 emails.
+    // Changed 2026-09-03: a four-step sequence sends up to four emails to one person, so
+    // the send denominator counted the same person up to four times and produced a rate
+    // about a quarter of what published reply-rate figures mean.
+    //
+    // This assertion is the mutation guard. Putting sentCount back in the denominator
+    // turns it red, because 5/100 and 5/60 are different numbers and the fixture was
+    // built so they cannot coincide.
+    expect(result.replyRate).toBeCloseTo((5 / 60) * 100, 10)
+    expect(result.replyRate).not.toBeCloseTo((5 / 100) * 100, 10)
     expect(result.hasData).toBe(true)
 
     // bounced_count IS selected now, to derive delivered. The raw total still never
@@ -282,5 +292,11 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
     expect(clientResult).toHaveProperty('meetingsHeld')
     expect(operatorResult).not.toHaveProperty('contactedCount')
     expect(operatorResult).toHaveProperty('meetingCount')
+
+    // AND THEY AGREE ON THE REPLY RATE. The operator panel and the client's pages render
+    // the same metric, so they must not compute it differently. The operator function
+    // reads contacted_count to do this without returning it, which is why the assertion
+    // above still holds.
+    expect(operatorResult.replyRate).toBe(clientResult.replyRate)
   })
 })

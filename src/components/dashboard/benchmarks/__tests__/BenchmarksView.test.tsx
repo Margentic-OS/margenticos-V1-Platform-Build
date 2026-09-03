@@ -86,7 +86,7 @@ describe('no targets anywhere', () => {
 
   it('says where a rate sits without saying whether it is good', () => {
     render(<BenchmarksView metrics={largeSample()} />)
-    // 40 replies from 1000 is 4%, inside the 3 to 6 range.
+    // Meeting booking 15 from 1000 is 1.5%, inside the 1 to 3 range.
     expect(screen.getAllByText('Within the industry range').length).toBeGreaterThan(0)
   })
 })
@@ -108,7 +108,9 @@ describe('too early to report', () => {
 
   it('shows the counts anyway, because those are true from the first email', () => {
     render(<BenchmarksView metrics={metrics()} />)
-    expect(screen.getByText('1 reply from 26 sent')).toBeInTheDocument()
+    // The reply card names PEOPLE, and says so, because the denominator is the thing a
+    // reader has to be able to see. The opt-out card still names emails.
+    expect(screen.getByText('1 reply from 15 people contacted')).toBeInTheDocument()
     expect(screen.getByText('1 opted out of 26 sent')).toBeInTheDocument()
   })
 
@@ -133,7 +135,8 @@ describe('too early to report', () => {
     render(<BenchmarksView metrics={largeSample()} />)
 
     expect(screen.queryByText(/Too early to report/)).not.toBeInTheDocument()
-    expect(screen.getByText('4.0%')).toBeInTheDocument()   // reply rate
+    // 40 replies from 500 PEOPLE, not from 1000 emails. 8.0%, not 4.0%.
+    expect(screen.getByText('8.0%')).toBeInTheDocument()   // reply rate
     expect(screen.getByText('50.0%')).toBeInTheDocument()  // positive share
     expect(screen.getByText('1.5%')).toBeInTheDocument()   // meeting booking
     expect(screen.getByText('2.0%')).toBeInTheDocument()   // bounce
@@ -219,5 +222,76 @@ describe('what the first ninety days look like', () => {
     expect(prose).not.toContain('–')
     expect(prose).not.toContain('--')
     expect(text.length).toBeGreaterThan(0)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE DENOMINATOR, WHICH IS THE WHOLE POINT OF THIS CARD
+//
+// Reply rate divided by emails sent until 2026-09-03. A four-step sequence sends up to
+// four emails to one person, so that denominator counted the same person up to four times
+// and produced a rate roughly a quarter of what published figures mean, then rendered it
+// beside a published range measured the other way.
+//
+// The fixture below is the LIVE CAMPAIGN as measured on 2026-09-03: 24 people, 60 emails,
+// 2 replies. 2 of 60 is 3.3%. 2 of 24 is 8.3%. Same performance, nearly three times apart.
+//
+// These are mutation guards. Putting sentCount back in the denominator turns them red.
+
+describe('reply rate is denominated in people, not emails', () => {
+  // The live campaign, exactly as the database held it on 2026-09-03.
+  function liveCampaign(): ClientVisibleCampaignMetrics {
+    return metrics({
+      contactedCount: 24,
+      sentCount: 60,
+      deliveredCount: 60,
+      bouncedCount: 0,
+      unsubscribedCount: 0,
+      repliedCount: 2,
+      positiveReplyCount: 0,
+      meetingsBooked: 0,
+      meetingsHeld: 0,
+    })
+  }
+
+  it('names people in the counts line, and never names sent on the reply card', () => {
+    render(<BenchmarksView metrics={liveCampaign()} />)
+
+    expect(screen.getByText('2 replies from 24 people contacted')).toBeInTheDocument()
+    // The old line. If this ever renders again the denominator has gone back to emails.
+    expect(screen.queryByText('2 replies from 60 sent')).not.toBeInTheDocument()
+  })
+
+  it('measures the shortfall in people, so the too-early line counts the right thing', () => {
+    render(<BenchmarksView metrics={liveCampaign()} />)
+
+    // 400 - 24 = 376 people. On the old denominator it would have been 400 - 60 = 340
+    // emails, which is the same sentence measuring a different thing.
+    expect(screen.getByText(/376 to go/)).toBeInTheDocument()
+    expect(screen.getByText(/around 400 people contacted/)).toBeInTheDocument()
+  })
+
+  it('computes 8.3% and not 3.3% once the sample clears the gate', () => {
+    // Same 2-to-24 ratio, scaled past the threshold so the rate actually prints. This is
+    // the assertion that fails if the denominator goes back to emails: at these values
+    // sent-denominated would read 3.3%.
+    render(<BenchmarksView metrics={metrics({
+      contactedCount: 480, sentCount: 1200, repliedCount: 40,
+      bouncedCount: 0, unsubscribedCount: 0, meetingsBooked: 0, positiveReplyCount: 0,
+    })} />)
+
+    expect(screen.getByText('8.3%')).toBeInTheDocument()
+    expect(screen.queryByText('3.3%')).not.toBeInTheDocument()
+  })
+
+  it('leaves the other four cards on their own denominators', () => {
+    // This change is reply rate only. Bounce is per email by definition, and the other
+    // three are flagged for a decision rather than changed in the same pass.
+    render(<BenchmarksView metrics={largeSample()} />)
+
+    expect(screen.getByText('15 meetings from 1,000 sent')).toBeInTheDocument()
+    expect(screen.getByText('20 bounced of 1,000 sent')).toBeInTheDocument()
+    expect(screen.getByText('5 opted out of 1,000 sent')).toBeInTheDocument()
+    expect(screen.getByText('20 positive of 40 replies')).toBeInTheDocument()
   })
 })
