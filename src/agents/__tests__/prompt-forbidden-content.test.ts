@@ -246,6 +246,47 @@ describe('prompt text carries no client-specific content', () => {
   })
 })
 
+// ─── The TOV prompt names no role for the writer ─────────────────────────────
+//
+// WHY THIS IS ITS OWN ASSERTION AND NOT A DENY-LIST PATTERN. On 2026-09-03 tov-agent.md
+// carried TWENTY uses of "founder" for the person whose voice it extracts, across the
+// extraction rules, the quality bar, five schema field descriptions and the self-check.
+// BOTH scans read zero on that file throughout, and both were right to: every BUYER_ARCHETYPE
+// pattern requires an assertion FRAME ("e.g. Founder", "typically the founder", "founder-led",
+// a plural with a copula, "writing to a founder"). A bare role noun used as a label matches
+// none of them, and adding a pattern that did would fire on messaging-agent.md's rules that
+// FORBID assuming the role, which is the failure mode NOT_NEGATED exists to prevent.
+//
+// So the class was invisible to the deny list by construction, not by oversight. This file
+// is the one place where the correct count is knowably ZERO: the prompt extracts a writing
+// voice from samples, and the writer's job title is never an input to that. A whole-file
+// literal assertion cannot false-positive here the way a repo-wide pattern would.
+//
+// The client this was found against sends as a Managing Director.
+describe('the TOV prompt does not assert the writer holds any particular role', () => {
+  const TOV = 'docs/prompts/tov-agent.md'
+
+  it('names no role for the person whose voice it extracts', () => {
+    const text = readFileSync(join(ROOT, TOV), 'utf-8')
+    const hits = text.split('\n')
+      .map((line, i) => ({ n: i + 1, line }))
+      .filter(x => /\b(founder|co-?founder|managing director|owner|proprietor|principal)s?\b/i.test(x.line))
+    expect(
+      hits.map(h => `L${h.n}: ${h.line.trim().slice(0, 100)}`),
+      'tov-agent.md must call this person the writer, never a role. It extracts a voice from ' +
+      'writing samples, and a job title is not an input to that.',
+    ).toEqual([])
+  })
+
+  it('found the file and real content, so the assertion above is not vacuous', () => {
+    const text = readFileSync(join(ROOT, TOV), 'utf-8')
+    expect(text.length).toBeGreaterThan(5000)
+    // The replacement vocabulary is the file's own: "writer" was already used for exactly
+    // this person in the sentence-mechanics section before the swap.
+    expect(text.match(/\bwriter\b/gi)?.length ?? 0).toBeGreaterThan(15)
+  })
+})
+
 // ─── RULE ZERO: the deny list must never reach a prompt ──────────────────────
 
 describe('the deny list is data and nothing builds a prompt from it', () => {

@@ -30,7 +30,7 @@ not invention. You are not writing a style guide for a generic professional. You
 capturing a specific person's communication fingerprint.
 
 Quality bar: read the completed TOV guide, then write one cold email using it.
-Would the founder read that email and say "yes, that sounds exactly like me"?
+Would the writer read that email and say "yes, that sounds exactly like me"?
 Or would they say "that sounds like AI wrote it"?
 If the answer is the latter, the extraction has failed. Go deeper into the samples.
 
@@ -333,7 +333,7 @@ Do not apply generic "professional tone" guidance.
 Extract what is actually present:
 
 ### Vocabulary
-What specific words does this founder use repeatedly?
+What specific words does this writer use repeatedly?
 What phrasing patterns appear more than once?
 What register do they write in: formal, conversational, direct, warm?
 Are there contractions? Colloquialisms? Technical terms? Jargon they avoid?
@@ -428,20 +428,20 @@ If the writing samples are too thin to extract five genuine negative rules:
 ## The voice_style cross-reference
 
 You will receive two inputs about voice:
-- voice_samples: how this founder actually writes (primary source: extract from this)
-- voice_style: how this founder describes their own writing style (secondary: cross-reference only)
+- voice_samples: how this writer actually writes (primary source: extract from this)
+- voice_style: how this writer describes their own writing style (secondary: cross-reference only)
 
-These two inputs often contradict each other. Founders frequently describe their style
+These two inputs often contradict each other. People frequently describe their style
 in aspirational terms rather than accurate ones. Common patterns:
 - They say "direct and concise" but their samples are verbose and hedge heavily
 - They say "warm and approachable" but their samples are formal and distant
 - They say "no jargon" but their samples are dense with industry terms
 
 Your job when a contradiction exists:
-1. Base the entire TOV guide on what the samples actually show, not what the founder says
+1. Base the entire TOV guide on what the samples actually show, not what the writer says
 2. Do NOT silently resolve the contradiction by blending the two
 3. Flag the contradiction explicitly in the voice_style_note field
-4. Write the note diplomatically but honestly. The founder will read this.
+4. Write the note diplomatically but honestly. The writer will read this.
 
 Example of a good voice_style_note:
 "Your intake described your style as 'direct and punchy.' The writing samples show a
@@ -456,13 +456,13 @@ When voice_style and samples agree, leave voice_style_note empty.
 
 ## Mandatory corrections: apply regardless of what the samples show
 
-These five rules are non-negotiable. They apply to every founder's TOV guide,
-no matter how the samples are written. Many founders violate these rules consistently
+These five rules are non-negotiable. They apply to every TOV guide,
+no matter how the samples are written. Many writers violate these rules consistently
 in their samples. Extract their authentic personality AND apply these corrections on top.
 
 The authentic voice is in the vocabulary, rhythm, and personality.
 These corrections are in the structure and habits.
-They are compatible. A founder can sound exactly like themselves while following them.
+They are compatible. A writer can sound exactly like themselves while following them.
 
 ### Rule 1: Never open with I or We
 The first word of any message must not be I or We.
@@ -506,7 +506,7 @@ If voice_samples is empty:
 - Do not throw an error. Generate the TOV guide from voice_style and intake preferences.
 - Mark confidence_level as 'low' in the output.
 - Include a prominent warning in voice_summary:
-  "⚠️ No writing samples were provided. This guide is based on the founder's self-description
+  "⚠️ No writing samples were provided. This guide is based on the writer's self-description
   and intake preferences only. It should be treated as a starting framework, not an
   extracted voice. Provide 3–5 writing samples (emails, LinkedIn posts, client messages)
   and regenerate to produce a guide grounded in actual writing."
@@ -541,7 +541,7 @@ Return raw JSON only.
   ],
   "vocabulary": {
     "words_they_use": [
-      "Specific words or short phrases that appear in the samples and sound like this founder"
+      "Specific words or short phrases that appear in the samples and sound like this writer"
     ],
     "words_they_avoid": [
       "Words or phrases that would feel wrong for this voice: either never appear or clearly jar when present"
@@ -556,15 +556,15 @@ Return raw JSON only.
     {
       "rule": "The rule stated plainly",
       "why": "Why this rule exists for this specific voice. Not generic advice.",
-      "example_violation": "A short example of what violating this rule looks like in this founder's context",
-      "example_correct": "A short example of the correct approach, written in this founder's actual voice"
+      "example_violation": "A short example of what violating this rule looks like in this writer's context",
+      "example_correct": "A short example of the correct approach, written in this writer's actual voice"
     }
   ],
   "before_after_examples": [
     {
       "context": "What channel and scenario this example applies to, e.g. 'LinkedIn first message to a senior buyer in this firm's Tier 1 profile'",
       "before": "A realistic 'before' version: generic, violating at least one rule. Must be representative of what the AI default would produce.",
-      "after": "The corrected version: under 100 words, no I/We opener, one question at most, no feature listing, written in this founder's specific voice. Count words and confirm compliance."
+      "after": "The corrected version: under 100 words, no I/We opener, one question at most, no feature listing, written in this writer's specific voice. Count words and confirm compliance."
     }
   ],
   "do_dont_list": {
@@ -575,7 +575,7 @@ Return raw JSON only.
       "Specific, actionable thing this voice never does: grounded in samples or rules"
     ]
   },
-  "voice_style_note": "Empty string if voice_style and samples are consistent. If they contradict: a diplomatic, honest explanation of the discrepancy and confirmation that the guide follows the samples. Written as if addressed directly to the founder.",
+  "voice_style_note": "Empty string if voice_style and samples are consistent. If they contradict: a diplomatic, honest explanation of the discrepancy and confirmation that the guide follows the samples. Written as if addressed directly to the writer.",
   "sentence_mechanics": {
     "dominant_sentence_length": "Describe the default sentence length pattern with a specific example pulled verbatim from the samples. E.g. 'Short and punchy: most sentences run 8–12 words. Example from samples: \"That meeting changed how I think about pricing.\"'",
     "fragment_usage": "Does the writer use deliberate sentence fragments? If yes: where, how often, and a verbatim example. If no: state clearly that fragments are absent.",
@@ -634,15 +634,15 @@ the specific behaviour, pattern, or evidence that prompted it instead.
    Count the words in 'after'. If it exceeds 100 words, rewrite it.
    If it opens with I or We, rewrite it. No exceptions: the examples are templates.
 
-5. The do_dont_list must be specific to this founder. Generic items like "be professional"
+5. The do_dont_list must be specific to this writer. Generic items like "be professional"
    or "avoid jargon" are not acceptable unless grounded in the specific samples.
    Test each item: could it appear in any other business's TOV guide? If yes, make it
    more specific to this voice or remove it.
 
 6. voice_style_note must be honest when a contradiction exists. Do not hedge it or make
-   it so diplomatic that the contradiction is unclear. The founder needs to know.
+   it so diplomatic that the contradiction is unclear. The writer needs to know.
 
-7. The writing rules example_correct entries must be written in this founder's voice,
+7. The writing rules example_correct entries must be written in this writer's voice,
    not in generic professional language. Use their vocabulary, rhythm, and structural patterns.
 
 8. sentence_mechanics is mandatory. All four fields must be populated. Every field must
@@ -677,7 +677,7 @@ Before returning, ask yourself:
 - Does sentence_mechanics contain verbatim examples for all four fields?
 - Does what_this_voice_never_does contain at least five concrete, specific rules with evidence?
   If not, is the thin-samples flag present in suggestion_reason?
-- Would a stranger read this guide and be able to write a message that sounds like this specific founder?
+- Would a stranger read this guide and be able to write a message that sounds like this specific writer?
 - Do any "after" examples open with "Name — [sentence]"? If yes, rewrite to remove the
   em-dash opener. The name stands alone on a line, and the body follows on the next line
   without a dash connector.
