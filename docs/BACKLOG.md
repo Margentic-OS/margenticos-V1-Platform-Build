@@ -11033,3 +11033,32 @@ these. The temperature change itself was measured and dropped; it is not in main
   commit 55b2020 established by measurement that in the writer prompt EXAMPLES BEAT RULES.
   Same risk here: the rule points at the client documents while the examples point at one
   market. Rewriting them is the follow-up to the synthesis-relevance change (PR #45).
+
+## Campaign metrics — provider field trust (flagged 2026-09-03, PRs #49 and #50)
+
+- [monitor] A refused contacted count is SILENT on the client dashboard. `mapContactedCount`
+  in `campaign-analytics.ts` returns null when the provider's people count is absent or
+  exceeds `leads_count`, and the poller then leaves `campaigns.contacted_count` at its last
+  good value and writes a warning log. That is the right failure direction — a stale number
+  beats a confident wrong one — but the dashboard cannot tell stale from current, and nobody
+  reads the poller warnings unprompted.
+
+  This is the shape CLAUDE.md already names twice: a check that runs, reports success, and
+  the thing it protects is never reached. Here the guard genuinely fires, and the only
+  evidence is a log line.
+
+  Next action: a MON-### view over `campaigns` that flags any row whose
+  `campaign_stats_updated_at` is fresh while `contacted_count` has not moved across several
+  polls on a campaign whose `sent_count` HAS moved. That is the signature of the guard
+  refusing every tick. Cheap, and it makes the refusal visible where the sweep already looks.
+
+- [gate] The reply rate on Benchmarks divides replies by `sent_count`, which is EMAILS. It is
+  labelled honestly ("2 replies from 60 sent") so it is not wrong, and it was deliberately
+  left alone in PR #49 because the brief scoped that fix to contacted and delivered. Worth a
+  decision rather than drift: reply rate per PERSON (2 of 24, 8%) is the number an operator
+  compares against an industry benchmark, and 2 of 60 (3.3%) is not comparable to the
+  published figures the panel cites. Both are defensible; they are not interchangeable, and
+  right now only one of them is shown.
+
+  Next action: decide the denominator deliberately, then make `TIER1_BENCHMARKS` state which
+  denominator its industry ranges assume, so the comparison cannot silently mix the two.
