@@ -4131,3 +4131,105 @@ rejected 17: it emitted an abbreviation but not the written-out form of the same
 matching is literal, so three real buyers were wrongly rejected. The prompt now states that
 matching is literal and requires both forms. That failure is worth recording because it is
 the failure mode this design will keep having, and the sanity band would not have caught it.
+
+---
+
+## ADR-047 — Client approval on strategy documents is removed; versions are recoverable instead
+
+**Date:** 2026-09-03
+**Status:** Accepted
+
+### The defect that forced the decision
+
+`promote_strategy_doc_version` archived the client-approved document and inserted the
+replacement as `status = 'active'` with `client_approval_status = 'pending'`. Every new
+version therefore passed through a state where it was the live document and unapproved.
+
+`assertStrategyApproved` blocks the lead upload until all four documents read `approved`,
+so generating a new version stopped outreach for that organisation until a client clicked
+Approve or the daily `strategy-doc-auto-approve` cron decided three days had elapsed. RLS
+could not help: the client policy gated on `status` and never read
+`client_approval_status`.
+
+Nothing was ever destroyed. Every archived version still held its content. There was
+simply no route back, and no way to tell two versions apart once you found them.
+
+### The decision
+
+Client approval on strategy documents is removed. The conversation with the operator is
+the approval. A document is live because an operator produced it.
+
+Removed completely rather than defaulted to `approved`, so nothing is left half-wired:
+the two approval routes, the auto-approve cron and its monitor, the approval condition in
+every read, the Approve button, the pending state, the operator "Proceed without client
+approval" escape hatch, and the client email promising that three days of silence counted
+as approval.
+
+**Not touched:** prospect batch review, which is a separate mechanism and a separate
+decision that still stands. Nor the hourly `auto-approve` job on `document_suggestions`,
+which is the operator's own queue.
+
+### What replaces it
+
+**One document on screen, always the current one.** A line saying it changed and when,
+with View previous beside it. Never two documents side by side.
+
+**Every version listed with the note that produced it.** `describeVersion` falls back
+note, then change summary, then what produced it, because the four documents an
+organisation starts with have neither and would otherwise be blank rows.
+
+**Revert to any version, not only the last.** `revert_strategy_doc_version` copies an old
+version's content forward as a NEW version through the same promotion function. The old
+row is not resurrected, so history grows in one direction and nothing is destroyed in
+order to recover something. Operator-only: reverting rewrites the copy every future email
+is composed from, and a client's route to a change is Request an update.
+
+**On messaging, the panel says what restore does not do.** It affects emails composed from
+that point on. Emails already written are not rewritten and campaigns already running
+continue exactly as they are. That is structurally true rather than a promise: a
+prospect's whole sequence is composed in one call, uploaded to the provider as substituted
+variables, and `applySendGate` only ever claims prospects at
+`outbound_upload_status = 'pending'`.
+
+### Cascade: flag, do not auto-rewrite
+
+An upstream change marks the downstream documents stale and surfaces them to the operator
+with a regenerate action. Nothing regenerates on its own. Judging whether a change is
+relevant is exactly what an automatic rewrite cannot do, and a client's voice must not
+change mid-campaign because a headcount band moved.
+
+`triggerCascadeIfEligible` was already called a cascade and had never propagated a change:
+`isEligible()` returns true only when the target has no active document and no pending
+suggestion, so once positioning exists an ICP change can never reach it. It is a
+first-generation sequencer and is left as one.
+
+`strategy_documents.is_stale` had existed since the table was created with nothing ever
+reading or writing it. This is its first use.
+
+### What the RLS widening cost
+
+The client policy now admits `archived`, because archived rows are the history. The
+consequence needed code: reads that filtered only by organisation and document type used
+to get "live only" free from RLS. `buyer-criterion-view` now gates on `status = 'active'`
+itself, and `deriveStrategyNavState` counts document TYPES rather than rows so a pile of
+archived rows cannot stand in for a document that does not exist.
+
+### Three defects found by running it, not by reading it
+
+**The note reached the prompt and stopped there.** An operator regenerated with a note,
+approved, and the version had `revision_note` NULL, because `approve_document_suggestion`
+passed NULL and nothing had written the note onto the suggestion row. Five regenerations
+produced five indistinguishable entries, which is the one thing the version history exists
+to prevent. Same family as ADR-038, one step further down the pipe.
+
+**`update_trigger` had a CHECK constraint that did not include `revert`.** The function
+was correct, the migration that introduced it never touched the constraint, and nothing in
+the type system or the suite could see it: `update_trigger` is `text` on both sides and
+the constraint lives only in the database. The producer-and-consumer-disagreeing shape,
+with the database as the consumer.
+
+**The client revision path never derived the ICP filter spec.** Every active ICP with
+`update_trigger = 'client_revision'` had a NULL spec; every one from the suggestion path
+had one. A clean split along the code path. Fixed, and the fix asserts the NEW document id
+is passed, because deriving from the old one would write a spec onto an already-archived
+row and look right.

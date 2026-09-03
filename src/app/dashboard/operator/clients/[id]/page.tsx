@@ -22,6 +22,7 @@ import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { applySendGate } from '@/lib/sourcing/send-gate'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { WaitingOnYouBlock } from './WaitingOnYouBlock'
+import { selectStaleDocuments } from '@/lib/dashboard/stale-documents'
 import { ClientProfileBlock } from './ClientProfileBlock'
 import { SetupStatusPanel } from './SetupStatusPanel'
 import { CampaignRegistrationPanel } from './CampaignRegistrationPanel'
@@ -130,7 +131,7 @@ export default async function ClientDetailPage({
       .maybeSingle(),
     supabase
       .from('strategy_documents')
-      .select('document_type, status, version, last_updated_at')
+      .select('document_type, status, version, last_updated_at, is_stale')
       .eq('organisation_id', org.id)
       .eq('status', 'active')
       .order('document_type', { ascending: true }),
@@ -193,6 +194,25 @@ export default async function ClientDetailPage({
       title: `${suggestions.length} document suggestion${suggestions.length === 1 ? '' : 's'}`,
       description: suggestions.slice(0, 2).map(s => `${s.document_type}: ${s.field_path}`).join(', '),
       href: `/dashboard/operator/approvals?client=${org.id}`,
+    })
+  }
+
+  // ── Documents flagged stale by an upstream change ──────────────────────────
+  //
+  // Surfaced HERE as well as on the document page, because a flag that only appears if
+  // you happen to open one of four documents is not surfaced, it is hidden in four
+  // places. Each item links to the document, which is where the regenerate action is.
+  //
+  // NOTHING REGENERATES ON ITS OWN. Judging whether an upstream change is relevant to a
+  // downstream document is exactly what an automatic rewrite cannot do, and a client's
+  // voice must not change mid-campaign because a headcount band moved.
+  for (const stale of selectStaleDocuments(strategyDocsResult.data ?? [])) {
+    waitingItems.push({
+      type: 'suggestion' as const,
+      id: `stale-${stale.docType}`,
+      title: `${stale.label} may need regenerating`,
+      description: stale.reason,
+      href: `/dashboard/strategy/${stale.docType}?client=${org.id}`,
     })
   }
 

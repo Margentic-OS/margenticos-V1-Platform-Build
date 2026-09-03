@@ -186,6 +186,12 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
     expect(result.deliveredCount).toBe(98)
     expect(result.contactedCount).toBe(60)
 
+    // Different numbers from different columns, and that is the point. They were briefly
+    // the same value rendered under two labels, which is how "52 prospects contacted"
+    // reached a client who had emailed 24 people. Contacted is people, from
+    // contacted_count. Delivered is emails, from sent_count minus bounced_count.
+    expect(result.deliveredCount).not.toBe(result.contactedCount)
+
     // The fields that remain diagnostic and must never appear.
     for (const forbidden of [
       'complaintRate', 'mailboxHealth', 'bouncedAddresses', 'perMailbox', 'suppressionReasons',

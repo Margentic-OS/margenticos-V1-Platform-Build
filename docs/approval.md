@@ -1,14 +1,49 @@
 # approval.md — Approval System Reference
 
-_Last updated: 2026-06-09. Status section reflects code verified on that date._
+_Last updated: 2026-09-03._
+
+---
+
+## READ THIS FIRST: CLIENT APPROVAL ON STRATEGY DOCUMENTS WAS REMOVED, 2026-09-03
+
+Everything below about a CLIENT approving a strategy document, a pending state, a
+three-day window, or an operator "Proceed without client approval" control describes a
+mechanism that no longer exists. See ADR-047.
+
+The short version. `promote_strategy_doc_version` archived the approved document and
+inserted the replacement as active-and-pending, so every new version passed through
+active-and-unapproved, and `assertStrategyApproved` blocks the lead upload on exactly
+that column. Generating a new version stopped outreach until somebody clicked Approve or
+a daily cron decided three days had gone by.
+
+**What is true now.**
+
+  A document is live because an operator produced it. There is no second state to clear.
+  The conversation with the operator is the approval.
+  A client can Request an update, which was never approval.
+  Every version is kept, listed with the note that produced it, and any of them can be
+    restored by an operator.
+  An upstream change marks the downstream documents stale and surfaces them with a
+    regenerate action. Nothing regenerates on its own.
+
+**What is unchanged and still real.**
+
+  The OPERATOR approval queue on `document_suggestions`. Agents still never write to
+  `strategy_documents` directly; every agent output lands as a pending suggestion and an
+  operator approves it. That is the mechanism described below from "Step 1" onward, and
+  it stays. Its hourly auto-approve cron also stays, though see BACKLOG: it has never
+  successfully approved anything, for a reason unrelated to this change.
+
+  Prospect batch review. A separate mechanism and a separate decision that still stands.
 
 ---
 
 ## Approval system status
 
-**Strategy-document approval: built and active.**
-The system for generating, reviewing, approving, and auto-approving strategy documents
-(ICP, Positioning, TOV, Messaging) is fully implemented.
+**Operator suggestion queue: built and active.**
+Agent output lands in `document_suggestions` and an operator approves or rejects it.
+
+**Client approval of strategy documents: REMOVED 2026-09-03.** See ADR-047.
 
 **Channel-content approval (cold email sequences, LinkedIn posts, LinkedIn DMs): not yet built.**
 See the Channel Summary section below for the forward spec.

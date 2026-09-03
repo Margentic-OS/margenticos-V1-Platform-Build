@@ -13,7 +13,7 @@ import type {
 // RULE ZERO. Every string below is fixed copy. Nothing in this file names an industry, a
 // sector, a country, a company or a job title, and none of it varies by client. The only
 // client-specific text on screen is the statement and evidence, which come from that
-// client's own approved document.
+// client's own live document.
 
 export function BuyerCriterionSection({
   criterion,
@@ -90,7 +90,7 @@ export function BuyerCriterionOperatorPanel({
         <div className="flex gap-2">
           <dt className="text-[11px] text-text-secondary w-[130px] shrink-0">Client can see it</dt>
           <dd className="text-[11px] text-text-primary">
-            {criterion.visibleToClient ? 'Yes' : 'No, the parent document is not approved or it is not in force'}
+            {criterion.visibleToClient ? 'Yes' : 'No, this is not the live version or the criterion is not in force'}
           </dd>
         </div>
         {criterion.sanityNote && (

@@ -8,23 +8,29 @@
 // THE RULE, AND THE ONE THING IT MUST NEVER DO
 //
 // Four documents sit under Strategy: prospect profile, positioning, voice guide,
-// messaging. Once all four are approved they are reference material. A client reads them
+// messaging. Once all four exist they are reference material. A client reads them
 // twice and then wants the space back, so the section collapses by default.
 //
 // It expands, and CANNOT be collapsed by default, whenever something there needs the
 // client. Two cases, and the first is the serious one:
 //
-//   1. A DOCUMENT IS NOT APPROVED. That is not a tidiness question. assertStrategyApproved
-//      blocks the lead upload until all four carry client_approval_status 'approved', so
-//      an unapproved document is the thing standing between a client and any outreach at
-//      all. Collapsing the section would hide the blocker behind a chevron, and the client
-//      would be waiting on us while we waited on them.
+//   1. A DOCUMENT DOES NOT EXIST YET. That is not a tidiness question.
+//      assertStrategyApproved blocks the lead upload until all four exist, so a missing
+//      document is the thing standing between a client and any outreach at all.
+//      Collapsing the section would hide the blocker behind a chevron.
 //
-//   2. A NEW VERSION IS PENDING APPROVAL. A suggestion exists that the client has not
-//      acted on. Nothing is blocked, but there is something to do.
+//   2. A NEW VERSION IS WAITING ON THE OPERATOR. A suggestion exists that has not been
+//      acted on. Nothing is blocked, but there is something in flight.
 //
 // Both are computed here rather than in the sidebar so that the reason survives into the
 // UI and into a test, instead of being an anonymous boolean.
+//
+// ─── WHAT CHANGED 2026-09-03 ─────────────────────────────────────────────────
+//
+// Case 1 used to be "a document is not APPROVED", reading client_approval_status.
+// Client approval on strategy documents is removed (ADR-047), so the case is now
+// "a document does not exist". A row that exists is live, and a live document is not
+// something the client has to clear.
 
 export const STRATEGY_DOC_TYPES = ['icp', 'positioning', 'tov', 'messaging'] as const
 export type StrategyDocType = typeof STRATEGY_DOC_TYPES[number]
@@ -39,10 +45,9 @@ export const STRATEGY_DOC_LABELS: Record<StrategyDocType, string> = {
 
 export interface StrategyDocRow {
   document_type: string
-  client_approval_status: string | null
 }
 
-export type StrategyNavReason = 'blocking_upload' | 'pending_version' | 'all_approved'
+export type StrategyNavReason = 'blocking_upload' | 'pending_version' | 'all_present'
 
 export interface StrategyNavState {
   collapsedByDefault: boolean
@@ -56,28 +61,29 @@ export interface StrategyNavState {
  * @param documents            strategy_documents rows for this org, already filtered to
  *                             status in ('active', 'approved') the same way
  *                             assertStrategyApproved filters them. A missing document
- *                             type counts as unapproved, because that is exactly how the
+ *                             type counts as blocking, because that is exactly how the
  *                             upload gate treats it.
+ *
+ *                             ARCHIVED ROWS MUST NOT BE IN THIS LIST. The client RLS
+ *                             policy now admits them so version history can be read, so
+ *                             a caller that forgets the status filter would report every
+ *                             document present for ever.
  * @param pendingSuggestionTypes document_type values with a pending suggestion.
  */
 export function deriveStrategyNavState(
   documents: StrategyDocRow[],
   pendingSuggestionTypes: string[],
 ): StrategyNavState {
-  const approved = new Set(
-    documents
-      .filter(d => d.client_approval_status === 'approved')
-      .map(d => d.document_type),
-  )
+  const present = new Set(documents.map(d => d.document_type))
 
-  const unapproved = STRATEGY_DOC_TYPES.filter(t => !approved.has(t))
+  const missing = STRATEGY_DOC_TYPES.filter(t => !present.has(t))
 
-  if (unapproved.length > 0) {
+  if (missing.length > 0) {
     // Blocking. Never collapsed.
     return {
       collapsedByDefault: false,
       reason: 'blocking_upload',
-      needsAttention: unapproved.map(t => STRATEGY_DOC_LABELS[t]),
+      needsAttention: missing.map(t => STRATEGY_DOC_LABELS[t]),
     }
   }
 
@@ -92,5 +98,5 @@ export function deriveStrategyNavState(
     }
   }
 
-  return { collapsedByDefault: true, reason: 'all_approved', needsAttention: [] }
+  return { collapsedByDefault: true, reason: 'all_present', needsAttention: [] }
 }

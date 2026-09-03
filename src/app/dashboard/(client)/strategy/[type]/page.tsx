@@ -21,7 +21,11 @@ import { getDocumentLabel, DOCUMENT_META } from '@/lib/document-labels'
 import { PrintButton } from '@/components/dashboard/strategy/PrintButton'
 import { RegenerateButton } from '@/components/dashboard/strategy/RegenerateButton'
 import { NotYetGeneratedState } from '@/components/dashboard/strategy/NotYetGeneratedState'
-import { DocApprovalControls } from '@/components/dashboard/strategy/DocApprovalControls'
+import { DocumentRevisionControls } from '@/components/dashboard/strategy/DocumentRevisionControls'
+import { DocumentVersionHistory } from '@/components/dashboard/strategy/DocumentVersionHistory'
+import { describeVersionHistory } from '@/lib/dashboard/version-history'
+import { StaleDocumentNotice } from '@/components/dashboard/strategy/StaleDocumentNotice'
+import { selectStaleDocuments } from '@/lib/dashboard/stale-documents'
 import type { DocumentType } from '@/types'
 import type { Json } from '@/types/database'
 
@@ -114,7 +118,7 @@ export default async function StrategyDocumentPage({
   // --- Document fetch ---
   let docQuery = supabase
     .from('strategy_documents')
-    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, client_approval_status, approval_source, approved_at, change_summary, revision_note, icp_filter_spec')
+    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, change_summary, revision_note, icp_filter_spec, is_stale')
     .eq('organisation_id', org.id)
     .eq('document_type', docType)
     .in('status', ['active', 'approved'])
@@ -140,6 +144,42 @@ export default async function StrategyDocumentPage({
     Sentry.captureException(docError, { extra: { orgId: org.id, docType, selectedSegmentId } })
   }
 
+  // ── Version history ────────────────────────────────────────────────────────
+  //
+  // Read with the SESSION client, so the same RLS decides it for a client and for an
+  // operator. Scoped to this document's own lineage (org + type + segment), because a
+  // segment-scoped document's history is per segment and mixing two segments' versions
+  // into one list would offer a restore that silently changes the wrong one.
+  //
+  // Every status, including archived: archived IS the history. The live row is in the
+  // same list so the panel can mark it Current rather than implying it is missing.
+  let versionRows: Parameters<typeof describeVersionHistory>[0] = []
+  if (doc) {
+    let historyQuery = supabase
+      .from('strategy_documents')
+      .select('id, version, status, created_at, update_trigger, revision_note, change_summary')
+      .eq('organisation_id', org.id)
+      .eq('document_type', docType)
+
+    historyQuery = isSegmentScoped && selectedSegmentId
+      ? historyQuery.eq('segment_id', selectedSegmentId)
+      : historyQuery.is('segment_id', null)
+
+    const { data: historyRows, error: historyError } = await historyQuery
+    if (historyError) {
+      Sentry.captureException(historyError, { extra: { orgId: org.id, docType, selectedSegmentId } })
+    }
+    versionRows = historyRows ?? []
+  }
+
+  const versions = describeVersionHistory(versionRows)
+
+  // Stale notice. Computed through the same selector the operator's client page uses, so
+  // the two surfaces cannot disagree about what counts as stale. Operator only: see
+  // StaleDocumentNotice for why a client is not shown this.
+  const staleNotice =
+    doc && isOperatorViewing ? (selectStaleDocuments([doc])[0] ?? null) : null
+
   // ── The buyer criterion, gated before it is anywhere near a component ───────
   //
   // Both values are computed HERE, server-side, so what the client receives is decided at
@@ -147,10 +187,11 @@ export default async function StrategyDocumentPage({
   // fragment list is stripped by selectClientBuyerCriterion and is therefore ABSENT from
   // the client payload, not merely unrendered.
   //
-  // selectClientBuyerCriterion returns null unless the parent document is BOTH active and
-  // client-approved. That check cannot be delegated to RLS: the client policy on
-  // strategy_documents gates on `status` alone, and every new ICP version is inserted
-  // active-and-pending, so RLS would happily serve a criterion the client has not agreed to.
+  // selectClientBuyerCriterion returns null unless the parent document is the LIVE one.
+  // That check cannot be delegated to RLS, and it matters more since 2026-09-03 than it
+  // did before: the client policy now admits archived rows so the version history below
+  // can be read, so RLS would happily serve a criterion from a version three
+  // regenerations old.
   const clientCriterion = doc ? selectClientBuyerCriterion(doc) : null
   const operatorCriterion = doc && isOperatorViewing ? selectOperatorBuyerCriterion(doc) : null
 
@@ -262,13 +303,22 @@ export default async function StrategyDocumentPage({
                   <PrintButton />
                 </div>
               </div>
-              <DocApprovalControls
+              {staleNotice && (
+                <StaleDocumentNotice
+                  reason={staleNotice.reason}
+                  clientId={org.id}
+                  docType={docType}
+                />
+              )}
+              <DocumentVersionHistory
+                versions={versions}
+                canRestore={isOperatorViewing}
+                isMessaging={docType === 'messaging'}
+              />
+              <DocumentRevisionControls
                 docId={doc.id}
-                clientApprovalStatus={doc.client_approval_status}
-                approvalSource={doc.approval_source}
                 changeSummary={doc.change_summary}
                 revisionNote={doc.revision_note}
-                isOperator={isOperatorViewing}
                 hasPendingRevision={hasPendingRevision}
               />
               <DocumentContent

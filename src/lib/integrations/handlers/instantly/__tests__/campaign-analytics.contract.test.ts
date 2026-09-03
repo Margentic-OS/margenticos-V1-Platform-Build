@@ -113,3 +113,95 @@ describe('fetchCampaignStats — feature flag guard', () => {
     expect(result.size).toBe(2)
   })
 })
+
+// ── Contacted is people, and only one field carries people ────────────────────
+//
+// The row below is the live 2026-09-03 response for one real campaign, field for field.
+// It is the whole point of this block: contacted_count and new_leads_contacted_count
+// both exist, both look like a people count, and only one of them is. Mapping the wrong
+// one put 52 on a client's dashboard under the words "prospects contacted" when 24
+// people had ever been emailed.
+const LIVE_ROW_2026_09_03 = {
+  campaign_id: 'camp-live',
+  campaign_status: 1,
+  leads_count: 24,
+  new_leads_contacted_count: 24,
+  // Documented as "leads for whom the sequence has started". It is not. 52 > 24 leads.
+  contacted_count: 52,
+  emails_sent_count: 60,
+  reply_count: 2,
+  bounced_count: 0,
+  unsubscribed_count: 0,
+}
+
+describe('fetchCampaignStats — contacted counts people, not emails', () => {
+  beforeEach(() => {
+    vi.mocked(auth.getInstantlyApiActive).mockResolvedValue(true)
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('reads people from new_leads_contacted_count, never from contacted_count', async () => {
+    makeFetchSpy(200, [LIVE_ROW_2026_09_03])
+
+    const result = await fetchCampaignStats(API_KEY, true, MOCK_BASE_URL)
+    const stats = result.get('camp-live')!
+
+    // The assertion that kills a revert. contacted_count is 52 and sitting right there
+    // in the response; reading it is the defect.
+    expect(stats.contactedCount).toBe(24)
+    expect(stats.contactedCount).not.toBe(52)
+    expect(stats.leadsCount).toBe(24)
+  })
+
+  it('keeps emails and people as separate numbers from separate fields', async () => {
+    makeFetchSpy(200, [LIVE_ROW_2026_09_03])
+
+    const stats = (await fetchCampaignStats(API_KEY, true, MOCK_BASE_URL)).get('camp-live')!
+
+    expect(stats.sentCount).toBe(60)
+    expect(stats.contactedCount).toBe(24)
+    // 60 emails to 24 people. If these are ever equal again, one of them is wrong.
+    expect(stats.contactedCount).not.toBe(stats.sentCount)
+  })
+
+  it('refuses a contacted count larger than the campaign has leads', async () => {
+    // The exact shape the old mapping produced. More people contacted than exist is not
+    // a number to render, so the handler hands back null and the caller leaves the
+    // stored value alone.
+    makeFetchSpy(200, [{
+      ...LIVE_ROW_2026_09_03,
+      new_leads_contacted_count: 52,
+      leads_count: 24,
+    }])
+
+    const stats = (await fetchCampaignStats(API_KEY, true, MOCK_BASE_URL)).get('camp-live')!
+
+    expect(stats.contactedCount).toBeNull()
+  })
+
+  it('returns null, not zero, when the people field is absent', async () => {
+    // Zero would be written to the column and rendered as fact. Null is not written.
+    makeFetchSpy(200, [{
+      campaign_id: 'camp-live',
+      campaign_status: 1,
+      emails_sent_count: 60,
+      reply_count: 2,
+      bounced_count: 0,
+    }])
+
+    const stats = (await fetchCampaignStats(API_KEY, true, MOCK_BASE_URL)).get('camp-live')!
+
+    expect(stats.contactedCount).toBeNull()
+    expect(stats.sentCount).toBe(60)
+  })
+
+  it('allows contacted to equal leads, which is a fully contacted campaign', async () => {
+    makeFetchSpy(200, [{ ...LIVE_ROW_2026_09_03, new_leads_contacted_count: 24, leads_count: 24 }])
+
+    const stats = (await fetchCampaignStats(API_KEY, true, MOCK_BASE_URL)).get('camp-live')!
+
+    expect(stats.contactedCount).toBe(24)
+  })
+})

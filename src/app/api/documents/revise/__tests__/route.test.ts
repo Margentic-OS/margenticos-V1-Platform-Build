@@ -1,5 +1,5 @@
 // Verifies that POST /api/documents/revise maps RevisionGateError → 422 with the
-// human-readable error message DocApprovalControls will render.
+// human-readable error message DocumentRevisionControls will render.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'

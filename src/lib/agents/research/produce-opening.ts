@@ -41,6 +41,17 @@ export interface ProduceOpeningInput {
   clientName: string
   ctx: ProspectContext
   candidates: ObservationCandidate[]
+  /**
+   * The candidate synthesis selected, and its one-sentence relevance reason. Both live on
+   * SynthesisOutput rather than on a candidate, so they are the two things the writer used
+   * to lose at this boundary while opposite_reading and inference_direction travelled
+   * fine inside the candidate objects themselves.
+   *
+   * Optional because the stored-findings branch has neither: it makes no synthesis call,
+   * so it reaches no selection, and buildFindingsBlock then simply marks nothing.
+   */
+  selectedCandidateId?: string | null
+  relevanceReason?: string | null
   messagingContent: MessagingContent
   variantId: string
   /**
@@ -96,6 +107,8 @@ export async function produceOpening({
   clientName,
   ctx,
   candidates,
+  selectedCandidateId,
+  relevanceReason,
   messagingContent,
   variantId,
   icpBuyerTitle,
@@ -129,6 +142,8 @@ export async function produceOpening({
     buyer: buyer.description,
     prospectFirstName: ctx.first_name,
     candidates,
+    selectedCandidateId,
+    relevanceReason,
     p3: frame.p3,
     cta: frame.cta,
     // The version the written opening has to beat: the variant's own approved opener.

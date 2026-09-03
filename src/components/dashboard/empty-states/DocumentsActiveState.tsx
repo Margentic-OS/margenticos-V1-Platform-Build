@@ -227,7 +227,7 @@ export function DocumentsActiveState({
                 <p className="text-[10px] text-[rgba(245,240,232,0.35)] mt-4 leading-relaxed">
                   {metrics.meetingsBooked > metrics.meetingsHeld
                     ? `${fmt(metrics.meetingsBooked)} booked in total. A meeting counts as held once it has been confirmed after the date.`
-                    : 'Delivered is emails sent minus anything that bounced. A meeting counts as held once it has been confirmed after the date.'}
+                    : 'Contacted counts people. Delivered counts emails: sent minus anything that bounced. A meeting counts as held once it has been confirmed after the date.'}
                 </p>
               </div>
             ) : (

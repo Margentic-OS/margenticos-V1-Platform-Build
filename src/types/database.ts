@@ -2213,7 +2213,7 @@ export type Database = {
           prospects_written: number
           started_at: string
           status: string
-          target_batch_size: number
+          target_batch_size: number | null
           trigger_type: string
           updated_at: string
         }
@@ -2232,7 +2232,7 @@ export type Database = {
           prospects_written?: number
           started_at?: string
           status?: string
-          target_batch_size: number
+          target_batch_size?: number | null
           trigger_type: string
           updated_at?: string
         }
@@ -2251,7 +2251,7 @@ export type Database = {
           prospects_written?: number
           started_at?: string
           status?: string
-          target_batch_size?: number
+          target_batch_size?: number | null
           trigger_type?: string
           updated_at?: string
         }
@@ -2983,15 +2983,6 @@ export type Database = {
         }
         Relationships: []
       }
-      mon_007: {
-        Row: {
-          check_code: string | null
-          detail: string | null
-          last_run: string | null
-          state: string | null
-        }
-        Relationships: []
-      }
       mon_010: {
         Row: {
           check_code: string | null
@@ -3390,6 +3381,10 @@ export type Database = {
       record_job_spend: {
         Args: { p_detail: Json; p_job_id: string }
         Returns: undefined
+      }
+      revert_strategy_doc_version: {
+        Args: { p_document_id: string }
+        Returns: Json
       }
     }
     Enums: {

@@ -267,3 +267,53 @@ describe('POST /api/suggestions/regenerate', () => {
     expect(res.status).toBe(401)
   })
 })
+
+// ─── The note from the document page ──────────────────────────────────────────
+//
+// Added 2026-09-03 with the note box on the Regenerate control. The whole point of that
+// box is that the note reaches the agent, and the failure mode ADR-038 records is a note
+// that reached a database column and stopped there. So this asserts on what the agent was
+// CALLED WITH, not on what was stored.
+
+describe('a note sent without a suggestion_id still reaches the agent', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'operator-user-id' } }, error: null })
+    userRowMockData = { role: 'operator', organisation_id: 'org-uuid' }
+    suggestionMockData = null
+    lastSuggestionUpdate = null
+  })
+
+  it('carries body.note through as the operator note', async () => {
+    const { POST } = await import('../route')
+    const { runIcpGenerationAgent } = await import('@/agents/icp-generation-agent')
+
+    await POST(makeRequest({
+      client_id: 'org-uuid',
+      document_type: 'icp',
+      note: 'Make the second section shorter.',
+    }))
+
+    expect(runIcpGenerationAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        regeneration_notes: expect.objectContaining({
+          operator_note: 'Make the second section shorter.',
+        }),
+      }),
+    )
+  })
+
+  it('sends no notes at all when the box was left empty', async () => {
+    // A run with no note must be byte-identical to one from before the box existed.
+    // buildRegenerationNotesBlock returns '' for undefined, so this is what keeps the
+    // prompt unchanged rather than gaining an empty heading.
+    const { POST } = await import('../route')
+    const { runIcpGenerationAgent } = await import('@/agents/icp-generation-agent')
+
+    await POST(makeRequest({ client_id: 'org-uuid', document_type: 'icp', note: '   ' }))
+
+    expect(runIcpGenerationAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ regeneration_notes: undefined }),
+    )
+  })
+})

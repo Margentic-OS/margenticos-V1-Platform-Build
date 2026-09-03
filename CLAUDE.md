@@ -672,6 +672,12 @@ Auto-approve: phase four only. Do not build in phase one.
 
 ## Approval system — channel toggles
 
+STRATEGY DOCUMENTS HAVE NO CLIENT APPROVAL. Removed 2026-09-03, see ADR-047. A document
+is live because an operator produced it, every version is kept with the note that produced
+it, and an operator can restore any of them. There is no pending state, no Approve button
+and no three-day auto-approval. The channel toggles below are a DIFFERENT mechanism and
+are unaffected, as is prospect batch review.
+
 cold_email: sequence-level approval. Client approves the template, not individual emails.
   Optional batch sample (5–10 emails) showing personalisation source tags.
   3-day auto-approve. Notifications at T+0, T+15h, T+48h, T-12h.
@@ -1484,7 +1490,7 @@ and faster to add an LLM layer later than to simplify an LLM-dependent system.
 
 ---
 
-## ADR reference list — as of August 2026
+## ADR reference list — as of September 2026
 
 For quick reference. Full text in /docs/ADR.md.
 
@@ -1518,6 +1524,14 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-034  Send eligibility is evaluated once at verification and frozen on the row;
            changing EXCLUDED_COUNTRIES is NOT retroactive, and our gates govern
            UPLOAD, not delivery
+  ADR-038  A rejection note is carried into the run that replaces the rejected
+           suggestion; the note must reach the AGENT, not just a column
+  ADR-039  A client-facing view runs as the CALLER, and the GRANT is the control
+  ADR-040 to ADR-046  see /docs/ADR.md; this list was five entries behind the file
+           until 2026-09-03, which is how ADR-047 was nearly filed as ADR-039
+  ADR-047  Client approval on strategy documents removed; a document is live because
+           an operator produced it. Every version kept and restorable. An upstream
+           change FLAGS downstream documents stale and never regenerates them
   ADR-046  Buyer criterion derived per client from their own documents, applied before
            enrichment through one shared selector; it is NOT the provider seniority filter
   ADR-035  A four-state sending-health verdict collapsed onto the sweep's three states;
