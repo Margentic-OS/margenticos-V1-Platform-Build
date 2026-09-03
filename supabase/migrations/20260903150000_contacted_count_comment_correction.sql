@@ -1,4 +1,5 @@
 -- Migration: 20260903150000_contacted_count_comment_correction.sql
+-- Status: APPLIED (verified live 2026-09-03, both the primary and the baseline-restore-test project)
 --
 -- Comment only. No schema change, no data change.
 --
