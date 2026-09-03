@@ -4,7 +4,13 @@
 // Tests adapter translation, seniority mapping, post-filtering, and pagination.
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
-import { apolloHandler, reportSpecDivergence } from '@/lib/sourcing/handlers/adapter-apollo'
+import {
+  apolloHandler,
+  reportSpecDivergence,
+  buildApolloRequest,
+  SPEC_FIELD_HANDLING,
+} from '@/lib/sourcing/handlers/adapter-apollo'
+import { FILTER_SPEC_FIELDS } from '@/lib/agents/icp-filter-spec'
 import { logger } from '@/lib/logger'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import type { ProspectCandidate } from '@/lib/sourcing/dedupe'
@@ -25,238 +31,171 @@ beforeAll(() => {
 
 // ─── Adapter tests ──────────────────────────────────────────────────────────
 //
-// The Apollo search filter is hardcoded (see adapter-apollo.ts). These tests
-// assert the filter is what was measured, and that no spec value can change it.
-// The point of the second half is the 2026-08-24 incident: two German GmbHs were
-// mailed because the exclusion lived in convention rather than in the query.
+// The Apollo search is now BUILT FROM THE CLIENT'S SPEC. These tests assert that each
+// spec field reaches the parameter it is supposed to, that a spec the handler cannot
+// honour THROWS rather than degrading, and that the manifest describes what is actually
+// sent.
+//
+// Rule Zero applies to fixtures too. The specs below use canonical industry names,
+// because those are values the production type demands, but the job titles are abstract
+// tokens: a real title in a test fixture is one copy-paste away from a real title in a
+// default.
 
-// A spec that asks for everything the hardcoded filter refuses. If any of these
-// values can reach the Apollo request, the filter is not a filter.
-const HOSTILE_SPEC: Record<string, unknown> = {
-  job_titles: ['Founder', 'CEO'],
-  job_titles_excluded: [],
-  seniority_levels: ['entry', 'manager'],
-  person_countries: ['DE', 'CA', 'AU', 'NL'],
-  company_countries: ['DE', 'CA'],
-  company_headcount_min: 500,
-  company_headcount_max: 20000,
-  industries: ['Software Publishers'],
-  industries_excluded: [],
-  keywords: ['consulting', 'advisory'],
-  keywords_excluded: [],
-  notes: '',
-  company_revenue_min: 1000000,
-  company_revenue_max: 10000000,
+function baseSpec(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    job_titles: ['role-a', 'role-b'],
+    job_titles_excluded: [],
+    seniority_levels: [],
+    person_countries: ['GB'],
+    company_countries: ['GB'],
+    company_headcount_min: 5,
+    company_headcount_max: 20,
+    industries: ['Management Consulting'],
+    industries_excluded: [],
+    keywords: [],
+    keywords_excluded: [],
+    notes: '',
+    ...over,
+  }
 }
 
-describe('apolloHandler.adapter', () => {
-  it('sends the measured filter: NAICS 5416, keyword tags, 5-20, US/UK/IE, verified', () => {
-    const request = apolloHandler.adapter({} as Record<string, unknown>)
-
-    expect(request.organization_naics_codes).toEqual(['5416'])
-    expect(request.q_organization_keyword_tags).toEqual([
-      'management consulting',
-      'business consulting',
-      'strategy consulting',
-    ])
-    expect(request.organization_num_employees_ranges).toEqual(['5,20'])
-    expect(request.organization_locations).toEqual([
-      'united states',
-      'united kingdom',
-      'ireland',
-    ])
-    expect(request.person_locations).toEqual([
-      'united states',
-      'united kingdom',
-      'ireland',
-    ])
-    expect(request.person_seniorities).toEqual(['owner', 'founder', 'c_suite', 'partner'])
-    expect(request.contact_email_status).toEqual(['verified'])
+describe('apolloHandler.adapter: the query is built from the spec', () => {
+  it('translates industries to NAICS codes through the handler-owned table', () => {
+    const request = apolloHandler.adapter(
+      baseSpec({ industries: ['Management Consulting', 'Primary and Secondary Education'] }),
+    )
+    expect(request.organization_naics_codes).toEqual(['5416', '6111'])
   })
 
-  it('includes c_suite and partner, because Apollo seniority is title-derived', () => {
-    // In professional services the owner is usually titled Partner or Managing
-    // Partner. owner+founder alone measured 29,139 against 72,458 with all four.
-    const request = apolloHandler.adapter({} as Record<string, unknown>)
-
-    expect(request.person_seniorities).toContain('partner')
-    expect(request.person_seniorities).toContain('c_suite')
+  it('sends job titles as person_titles, which is what makes it a people search', () => {
+    const request = apolloHandler.adapter(baseSpec({ job_titles: ['role-a', 'role-c'] }))
+    expect(request.person_titles).toEqual(['role-a', 'role-c'])
   })
 
-  it('never sends q_keywords, which is AND over person and company names', () => {
-    // The defect this replaced: q_keywords only ever matched firms with the
-    // literal word in their name. q_organization_keyword_tags is the OR
-    // parameter and the correct one for sourcing by category.
-    const request = apolloHandler.adapter(HOSTILE_SPEC)
-
-    expect(request).not.toHaveProperty('q_keywords')
-    expect(request).toHaveProperty('q_organization_keyword_tags')
+  it('pairs the headcount bounds into one Apollo range string', () => {
+    const request = apolloHandler.adapter(
+      baseSpec({ company_headcount_min: 8, company_headcount_max: 30 }),
+    )
+    expect(request.organization_num_employees_ranges).toEqual(['8,30'])
   })
 
-  it('does not exclude NAICS 5418, and does not include it either', () => {
-    // Firms carry more than one NAICS code, so a consultancy coded 5416 and 5418
-    // is in scope and an exclusion would drop it. Adding 5418 to the include list
-    // is a different query and measured 66,134 against the target 61,524.
-    const request = apolloHandler.adapter({} as Record<string, unknown>)
-
-    expect(request.organization_naics_codes).not.toContain('5418')
-    expect(request).not.toHaveProperty('organization_naics_codes_excluded')
-    expect(request.organization_naics_codes).toEqual(['5416'])
+  it('translates ISO country codes to Apollo place names, on BOTH axes', () => {
+    const request = apolloHandler.adapter(
+      baseSpec({ person_countries: ['GB', 'IE'], company_countries: ['US'] }),
+    )
+    expect(request.person_locations).toEqual(['united kingdom', 'ireland'])
+    expect(request.organization_locations).toEqual(['united states'])
   })
 
-  it('constrains WHERE THE PERSON IS, not just where the firm is registered', () => {
-    // CASL attaches to the recipient. Filtering only on organization_locations
-    // left 545 people in Canada and 238 in Germany reachable at in-scope US/UK/IE
-    // firms, which is the same exposure as the two mailed GmbHs rather than a
-    // smaller one. Both axes must be constrained, and to the same three countries.
-    const request = apolloHandler.adapter(HOSTILE_SPEC)
-
-    expect(request.person_locations).toEqual(request.organization_locations)
-    expect(request.person_locations).toEqual([
-      'united states',
-      'united kingdom',
-      'ireland',
-    ])
+  // TWO DIFFERENT CLIENTS, ONE ASSERTION. This is the test that fails if the query goes
+  // back to being a constant: a constant returns the same NAICS code for both.
+  it('sends a different query for a different client', () => {
+    const consulting = apolloHandler.adapter(baseSpec())
+    const schools = apolloHandler.adapter(
+      baseSpec({
+        industries: ['Primary and Secondary Education'],
+        job_titles: ['role-x'],
+        company_headcount_min: 8,
+        company_headcount_max: 30,
+      }),
+    )
+    expect(consulting.organization_naics_codes).not.toEqual(schools.organization_naics_codes)
+    expect(consulting.person_titles).not.toEqual(schools.person_titles)
+    expect(consulting.organization_num_employees_ranges)
+      .not.toEqual(schools.organization_num_employees_ranges)
   })
 
-  it('cannot be made to source Germany or Canada by any spec value', () => {
-    const request = apolloHandler.adapter(HOSTILE_SPEC)
-    const serialised = JSON.stringify(request).toLowerCase()
-
-    expect(request.organization_locations).not.toContain('germany')
-    expect(request.organization_locations).not.toContain('canada')
-    expect(request.person_locations).not.toContain('germany')
-    expect(request.person_locations).not.toContain('canada')
-    expect(serialised).not.toContain('germany')
-    expect(serialised).not.toContain('canada')
-    expect(serialised).not.toContain('"de"')
-    expect(serialised).not.toContain('"ca"')
+  it('always constrains email status, which is data quality rather than targeting', () => {
+    expect(apolloHandler.adapter(baseSpec()).contact_email_status).toEqual(['verified'])
   })
 
-  it('ignores every other spec field: titles, headcount, revenue, industries', () => {
-    const request = apolloHandler.adapter(HOSTILE_SPEC)
-
-    expect(request).not.toHaveProperty('person_titles')
-    expect(request).not.toHaveProperty('revenue_range')
-    expect(request.organization_num_employees_ranges).toEqual(['5,20'])
-    // person_locations exists, but it is the hardcoded value rather than the
-    // spec's person_countries, which asked for DE, CA, AU and NL.
-    expect(request.person_locations).toEqual([
-      'united states',
-      'united kingdom',
-      'ireland',
-    ])
-  })
-
-  // ─── The divergence log ───────────────────────────────────────────────────
+  // ─── Optional parameters are OMITTED, never defaulted ─────────────────────
   //
-  // These exist because the log used to be conditional on the spec naming a country
-  // outside US/GB/IE. After ADR-032 set the spec defaults to GB/IE/US, that
-  // condition is false for every new client, so the run that diverges on headcount,
-  // industries, keywords, titles and revenue produced no line at all. The absence
-  // read as 'nothing diverged'. It meant 'the one thing I test for is absent'.
+  // An omitted parameter is Apollo's own no-constraint. A defaulted one is this handler
+  // having an opinion about a client's market, which is the defect being removed.
 
-  it('logs the divergence on EVERY run, including a spec that names no country', () => {
-    const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
-
-    reportSpecDivergence({} as Record<string, unknown>)
-
-    expect(spy).toHaveBeenCalledTimes(1)
-    expect(spy.mock.calls[0][0]).toContain('hardcoded filter in force')
-    spy.mockRestore()
+  it('omits keyword tags and seniorities when the spec is silent', () => {
+    const request = apolloHandler.adapter(baseSpec())
+    expect(request.q_organization_keyword_tags).toBeUndefined()
+    expect(request.person_seniorities).toBeUndefined()
   })
 
-  it('still logs when the spec countries agree with the filter, which is the gap', () => {
-    // The exact shape that used to be silent: defaults in force, country test
-    // passes, and four other fields are discarded without a word.
-    const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
-
-    reportSpecDivergence({
-      person_countries: ['GB', 'IE', 'US'],
-      company_countries: ['GB', 'IE', 'US'],
-      company_headcount_min: 500,
-      company_headcount_max: 20000,
-      industries: ['Software Publishers'],
-      keywords: ['advisory'],
-    } as Record<string, unknown>)
-
-    expect(spy).toHaveBeenCalledTimes(1)
-    const meta = spy.mock.calls[0][1] as Record<string, unknown>
-
-    expect(meta.ignored_spec_countries).toEqual([])
-    expect(meta.ignored_spec_fields).toEqual(
-      expect.arrayContaining([
-        'company_headcount_min',
-        'company_headcount_max',
-        'industries',
-        'keywords',
-      ]),
+  it('sends keyword tags and seniorities when the spec populates them', () => {
+    const request = apolloHandler.adapter(
+      baseSpec({ keywords: ['management consulting'], seniority_levels: ['owner'] }),
     )
-    spy.mockRestore()
+    expect(request.q_organization_keyword_tags).toEqual(['management consulting'])
+    expect(request.person_seniorities).toEqual(['owner'])
   })
 
-  it('reports the headcount the filter actually sends, not the one the spec asked for', () => {
-    const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
-
-    reportSpecDivergence(HOSTILE_SPEC)
-    const meta = spy.mock.calls[0][1] as Record<string, unknown>
-
-    expect(meta.filter_headcount_ranges).toEqual(['5,20'])
-    expect(meta.ignored_spec_countries).toEqual(
-      expect.arrayContaining(['DE', 'CA', 'AU', 'NL']),
+  it('excludes an industry as a negative NAICS code', () => {
+    const request = apolloHandler.adapter(
+      baseSpec({ industries_excluded: ['Legal Services'] }),
     )
-    spy.mockRestore()
+    expect(request.not_organization_naics_codes).toEqual(['5411'])
   })
 
-  it('does not report an unpopulated field, or a post-filtered one, as diverging', () => {
-    // job_titles_excluded and keywords_excluded ARE honoured, as post-filters in
-    // execute(). Reporting them would pad the list until the real ones stop showing.
-    const spy = vi.spyOn(logger, 'info').mockImplementation(() => {})
-
-    reportSpecDivergence({
-      job_titles: [],
-      keywords: '',
-      industries_excluded: null,
-      job_titles_excluded: ['Intern'],
-      keywords_excluded: ['recruiting'],
-    } as Record<string, unknown>)
-
-    const meta = spy.mock.calls[0][1] as Record<string, unknown>
-
-    expect(meta.ignored_spec_fields).toEqual([])
-    spy.mockRestore()
+  // A client naming the same NAICS parent in both lists would cancel its own search to
+  // zero, and a zero result reads as "no such prospects exist".
+  it('never excludes a NAICS code the include list also relies on', () => {
+    const request = apolloHandler.adapter(
+      baseSpec({
+        industries: ['Management Consulting'],
+        industries_excluded: ['Strategy Consulting'],   // also 5416
+      }),
+    )
+    expect(request.not_organization_naics_codes).toBeUndefined()
   })
 
-  it('cannot be contaminated by a caller mutating a previous request', () => {
-    // A shallow spread would share array instances with the module-level constant,
-    // so this mutation would leak into every later client in the same process.
-    const first = apolloHandler.adapter({} as Record<string, unknown>)
-    first.organization_locations.push('germany')
-    first.person_locations.push('canada')
-    first.person_seniorities.push('entry')
+  // ─── Refusing is the feature ───────────────────────────────────────────────
+  //
+  // Every case below is one the previous hardcoded handler served by sourcing the wrong
+  // population and reporting success.
 
-    const second = apolloHandler.adapter({} as Record<string, unknown>)
-
-    expect(second.organization_locations).toEqual([
-      'united states',
-      'united kingdom',
-      'ireland',
-    ])
-    expect(second.person_locations).toEqual([
-      'united states',
-      'united kingdom',
-      'ireland',
-    ])
-    expect(second.person_seniorities).toEqual(['owner', 'founder', 'c_suite', 'partner'])
+  it.each([
+    ['a null spec', null],
+    ['a spec with no industries', { industries: [] }],
+    ['a spec with no job titles', { job_titles: [] }],
+    ['a spec with no person countries', { person_countries: [] }],
+    ['a spec with no company countries', { company_countries: [] }],
+    ['an inverted headcount range', { company_headcount_min: 50, company_headcount_max: 5 }],
+  ])('throws on %s rather than sourcing something else', (_label, over) => {
+    const spec = over === null ? null : baseSpec(over as Record<string, unknown>)
+    expect(() => apolloHandler.adapter(spec as never)).toThrow(/Apollo sourcing failed/)
   })
 
-  it('returns an identical request for any two specs', () => {
-    const fromEmpty = apolloHandler.adapter({} as Record<string, unknown>)
-    const fromHostile = apolloHandler.adapter(HOSTILE_SPEC)
+  it('throws on a canonical industry with no registered NAICS code, naming it', () => {
+    expect(() =>
+      apolloHandler.adapter(baseSpec({ industries: ['Not A Real Industry'] })),
+    ).toThrow(/Not A Real Industry/)
+  })
 
-    expect({ ...fromHostile }).toEqual({ ...fromEmpty })
+  it('throws on a country code with no registered Apollo location name', () => {
+    expect(() => apolloHandler.adapter(baseSpec({ person_countries: ['ZZ'] })))
+      .toThrow(/ZZ/)
+  })
+
+  // The 2026-08-24 incident: two German GmbHs were mailed because the exclusion lived in
+  // convention rather than in the query. It REFUSES rather than quietly dropping, because
+  // a client expecting those countries and silently not getting them is a conversation.
+  it.each([['DE'], ['CA']])('refuses %s outright rather than dropping it silently', code => {
+    expect(() => apolloHandler.adapter(baseSpec({ company_countries: [code] })))
+      .toThrow(/legal grounds/)
+    expect(() => apolloHandler.adapter(baseSpec({ person_countries: [code] })))
+      .toThrow(/legal grounds/)
+  })
+
+  // Fresh arrays every call. A shared constant handed to every caller means one caller
+  // appending a location silently changes the filter for every client sourced afterwards
+  // in that process, and that failure is cross-client and raises no error.
+  it('returns arrays no other call shares', () => {
+    const a = apolloHandler.adapter(baseSpec())
+    const b = apolloHandler.adapter(baseSpec())
+    a.organization_locations.push('mutated')
+    expect(b.organization_locations).not.toContain('mutated')
   })
 })
+
 
 // ─── Post-filter tests ───────────────────────────────────────────────────────
 
@@ -281,7 +220,7 @@ describe('apolloHandler.execute - post-filtering', () => {
       company_countries: ['US'],
       company_headcount_min: 1,
       company_headcount_max: 50,
-      industries: [],
+      industries: ['Management Consulting'],
       industries_excluded: [],
       keywords: [],
       keywords_excluded: [],
@@ -313,7 +252,7 @@ describe('apolloHandler.execute - post-filtering', () => {
       company_countries: ['US'],
       company_headcount_min: 1,
       company_headcount_max: 50,
-      industries: [],
+      industries: ['Management Consulting'],
       industries_excluded: [],
       keywords: [],
       keywords_excluded: ['staffing', 'recruitment'], // Must drop apollo-005
@@ -345,7 +284,7 @@ describe('apolloHandler.execute - post-filtering', () => {
       company_countries: ['US'],
       company_headcount_min: 1,
       company_headcount_max: 50,
-      industries: [],
+      industries: ['Management Consulting'],
       industries_excluded: [],
       keywords: [],
       keywords_excluded: [],
@@ -381,7 +320,7 @@ describe('apolloHandler.execute - ProspectCandidate format', () => {
       company_countries: ['US'],
       company_headcount_min: 1,
       company_headcount_max: 50,
-      industries: [],
+      industries: ['Management Consulting'],
       industries_excluded: [],
       keywords: [],
       keywords_excluded: [],
@@ -413,7 +352,7 @@ describe('apolloHandler.execute - ProspectCandidate format', () => {
       company_countries: ['US'],
       company_headcount_min: 1,
       company_headcount_max: 50,
-      industries: [],
+      industries: ['Management Consulting'],
       industries_excluded: [],
       keywords: [],
       keywords_excluded: [],
@@ -481,11 +420,15 @@ describe('apolloHandler.execute - divergence report volume', () => {
 
     const infoSpy = vi.spyOn(logger, 'info')
 
+    // A spec the handler CAN honour, because the run has to reach page four for this
+    // test to mean anything. The old version used an unhonourable one, which no longer
+    // gets as far as the first request.
     const spec: Record<string, unknown> = {
-      job_titles: [], job_titles_excluded: [], seniority_levels: [],
-      person_countries: ['DE'], company_countries: ['DE'],
+      job_titles: ['role-a'], job_titles_excluded: ['role-z'], seniority_levels: [],
+      person_countries: ['GB'], company_countries: ['GB'],
       company_headcount_min: 1, company_headcount_max: 50,
-      industries: [], industries_excluded: [], keywords: [], keywords_excluded: [],
+      industries: ['Management Consulting'], industries_excluded: [],
+      keywords: [], keywords_excluded: [],
       notes: '',
     }
 
@@ -494,31 +437,104 @@ describe('apolloHandler.execute - divergence report volume', () => {
     expect(call).toBeGreaterThan(1)  // guards itself: a single-page run proves nothing
 
     const divergenceLogs = infoSpy.mock.calls.filter(
-      c => typeof c[0] === 'string' && c[0].includes('hardcoded filter in force'),
+      c => typeof c[0] === 'string' && c[0].includes('query built from the client spec'),
     )
     expect(divergenceLogs).toHaveLength(1)
   })
 })
 
-describe('apolloHandler.supported_fields', () => {
-  it('includes job_titles_excluded in supported_fields (post-filter)', () => {
-    expect(apolloHandler.supported_fields).toContain('job_titles_excluded')
+// ─── The manifest has to describe the query that is actually sent ────────────
+//
+// TASK 2(d). `supported_fields` used to be the whole of FILTER_SPEC_FIELDS regardless of
+// what the query did, and its own comment admitted it described "the handler's
+// post-filters and history rather than the search query". The orchestrator checks a
+// client's populated spec fields against it and passes, which reads as confirmation that
+// the client's spec was honoured. It was not.
+//
+// These tests are the check that the two agree. They compare the manifest against what
+// buildApolloRequest ACTUALLY SENDS, not against a second hand-written list, because a
+// second hand-written list is the parallel-array shape that produced the problem.
+describe('apolloHandler.supported_fields agrees with the query', () => {
+  // A spec that populates EVERY filter field, so each one has the chance to appear.
+  const fullSpec: Record<string, unknown> = {
+    job_titles: ['role-a'],
+    job_titles_excluded: ['role-z'],
+    seniority_levels: ['owner'],
+    person_countries: ['GB'],
+    company_countries: ['IE'],
+    company_headcount_min: 5,
+    company_headcount_max: 20,
+    industries: ['Management Consulting'],
+    industries_excluded: ['Legal Services'],
+    keywords: ['management consulting'],
+    keywords_excluded: ['some-word'],
+    notes: '',
+  }
+
+  // Which Apollo parameter each 'query' field is supposed to land in. This is the one
+  // place the mapping is restated, and the test below proves the restatement is true of
+  // the real request rather than trusting it.
+  const QUERY_FIELD_TO_PARAM: Record<string, string> = {
+    job_titles: 'person_titles',
+    seniority_levels: 'person_seniorities',
+    person_countries: 'person_locations',
+    company_countries: 'organization_locations',
+    company_headcount_min: 'organization_num_employees_ranges',
+    company_headcount_max: 'organization_num_employees_ranges',
+    industries: 'organization_naics_codes',
+    industries_excluded: 'not_organization_naics_codes',
+    keywords: 'q_organization_keyword_tags',
+  }
+
+  it('classifies every filter spec field, and invents none', () => {
+    expect(Object.keys(SPEC_FIELD_HANDLING).sort())
+      .toEqual([...FILTER_SPEC_FIELDS].sort())
   })
 
-  it('includes keywords_excluded in supported_fields (post-filter)', () => {
-    expect(apolloHandler.supported_fields).toContain('keywords_excluded')
+  it('advertises exactly the fields it classifies', () => {
+    expect([...apolloHandler.supported_fields].sort())
+      .toEqual(Object.keys(SPEC_FIELD_HANDLING).sort())
   })
 
-  it('does NOT include unsupported fields', () => {
-    expect(apolloHandler.supported_fields).not.toContain('departments')
-    expect(apolloHandler.supported_fields).not.toContain('company_age_min_years')
-    expect(apolloHandler.supported_fields).not.toContain('company_age_max_years')
-    expect(apolloHandler.supported_fields).not.toContain('funding_stage')
-    expect(apolloHandler.supported_fields).not.toContain('funded_since')
-    expect(apolloHandler.supported_fields).not.toContain('technologies_used')
+  // THE ONE THAT MATTERS. Every field the manifest calls 'query' must put something in
+  // the request. A field claimed as a query parameter that the request never carries is
+  // exactly the divergence the old manifest hid.
+  it('every field marked query reaches a populated Apollo parameter', () => {
+    const request = buildApolloRequest(fullSpec) as unknown as Record<string, unknown>
+
+    for (const [field, handling] of Object.entries(SPEC_FIELD_HANDLING)) {
+      if (handling !== 'query') continue
+      const param = QUERY_FIELD_TO_PARAM[field]
+      expect(param, `no Apollo parameter recorded for query field ${field}`).toBeDefined()
+      const value = request[param]
+      expect(value, `${field} is marked query but ${param} is absent`).toBeDefined()
+      expect(
+        Array.isArray(value) ? value.length : 1,
+        `${field} is marked query but ${param} is empty`,
+      ).toBeGreaterThan(0)
+    }
   })
 
-  it('still lists industries, now satisfied by the hardcoded NAICS + keyword tags', () => {
-    expect(apolloHandler.supported_fields).toContain('industries')
+  // The other direction. A field marked post_filter must NOT be a search parameter, or
+  // the manifest is understating what the query does and the divergence report lies.
+  it('no field marked post_filter appears as a search parameter', () => {
+    const request = buildApolloRequest(fullSpec) as unknown as Record<string, unknown>
+    const sent = JSON.stringify(request)
+
+    for (const [field, handling] of Object.entries(SPEC_FIELD_HANDLING)) {
+      if (handling !== 'post_filter') continue
+      const values = fullSpec[field] as string[]
+      for (const value of values) {
+        expect(sent, `${field} value "${value}" reached the search query`).not.toContain(value)
+      }
+    }
+  })
+
+  // Guards itself. A test that iterates an empty set passes vacuously, and this suite is
+  // entirely iteration over SPEC_FIELD_HANDLING.
+  it('is measuring a non-empty set in both directions', () => {
+    const values = Object.values(SPEC_FIELD_HANDLING)
+    expect(values.filter(v => v === 'query').length).toBeGreaterThan(0)
+    expect(values.filter(v => v === 'post_filter').length).toBeGreaterThan(0)
   })
 })
