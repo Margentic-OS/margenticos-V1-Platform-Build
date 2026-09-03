@@ -466,8 +466,8 @@ under twenty-one characters, send the sharpest one. Short and specific beats str
 
 Use all lowercase. Capitalise only proper nouns: the prospect's first name, their company
 name, product names, and city names. Title Case signals marketing email. ALL CAPS is banned
-anywhere in the subject. This rule is grounded in Gong's 85M+ cold email dataset and AWeber
-split tests showing lowercase lifts opens by 35%.
+anywhere in the subject. The reason is what the casing says about who typed it. Someone
+writing to a peer between meetings does not capitalise a subject line. A template does.
 
 Use no punctuation. No question marks, no exclamation marks, no em dashes, no colons,
 no ellipses. A comma is permitted only if essential to meaning. No emojis under any circumstance.

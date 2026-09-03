@@ -165,14 +165,25 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 44
 //
 // buildSynthesisPrompt now scores 0 and every source in this table except the three markdown
 // prompts is at zero. No pattern was narrowed and no exemption added.
-const BASELINE_TOTAL = 27
+//
+// RATCHETED DOWN 2026-09-03, 27 -> 26. messaging-agent.md 11 -> 10, on the one line that
+// named two real companies and hung an unsourced conversion figure off them: the lowercase
+// subject rule was "grounded in <company>'s 85M+ cold email dataset and <company> split
+// tests showing lowercase lifts opens by 35%". The magnitude is what this scan caught; the
+// two company names it could not see, because ORG_NAME_SHAPE keys on a corporate suffix and
+// neither carries one. That limit is stated in the deny-list module and this is an instance
+// of it, not a surprise.
+//
+// The rule kept a reason rather than losing one: casing is a signal about who typed the
+// subject, which is defensible without a figure nobody in this repository can check.
+const BASELINE_TOTAL = 26
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/shared-voice-spec.md': 0,
   'docs/prompts/icp-agent.md': 9,
   'docs/prompts/positioning-agent.md': 0,
   'docs/prompts/tov-agent.md': 0,
-  'docs/prompts/messaging-agent.md': 11,
+  'docs/prompts/messaging-agent.md': 10,
   'docs/prompts/faq-extraction-agent.md': 2,
   'docs/prompts/reply-draft-agent.md': 3,
   'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 1,
@@ -229,7 +240,7 @@ describe('prompt text carries no client-specific content', () => {
     expect(Object.values(BASELINE_BY_SOURCE).reduce((a, b) => a + b, 0)).toBe(BASELINE_TOTAL)
     expect(BASELINE_TOTAL).toBeLessThanOrEqual(BASELINE_TOTAL_AT_INTRODUCTION)
     expect(BASELINE_TOTAL_AT_INTRODUCTION).toBe(44)
-    expect(BASELINE_TOTAL).toBe(27)
+    expect(BASELINE_TOTAL).toBe(26)
     expect(Object.keys(BASELINE_BY_SOURCE)).toHaveLength(PROMPT_SOURCES.length)
   })
 
