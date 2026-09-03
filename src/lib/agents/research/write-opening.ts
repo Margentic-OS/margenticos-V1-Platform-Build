@@ -32,6 +32,25 @@ import { ZERO_TOKEN_USAGE, addTokenUsage, readTokenUsage } from './types'
 const WRITER_MODEL = 'claude-sonnet-4-6'
 const JUDGE_MODEL = 'claude-sonnet-4-6'
 
+// ── TEST VALUE. NOT A SHIPPING DECISION. ─────────────────────────────────────
+//
+// Set to 0 on the `temperature` branch to make a run reproducible so that a change
+// to the prompt can be measured against something that does not move on its own.
+// Before this, no sampling parameter was set anywhere in src, so every call ran at
+// the API default of 1.0, and 41 prospects with byte-identical input produced 41
+// different outputs with zero repeats. That noise floor is larger than most of the
+// effects we have been trying to read.
+//
+// Determinism is the OPPOSITE of what production wants: the batch uniqueness gate
+// exists precisely to force variety between prospects, and a lower temperature makes
+// the writer more uniform. Whatever value ships is a separate decision, taken on
+// measured variety, not inherited from this test.
+//
+// One constant, one place to change it. It is applied to the writer, the floor judge
+// and the judge, which is every model call this file makes. synthesize.ts has its own
+// call and is deliberately untouched: this test isolates the writer path.
+const MODEL_TEMPERATURE = 0
+
 /**
  * Hard cap on the whole written block: observation, bridge AND closing question.
  *
@@ -1440,6 +1459,7 @@ async function callModel(
     const res = await client.messages.create({
       model,
       max_tokens: maxTokens,
+      temperature: MODEL_TEMPERATURE,
       // DEFAULT 5-MINUTE TTL, matching synthesize.ts. A 1-hour TTL was tried and reverted
       // on 2026-08-26: it doubles the write cost and only pays above ~7 reads per write,
       // against a measured 4.14. The full arithmetic and the condition for revisiting are
