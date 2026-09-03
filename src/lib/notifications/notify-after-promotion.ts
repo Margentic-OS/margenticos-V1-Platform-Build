@@ -11,10 +11,10 @@ import {
   docsReadySubject,
 } from '@/lib/email/templates/docs-ready'
 import {
-  versionPendingTemplate,
-  versionPendingText,
-  versionPendingSubject,
-} from '@/lib/email/templates/version-pending'
+  versionUpdatedTemplate,
+  versionUpdatedText,
+  versionUpdatedSubject,
+} from '@/lib/email/templates/version-updated'
 import { resolvePlatformSender } from '@/lib/notifications/platform-sender'
 
 interface PromotionContext {
@@ -29,7 +29,7 @@ interface PromotionContext {
  * Branches on priority:
  * 1. If update_trigger is 'client_revision', send revision_processed to the client
  * 2. Else if all 4 docs now active AND docs_ready not yet sent, send docs_ready
- * 3. Else if docs_ready was previously sent, send version_pending for this doc
+ * 3. Else if docs_ready was previously sent, send version_updated for this doc
  * 4. Otherwise (early cascades), send nothing
  *
  * Resolves the client user by organisation_id and role='client'.
@@ -113,7 +113,7 @@ export async function notifyAfterPromotion(
       return
     }
 
-    // ── Priority 3: docs_ready sent, send version_pending ────────────────────
+    // ── Priority 3: docs_ready sent, tell the client the document changed ────
     if (docsReadyLogged) {
       // Both names come from organisations.founder_first_name, one from each side: the
       // recipient's own organisation for the greeting, the operator's for the sign-off.
@@ -138,11 +138,16 @@ export async function notifyAfterPromotion(
         supabase,
         {
           to: clientEmail,
-          subject: versionPendingSubject(orgName, document_type),
-          html: versionPendingTemplate(templateParams),
-          text: versionPendingText(templateParams),
+          subject: versionUpdatedSubject(orgName, document_type),
+          html: versionUpdatedTemplate(templateParams),
+          text: versionUpdatedText(templateParams),
         },
         organisation_id,
+        // The LOG KEY keeps its original name deliberately, while the template it sends
+        // was renamed to version-updated. This string is the dedup key in
+        // notifications_log and it already has rows against it. Renaming it would make
+        // every previously notified suggestion look un-notified and send a second email
+        // for each. The name is history, not a description.
         'version_pending',
         suggestion_id
       )

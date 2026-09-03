@@ -63,7 +63,7 @@ async function resolveDashboardState(
       // (clients_read_own_active_strategy_docs, clients_read_own_document_suggestions).
       supabase
         .from('strategy_documents')
-        .select('document_type, client_approval_status')
+        .select('document_type')
         .eq('organisation_id', orgId)
         .in('status', ['active', 'approved']),
       supabase

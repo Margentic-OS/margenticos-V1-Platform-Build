@@ -139,7 +139,7 @@ export async function enrichProspectsForOrganisation(
   }
 
   try {
-    // Fetch test-mode industries from client's approved ICP (if test mode)
+    // Fetch test-mode industries from the client's live ICP (if test mode)
     let testModeIndustries: string[] = []
     if (isTestMode) {
       const { data: icpDoc } = await (supabase as any)
@@ -148,7 +148,6 @@ export async function enrichProspectsForOrganisation(
         .eq('organisation_id', organisationId)
         .eq('document_type', 'icp')
         .eq('status', 'active')
-        .eq('client_approval_status', 'approved')
         .single()
 
       if (icpDoc?.icp_filter_spec?.industries && Array.isArray(icpDoc.icp_filter_spec.industries)) {

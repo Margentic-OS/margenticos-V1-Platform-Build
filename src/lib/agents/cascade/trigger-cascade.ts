@@ -1,9 +1,23 @@
-// All four promotion paths call this one function: no inline cascade logic anywhere else.
+// Every promotion path calls this one function: no inline dispatch logic anywhere else.
 //
-// ICP approved   → dispatch positioning
-// ICP approved   → dispatch messaging (when positioning + TOV already active)
-// Positioning approved → dispatch messaging (when ICP + TOV already active)
-// TOV approved   → dispatch messaging (when ICP + positioning already active)
+// ICP live         → dispatch positioning
+// ICP live         → dispatch messaging (when positioning + TOV already active)
+// Positioning live → dispatch messaging (when ICP + TOV already active)
+// TOV live         → dispatch messaging (when ICP + positioning already active)
+//
+// ─── READ THIS BEFORE CALLING IT A CASCADE ───────────────────────────────────
+//
+// It does not propagate changes and never has. isEligible() below returns true only when
+// the target has NO active document and NO pending suggestion, so once positioning
+// exists an ICP change can never reach it through here. This is a FIRST-GENERATION
+// SEQUENCER: it walks a new client from one document to four and is a no-op for ever
+// after. That job is still worth doing, so it is left alone.
+//
+// Propagating a change is a different mechanism and deliberately not this one. An
+// upstream change marks the downstream documents stale, in promote_strategy_doc_version,
+// and an operator decides whether to regenerate. Judging whether a change is relevant is
+// exactly what an automatic rewrite cannot do, and a client's voice must not change
+// mid-campaign because a headcount band moved.
 //
 // The function never throws. Any dispatch failure is logged and silently swallowed
 // so that the caller's success response always reaches the client.
@@ -17,15 +31,15 @@
 import { createClient } from '@supabase/supabase-js'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { DOWNSTREAM_OF, type StrategyDocType } from './document-dependencies'
 
-type DocType = 'icp' | 'positioning' | 'tov' | 'messaging'
+type DocType = StrategyDocType
 
-const CASCADE_MAP: Record<DocType, DocType[]> = {
-  icp:         ['positioning', 'messaging'],
-  positioning: ['messaging'],
-  tov:         ['messaging'],
-  messaging:   [],
-}
+// The dependency graph used to be a second copy of the same map, declared here. It is
+// now imported, because promote_strategy_doc_version expresses the same graph in SQL to
+// mark downstream documents stale, and three hand-maintained copies of one graph is two
+// too many. See document-dependencies.ts.
+const CASCADE_MAP = DOWNSTREAM_OF
 
 // Returns true only if (orgId, docType) has neither an active strategy_document
 // nor a pending document_suggestion. Both checks needed: active doc means the
@@ -111,7 +125,7 @@ async function fireDispatch(orgId: string, docType: DocType): Promise<void> {
 }
 
 // Entry point called by all four promotion paths.
-// promotedDocType = the doc that was just approved. Never throws.
+// promotedDocType = the doc that just went live. Never throws.
 export async function triggerCascadeIfEligible(
   supabase: SupabaseClient,
   orgId: string,

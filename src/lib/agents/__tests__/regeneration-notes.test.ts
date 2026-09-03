@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildRegenerationNotesBlock,
   buildRegenerationNotesReason,
+  noteForVersionHistory,
   type RegenerationNotes,
 } from '../regeneration-notes'
 
@@ -76,5 +77,25 @@ describe('buildRegenerationNotesReason', () => {
     const reason = buildRegenerationNotesReason(notes)
     expect(reason).toContain(OPERATOR)
     expect(reason).toContain(CLIENT)
+  })
+})
+
+describe('noteForVersionHistory', () => {
+  it('is null when there is no note, so the version falls back to what produced it', () => {
+    expect(noteForVersionHistory(undefined)).toBeNull()
+    expect(noteForVersionHistory({})).toBeNull()
+    expect(noteForVersionHistory({ operator_note: '   ', client_note: null })).toBeNull()
+  })
+
+  it('prefers the operator note, which is the later judgement', () => {
+    expect(noteForVersionHistory({ operator_note: OPERATOR, client_note: CLIENT })).toBe(OPERATOR)
+  })
+
+  it('falls back to the client note, so a staged revision still records why', () => {
+    expect(noteForVersionHistory({ client_note: CLIENT })).toBe(CLIENT)
+  })
+
+  it('trims, because the stored value is rendered verbatim in the history', () => {
+    expect(noteForVersionHistory({ operator_note: `  ${OPERATOR}  ` })).toBe(OPERATOR)
   })
 })

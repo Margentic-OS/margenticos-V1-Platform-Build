@@ -897,7 +897,6 @@ export async function handleSyncSequenceShell(
     .eq('organisation_id', orgId)
     .eq('document_type', 'messaging')
     .eq('status', 'active')
-    .eq('client_approval_status', 'approved')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()

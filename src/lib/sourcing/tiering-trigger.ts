@@ -64,18 +64,17 @@ export async function tierEnrichedBatch(
   }
 
   try {
-    // ── Step 1: Read active approved ICP ──────────────────────────────────────
+    // ── Step 1: Read the live ICP ─────────────────────────────────────────────
     const { data: icpDoc, error: icpError } = await supabase
       .from('strategy_documents')
       .select('id, icp_filter_spec')
       .eq('organisation_id', organisationId)
       .eq('document_type', 'icp')
       .eq('status', 'active')
-      .eq('client_approval_status', 'approved')
       .single()
 
     if (icpError || !icpDoc?.icp_filter_spec) {
-      logger.error('tiering-trigger: failed to load approved ICP or filter spec', {
+      logger.error('tiering-trigger: failed to load live ICP or filter spec', {
         operation_id: operationId,
         organisation_id: organisationId,
         error: icpError?.message ?? 'ICP or filter spec is NULL',

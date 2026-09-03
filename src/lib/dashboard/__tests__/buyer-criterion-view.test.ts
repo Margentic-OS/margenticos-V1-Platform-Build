@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest'
 import {
   selectClientBuyerCriterion,
   selectOperatorBuyerCriterion,
-  parentIsClientApproved,
+  parentIsLive,
   type CriterionSourceDoc,
 } from '@/lib/dashboard/buyer-criterion-view'
 
@@ -29,36 +29,29 @@ function criterion(over: Record<string, unknown> = {}) {
 function doc(over: Partial<CriterionSourceDoc> = {}): CriterionSourceDoc {
   return {
     status: 'active',
-    client_approval_status: 'approved',
     icp_filter_spec: { buyer_criterion: criterion() },
     ...over,
   }
 }
 
 describe('the client view fails closed', () => {
-  it('shows the criterion when the parent document is active and client-approved', () => {
+  it('shows the criterion when the parent document is the live one', () => {
     const view = selectClientBuyerCriterion(doc())
     expect(view).not.toBeNull()
     expect(view!.statement).toBe('A sentence about who to contact.')
     expect(view!.evidence).toEqual(['Something the documents said.'])
   })
 
-  // THE CASE THAT ACTUALLY HAPPENS. promote_strategy_doc_version inserts every new
-  // version active-and-pending, and persistIcpFilterSpec writes the criterion into that
-  // same row moments later. Without this check a client would see a criterion from a
-  // document they had not approved, for up to the three days before auto-approval.
-  it('shows NOTHING while the parent document is pending client approval', () => {
-    expect(selectClientBuyerCriterion(doc({ client_approval_status: 'pending' }))).toBeNull()
-  })
-
-  it('shows nothing for a superseded document, even one the client once approved', () => {
+  // THE CASE THAT ACTUALLY HAPPENS. The client RLS policy admits archived rows so the
+  // version history can be read, and every regeneration leaves another archived row
+  // behind. A component handed one of those must render nothing rather than a criterion
+  // the organisation stopped targeting by three versions ago.
+  it('shows nothing for a superseded document', () => {
     expect(selectClientBuyerCriterion(doc({ status: 'archived' }))).toBeNull()
   })
 
-  it('shows nothing when the parent document is archived AND pending', () => {
-    expect(
-      selectClientBuyerCriterion(doc({ status: 'archived', client_approval_status: 'pending' })),
-    ).toBeNull()
+  it('shows nothing for a draft', () => {
+    expect(selectClientBuyerCriterion(doc({ status: 'draft' }))).toBeNull()
   })
 
   it.each([
@@ -128,8 +121,8 @@ describe('the operator view', () => {
     expect(view.reject).toEqual(['gamma'])
   })
 
-  it('is NOT gated on approval, because the operator reads it before the client does', () => {
-    const view = selectOperatorBuyerCriterion(doc({ client_approval_status: 'pending' }))
+  it('is NOT gated on liveness, because the operator reads old versions too', () => {
+    const view = selectOperatorBuyerCriterion(doc({ status: 'archived' }))
     expect(view).not.toBeNull()
     expect(view!.visibleToClient).toBe(false)
   })
@@ -157,13 +150,16 @@ describe('the operator view', () => {
   })
 })
 
-describe('parentIsClientApproved', () => {
+describe('parentIsLive', () => {
+  // Archived matters more than it used to: the client RLS policy now admits archived
+  // rows so version history can be read, so this gate is the only thing keeping an old
+  // version's criterion off the page.
   it.each([
-    ['active', 'approved', true],
-    ['active', 'pending', false],
-    ['archived', 'approved', false],
-    [null, null, false],
-  ])('status=%s approval=%s -> %s', (status, approval, expected) => {
-    expect(parentIsClientApproved(doc({ status, client_approval_status: approval }))).toBe(expected)
+    ['active', true],
+    ['archived', false],
+    ['draft', false],
+    [null, false],
+  ])('status=%s -> %s', (status, expected) => {
+    expect(parentIsLive(doc({ status }))).toBe(expected)
   })
 })

@@ -236,7 +236,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
             Strategy
             {strategyNav.needsAttention.length > 0 && (
               <span className="text-[9px] font-medium text-[#F5F0E8] bg-brand-green-accent px-1.5 py-px rounded-[3px] normal-case tracking-normal shrink-0">
-                {strategyNav.reason === 'blocking_upload' ? 'Approval needed' : 'New version'}
+                {strategyNav.reason === 'blocking_upload' ? 'Not ready yet' : 'New version'}
               </span>
             )}
           </span>
