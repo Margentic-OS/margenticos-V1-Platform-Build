@@ -30,7 +30,10 @@ function spec(industries: string[]): ICPFilterSpec {
     person_countries: [],
     company_countries: [],
     company_headcount_min: 0,
-    company_headcount_max: 0,
+    // A REAL CEILING, because the size disqualifier now reads it from the spec rather
+    // than from a constant. At 0 the spec states no usable ceiling, the disqualifier
+    // correctly does not run, and the company_too_large case below becomes unreachable.
+    company_headcount_max: 100,
     industries: industries as ICPFilterSpec['industries'],
     industries_excluded: [],
     keywords: [],

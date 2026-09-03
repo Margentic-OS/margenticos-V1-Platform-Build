@@ -197,6 +197,51 @@ function calculateIndustryScore(
 }
 
 /**
+ * The headcount ceiling for THIS client, or null when the client stated none.
+ *
+ * WHAT HAPPENS WHEN A CLIENT HAS NO CAP: the disqualifier does not run, and this logs a
+ * warn naming the organisation. It does NOT fall back to a default ceiling and it does
+ * NOT withhold the tier.
+ *
+ * Not a default, because a default ceiling is exactly what this replaced. Inventing 100
+ * again for the specification that forgot to say is the same defect with a narrower
+ * blast radius, and it would be invisible in precisely the case where the number is
+ * least likely to be right.
+ *
+ * Not a withheld tier either, and this is the part that differs from disqualifier 3b
+ * above, deliberately. A missing buyer criterion FABRICATED a value: seniority is 35 of
+ * the 100 points and the code scored it 0 while reporting it had not decided, so the
+ * verdict froze on the row with a silent ceiling of 65. Nothing comparable happens here.
+ * calculateHeadcountScore already handles an unknown headcount explicitly, an oversized
+ * company still scores 0 on that axis and lands lower on its own, and no axis is
+ * fabricated. Removing every prospect for a client whose specification omits one field
+ * would turn a missing input into a total pipeline stop, which is a heavier answer than
+ * the input deserves.
+ *
+ * A specification that reaches here at all has already passed the sourcing orchestrator,
+ * which refuses a null spec outright. As of 2026-09-03 every stored spec carries a
+ * usable cap, so this branch is unreached in production and exists for specs written
+ * before the field, and for a hand-edited one.
+ *
+ * IT DOES NOT LOG, and that is deliberate rather than an omission. classifyTier runs once
+ * per PROSPECT and the missing ceiling is a fact about the RUN, so warning here would
+ * emit the same line once per row and bury itself, which is exactly what
+ * reportSpecDivergence had to be moved out of the pagination loop to stop doing. The
+ * report belongs where the spec is read once: inspectFilterSpec, which the orchestrator
+ * calls a single time before the first request and which already reports this field
+ * absent or of the wrong type. A non-positive number is reported there too.
+ */
+function resolveHeadcountCeiling(icpFilterSpec: ICPFilterSpec): number | null {
+  const ceiling = icpFilterSpec.company_headcount_max
+
+  if (typeof ceiling !== 'number' || !Number.isFinite(ceiling) || ceiling <= 0) {
+    return null
+  }
+
+  return ceiling
+}
+
+/**
  * Two-stage tiering model:
  * STAGE 1: Disqualifiers (binary REMOVE)
  * STAGE 2: Fit Score (0-100) for survivors
@@ -304,8 +349,27 @@ export async function classifyTier(
     }
   }
 
-  // Disqualifier 4: Company headcount > 100
-  if (prospect.company_headcount !== null && prospect.company_headcount > 100) {
+  // Disqualifier 4: the company is larger than THIS CLIENT asked for.
+  //
+  // The ceiling was the literal 100 for every client, whatever their specification said.
+  // That is the same Rule Zero shape as the deleted buyer and keyword lists, arriving on
+  // the size axis: a number that describes one market applied to all of them.
+  //
+  // It is not a harmless approximation in either direction. A client whose specification
+  // reaches higher than 100 had everything above it REMOVED, and removed under a reason
+  // that reads like a deliberate verdict rather than a stale constant. A client whose
+  // specification stops well below 100 had the gate do nothing, and the size axis fell
+  // entirely to the 0-to-20 fit points, which cannot remove anything.
+  //
+  // The bound is inclusive because company_headcount_max is the top of the band the ICP
+  // states, not the first value outside it.
+  const headcountCeiling = resolveHeadcountCeiling(icpFilterSpec)
+
+  if (
+    headcountCeiling !== null &&
+    prospect.company_headcount !== null &&
+    prospect.company_headcount > headcountCeiling
+  ) {
     return {
       prospect_id: prospectId,
       sourced_tier: null,
