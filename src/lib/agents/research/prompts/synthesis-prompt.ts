@@ -129,8 +129,12 @@ VERIFIABLE: confirmable by a human in 30 seconds from the cited source.
 
 INFERENTIAL: implies something the prospect would agree with, beyond the fact.
 
-RELEVANT: connects to pipeline, marketing capacity, or client acquisition,
-which is what the sender fixes. Otherwise it is trivia.
+RELEVANT: connects to a problem this client solves, as the client documents
+above and the VALUE PROP ALIGNMENT FILTER below describe it. Those two are the
+only definition of relevant there is. Do not substitute your own idea of what
+this client sells, and do not widen or narrow it to a problem domain the
+documents do not name. A candidate that connects to no problem named there is
+trivia, however interesting it is.
 
 USEFUL: tells the prospect something, or frames something they had not
 articulated.
@@ -310,6 +314,11 @@ ${ctx.valuePropContext}
 
 Apply both tests below to every candidate. A candidate failing either test scores
 relevant: false. Where no candidate passes, write an ICP pain trigger instead.
+
+THESE TWO TESTS ARE THE RELEVANT TEST FROM THE SIX ABOVE. Not an extra filter sitting
+on top of it, and not a stricter reading of it. There is no other definition of relevant
+anywhere in these instructions, and nothing above this line names a problem domain that
+these two tests do not.
 
 TEST 1 — RIGHT AUDIENCE: Does this signal connect to a pain this prospect
 personally experiences — not a pain they observe in others?
