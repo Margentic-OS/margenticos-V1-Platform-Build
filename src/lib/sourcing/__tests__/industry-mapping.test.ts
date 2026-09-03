@@ -36,11 +36,34 @@ describe('industry-mapping', () => {
       expect(mapApolloToSpecIndustry('  human resources  ')).toBe('Human Resources Consulting')
     })
 
-    it('returns null for unmapped industries (fail closed)', () => {
+    // A provider tag whose string already IS a canonical name resolves without anyone
+    // writing an alias for it. This is the derived identity layer, and these three are
+    // not hypothetical: they are among the 24 distinct company_industry values stored in
+    // the prospects table on 2026-09-03, and before the range was derived all three
+    // returned null and were removed as industry_off_target.
+    it('resolves a tag that is already a canonical name, with no alias written for it', () => {
+      expect(mapApolloToSpecIndustry('biotechnology')).toBe('Biotechnology')
+      expect(mapApolloToSpecIndustry('insurance')).toBe('Insurance')
+      expect(mapApolloToSpecIndustry('legal services')).toBe('Legal Services')
+    })
+
+    // The identity layer is checked BEFORE the alias table, which matters for the one
+    // key that is both. Without that order a tag naming a canonical industry exactly
+    // would be rewritten into a neighbouring one, which is what made this canonical name
+    // targetable and permanently unclassifiable.
+    it('prefers the exact canonical name over an alias that would widen it', () => {
+      expect(mapApolloToSpecIndustry('executive coaching')).toBe('Executive Coaching')
+      expect(mapApolloToSpecIndustry('business coaching')).toBe('Business Coaching')
+    })
+
+    // Still fail-closed for a tag whose WORDING differs from every canonical name. That
+    // gap is real and is not closed here: closing it means writing the provider's own tag
+    // spellings, which cannot be read from the free search response and must not be
+    // guessed. An unknown tag reaches the operator's mapping queue instead.
+    it('returns null for a tag no canonical name and no alias matches (fail closed)', () => {
       expect(mapApolloToSpecIndustry('restaurants')).toBeNull()
       expect(mapApolloToSpecIndustry('apparel & fashion')).toBeNull()
       expect(mapApolloToSpecIndustry('automotive')).toBeNull()
-      expect(mapApolloToSpecIndustry('biotechnology')).toBeNull()
       expect(mapApolloToSpecIndustry('think tanks')).toBeNull()
       expect(mapApolloToSpecIndustry('nonprofit organization management')).toBeNull()
     })
