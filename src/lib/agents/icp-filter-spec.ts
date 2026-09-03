@@ -275,14 +275,83 @@ export interface IcpDocument {
 const DEFAULT_PERSON_COUNTRIES = ['GB', 'IE', 'US']
 const DEFAULT_COMPANY_COUNTRIES = ['GB', 'IE', 'US']
 
-// "agency" removed: many solo consultants self-describe as "boutique agency"
-// and would be incorrectly excluded. "staffing" and "recruitment" are kept
-// because they describe firms in a different business category.
-const DEFAULT_KEYWORDS_EXCLUDED = ['staffing', 'recruitment', 'SaaS', 'software product']
+// ─── There is no default keyword list any more ───────────────────────────────
+//
+// DEFAULT_KEYWORDS_EXCLUDED was four literals naming one market's adjacent categories.
+// Every client received them, including clients for whom they name nothing at all. It
+// is deleted rather than parameterised, for the same reason the decision-maker list and
+// the consultancy patterns were: a default that names a sector is that sector's
+// vocabulary applied to everyone, and the client it is wrong for has no way to say so.
+//
+// Exclusions now come from the client's own ICP disqualifiers, below.
+
+// ─── Deriving words to search on, without naming a sector ────────────────────
+//
+// RULE ZERO. Nothing in this module may name an industry, a sector, a buyer title or a
+// problem domain. So the keywords cannot be a list, and they cannot be a list with a
+// switch on top of it. They have to be COMPUTED from the client's own canonical
+// industry names, which is the one place a sector name legitimately arrives at run time.
+//
+// The computation is: the full lowercased name, plus its HEAD NOUN.
+//
+// The full name is the precise phrase. The head noun is the category word, and it is
+// what makes the tiering rescue work at all: a firm's name rarely contains its full
+// canonical industry name but often contains the category word. Taking the last word is
+// not a linguistic claim, it is a property of how the canonical taxonomy is written,
+// where every multi-word name ends in its category.
+//
+// GENERIC_HEAD_NOUNS is the one judgement here, and it is deliberately tiny. These words
+// end a canonical name without saying what the business does, so emitting them as a
+// keyword would match almost any company and widen both the sourcing query and the
+// tiering rescue to near-uselessness. They are ordinary English, not a sector list.
+const GENERIC_HEAD_NOUNS = new Set(['services', 'and', 'the', 'of'])
+
+export function deriveKeywords(industries: readonly string[]): string[] {
+  const out: string[] = []
+  for (const name of industries) {
+    const lower = name.toLowerCase().trim()
+    if (!lower) continue
+    out.push(lower)
+
+    const words = lower.split(/\s+/)
+    if (words.length > 1) {
+      const head = words[words.length - 1]
+      if (!GENERIC_HEAD_NOUNS.has(head)) out.push(head)
+    }
+  }
+  return [...new Set(out)]
+}
 
 // ─── Main derivation function ─────────────────────────────────────────────────
 
-export function deriveFilterSpec(doc: IcpDocument): ICPFilterSpec {
+/**
+ * Build a client's filter spec from that client's own ICP, and nothing else.
+ *
+ * ─── WHY THE CRITERION IS A PARAMETER ────────────────────────────────────────
+ *
+ * `job_titles` and `job_titles_excluded` used to be sixteen literals naming one
+ * market's roles, handed to every client. 360 Bia Og sells into schools and its stored
+ * spec asked for "Principal Consultant" and "Managing Partner" and excluded "SDR".
+ *
+ * The right answer already existed and was being computed a few lines later:
+ * `buyer_criterion.accept` and `.reject`, derived per client from that client's own
+ * documents by the buyer criterion agent. It produced "principal", "deputy principal"
+ * and "board of management" for that school. Re-deriving titles here would be a second
+ * copy of a judgement that is already made well, and a second copy is what drifts.
+ *
+ * So the criterion is passed IN rather than duplicated. Its fragments are lowercase
+ * title substrings, which is exactly what a provider's title filter wants, so the
+ * translation is the identity function and there is nothing in between to get wrong.
+ *
+ * OPTIONAL, and empty is the honest result when it is absent. A spec with no titles is
+ * a spec that cannot build a people search, and the sourcing handler refuses to run on
+ * one. That refusal is the point: sourcing a default set of titles is how the wrong
+ * market's vocabulary reached a live client, and an error is cheaper than a batch.
+ */
+export function deriveFilterSpec(
+  doc: IcpDocument,
+  buyerCriterion?: BuyerCriterion | null,
+): ICPFilterSpec {
   const t1 = doc.tier_1
   const t2 = doc.tier_2
 
@@ -309,27 +378,21 @@ export function deriveFilterSpec(doc: IcpDocument): ICPFilterSpec {
   const headcountMin = Math.min(t1Min, t2Min)
   const headcountMax = Math.max(t1Max, t2Max)
 
+  // Titles come from the criterion or not at all. `accept` carries both ranks: the
+  // rank drives the fit score, not who gets searched for, so a secondary buyer is still
+  // someone to source. A criterion that did not settle (`unsettled` / `out_of_band`)
+  // still carries usable fragments, so it is read here even though it does not gate:
+  // the alternative is falling back to a default, and there is no default any more.
+  const acceptFragments = (buyerCriterion?.accept ?? [])
+    .map(entry => entry.fragment.toLowerCase().trim())
+    .filter(fragment => fragment.length > 0)
+  const rejectFragments = (buyerCriterion?.reject ?? [])
+    .map(fragment => fragment.toLowerCase().trim())
+    .filter(fragment => fragment.length > 0)
+
   return {
-    job_titles: [
-      'Founder',
-      'Owner',
-      'Managing Director',
-      'Managing Partner',
-      'Principal Consultant',
-      'Chief Executive Officer',
-      'CEO',
-      'Director',
-    ],
-    job_titles_excluded: [
-      'Operations Manager',
-      'Marketing Coordinator',
-      'Marketing Manager',
-      'HR Manager',
-      'Sales Manager',
-      'Business Development Manager',
-      'SDR',
-      'Sales Development Representative',
-    ],
+    job_titles: [...new Set(acceptFragments)],
+    job_titles_excluded: [...new Set(rejectFragments)],
     seniority_levels: (() => {
       const t1Seniority = (t1.buyer_profile?.seniority ?? '').toLowerCase()
       const t2Seniority = (t2.buyer_profile?.seniority ?? '').toLowerCase()
@@ -347,17 +410,64 @@ export function deriveFilterSpec(doc: IcpDocument): ICPFilterSpec {
     company_headcount_max: headcountMax,
     industries,
     industries_excluded: [],
-    keywords: ['consulting', 'consultant', 'advisory', 'consultancy'],
-    keywords_excluded: DEFAULT_KEYWORDS_EXCLUDED,
-    notes:
-      `Tier 1 primary: ${t1.company_profile.revenue_range}, ` +
-      `headcount ${t1.company_profile.headcount}. ` +
-      `Tier 2 secondary: ${t2.company_profile.revenue_range}, ` +
-      `headcount ${t2.company_profile.headcount}. ` +
-      'Exclude: pre-validation founders (<3 clients, no pricing page), ' +
-      'ops managers (not decision-makers), firms with in-house sales teams (10+ people). ' +
-      'DE and NL included: English-operating consulting founders. Review per-client at onboarding.',
+    keywords: deriveKeywords(industries),
+
+    // NOTHING IS EXCLUDED BY DEFAULT. The four literals that used to sit here named one
+    // market's adjacent categories. A client who genuinely needs an exclusion has one in
+    // their ICP disqualifiers, which reach `notes` below, and an operator can add one to
+    // the spec. An exclusion nobody asked for silently drops inventory, and it drops it
+    // for the clients least able to notice.
+    keywords_excluded: [],
+
+    // Notes is metadata: it travels with the spec, constrains nothing, and exists to be
+    // read by an operator. So it is built ENTIRELY from what this ICP says.
+    //
+    // The tail it replaces was three sentences of one client's qualification rules
+    // handed to every client, ending in "DE and NL included", which had also been false
+    // since the country defaults moved to GB/IE/US. A hardcoded note is worse than no
+    // note: it reads as a finding about this client and is a finding about another one.
+    notes: buildNotes(t1, t2, buyerCriterion),
   }
+}
+
+/**
+ * Operator-facing summary of what this spec was derived from. Client's words only.
+ *
+ * The disqualifiers are the ICP's own `disqualifiers` arrays, which is where a client's
+ * genuine exclusions already live. Reading them here means an exclusion an operator
+ * cares about is visible beside the spec instead of being invented for them.
+ */
+function buildNotes(
+  t1: IcpDocument['tier_1'],
+  t2: IcpDocument['tier_2'],
+  buyerCriterion?: BuyerCriterion | null,
+): string {
+  const parts: string[] = [
+    `Tier 1 primary: ${t1.company_profile.revenue_range}, headcount ${t1.company_profile.headcount}.`,
+    `Tier 2 secondary: ${t2.company_profile.revenue_range}, headcount ${t2.company_profile.headcount}.`,
+  ]
+
+  const disqualifiers = [...new Set([
+    ...(t1.disqualifiers ?? []),
+    ...(t2.disqualifiers ?? []),
+  ].map(d => String(d).trim()).filter(d => d.length > 0))]
+
+  if (disqualifiers.length > 0) {
+    parts.push(`Excluded by this ICP: ${disqualifiers.join('; ')}.`)
+  }
+
+  // Said out loud, because a spec with no titles sources nothing and the operator should
+  // learn that here rather than from an empty batch.
+  if (!buyerCriterion) {
+    parts.push('No buyer criterion was available when this spec was derived, so it carries no job titles.')
+  } else if (buyerCriterion.status !== 'derived') {
+    parts.push(
+      `Buyer criterion status is ${buyerCriterion.status}, so it does not gate. ` +
+      `${buyerCriterion.unsettled_reason ?? buyerCriterion.sanity?.note ?? ''}`.trim()
+    )
+  }
+
+  return parts.join(' ')
 }
 
 // ─── Headcount parsers ────────────────────────────────────────────────────────
