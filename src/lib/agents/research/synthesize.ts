@@ -121,7 +121,8 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
   const posDoc  = docs.find(d => d.document_type === 'positioning')?.content as Record<string, unknown> | undefined
   const tovDoc  = docs.find(d => d.document_type === 'tov')?.content as Record<string, unknown> | undefined
 
-  // ICP summary: tier 1 buyer title + company type + top push forces.
+  // ICP summary: tier 1 buyer title + company type + top push forces + the client's own
+  // disqualifying criteria, which the WEAK grade in the prompt reads instead of hardcoding.
   let icpSummary = 'No ICP document available yet.'
   // HOISTED so the raw title survives the block that renders it into prose. Assigned from
   // the same `buyer` read below and nowhere else: two reads of one field is the drift shape
@@ -132,6 +133,13 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
     const buyer  = (t1?.buyer_profile as Record<string, unknown> | undefined)?.title as string | undefined
     const stage  = (t1?.company_profile as Record<string, unknown> | undefined)?.stage as string | undefined
     const push   = ((t1?.four_forces as Record<string, unknown> | undefined)?.push as string[] | undefined) ?? []
+    // The client's OWN disqualifying criteria, which the prompt's WEAK grade used to
+    // hardcode instead. NOT truncated, unlike push above. Truncation on a scoring input is
+    // a silent gate removal: MargenticOS names seven and the seventh is the one that
+    // reproduces the "sales-led" example this replaces, so any slice() short of the full
+    // list would have quietly changed that client's grading while looking like a tidy-up.
+    const disqualifiers = ((t1?.disqualifiers as string[] | undefined) ?? [])
+      .filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
     // NO DEFAULT VALUES FOR A MISSING BUYER OR STAGE. This line used to read
     // `${buyer ?? 'a hardcoded archetype'} at ${stage ?? 'a hardcoded stage'}`, so a thin
     // ICP did not produce a thin summary. It produced a CONFIDENT one describing a client
@@ -153,9 +161,23 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
       push.length ? `Top pain points (push forces):\n${push.slice(0, 3).map(p => `  - ${p}`).join('\n')}` : '',
     ].filter(Boolean)
 
-    icpSummary = icpLines.length > 0
+    // The disqualifier line is appended AFTER the emptiness check, never inside icpLines.
+    // Its "none named" branch is a non-empty string, so folding it in would make
+    // icpLines.length >= 1 for a document with no buyer, no stage and no push forces, and
+    // the honest "this ICP is thin" fallback below would stop firing. The gap would be
+    // filled by a sentence about disqualifiers, which is a gap made invisible: the exact
+    // failure the comment above this block was written about.
+    const core = icpLines.length > 0
       ? icpLines.join('\n')
       : 'An ICP document exists but names no buyer title, company stage or push forces.'
+
+    // Stated in both directions on purpose. Silence would read as "no disqualifiers apply",
+    // and the model would then reach for its own, which is what this change exists to stop.
+    const disqualifierLine = disqualifiers.length
+      ? `Disqualifying criteria, written by this client. A prospect matching any of these is a clear mismatch:\n${disqualifiers.map(d => `  - ${d}`).join('\n')}`
+      : 'This client has named no disqualifying criteria. Grade on the buyer profile, company stage and push forces above, and do not supply criteria of your own.'
+
+    icpSummary = `${core}\n${disqualifierLine}`
   }
 
   // Positioning summary: plain-text positioning_summary field.
