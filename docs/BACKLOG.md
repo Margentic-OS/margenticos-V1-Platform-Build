@@ -23,6 +23,55 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## REPLY RATE DENOMINATOR (2026-09-03, branch reply-denominator)
+
+- [post-build] THE REPLY RATE NUMERATOR IS REPLIES, NOT PEOPLE WHO REPLIED.
+  The denominator is now people contacted, which is the half that was wrong by nearly 3x.
+  The numerator is still `campaigns.replied_count`, the outbound provider's count of
+  REPLIES. A published reply rate is normally unique repliers over unique contacts, so
+  ours overstates whenever one person replies twice.
+
+  WE CANNOT FIX IT TODAY FROM THIS DATABASE. Measured 2026-09-03 on MargenticOS:
+
+      campaigns.replied_count ................ 2
+      signals with signal_type reply_received  3
+      reply_handling_actions ................. 3
+      DISTINCT prospect_id on those signals .. 0   (every one is NULL)
+
+  So we hold three reply records against the provider's two, and cannot attribute any of
+  them to a person, because prospect_id is not populated on reply signals. Until it is,
+  "distinct people who replied" is not computable.
+
+  Two separate questions in there, and the second is the more interesting one: why do our
+  own records say 3 and the provider's say 2.
+
+  NEXT ACTION: populate prospect_id on reply signals, then revisit the numerator. The
+  denominator does not depend on this and should not wait for it.
+
+- [post-build] THE PIPELINE PAGE RENDERS THE REPLY RATE UNGATED.
+  `src/app/dashboard/(client)/pipeline/page.tsx` renders `metrics.replyRate` straight into
+  StatsRow with no sample gate, so a client sees a printed percentage there while the
+  benchmarks page shows a dash for the same number and says it is too early to report.
+
+  Both are now denominated in people, so they no longer disagree about WHAT they measure.
+  They still disagree about whether it is worth printing at this volume.
+
+  Not changed in this pass: the task was the denominator, and putting the sample gate on
+  the pipeline page removes a number a client currently sees, which is a product decision
+  rather than a correction. See sample-gate.ts for why the gate exists.
+
+- [monitor] batch-funnel.live.test.ts FLAKES ON A 5-SECOND TIMEOUT UNDER FULL-SUITE LOAD.
+  Observed twice on 2026-09-03, in a file unrelated to the change being made. It then
+  passed three consecutive full-suite runs, passes in isolation, and the same full suite
+  on unmodified main passed. So it is load-dependent, not a regression.
+
+  It is a live test against the shared test database with the default 5s vitest timeout.
+  That is thin for a test that does several round trips while 180 other files are running.
+
+  NEXT ACTION: give the live tests an explicit timeout rather than the default, so a busy
+  database reads as slow rather than as broken. A flaky red is worse than a slow green
+  because it teaches people to re-run instead of to look.
+
 ## DOCUMENT VERSIONING AND APPROVAL REMOVAL (2026-09-03, branch doc-versions)
 
 - [pre-c1] THE HOURLY auto-approve CRON HAS NEVER APPROVED ANYTHING AND CANNOT.
