@@ -23,6 +23,370 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## THE 19 HARDCODED VALUES BETWEEN INTAKE AND A SOURCED PROSPECT (2026-09-03, branch log-literals)
+
+Read-only audit. Nothing here was fixed. Every line number is `origin/main` at d5a2306.
+
+FIRST, A CORRECTION TO THE PREMISE THIS AUDIT WAS COMMISSIONED UNDER. The task assumed
+`sourcing-portable` had merged and that some findings would already be fixed. **It has not
+merged.** `git branch -r --merged origin/main` does not list it; `origin/main..origin/sourcing-portable`
+is seven commits dated 2026-09-03, none of them on main. So the answer to "which are already
+addressed" is: **on main, none of the nineteen. Zero.** The branch does address eleven of
+them, and that is recorded per item below, but it addresses them nowhere that runs.
+
+That distinction is the reason this section exists. An unmerged fix reads, in a chat
+transcript and in a code search, exactly like a merged one.
+
+---
+
+### GROUP A — blocks sourcing the RIGHT COMPANIES
+
+- [pre-c1] **A1. The entire Apollo query is hardcoded.** `src/lib/sourcing/handlers/adapter-apollo.ts:88-175`,
+  `APOLLO_FILTER`. NAICS `['5416']`, keyword tags `['management consulting', 'business consulting',
+  'strategy consulting']`, headcount `['5,20']`, org and person locations
+  `['united states', 'united kingdom', 'ireland']`, seniorities `['owner', 'founder', 'c_suite', 'partner']`,
+  email status `['verified']`.
+  GATES HARD, and it is the only thing that gates: it is the query. `adapter()` accepts `spec`
+  and does not read it (line 337-340, deliberately). Every client sourced through this handler
+  receives the same 55,975-row consulting population, measured 2026-08-26.
+  A client whose answer differs gets prospects from someone else's market with no error. The
+  headcount band is the sharpest edge: `'5,20'` was narrowed from `'5,50'` on 2026-08-27 and the
+  file records the measurement, 36,818 against 55,980, so the 19,162 firms in the 21-50 band are
+  declared in tier_2 of every ICP and cannot be asked for.
+  Currently breaks: 360 Bia Óg (primary schools, NAICS 6111) and Simcare (healthcare distribution).
+  Neither is inside 5416. NOT FIXED ON MAIN. Addressed on `sourcing-portable` (09f2556), where the
+  query is built from the spec and refuses when it cannot translate.
+
+- [pre-c1] **A2. `APOLLO_TARGETED_INDUSTRIES` is a hand-written list of 19 consulting names.**
+  `adapter-apollo.ts:214-236`.
+  GATES HARD, one step upstream. The orchestrator's reachability gate
+  (`src/lib/sourcing/orchestrator.ts:303-321`) throws when `spec.industries` has an empty
+  intersection with it.
+  A client outside consulting cannot source at all. Measured: of the 73 names in
+  `CANONICAL_INDUSTRIES`, this list admits 19. `'Primary and Secondary Education'` is not among
+  them, so 360 Bia Óg's stored spec is refused by the gate on main.
+  Currently breaks: 360 Bia Óg. NOT FIXED ON MAIN. Addressed on `sourcing-portable` (c64eab1),
+  where it derives from `CANONICAL_TO_NAICS` and education maps to 6111.
+
+- [post-build] **A3. `FILTER_COUNTRY_CODES = new Set(['US', 'GB', 'IE'])`.** `adapter-apollo.ts:239`.
+  ONLY REPORTS. Consumed solely by `reportSpecDivergence` to name spec countries the query drops.
+  It gates nothing, and the file says so.
+  For a client whose answer differs it changes nothing about who is sourced; it changes what the
+  log claims was ignored. It is a third copy of the country allowlist (see C4).
+  Currently breaks: nobody. NOT FIXED ON MAIN. Deleted on `sourcing-portable`.
+
+- [post-build] **A4. `industries_excluded` is always `[]`.** `src/lib/agents/icp-filter-spec.ts:349`.
+  ONLY DEFAULTS, and it is a default that can never become anything else, because
+  `deriveFilterSpec` is the only writer and it has no branch that populates the field.
+  A client with a genuine industry exclusion in their ICP disqualifiers has it discarded here.
+  Tiering's Disqualifier 5 (`tier-classification.ts:244-258`) reads the field, so that entire
+  disqualifier is dead code for every client on main: it cannot fire against an empty array.
+  Measured: 0 rows across the whole prospects table carry `tiering_reason = 'industry_excluded'`.
+  Currently breaks: no client visibly, because the failure is silent inventory nobody removed.
+  NOT FIXED, on main or on `sourcing-portable`.
+
+- [post-build] **A5. The headcount fallbacks `?? 1`, `?? 20`, `?? 1`, `?? 8`.**
+  `icp-filter-spec.ts:305-308`.
+  ONLY DEFAULTS, and only when the ICP's human-readable headcount string parses to nothing.
+  `parseHeadcountMax` needs two integers in the string, so "10-30 staff including teachers, SNAs,
+  and administrative personnel" parses but "around a dozen" silently becomes 1-20 for tier 1 and
+  1-8 for tier 2. The numbers are one market's shape.
+  Currently breaks: no stored spec is measurably hitting the fallback. Both live specs carry
+  parsed bounds (360 Bia Óg 8-30, Simcare 10-500).
+  NOT FIXED, on main or on `sourcing-portable` (identical at branch lines 374-377).
+
+### GROUP B — blocks sourcing the RIGHT PEOPLE
+
+- [pre-c1] **B1. `job_titles` is eight consulting titles.** `icp-filter-spec.ts:313-322`:
+  `'Founder', 'Owner', 'Managing Director', 'Managing Partner', 'Principal Consultant',
+  'Chief Executive Officer', 'CEO', 'Director'`.
+  ONLY DEFAULTS ON MAIN, in the strict sense that nothing downstream reads it: the Apollo query
+  is hardcoded and does not consume `job_titles`. It is a field written into every client's
+  stored spec, displayed to the operator, and ignored.
+  For a client whose buyer is a school principal or a director of nursing, the stored spec asserts
+  they are sourcing Managing Partners. Measured: 360 Bia Óg's archived v3 spec
+  (`a2ee0b32`, created 2026-08-28) carries all eight verbatim beside
+  `industries: ['Primary and Secondary Education']`.
+  Currently breaks: 360 Bia Óg v3, as a document that lies. NOT FIXED ON MAIN. Addressed on
+  `sourcing-portable` (12905d1), where `job_titles` is the buyer criterion's accept fragments.
+
+- [pre-c1] **B2. `job_titles_excluded` is eight consulting-adjacent titles.**
+  `icp-filter-spec.ts:323-332`: `'Operations Manager', 'Marketing Coordinator', 'Marketing Manager',
+  'HR Manager', 'Sales Manager', 'Business Development Manager', 'SDR',
+  'Sales Development Representative'`.
+  GATES SOFTLY, and this one is genuinely live. It is one of only two spec fields the handler still
+  honours, as a post-filter on results (`adapter-apollo.ts:257`, `POST_FILTERED_SPEC_FIELDS`).
+  So for a client whose buyer IS a Business Development Manager, this list deletes their buyers
+  after Apollo returns them. Measured against a live run: Simcare's sourcing run
+  `ce1f8fc5` returned `'Clinical Director of Business Development'`,
+  `'Market Director of Business Development'`, `'Regional Director of Business Development'` and
+  `'Vice President of Business Development'`. Simcare's own spec names `'business development'` as
+  a secondary accept fragment. On the hardcoded list those four titles do not contain the exact
+  string `'Business Development Manager'` and survived, so the collision did not fire this time.
+  It is a near miss, not a clean pass.
+  Currently breaks: nobody measurably yet; Simcare is one title away. NOT FIXED ON MAIN.
+  Addressed on `sourcing-portable`, where it is the criterion's reject fragments.
+
+- [post-build] **B3. The `seniority_levels` founder/owner substring test.**
+  `icp-filter-spec.ts:333-343`. It lowercases both tiers' `buyer_profile.seniority` prose and
+  asks `.includes('founder') || .includes('owner')`, returning
+  `['founder','owner','c_suite','vp','director']` or `['c_suite','vp','director']`.
+  ONLY DEFAULTS on main: the hardcoded query does not read `seniority_levels` either.
+  The test is a substring match against free prose, so it is decided by whether an LLM happened
+  to use one of two words. Measured, and the two live specs land on opposite sides: 360 Bia Óg's
+  seniority prose ("Senior decision-maker within the school...") yields
+  `['c_suite','vp','director']`; Simcare's ("...or founder-operator of the distribution firm")
+  contains "founder" and yields the five-element list. Neither client is founder-led in the sense
+  the branch means; Simcare qualified on a word inside "founder-operator".
+  Currently breaks: nobody, because nothing reads it. NOT FIXED, on main or on `sourcing-portable`
+  (identical at branch lines 396-406).
+
+- [post-build] **B4. `keywords = ['consulting', 'consultant', 'advisory', 'consultancy']`.**
+  `icp-filter-spec.ts:350`.
+  ONLY DEFAULTS on main; the query does not read it.
+  Measured: 360 Bia Óg's archived v3 spec carries all four beside a schools ICP.
+  Currently breaks: 360 Bia Óg v3, as a document that lies. NOT FIXED ON MAIN.
+  Addressed on `sourcing-portable` via `deriveKeywords(industries)`.
+
+- [pre-c1] **B5. `DEFAULT_KEYWORDS_EXCLUDED = ['staffing', 'recruitment', 'SaaS', 'software product']`.**
+  `icp-filter-spec.ts:281`, applied at line 351.
+  GATES SOFTLY AND LIVE. Like B2 this is a post-filter the handler still honours
+  (`adapter-apollo.ts:257`). It is an exclusion no client asked for.
+  A client selling into staffing firms, or a client whose prospects describe themselves as SaaS,
+  loses those prospects silently after they were returned.
+  Currently breaks: nobody measurably, because both live specs were written by the unmerged branch
+  and carry `keywords_excluded: []`. Any client whose spec is regenerated by main's code gets the
+  four back. NOT FIXED ON MAIN. On `sourcing-portable` the default is removed and the comment at
+  branch lines 415-419 states the reasoning.
+
+### GROUP C — blocks SURVIVING TIERING
+
+- [pre-c1] **C1. `CLASSIFIABLE_INDUSTRIES` covers 15 of 73 canonical names.**
+  `src/lib/sourcing/industry-mapping.ts:50-52`, the range of the 22-key `APOLLO_TO_SPEC` table
+  above it.
+  GATES HARD, at the far end of the pipeline, after the money is spent. A prospect whose mapped
+  industry is not on-target and shows no consultancy evidence is removed as
+  `industry_not_consulting` (`tier-classification.ts:277-284`).
+  This is the trap the file's own comment at lines 33-49 describes, and it is worse than that
+  comment says. Measured: **four industries pass the reachability gate and can never survive
+  tiering** — `Environmental Consulting`, `Engineering Consulting`, `Healthcare Consulting` and
+  `Executive Coaching` are all in `APOLLO_TARGETED_INDUSTRIES` and none is a value in
+  `APOLLO_TO_SPEC`. A client naming only those passes every pre-search check and loses every
+  prospect at classification.
+  Currently breaks: **Simcare.** Its spec names `Healthcare Consulting` and `Supply Chain
+  Consulting`. Only the second is classifiable. Its 20 sourced prospects are not yet enriched
+  (`enrichment_status` null on all 20), so tiering has not run and the loss has not been paid for
+  yet. Measured on the live rows: all 20 of Simcare's and all 20 of 360 Bia Óg's carry
+  `enrichment_status` null. NOT FIXED, on main or on `sourcing-portable`, which touches only the
+  comment.
+
+- [pre-c1] **C2. `CONSULTANCY_PATTERNS`, seven fragments of one market's vocabulary.**
+  `src/lib/sourcing/tier-classification.ts:72-80`: `'consulting', 'consultancy', 'advisory',
+  'advisor', 'coaching', 'coach', 'fractional'`.
+  GATES HARD. `hasConsultancyEvidence` is the only escape from Disqualifier 6, and it also decides
+  the 20-point adjacent-industry score.
+  For a client outside consulting it is the difference between a batch and nothing. Not one of
+  360 Bia Óg's 20 sourced company names contains any of the seven: `York Steiner School`,
+  `Oxford Diocesan Bucks Schools Trust`, `Kingston Educational Trust`, and so on for all 20. Their
+  mapped industry is also unclassifiable per C1. So when tiering runs on that batch, the expected
+  outcome is 20 of 20 removed as `industry_not_consulting`.
+  The same query run over Simcare's 20 shows the other side of the shape: **15 of 20 match**,
+  because a healthcare *consulting* firm contains the literal word. Simcare passes this gate by
+  vocabulary coincidence, not by fit, and the 5 that do not match are removed.
+  Currently breaks: **360 Bia Óg** (20 of 20 expected removed) and **Simcare** (5 of 20), both
+  pending enrichment. NOT FIXED ON MAIN. Addressed on `sourcing-portable` (b705bf0), where the
+  patterns read the client's own keywords.
+
+- [post-build] **C3. The headcount score bands.** `tier-classification.ts:116-124`: null returns 10,
+  1-20 returns 20, 21-50 returns 10, 51-100 returns 5, else 0.
+  GATES SOFTLY. It cannot remove a prospect, only move them between tiers.
+  The bands encode a small-consultancy shape. A client whose ICP names 50-500-person firms has
+  their whole target population scoring 5 or 0 out of 20 on size, so they tier lower for being
+  exactly right. Simcare's spec declares `company_headcount_max: 500`.
+  Currently breaks: Simcare, pending enrichment. NOT FIXED, on main or on `sourcing-portable`
+  (identical at branch lines 154-158).
+
+- [pre-c1] **C4. The `company_headcount > 100` removal.** `tier-classification.ts:227-235`.
+  GATES HARD, and it is the one place in tiering that ignores the spec outright. The client's own
+  `company_headcount_max` sits in the spec, unread, three lines away from a literal that overrides
+  it.
+  Simcare's stored spec says `company_headcount_max: 500`. Every prospect between 101 and 500 that
+  Simcare sources will be removed as `company_too_large` against a bound Simcare's ICP explicitly
+  set higher. `NHS Management, LLC` is in that returned batch.
+  Currently breaks: **Simcare**, pending enrichment. NOT FIXED, on main or on `sourcing-portable`
+  (identical at branch lines 307-308).
+
+- [post-build] **C5. The fit-score weights and tier thresholds.** `tier-classification.ts:151`
+  (on-target industry 45), `:156` (adjacent 20), `:296` and `:298` (tier_1 at 80, tier_2 at 50),
+  with seniority contributed by `seniorityScoreFor` in `buyer-criterion.ts:186-189`.
+  GATES SOFTLY. The weights decide tier, not survival.
+  Industry at 45 of 100 means a client whose industry is unclassifiable per C1 is capped at 55 and
+  can never reach tier_1 even with a perfect buyer and perfect size.
+  Currently breaks: Simcare's `Healthcare Consulting` prospects, pending enrichment.
+  NOT FIXED, on main or on `sourcing-portable`.
+
+### GROUP D — misleads a reader only
+
+- [post-build] **D1. The `notes` template.** `icp-filter-spec.ts:352-359`. Interpolates two tiers'
+  revenue and headcount into a fixed tail: `'Exclude: pre-validation founders (<3 clients, no
+  pricing page), ops managers (not decision-makers), firms with in-house sales teams (10+ people).
+  DE and NL included: English-operating consulting founders. Review per-client at onboarding.'`
+  ONLY DEFAULTS. Nothing reads `notes`; it is classified as metadata
+  (`FILTER_SPEC_METADATA_FIELDS`, line 197-201) precisely so the manifest check ignores it.
+  It is one client's qualification rules asserted about every client, and its last clause is
+  additionally false on its own terms: it claims DE and NL are included while
+  `DEFAULT_PERSON_COUNTRIES` twelve lines earlier is `['GB','IE','US']` and the Apollo filter
+  removes both countries at the query. Measured: 360 Bia Óg's archived v3 spec carries the whole
+  tail, "DE and NL included: English-operating consulting founders", on a spec for Irish primary
+  schools.
+  Currently breaks: 360 Bia Óg v3, as a document an operator would read and act on. NOT FIXED ON
+  MAIN. Addressed on `sourcing-portable` via `buildNotes()`.
+
+- [post-build] **D2. The canonical industry list is duplicated into the ICP prompt.**
+  `docs/prompts/icp-agent.md:609-633`, all 73 names between
+  `<!-- CANONICAL-INDUSTRY-LIST:BEGIN -->` and `:END`, mirroring `CANONICAL_INDUSTRIES` at
+  `icp-filter-spec.ts:16-104`.
+  GATES HARD downstream, but not here: `validateCanonicalIndustry` (line 111-124) throws in
+  `deriveFilterSpec` when a name is off-list, so a prompt that has drifted produces a document
+  that cannot become a spec.
+  This copy is guarded — `src/agents/__tests__/prompt-scan.ts:27-28` reads the two markers — so it
+  is the one duplicate that cannot silently drift.
+  A THIRD, UNGUARDED COPY EXISTS and was not in the original list of nineteen:
+  `src/app/dashboard/operator/sourcing-review/components/FlaggedIndustryTagsSection.tsx:14` holds
+  its own `CANONICAL_INDUSTRIES` array of **17 entries against the real 73**. It has already
+  drifted. It feeds the operator's dropdown for mapping a flagged industry tag, so an operator
+  cannot map a tag to any of the other 56 names.
+  Currently breaks: any operator reviewing a flagged tag for a non-consulting client, which today
+  means 360 Bia Óg and Simcare. NOT FIXED, on main or on `sourcing-portable`.
+
+- [post-build] **D3. Rule 7's example pair in the ICP prompt.** `docs/prompts/icp-agent.md:635-636`:
+  `Wrong: "HR / talent consulting", "Marketing strategy consulting", "IT / technology consulting"`
+  / `Right: "Human Resources Consulting", "Marketing Consulting", "Information Technology
+  Consulting"`.
+  ONLY DEFAULTS, in the sense that it steers a model rather than gating output. All six examples
+  are consulting, in a rule whose list is 73 names across every sector, so the worked demonstration
+  of the rule models the assumption the rest of the file spends four paragraphs (lines 638-649)
+  telling the model not to make.
+  For a client outside consulting this is a nudge toward the nearest consulting name. It is the
+  documented root cause of an earlier incident already in this file: 360dungarvan, a primary
+  schools business, labelled "Management Consulting".
+  Currently breaks: nothing measurable today. NOT FIXED, on main or on `sourcing-portable`, which
+  touches no file under `docs/prompts/`.
+
+- [post-build] **D4. The three-country allowlist exists in three places, in two formats.**
+  `icp-filter-spec.ts:275-276` as ISO codes `['GB','IE','US']`; `adapter-apollo.ts:144` and `:164`
+  as Apollo place names `['united states','united kingdom','ireland']`; `adapter-apollo.ts:239` as
+  a third ISO copy in `FILTER_COUNTRY_CODES`.
+  ONE GATES HARD, TWO DO NOT. Only the Apollo place names constrain anything. The defaults are
+  written into the spec and not read; `FILTER_COUNTRY_CODES` only labels the divergence log.
+  The comment at `icp-filter-spec.ts:258-273` states the coupling and says both must change
+  together, which is the mitigation this shape gets: a stated convention, not a check. Nothing
+  fails if they diverge, and the format difference means no test can compare them directly.
+  A fourth country literal governs a different question and is correctly separate:
+  `EXCLUDED_COUNTRIES = ['DE']` at `src/lib/sourcing/send-eligibility-rules.ts:11`, which is send
+  eligibility, not sourcing. See ADR-034 for why editing it is not retroactive.
+  Currently breaks: nobody. NOT FIXED ON MAIN; on `sourcing-portable` the third copy is deleted and
+  the other two remain.
+
+---
+
+### THE TWO THINGS THAT WERE UNEXPLAINED. BOTH HAVE THE SAME EXPLANATION, AND IT IS NOT A MYSTERY.
+
+The task recorded these as unexplained: that Simcare's and 360 Bia Óg's stored specs were not
+written by any code in the repository and must have been written by hand or by script on
+2026-09-03, and that 360 Bia Óg sourced 20 prospects despite industries that should have thrown at
+the reachability gate.
+
+The first half of that is right and the conclusion drawn from it is wrong. **Both artifacts were
+produced by the `sourcing-portable` branch, run against the production database on 2026-09-03.**
+Nothing was hand-written.
+
+The evidence, in the order it settles the question:
+
+1. `persistIcpFilterSpec` is the only writer of `icp_filter_spec`
+   (`src/lib/sourcing/persist-icp-filter-spec.ts:175`). It builds the spec fresh from
+   `deriveFilterSpec` (line 77) and writes the whole object. It never reads the stored spec back,
+   so it cannot produce a row that mixes main's derived fields with anything else. On main it
+   would have written the eight hardcoded job titles. The stored rows do not have them.
+
+2. Both stored specs carry a `notes` value beginning `"Excluded by this ICP: "`. That string does
+   not exist anywhere in main. It exists in exactly one place in the repository:
+   `origin/sourcing-portable:src/lib/agents/icp-filter-spec.ts:456`.
+
+3. Both stored specs carry `job_titles` identical to their own `buyer_criterion.accept` fragments,
+   lowercased. That is `job_titles: [...new Set(acceptFragments)]` at branch line 394. 360 Bia Óg:
+   `principal, deputy principal, chairperson, chair, board of management`. Simcare: `procurement,
+   managing director, portfolio, business development, ...`. Both also carry
+   `keywords_excluded: []`, which is the branch's removal of `DEFAULT_KEYWORDS_EXCLUDED` (B5).
+
+4. The timestamps are inside the data, not just on the row.
+   `buyer_criterion.derived_at` is `2026-09-03T19:14:10.482Z` for Simcare and
+   `2026-09-03T19:14:40.162Z` for 360 Bia Óg, and those values sit in the `icp_filter_spec` column
+   itself, so the column was written at or after those instants.
+
+5. The sourcing runs follow six and seven minutes later and are recorded normally:
+   Simcare `ce1f8fc5` at 19:16:06, 360 Bia Óg `ad49e9c6` at 19:21:12, both `status = completed`,
+   both `trigger_type = operator_manual`, both 20 written, `dropped_by_reason = {}`. Both have
+   `agent_runs` rows named `sourcing_entry`, which is `IN_FLIGHT_AGENT_NAME` at
+   `src/lib/operator/sourcing-entry.ts:68`, the real orchestrator entry point.
+
+6. **The returned prospects could not have come from `APOLLO_FILTER`.** 360 Bia Óg's 20 are schools
+   and academy trusts — `York Steiner School`, `Holy Cross Catholic MAC`, `Illuminate Minds Academy
+   Trust` — with titles that are all Chair variants: `Board Chair`, `Chairperson of the Board`,
+   `Chair of the Board of Trustees`. Those match that client's own `chair` / `chairperson` /
+   `board of management` fragments. Simcare's 20 are healthcare consultancies and operators with
+   titles like `Director of Nursing` and `Vice President of Business Development`, matching its
+   `director of nursing` and `business development` fragments. NAICS 5416 at 5-20 employees with
+   seniorities `owner, founder, c_suite, partner` returns neither set.
+
+So the reachability gate was not bypassed and there is no bug to find in it. On the branch, the
+gate derives its targets from `CANONICAL_TO_NAICS`, which maps
+`'Primary and Secondary Education': '6111'` (branch `adapter-apollo.ts:132`), so education is
+reachable there and the gate passed correctly for the code that was running.
+
+**What is worth carrying is the other half.** Two live client organisations now hold stored specs
+and 40 sourced prospects that main's code cannot reproduce, cannot re-derive, and in 360 Bia Óg's
+case would now refuse: re-approving that ICP on main runs `deriveFilterSpec`, overwrites the
+branch-derived spec with the eight consulting job titles and the "DE and NL included" notes tail,
+and the next sourcing run then throws at the reachability gate. The database is ahead of `main`,
+and the 40 prospects are unenriched, so the tiering findings in Group C have not been paid for yet.
+
+---
+
+### RANKING
+
+By what they block, worst first within each group.
+
+**Blocks sourcing the right companies at all:** A1 (the hardcoded query), A2
+(`APOLLO_TARGETED_INDUSTRIES`). Either one alone stops a non-consulting client.
+
+**Blocks sourcing the right people:** B2 (`job_titles_excluded`, live post-filter) and B5
+(`keywords_excluded`, live post-filter) are the two that actually delete returned rows today.
+B1, B4 and B3 are inert on main because the hardcoded query does not read them; they corrupt the
+stored document rather than the result set.
+
+**Blocks surviving tiering, after the money is spent:** C2 (`CONSULTANCY_PATTERNS`) and C1
+(`CLASSIFIABLE_INDUSTRIES`) remove prospects outright; C4 (`> 100`) overrides the client's own
+declared maximum. C3 and C5 only move tiers. These are the most expensive because they fire after
+enrichment has been paid for.
+
+**Misleads a reader only:** D1, D2, D3, D4. D2 has a live operator consequence through the
+17-of-73 UI copy, which is why it is not last.
+
+**Addressed by `sourcing-portable` (unmerged, so addressed nowhere that runs) — eleven:**
+A1, A2, A3, B1, B2, B4, B5, C2, D1, and partially D4 (one of three copies deleted).
+
+**Not addressed anywhere — eight:** A4 (`industries_excluded` always empty, and the dead
+Disqualifier 5 that depends on it), A5 (headcount fallbacks), B3 (the founder/owner substring
+test), C1 (`CLASSIFIABLE_INDUSTRIES`, 15 of 73, and the four industries that pass the gate and
+cannot survive tiering), C3 (headcount bands), C4 (`> 100` overriding the spec), C5 (fit weights),
+D2 (the canonical list copies, including the drifted 17-entry UI one), D3 (Rule 7's example pair).
+
+The four in Group C that nothing addresses are the ones to note: `sourcing-portable` makes the
+query portable and leaves tiering's consulting assumptions almost entirely in place, so a
+non-consulting client on that branch sources correctly and is then removed at classification.
+
+
 ## SOURCING REVIEW UX PASS — WHAT WAS LEFT OUT (2026-09-02, branch sourcing-ux)
 
 - [post-build] THREE ROWS CARRY tiering_reason = 'geography_excluded', AND TWO OF THEM
