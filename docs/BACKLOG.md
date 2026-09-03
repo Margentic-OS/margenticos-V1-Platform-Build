@@ -471,8 +471,35 @@ non-consulting client on that branch sources correctly and is then removed at cl
 
 ## PORTABLE SOURCING — WHAT THE SPEC-DRIVEN QUERY LEFT OPEN (2026-09-03, branch sourcing-portable)
 
-- [pre-c1] THE HANDLER CAN NOW SEARCH FOR EVERY CANONICAL INDUSTRY. THE CLASSIFIER CAN
-  STILL ONLY RECOGNISE CONSULTING ONES. 58 of the 74 targetable names have no route back.
+- [RESOLVED 2026-09-03, branch sourcing-and-tiering] THE HANDLER CAN NOW SEARCH FOR EVERY
+  CANONICAL INDUSTRY. THE CLASSIFIER CAN STILL ONLY RECOGNISE CONSULTING ONES. 58 of the
+  74 targetable names have no route back.
+
+  CLOSED BY DERIVING THE RANGE INSTEAD OF ENUMERATING TAGS, which is the option this entry
+  did not consider. CLASSIFIABLE_INDUSTRIES is now built from CANONICAL_INDUSTRIES plus the
+  alias table, and mapApolloToSpecIndustry resolves a tag whose string already IS a
+  canonical name before it consults the aliases. The gap is 0 and the ratchet in
+  inspect-filter-spec.test.ts is set to 0 to hold it there.
+
+  This does NOT do the thing the entry below correctly refuses to do. No provider tag
+  spelling is written from memory. A tag whose wording differs from every canonical name
+  still returns null, still fails closed, and still reaches the operator's mapping queue,
+  so the paid-enrichment measurement described below is still the only way to close THAT
+  half and is still worth doing.
+
+  TWO COUNTS BELOW ARE WRONG, corrected here rather than silently edited: it is 73
+  canonical industries and a 15-name classifier range, not 74 and 16. The difference of 58
+  happens to be right either way, which is why nothing caught it.
+
+  MEASURED, on the 129 stored MargenticOS prospects, with the recompute run read-only via
+  scripts/compare-tiering.ts: ONE row moves, tier_3 -> tier_2. A firm whose provider tag
+  was a canonical name the classifier could not produce scored 0 on the industry axis
+  because calculateIndustryScore returns early on an unmapped tag, which also skipped the
+  keyword rescue. It now maps, is correctly off-target for that client, and is rescued by
+  that client's own keyword to 20 points. Simcare and 360 Bia Og move zero rows.
+
+- [pre-c1, HALF OPEN] THE PROVIDER'S OWN TAG SPELLINGS ARE STILL UNMEASURED, which is the
+  half of the gap above that deriving the range cannot reach. Original entry follows.
 
   The Apollo query is built from the client's spec now, and CANONICAL_TO_NAICS gives every
   canonical industry a code. The REVERSE map, APOLLO_TO_SPEC in industry-mapping.ts, was
@@ -536,6 +563,76 @@ non-consulting client on that branch sources correctly and is then removed at cl
 
   Fixing it means regenerating Simcare's ICP, which is a re-approval, so it was NOT done.
   Doug's call.
+
+## CLASSIFICATION AND TIERING MADE PORTABLE — WHAT IS STILL OPEN (2026-09-03, branch sourcing-and-tiering)
+
+- [pre-c1] THE COUNTRY LIST IS STILL HARDCODED, AND IT IS THE LARGEST REMAINING DEFECT
+  FOR A LIVE CLIENT. Not fixed in this pass, deliberately, because the input needed to fix
+  it properly does not exist in a usable form.
+
+  Three places carry it. `DEFAULT_PERSON_COUNTRIES` and `DEFAULT_COMPANY_COUNTRIES` in
+  icp-filter-spec.ts are the ones that matter, because every spec is written from them;
+  `FILTER_COUNTRY_CODES` in adapter-apollo.ts only reports and is deleted on this branch
+  along with the hardcoded query it described.
+
+  WHY IT IS NOT DERIVED YET. The ICP carries a `geography` field, it is optional, and
+  NOTHING READS IT. Printed for all five organisations on 2026-09-03, every value is
+  PROSE, and prose of several different shapes: a country with a sub-national
+  qualification, a list of countries with a parenthetical of more countries, and a country
+  with an absolute exclusion clause. There is no structured field to map from and writing
+  a free-text parser for this is not a small change disguised as a config edit.
+
+  WHAT IT COSTS TODAY, measured: 360 Bia Og's ICP geography names one country. Its stored
+  spec carries three, because the spec took the defaults. Of the 20 prospects its own
+  spec-built query returned on 2026-09-03, the great majority are schools and trusts in
+  two OTHER countries. The query is faithful to the spec and the spec was never faithful
+  to the document.
+
+  THE MINIMUM CHANGE, and it is deliberately not a parser: make the ICP agent emit a
+  structured country-code list ALONGSIDE the prose, and have deriveFilterSpec read that
+  and fail loudly when it is absent rather than falling back to the defaults. The prose
+  stays for the operator. One intake-shaped field replaces a guess.
+
+  A SECOND REASON NOT TO PARSE THE PROSE. Two of the five geographies qualify a country
+  with a sub-national region, and the provider SILENTLY WIDENS an administrative level it
+  does not recognise to its whole country. Measured 2026-08-28 and recorded in
+  docs/discovery/2026-08-28-apollo-filter-silent-ignore.md: three provinces each returned
+  the exact whole-country count, while cities filtered correctly and a nonsense value
+  returned zero. So a naive translation of that prose produces a plausible narrower-looking
+  number that is actually the whole country. City-level filtering IS a viable substitute
+  and is measured to work. It is not built here.
+
+- [post-build] THE TIER THRESHOLDS ARE FIXED LITERALS AND THE SCORE AXES ARE NOT DERIVED.
+  Reported, not changed, because changing them moves every client at once.
+
+  `fitScore >= 80` is tier 1 and `>= 50` is tier 2, in tier-classification.ts. The axes
+  that feed them are fixed too: industry 45 on target and 20 for a keyword rescue,
+  seniority up to 35, headcount 0 to 20 in fixed bands.
+
+  The exposure is real and has already happened once in a related form. A client whose
+  prospects cannot earn one axis has a silent ceiling: an unmapped industry tag scores 0
+  and caps a prospect at 55, which is tier 2 whatever else is true of it, and that is
+  exactly the state all 40 prospects for the two newest clients are in, because sourcing
+  does not write company_industry. The buyer-criterion version of this defect was fixed on
+  this branch by withholding the tier rather than fabricating it; the industry version is
+  still live and is quieter, because it produces a plausible tier rather than none.
+
+- [post-build] THE OPERATOR'S INDUSTRY-MAPPING SECTION IS NOT RENDERED BY ANY PAGE.
+  `FlaggedIndustryTagsSection.tsx` is defined and imported nowhere.
+
+  Its dropped-prop defect is fixed on this branch: it declared `canonicalIndustries`, never
+  destructured it, and offered its own 17-name list instead, which GATED what an operator
+  could map a tag to and included one entry that is not a canonical name at all. That fix
+  is latent until something mounts the component.
+
+  Related and measured: `industry_tag_mappings` has ZERO rows. The operator-mapping path
+  has never been used, so the "database mappings take precedence" branch in
+  industry-mapping.ts is untested against production data.
+
+- [post-build] ONE STORED ROW STILL CARRIES `industry_not_consulting`, the reason string
+  this branch renamed. It renders correctly, because prospect-status.ts keeps both keys on
+  purpose, and it is NOT rewritten. Rewriting a stored verdict to match a renamed constant
+  changes history to match code, which is the wrong direction. It goes when the row does.
 
 - [post-build] `seniority_levels` IS STILL DERIVED BY A HARDCODED BUYER-TITLE TEST.
 
