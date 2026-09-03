@@ -10472,3 +10472,72 @@ SOMETHING THAT WAS NOT HAPPENING.
   mismatch, because jsonb does not preserve key order. Without the backfill both clients
   would have scored seniority 0 on every newly tiered prospect until an ICP was
   re-approved.
+
+---
+
+## Writer measurement: what temperature 0 proved, 2026-09-03
+
+Recorded as measurement, not as a problem statement. No remedy is proposed in any of
+these. The temperature change itself was measured and dropped; it is not in main.
+
+- [post-build, 2026-09-03] TEMPERATURE 0 DOES NOT GIVE REPRODUCIBLE RUNS ON THIS PROVIDER.
+  Measured on the `temperature` branch, which was pushed and deliberately not merged.
+  `temperature: 0` was set on all three model calls in write-opening.ts (writer, floor
+  judge, judge) and the same 41 prospects were run twice, pinned by UUID, messaging
+  document pinned to 61ed3cf8 v2, read-only export, nothing written. Cohort fingerprint
+  identical before and after both runs: c05a35e0b93fa5f3d3256f2a8c1a817bc595950c514aced72dce9d367c4a28cc
+
+  Byte-identical across the two runs: observation 14/41, bridge 3/41, question 5/41,
+  subject 8/41. ALL FOUR FIELDS: 3 of 41.
+
+  The mechanism is provider-side and not ours. Of the 26 prospects that used the same
+  number of attempts in both runs, and were therefore given byte-identical prompts, 11
+  produced a byte-identical observation and then a different bridge. The writer emits
+  observation and bridge in a single call, so those 11 diverged partway through one
+  generation from an identical prefix. Temperature 0 selects the top token; it does not
+  make the scores reproducible, and near-ties can swap with floating-point reduction order
+  on the serving fleet.
+
+  Two amplifiers on top of it are ours: 15 of 41 prospects used a different number of
+  attempts, and a retry appends gate feedback so the second attempt's prompt genuinely
+  differs; and the shared BatchUniquenessRegistry propagates any divergence down the batch.
+
+  Temperature 0 also cost copy quality. Judge win rate 80.5% and 78.0% across the two
+  runs, against 95.1% and 90.2% on the two temperature-1 noise-floor runs of the same 41.
+  Both temperature-0 runs sit below both temperature-1 runs. Bridges produced: 33 and 32,
+  against 39 and 37. Cost per prospect was comparable throughout, $0.0154 to $0.0178.
+
+- [post-build, 2026-09-03] A DIFFERENCE UNDER ROUGHLY 10 POINTS ON 41 PROSPECTS IS NOT
+  READABLE, AND FIVE PROMPT ARMS HAVE ALREADY BEEN RUN AGAINST THAT FLOOR.
+  Any future A/B on the writer needs paired runs of the same cohort, and a difference
+  smaller than about 10 points on 41 prospects cannot be told from run-to-run noise.
+  Five prompt arms were run across this workstream and none was distinguishable from
+  noise. The two temperature-1 runs of the identical cohort differ from each other by
+  5 points of judge win rate (95.1% against 90.2%) with no code change at all between
+  them, which is the floor a real effect has to clear.
+
+  The related measurement already recorded elsewhere: a 41-prospect cohort churns roughly
+  14 of 35 bridges between two identical runs, so movements under about 7 prospects are
+  noise.
+
+- [post-build, 2026-09-03] BATCH ORDER IS AN UNCONTROLLED VARIABLE IN EVERY WRITER
+  MEASUREMENT TAKEN SO FAR.
+  produceOpening receives one BatchUniquenessRegistry for the whole run, which is correct,
+  because a production batch has one too and a per-prospect registry could only reserve
+  against itself. The consequence is that prospect k's output depends on prospects 1 to
+  k-1: what they reserved changes the uniqueness feedback a later prospect's retry is
+  given. Reordering the same 41 prospects is therefore a different experiment, and any
+  divergence at prospect k can propagate to everything after it.
+
+  This affects every writer measurement taken to date, including both temperature-1
+  noise-floor runs, both temperature-0 runs, and every prompt-arm comparison in this
+  workstream. All of them happened to run the same fixed id order, which is why the effect
+  has not shown up as an inconsistency; it is uncontrolled rather than known to be zero.
+
+- [post-build, 2026-09-03] SYNTHESIS RUNS AT THE API DEFAULT TEMPERATURE AND IS UNCHANGED.
+  buildSynthesisParams in src/lib/agents/research/synthesize.ts returns model, max_tokens,
+  system and messages, and sets no sampling parameter, so synthesis runs at the API default
+  of 1.0. It was deliberately not touched during the temperature test, which isolated the
+  writer path. The same reproducibility limit recorded above applies to it: pinning
+  synthesis to temperature 0 would not make synthesis runs reproducible either, for the
+  same provider-side reason. Synthesis output was not re-run or measured in this work.
