@@ -113,10 +113,26 @@ describe('judge choice parsing falls back to the template, never to the written 
     expect(r.written_won).toBe(false)
   })
 
-  it('tracks written_won against the randomised label, not the letter', () => {
+  it('tracks written_won against the assigned label, not the letter', () => {
     // Same reply, opposite mapping: the written version was labelled B this time.
     const r = parseChoice('CHOICE: B\nREASON: Sharper opening.', 'B')
     expect(r.written_won).toBe(true)
+  })
+
+  it('reads the REASON-first order the judge prompt now asks for', () => {
+    // buildJudgePrompt emits REASON before CHOICE so the reason cannot be written
+    // after the choice is already fixed. The reason match is greedy to end-of-string,
+    // so this is the case that would silently capture the CHOICE line into the reason.
+    const r = parseChoice('REASON: The opening earns the offer line.\nCHOICE: A', 'A')
+    expect(r.chosen).toBe('A')
+    expect(r.written_won).toBe(true)
+    expect(r.reason).toBe('The opening earns the offer line.')
+  })
+
+  it('still reads the old CHOICE-first order, so the swap is not a one-way door', () => {
+    const r = parseChoice('CHOICE: B\nREASON: Template is sharper.', 'B')
+    expect(r.chosen).toBe('B')
+    expect(r.reason).toBe('Template is sharper.')
   })
 
   it('resolves an unparseable reply to the template', () => {
