@@ -28,7 +28,7 @@
 // ─── WHAT CHANGED 2026-09-03 ─────────────────────────────────────────────────
 //
 // Case 1 used to be "a document is not APPROVED", reading client_approval_status.
-// Client approval on strategy documents is removed (ADR-039), so the case is now
+// Client approval on strategy documents is removed (ADR-047), so the case is now
 // "a document does not exist". A row that exists is live, and a live document is not
 // something the client has to clear.
 

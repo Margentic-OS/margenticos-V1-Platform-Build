@@ -12,7 +12,7 @@
 -- decided three days had passed.
 --
 -- Client approval on strategy documents is removed. The conversation with the
--- operator is the approval. See Decisions Log 2026-09-03 and ADR-039.
+-- operator is the approval. See Decisions Log 2026-09-03 and ADR-047.
 --
 -- The four approval columns are NOT dropped here. Dropping them is irreversible and
 -- is held for its own migration once nothing reads or writes them. After this

@@ -3,6 +3,16 @@
 # Cover: all views, what each shows, why, what to check if a view breaks.
 # The spec is in /prd/sections/12-dashboard.md. Design tokens in /docs/design.md.
 
+> **2026-09-03: the strategy document page changed.** The Approve button, the pending
+> state and the operator "Proceed without client approval" link are gone. In their place:
+> a line saying which version is live and when it changed, a View previous panel listing
+> every version with the note that produced it, and, for operators only, Restore this
+> version and a stale notice with a regenerate action beside it. See ADR-047.
+>
+> Restore is operator-only on purpose: it rewrites the copy every future email is composed
+> from. On messaging the panel states plainly that it affects emails composed from that
+> point on and does not rewrite emails already generated.
+
 ## Views built
 
 This section is incomplete. It records only the views documented so far, not every view that

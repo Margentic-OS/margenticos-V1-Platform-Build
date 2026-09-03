@@ -11,7 +11,7 @@
 //
 // Until 2026-09-03 this required client_approval_status = 'approved' on all four.
 // Client approval on strategy documents has been removed: the conversation with the
-// operator is the approval. See ADR-039.
+// operator is the approval. See ADR-047.
 //
 // The missing-document half of the check is kept, and it is the half that was always
 // doing the work. A client with no messaging document cannot have emails composed

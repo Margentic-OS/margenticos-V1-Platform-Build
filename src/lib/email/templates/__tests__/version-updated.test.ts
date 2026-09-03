@@ -101,7 +101,7 @@ describe('version_pending notification', () => {
 
   // THE REGRESSION THIS GUARDS. Until 2026-09-03 this email told a client that silence
   // for three days counted as approval. strategy-doc-auto-approve made that true. The
-  // cron is unscheduled and client approval is removed (ADR-039), so the sentence would
+  // cron is unscheduled and client approval is removed (ADR-047), so the sentence would
   // now be a promise about a process that does not exist: it asks the client to act by a
   // deadline that never arrives. Asserting on the ABSENCE of the old vocabulary is the
   // point, because the failure mode is copy that survives the mechanism it described.

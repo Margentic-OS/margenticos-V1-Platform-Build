@@ -6,7 +6,7 @@
 //
 // The new version carries: same segment_id, revision_note, change_summary, version+1.
 // It is live immediately. Client approval on strategy documents was removed 2026-09-03,
-// see ADR-039.
+// see ADR-047.
 //
 // Archival approach: reuses promote_strategy_doc_version rather than
 // reimplementing the segment-scoped NULL-safe predicate. This is the same

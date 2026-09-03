@@ -35,7 +35,7 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   ['MON-005', 'mon_005'],
   ['MON-006', 'mon_006'],
   // MON-007 REMOVED 2026-09-03. It watched the strategy-doc-auto-approve cron, which is
-  // unscheduled because client approval on strategy documents is gone (ADR-039). A
+  // unscheduled because client approval on strategy documents is gone (ADR-047). A
   // monitor whose subject no longer exists reports PROBLEM for ever and teaches the
   // operator to ignore the board. The view and its monitor_checks row are dropped in
   // 20260903100500_retire_strategy_doc_auto_approve.sql, in this same commit.

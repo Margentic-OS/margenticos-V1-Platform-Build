@@ -6,7 +6,7 @@
 // client would be waiting on us while we waited on them.
 //
 // Until 2026-09-03 the blocking case was "a document is not APPROVED". Client approval on
-// strategy documents is removed (ADR-039), so it is now "a document does not exist".
+// strategy documents is removed (ADR-047), so it is now "a document does not exist".
 
 import { describe, it, expect } from 'vitest'
 import { deriveStrategyNavState, STRATEGY_DOC_TYPES } from './strategy-nav-state'

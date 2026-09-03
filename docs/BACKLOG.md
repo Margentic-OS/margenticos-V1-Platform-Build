@@ -23,6 +23,89 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## DOCUMENT VERSIONING AND APPROVAL REMOVAL (2026-09-03, branch doc-versions)
+
+- [pre-c1] THE HOURLY auto-approve CRON HAS NEVER APPROVED ANYTHING AND CANNOT.
+  Found 2026-09-03 by running the proof script, which hit the same constraint.
+
+  `/api/cron/auto-approve` calls `approve_document_suggestion` with
+  `SYSTEM_AUTO_APPROVE_ID = '00000000-0000-0000-0000-000000000001'` as `p_reviewer_id`.
+  `document_suggestions.reviewed_by` has `FOREIGN KEY (reviewed_by) REFERENCES users(id)`,
+  and there is no `users` row with that id. Measured live:
+
+      users rows with the system id ............ 0
+      suggestions ever reviewed_by that id ..... 0
+      suggestions approved in total ............ 53
+
+  So every one of those 53 was approved by a person. The cron throws on the FK, catches
+  it in its own try/catch, counts a failure and writes an `ok = false` heartbeat. It has
+  been running hourly and doing nothing but that.
+
+  NOT FIXED HERE: this is the operator's suggestion queue, a different mechanism from the
+  document approval this branch removed, and inventing a system user row is a decision
+  about who "the system" is in an audit trail.
+
+  NEXT ACTION: either seed a system user row, or drop the FK requirement by making
+  `reviewed_by` nullable and recording the auto-approval elsewhere. Decide which before
+  relying on the auto-approve window for a paying client.
+
+- [post-build] TWO ACTIVE ICP DOCUMENTS STILL HAVE A NULL FILTER SPEC, FOR TWO DIFFERENT
+  REASONS. The code path that produced them is fixed; these are the rows it left behind.
+
+      a9188af3  DRY RUN TEST                       client_revision
+      082f3eb7  MargenticOS (archived April 2026)  signal_suggestion
+
+  DRY RUN TEST was backfilled and the backfill REFUSED, correctly:
+
+      deriveFilterSpec failed: "Distribution Consulting" is not a canonical industry
+      name. No close match found.
+
+  That document predates the canonical-industry validation, so its content names an
+  industry no handler can translate. Adding a canonical industry is a decision about the
+  product's vocabulary, not something a backfill gets to make. The refusal cost nothing:
+  `deriveFilterSpec` runs before `deriveBuyerCriterion`, which is the only model call.
+
+  The archived April organisation was deliberately left alone. Deriving a spec costs a
+  model call and that organisation is dead.
+
+  Neither is silent: the sourcing orchestrator fails loudly on a NULL spec.
+
+  NEXT ACTION: decide whether "Distribution Consulting" becomes canonical or that ICP is
+  regenerated. `scripts/backfill-icp-filter-spec.ts` is in the repo for when it is.
+
+- [post-build] REVERT INCREASES THE EXPOSURE OF THE messaging_doc_id STALENESS BUG.
+  Recorded at Doug's request, deliberately NOT fixed in this pass.
+
+  `resolveVariant` in `src/lib/composition/compose-sequence.ts` returns early when the
+  prospect already has a `variant_id`, before the write that sets `variant_id` AND
+  `messaging_doc_id` together. So a prospect keeps whatever `messaging_doc_id` it was
+  first stamped with while composition proceeds from the current live document. After a
+  new messaging version the row says v1 and the email came from v2.
+
+  Why it matters more now: `messaging_doc_id` is read by `isDocSuperseded` in
+  `prospect-research-collect-agent.ts`, which decides whether a research result is stale.
+  Version history and revert make messaging versions cheaper to create, so a wrong
+  `messaging_doc_id` gets more chances to mislead that check.
+
+  Why it was not fixed here: it is in composition, and touching composition during a
+  build whose whole premise is that running campaigns must not be disturbed is the wrong
+  trade.
+
+- [post-build] THE STALE FLAG DOES NOT SAY WHICH UPSTREAM DOCUMENT CHANGED.
+  `is_stale` is a boolean on the downstream row and carries no provenance. The operator
+  is told "written before the latest Prospect profile, Positioning or Voice guide", which
+  names everything it is built from rather than the one that moved.
+
+  Naming the cause would mean guessing it from the upstream documents' timestamps, and a
+  guess presented as a fact is worse than the shorter honest sentence. Fixing it properly
+  means a column recording which document type set the flag, and it was not worth the
+  migration until somebody wants it.
+
+- [post-build] MON-007 IS RETIRED, NOT DELETED. Its `monitor_checks` row is moved to
+  category 'unscheduled' rather than removed, because `monitor_events_check_code_fkey`
+  references it and deleting the check would take the record of every sweep it ever ran.
+  The view `mon_007` is dropped and the sweep no longer queries it.
+
 ## SOURCING REVIEW UX PASS — WHAT WAS LEFT OUT (2026-09-02, branch sourcing-ux)
 
 - [post-build] THREE ROWS CARRY tiering_reason = 'geography_excluded', AND TWO OF THEM
@@ -7722,7 +7805,7 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   The OTP one is worth a look given auth here is magic-link, so the OTP lifetime is the
   window in which a captured link stays usable.
 
-- [docs] RESOLVED 2026-08-27: the view decision is ADR-039.
+- [docs] RESOLVED 2026-08-27: the view decision is ADR-047.
 
   Doug assigned 039 directly at merge time: 035 is unmerged on sourcing-filter, 036 exists
   on five branches, 037 is claimed by two, and 038 belongs to operator-rejection-note.

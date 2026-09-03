@@ -112,7 +112,7 @@ export async function runSourcing(
   try {
     // ── Step 1: Read the live ICP ─────────────────────────────────────────────
     // Sourcing runs on whatever ICP is live. The operator producing a version is what
-    // makes it live, so there is no separate approval to wait for. See ADR-039.
+    // makes it live, so there is no separate approval to wait for. See ADR-047.
     const { data: icpDoc, error: icpError } = await supabase
       .from('strategy_documents')
       .select('id, content, icp_filter_spec')

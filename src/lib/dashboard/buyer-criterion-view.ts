@@ -19,7 +19,7 @@
 // WHAT THIS CHECK USED TO BE. Until 2026-09-03 it also required
 // client_approval_status = 'approved', to cover a window where promote_strategy_doc_version
 // made a document live while marking it unapproved. Client approval is gone and so is
-// that window: a document is live because an operator produced it. See ADR-039.
+// that window: a document is live because an operator produced it. See ADR-047.
 
 // ─── RULE 2: ONLY A CRITERION THAT IS ACTUALLY IN FORCE ──────────────────────
 //

@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation'
 //
 // An Approve button, a pending state the client had to clear, and an operator
 // "Proceed without client approval" escape hatch. Client approval on strategy
-// documents is removed: the conversation with the operator is the approval. ADR-039.
+// documents is removed: the conversation with the operator is the approval. ADR-047.
 //
 // What is left is the one control that was never approval: asking for a change. A
 // client reading a document and saying what is wrong with it is the useful half, and

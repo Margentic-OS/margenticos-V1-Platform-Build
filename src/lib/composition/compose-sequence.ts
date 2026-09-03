@@ -8,7 +8,7 @@
 // Client isolation: every query filters by client_id. Never queries without client_id.
 //
 // Approval invariant (Addendum-2): every strategy_document fetch requires BOTH
-//   status = 'active'   (client approval was removed 2026-09-03, see ADR-039)
+//   status = 'active'   (client approval was removed 2026-09-03, see ADR-047)
 // If a required doc (Messaging) is absent or unapproved, composeSequence throws with a
 // named reason. Optional enrichment docs (ICP pain proxy, Positioning value hook) fall
 // back to safe defaults when absent; they never fall back to an unapproved version.

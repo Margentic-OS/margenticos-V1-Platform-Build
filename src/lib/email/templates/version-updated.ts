@@ -60,7 +60,7 @@ export interface VersionUpdatedParams {
 //
 // This email used to say "If we do not hear from you within three days we will take that
 // as approval and move ahead." That was true while strategy-doc-auto-approve existed. It
-// is now false. Client approval on strategy documents has been removed (ADR-039), the
+// is now false. Client approval on strategy documents has been removed (ADR-047), the
 // cron is unscheduled, and there is no window to run down.
 //
 // A promise about a process that no longer exists is worse than no email at all: it asks
