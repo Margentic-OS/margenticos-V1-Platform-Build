@@ -1542,6 +1542,39 @@ async function callModel(
     const res = await client.messages.create({
       model,
       max_tokens: maxTokens,
+      // NO SAMPLING PARAMETER IS SET, AND THAT IS DELIBERATE. Do not add one without
+      // reading this first.
+      //
+      // Every call this file makes therefore runs at the API default temperature of 1.0.
+      // That is not an oversight and it is not inherited from a default nobody checked:
+      // it was measured on 2026-09-02 and then chosen.
+      //
+      // THE MEASUREMENT. Pinning temperature to 0 across the writer, the floor judge and
+      // the judge makes a run reproducible. Against 41 prospects with byte-identical
+      // input, the unpinned path produced 41 different outputs and zero repeats. So the
+      // run-to-run noise floor here is total, and it is larger than most of the prompt
+      // effects this file's changes have been trying to read.
+      //
+      // WHY IT IS STILL NOT PINNED. Determinism is the OPPOSITE of what production wants.
+      // The batch uniqueness gate exists precisely to force variety BETWEEN prospects, and
+      // a lower temperature makes the writer more uniform, so pinning would push against
+      // the one property the surrounding machinery is built to guarantee. The variety cost
+      // was never costed, and shipping a value on the strength of a measurement taken for
+      // a different purpose is how a test value becomes a production decision by accident.
+      //
+      // SO THE TRADE-OFF IS ACCEPTED, NOT UNNOTICED: this path is unmeasurable run to run,
+      // in exchange for the variety the uniqueness gate needs. Anyone measuring a prompt
+      // change here needs a cohort large enough to see past that floor, not a smaller
+      // temperature. See the writer run-to-run noise floor before quoting any single-run
+      // comparison.
+      //
+      // No constant, on purpose. A named MODEL_TEMPERATURE with nothing assigned to it
+      // would advertise a knob this file does not have, and the next person would set it.
+      // If a value is ever genuinely wanted, it is a separate decision taken on measured
+      // variety, and it belongs at the three call sites that would use it.
+      //
+      // synthesize.ts has its own model call and is also unpinned, for the same reason.
+      //
       // DEFAULT 5-MINUTE TTL, matching synthesize.ts. A 1-hour TTL was tried and reverted
       // on 2026-08-26: it doubles the write cost and only pays above ~7 reads per write,
       // against a measured 4.14. The full arithmetic and the condition for revisiting are
