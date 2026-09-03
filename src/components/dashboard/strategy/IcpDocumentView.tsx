@@ -1,5 +1,9 @@
 import type { Json } from '@/types/database'
 import type { IcpDocument, IcpTier } from '@/types'
+import {
+  BuyerCriterionSection,
+  BuyerCriterionOperatorPanel,
+} from '@/components/dashboard/strategy/BuyerCriterionSection'
 
 // ─── Render-boundary coercion ────────────────────────────────────────────────
 //
@@ -164,14 +168,42 @@ function TierBlock({ tier, tierNum }: { tier: IcpTier; tierNum: 1 | 2 | 3 }) {
 interface IcpDocumentViewProps {
   content: Json
   plainText: string | null
+  /**
+   * Already gated. Null means render nothing, and the decision was made in
+   * buyer-criterion-view.ts rather than here: a component that decides its own
+   * visibility is one an edit to the layout can silently switch on.
+   */
+  buyerCriterion?: import('@/lib/dashboard/buyer-criterion-view').ClientBuyerCriterion | null
+  /** Operator-only. Undefined for every client render. */
+  operatorCriterion?: import('@/lib/dashboard/buyer-criterion-view').OperatorBuyerCriterion | null
 }
 
-export function IcpDocumentView({ content, plainText }: IcpDocumentViewProps) {
+export function IcpDocumentView({
+  content,
+  plainText,
+  buyerCriterion,
+  operatorCriterion,
+}: IcpDocumentViewProps) {
   const doc = content as Record<string, unknown>
   const hasStructured = doc && (doc.jtbd_statement || doc.tier_1 || doc.summary)
 
+  // The criterion is independent of whether the document body parsed into the structured
+  // shape, so it renders on both paths. A document that fell back to plain text is
+  // exactly when the reader most needs the sentence.
+  const criterionBlocks = (
+    <>
+      {buyerCriterion && <BuyerCriterionSection criterion={buyerCriterion} />}
+      {operatorCriterion && <BuyerCriterionOperatorPanel criterion={operatorCriterion} />}
+    </>
+  )
+
   if (!hasStructured) {
-    return <PlainTextView text={plainText} />
+    return (
+      <div className="space-y-5 max-w-[960px]">
+        <PlainTextView text={plainText} />
+        {criterionBlocks}
+      </div>
+    )
   }
 
   const icp = doc as unknown as IcpDocument
@@ -184,6 +216,7 @@ export function IcpDocumentView({ content, plainText }: IcpDocumentViewProps) {
         {icp.tier_1 && <TierBlock tier={icp.tier_1} tierNum={1} />}
         {icp.tier_2 && <TierBlock tier={icp.tier_2} tierNum={2} />}
         {icp.tier_3 && <TierBlock tier={icp.tier_3} tierNum={3} />}
+        {criterionBlocks}
       </div>
 
       {/* Right column — JTBD + summary */}

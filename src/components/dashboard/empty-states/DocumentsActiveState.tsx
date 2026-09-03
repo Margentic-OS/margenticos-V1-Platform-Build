@@ -342,6 +342,27 @@ export function DocumentsActiveState({
               <p className="text-[11px] text-text-secondary mb-4">
                 The brain behind your campaigns. Review them to keep targeting sharp.
               </p>
+
+              {/* One line, and a link out. The Overview is a status page and this is not
+                  status, so it frames the thing and sends the reader to the document that
+                  holds it rather than reproducing any of it here.
+
+                  RULE ZERO: fixed copy, identical for every client. No industry, no
+                  sector, no job title, no buyer archetype. "the people you actually want
+                  to talk to" is the strongest thing that can be said without describing
+                  anyone in particular. */}
+              <div className="mb-4 pb-4 border-b border-border-card">
+                <p className="text-[11px] text-text-secondary leading-relaxed">
+                  We only reach out to the people your prospect profile says are worth
+                  talking to.{' '}
+                  <a
+                    href={appendClientParam(NAV_DOC_HREFS.icp, clientParam)}
+                    className="text-brand-green font-medium hover:underline"
+                  >
+                    See who that is
+                  </a>
+                </p>
+              </div>
               {warmupStartedAt && (
                 <div className="flex items-center gap-1.5 mb-5">
                   <span className="w-1.5 h-1.5 rounded-full bg-brand-green-success" />

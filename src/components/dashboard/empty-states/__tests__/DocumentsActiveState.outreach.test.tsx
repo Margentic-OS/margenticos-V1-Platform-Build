@@ -15,6 +15,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { DocumentsActiveState } from '../DocumentsActiveState'
+import { findBannedContent } from '@/agents/buyer-criterion-agent'
 import type { ClientVisibleCampaignMetrics } from '@/lib/metrics/get-client-visible-campaign-metrics'
 import type { CampaignLiveness } from '@/lib/dashboard/campaign-liveness'
 
@@ -182,5 +183,34 @@ describe('the overview before anything has been sent', () => {
     // a screen that does not show them.
     renderOverview(metrics({ sentCount: 0, hasData: false }))
     expect(screen.queryByText(/Meetings will appear here/i)).not.toBeInTheDocument()
+  })
+})
+
+
+describe('the line that frames the buyer criterion', () => {
+  // The Overview is a status page and the criterion is not status, so this is one
+  // sentence and a link out, never a copy of the criterion itself.
+  it('frames it and links to the document that holds it', () => {
+    renderOverview(metrics())
+    expect(
+      screen.getByText(/We only reach out to the people your prospect profile says are worth talking to\./),
+    ).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: 'See who that is' })
+    expect(link).toHaveAttribute('href', expect.stringContaining('/dashboard/strategy/icp'))
+  })
+
+  it('reproduces no part of the criterion on this page', () => {
+    // Whatever a given client's criterion says, none of it belongs here. The line has to
+    // read identically for every client.
+    const { container } = renderOverview(metrics())
+    expect(container.innerHTML).not.toContain('Who we contact')
+    expect(container.innerHTML).not.toContain('What this is based on')
+  })
+
+  it('RULE ZERO: the line names no title, sector or archetype', () => {
+    renderOverview(metrics())
+    const line = screen.getByText(/We only reach out to the people/).textContent ?? ''
+    expect(line.length).toBeGreaterThan(0)
+    expect(findBannedContent(line)).toEqual([])
   })
 })
