@@ -1099,11 +1099,11 @@ Both go out under your name. Which one could that person read once, at speed, wi
 going back over any sentence, and still find the closing question the obvious thing to ask
 them?
 
-Answer A or B, then one sentence on why.
+Give the one sentence on why first, then answer A or B.
 
 Reply in exactly this format:
-CHOICE: A
-REASON: one sentence.`
+REASON: one sentence.
+CHOICE: A`
 }
 
 /** The two drafts, labelled and ordered for one comparison. */
@@ -1513,6 +1513,14 @@ async function callModel(
 /**
  * Reads the judge's pick. An unreadable reply resolves to the TEMPLATE, never to the
  * written opening, so an ambiguous answer can only ever fall back to approved copy.
+ */
+/*
+ * ORDER-INDEPENDENT, AND CHECKED AGAINST THE PROMPT RATHER THAN ASSUMED.
+ * buildJudgePrompt now asks for REASON before CHOICE. The reason match runs to the end
+ * of the string and then keeps the first line, so it stops before a CHOICE line that
+ * follows it; the choice match is anchored on its own label and does not care where it
+ * sits. Both orders are covered by tests, because the prompt is the thing most likely to
+ * be edited back.
  */
 export function parseChoice(raw: string, writtenLabel: 'A' | 'B'): {
   chosen: 'A' | 'B'
