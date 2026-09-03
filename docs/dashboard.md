@@ -165,6 +165,7 @@ anywhere in the rendered overview.
 | Contacted | `campaigns.contacted_count`, filled from the provider's `new_leads_contacted_count` | NOT `sent_count`, which counts emails: a four-step sequence sends up to four to one person. Also NOT the provider's own `contacted_count`, despite the matching name. See the warning below |
 | Delivered | `sent_count` minus `bounced_count` | "Sent" is what we handed the tool. Delivered is what landed |
 | Replies | `campaigns.replied_count` | Instantly's count, the same number the reply rate is built from |
+| Reply rate | `replied_count` ÷ **`contacted_count`** | PEOPLE, not emails. A four-step sequence sends up to four emails to one person, so the send denominator counted the same person up to four times. Live: 2 of 60 emails reads 3.3%, 2 of 24 people reads 8.3%, and the published range is measured the second way |
 | Interested | `reply_handling_actions` rows whose `classified_intent` is in the client-visible set | NOT `signals.signal_type = 'positive_reply'`, which nothing has ever written. See below |
 | Meetings held | `meetings.meeting_status = 'held'` | Booked is shown separately in the footnote. A meeting counts as held only after somebody confirms it happened |
 

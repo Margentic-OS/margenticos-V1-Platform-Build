@@ -21,12 +21,27 @@
 //
 // The standard error of a measured proportion is sqrt(p(1-p)/n).
 //
-// SEND-DENOMINATED RATES (reply, meeting booking, bounce, opt-out): the thresholds worth
+// SEND-DENOMINATED RATES (meeting booking, bounce, opt-out): the thresholds worth
 // distinguishing sit about a percentage point apart, so a standard error under one point
 // is the bar.
 //   reply rate near 4%:            0.01 = sqrt(0.04 * 0.96 / n)  ->  n ~= 384
 //   meeting rate near 1%, half a point:  0.005 = sqrt(0.01 * 0.99 / n)  ->  n ~= 396
-// Both land in the same place, so one number covers all four: 400 emails.
+// Both land in the same place, so one number covers them: 400 emails.
+//
+// PEOPLE-DENOMINATED RATES (reply, since 2026-09-03): same arithmetic, different unit.
+// n is a count of PEOPLE, and the number is the same 400 because the algebra above does
+// not care what the trial is, only how many independent ones there are.
+//
+// AND THAT IS THE REAL ARGUMENT FOR THE UNIT, not just comparability with published
+// figures. sqrt(p(1-p)/n) assumes n INDEPENDENT trials. Four emails to one person are not
+// four independent chances of a reply: they are one person deciding once, prompted up to
+// four times. Counting them as four overstates the sample by roughly the sequence length,
+// which is exactly the direction that makes a noisy number look settled. 400 people is a
+// real 400 trials; 400 emails to 100 people is not.
+//
+// So this is a STRICTER gate in wall-clock terms, not a looser one. At a four-step
+// sequence it is about four times as many emails before a reply rate prints. That is the
+// cost of the number meaning what it says.
 //
 // POSITIVE REPLY SHARE: the denominator is replies, not emails, and the proportion sits
 // near half, where the standard error is at its widest. A ten-point standard error, which
@@ -38,6 +53,16 @@
 // own small dishonesty.
 
 export const MIN_SENDS_FOR_RATE = 400
+
+// Deliberately a separate constant with the same value rather than a reuse of the one
+// above. They are the same number in different units, and the whole defect this file's
+// reply-rate change addresses was a denominator whose unit nobody could see. A single
+// MIN_SENDS_FOR_RATE used under a people-denominated rate would put "around 400 emails"
+// in the card's own too-early line, under a rate measured in people.
+//
+// If one of them ever moves, the other must be considered separately, not dragged along.
+export const MIN_PEOPLE_FOR_RATE = 400
+
 export const MIN_REPLIES_FOR_POSITIVE_RATE = 25
 
 export interface RateReading {

@@ -68,6 +68,7 @@ export interface ClientVisibleCampaignMetrics {
   bouncedCount: number
   unsubscribedCount: number
   repliedCount: number
+  // REPLIES PER PERSON CONTACTED, not per email. See the note by its computation below.
   replyRate: number | null
   // Replies whose classified intent is in the client-visible positive set. Counted from
   // the SAME list the replies page filters on, so this number can never disagree with the
@@ -165,7 +166,19 @@ export async function getClientVisibleCampaignMetrics(
     bouncedCount,
     unsubscribedCount,
     repliedCount,
-    replyRate: sentCount > 0 ? (repliedCount / sentCount) * 100 : null,
+    // ─── DENOMINATED IN PEOPLE, NOT EMAILS, SINCE 2026-09-03 ─────────────────
+    //
+    // A four-step sequence sends up to four emails to one person, so sentCount counted
+    // the same person up to four times and this rate came out roughly a quarter of what
+    // published reply-rate figures mean. Live: 2 replies from 60 emails reads 3.3%, the
+    // same 2 replies from 24 people reads 8.3%.
+    //
+    // CHANGED HERE, AT THE CHOKEPOINT, RATHER THAN ON ONE PAGE. This value is rendered on
+    // the benchmarks page, the pipeline page and the client campaign metrics view.
+    // Changing the benchmarks card alone would have put two different reply rates for the
+    // same client in the same dashboard, which is worse than one wrong one: the client
+    // cannot tell which to believe and neither can we.
+    replyRate: contactedCount > 0 ? (repliedCount / contactedCount) * 100 : null,
     positiveReplyCount: positiveRepliesResult.count ?? 0,
     // Booked counts every meeting that was ever booked, including ones since cancelled:
     // it answers "did outreach produce meetings". Held counts only the ones somebody
@@ -179,6 +192,12 @@ export async function getClientVisibleCampaignMetrics(
 export interface AllCampaignMetrics {
   sentCount: number
   repliedCount: number
+  // Same definition as the client-facing one: replies per PERSON contacted.
+  //
+  // contacted_count is READ to compute this and deliberately NOT returned. The two shapes
+  // are separate types on purpose so a field added for one cannot arrive in the other,
+  // and a test asserts this one has no contactedCount. Computing from a column without
+  // exposing it keeps both true.
   replyRate: number | null
   positiveReplyCount: number
   meetingCount: number
@@ -203,7 +222,7 @@ export async function getAllCampaignMetricsForOrg(
   const [campaignsResult, positiveRepliesResult, meetingsResult] = await Promise.all([
     supabase
       .from('campaigns')
-      .select('sent_count, replied_count, bounced_count')
+      .select('sent_count, contacted_count, replied_count, bounced_count')
       .eq('organisation_id', orgId),
 
     // Same correction as above: the classification lives on the action row, never on the
@@ -222,13 +241,16 @@ export async function getAllCampaignMetricsForOrg(
 
   const campaigns = campaignsResult.data ?? []
   const sentCount = campaigns.reduce((sum, c) => sum + (c.sent_count ?? 0), 0)
+  const contactedCount = campaigns.reduce((sum, c) => sum + (c.contacted_count ?? 0), 0)
   const repliedCount = campaigns.reduce((sum, c) => sum + (c.replied_count ?? 0), 0)
   const bouncedCount = campaigns.reduce((sum, c) => sum + (c.bounced_count ?? 0), 0)
 
   return {
     sentCount,
     repliedCount,
-    replyRate: sentCount > 0 ? (repliedCount / sentCount) * 100 : null,
+    // People-denominated, matching the client-facing function exactly. An operator
+    // comparing their panel against what the client sees must not find two numbers.
+    replyRate: contactedCount > 0 ? (repliedCount / contactedCount) * 100 : null,
     positiveReplyCount: positiveRepliesResult.count ?? 0,
     meetingCount: meetingsResult.count ?? 0,
     bouncedCount,
