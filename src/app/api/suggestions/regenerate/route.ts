@@ -57,9 +57,24 @@ export async function POST(request: NextRequest) {
     client_id?: string
     document_type?: string
     rejection_reason?: string
+    note?: string
   }
 
-  const { suggestion_id, client_id, document_type, rejection_reason } = body
+  // TWO NAMES FOR ONE VALUE, and both are honest about what they mean.
+  //
+  // rejection_reason comes from the approvals queue, where a suggestion is genuinely
+  // being rejected and the string is PERSISTED to document_suggestions.rejection_reason
+  // as an audit record.
+  //
+  // note comes from the Regenerate control on the document page, where nothing is being
+  // rejected: there is no pending suggestion, only a document the operator wants a
+  // different version of. Calling that a rejection reason in the request body would be a
+  // lie in the one place a future reader goes looking for the truth.
+  //
+  // They cannot arrive together: no caller sends both. rejection_reason wins if one ever
+  // does, because it is the one with a row to be written to.
+  const { suggestion_id, client_id, document_type } = body
+  const rejection_reason = body.rejection_reason ?? body.note
 
   // suggestion_id is optional — omit it when regenerating from an already-approved document
   // (no pending suggestion exists to reject in that case).
