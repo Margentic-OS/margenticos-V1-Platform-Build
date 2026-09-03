@@ -147,7 +147,25 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 44
 // swaps in the same commit moved nothing: the markdown examples sit on labelled Wrong/Right
 // lines whose quoted spans are redacted before scanning, so the scan never saw them either
 // before or after. A flat figure there is the scan's reach, not the absence of a change.
-const BASELINE_TOTAL = 29
+//
+// RATCHETED DOWN 2026-09-03, 29 -> 27, and this is the entry worth reading before trusting
+// any "lesson-tied" note in a prompt.
+//
+// The two remaining synthesis hits were in TEST 1 of the value prop filter, which teaches
+// whether a pain is the prospect's own or one they merely observe. They were left in the
+// previous pass because that lesson was judged tied to its problem domain. It was not tied
+// to the domain. It was tied to the RELEVANT test three hundred lines above, which at the
+// time DEFINED relevance as pipeline, marketing capacity and client acquisition. Main
+// replaced that definition with a client-derived one in 40e46e4, and the tie went with it.
+//
+// So a judgement recorded as a property of the text was actually a property of a rule far
+// away in the same file, and it went stale the moment that rule moved, silently, with no
+// test able to notice. Same family as the caption that asserted a word count the sentence
+// under it did not have.
+//
+// buildSynthesisPrompt now scores 0 and every source in this table except the three markdown
+// prompts is at zero. No pattern was narrowed and no exemption added.
+const BASELINE_TOTAL = 27
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/shared-voice-spec.md': 0,
@@ -160,7 +178,7 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 1,
   'src/lib/agents/research/write-opening.ts:buildFloorPrompt': 0,
   'src/lib/agents/research/write-opening.ts:buildJudgePrompt': 0,
-  'src/lib/agents/research/prompts/synthesis-prompt.ts:buildSynthesisPrompt': 2,
+  'src/lib/agents/research/prompts/synthesis-prompt.ts:buildSynthesisPrompt': 0,
   'src/lib/agents/reply-classifier.ts:SYSTEM_PROMPT': 0,
   'src/lib/agents/faq-seed-agent.ts:buildSystemPrompt': 0,
   'src/lib/composition/personalization.ts:systemPrompt': 0,
@@ -211,7 +229,7 @@ describe('prompt text carries no client-specific content', () => {
     expect(Object.values(BASELINE_BY_SOURCE).reduce((a, b) => a + b, 0)).toBe(BASELINE_TOTAL)
     expect(BASELINE_TOTAL).toBeLessThanOrEqual(BASELINE_TOTAL_AT_INTRODUCTION)
     expect(BASELINE_TOTAL_AT_INTRODUCTION).toBe(44)
-    expect(BASELINE_TOTAL).toBe(29)
+    expect(BASELINE_TOTAL).toBe(27)
     expect(Object.keys(BASELINE_BY_SOURCE)).toHaveLength(PROMPT_SOURCES.length)
   })
 

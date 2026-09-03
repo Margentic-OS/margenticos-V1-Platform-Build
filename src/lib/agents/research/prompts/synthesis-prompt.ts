@@ -112,8 +112,8 @@ Sweep all four sources exhaustively:
     • Role-end announcements, including ones the prospect made themselves
     • Long tenure with flat headcount
     • Gaps, or a return to employment after founding
-  A concurrent or recently-ended second role is a strong inference about the
-  founder's revenue and pipeline situation. Always generate it as a candidate.
+  A concurrent or recently-ended second role is a strong inference about how
+  much the business has been absorbing. Always generate it as a candidate.
 
   WEBSITE — services and positioning statements, but also anything DATED:
   blog or insights posts and their dates, case study dates, copyright year,
@@ -123,9 +123,12 @@ Sweep all four sources exhaustively:
 
   COMPOSITE CANDIDATES — explicitly allowed and often the STRONGEST. Several
   small absences may combine into one observation that no single part supports:
-  blog last updated two years ago + LinkedIn quiet for months + newest case
-  study from 2019 together imply delivery has been consuming the marketing time.
-  Generate composites wherever the pattern holds. Mark is_composite: true.
+  a price list still showing last year's rates + a site photo with the old
+  signage + a review from March nobody answered together say more about where
+  the attention has been going than any one of them does alone.
+  The composite is the OBSERVATION. Whether it is RELEVANT is decided after, by
+  the same test as any other candidate. Generate composites wherever the pattern
+  holds. Mark is_composite: true.
 
 Aim for 3 to 8 candidates. Fewer than 3 means you have not swept properly.
 Generating a candidate is free. Only selection is strict.
@@ -233,11 +236,11 @@ VERIFIABLE checks the underlying FACT. It never checks the CONCLUSION you drew
 from that fact. A candidate can pass all seven tests while its inference runs
 backwards, and nothing above would catch it.
 
-Worked case. The fact: a founder ran their own firm alongside a second role
-that has now ended. One reading is that the second role ending leaves a
-pipeline gap to fill. The opposite reading is that they left the second role
-BECAUSE their own firm got busy enough to need them full time. Same fact,
-opposite conclusion, and the second one makes the email look ignorant.
+Worked case. The fact: someone ran their own translation bureau alongside a
+teaching post that has now ended. One reading is that the post ending leaves a
+gap in the week they will want to fill. The opposite reading is that they gave
+the post up BECAUSE the bureau got busy enough to need them full time. Same
+fact, opposite conclusion, and the second one makes the email look ignorant.
 
 For EVERY candidate you must fill opposite_reading with the strongest opposite
 conclusion the same evidence supports. Write it as a real sentence, not a
@@ -336,16 +339,18 @@ these two tests do not.
 TEST 1 — RIGHT AUDIENCE: Does this signal connect to a pain this prospect
 personally experiences — not a pain they observe in others?
 
-Pass: The prospect posted about their own pipeline going quiet between referrals.
-Pass: A prospect shares operational experience about the growth ceiling they hit and
+Pass: The prospect posted about their own water treatment rounds slipping the month
+two new sites came on. That is their week, not a remark about somebody else's.
+Pass: A prospect shares operational experience about a constraint they hit and
 work through alongside their clients — this IS their personal experience; they live
 the pattern too, not just study it.
-Pass: A consultant whose entire practice is built around solving Problem X publishes
+Pass: A specialist whose entire practice is built around solving Problem X publishes
 content framed as advice to clients about Problem X. They live this problem daily —
 their professional reality is built around it. The fact that the post is client-directed
 does not make them a detached observer. Pass.
-Fail: A consultant publishes a framework for their clients' architecture. They are
-describing pain they observe in others, not pain they personally have. Reject.
+Fail: An adviser publishes a framework for a problem their clients have and they do
+not. They are describing pain they observe in others, not pain they personally have.
+Reject.
 
 Key nuance: if the signal describes a pain the prospect has personal experience with
 (whether as operator or as an advisor living the same situation alongside their clients),
