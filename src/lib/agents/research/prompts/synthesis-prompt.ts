@@ -8,7 +8,7 @@ import { CUSTOMER_FACING_STYLE_RULES } from '@/lib/style/customer-facing-style-r
 
 export interface PromptContext {
   clientName:         string
-  icpSummary:         string  // tier 1 buyer title + company type + top 3 push forces
+  icpSummary:         string  // tier 1 buyer title + company type + top 3 push forces + the client's own disqualifiers
   positioningSummary: string  // positioning_summary plain text
   valuePropContext:   string  // cold outreach hook + top 2 value themes — alignment filter
   tovRules:           string  // writing rules + do/don't list
@@ -63,9 +63,20 @@ MODERATE — Partial fit. Matches some dimensions but not all: borderline on tea
 industry with similar dynamics, role close but not exact, or evidence is too thin to grade
 STRONG without guessing.
 
-WEAK — Clear mismatch. Disqualifying evidence per the buyer profile (e.g. company too large,
-sales-led, prospect actively job-seeking) OR the business model has no plausible connection
-to the named push forces.
+WEAK — Clear mismatch. Any one of these, and nothing else:
+  • The prospect or their company matches one of the disqualifying criteria named in the
+    client context above. Those criteria are the client's own. They are the only
+    disqualifying criteria that exist here, and where the context says none were named,
+    that is the fact, not an invitation to supply your own.
+  • The prospect is demonstrably not in a position to buy at all: there is no longer a
+    company to sell to, or they are visibly leaving the role.
+  • Their situation has no plausible connection to any of the push forces named above.
+
+Nothing in this instruction names a market, a company type, a way of operating or a problem
+to be solved, because the client context above is the only place any of those are defined.
+A criterion that feels like common sense but appears nowhere above is your assumption about
+this client's market, and grading on it is how a prospect the client actively wants gets
+marked WEAK. If you find yourself reaching for one, grade MODERATE and say why.
 
 Grade cautiously when the profile is sparse: missing team size and no visible operational
 signals → MODERATE, not STRONG. Absence of evidence is not evidence of fit.
@@ -129,8 +140,12 @@ VERIFIABLE: confirmable by a human in 30 seconds from the cited source.
 
 INFERENTIAL: implies something the prospect would agree with, beyond the fact.
 
-RELEVANT: connects to pipeline, marketing capacity, or client acquisition,
-which is what the sender fixes. Otherwise it is trivia.
+RELEVANT: connects to a problem this client solves, as the client documents
+above and the VALUE PROP ALIGNMENT FILTER below describe it. Those two are the
+only definition of relevant there is. Do not substitute your own idea of what
+this client sells, and do not widen or narrow it to a problem domain the
+documents do not name. A candidate that connects to no problem named there is
+trivia, however interesting it is.
 
 USEFUL: tells the prospect something, or frames something they had not
 articulated.
@@ -310,6 +325,11 @@ ${ctx.valuePropContext}
 
 Apply both tests below to every candidate. A candidate failing either test scores
 relevant: false. Where no candidate passes, write an ICP pain trigger instead.
+
+THESE TWO TESTS ARE THE RELEVANT TEST FROM THE SIX ABOVE. Not an extra filter sitting
+on top of it, and not a stricter reading of it. There is no other definition of relevant
+anywhere in these instructions, and nothing above this line names a problem domain that
+these two tests do not.
 
 TEST 1 — RIGHT AUDIENCE: Does this signal connect to a pain this prospect
 personally experiences — not a pain they observe in others?

@@ -10,6 +10,7 @@ import {
   checkOpeningGates,
   parseChoice,
   buildFindingsBlock,
+  buildFindingsEvidence,
   buildWriterPrompt,
   buildWriterAssignment,
   buildJudgePrompt,
@@ -163,6 +164,115 @@ describe('findings block ranks by six-test score', () => {
 
   it('carries provenance for every finding', () => {
     expect(buildFindingsBlock([cand('c1', 6, 'a finding')])).toContain('Apollo employment_history')
+  })
+
+  // ── What synthesis passes forward, and what it deliberately does not ────────
+
+  const withCounter = (id: string, total: number, obs: string, opposite: string | null): ObservationCandidate => ({
+    ...cand(id, total, obs),
+    opposite_reading: opposite,
+    inference_direction: opposite ? 'compatible_with_both' : 'ambiguous_unhandled',
+  })
+
+  it('passes the counter-reading and its direction for every candidate', () => {
+    const block = buildFindingsBlock([withCounter('c1', 6, 'a finding', 'THE_OPPOSITE_CONCLUSION')])
+    expect(block).toContain('THE_OPPOSITE_CONCLUSION')
+    expect(block).toContain('compatible_with_both')
+  })
+
+  it('says so when a candidate has no counter-reading, rather than omitting the line', () => {
+    // Silence would read as "no counter-reading exists", which is the opposite of the
+    // truth: a missing one is exactly the case the writer must not build a conclusion on.
+    const block = buildFindingsBlock([withCounter('c1', 6, 'a finding', null)])
+    expect(block).toContain('none supplied')
+  })
+
+  it('marks the selected candidate and only that one', () => {
+    const block = buildFindingsBlock(
+      [withCounter('c1', 6, 'chosen finding', 'x'), withCounter('c2', 5, 'other finding', 'y')],
+      { selectedCandidateId: 'c1' },
+    )
+    expect(block.match(/\[SELECTED BY SYNTHESIS\]/g)).toHaveLength(1)
+    expect(block.slice(0, block.indexOf('other finding'))).toContain('[SELECTED BY SYNTHESIS]')
+  })
+
+  it('marks nothing when no candidate was selected, which is the stored-findings case', () => {
+    const block = buildFindingsBlock([withCounter('c1', 6, 'a finding', 'x')], { selectedCandidateId: null })
+    expect(block).not.toContain('SELECTED BY SYNTHESIS')
+  })
+
+  it('carries the relevance reason once, for the result rather than per candidate', () => {
+    const block = buildFindingsBlock(
+      [withCounter('c1', 6, 'a', 'x'), withCounter('c2', 5, 'b', 'y')],
+      { relevanceReason: 'THE_RELEVANCE_REASON' },
+    )
+    expect(block.match(/THE_RELEVANCE_REASON/g)).toHaveLength(1)
+  })
+
+  it('passes no score, no test booleans and no readability verdict', () => {
+    const block = buildFindingsBlock(
+      [withCounter('c1', 6, 'a finding', 'x')],
+      { selectedCandidateId: 'c1', relevanceReason: 'because' },
+    )
+    // Every field named here is either downstream of a test the writer does not run, or a
+    // gate the writer's own output is measured against separately. Showing the writer how
+    // it is about to be marked is an invitation to write to the mark.
+    for (const banned of [
+      'score_total', 'passes_all', 'specific', 'verifiable', 'inferential',
+      'useful', 'non_judgemental', 'demoted', 'model_readable_claim',
+      'readable', 'readability', 'penalty', 'hard_fail', 'nominalisation',
+    ]) {
+      expect(block).not.toContain(banned)
+    }
+    // And no bare six-out-of-six style score leaks in as a number either.
+    expect(block).not.toMatch(/\b6\s*\/\s*6\b/)
+  })
+})
+
+// THE GATE CORPUS MUST NOT WIDEN. This is the test that would fail if someone later
+// "simplified" the two findings functions back into one.
+//
+// untraceableClaims asks whether a proper noun in the written opening appears anywhere in
+// the findings corpus. It is a substring test, so anything added to that corpus becomes
+// evidence. A counter-reading is prose about the same evidence and carries the same names,
+// so folding it in would silently mark as traceable a name the writer was told not to
+// build on, and the gate would keep returning an empty array while covering less.
+describe('findings evidence corpus is narrower than the findings prompt block', () => {
+  const candWithCounter = (obs: string, opposite: string): ObservationCandidate => ({
+    id: 'c1', observation: obs, source: 'apollo', provenance: 'Apollo employment_history',
+    date: null, is_composite: false,
+    scores: { specific: true, verifiable: true, inferential: true, relevant: true, useful: true, non_judgemental: true },
+    passes_all: true, score_total: 6, model_readable_claim: true,
+    opposite_reading: opposite, inference_direction: 'compatible_with_both',
+    readability: { hard_fail: false, penalty: 0, max_sentence_words: 5, hedges: [], nominalisation_density: 0, nominalisation_over_threshold: false, reasons: [] },
+    demoted: false, rejection_reason: null,
+  })
+
+  const cands = [candWithCounter('You took a second role in March.', 'They left Wexbourne because their own firm got busy.')]
+
+  it('the evidence corpus excludes the counter-reading the prompt block includes', () => {
+    expect(buildFindingsBlock(cands)).toContain('Wexbourne')
+    expect(buildFindingsEvidence(cands)).not.toContain('Wexbourne')
+  })
+
+  it('a name that appears only in a counter-reading is still untraceable to the gate', () => {
+    const failures = checkOpeningGates(
+      'You took a second role in March. Wexbourne is where the work went.',
+      null,
+      buildFindingsEvidence(cands),
+    )
+    expect(failures.join(' ')).toContain('Wexbourne')
+  })
+
+  it('and would NOT be, if the gate were fed the prompt block instead', () => {
+    // The mutation, written out. If this ever stops passing, the two functions have been
+    // merged and the traceability gate has quietly stopped covering counter-readings.
+    const failures = checkOpeningGates(
+      'You took a second role in March. Wexbourne is where the work went.',
+      null,
+      buildFindingsBlock(cands),
+    )
+    expect(failures.join(' ')).not.toContain('Wexbourne')
   })
 })
 
