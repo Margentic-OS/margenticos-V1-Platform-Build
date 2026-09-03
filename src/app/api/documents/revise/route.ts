@@ -4,8 +4,9 @@
 // document, runs the revision agent, and creates a new active version via
 // promote_strategy_doc_version (the shared segment-scoped archival helper).
 //
-// The new version carries: same segment_id, revision_note, change_summary,
-// client_approval_status='pending', pending_since=now(), version+1.
+// The new version carries: same segment_id, revision_note, change_summary, version+1.
+// It is live immediately. Client approval on strategy documents was removed 2026-09-03,
+// see ADR-039.
 //
 // Archival approach: reuses promote_strategy_doc_version rather than
 // reimplementing the segment-scoped NULL-safe predicate. This is the same
@@ -20,7 +21,7 @@
 // Body: { document_id: string, note: string }
 // Returns: { id, version, change_summary }
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient as createCookieClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
@@ -28,6 +29,7 @@ import { runDocumentRevisionAgent, RevisionGateError } from '@/lib/agents/revisi
 import type { Json } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
+import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import { revisionGateFailureTemplate, revisionGateFailureSubject } from '@/lib/email/templates/revision-gate-failure'
 
@@ -277,11 +279,33 @@ export async function POST(request: NextRequest) {
     prior_version:   doc.version,
   })
 
-  // ICP/positioning/TOV revisions may unlock the next agent in the sequence.
-  // admin is service-role so allThreeActive() is not filtered by RLS.
-  await triggerCascadeIfEligible(admin, orgId, doc.document_type)
-
   const result = newDoc as { id: string; version: string; change_summary: string }
+
+  // ─── THE DEFECT FIXED HERE, 2026-09-03 ──────────────────────────────────────
+  //
+  // This route promoted a new ICP and never derived its filter spec, so a client
+  // revision to the prospect profile produced a live ICP with icp_filter_spec NULL,
+  // permanently. Measured on production: every active ICP with update_trigger
+  // 'client_revision' had a NULL spec, and every one from the suggestion path had a
+  // populated one. A clean split along the code path, not a coincidence.
+  //
+  // The consequence is not silent, which is the only reason it had not caused damage:
+  // the sourcing orchestrator fails loudly on a NULL spec. But it means a client
+  // revising their own prospect profile broke sourcing until somebody regenerated
+  // through the other path, and nothing said why.
+  //
+  // In after() for the same reason the approval path does it: persistIcpFilterSpec makes
+  // an LLM call to derive the buyer criterion, and this request has already spent most of
+  // its 300 seconds running the revision agent. It never throws and never fails the
+  // promotion.
+  after(async () => {
+    if (result?.id) {
+      await persistIcpFilterSpec(admin, result.id)
+    }
+    // Revisions may unlock the next agent in the sequence.
+    // admin is service-role so allThreeActive() is not filtered by RLS.
+    await triggerCascadeIfEligible(admin, orgId, doc.document_type)
+  })
 
   return NextResponse.json({
     id: result.id,
