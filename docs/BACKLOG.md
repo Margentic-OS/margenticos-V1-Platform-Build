@@ -10541,3 +10541,48 @@ these. The temperature change itself was measured and dropped; it is not in main
   writer path. The same reproducibility limit recorded above applies to it: pinning
   synthesis to temperature 0 would not make synthesis runs reproducible either, for the
   same provider-side reason. Synthesis output was not re-run or measured in this work.
+
+## icp_fit grading now reads the client's own disqualifiers (2026-09-03)
+
+- [monitor] THE GRADE DISTRIBUTION FOR MargenticOS IS UNMEASURED AFTER THIS CHANGE.
+
+  The WEAK grade in synthesis-prompt.ts used to name three examples inline: "company too
+  large, sales-led, prospect actively job-seeking". The middle one is a way of operating and
+  no client document supplies it. It was one client's assumption promoted to a universal, and
+  it graded against Simcare, whose own ICP names the opposite as a REQUIREMENT (an
+  organisation with existing distribution infrastructure and a sales team). Their best
+  prospects were being marked WEAK by a rule nobody wrote for them.
+
+  The rule now reads tier_1.disqualifiers from the ICP, which is populated for all five live
+  organisations (4, 4, 7, 4, 4 entries).
+
+  WHAT IS NOT MEASURED, and why it needs watching. The change is not purely subtractive for
+  MargenticOS. It removes ONE hardcoded criterion and adds SEVEN client-authored ones to the
+  context the model grades on. Two of those seven are routinely visible in research and were
+  not previously in front of the model:
+    - "They have no case studies, testimonials, or demonstrable proof of results" (website)
+    - "The firm sells primarily to individuals rather than businesses" (website, LinkedIn)
+  So the moderate/weak split for MargenticOS could move, and the direction is toward more
+  WEAK. That is arguably correct (it is the client's own criterion) but it IS a change, and
+  the brief for this work asked that MargenticOS not shift materially.
+
+  WHY IT WAS NOT MEASURED HERE. Re-grading costs one Sonnet synthesis call per prospect.
+  Zero re-enrichment is needed: raw_linkedin, raw_apollo, raw_website and raw_web_search are
+  all stored on prospect_research_results, so a replay is possible from stored data alone.
+
+  Next action: replay synthesis for a sample of MargenticOS prospects from stored raw data and
+  diff icp_fit against the stored grade. Current stored distribution, as the baseline to diff
+  against: MargenticOS 12 strong / 320 moderate / 35 weak. Zero of those 35 weak grades cite
+  "sales" or "sales-led" in qualification_reason, which is the evidence that the REMOVED half
+  of the change is inert for this client. The ADDED half is the open question.
+
+- [monitor] Simcare and 360 Bia Og have ZERO research results, so there is no before/after to
+  diff for them. Any grade they get is a first measurement, not a change. Worth capturing the
+  first batch deliberately as the baseline.
+
+- [gate] The worked examples inside the VALUE PROP ALIGNMENT FILTER are still written around
+  one industry ("a consultant whose entire practice...", "pipeline going quiet between
+  referrals", "the growth ceiling"). The RELEVANT test above them is now client-derived, and
+  commit 55b2020 established by measurement that in the writer prompt EXAMPLES BEAT RULES.
+  Same risk here: the rule points at the client documents while the examples point at one
+  market. Rewriting them is the follow-up to the synthesis-relevance change (PR #45).
