@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { inspectFilterSpec, summariseSpecFindings } from '@/lib/sourcing/inspect-filter-spec'
 import { FILTER_SPEC_FIELDS } from '@/lib/agents/icp-filter-spec'
 import { CLASSIFIABLE_INDUSTRIES } from '@/lib/sourcing/industry-mapping'
+import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 
 // A spec with every filter field present and correctly typed, and industries chosen so
 // they are all classifiable. Used as the baseline that must produce zero findings.
@@ -54,6 +55,21 @@ describe('inspectFilterSpec', () => {
     expect(findings.map(f => f.code)).toContain('field_wrong_type')
   })
 
+  // A ceiling of 0 is present and is a number, so neither field_missing nor
+  // field_wrong_type sees it, and the size disqualifier reads it as "no ceiling stated"
+  // and does not run. Reported once per run here rather than once per prospect there.
+  it('reports a headcount ceiling that is present, numeric and unusable', () => {
+    for (const bad of [0, -1]) {
+      const findings = inspectFilterSpec(goodSpec({ company_headcount_max: bad }))
+      expect(findings.map(f => f.code)).toContain('headcount_ceiling_unusable')
+    }
+  })
+
+  it('says nothing about a usable headcount ceiling', () => {
+    const codes = inspectFilterSpec(goodSpec({ company_headcount_max: 20 })).map(f => f.code)
+    expect(codes).not.toContain('headcount_ceiling_unusable')
+  })
+
   it('does not require the metadata fields', () => {
     const spec = goodSpec()
     delete (spec as Record<string, unknown>).notes
@@ -61,18 +77,36 @@ describe('inspectFilterSpec', () => {
     expect(inspectFilterSpec(spec)).toEqual([])
   })
 
-  // The Executive Coaching class: targeted, reachable, and impossible to classify.
-  it('reports an industry no Apollo tag can ever map to', () => {
-    const findings = inspectFilterSpec(goodSpec({ industries: ['Executive Coaching'] }))
+  // WHAT THIS FINDING NOW MEANS, because it changed and the old fixture hid the change.
+  //
+  // It used to be demonstrated with a real canonical industry, because the classifier's
+  // range was a hand-written subset of the taxonomy and a perfectly valid canonical name
+  // could fall outside it. That gap is closed: CLASSIFIABLE_INDUSTRIES is derived from
+  // CANONICAL_INDUSTRIES, so no canonical name can trigger this any more, and a fixture
+  // naming one would now assert the defect rather than the mechanism.
+  //
+  // The finding is NOT vacuous. A stored spec is frozen at write time and is not
+  // re-validated on read, so a spec written before the taxonomy validation can carry a
+  // name that is not canonical at all. That is the live case this now catches, and the
+  // fixture uses an abstract token for it: a real sector name here would be Rule Zero
+  // debt and would go stale the moment that sector entered the taxonomy.
+  it('reports an industry name the classifier can never produce', () => {
+    const findings = inspectFilterSpec(goodSpec({ industries: ['Not A Classifiable Industry'] }))
     expect(findings).toHaveLength(1)
     expect(findings[0].code).toBe('industry_unclassifiable')
-    expect(findings[0].detail).toContain('Executive Coaching')
+    expect(findings[0].detail).toContain('Not A Classifiable Industry')
+  })
+
+  it('reports nothing for a canonical industry, now that every one of them is classifiable', () => {
+    for (const name of CANONICAL_INDUSTRIES) {
+      expect(inspectFilterSpec(goodSpec({ industries: [name] }))).toEqual([])
+    }
   })
 
   it('accepts operator-added mappings as making an industry classifiable', () => {
     const findings = inspectFilterSpec(
-      goodSpec({ industries: ['Executive Coaching'] }),
-      ['Executive Coaching'],
+      goodSpec({ industries: ['Not A Classifiable Industry'] }),
+      ['Not A Classifiable Industry'],
     )
     expect(findings).toEqual([])
   })
@@ -91,7 +125,7 @@ describe('inspectFilterSpec', () => {
 
   it('summarises findings as a flat greppable string', () => {
     expect(summariseSpecFindings([])).toBe('')
-    const s = summariseSpecFindings(inspectFilterSpec(goodSpec({ industries: ['Executive Coaching'] })))
+    const s = summariseSpecFindings(inspectFilterSpec(goodSpec({ industries: ['Not A Classifiable Industry'] })))
     expect(s).toBe('industry_unclassifiable:industries')
   })
 })
@@ -129,9 +163,15 @@ describe('inspectFilterSpec', () => {
 //   2. A RATCHET on the gap. It may shrink, never grow. A new canonical industry added
 //      without a classifier tag widens it and fails here.
 describe('handler targeting vs classifier range', () => {
-  // Measured 2026-09-03, the commit that made the Apollo query spec-driven. Lower this
-  // number when APOLLO_TO_SPEC gains tags. Never raise it without saying why.
-  const KNOWN_UNCLASSIFIABLE_CEILING = 58
+  // ZERO, and it got there by DERIVING the classifier's range from the taxonomy rather
+  // than by enumerating tags. It was 58 when the range was the 15 distinct values of the
+  // hand-written alias table; CLASSIFIABLE_INDUSTRIES is now built from
+  // CANONICAL_INDUSTRIES, and the handler has a code for every canonical industry, so
+  // the two sets coincide and the gap has nowhere to hide.
+  //
+  // At zero this stops being a ratchet and becomes a plain invariant: any name that is
+  // searchable and unclassifiable is a regression. Never raise it without saying why.
+  const KNOWN_UNCLASSIFIABLE_CEILING = 0
 
   it('never targets an industry the classifier cannot produce, without the gap growing', async () => {
     const { APOLLO_TARGETED_INDUSTRIES } = await import(
