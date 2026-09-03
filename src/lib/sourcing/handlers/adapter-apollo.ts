@@ -406,69 +406,27 @@ function asNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-// ─── What this query targets, in canonical names ─────────────────────────────
+// ─── What this handler can target, in canonical names ────────────────────────
 //
-// EXPORTED so the orchestrator's pre-search gate READS this rather than keeping
-// its own copy. A value copied into a second file is the parallel-array shape
-// CLAUDE.md warns about: the copy and the filter drift apart, nothing errors,
-// and the gate ends up proving something about a query that is no longer sent.
-// There is one list, and it lives beside the filter it describes.
+// READ BY the orchestrator's pre-search reachability gate (step 4.5), which asks: did
+// the client ask for anything this query even TRIES to find?
 //
-// Typed as CanonicalIndustry[] on purpose. A name that is not in the canonical
-// taxonomy is a COMPILE ERROR here rather than a silently empty intersection at
-// run time, which is the same class of mistake this gate exists to catch.
+// IT WAS A HAND-WRITTEN LIST OF NINETEEN CONSULTING NAMES, and that was correct exactly
+// as long as the query was a hardcoded consulting filter. The moment the query became
+// spec-driven the list became a stale second copy, and it did the most damage a stale
+// gate can do: it REFUSED the first client the change was built to serve. 360 Bia Og's
+// ICP names Primary and Secondary Education, the query builds NAICS 6111 for it
+// correctly, and the gate rejected the run before the request was made, with an error
+// message asserting the query was still hardcoded.
 //
-// This declares what the query ASKS FOR. It is not a promise about every row
-// that comes back: a firm carries more than one NAICS code and Apollo's own
-// industry tag is assigned independently of the code we filtered on, so this
-// filter demonstrably also returns apparel, restaurants and biotechnology rows.
-// Those are the tier classifier's problem (industry_off_target), not this
-// list's. What this list is for is the question the gate asks: did the client
-// ask for anything this query even TRIES to find?
-//
-// Two sources, both named so the next person does not have to re-derive them:
-//
-//   1. NAICS 5416, Management, Scientific and Technical Consulting Services,
-//      which is the organization_naics_codes value above. Its sub-codes are
-//      541611 general and strategy, 541612 human resources, 541613 marketing
-//      and sales, 541614 process, logistics and procurement, 541618 other
-//      management including risk and compliance, 541620 environmental, and
-//      541690 other scientific and technical.
-//
-//   2. MEASURED. The last four canonical names are not 5416 sub-codes and are
-//      here because this exact filter returns them anyway. Live enriched
-//      prospects sourced through it carry the Apollo tags 'information
-//      technology & services', 'financial services' and 'professional training
-//      & coaching', which APOLLO_TO_SPEC maps to the first three. Leaving them
-//      out would make the partial-coverage warning below report them as
-//      unreachable, which would be false, and a report that cries wolf is the
-//      thing this task exists to stop building.
-export const APOLLO_TARGETED_INDUSTRIES: readonly CanonicalIndustry[] = [
-  // NAICS 5416 sub-codes
-  'Management Consulting',
-  'Operations Consulting',
-  'Strategy Consulting',
-  'Change Management Consulting',
-  'Human Resources Consulting',
-  'Marketing Consulting',
-  'Sales Consulting',
-  'Supply Chain Consulting',
-  'Procurement Consulting',
-  'Risk Management Consulting',
-  'Compliance Consulting',
-  'Environmental Consulting',
-  'Engineering Consulting',
-  'Healthcare Consulting',
-  'Data Analytics Consulting',
-  // Measured coming back from this filter, mapped through APOLLO_TO_SPEC
-  'Information Technology Consulting',
-  'Financial Advisory Services',
-  'Business Coaching',
-  'Executive Coaching',
-] as const
-
-// ISO-3166 codes the hardcoded filter covers. Used only to report divergence.
-const FILTER_COUNTRY_CODES = new Set(['US', 'GB', 'IE'])
+// So it is DERIVED now, from the one table that decides what this handler can express.
+// A canonical industry is targetable if and only if CANONICAL_TO_NAICS has a code for
+// it, which is the same condition buildApolloRequest throws on. One source, so the gate
+// and the query cannot disagree, and adding an industry to the NAICS table makes it
+// reachable without anyone remembering to update a second list. That is the parallel-
+// array fix from CLAUDE.md applied to the pair that had already drifted.
+export const APOLLO_TARGETED_INDUSTRIES: readonly CanonicalIndustry[] =
+  Object.keys(CANONICAL_TO_NAICS) as CanonicalIndustry[]
 
 // The fields this handler advertises. Hoisted out of the handler object so the
 // divergence report below can be DERIVED from it instead of hand-listed beside it.
