@@ -93,8 +93,21 @@ interface NotFilterable<Q> {
 /**
  * Refuse prospects tiering rejected. Leaves prospects tiering has not reached.
  *
- * For every consumer that spends money or moves a prospect toward being sendable:
- * verification, both research selection paths, and the client's approve-all.
+ * For every consumer that spends money or moves a prospect toward being sendable. As of
+ * 2026-09-03 that is seven call sites, and the count matters because the first pass at this
+ * wired five and the two it missed were a matched PAIR with two it wired:
+ *
+ *   verification, first pass ..... the organisation picker AND the row selector
+ *   verification, second pass .... the organisation picker AND the row selector
+ *   research ..................... both selection paths
+ *   the client's approve-all
+ *
+ * THE PICKER AND THE SELECTOR MUST ALWAYS BE CHANGED TOGETHER. Both verification sweeps run
+ * one organisation per invocation: a first query chooses the organisation, a second chooses
+ * rows inside it. Gating only the selector does not half-fix anything, it converts a money
+ * bug into a starvation bug, because the picker keeps nominating an organisation the
+ * selector refuses everything from and no other organisation is ever reached. That shipped
+ * on 2026-09-01 and ran for roughly 290 firings writing successful heartbeats.
  */
 export function excludeTierRejected<Q>(query: OrFilterable<Q>): Q {
   return query.or(TIER_NOT_REJECTED_FILTER)

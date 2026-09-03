@@ -52,6 +52,7 @@ import { logger } from '@/lib/logger'
 import { bouncerHandler, BOUNCER_PROVIDER_KEY, type SecondPassResult } from '@/lib/sourcing/handlers/adapter-bouncer'
 import { resolveSendEligibility, type SendEligibilityDecision } from '@/lib/sourcing/send-eligibility-resolver'
 import { toCanonicalVerdict, SECOND_PASS_WORTH_PAYING_FOR } from '@/lib/sourcing/verification-verdict'
+import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
 
 const STALE_LOCK_THRESHOLD_MINUTES = 30
 const MAX_SECOND_PASS_ATTEMPTS = 2
@@ -188,12 +189,25 @@ export async function runSecondPassBatch(
 
     const cappedBatchSize = Math.min(maxBatchSize, dailyRemaining)
 
-    const { data: candidates, error: selectError } = await supabase
+    const { data: candidates, error: selectError } = await excludeTierRejected(supabase
       .from('prospects')
       .select('id, email, country, independent_email_status, verification_provider')
       .eq('organisation_id', organisationId)
       .eq('suppressed', false)
-      .not('email', 'is', null)
+      .not('email', 'is', null))
+      // THE TIER GATE. Every probe below this line is BILLED, so a rejected prospect
+      // reaching it spends real money to confirm an address that will never be used.
+      //
+      // Measured 2026-09-03: 6 of the 52 paid calls in verification_calls went to
+      // tier-rejected rows, five of them returning deliverable. The first pass got this gate
+      // on 2026-09-01 and this query did not, which is the more expensive half.
+      //
+      // Must agree with findOrganisationWithSecondPassBacklog in the verify-catch-all route.
+      // The picker chooses the organisation, this chooses the rows, and a filter on one and
+      // not the other starves: the picker keeps nominating an organisation this selects
+      // nothing from, and no other organisation is ever reached.
+      //
+      // excludeTierRejected, not requireTierPresent: see src/lib/sourcing/tier-verdict.ts.
       // The first pass reached a verdict it cannot confirm. SECOND_PASS_WORTH_PAYING_FOR is
       // derived from the vendor translation map rather than typed out here, so vendor
       // spellings live in one module. See verification-verdict.ts for why 'Grey-listed' is
