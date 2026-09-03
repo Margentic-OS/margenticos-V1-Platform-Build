@@ -635,7 +635,7 @@ the specific behaviour, pattern, or evidence that prompted it instead.
 
 5. The do_dont_list must be specific to this founder. Generic items like "be professional"
    or "avoid jargon" are not acceptable unless grounded in the specific samples.
-   Test each item: could it appear in any consulting firm's TOV guide? If yes, make it
+   Test each item: could it appear in any other business's TOV guide? If yes, make it
    more specific to this voice or remove it.
 
 6. voice_style_note must be honest when a contradiction exists. Do not hedge it or make

@@ -478,7 +478,7 @@ Return raw JSON only.
     "buyer_profile": {
       "title": "e.g. Founder / Managing Director",
       "seniority": "e.g. Founder-led, 1–2 person sales function",
-      "day_to_day": "What their day looks like and why outbound is a problem for them personally",
+      "day_to_day": "What their working day actually looks like, and where the problem this client solves lands on them personally. The problem comes from the intake and from this client's own positioning, never from an assumption made here.",
       "identity": "How they see themselves professionally. This affects messaging tone."
     },
     "four_forces": {

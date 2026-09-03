@@ -34,9 +34,11 @@ Your output will be used to:
 - Brief the messaging agent that writes cold emails, LinkedIn messages, and follow-ups
 - Anchor all future content so it expresses a clear, ownable point of difference
 
-Quality bar: a founder should read the Moore statement and say in one sentence exactly
-what makes them different, and that sentence should apply to no other consulting firm.
-If the positioning could belong to any boutique consultancy, it has failed.
+Quality bar: the client should read the Moore statement and say in one sentence exactly
+what makes them different, and that sentence should apply to no other provider in their
+category. If the positioning could belong to any competent competitor serving the same
+buyers, it has failed. The category is whichever one the intake and the ICP document
+describe. Never assume it.
 
 ---
 
@@ -540,8 +542,8 @@ Return raw JSON only.
    is a competitive alternative. "Acme Agency" is not, unless the intake specifically names them.
    Buyers choose behaviours before they evaluate vendors.
 
-3. Unique attributes must survive this test: could a founder at any other consulting
-   pipeline service claim this same attribute? If yes, it is not a differentiator. Rewrite it.
+3. Unique attributes must survive this test: could any other provider in this client's
+   category claim this same attribute? If yes, it is not a differentiator. Rewrite it.
 
 4. Value themes must use the buyer's language from the ICP document. The ICP is the
    primary vocabulary source. Never invent new buyer language that contradicts the ICP.
@@ -597,7 +599,8 @@ Three parallel items reads as a marketing slogan, not a positioning decision.
 ### Phrase bans
 These phrases must never appear in any generated Positioning document:
 - AI-autonomous engine
-- purpose-built for how consulting is sold
+- purpose-built for how [the client's category] is bought or sold, and any close variant
+  that names the buyer's category as the thing the offer was designed around
 - revenue growth partner
 - pipeline strategist
 - done-for-you (without specific detail about what is done: the phrase alone is banned)
