@@ -154,13 +154,16 @@ function jsonResponse(body: unknown, status = 200): Response {
 // workspace on 2026-08-23 and carries campaign_status alongside the counters.
 function analyticsRow(overrides: Record<string, unknown> = {}) {
   return {
-    campaign_name: 'Margentic - send 1 (15 prospects)',
+    campaign_name: 'Sequence one',
     campaign_id: EXT,
     campaign_status: 1,
     emails_sent_count: 15,
     reply_count: 0,
     bounced_count: 0,
-    contacted_count: 15,
+    // People. contacted_count is deliberately NOT here: it is the field the handler must
+    // ignore, so a fixture carrying it would let a revert keep passing.
+    leads_count: 15,
+    new_leads_contacted_count: 15,
     unsubscribed_count: 0,
     ...overrides,
   }
@@ -478,7 +481,8 @@ describe('contacted_count is stored separately, because emails are not people', 
     // A client overview that reported 26 prospects contacted would be wrong by 73%.
     vi.stubGlobal('fetch', stubFetch([analyticsRow({
       emails_sent_count: 26,
-      contacted_count: 15,
+      leads_count: 15,
+      new_leads_contacted_count: 15,
       unsubscribed_count: 1,
       reply_count: 1,
     })]))
@@ -492,7 +496,32 @@ describe('contacted_count is stored separately, because emails are not people', 
     expect(payload.contacted_count).not.toBe(payload.sent_count)
   })
 
-  it('defaults both to zero when Instantly omits them, rather than writing undefined', async () => {
+  it('ignores contacted_count entirely, even when it is the only people-looking field', async () => {
+    // The live 2026-09-03 response, field for field. contacted_count reads 52 against 24
+    // leads and 60 emails. Writing it is the defect this test exists to keep out.
+    vi.stubGlobal('fetch', stubFetch([{
+      campaign_id: EXT,
+      campaign_status: 1,
+      leads_count: 24,
+      new_leads_contacted_count: 24,
+      contacted_count: 52,
+      emails_sent_count: 60,
+      reply_count: 2,
+      bounced_count: 0,
+      unsubscribed_count: 0,
+    }]))
+
+    await POST(cronRequest())
+    const { payload } = onlyUpdate()
+
+    expect(payload.contacted_count).toBe(24)
+    expect(payload.sent_count).toBe(60)
+    expect(payload.contacted_count).not.toBe(52)
+  })
+
+  it('leaves contacted_count unwritten when Instantly omits it, rather than storing a zero', async () => {
+    // A zero here would be rendered to the client as "0 prospects contacted" against a
+    // campaign that has sent mail. Not writing the column keeps the last good number.
     vi.stubGlobal('fetch', stubFetch([{
       campaign_id: EXT,
       campaign_status: 1,
@@ -504,7 +533,23 @@ describe('contacted_count is stored separately, because emails are not people', 
     await POST(cronRequest())
     const { payload } = onlyUpdate()
 
-    expect(payload.contacted_count).toBe(0)
+    expect(payload).not.toHaveProperty('contacted_count')
     expect(payload.unsubscribed_count).toBe(0)
+    expect(payload.sent_count).toBe(5)
+  })
+
+  it('leaves contacted_count unwritten when it exceeds the campaign lead count', async () => {
+    vi.stubGlobal('fetch', stubFetch([analyticsRow({
+      leads_count: 24,
+      new_leads_contacted_count: 52,
+      emails_sent_count: 60,
+    })]))
+
+    await POST(cronRequest())
+    const { payload } = onlyUpdate()
+
+    expect(payload).not.toHaveProperty('contacted_count')
+    // The email counters are still good and still written.
+    expect(payload.sent_count).toBe(60)
   })
 })
