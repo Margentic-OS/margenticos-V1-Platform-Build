@@ -1046,6 +1046,30 @@ export function parseFloor(raw: string): FloorCheck {
  * buyer titles are free text and several are full clauses naming more than one role, and
  * an inline slot would render those as an unreadable sentence.
  */
+/**
+ * Which label the WRITTEN opening is given in the judge comparison.
+ *
+ * WAS Math.random(). The label has to vary, because a judge shown the written version
+ * as A every time can be answering position rather than copy, and position bias in an
+ * A/B comparison is real. But random varies it per CALL, which meant the same prospect
+ * could be labelled A on one run and B on the next, and A on its first attempt and B on
+ * its retry. That is a second source of run-to-run movement sitting underneath the
+ * sampling temperature, and it does not disappear when temperature goes to 0.
+ *
+ * Derived from the prospect UUID instead: FNV-1a over the id, low bit picks the label.
+ * Same prospect, same label, every run and every attempt. Across a batch the ids are
+ * unrelated to each other, so the labels still split roughly evenly and the judge is
+ * still not always reading the written version in the same position.
+ */
+export function writtenLabelFor(prospectId: string): 'A' | 'B' {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < prospectId.length; i++) {
+    hash ^= prospectId.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0) % 2 === 0 ? 'A' : 'B'
+}
+
 export function buildJudgePrompt(buyer: string): string {
   return `You are the head of sales. Two drafts of the same cold email are in front of you,
 both written by your team, both ready to send. They differ only in how they open.
@@ -1056,11 +1080,11 @@ Both go out under your name. Which one could that person read once, at speed, wi
 going back over any sentence, and still find the closing question the obvious thing to ask
 them?
 
-Answer A or B, then one sentence on why.
+Give the one sentence on why first, then answer A or B.
 
 Reply in exactly this format:
-CHOICE: A
-REASON: one sentence.`
+REASON: one sentence.
+CHOICE: A`
 }
 
 /** The two drafts, labelled and ordered for one comparison. */
@@ -1074,7 +1098,7 @@ export interface JudgeComparison {
   question: string
   /** The floor verdict on this attempt, run before the comparison. */
   floor: FloorCheck
-  /** Which label the WRITTEN version was given. Randomised per comparison. */
+  /** Which label the WRITTEN version was given. Derived from the prospect id. */
   written_label: 'A' | 'B'
   /** The label the judge picked. */
   chosen_label: 'A' | 'B'
@@ -1470,6 +1494,14 @@ async function callModel(
  * Reads the judge's pick. An unreadable reply resolves to the TEMPLATE, never to the
  * written opening, so an ambiguous answer can only ever fall back to approved copy.
  */
+/*
+ * ORDER-INDEPENDENT, AND CHECKED AGAINST THE PROMPT RATHER THAN ASSUMED.
+ * buildJudgePrompt now asks for REASON before CHOICE. The reason match runs to the end
+ * of the string and then keeps the first line, so it stops before a CHOICE line that
+ * follows it; the choice match is anchored on its own label and does not care where it
+ * sits. Both orders are covered by tests, because the prompt is the thing most likely to
+ * be edited back.
+ */
 export function parseChoice(raw: string, writtenLabel: 'A' | 'B'): {
   chosen: 'A' | 'B'
   written_won: boolean
@@ -1811,7 +1843,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     // variant's authored subject. The generated subject is checked by its own gate and read
     // by the floor, which is where a subject can actually be disqualified.
     const writtenEmail = params.composeEmail1(opening, question)
-    const writtenLabel: 'A' | 'B' = Math.random() < 0.5 ? 'A' : 'B'
+    const writtenLabel: 'A' | 'B' = writtenLabelFor(params.prospectId)
     const emailA = writtenLabel === 'A' ? writtenEmail : templateEmail
     const emailB = writtenLabel === 'A' ? templateEmail : writtenEmail
 
