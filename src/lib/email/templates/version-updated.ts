@@ -15,11 +15,11 @@ function label(docType: string): string {
   return getDocumentLabel(docType)
 }
 
-export function versionPendingSubject(orgName: string, docType: string): string {
+export function versionUpdatedSubject(orgName: string, docType: string): string {
   return `${label(docType)} has been updated`
 }
 
-export interface VersionPendingParams {
+export interface VersionUpdatedParams {
   /** The document that changed. */
   docType: string
   /** The recipient's own first name, from organisations.founder_first_name on their org. */
@@ -56,14 +56,25 @@ export interface VersionPendingParams {
 //   sign-off  the OPERATOR's organisation, so a person signs it rather than a "Team"
 // Never hardcoded. See resolvePlatformSender in src/lib/notifications/platform-sender.ts.
 //
-// The three-day line is not a nicety: strategy-doc-auto-approve promotes anything still
-// pending after three days, so a client who does nothing has still decided something. An
-// email that hides that is misleading by omission. It is phrased as a commitment we are
-// making ("we will take that as approval and move ahead") rather than as a default that
-// happens to them, because the first invites a reply and the second invites ignoring it.
+// WHY THE THREE-DAY LINE IS GONE, 2026-09-03.
+//
+// This email used to say "If we do not hear from you within three days we will take that
+// as approval and move ahead." That was true while strategy-doc-auto-approve existed. It
+// is now false. Client approval on strategy documents has been removed (ADR-039), the
+// cron is unscheduled, and there is no window to run down.
+//
+// A promise about a process that no longer exists is worse than no email at all: it asks
+// a client to act by a deadline that will never arrive, and the first time they notice
+// nothing happened is the last time they read one of these. So the email now says what is
+// actually true. The document is live, we are working from it, and saying something is
+// how it changes.
+//
+// The file was renamed from version-pending.ts in the same commit. Nothing here is
+// pending any more, and a filename that says otherwise is the residue that makes the next
+// reader think the mechanism is still there.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export function versionPendingTemplate(params: VersionPendingParams): string {
+export function versionUpdatedTemplate(params: VersionUpdatedParams): string {
   const docLabel = label(params.docType)
   const url = strategyDocumentUrl(params.docType, params.clientId ?? null)
   const greeting = params.recipientFirstName ? `Hi ${params.recipientFirstName},` : 'Hi,'
@@ -73,15 +84,15 @@ export function versionPendingTemplate(params: VersionPendingParams): string {
   <div style="max-width:520px;margin:0 auto;">
     <p style="margin:0 0 16px;">${greeting}</p>
 
-    <p style="margin:0 0 20px;">Your ${docLabel} has been updated and is ready for you to review.</p>
+    <p style="margin:0 0 20px;">Your ${docLabel} has been updated. This is the version we are working from now.</p>
 
     <p style="margin:0 0 24px;">
-      <a href="${url}" style="display:inline-block;background:#1a1a1a;color:#ffffff;padding:11px 22px;text-decoration:none;border-radius:4px;font-size:14px;">Review your ${docLabel}</a>
+      <a href="${url}" style="display:inline-block;background:#1a1a1a;color:#ffffff;padding:11px 22px;text-decoration:none;border-radius:4px;font-size:14px;">Read your ${docLabel}</a>
     </p>
 
-    <p style="margin:0 0 16px;">If it reads right, approve it. If something is off, use Request changes on the page and tell us what to change. The document is rewritten from what you write there, so the more specific you are, the closer the next version lands.</p>
+    <p style="margin:0 0 16px;">If something is off, use Request an update on the page and tell us what to change. The document is rewritten from what you write there, so the more specific you are, the closer the next version lands.</p>
 
-    <p style="margin:0 0 24px;">If we do not hear from you within three days we will take that as approval and move ahead.</p>
+    <p style="margin:0 0 24px;">There is nothing you need to click for this to take effect. Every earlier version is kept, so anything here can be put back.</p>
 
     <p style="margin:0;">${params.senderFirstName}<br />${params.senderCompanyName}</p>
   </div>
@@ -89,20 +100,20 @@ export function versionPendingTemplate(params: VersionPendingParams): string {
 </html>`
 }
 
-export function versionPendingText(params: VersionPendingParams): string {
+export function versionUpdatedText(params: VersionUpdatedParams): string {
   const docLabel = label(params.docType)
   const url = strategyDocumentUrl(params.docType, params.clientId ?? null)
   const greeting = params.recipientFirstName ? `Hi ${params.recipientFirstName},` : 'Hi,'
 
   return `${greeting}
 
-Your ${docLabel} has been updated and is ready for you to review.
+Your ${docLabel} has been updated. This is the version we are working from now.
 
-Review your ${docLabel}: ${url}
+Read your ${docLabel}: ${url}
 
-If it reads right, approve it. If something is off, use Request changes on the page and tell us what to change. The document is rewritten from what you write there, so the more specific you are, the closer the next version lands.
+If something is off, use Request an update on the page and tell us what to change. The document is rewritten from what you write there, so the more specific you are, the closer the next version lands.
 
-If we do not hear from you within three days we will take that as approval and move ahead.
+There is nothing you need to click for this to take effect. Every earlier version is kept, so anything here can be put back.
 
 ${params.senderFirstName}
 ${params.senderCompanyName}`

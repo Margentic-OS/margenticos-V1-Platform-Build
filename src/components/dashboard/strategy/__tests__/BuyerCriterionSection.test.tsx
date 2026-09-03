@@ -35,9 +35,8 @@ const SPEC = {
   },
 }
 
-const APPROVED_DOC = {
+const LIVE_DOC = {
   status: 'active',
-  client_approval_status: 'approved',
   icp_filter_spec: SPEC,
 }
 
@@ -49,7 +48,7 @@ describe('what the client sees', () => {
       <IcpDocumentView
         content={CONTENT}
         plainText={null}
-        buyerCriterion={selectClientBuyerCriterion(APPROVED_DOC)}
+        buyerCriterion={selectClientBuyerCriterion(LIVE_DOC)}
         operatorCriterion={null}
       />,
     )
@@ -63,7 +62,7 @@ describe('what the client sees', () => {
       <IcpDocumentView
         content={CONTENT}
         plainText={null}
-        buyerCriterion={selectClientBuyerCriterion(APPROVED_DOC)}
+        buyerCriterion={selectClientBuyerCriterion(LIVE_DOC)}
         operatorCriterion={null}
       />,
     )
@@ -72,8 +71,10 @@ describe('what the client sees', () => {
     }
   })
 
-  it('renders nothing about the criterion when the parent document is not approved', () => {
-    const pending = { ...APPROVED_DOC, client_approval_status: 'pending' }
+  it('renders nothing about the criterion when the document is an archived version', () => {
+    // The client RLS policy admits archived rows so version history can be read, so an
+    // old version reaching this component is now an ordinary thing rather than a bug.
+    const pending = { ...LIVE_DOC, status: 'archived' }
     const { container } = render(
       <IcpDocumentView
         content={CONTENT}
@@ -93,7 +94,7 @@ describe('what the client sees', () => {
       <IcpDocumentView
         content={{} as never}
         plainText="Some plain text."
-        buyerCriterion={selectClientBuyerCriterion(APPROVED_DOC)}
+        buyerCriterion={selectClientBuyerCriterion(LIVE_DOC)}
         operatorCriterion={null}
       />,
     )
@@ -112,7 +113,7 @@ describe('the fragment channel is closed, proved with a sentinel', () => {
   // would prove nothing.
   const SENTINEL = 'zqxsentinelfragmentxqz'
   const planted = {
-    ...APPROVED_DOC,
+    ...LIVE_DOC,
     icp_filter_spec: {
       buyer_criterion: {
         ...SPEC.buyer_criterion,
@@ -146,8 +147,8 @@ describe('what only the operator sees', () => {
       <IcpDocumentView
         content={CONTENT}
         plainText={null}
-        buyerCriterion={selectClientBuyerCriterion(APPROVED_DOC)}
-        operatorCriterion={selectOperatorBuyerCriterion(APPROVED_DOC)}
+        buyerCriterion={selectClientBuyerCriterion(LIVE_DOC)}
+        operatorCriterion={selectOperatorBuyerCriterion(LIVE_DOC)}
       />,
     )
     expect(screen.getByText('Buyer criterion — operator view')).toBeInTheDocument()
@@ -157,7 +158,7 @@ describe('what only the operator sees', () => {
   })
 
   it('says so when the client cannot see it', () => {
-    const pending = { ...APPROVED_DOC, client_approval_status: 'pending' }
+    const pending = { ...LIVE_DOC, status: 'archived' }
     render(
       <IcpDocumentView
         content={CONTENT}
@@ -166,7 +167,7 @@ describe('what only the operator sees', () => {
         operatorCriterion={selectOperatorBuyerCriterion(pending)}
       />,
     )
-    expect(screen.getByText(/the parent document is not approved/)).toBeInTheDocument()
+    expect(screen.getByText(/not the live version/)).toBeInTheDocument()
   })
 })
 
@@ -179,8 +180,8 @@ describe('Rule Zero: the fixed copy names nobody', () => {
       <IcpDocumentView
         content={CONTENT}
         plainText={null}
-        buyerCriterion={selectClientBuyerCriterion(APPROVED_DOC)}
-        operatorCriterion={selectOperatorBuyerCriterion(APPROVED_DOC)}
+        buyerCriterion={selectClientBuyerCriterion(LIVE_DOC)}
+        operatorCriterion={selectOperatorBuyerCriterion(LIVE_DOC)}
       />,
     )
     expect(findBannedContent(container.textContent ?? '')).toEqual([])

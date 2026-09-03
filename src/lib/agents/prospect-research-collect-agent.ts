@@ -384,7 +384,7 @@ async function isDocSuperseded(
   // Messaging documents are SEGMENT-SCOPED: fetchApprovedMessagingDoc tries the
   // segment's document first and only falls back to any approved one for the client.
   // A first version of this function ignored the segment entirely and compared against
-  // "the newest approved messaging document for this organisation", which for a
+  // "the newest live messaging document for this organisation", which for a
   // multi-segment client would report superseded on every single collect, because
   // another segment's newer document would always win the comparison. The rate would
   // have looked alarming and meant nothing.
@@ -394,7 +394,6 @@ async function isDocSuperseded(
     .eq('organisation_id', client_id)
     .eq('document_type', 'messaging')
     .eq('status', 'active')
-    .eq('client_approval_status', 'approved')
     .order('created_at', { ascending: false })
     .limit(1)
 

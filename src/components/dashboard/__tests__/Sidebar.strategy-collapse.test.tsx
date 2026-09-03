@@ -22,7 +22,7 @@ vi.mock('next/navigation', () => ({
 
 const ALL_APPROVED: StrategyNavState = {
   collapsedByDefault: true,
-  reason: 'all_approved',
+  reason: 'all_present',
   needsAttention: [],
 }
 
@@ -85,7 +85,7 @@ describe('collapsed once everything is approved', () => {
 
   it('shows no attention badge', () => {
     renderSidebar(ALL_APPROVED)
-    expect(screen.queryByText('Approval needed')).not.toBeInTheDocument()
+    expect(screen.queryByText('Not ready yet')).not.toBeInTheDocument()
     expect(screen.queryByText('New version')).not.toBeInTheDocument()
   })
 })
@@ -102,7 +102,7 @@ describe('never collapsed while something blocks the lead upload', () => {
 
   it('says approval is needed, in words, on the section heading', () => {
     renderSidebar(BLOCKING)
-    expect(screen.getByText('Approval needed')).toBeInTheDocument()
+    expect(screen.getByText('Not ready yet')).toBeInTheDocument()
   })
 
   it('marks the specific document that is holding things up', () => {

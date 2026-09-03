@@ -12,7 +12,7 @@ import { getDocumentLabel } from '@/lib/document-labels'
 // TWO OTHER DEFECTS IN THIS TEMPLATE ARE LEFT ALONE ON PURPOSE, because they are copy
 // decisions rather than mechanical fixes and the copy has not been reviewed:
 //   1. it signs off "<client company> Team", which reads as the client's own team writing
-//      to the client, the same fault that was just fixed in version-pending
+//      to the client, the same fault that was just fixed in version-updated
 //   2. it says "Log in to your dashboard" and gives NO LINK at all, so the reader has to
 //      go and find the document themselves
 // Both are in BACKLOG.

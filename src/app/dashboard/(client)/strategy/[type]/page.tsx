@@ -21,7 +21,7 @@ import { getDocumentLabel, DOCUMENT_META } from '@/lib/document-labels'
 import { PrintButton } from '@/components/dashboard/strategy/PrintButton'
 import { RegenerateButton } from '@/components/dashboard/strategy/RegenerateButton'
 import { NotYetGeneratedState } from '@/components/dashboard/strategy/NotYetGeneratedState'
-import { DocApprovalControls } from '@/components/dashboard/strategy/DocApprovalControls'
+import { DocumentRevisionControls } from '@/components/dashboard/strategy/DocumentRevisionControls'
 import type { DocumentType } from '@/types'
 import type { Json } from '@/types/database'
 
@@ -114,7 +114,7 @@ export default async function StrategyDocumentPage({
   // --- Document fetch ---
   let docQuery = supabase
     .from('strategy_documents')
-    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, client_approval_status, approval_source, approved_at, change_summary, revision_note, icp_filter_spec')
+    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, change_summary, revision_note, icp_filter_spec')
     .eq('organisation_id', org.id)
     .eq('document_type', docType)
     .in('status', ['active', 'approved'])
@@ -262,13 +262,10 @@ export default async function StrategyDocumentPage({
                   <PrintButton />
                 </div>
               </div>
-              <DocApprovalControls
+              <DocumentRevisionControls
                 docId={doc.id}
-                clientApprovalStatus={doc.client_approval_status}
-                approvalSource={doc.approval_source}
                 changeSummary={doc.change_summary}
                 revisionNote={doc.revision_note}
-                isOperator={isOperatorViewing}
                 hasPendingRevision={hasPendingRevision}
               />
               <DocumentContent

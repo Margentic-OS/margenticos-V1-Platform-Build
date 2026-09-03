@@ -7,27 +7,20 @@
 // be tested without rendering a page, and both of these are the kind of rule that has to
 // keep being true after the next person edits the layout around it.
 //
-// ─── RULE 1: APPROVAL IS INHERITED FROM THE PARENT ICP ───────────────────────
+// ─── RULE 1: THE CRITERION IS SHOWN ONLY FROM THE LIVE DOCUMENT ──────────────
 //
 // RLS DOES NOT ENFORCE THIS. Read live on 2026-09-03, the client policy on
-// strategy_documents is:
+// strategy_documents admits status in ('active', 'approved', 'archived'), because a
+// client can read their own version history. So a component handed an archived row
+// would happily render a criterion the organisation no longer targets by.
 //
-//     (organisation_id = get_my_organisation_id())
-//     AND (status = ANY (ARRAY['active', 'approved']))
+// This check is what makes the criterion follow the live document and nothing else.
 //
-// It gates on `status` and says nothing about `client_approval_status`. That is correct
-// for the document itself, which a client MUST be able to read while it is pending,
-// because reading it is how they decide whether to approve it. It is wrong for the
-// criterion, which describes a judgement the client has not yet agreed to.
-//
-// And a pending window is not an edge case, it is every version. promote_strategy_doc_version
-// archives the previous document and inserts the replacement with
-// client_approval_status = 'pending', so EVERY new ICP passes through a state where it is
-// active and unapproved. persistIcpFilterSpec writes the criterion into that same new row
-// moments later. The window closes when the client approves, or after three days by
-// cron. So without the check below, a criterion would be visible to the client for up to
-// three days before they had agreed to the document it came from.
-//
+// WHAT THIS CHECK USED TO BE. Until 2026-09-03 it also required
+// client_approval_status = 'approved', to cover a window where promote_strategy_doc_version
+// made a document live while marking it unapproved. Client approval is gone and so is
+// that window: a document is live because an operator produced it. See ADR-039.
+
 // ─── RULE 2: ONLY A CRITERION THAT IS ACTUALLY IN FORCE ──────────────────────
 //
 // A criterion whose status is `unsettled` or `out_of_band` does NOT gate anything: the
@@ -53,14 +46,13 @@ export interface OperatorBuyerCriterion extends ClientBuyerCriterion {
   reject: string[]
   sanityNote: string | null
   unsettledReason: string | null
-  /** False when the parent document is not active-and-approved. */
+  /** False when the parent document is not the live one. */
   visibleToClient: boolean
 }
 
 /** The document fields this decision depends on. Nothing else is read. */
 export interface CriterionSourceDoc {
   status: string | null
-  client_approval_status: string | null
   icp_filter_spec: unknown
 }
 
@@ -91,22 +83,22 @@ function textList(value: unknown): string[] {
     : []
 }
 
-/** True only when the parent document is the one the client has actually agreed to. */
-export function parentIsClientApproved(doc: CriterionSourceDoc): boolean {
-  return doc.status === 'active' && doc.client_approval_status === 'approved'
+/** True only when the parent document is the live one, not an archived version. */
+export function parentIsLive(doc: CriterionSourceDoc): boolean {
+  return doc.status === 'active'
 }
 
 /**
  * What the client may see. Null means render nothing.
  *
- * Returns null when the parent ICP is not active-and-approved, when the criterion is not
+ * Returns null when the parent ICP is not the live document, when the criterion is not
  * in force, or when there is no statement to show. Every one of those is "show nothing",
  * never "show a partial version".
  */
 export function selectClientBuyerCriterion(
   doc: CriterionSourceDoc,
 ): ClientBuyerCriterion | null {
-  if (!parentIsClientApproved(doc)) return null
+  if (!parentIsLive(doc)) return null
 
   const raw = readCriterion(doc.icp_filter_spec)
   if (!raw) return null
@@ -122,7 +114,7 @@ export function selectClientBuyerCriterion(
 
 /**
  * What an operator may see, including the fragment list and why it is or is not visible
- * to the client. Not gated on approval: the operator's job is to look at it BEFORE the
+ * to the client. Not gated on liveness: the operator's job is to look at it BEFORE the
  * client does, which is the entire reason the statement exists.
  */
 export function selectOperatorBuyerCriterion(

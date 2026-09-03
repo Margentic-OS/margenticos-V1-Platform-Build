@@ -8,7 +8,7 @@
 // Client isolation: every query filters by client_id. Never queries without client_id.
 //
 // Approval invariant (Addendum-2): every strategy_document fetch requires BOTH
-//   status = 'active'  AND  client_approval_status = 'approved'
+//   status = 'active'   (client approval was removed 2026-09-03, see ADR-039)
 // If a required doc (Messaging) is absent or unapproved, composeSequence throws with a
 // named reason. Optional enrichment docs (ICP pain proxy, Positioning value hook) fall
 // back to safe defaults when absent; they never fall back to an unapproved version.
@@ -580,7 +580,7 @@ export async function fetchApprovedMessagingDoc(
     resolvedSegmentId = primarySeg?.id ?? null
   }
 
-  // Both status='active' AND client_approval_status='approved' required.
+  // The live document for this segment. There is no second approval state to check.
   const baseQuery = () =>
     supabase
       .from('strategy_documents')
@@ -588,7 +588,6 @@ export async function fetchApprovedMessagingDoc(
       .eq('organisation_id', client_id)
       .eq('document_type', 'messaging')
       .eq('status', 'active')
-      .eq('client_approval_status', 'approved')
       .order('created_at', { ascending: false })
       .limit(1)
 
@@ -625,7 +624,6 @@ async function fetchApprovedIcpPainPoint(
       .eq('organisation_id', client_id)
       .eq('document_type', 'icp')
       .eq('status', 'active')
-      .eq('client_approval_status', 'approved')
       .order('created_at', { ascending: false })
       .limit(1)
 
@@ -657,7 +655,6 @@ export async function fetchApprovedPositioningHook(
     .eq('organisation_id', client_id)
     .eq('document_type', 'positioning')
     .eq('status', 'active')
-    .eq('client_approval_status', 'approved')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -790,7 +787,7 @@ async function fetchPainProxy(
     resolvedSegmentId = primarySeg?.id ?? null
   }
 
-  // Both status='active' AND client_approval_status='approved' required.
+  // The live document for this segment. There is no second approval state to check.
   const baseQuery = () =>
     supabase
       .from('strategy_documents')
@@ -798,7 +795,6 @@ async function fetchPainProxy(
       .eq('organisation_id', client_id)
       .eq('document_type', 'icp')
       .eq('status', 'active')
-      .eq('client_approval_status', 'approved')
       .order('created_at', { ascending: false })
       .limit(1)
 

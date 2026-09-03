@@ -34,7 +34,15 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   ['MON-004', 'mon_004'],
   ['MON-005', 'mon_005'],
   ['MON-006', 'mon_006'],
-  ['MON-007', 'mon_007'],
+  // MON-007 REMOVED 2026-09-03. It watched the strategy-doc-auto-approve cron, which is
+  // unscheduled because client approval on strategy documents is gone (ADR-039). A
+  // monitor whose subject no longer exists reports PROBLEM for ever and teaches the
+  // operator to ignore the board. The view and its monitor_checks row are dropped in
+  // 20260903100500_retire_strategy_doc_auto_approve.sql, in this same commit.
+  //
+  // The pair-list test below cannot catch a mistake here: it fails when a mon_NNN view
+  // CREATED BY A MIGRATION is missing from this list, and mon_007 was created in the
+  // baseline. Keeping both halves in one commit is what protects this.
   ['MON-010', 'mon_010'],
   ['MON-011', 'mon_011'],
   ['MON-012', 'mon_012'],
