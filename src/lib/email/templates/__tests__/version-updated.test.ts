@@ -6,6 +6,9 @@ import {
 } from '../version-updated'
 import { DOCUMENT_META, DOCUMENT_ORDER } from '@/lib/document-labels'
 
+// RULE ZERO: a real client's name must not sit in a fixture. The subject ignores this
+// argument entirely, which is itself part of what the assertions below check.
+const ORG_NAME = 'An organisation'
 const ORIGINAL = process.env.NEXT_PUBLIC_APP_URL
 beforeEach(() => { process.env.NEXT_PUBLIC_APP_URL = 'https://app.margenticos.com' })
 afterEach(() => { process.env.NEXT_PUBLIC_APP_URL = ORIGINAL })
@@ -70,8 +73,8 @@ describe('version_pending notification', () => {
   })
 
   it('names the document in the subject, using the name the client will see on the page', () => {
-    expect(versionUpdatedSubject('Simcare', 'icp')).toBe('Prospect profile has been updated')
-    expect(versionUpdatedSubject('Simcare', 'tov')).toBe('Voice guide has been updated')
+    expect(versionUpdatedSubject(ORG_NAME, 'icp')).toBe('Prospect profile has been updated')
+    expect(versionUpdatedSubject(ORG_NAME, 'tov')).toBe('Voice guide has been updated')
   })
 
   // THE DRIFT GUARD. This template used to carry its own { icp: 'ICP', tov: 'Tone of Voice' }
@@ -82,7 +85,7 @@ describe('version_pending notification', () => {
   it('uses the same label the dashboard uses, for every document type', () => {
     for (const docType of DOCUMENT_ORDER) {
       const uiLabel = DOCUMENT_META[docType].label
-      expect(versionUpdatedSubject('Simcare', docType)).toBe(`${uiLabel} has been updated`)
+      expect(versionUpdatedSubject(ORG_NAME, docType)).toBe(`${uiLabel} has been updated`)
       expect(versionUpdatedTemplate({ ...params, docType })).toContain(`Your ${uiLabel} has been updated`)
       expect(versionUpdatedText({ ...params, docType })).toContain(`Read your ${uiLabel}:`)
     }
