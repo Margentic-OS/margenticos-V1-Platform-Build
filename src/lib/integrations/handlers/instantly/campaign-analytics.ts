@@ -137,9 +137,19 @@ export function mapCampaignStatus(raw: unknown): CampaignLocalStatus | null {
 //     emails_sent_count           60
 //
 // contacted_count exceeds the number of leads that exist, so it is not a count of
-// people whatever the documentation says. It tracks emails, lagging emails_sent_count:
-// when this defect was reported both sent_count and contacted_count read 52, and by the
-// time it was investigated sent had moved to 60 while contacted still read 52.
+// people whatever the documentation says.
+//
+// WHAT IT IS INSTEAD IS NOT KNOWN, AND THAT IS THE POINT. The obvious reading, that it
+// is really an email counter, does NOT survive the evidence. The same campaign was
+// captured on 2026-08-24 in docs/DISCOVERY-per-domain-health.md reporting leads_count 15,
+// contacted_count 15 and emails_sent_count 30, so on that day it equalled the people
+// count exactly and was nowhere near the email count. Nine days later it reads 52 against
+// 24 leads and 60 emails.
+//
+// So the field is not consistently either thing. It agreed with people once and cannot
+// possibly be people now. A number that is right some of the time is the worst kind to
+// render, because it is correct whenever anyone checks it casually. Do not use it, and do
+// not spend time deducing what it counts: the bound below makes that unnecessary.
 //
 // new_leads_contacted_count is the people number, and it was confirmed against two
 // independent ground truths on the same campaign rather than against the documentation:
@@ -176,7 +186,9 @@ interface InstantlyCampaignAnalyticsRow {
 //     the shape the old contacted_count mapping produced (52 contacted, 24 leads)
 //
 // The bound is the guard that would have caught this defect on the day it shipped, so it
-// stays even though the field it now reads is the right one.
+// stays even though the field it now reads is the right one. It is the part of this fix
+// that does not depend on trusting a provider field's meaning, which matters because the
+// last field we trusted agreed with the people count for weeks before it stopped.
 export function mapContactedCount(rawContacted: unknown, rawLeads: unknown): number | null {
   if (typeof rawContacted !== 'number' || !Number.isFinite(rawContacted)) return null
   if (rawContacted < 0) return null
