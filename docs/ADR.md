@@ -4191,6 +4191,30 @@ prospect's whole sequence is composed in one call, uploaded to the provider as s
 variables, and `applySendGate` only ever claims prospects at
 `outbound_upload_status = 'pending'`.
 
+### What happened to the four approval columns
+
+Not dropped, and not left alone. Both were wrong for opposite reasons: dropping is
+irreversible and `approval_source` plus `approved_at` on 30 archived rows are the only
+record of whether a past version was approved by the operator, by a client, or by the
+three-day cron; leaving them means `client_approval_status` keeps its
+`NOT NULL DEFAULT 'pending'`, so every new row is born 'pending' and one re-added read
+silently blocks the lead upload again.
+
+So the defaults and the NOT NULLs are dropped and the data is untouched. History survives
+in full, and a new row gets NULL, which is not a state anything can gate on. The CHECK
+constraints stay: a CHECK passes on NULL because it only fails on FALSE, so NULL is
+admitted while a third value would still be rejected.
+
+Measured after applying: 30 rows still carry `approval_source` and `approved_at`, all 62
+rows still carry the `client_approval_status` they had, and a promotion run inside a
+rolled-back probe produced `client_approval_status=NULL pending_since=NULL`.
+
+One adjustment was needed and it was found by probing rather than by reading. Dropping the
+DEFAULT on `pending_since` while leaving its NOT NULL breaks every promotion, because
+`promote_strategy_doc_version` stopped naming that column and the default was the only
+thing filling it. The probe, run inside a DO block that rolled itself back, returned
+`NOT NULL VIOLATION on pending_since`. `pending_since` therefore drops its NOT NULL too.
+
 ### Cascade: flag, do not auto-rewrite
 
 An upstream change marks the downstream documents stale and surfaces them to the operator

@@ -2298,7 +2298,7 @@ export type Database = {
           approval_source: string | null
           approved_at: string | null
           change_summary: string | null
-          client_approval_status: string
+          client_approval_status: string | null
           content: Json
           created_at: string
           document_type: string
@@ -2308,7 +2308,7 @@ export type Database = {
           is_stale: boolean
           last_updated_at: string
           organisation_id: string
-          pending_since: string
+          pending_since: string | null
           plain_text: string | null
           revision_note: string | null
           segment_id: string | null
@@ -2321,7 +2321,7 @@ export type Database = {
           approval_source?: string | null
           approved_at?: string | null
           change_summary?: string | null
-          client_approval_status?: string
+          client_approval_status?: string | null
           content?: Json
           created_at?: string
           document_type: string
@@ -2331,7 +2331,7 @@ export type Database = {
           is_stale?: boolean
           last_updated_at?: string
           organisation_id: string
-          pending_since?: string
+          pending_since?: string | null
           plain_text?: string | null
           revision_note?: string | null
           segment_id?: string | null
@@ -2344,7 +2344,7 @@ export type Database = {
           approval_source?: string | null
           approved_at?: string | null
           change_summary?: string | null
-          client_approval_status?: string
+          client_approval_status?: string | null
           content?: Json
           created_at?: string
           document_type?: string
@@ -2354,7 +2354,7 @@ export type Database = {
           is_stale?: boolean
           last_updated_at?: string
           organisation_id?: string
-          pending_since?: string
+          pending_since?: string | null
           plain_text?: string | null
           revision_note?: string | null
           segment_id?: string | null
