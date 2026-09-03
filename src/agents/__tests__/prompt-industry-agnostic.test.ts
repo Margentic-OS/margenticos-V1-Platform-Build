@@ -68,10 +68,32 @@ const INDUSTRY: Pattern[] = [
 // tov 1:          same.
 // messaging 8:    same, and the messaging prompt feeds the send path, so it is not edited
 //                 as a drive-by.
+//
+// RATCHETED DOWN 2026-09-03, 14 -> 9, by the pass that removed the client's own sector from
+// RULE PROSE rather than from examples. positioning 4 -> 0 and tov 1 -> 0.
+//
+// WHAT MOVED, and none of it was an example. positioning-agent.md named the sector in its
+// QUALITY BAR ("should apply to no other consulting firm", "any boutique consultancy"), in
+// Rule 3's differentiator test ("any other consulting pipeline service"), and in a banned
+// phrase built around how that sector is sold. tov-agent.md named it in Rule 5's
+// generic-item test ("any consulting firm's TOV guide"). Each is an instruction that every
+// client's document generation runs through, so each was telling the model the client's
+// category before the ICP document got a word in.
+//
+// THE ONE IN THE QUALITY BAR IS THE ONE THIS SCAN'S OWN NOTES ALREADY KNEW ABOUT: the
+// sibling deny-list module records trying a negation guard here and rejecting it precisely
+// because it silenced positioning-agent.md L38. That hit was real, it was described in two
+// files, and it stayed for the recorded lifetime of both. Being visible in a baseline is
+// not the same as being fixed.
+//
+// icp 1 and messaging 8 are UNCHANGED and were re-measured, not assumed. The icp hit is the
+// inline unmatched-industries example this table already describes. The messaging figure is
+// untouched because that prompt feeds the send path and its Rules 17 to 23 quote copy that
+// actually shipped; it is not edited as a drive-by.
 const BASELINE: Record<string, number> = {
   'docs/prompts/icp-agent.md': 1,
-  'docs/prompts/positioning-agent.md': 4,
-  'docs/prompts/tov-agent.md': 1,
+  'docs/prompts/positioning-agent.md': 0,
+  'docs/prompts/tov-agent.md': 0,
   'docs/prompts/messaging-agent.md': 8,
   'docs/prompts/shared-voice-spec.md': 0,
 }
@@ -91,7 +113,11 @@ describe('prompt files name no industry, country, public body, statute or standa
   it('the baseline has not been raised to make a failure go away', () => {
     // Guards the guard. The recorded total is the thing a future edit is most likely to
     // reach for, so it is asserted against the value measured when the scan was written.
-    expect(Object.values(BASELINE).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(14)
+    // TIGHTENED WITH THE RATCHET, 14 -> 9. Leaving the cap at the old figure would let the
+    // five lines just removed be written back one at a time while this still passed, which
+    // is the whole failure mode a recorded total exists to prevent. A ratchet whose guard
+    // is not moved down with it has stopped guarding the part that changed.
+    expect(Object.values(BASELINE).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(9)
     expect(Object.keys(BASELINE)).toHaveLength(5)
   })
 

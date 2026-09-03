@@ -222,7 +222,7 @@ describe('every specimen the prompt offers as a model passes the validator', () 
   })
 
   it.each([
-    ['the peer-pattern exemplar passage', 'Most of the people I speak to who still run delivery themselves'],
+    ['the peer-pattern exemplar passage', 'Most of the people I speak to who still price every job themselves'],
     ['the Rule 6 "Right" specimen', 'It is the only approach that still runs in a month when nobody has time'],
   ])('%s is present and clean', (_label, fragment) => {
     expect(md).toContain(fragment)

@@ -128,20 +128,39 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 44
 // THE THREE DEAD FRAGMENT ENTRIES REPAIRED IN THE SAME COMMIT COST ZERO. Measured, not
 // assumed: each was re-scanned alone and newly flagged no lines at all. They were dead
 // entries, not suppressed hits, so repairing them changed no count anywhere.
-const BASELINE_TOTAL = 35
+//
+// RATCHETED DOWN 2026-09-03, 35 -> 30, by the same pass, and for the same five lines. This
+// scan and the industry scan hold two lists of overlapping facts, so both moved together:
+// positioning 4 -> 0 and tov 1 -> 0 here as well.
+//
+// NO PATTERN WAS NARROWED AND NO EXEMPTION WAS ADDED TO GET HERE. Every other source
+// re-measured identical, the introduction figure below is untouched at 44, and the GOAL
+// test above is still red because 30 is not zero.
+//
+// RATCHETED DOWN AGAIN 2026-09-03, 30 -> 29, by the example pass that followed. One hit, in
+// buildSynthesisPrompt: the BAD-assumption specimen opened "Given your work in consulting",
+// which named the client's sector inside the very example teaching the model not to assume
+// things about a prospect. It now names a different trade and the lesson is unchanged.
+//
+// THE SYNTHESIS PROMPT IS A TEMPLATE LITERAL, so none of the markdown exemptions reach it
+// and every word in it is scanned. That is why this one moved when a dozen markdown example
+// swaps in the same commit moved nothing: the markdown examples sit on labelled Wrong/Right
+// lines whose quoted spans are redacted before scanning, so the scan never saw them either
+// before or after. A flat figure there is the scan's reach, not the absence of a change.
+const BASELINE_TOTAL = 29
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/shared-voice-spec.md': 0,
   'docs/prompts/icp-agent.md': 9,
-  'docs/prompts/positioning-agent.md': 4,
-  'docs/prompts/tov-agent.md': 1,
+  'docs/prompts/positioning-agent.md': 0,
+  'docs/prompts/tov-agent.md': 0,
   'docs/prompts/messaging-agent.md': 11,
   'docs/prompts/faq-extraction-agent.md': 2,
   'docs/prompts/reply-draft-agent.md': 3,
   'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 1,
   'src/lib/agents/research/write-opening.ts:buildFloorPrompt': 0,
   'src/lib/agents/research/write-opening.ts:buildJudgePrompt': 0,
-  'src/lib/agents/research/prompts/synthesis-prompt.ts:buildSynthesisPrompt': 3,
+  'src/lib/agents/research/prompts/synthesis-prompt.ts:buildSynthesisPrompt': 2,
   'src/lib/agents/reply-classifier.ts:SYSTEM_PROMPT': 0,
   'src/lib/agents/faq-seed-agent.ts:buildSystemPrompt': 0,
   'src/lib/composition/personalization.ts:systemPrompt': 0,
@@ -192,7 +211,7 @@ describe('prompt text carries no client-specific content', () => {
     expect(Object.values(BASELINE_BY_SOURCE).reduce((a, b) => a + b, 0)).toBe(BASELINE_TOTAL)
     expect(BASELINE_TOTAL).toBeLessThanOrEqual(BASELINE_TOTAL_AT_INTRODUCTION)
     expect(BASELINE_TOTAL_AT_INTRODUCTION).toBe(44)
-    expect(BASELINE_TOTAL).toBe(35)
+    expect(BASELINE_TOTAL).toBe(29)
     expect(Object.keys(BASELINE_BY_SOURCE)).toHaveLength(PROMPT_SOURCES.length)
   })
 

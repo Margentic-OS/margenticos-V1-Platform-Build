@@ -10,8 +10,8 @@ to this file must be manually re-synced to all four prompt files:
 If you edit this file without syncing, the spec and the embedded copies silently diverge.
 
 **"Verbatim" above is aspirational and has not been true for some time. Measured
-2026-08-27 and corrected the same day, SEVEN differences are intentional and a re-sync must
-PRESERVE them:**
+2026-08-27 and corrected the same day, and RE-MEASURED 2026-09-03, TEN differences are
+intentional and a re-sync must PRESERVE them:**
 
   1. HEADING LEVEL. `## Rule N` here, `### Rule N` in the prompts, where the rules sit
      under a `## Shared voice rules` parent.
@@ -31,6 +31,19 @@ PRESERVE them:**
   6. messaging-agent.md carries a LOCAL `### Rule 11: Understandability` that is not in
      this file and must not be deleted by a re-sync. It was Rule 10 until 2026-08-27,
      renumbered when Rule 10 was added here.
+
+  8. THE EXEMPLAR CAPTIONS QUOTE HERE AND DO NOT QUOTE IN THE PROMPTS. Passage 1's and
+     Passage 2's captions name each property AND quote the passage fragment carrying it.
+     The prompts carry the same properties, same order, quotations removed. Neither form
+     may be copied over the other. CONSEQUENCE FOR A REWRITE: changing a passage changes
+     what its caption quotes, so only this file's captions move with it.
+  9. PASSAGE 3's CAPTION ENDS HERE WITH "The claim is already proved by the reader's own
+     experience." The prompts stop at "No throat-clearing."
+ 10. PASSAGE HEADINGS: `### Passage N (label)` here, `Passage N (label):` in the prompts.
+
+  8 TO 10 WERE FOUND 2026-09-03 BY DIFFING THE FILES, NOT BY READING THIS LIST, which had
+  said SEVEN since it was written while three more sat in the exemplar passages: the part
+  this header singles out as canonical in SUBSTANCE and as what a careless re-sync damages.
 
   7. RULE 9B EXISTS HERE AND IN icp-agent.md ONLY, as of 2026-08-28. It is NOT yet in
      positioning-agent.md, tov-agent.md or messaging-agent.md. This is a deliberate scope
@@ -65,14 +78,15 @@ The verdict sentence delivers the conclusion. The longer sentence proves it.
 Four sentences of similar length is an AI signature. Never produce a perfect rectangle.
 
 Bad (uniform):
-"Referrals carry the business but the founder knows this is fragile. They dread the end of
-a big engagement because there is nothing lined up. Revenue swings month to month with no
-engine underneath it. Evenings blur into outreach guilt that rarely converts into action."
+"The linen contracts renew on a rolling basis and nobody tracks the dates centrally. Each
+depot negotiates its own rate with whoever answers the phone that week. Margins drift apart
+across the network without anyone deciding that should happen. The variance only surfaces
+when the annual accounts are consolidated."
 
 Good (varied):
-"Referrals carry the business. The problem is that they also set the ceiling, removing the
-urgency to fix it, and every dry patch arrives without warning. There is no engine
-underneath it. Just a relationship that could cool tomorrow."
+"Every depot negotiates its own linen rate. That is fine until you lay the contracts side by
+side and find four depots paying four different prices for the same weekly collection.
+Nobody decided that. It happened in the gaps between renewals."
 
 ---
 
@@ -81,12 +95,12 @@ underneath it. Just a relationship that could cool tomorrow."
 Every section and every paragraph opens with its conclusion as a plain one-sentence assertion.
 The reasoning follows. Never build to the conclusion.
 
-Wrong: "When we consider the various ways a firm in this market might approach demand
-generation, and taking into account the competitive landscape and buyer psychology, it
-becomes clear that..."
+Wrong: "When we consider the various pressures acting on a small animal practice, and taking
+into account both the shape of the rota and the way emergency cases arrive without warning,
+it becomes clear that..."
 
-Right: "Referrals are structurally uncontrollable. The founder cannot influence timing, volume,
-or quality."
+Right: "Out-of-hours cover sets the rota. Everything else in the week is arranged around
+it."
 
 ---
 
@@ -96,10 +110,10 @@ Every strategic claim needs one supporting specific: a named situation, an obser
 behaviour, or a direct quote from the intake. A number counts only when this message
 supplied it.
 
-"Firms in this market struggle with inconsistent revenue" is a category claim. It fails.
+"Print shops in this market struggle with unpredictable demand" is a category claim. It fails.
 
-"The founder approves every quote, so quoting stops in the weeks they are busy
-delivering. Work arrives in clumps behind their calendar." is a specific claim.
+"One person signs off every proof, and that person also runs the press on short-staffed
+days. The reprints wait behind whichever job is already on the machine." is a specific claim.
 
 That names who acts and what follows from it. No figure appears, and none is needed.
 
@@ -181,8 +195,8 @@ run it."
 Do not end a paragraph or section with a sentence that summarises what was just said.
 If you can remove the last sentence and the paragraph is stronger, remove it.
 
-Wrong final sentence: "The outcome is a shift from feast-or-famine anxiety to a steady flow
-of right-fit conversations, plus documented IP they own outright."
+Wrong final sentence: "The outcome is a shift from reactive callouts to a planned servicing
+calendar, plus an asset register they own outright."
 
 Right: stop at the last concrete fact.
 
@@ -392,29 +406,28 @@ These three passages already demonstrate the correct voice. They are the style t
 
 ### Passage 1 (peer-pattern opener)
 
-"Most of the people I speak to who still run delivery themselves are in the same spot: proven
-offer, strong delivery record, and a pipeline built almost entirely on referrals they can't
-control or predict. One warm intro every six or eight weeks keeps the lights on, which removes
-the acute urgency. But it doesn't change the ceiling."
+"Most of the people I speak to who still price every job themselves are in the same spot:
+crews that know the work, kit that is paid for, and a schedule that empties the moment the
+grass stops growing. One retained contract carries the winter, which is enough to make the
+problem feel solved. It isn't."
 
 Why this works: assertion opener ("Most of the people I speak to..."), population named by
-SITUATION rather than by sector, job title or size ("who still run delivery themselves"),
-specific observation with concrete detail ("one warm intro every six or eight weeks"), short
-verdict sentence to close ("But it doesn't change the ceiling.").
+SITUATION rather than by sector, job title or size ("who still price every job themselves"),
+specific observation with concrete detail ("the moment the grass stops growing"), short
+verdict sentence to close ("It isn't.").
 
 ### Passage 2 (contrarian insight)
 
-"The ones who finally get predictable pipeline didn't fix their outreach by working harder
-at it. They removed themselves from running it entirely. The consistency comes from the
-engine, not the effort."
+"The yards that finally got their utilisation up didn't do it by chasing more hires. They
+stopped letting kit sit idle between bookings. The gain was in the gaps all along."
 
 Why this works: names its population by SITUATION rather than by sector, job title or size
-("The ones who finally get predictable pipeline"), makes a committed counter-intuitive claim,
-then delivers a short verdict that stands alone.
+("The yards that finally got their utilisation up"), makes a committed counter-intuitive
+claim, then delivers a short verdict that stands alone.
 
 ### Passage 3 (cold outreach hook)
 
-"Your pipeline shouldn't reset to zero every time a referral dries up."
+"Your scaffold shouldn't come down twice for the same job."
 
 Why this works: a single short sentence. One idea. Subject-first. No em-dashes. No
 throat-clearing. The claim is already proved by the reader's own experience.

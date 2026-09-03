@@ -51,26 +51,27 @@ The verdict sentence delivers the conclusion. The longer sentence proves it.
 Four sentences of similar length is an AI signature. Never produce a perfect rectangle.
 
 Bad (uniform):
-"Referrals carry the business but the founder knows this is fragile. They dread the end of
-a big engagement because there is nothing lined up. Revenue swings month to month with no
-engine underneath it. Evenings blur into outreach guilt that rarely converts into action."
+"The linen contracts renew on a rolling basis and nobody tracks the dates centrally. Each
+depot negotiates its own rate with whoever answers the phone that week. Margins drift apart
+across the network without anyone deciding that should happen. The variance only surfaces
+when the annual accounts are consolidated."
 
 Good (varied):
-"Referrals carry the business. The problem is that they also set the ceiling, removing the
-urgency to fix it, and every dry patch arrives without warning. There is no engine
-underneath it. Just a relationship that could cool tomorrow."
+"Every depot negotiates its own linen rate. That is fine until you lay the contracts side by
+side and find four depots paying four different prices for the same weekly collection.
+Nobody decided that. It happened in the gaps between renewals."
 
 ### Rule 2: Assertion-style section openers
 
 Every section and every paragraph opens with its conclusion as a plain one-sentence assertion.
 The reasoning follows. Never build to the conclusion.
 
-Wrong: "When we consider the various ways a firm in this market might approach demand
-generation, and taking into account the competitive landscape and buyer psychology, it
-becomes clear that..."
+Wrong: "When we consider the various pressures acting on a small animal practice, and taking
+into account both the shape of the rota and the way emergency cases arrive without warning,
+it becomes clear that..."
 
-Right: "Referrals are structurally uncontrollable. The founder cannot influence timing, volume,
-or quality."
+Right: "Out-of-hours cover sets the rota. Everything else in the week is arranged around
+it."
 
 ### Rule 3: Specificity over category
 
@@ -78,10 +79,10 @@ Every strategic claim needs one supporting specific: a named situation, an obser
 behaviour, or a direct quote from the intake. A number counts only when this message
 supplied it.
 
-"Firms in this market struggle with inconsistent revenue" is a category claim. It fails.
+"Print shops in this market struggle with unpredictable demand" is a category claim. It fails.
 
-"The founder approves every quote, so quoting stops in the weeks they are busy
-delivering. Work arrives in clumps behind their calendar." is a specific claim.
+"One person signs off every proof, and that person also runs the press on short-staffed
+days. The reprints wait behind whichever job is already on the machine." is a specific claim.
 
 That names who acts and what follows from it. No figure appears, and none is needed.
 
@@ -300,24 +301,23 @@ another market.
 ### Exemplar passages: style targets
 
 Passage 1 (peer-pattern opener):
-"Most of the people I speak to who still run delivery themselves are in the same spot: proven
-offer, strong delivery record, and a pipeline built almost entirely on referrals they can't
-control or predict. One warm intro every six or eight weeks keeps the lights on, which removes
-the acute urgency. But it doesn't change the ceiling."
+"Most of the people I speak to who still price every job themselves are in the same spot:
+crews that know the work, kit that is paid for, and a schedule that empties the moment the
+grass stops growing. One retained contract carries the winter, which is enough to make the
+problem feel solved. It isn't."
 
 Why this works: assertion opener, population named by SITUATION rather than by sector, job
 title or size, concrete detail, short verdict sentence to close.
 
 Passage 2 (contrarian insight):
-"The ones who finally get predictable pipeline didn't fix their outreach by working harder
-at it. They removed themselves from running it entirely. The consistency comes from the
-engine, not the effort."
+"The yards that finally got their utilisation up didn't do it by chasing more hires. They
+stopped letting kit sit idle between bookings. The gain was in the gaps all along."
 
 Why this works: population named by SITUATION rather than by sector, job title or size,
 committed counter-intuitive claim, short verdict that stands alone.
 
 Passage 3 (cold outreach hook):
-"Your pipeline shouldn't reset to zero every time a referral dries up."
+"Your scaffold shouldn't come down twice for the same job."
 
 Why this works: a single short sentence. One idea. Subject-first. No em-dashes. No
 throat-clearing.
@@ -482,13 +482,14 @@ that is two questions. Remove the rhetorical one or rephrase it as a statement.
 Never list services or capabilities before establishing that the recipient has
 a problem worth solving. The recipient does not care what you do until they
 believe you understand their situation.
-Wrong: "We help consulting firms with outbound, prospecting, and pipeline building."
+Wrong: "We install intruder alarms, CCTV, access control and remote monitoring."
 Right: "[observation about their situation]. That's the problem we solve."
 
 ### Rule 4: No service-led language
 Never lead with what you do. Always lead with what they get or what problem you solve.
-Service-led: "We offer done-for-you outbound campaigns..."
-Outcome-led: "Founders who work with us stop spending Sundays on LinkedIn..."
+Service-led: "We offer nightly contract cleaning with a dedicated on-site supervisor..."
+Outcome-led: "The people who switch to us stop getting the Monday complaint about the
+washrooms..."
 The service is how. The outcome is why. Always lead with why.
 
 ### Rule 5: First touch under 100 words
@@ -635,7 +636,7 @@ the specific behaviour, pattern, or evidence that prompted it instead.
 
 5. The do_dont_list must be specific to this founder. Generic items like "be professional"
    or "avoid jargon" are not acceptable unless grounded in the specific samples.
-   Test each item: could it appear in any consulting firm's TOV guide? If yes, make it
+   Test each item: could it appear in any other business's TOV guide? If yes, make it
    more specific to this voice or remove it.
 
 6. voice_style_note must be honest when a contradiction exists. Do not hedge it or make

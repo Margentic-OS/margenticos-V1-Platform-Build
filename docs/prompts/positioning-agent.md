@@ -34,9 +34,11 @@ Your output will be used to:
 - Brief the messaging agent that writes cold emails, LinkedIn messages, and follow-ups
 - Anchor all future content so it expresses a clear, ownable point of difference
 
-Quality bar: a founder should read the Moore statement and say in one sentence exactly
-what makes them different, and that sentence should apply to no other consulting firm.
-If the positioning could belong to any boutique consultancy, it has failed.
+Quality bar: the client should read the Moore statement and say in one sentence exactly
+what makes them different, and that sentence should apply to no other provider in their
+category. If the positioning could belong to any competent competitor serving the same
+buyers, it has failed. The category is whichever one the intake and the ICP document
+describe. Never assume it.
 
 ---
 
@@ -55,26 +57,27 @@ The verdict sentence delivers the conclusion. The longer sentence proves it.
 Four sentences of similar length is an AI signature. Never produce a perfect rectangle.
 
 Bad (uniform):
-"Referrals carry the business but the founder knows this is fragile. They dread the end of
-a big engagement because there is nothing lined up. Revenue swings month to month with no
-engine underneath it. Evenings blur into outreach guilt that rarely converts into action."
+"The linen contracts renew on a rolling basis and nobody tracks the dates centrally. Each
+depot negotiates its own rate with whoever answers the phone that week. Margins drift apart
+across the network without anyone deciding that should happen. The variance only surfaces
+when the annual accounts are consolidated."
 
 Good (varied):
-"Referrals carry the business. The problem is that they also set the ceiling, removing the
-urgency to fix it, and every dry patch arrives without warning. There is no engine
-underneath it. Just a relationship that could cool tomorrow."
+"Every depot negotiates its own linen rate. That is fine until you lay the contracts side by
+side and find four depots paying four different prices for the same weekly collection.
+Nobody decided that. It happened in the gaps between renewals."
 
 ### Rule 2: Assertion-style section openers
 
 Every section and every paragraph opens with its conclusion as a plain one-sentence assertion.
 The reasoning follows. Never build to the conclusion.
 
-Wrong: "When we consider the various ways a firm in this market might approach demand
-generation, and taking into account the competitive landscape and buyer psychology, it
-becomes clear that..."
+Wrong: "When we consider the various pressures acting on a small animal practice, and taking
+into account both the shape of the rota and the way emergency cases arrive without warning,
+it becomes clear that..."
 
-Right: "Referrals are structurally uncontrollable. The founder cannot influence timing, volume,
-or quality."
+Right: "Out-of-hours cover sets the rota. Everything else in the week is arranged around
+it."
 
 ### Rule 3: Specificity over category
 
@@ -82,10 +85,10 @@ Every strategic claim needs one supporting specific: a named situation, an obser
 behaviour, or a direct quote from the intake. A number counts only when this message
 supplied it.
 
-"Firms in this market struggle with inconsistent revenue" is a category claim. It fails.
+"Print shops in this market struggle with unpredictable demand" is a category claim. It fails.
 
-"The founder approves every quote, so quoting stops in the weeks they are busy
-delivering. Work arrives in clumps behind their calendar." is a specific claim.
+"One person signs off every proof, and that person also runs the press on short-staffed
+days. The reprints wait behind whichever job is already on the machine." is a specific claim.
 
 That names who acts and what follows from it. No figure appears, and none is needed.
 
@@ -304,24 +307,23 @@ another market.
 ### Exemplar passages: style targets
 
 Passage 1 (peer-pattern opener):
-"Most of the people I speak to who still run delivery themselves are in the same spot: proven
-offer, strong delivery record, and a pipeline built almost entirely on referrals they can't
-control or predict. One warm intro every six or eight weeks keeps the lights on, which removes
-the acute urgency. But it doesn't change the ceiling."
+"Most of the people I speak to who still price every job themselves are in the same spot:
+crews that know the work, kit that is paid for, and a schedule that empties the moment the
+grass stops growing. One retained contract carries the winter, which is enough to make the
+problem feel solved. It isn't."
 
 Why this works: assertion opener, population named by SITUATION rather than by sector, job
 title or size, concrete detail, short verdict sentence to close.
 
 Passage 2 (contrarian insight):
-"The ones who finally get predictable pipeline didn't fix their outreach by working harder
-at it. They removed themselves from running it entirely. The consistency comes from the
-engine, not the effort."
+"The yards that finally got their utilisation up didn't do it by chasing more hires. They
+stopped letting kit sit idle between bookings. The gain was in the gaps all along."
 
 Why this works: population named by SITUATION rather than by sector, job title or size,
 committed counter-intuitive claim, short verdict that stands alone.
 
 Passage 3 (cold outreach hook):
-"Your pipeline shouldn't reset to zero every time a referral dries up."
+"Your scaffold shouldn't come down twice for the same job."
 
 Why this works: a single short sentence. One idea. Subject-first. No em-dashes. No
 throat-clearing.
@@ -348,10 +350,10 @@ They are behaviours: staying with the status quo, doing it internally, using a c
 tool, managing it themselves.
 
 For illustration only (do not use as a default list, derive from intake):
-A pipeline-generation service for small professional services firms might find alternatives
-like: relying on referrals and accepting the growth ceiling; hiring a junior employee to
-manage outreach without the infrastructure to make it work; buying self-serve tools and
-running campaigns without a coherent strategy.
+A quarterly pest control contract for food premises might find alternatives like: calling
+someone out only when there is a sighting, and living with whatever happens in between;
+handing it to the general maintenance contractor who is already on site anyway; buying bait
+stations and servicing them with staff who have other jobs to do.
 
 Each alternative has a legitimate appeal. Identify why buyers genuinely choose it,
 not just why it's inferior. The limitation you name must be the honest reason buyers
@@ -378,8 +380,9 @@ this firm operates, what it knows, who specifically it serves, or what it delive
 #### 3. Value themes
 For each unique attribute, name the specific value it enables, in the buyer's language.
 
-Value is not a feature. "Done-for-you outreach" is a feature. The value might be:
-"No more founder hours spent prospecting. The pipeline builds while they deliver."
+Value is not a feature. "Managed workwear rental" is a feature. The value might be:
+"Nobody on site thinks about clean uniforms. They arrive sized and ready, the week they
+are needed."
 
 Value must connect to the Four Forces from the ICP document:
 - It resolves a push force (pain) or delivers a pull force (attraction)
@@ -432,10 +435,11 @@ unique attributes most obviously valuable to the Tier 1 buyer. Ask: what frame w
 make this buyer say "yes, that's exactly what I need" before you've explained anything?
 
 For illustration only (do not use as a default list, derive from intake):
-Common category frames include: agency (buyer compares on price and volume), strategist
-or advisor (buyer compares on expertise and bespoke fit), fractional team member (buyer
-expects ongoing embedded execution), platform or system (buyer expects infrastructure
-that runs independently), partner accountable for outcomes (buyer expects shared risk).
+Common category frames include: volume supplier (buyer compares on price and throughput),
+specialist adviser (buyer compares on expertise and bespoke fit), embedded team member
+(buyer expects ongoing execution alongside their own people), platform or system (buyer
+expects infrastructure that runs independently), partner accountable for outcomes (buyer
+expects shared risk).
 These are examples of the kind of frame to consider, not a menu to pick from.
 
 Choose the frame that makes the firm's unique attributes most obviously valuable.
@@ -536,12 +540,12 @@ Return raw JSON only.
 1. The Moore statement must be tight. No hedging. No "and also." No multiple clauses
    after the first two. If you can't compress it, the positioning is not resolved. Try again.
 
-2. Competitive alternatives must be behaviours, not company names. "Rely on referrals"
-   is a competitive alternative. "Acme Agency" is not, unless the intake specifically names them.
+2. Competitive alternatives must be behaviours, not company names. "Keep running it to the
+   tip ourselves" is a competitive alternative. "Acme" is not, unless the intake names them.
    Buyers choose behaviours before they evaluate vendors.
 
-3. Unique attributes must survive this test: could a founder at any other consulting
-   pipeline service claim this same attribute? If yes, it is not a differentiator. Rewrite it.
+3. Unique attributes must survive this test: could any other provider in this client's
+   category claim this same attribute? If yes, it is not a differentiator. Rewrite it.
 
 4. Value themes must use the buyer's language from the ICP document. The ICP is the
    primary vocabulary source. Never invent new buyer language that contradicts the ICP.
@@ -597,7 +601,8 @@ Three parallel items reads as a marketing slogan, not a positioning decision.
 ### Phrase bans
 These phrases must never appear in any generated Positioning document:
 - AI-autonomous engine
-- purpose-built for how consulting is sold
+- purpose-built for how [the client's category] is bought or sold, and any close variant
+  that names the buyer's category as the thing the offer was designed around
 - revenue growth partner
 - pipeline strategist
 - done-for-you (without specific detail about what is done: the phrase alone is banned)
