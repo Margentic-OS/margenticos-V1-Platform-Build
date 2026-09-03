@@ -549,14 +549,51 @@ async function main() {
   const uniqueness = new BatchUniquenessRegistry()
 
   const startedAt = new Date().toISOString()
+  const stamp = startedAt.replace(/[:.]/g, '-')
+  const outDir = path.join(process.cwd(), '.writer-export')
+  fs.mkdirSync(outDir, { recursive: true })
+
+  // ── A COMPLETED PROSPECT IS PAID FOR, SO IT IS ON DISK BEFORE THE NEXT ONE STARTS ──
+  //
+  // This run used to hold every record in memory and write once at the end, so any
+  // failure discarded the whole run. It happened twice on 2026-09-02: a transient
+  // `Request timed out` at prospect 6, and an exhausted Anthropic credit balance at
+  // prospect 35 with $0.57 of completed work already bought. Both times the output was
+  // nothing at all, and a run that is 85% complete was worth exactly as much as one that
+  // never started.
+  //
+  // TWO MECHANISMS, because they fail differently and neither covers the other.
+  //
+  // 1. The JSONL below is appended after each prospect and fsync'd by the write itself.
+  //    It survives what a catch block cannot: SIGKILL, a hung process the operator kills,
+  //    a machine losing power. Nothing in JS runs after those.
+  // 2. The try/catch around the loop covers the case that actually happened, a thrown
+  //    API error, and lets the run still produce the real .json and .txt from the
+  //    records it has, marked `aborted`.
+  //
+  // The JSONL is deliberately NOT deleted on success. It is the receipt that the two
+  // paths agree, and it costs a few hundred kilobytes.
+  const partialPath = path.join(outDir, `writer-run-${stamp}.partial.jsonl`)
+
   const records: ProspectRecord[] = []
-  for (const [i, id] of targets.entries()) {
-    console.log(`[${i + 1}/${targets.length}] ${id}`)
-    const rec = await runOne(supabase, apiKey, id, uniqueness, pinnedDocId)
-    if (rec) {
-      records.push(rec)
-      console.log(`  judge ${rec.judge_won ? 'WON' : 'lost'}  retries ${rec.retries_used}  $${rec.usd.toFixed(4)}`)
+  let aborted: string | null = null
+  try {
+    for (const [i, id] of targets.entries()) {
+      console.log(`[${i + 1}/${targets.length}] ${id}`)
+      const rec = await runOne(supabase, apiKey, id, uniqueness, pinnedDocId)
+      if (rec) {
+        records.push(rec)
+        // Appended BEFORE the console line, so the file is ahead of the log rather than
+        // behind it. A record visible on stdout but absent from disk is the exact
+        // confusion this is meant to remove.
+        fs.appendFileSync(partialPath, JSON.stringify(rec) + '\n')
+        console.log(`  judge ${rec.judge_won ? 'WON' : 'lost'}  retries ${rec.retries_used}  $${rec.usd.toFixed(4)}`)
+      }
     }
+  } catch (err) {
+    aborted = err instanceof Error ? err.message : String(err)
+    console.error(`\nexport-writer-run ABORTED after ${records.length}/${targets.length} prospects: ${aborted}`)
+    console.error(`Completed prospects are kept. Partial records: ${partialPath}`)
   }
 
   // ── Aggregates ──
@@ -578,6 +615,13 @@ async function main() {
 
   const summary = {
     started_at: startedAt,
+    // TRUE when the loop threw. Every rate below is then computed over the prospects that
+    // COMPLETED, not over the ones requested, so an aborted run's judge win rate and cost
+    // per prospect are real numbers about a smaller cohort. prospects_run against
+    // prospects_requested is what tells them apart, and this flag is what stops the
+    // difference being missed.
+    aborted: aborted !== null,
+    abort_reason: aborted,
     messaging_doc_pinned: pinnedDocId,
     messaging_docs_used: [...new Set(records.map(r => `${r.messaging_doc_id}${r.messaging_doc_version ? ` v${r.messaging_doc_version}` : ''}`))],
     prospects_run: records.length,
@@ -604,9 +648,6 @@ async function main() {
     ],
   }
 
-  const stamp = startedAt.replace(/[:.]/g, '-')
-  const outDir = path.join(process.cwd(), '.writer-export')
-  fs.mkdirSync(outDir, { recursive: true })
   const jsonPath = path.join(outDir, `writer-run-${stamp}.json`)
   const textPath = path.join(outDir, `writer-run-${stamp}.txt`)
   fs.writeFileSync(jsonPath, JSON.stringify({ summary, records }, null, 2))
@@ -625,7 +666,15 @@ async function main() {
   }
   console.log(`\nwrote ${jsonPath}`)
   console.log(`wrote ${textPath}`)
+  console.log(`partial records   ${partialPath}`)
   console.log('NOTHING WAS WRITTEN TO THE DATABASE.')
+
+  // NON-ZERO ON ABORT, after the files are written. The files are the point of the change;
+  // the exit code is what stops a shell pipeline treating a partial run as a complete one.
+  if (aborted) {
+    console.error(`\nRUN WAS PARTIAL: ${records.length}/${targets.length} prospects. Do not quote these rates as a full cohort.`)
+    process.exitCode = 1
+  }
 }
 
 // Only run when invoked as a script. Importing it from a test must not fire a paid run.
