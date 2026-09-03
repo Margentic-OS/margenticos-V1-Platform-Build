@@ -41,7 +41,7 @@ const APOLLO_TO_SPEC: Record<string, string> = {
 // Apollo handler's APOLLO_TARGETED_INDUSTRIES, passes the orchestrator's reachability
 // gate, and can then never come back out of this function. A client whose ICP named
 // only that industry would pass every pre-search check and lose every prospect to
-// `industry_not_consulting` at tier classification.
+// `industry_off_target` at tier classification.
 //
 // LIMIT, stated so it is not over-trusted: this is the STATIC range only. Operators can
 // add rows to industry_tag_mappings, which can only ADD names, never remove them. So a

@@ -32,13 +32,20 @@ export interface EnrichedProspect {
 // second list. Anything not in here still gets counted, under `removed_other`,
 // with the raw reasons named: a reason that falls through must be visible rather
 // than silently absent, which is the whole point of this file's changes.
+//
+// THIS LIST IS THE REASONS THE CURRENT CODE CAN PRODUCE, not every reason a stored row
+// can carry. `industry_not_consulting` was renamed to `industry_off_target` and is gone
+// from here because nothing writes it any more, but rows removed under the old name are
+// still in the database and still have to render. Operator-facing wording therefore
+// keeps BOTH keys, in prospect-status.ts, which is the only place that wording lives.
 export const REMOVAL_REASONS = [
   'email_unverified',
   'no_title',
   'not_decision_maker',
+  'no_buyer_criterion',
   'company_too_large',
   'industry_excluded',
-  'industry_not_consulting',
+  'industry_off_target',
 ] as const
 
 export type RemovalReason = typeof REMOVAL_REASONS[number]
@@ -68,22 +75,48 @@ interface TierResult {
 // and scored another only on an exact match. Both now read the one criterion, through
 // a single evaluation per prospect, so there is no second copy left to drift.
 
-// Consultancy evidence patterns
-const CONSULTANCY_PATTERNS = [
-  'consulting',
-  'consultancy',
-  'advisory',
-  'advisor',
-  'coaching',
-  'coach',
-  'fractional',
-]
+// ─── The hardcoded consultancy patterns are DELETED, not parameterised ───────
+//
+// CONSULTANCY_PATTERNS was seven literal fragments naming one market's vocabulary,
+// applied identically to every client. It is the same Rule Zero violation as the
+// decision-maker list above, arriving one function later, and it survived that
+// deletion because it sits on the INDUSTRY axis rather than the buyer axis and so
+// was not what anyone was looking at.
+//
+// It did two jobs and both were wrong for any client outside that one market:
+//
+//   1. It RESCUED an off-target prospect from disqualifier 6. A firm whose industry
+//      tag missed but whose NAME says what it is got a second chance. For a client
+//      selling into schools or hospitals, the rescue could only ever fire on a
+//      consulting firm, so the rescue was dead code for them and live for one client.
+//   2. It awarded 20 fit points for an "adjacent" industry, on the same basis.
+//
+// What replaces it is the client's OWN keywords, from their own spec. That field
+// already exists, is already per client, and is already what the sourcing handler
+// post-filters on through keywords_excluded. Reading it here means the rescue speaks
+// whatever vocabulary the client's documents use, and a client whose spec names no
+// keywords simply gets no rescue rather than another market's.
 
 /**
- * Check if company or person has evidence of being a consultancy/advisory/coaching business.
- * Looks for signals in company name and job title.
+ * Does the company name or job title carry any of the words THIS client targets?
+ *
+ * The keywords come from the client's spec and from nowhere else. An empty or absent
+ * keyword list returns false, which is the honest answer: no evidence was asked for,
+ * so none was found. It must not fall back to a default list, because a default list
+ * is what this replaced.
+ *
+ * Matched as a lowercase substring over `company_name + job_title`, which is what the
+ * deleted version did. The matching is unchanged on purpose: this commit changes WHERE
+ * the words come from, so that the tier movement it causes is attributable to that and
+ * not to a simultaneous change in how they are compared.
  */
-function hasConsultancyEvidence(prospect: EnrichedProspect): boolean {
+function hasTargetKeywordEvidence(
+  prospect: EnrichedProspect,
+  icpFilterSpec: ICPFilterSpec,
+): boolean {
+  const keywords = icpFilterSpec.keywords
+  if (!keywords || keywords.length === 0) return false
+
   const signals = [
     prospect.company_name || '',
     prospect.job_title || '',
@@ -91,7 +124,10 @@ function hasConsultancyEvidence(prospect: EnrichedProspect): boolean {
     .join(' ')
     .toLowerCase()
 
-  return CONSULTANCY_PATTERNS.some(pattern => signals.includes(pattern))
+  return keywords.some(keyword => {
+    const needle = keyword.toLowerCase().trim()
+    return needle.length > 0 && signals.includes(needle)
+  })
 }
 
 /**
@@ -101,9 +137,10 @@ function hasConsultancyEvidence(prospect: EnrichedProspect): boolean {
  * re-derived here. Re-deriving is how the old inline ladder drifted from the list it
  * was supposed to mirror.
  *
- * A survivor always scores, because a prospect the criterion rejects never reaches
- * scoring. The zero cases are a client with no criterion yet and a prospect with no
- * title, both of which reach here only by failing open.
+ * A survivor always scores. Every verdict that would score zero is now stopped before
+ * this point: `reject` and `no_criterion` are disqualifiers 3 and 3b, and `no_title` is
+ * disqualifier 2. The zero branch below is therefore unreachable from classifyTier and
+ * is kept only so the function is total for any other caller.
  */
 function calculateSeniorityScore(verdict: BuyerVerdict): number {
   return seniorityScoreFor(verdict)
@@ -151,8 +188,8 @@ function calculateIndustryScore(
     return 45
   }
 
-  // Adjacent industry (has consultancy evidence) = 20 points
-  if (hasConsultancyEvidence(prospect)) {
+  // Adjacent industry (carries one of this client's own target keywords) = 20 points
+  if (hasTargetKeywordEvidence(prospect, icpFilterSpec)) {
     return 20
   }
 
@@ -224,6 +261,49 @@ export async function classifyTier(
     }
   }
 
+  // Disqualifier 3b: THERE IS NO CRITERION TO JUDGE BY. Withhold the tier, loudly.
+  //
+  // This is not a verdict about the prospect. It is a refusal to produce one, and the
+  // difference matters because `sourced_tier` is a MATERIALISED VERDICT: nothing
+  // re-evaluates it once written except the spec-change thaw in persist-icp-filter-spec.
+  //
+  // WHAT IT USED TO DO, and why that was worse than either alternative. The gate above
+  // fails OPEN on `no_criterion`, deliberately, so an unvalidated criterion cannot
+  // quietly stop a client's pipeline. But `seniorityScoreFor` then returns 0 for the
+  // same verdict, because there is no rank to read. So the prospect was let through the
+  // disqualifier as "we did not check" and scored as "we checked and this person is
+  // worth nothing". The seniority axis is 35 of the 100 points and tier 1 needs 80, so
+  // a client with no criterion had a SILENT CEILING OF 65 and could never produce a
+  // tier 1 prospect however good its prospects were. Nothing said so. The batch looked
+  // like poor sourcing rather than a missing input, and the wrong verdict froze on the
+  // row.
+  //
+  // That is the validate-one-thing-return-another shape from CLAUDE.md: the check ran,
+  // reported that it had not decided, and the thing downstream decided anyway.
+  //
+  // FAIL LOUDLY WAS CHOSEN OVER FAIL OPEN, and the choice is narrow on purpose:
+  //
+  //   - Only the TIER is withheld. The pre-enrichment buyer gate in
+  //     enrichment-selection.ts reads the same evaluateBuyerCriterion and still fails
+  //     open. Nothing about spend changes, so this cannot make a client pay more.
+  //   - It is RECOVERABLE with no new machinery. persistIcpFilterSpec already clears
+  //     tiering_reason for every row with a null tier when a new spec is stored, so the
+  //     moment an ICP carrying a criterion is approved these rows re-tier by themselves.
+  //   - It is VISIBLE. `removed_no_buyer_criterion` is derived from REMOVAL_REASONS, so
+  //     it gets its own always-present count in logClassificationStats, and a non-zero
+  //     removal count logs at warn.
+  //
+  // A fabricated tier computed from a missing axis is worse than no tier, because the
+  // first looks like data and the second looks like a question.
+  if (buyerVerdict.decision === 'no_criterion') {
+    return {
+      prospect_id: prospectId,
+      sourced_tier: null,
+      fit_score: null,
+      tiering_reason: 'no_buyer_criterion' satisfies RemovalReason,
+    }
+  }
+
   // Disqualifier 4: Company headcount > 100
   if (prospect.company_headcount !== null && prospect.company_headcount > 100) {
     return {
@@ -257,7 +337,7 @@ export async function classifyTier(
     }
   }
 
-  // Disqualifier 6: Not on-target AND no consultancy evidence
+  // Disqualifier 6: Not on-target AND no evidence in this client's own keywords
   if (prospect.company_industry) {
     const mappedIndustry = mapApolloToSpecIndustryWithDatabase(
       prospect.company_industry,
@@ -272,14 +352,14 @@ export async function classifyTier(
         ind => ind.toLowerCase() === mappedIndustry.toLowerCase()
       )
 
-    // Disqualify if: NOT on-target AND no consultancy evidence
+    // Disqualify if: NOT on-target AND no keyword evidence
     // This applies to both unmapped industries and mapped-but-off-target industries
-    if (!isOnTarget && !hasConsultancyEvidence(prospect)) {
+    if (!isOnTarget && !hasTargetKeywordEvidence(prospect, icpFilterSpec)) {
       return {
         prospect_id: prospectId,
         sourced_tier: null,
         fit_score: null,
-        tiering_reason: 'industry_not_consulting' satisfies RemovalReason,
+        tiering_reason: 'industry_off_target' satisfies RemovalReason,
       }
     }
   }
@@ -338,8 +418,8 @@ export function logClassificationStats(
   //
   // WHY FLAT AND NOT NESTED. `breakdown_by_reason` is a nested object, so in the
   // production log stream the only literal that appears is the outer key. A search
-  // for `industry_not_consulting` finds it inside the JSON blob but nothing can
-  // alert or chart on it without parsing the object first. `removed_industry_not_consulting`
+  // for `industry_off_target` finds it inside the JSON blob but nothing can
+  // alert or chart on it without parsing the object first. `removed_industry_off_target`
   // is a key in its own right, always present, always a number.
   //
   // ALWAYS PRESENT, including as a zero. A key that only appears when non-zero

@@ -210,12 +210,20 @@ export const NOT_SENDABLE_LABELS: Record<NotSendableReason, string> = {
   no_reason_recorded: 'No reason recorded',
 }
 
+//
+// BOTH `industry_off_target` AND `industry_not_consulting` ARE HERE, on purpose. The
+// second is the old name for the same rule and nothing writes it any more, but rows
+// removed under it are still stored and still have to render. Deleting it would leave
+// those rows falling through to the raw code, which is the failure this map exists to
+// prevent. It goes when the last row carrying it does, not before.
 export const DISQUALIFIER_LABELS: Record<string, string> = {
   email_unverified:        'Email not verified',
   no_title:                'No job title',
   not_decision_maker:      'Not a decision-maker',
+  no_buyer_criterion:      'No buyer criterion for this client yet',
   company_too_large:       'Company above the headcount ceiling',
   industry_excluded:       'Sector excluded by the specification',
+  industry_off_target:     'Sector off specification',
   industry_not_consulting: 'Sector off specification',
 }
 

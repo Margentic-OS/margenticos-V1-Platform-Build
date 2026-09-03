@@ -158,7 +158,7 @@ export async function persistIcpFilterSpec(
     // Report only. A finding here does NOT stop the write: a spec with a flaw is more
     // useful than a NULL one, which fails sourcing outright. This is the earliest point
     // an unclassifiable industry can be named, and naming it at write time is what stops
-    // it being discovered later as an unexplained pile of `industry_not_consulting`.
+    // it being discovered later as an unexplained pile of `industry_off_target`.
     const writeFindings = inspectFilterSpec(spec)
     if (writeFindings.length > 0) {
       logger.warn('persistIcpFilterSpec: derived spec has findings', {
