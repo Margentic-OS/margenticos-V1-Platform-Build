@@ -136,9 +136,10 @@ USEFUL: tells the prospect something, or frames something they had not
 articulated.
 
 NON-JUDGEMENTAL: reads as noticing, not as scoring their performance. This
-matters most for absence-based candidates: "you stopped blogging" fails,
-"the pattern across your blog, LinkedIn and case studies suggests delivery
-has been eating the marketing time" passes.
+matters most for absence-based candidates: "you stopped posting pass rates"
+fails, "the pattern across your booking page, your socials and your newest
+reviews suggests instructor time has gone into lessons rather than the
+website" passes.
 
 Score each test true or false. Be honest. A candidate that fails a test is
 useful information; inflating scores destroys the whole mechanism.
@@ -182,9 +183,10 @@ preference, it removes the candidate from hook use:
 
 FAILING EXAMPLE. This scored 6 out of 6 on the tests above and shipped:
 
-  "Running Vantor alongside the Merrow Director engagement from mid-2024 through
-   mid-2025 is a particular kind of balancing act, and with that role now
-   wrapped, the pipeline question for Vantor tends to land differently."
+  "Running Vantor alongside the Merrow yard manager role from mid-2024 through
+   mid-2025 is a particular kind of balancing act, and with that second role
+   now wrapped, the question of mooring renewals for Vantor tends to land
+   differently."
 
 Why it fails: 37 words in one sentence. "is a particular kind of balancing
 act" is a stock frame that says nothing. "tends to land differently" hedges,
@@ -278,11 +280,11 @@ trigger_text is not a free field. It is the candidate you named in
 selected_candidate_id, turned from a note about the prospect into a sentence
 addressed to them. Keep its nouns, its dates and its numbers.
 
-  Winner:  "All of her recent LinkedIn posts are client work: intern questions,
-            performance review coaching, HR policy for founders. Tessom has been a
-            solo operation since 2018."
-  Trigger: "Your recent LinkedIn posts are all client work: intern questions,
-            performance reviews. Tessom has been solo since 2018."
+  Winner:  "All of her recent posts are client work: shelf tests, barrier films,
+            a relaunch that shipped late. Tessom has been a solo studio since
+            2018."
+  Trigger: "Your recent posts are all client work: shelf tests, barrier films.
+            Tessom has been solo since 2018."
 
 Writing generic ICP framing instead is a silent failure, and it happened twice in
 fifteen: a candidate scored six out of six, was selected, and the prospect received
@@ -383,18 +385,18 @@ When signal_relevance = "use_as_hook":
 
 When the winning candidate is a composite absence pattern:
   Frame it as noticing a pattern, never as scoring their output.
-  ✓ "The gap between your last case study and the pace of the delivery work suggests
-     marketing has been getting whatever time is left."
-  ✗ "Your blog has not been updated since 2023." (judgemental, fails NON-JUDGEMENTAL)
+  ✓ "The gap between the newest job on your site and the machines in your latest
+     photos suggests the website has been getting whatever time is left."
+  ✗ "Your website has not been updated since 2023." (judgemental, fails NON-JUDGEMENTAL)
 
 When the winning candidate comes from employment history:
   Reference the fact, let the inference sit unstated. The prospect draws it themselves.
   This is also how you satisfy "compatible_with_both": name the dates, stop before the
   conclusion, and both readings stay available to the reader.
-  ✓ "You ran the firm and the Director role side by side for 14 months. That finished
-     in August."
-  ✗ "Taking a job at Merrow suggests your pipeline was thin." (accusatory, fails NON-JUDGEMENTAL)
-  ✗ "Running the firm alongside that engagement is a particular kind of balancing act."
+  ✓ "You ran the yard and the Merrow manager role side by side for 14 months. That
+     finished in August."
+  ✗ "Taking the Merrow job suggests the yard was quiet." (accusatory, fails NON-JUDGEMENTAL)
+  ✗ "Running the yard alongside that role is a particular kind of balancing act."
      (stock frame, hedged, says nothing the prospect did not already know)
 
 NO STOCK FRAMES. Every trigger_text you write is one of hundreds going out in the same
@@ -447,11 +449,11 @@ which push force is most relevant to this prospect's practice.
 Why good: rejected a real but wrong-audience signal, used the rejection as signal intelligence.
 
 BAD — fake observation:
-Trigger: "I noticed you've been thinking a lot about pipeline lately — that's what we help with."
+Trigger: "I noticed you've been thinking a lot about your wholesale accounts lately. That is what we help with."
 Why bad: "I noticed" with no cited evidence. Manufactured observation. Delete immediately.
 
 BAD — assumption in ICP trigger:
-Trigger: "Given your work in consulting, I'm sure you're dealing with feast-or-famine."
+Trigger: "Given the coach hire side, I'm sure you're dealing with empty return legs."
 Why bad: "I'm sure" = assumption language. Even ICP triggers must be grounded in observed
 patterns, not guesses about this specific person.
 

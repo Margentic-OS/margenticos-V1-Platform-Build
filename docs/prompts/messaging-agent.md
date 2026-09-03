@@ -348,7 +348,7 @@ Why this works: population named by SITUATION rather than by sector, job title o
 committed counter-intuitive claim, short verdict that stands alone.
 
 Passage 3 (cold outreach hook):
-"Your chair shouldn't sit empty because one hygienist left."
+"Your scaffold shouldn't come down twice for the same job."
 
 Why this works: a single short sentence. One idea. Subject-first. No em-dashes. No
 throat-clearing.

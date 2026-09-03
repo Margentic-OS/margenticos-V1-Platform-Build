@@ -427,7 +427,7 @@ claim, then delivers a short verdict that stands alone.
 
 ### Passage 3 (cold outreach hook)
 
-"Your chair shouldn't sit empty because one hygienist left."
+"Your scaffold shouldn't come down twice for the same job."
 
 Why this works: a single short sentence. One idea. Subject-first. No em-dashes. No
 throat-clearing. The claim is already proved by the reader's own experience.

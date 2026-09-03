@@ -371,7 +371,7 @@ Why this works: population named by SITUATION rather than by sector, job title o
 committed counter-intuitive claim, short verdict that stands alone.
 
 Passage 3 (cold outreach hook):
-"Your chair shouldn't sit empty because one hygienist left."
+"Your scaffold shouldn't come down twice for the same job."
 
 Why this works: a single short sentence. One idea. Subject-first. No em-dashes. No
 throat-clearing.
@@ -383,9 +383,9 @@ throat-clearing.
 ### Jobs-to-be-Done (JTBD)
 Ask: what job is the buyer actually hiring this business to do?
 This is not "grow revenue." That is a goal, not a job.
-The job is specific and situational: "get me my first 5 enterprise clients without
-me having to do the outreach myself" or "systematise the deal flow so I can take a
-step back from sales."
+The job is specific and situational: "get every instrument on site tagged and traceable
+before the audit, without me building the spreadsheet myself" or "tell me which instruments
+are about to fall out of certification before a customer does."
 
 The JTBD statement is the single most important line in the document.
 Get it right. It should be a sentence a real buyer would recognise as their own thought.
@@ -393,7 +393,7 @@ Get it right. It should be a sentence a real buyer would recognise as their own 
 ### Four Forces of Progress
 For each tier, identify all four forces:
 - Push: the pain or frustration that is making the buyer want to leave their current
-  situation. Be specific. "Revenue has stalled" is not specific enough.
+  situation. Be specific. "The back office is inefficient" is not specific enough.
   "The ops team is spending 30% of their time on manual data reconciliation that
   should take minutes, and two people have flagged it as a reason they might leave"
   is specific.
@@ -587,13 +587,13 @@ approve button.
    other provider in the same category? If yes, rewrite it.
 
 3. The JTBD statement must be written in the buyer's voice, not the firm's.
-   Wrong: "We help founders build predictable pipeline."
-   Right: "Get me meetings with the right clients without me having to do the selling."
+   Wrong: "We deliver comprehensive workplace health surveillance programmes."
+   Right: "Get my night shift screened without pulling them off the line for a whole day."
 
 4. Push forces must name the actual frustration, not the category.
-   Wrong: "Inconsistent revenue"
-   Right: "Referrals have dried up. The last 3 clients all came from one relationship
-   that is now fully tapped, and there is nothing in the pipeline."
+   Wrong: "Inconsistent workload"
+   Right: "Both surveyors who price the jobs left within a month of each other. Quotes now
+   go out a fortnight late, and by then the enquiry has usually gone cold."
 
 5. If the intake data is thin on a section, derive what you can from the business
    context and flag it in the suggestion_reason. Do not hallucinate specific numbers

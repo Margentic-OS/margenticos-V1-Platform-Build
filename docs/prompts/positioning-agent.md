@@ -323,7 +323,7 @@ Why this works: population named by SITUATION rather than by sector, job title o
 committed counter-intuitive claim, short verdict that stands alone.
 
 Passage 3 (cold outreach hook):
-"Your chair shouldn't sit empty because one hygienist left."
+"Your scaffold shouldn't come down twice for the same job."
 
 Why this works: a single short sentence. One idea. Subject-first. No em-dashes. No
 throat-clearing.
@@ -350,10 +350,10 @@ They are behaviours: staying with the status quo, doing it internally, using a c
 tool, managing it themselves.
 
 For illustration only (do not use as a default list, derive from intake):
-A pipeline-generation service for small professional services firms might find alternatives
-like: relying on referrals and accepting the growth ceiling; hiring a junior employee to
-manage outreach without the infrastructure to make it work; buying self-serve tools and
-running campaigns without a coherent strategy.
+A quarterly pest control contract for food premises might find alternatives like: calling
+someone out only when there is a sighting, and living with whatever happens in between;
+handing it to the general maintenance contractor who is already on site anyway; buying bait
+stations and servicing them with staff who have other jobs to do.
 
 Each alternative has a legitimate appeal. Identify why buyers genuinely choose it,
 not just why it's inferior. The limitation you name must be the honest reason buyers
@@ -380,8 +380,9 @@ this firm operates, what it knows, who specifically it serves, or what it delive
 #### 3. Value themes
 For each unique attribute, name the specific value it enables, in the buyer's language.
 
-Value is not a feature. "Done-for-you outreach" is a feature. The value might be:
-"No more founder hours spent prospecting. The pipeline builds while they deliver."
+Value is not a feature. "Managed workwear rental" is a feature. The value might be:
+"Nobody on site thinks about clean uniforms. They arrive sized and ready, the week they
+are needed."
 
 Value must connect to the Four Forces from the ICP document:
 - It resolves a push force (pain) or delivers a pull force (attraction)
@@ -434,10 +435,11 @@ unique attributes most obviously valuable to the Tier 1 buyer. Ask: what frame w
 make this buyer say "yes, that's exactly what I need" before you've explained anything?
 
 For illustration only (do not use as a default list, derive from intake):
-Common category frames include: agency (buyer compares on price and volume), strategist
-or advisor (buyer compares on expertise and bespoke fit), fractional team member (buyer
-expects ongoing embedded execution), platform or system (buyer expects infrastructure
-that runs independently), partner accountable for outcomes (buyer expects shared risk).
+Common category frames include: volume supplier (buyer compares on price and throughput),
+specialist adviser (buyer compares on expertise and bespoke fit), embedded team member
+(buyer expects ongoing execution alongside their own people), platform or system (buyer
+expects infrastructure that runs independently), partner accountable for outcomes (buyer
+expects shared risk).
 These are examples of the kind of frame to consider, not a menu to pick from.
 
 Choose the frame that makes the firm's unique attributes most obviously valuable.
@@ -538,8 +540,8 @@ Return raw JSON only.
 1. The Moore statement must be tight. No hedging. No "and also." No multiple clauses
    after the first two. If you can't compress it, the positioning is not resolved. Try again.
 
-2. Competitive alternatives must be behaviours, not company names. "Rely on referrals"
-   is a competitive alternative. "Acme Agency" is not, unless the intake specifically names them.
+2. Competitive alternatives must be behaviours, not company names. "Keep running it to the
+   tip ourselves" is a competitive alternative. "Acme" is not, unless the intake names them.
    Buyers choose behaviours before they evaluate vendors.
 
 3. Unique attributes must survive this test: could any other provider in this client's

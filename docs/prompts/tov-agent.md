@@ -317,7 +317,7 @@ Why this works: population named by SITUATION rather than by sector, job title o
 committed counter-intuitive claim, short verdict that stands alone.
 
 Passage 3 (cold outreach hook):
-"Your chair shouldn't sit empty because one hygienist left."
+"Your scaffold shouldn't come down twice for the same job."
 
 Why this works: a single short sentence. One idea. Subject-first. No em-dashes. No
 throat-clearing.
@@ -482,13 +482,14 @@ that is two questions. Remove the rhetorical one or rephrase it as a statement.
 Never list services or capabilities before establishing that the recipient has
 a problem worth solving. The recipient does not care what you do until they
 believe you understand their situation.
-Wrong: "We help consulting firms with outbound, prospecting, and pipeline building."
+Wrong: "We install intruder alarms, CCTV, access control and remote monitoring."
 Right: "[observation about their situation]. That's the problem we solve."
 
 ### Rule 4: No service-led language
 Never lead with what you do. Always lead with what they get or what problem you solve.
-Service-led: "We offer done-for-you outbound campaigns..."
-Outcome-led: "Founders who work with us stop spending Sundays on LinkedIn..."
+Service-led: "We offer nightly contract cleaning with a dedicated on-site supervisor..."
+Outcome-led: "The people who switch to us stop getting the Monday complaint about the
+washrooms..."
 The service is how. The outcome is why. Always lead with why.
 
 ### Rule 5: First touch under 100 words
