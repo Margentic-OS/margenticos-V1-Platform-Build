@@ -10,9 +10,9 @@
 //
 // This file is the API boundary only. Field name translation from
 // Instantly's schema (emails_sent_count, reply_count, bounced_count,
-// contacted_count, unsubscribed_count) to capability-facing names
-// (sentCount, repliedCount, bouncedCount, contactedCount, unsubscribedCount)
-// happens here. Nothing above this file sees Instantly field names.
+// new_leads_contacted_count, leads_count, unsubscribed_count) to capability-facing
+// names (sentCount, repliedCount, bouncedCount, contactedCount, leadsCount,
+// unsubscribedCount) happens here. Nothing above this file sees Instantly field names.
 //
 // The same rule now covers campaign STATUS. Instantly's numeric campaign_status is
 // translated to our four-value column here, in the handler, and nothing above this file
@@ -28,11 +28,16 @@ export interface CampaignStatResult {
   sentCount:    number
   repliedCount: number
   bouncedCount: number
-  // PEOPLE, not emails. Instantly's contacted_count is "leads for whom the sequence has
-  // started". sentCount counts emails and over-counts people the moment a follow-up goes
-  // out, so the two are never interchangeable and the client-facing "prospects contacted"
-  // reads this one.
-  contactedCount:    number
+  // PEOPLE with at least one send. Read from new_leads_contacted_count, NOT from
+  // contacted_count. See the block below for the measurement that forced that choice.
+  //
+  // null means the row's people count was missing or incoherent (larger than leads_count,
+  // which cannot happen for a count of people). The caller must NOT write it. Same
+  // contract, and the same reasoning, as `status` below.
+  contactedCount:    number | null
+  // Total leads on the campaign, contacted or not. Carried so the caller can name it in a
+  // log, and used here as the coherence bound on contactedCount.
+  leadsCount:        number | null
   unsubscribedCount: number
   // Canonical status derived from Instantly's numeric campaign_status.
   // null means the row carried no campaign_status, or carried a value that is not in
@@ -117,15 +122,73 @@ export function mapCampaignStatus(raw: unknown): CampaignLocalStatus | null {
   return INSTANTLY_CAMPAIGN_STATUS[raw] ?? null
 }
 
+// ── Which field is PEOPLE, measured 2026-09-03 ────────────────────────────────
+//
+// Instantly's OpenAPI document describes contacted_count as "Number of leads for whom
+// the sequence has started". That description is wrong, and reading it instead of
+// measuring it is what put a count of emails on a client's dashboard under the words
+// "prospects contacted".
+//
+// One live campaign, read from GET /campaigns/analytics on 2026-09-03:
+//
+//     leads_count                 24
+//     new_leads_contacted_count   24
+//     contacted_count             52     <- cannot be people: 52 > 24 leads
+//     emails_sent_count           60
+//
+// contacted_count exceeds the number of leads that exist, so it is not a count of
+// people whatever the documentation says. It tracks emails, lagging emails_sent_count:
+// when this defect was reported both sent_count and contacted_count read 52, and by the
+// time it was investigated sent had moved to 60 while contacted still read 52.
+//
+// new_leads_contacted_count is the people number, and it was confirmed against two
+// independent ground truths on the same campaign rather than against the documentation:
+//
+//   - GET /leads/list filtered FILTER_VAL_CONTACTED returned exactly 24 leads with 24
+//     distinct email addresses, and an empty second page.
+//   - GET /campaigns/analytics/steps showed sends of 24 / 23 / 13 across the three
+//     steps, summing to the 60 emails. Step one's 24 is every person who has had at
+//     least one send.
+//
+// DO NOT re-derive this from the OpenAPI description or from a field name. The
+// description is the thing that was wrong.
+//
 // Raw shape returned by Instantly's analytics endpoint (subset of fields we use)
 interface InstantlyCampaignAnalyticsRow {
-  campaign_id:          string
-  campaign_status:      number
-  emails_sent_count:    number
-  reply_count:          number
-  bounced_count:        number
-  contacted_count:      number
-  unsubscribed_count:   number
+  campaign_id:                string
+  campaign_status:            number
+  emails_sent_count:          number
+  reply_count:                number
+  bounced_count:              number
+  leads_count:                number
+  new_leads_contacted_count:  number
+  unsubscribed_count:         number
+}
+
+// mapContactedCount — the people count, or null when it cannot be one.
+//
+// Returns null rather than a fallback for the same reason mapCampaignStatus does: the
+// caller renders this to a client as "prospects contacted", and a wrong number there is
+// worse than a stale one. Two ways it refuses:
+//
+//   - the field is absent or not a number, so there is nothing to write
+//   - it exceeds leads_count, which is incoherent for a count of people and is exactly
+//     the shape the old contacted_count mapping produced (52 contacted, 24 leads)
+//
+// The bound is the guard that would have caught this defect on the day it shipped, so it
+// stays even though the field it now reads is the right one.
+export function mapContactedCount(rawContacted: unknown, rawLeads: unknown): number | null {
+  if (typeof rawContacted !== 'number' || !Number.isFinite(rawContacted)) return null
+  if (rawContacted < 0) return null
+  if (typeof rawLeads === 'number' && Number.isFinite(rawLeads) && rawContacted > rawLeads) {
+    logger.warn('Campaign analytics: contacted exceeds leads, refusing to write it as people', {
+      contacted: rawContacted,
+      leads: rawLeads,
+      fix: 'Instantly changed the meaning of new_leads_contacted_count. Re-measure against FILTER_VAL_CONTACTED before trusting any field here.',
+    })
+    return null
+  }
+  return rawContacted
 }
 
 // fetchCampaignStats — retrieves analytics for every campaign in the workspace.
@@ -188,7 +251,9 @@ export async function fetchCampaignStats(
       sentCount:         r.emails_sent_count   ?? 0,
       repliedCount:      r.reply_count         ?? 0,
       bouncedCount:      r.bounced_count       ?? 0,
-      contactedCount:    r.contacted_count     ?? 0,
+      // PEOPLE. new_leads_contacted_count, bounded by leads_count. Never contacted_count.
+      contactedCount:    mapContactedCount(r.new_leads_contacted_count, r.leads_count),
+      leadsCount:        typeof r.leads_count === 'number' ? r.leads_count : null,
       unsubscribedCount: r.unsubscribed_count  ?? 0,
       status:            mapCampaignStatus(r.campaign_status),
       rawStatus,

@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
         sent_count: number
         replied_count: number
         bounced_count: number
-        contacted_count: number
+        contacted_count?: number
         unsubscribed_count: number
         campaign_stats_updated_at: string
         status?: string
@@ -219,12 +219,25 @@ export async function POST(request: NextRequest) {
         sent_count:    stats.sentCount,
         replied_count: stats.repliedCount,
         bounced_count: stats.bouncedCount,
-        // PEOPLE, not emails. A four-step sequence sends up to four emails to one person,
-        // so sent_count over-counts prospects the moment a follow-up goes out. The client
-        // overview says "prospects contacted" and has to read this.
-        contacted_count:    stats.contactedCount,
         unsubscribed_count: stats.unsubscribedCount,
         campaign_stats_updated_at: new Date().toISOString(),
+      }
+
+      // PEOPLE, not emails. A four-step sequence sends up to four emails to one person,
+      // so sent_count over-counts prospects the moment a follow-up goes out. The client
+      // overview says "prospects contacted" and has to read this.
+      if (stats.contactedCount === null) {
+        // The handler refused the value: absent, or larger than the campaign's own lead
+        // count. Leave the stored number alone rather than writing one that cannot be
+        // people. Same treatment as an unrecognised status below, for the same reason.
+        logger.warn('Campaign stats refresh: no usable contacted count, column left unchanged', {
+          campaign_id: campaign.id,
+          external_id: campaign.external_id,
+          leads_count: stats.leadsCount,
+          fix: 'Check new_leads_contacted_count in the Instantly analytics response against the measurement recorded in campaign-analytics.ts',
+        })
+      } else {
+        update.contacted_count = stats.contactedCount
       }
 
       if (stats.status === null) {
