@@ -3,6 +3,12 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import * as Sentry from '@sentry/nextjs'
+import {
+  selectClientBuyerCriterion,
+  selectOperatorBuyerCriterion,
+  type ClientBuyerCriterion,
+  type OperatorBuyerCriterion,
+} from '@/lib/dashboard/buyer-criterion-view'
 import { DashboardTopbar } from '@/components/dashboard/DashboardTopbar'
 import { DocumentHeader } from '@/components/dashboard/strategy/DocumentHeader'
 import { MessagingDocumentView } from '@/components/dashboard/strategy/MessagingDocumentView'
@@ -108,7 +114,7 @@ export default async function StrategyDocumentPage({
   // --- Document fetch ---
   let docQuery = supabase
     .from('strategy_documents')
-    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, client_approval_status, approval_source, approved_at, change_summary, revision_note')
+    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, client_approval_status, approval_source, approved_at, change_summary, revision_note, icp_filter_spec')
     .eq('organisation_id', org.id)
     .eq('document_type', docType)
     .in('status', ['active', 'approved'])
@@ -133,6 +139,20 @@ export default async function StrategyDocumentPage({
   if (docError) {
     Sentry.captureException(docError, { extra: { orgId: org.id, docType, selectedSegmentId } })
   }
+
+  // ── The buyer criterion, gated before it is anywhere near a component ───────
+  //
+  // Both values are computed HERE, server-side, so what the client receives is decided at
+  // the data boundary rather than by a component choosing not to render something. The
+  // fragment list is stripped by selectClientBuyerCriterion and is therefore ABSENT from
+  // the client payload, not merely unrendered.
+  //
+  // selectClientBuyerCriterion returns null unless the parent document is BOTH active and
+  // client-approved. That check cannot be delegated to RLS: the client policy on
+  // strategy_documents gates on `status` alone, and every new ICP version is inserted
+  // active-and-pending, so RLS would happily serve a criterion the client has not agreed to.
+  const clientCriterion = doc ? selectClientBuyerCriterion(doc) : null
+  const operatorCriterion = doc && isOperatorViewing ? selectOperatorBuyerCriterion(doc) : null
 
   // Check for pending suggestions when no active document exists
   // (client sees "being reviewed" state instead of Generate button).
@@ -255,6 +275,8 @@ export default async function StrategyDocumentPage({
                 docType={docType}
                 content={doc.content}
                 plainText={doc.plain_text}
+                buyerCriterion={clientCriterion}
+                operatorCriterion={operatorCriterion}
               />
             </>
           )}
@@ -284,16 +306,27 @@ function DocumentContent({
   docType,
   content,
   plainText,
+  buyerCriterion,
+  operatorCriterion,
 }: {
   docType: DocumentType
   content: Json
   plainText: string | null
+  buyerCriterion: ClientBuyerCriterion | null
+  operatorCriterion: OperatorBuyerCriterion | null
 }) {
   if (docType === 'messaging') {
     return <MessagingDocumentView content={content} />
   }
   if (docType === 'icp') {
-    return <IcpDocumentView content={content} plainText={plainText} />
+    return (
+      <IcpDocumentView
+        content={content}
+        plainText={plainText}
+        buyerCriterion={buyerCriterion}
+        operatorCriterion={operatorCriterion}
+      />
+    )
   }
   if (docType === 'positioning') {
     return <PositioningDocumentView content={content} plainText={plainText} />
