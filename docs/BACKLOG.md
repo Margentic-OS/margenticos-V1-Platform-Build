@@ -469,6 +469,86 @@ The four in Group C that nothing addresses are the ones to note: `sourcing-porta
 query portable and leaves tiering's consulting assumptions almost entirely in place, so a
 non-consulting client on that branch sources correctly and is then removed at classification.
 
+## PORTABLE SOURCING — WHAT THE SPEC-DRIVEN QUERY LEFT OPEN (2026-09-03, branch sourcing-portable)
+
+- [pre-c1] THE HANDLER CAN NOW SEARCH FOR EVERY CANONICAL INDUSTRY. THE CLASSIFIER CAN
+  STILL ONLY RECOGNISE CONSULTING ONES. 58 of the 74 targetable names have no route back.
+
+  The Apollo query is built from the client's spec now, and CANONICAL_TO_NAICS gives every
+  canonical industry a code. The REVERSE map, APOLLO_TO_SPEC in industry-mapping.ts, was
+  never extended past consulting: its whole range is 16 names, all of them consulting or
+  coaching. So a prospect sourced in any other industry comes back, gets enriched, maps to
+  null, and is removed as `industry_off_target` with nothing saying the sector was simply
+  unknown to the translator.
+
+  MEASURED: `inspectFilterSpec` already reports this at spec-write time, and it fired for
+  both non-consulting clients on 2026-09-03:
+      Simcare      "Healthcare Consulting" is targeted but no sourcing-tool tag maps to it
+      360 Bia Og   "Primary and Secondary Education" likewise
+
+  WHY IT WAS NOT CLOSED IN THE SAME SESSION, and this is the part worth keeping. Closing it
+  means writing Apollo's own industry TAG STRINGS into APOLLO_TO_SPEC, and those strings
+  cannot be measured from the sourcing path. The free people-search response carries
+  `has_industry` as a BOOLEAN and never the value. Confirmed live on 2026-09-03 against both
+  the handler's own response shape and a direct provider call: 20 prospects sourced for
+  Simcare and 20 for 360 Bia Og, `company_industry` null on all 40. The tags appear only
+  after PAID enrichment.
+
+  Writing them from memory is exactly the guess that put a wrong parameter name in this
+  query twice before, and both times it shipped as a filter that filtered nothing. A wrong
+  industry tag is worse than that, because it MISCLASSIFIES SILENTLY rather than erroring.
+
+  HOW TO DO IT WHEN THERE IS A REASON TO: enrich a small batch in a non-consulting client,
+  read the distinct `company_industry` values that come back, and write those. That is one
+  paid enrichment batch, and it is the only way to get the vocabulary. Do not shortcut it.
+
+  Guarded meanwhile by a RATCHET in inspect-filter-spec.test.ts: the gap may shrink, never
+  grow, and every name the classifier can produce must still be searchable.
+
+- [pre-c1] TIERING CANNOT BE EXERCISED WITHOUT SPENDING, WHICH MAKES THE FREE TEST STOP
+  SHORT. Disqualifier 1 is `email_status !== 'verified'`, and sourcing writes neither.
+
+  So "sourcing is free and tiering makes no model calls, therefore the pair can be tested
+  for nothing" is true of each step and false of the sequence. All 40 prospects sourced on
+  2026-09-03 stop at the first disqualifier. Getting a tier distribution needs paid
+  enrichment and then paid verification.
+
+  What CAN be measured for free is the buyer criterion on its own, which is the axis that
+  was broken. Measured 2026-09-03 against the 40 sourced titles, every one scores:
+      Simcare      4 primary (35 pts), 16 secondary (25 pts)
+      360 Bia Og   20 secondary (25 pts)
+  Under the deleted hardcoded ladder a Director of Nursing and a Board Chair both scored 0.
+
+- [post-build] SIMCARE'S ICP NAMES THE WRONG INDUSTRIES, AND THE SOURCING IS NOW FAITHFUL
+  ENOUGH TO MAKE THAT VISIBLE.
+
+  Its summary says the buyers are "procurement leads or business development directors at
+  medical device distributors and care home groups". Its tier_1/tier_2 `industries` say
+  "Healthcare Consulting" and "Supply Chain Consulting". Those are what the spec carries,
+  so those are what the query asks for, and on 2026-09-03 it returned exactly that:
+  Aston Health Consulting Services, Infinity Healthcare Consulting, Pinnacle Healthcare
+  Consulting, Kohler HealthCare Consulting. Healthcare CONSULTANCIES, not distributors.
+
+  The query is correct. The document is wrong, and it is wrong in a specific way worth
+  noting: the canonical taxonomy has no name for a medical device distributor, so the ICP
+  agent picked the nearest consulting-shaped names. 'Medical Devices and Equipment' and
+  'Wholesale Trade' both exist in CANONICAL_INDUSTRIES and would have been closer.
+
+  Fixing it means regenerating Simcare's ICP, which is a re-approval, so it was NOT done.
+  Doug's call.
+
+- [post-build] `seniority_levels` IS STILL DERIVED BY A HARDCODED BUYER-TITLE TEST.
+
+  deriveFilterSpec branches on whether the ICP's buyer_profile.seniority text contains
+  "founder" or "owner". That names buyer titles, so it is the same Rule Zero violation as
+  the four fields fixed on 2026-09-03, and it was left alone deliberately: the field now
+  feeds `person_seniorities` in a live query, and widening it changes the sourced
+  population in a way this session did not measure.
+
+  Its practical cost is visible already. 360 Bia Og's spec carries
+  ['c_suite','vp','director'] because a school ICP says neither word, and a school
+  principal is none of those in the provider's taxonomy. It has not bitten yet only
+  because `person_titles` is doing the real work.
 
 ## SOURCING REVIEW UX PASS — WHAT WAS LEFT OUT (2026-09-02, branch sourcing-ux)
 
