@@ -32,7 +32,7 @@ import {
   q,
   type BuyerDescriptorSource,
 } from '@/lib/agents/research-descriptors'
-import { buildRegenerationNotesBlock, buildRegenerationNotesReason, type RegenerationNotes } from '@/lib/agents/regeneration-notes'
+import { buildRegenerationNotesBlock, buildRegenerationNotesReason, noteForVersionHistory, type RegenerationNotes } from '@/lib/agents/regeneration-notes'
 import { projectIcpForDownstream } from '@/lib/agents/document-projection'
 
 // The model specified in the PRD for document generation agents.
@@ -702,6 +702,9 @@ async function writeDocumentSuggestion(
       confidence_level: completeness >= 80 ? 'high' : 'low',
       signal_count: 0,             // phase one — not yet populated
       status: 'pending',
+      // What the version history shows for the version this becomes. See
+      // noteForVersionHistory: without it five regenerations are indistinguishable.
+      revision_note: noteForVersionHistory(params.regeneration_notes),
     })
     .select('id')
     .single()

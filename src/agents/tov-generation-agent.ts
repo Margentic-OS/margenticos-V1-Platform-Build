@@ -31,7 +31,7 @@ import { assertNoUnsourcedVendorNames } from '@/lib/agents/vendor-name-gate'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { fetchWebsiteContext, formatWebsiteContextForPrompt, type WebsitePageContext } from '@/lib/agents/website-context'
 import { scrubAITellsDeepExcluding, assertNoDashesExcluding } from '@/lib/style/customer-facing-style-rules'
-import { buildRegenerationNotesBlock, buildRegenerationNotesReason, type RegenerationNotes } from '@/lib/agents/regeneration-notes'
+import { buildRegenerationNotesBlock, buildRegenerationNotesReason, noteForVersionHistory, type RegenerationNotes } from '@/lib/agents/regeneration-notes'
 
 // Fields in the TOV output that hold verbatim writing samples from the founder.
 // These are passed through completely unchanged by both scrub and assert.
@@ -697,6 +697,9 @@ async function writeDocumentSuggestion(
       confidence_level: confidenceLevel,
       signal_count: 0,
       status: 'pending',
+      // What the version history shows for the version this becomes. See
+      // noteForVersionHistory: without it five regenerations are indistinguishable.
+      revision_note: noteForVersionHistory(params.regeneration_notes),
     })
     .select('id')
     .single()

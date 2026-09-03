@@ -32,7 +32,7 @@ import { SentenceRegistry, comparableSentences } from '@/lib/style/sentence-fram
 // countWords is imported from the composition layer on purpose: the agent and composition
 // must measure word counts identically or the stored count and the sent count disagree.
 import { countWords } from '@/lib/composition/personalization'
-import { buildRegenerationNotesBlock, buildRegenerationNotesReason, type RegenerationNotes } from '@/lib/agents/regeneration-notes'
+import { buildRegenerationNotesBlock, buildRegenerationNotesReason, noteForVersionHistory, type RegenerationNotes } from '@/lib/agents/regeneration-notes'
 import { projectIcpForDownstream } from '@/lib/agents/document-projection'
 
 const MESSAGING_MODEL = 'claude-sonnet-4-6' // TEST ONLY — revert to claude-opus-4-6 for production (ADR-013)
@@ -2550,6 +2550,9 @@ async function writeDocumentSuggestion(
       confidence_level: completeness >= 80 ? 'high' : 'low',
       signal_count: 0,
       status: 'pending',
+      // What the version history shows for the version this becomes. See
+      // noteForVersionHistory: without it five regenerations are indistinguishable.
+      revision_note: noteForVersionHistory(params.regeneration_notes),
     })
     .select('id')
     .single()
