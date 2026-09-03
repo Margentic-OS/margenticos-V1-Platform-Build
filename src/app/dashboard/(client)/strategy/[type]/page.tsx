@@ -24,6 +24,8 @@ import { NotYetGeneratedState } from '@/components/dashboard/strategy/NotYetGene
 import { DocumentRevisionControls } from '@/components/dashboard/strategy/DocumentRevisionControls'
 import { DocumentVersionHistory } from '@/components/dashboard/strategy/DocumentVersionHistory'
 import { describeVersionHistory } from '@/lib/dashboard/version-history'
+import { StaleDocumentNotice } from '@/components/dashboard/strategy/StaleDocumentNotice'
+import { selectStaleDocuments } from '@/lib/dashboard/stale-documents'
 import type { DocumentType } from '@/types'
 import type { Json } from '@/types/database'
 
@@ -116,7 +118,7 @@ export default async function StrategyDocumentPage({
   // --- Document fetch ---
   let docQuery = supabase
     .from('strategy_documents')
-    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, change_summary, revision_note, icp_filter_spec')
+    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, change_summary, revision_note, icp_filter_spec, is_stale')
     .eq('organisation_id', org.id)
     .eq('document_type', docType)
     .in('status', ['active', 'approved'])
@@ -171,6 +173,12 @@ export default async function StrategyDocumentPage({
   }
 
   const versions = describeVersionHistory(versionRows)
+
+  // Stale notice. Computed through the same selector the operator's client page uses, so
+  // the two surfaces cannot disagree about what counts as stale. Operator only: see
+  // StaleDocumentNotice for why a client is not shown this.
+  const staleNotice =
+    doc && isOperatorViewing ? (selectStaleDocuments([doc])[0] ?? null) : null
 
   // ── The buyer criterion, gated before it is anywhere near a component ───────
   //
@@ -295,6 +303,13 @@ export default async function StrategyDocumentPage({
                   <PrintButton />
                 </div>
               </div>
+              {staleNotice && (
+                <StaleDocumentNotice
+                  reason={staleNotice.reason}
+                  clientId={org.id}
+                  docType={docType}
+                />
+              )}
               <DocumentVersionHistory
                 versions={versions}
                 canRestore={isOperatorViewing}
