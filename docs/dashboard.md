@@ -152,11 +152,36 @@ anywhere in the rendered overview.
 
 | Shown | Source | Why not the obvious thing |
 |---|---|---|
-| Contacted | `campaigns.contacted_count` | NOT `sent_count`. That counts emails, and a four-step sequence sends up to four to one person. Live: 26 sent, 15 contacted |
+| Contacted | `campaigns.contacted_count`, filled from the provider's `new_leads_contacted_count` | NOT `sent_count`, which counts emails: a four-step sequence sends up to four to one person. Also NOT the provider's own `contacted_count`, despite the matching name. See the warning below |
 | Delivered | `sent_count` minus `bounced_count` | "Sent" is what we handed the tool. Delivered is what landed |
 | Replies | `campaigns.replied_count` | Instantly's count, the same number the reply rate is built from |
 | Interested | `reply_handling_actions` rows whose `classified_intent` is in the client-visible set | NOT `signals.signal_type = 'positive_reply'`, which nothing has ever written. See below |
 | Meetings held | `meetings.meeting_status = 'held'` | Booked is shown separately in the footnote. A meeting counts as held only after somebody confirms it happened |
+
+**The one that already went wrong: "prospects contacted" showed 52 for 24 people.**
+
+`campaigns.contacted_count` used to be filled from the provider's field of the same name,
+on the strength of its documentation, which describes it as "Number of leads for whom the
+sequence has started". Read live on 2026-09-03, that field returned **52 for a campaign
+with 24 leads and 60 emails sent**. More people contacted than exist, rendered to a client
+as "52 prospects contacted". It overstated reach by more than double and halved the
+apparent reply rate.
+
+It is not simply an email counter either. The same campaign was captured on 2026-08-24
+reporting `contacted_count` 15 against `leads_count` 15 and `emails_sent_count` 30, where
+it matched the people count exactly. The field agreed with people for weeks and then
+stopped, which is why nobody caught it by looking.
+
+The column is now filled from `new_leads_contacted_count`, checked on the same day against
+two things that are not documentation: a `FILTER_VAL_CONTACTED` lead listing returning
+exactly 24 distinct leads, and per-step analytics showing 24 / 23 / 13 sends, whose first
+step is everyone with at least one send.
+
+**If this number ever looks wrong again, do not read the API docs to settle it.** Count the
+leads. `mapContactedCount` in `campaign-analytics.ts` refuses any value above
+`leads_count`, and the poller leaves the column at its last good value rather than writing
+one that cannot be people, so a repeat of this shows up as a stale number and a warning
+log, not a confident wrong one.
 
 **The positive-reply count read zero for structural reasons, not for want of replies.**
 Both metrics functions counted `signals` rows with `signal_type = 'positive_reply'`. Nothing
