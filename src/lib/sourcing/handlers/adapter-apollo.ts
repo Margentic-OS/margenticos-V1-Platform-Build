@@ -190,7 +190,7 @@ const APOLLO_FILTER: Omit<ApolloApiSearchRequest, 'page' | 'per_page'> = {
 // that comes back: a firm carries more than one NAICS code and Apollo's own
 // industry tag is assigned independently of the code we filtered on, so this
 // filter demonstrably also returns apparel, restaurants and biotechnology rows.
-// Those are the tier classifier's problem (industry_not_consulting), not this
+// Those are the tier classifier's problem (industry_off_target), not this
 // list's. What this list is for is the question the gate asks: did the client
 // ask for anything this query even TRIES to find?
 //

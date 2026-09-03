@@ -17,7 +17,7 @@
 //    CLASSIFIABLE_INDUSTRIES in industry-mapping.ts. That tag map is many-to-one, so a
 //    canonical name can pass the orchestrator's reachability gate and then never be
 //    produced by the classifier, and every prospect for it is removed as
-//    `industry_not_consulting` with nothing saying why.
+//    `industry_off_target` with nothing saying why.
 //
 //    This module names no vendor on purpose. The tool-specific taxonomy is owned by the
 //    translation layer (industry-mapping.ts) and by the handlers; everything upstream of
@@ -136,7 +136,7 @@ export function inspectFilterSpec(
           detail:
             `"${name}" is targeted but no sourcing-tool industry tag maps to it, so a ` +
             'prospect can never be classified as this industry and every one will be ' +
-            'removed as industry_not_consulting. Add an industry_tag_mappings row, or ' +
+            'removed as industry_off_target. Add an industry_tag_mappings row, or ' +
             'map a tool tag to it in industry-mapping.ts, which owns that translation.',
         })
       }
