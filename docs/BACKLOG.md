@@ -11355,3 +11355,46 @@ these. The temperature change itself was measured and dropped; it is not in main
   same metrics is how one bug came to live in two places, and it is now how one metric lives
   in one place and not the other.
   Trigger: before `pipeline_unlocked` is turned on for any client.
+
+## Test-data cleanup — what the 2026-09-04 leak fix did NOT cover
+
+The leak itself is fixed: all ten organisation cleanups now go through
+`deleteTestOrganisations`, which deletes children in dependency order and throws
+on failure. Two full suite runs moved the organisation count 742 -> 742 -> 742.
+See `docs/testing-database.md`. Three things were deliberately left.
+
+- [post-build] The other unchecked cleanups in the same files (2026-09-04)
+  The fix covered every cleanup that deletes an ORGANISATION. It did not touch
+  cleanups that delete other things and are unchecked in exactly the same way.
+  The clearest is `monitor-acknowledge.test.ts:108`, which deletes `monitor_events`
+  rows and calls `auth.admin.deleteUser`, both with a bare `await`:
+
+      await serviceClient.from('monitor_events').delete().in('id', [...])
+      await serviceClient.auth.admin.deleteUser(testOperatorId)
+
+  Same silent-failure shape, different table. Left alone to keep the change
+  surgical and reviewable, and because neither is currently leaking: nothing
+  references `monitor_events`, so its delete is not blocked today. It is one
+  foreign key away from being the same bug. Next action: either widen the helper
+  to a general `deleteTestRows` that checks its result, or check these two
+  in place. Not urgent, but it is the same defect class sitting in the same file
+  as the one that cost 146 rows.
+
+- [post-build] Auth users created by tests are not counted (2026-09-04)
+  `monitor-acknowledge.test.ts` creates an operator via `auth.admin.createUser`
+  and deletes it unchecked. Nobody has counted `auth.users` in the test project
+  the way organisations were counted. If that delete has been failing the same
+  way, there is a second population leaking quietly with no dashboard. Worth one
+  query before assuming it is fine. Do not assume the organisations fix covered
+  it: it is a different table with a different API and no foreign key involved.
+
+- [post-build] Two sessions ran the suite against the test project at once
+  (2026-09-04)
+  While this work was in progress, another session ran the full suite against
+  `tidqheqjzvwmrrrebzir` at 01:07 UTC, adding 12 organisations between two of the
+  measurements. It was identified by timestamp clustering and did not corrupt the
+  proof, which was watermarked. But the standing rule in CLAUDE.md is one build
+  session at a time, and the test database is shared state that rule does not
+  currently mention. Worth saying explicitly: concurrent sessions running the
+  suite make any before/after count on the test project unreliable. If a
+  measurement matters, watermark it with `now()` and filter on `created_at`.
