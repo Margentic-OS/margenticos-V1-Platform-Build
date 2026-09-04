@@ -124,6 +124,12 @@ vi.mock('@supabase/supabase-js', () => ({
       if (table === 'sending_health_snapshot') {
         return { upsert: async () => ({ error: null }) }
       }
+      if (table === 'reply_reconciliation_snapshot') {
+        // The MON-029 reply reconciliation snapshot, written at the end of every poll run.
+        // Accepted and discarded: no test in this file asserts on it, and reconcile.test.ts
+        // drives the real sweep against a fake that honours its filters.
+        return { upsert: async () => ({ error: null }) }
+      }
       throw new Error(`fake supabase: unexpected table ${table}`)
     },
   }),

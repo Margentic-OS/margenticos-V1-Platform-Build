@@ -48,6 +48,7 @@ import { fetchCampaignStats, INSTANTLY_ABNORMAL_STOP_STATUSES } from '@/lib/inte
 import { fetchCampaignSendingStatus, SENDING_STATES_NEEDING_ATTENTION } from '@/lib/integrations/handlers/instantly/campaign-sending-status'
 import { getInstantlyApiKey, getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 import { syncSendingHealth } from '@/lib/sending-health/sync'
+import { reconcileReplies } from '@/lib/reply-handling/reconcile'
 import { carryPendingSuppressions, type CarryVerdict } from '@/lib/suppression/carry'
 import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
 
@@ -425,6 +426,69 @@ export async function POST(request: NextRequest) {
     if (firstCampaignStatsError === null) {
       firstCampaignStatsError = `sending health: ${sendingHealthResult.errors[0]}`
     }
+  }
+
+  // ── Reply reconciliation (MON-029) ─────────────────────────────────────────
+  //
+  // Rides along here for the same reasons sending health does: the campaign list, the API
+  // key and the provider client are already resolved, and the 15-minute cadence is what
+  // MON-029's 90-minute freshness limit is calibrated against.
+  //
+  // AFTER the poll, never before. It asks whether every reply the provider holds has a
+  // signal row, so running it before pollInstantlyReplies would report this run's replies
+  // as missing every single time and rest permanently red.
+  //
+  // Its own failures set `incomplete` on the snapshot rather than throwing, and MON-029
+  // treats incomplete as not-OK. They deliberately do NOT feed totalErrors: this sweep is
+  // an auditor of the poll, and letting the auditor turn the poll's heartbeat red would
+  // conflate "the poll failed" with "the audit could not finish".
+  //
+  // WHY THIS SITS INSIDE THE ROUTE IT AUDITS, when the header above says the suppression
+  // reconciliation was kept out of its writer for exactly that reason. The two cases differ
+  // in what is being audited:
+  //
+  //   MON-026  audits the suppression CARRY, and the carry's own idea of "confirmed" was the
+  //            thing in doubt. An auditor sharing that code would share the doubt.
+  //   MON-029  audits the reply CURSOR — whether the poller stepped over an event. The
+  //            reconciler does not use the cursor at all: it enumerates each campaign from
+  //            scratch every sweep. It shares only instantlyGet, the HTTP transport, and
+  //            that sharing is deliberate and load-bearing, because comparing objects
+  //            fetched two different ways would differ for reasons other than a lost reply.
+  //
+  // And it fails closed rather than open: if instantlyGet is broken the sweep reports
+  // unreachable, which is PROBLEM, not a pass. If the whole route dies, MON-029's freshness
+  // clause goes red on its own. Neither failure mode can produce a false all-clear.
+  const reconciliation = await reconcileReplies(supabase, apiKey, baseUrl, isActive)
+
+  // reply_reconciliation_snapshot was added by 20260904212000_mon_029_reply_reconciliation.sql
+  // and is not in the generated types yet. Same situation, and the same narrow cast, as the
+  // calendly_url read in process-reply.ts. Regenerate the types and delete the cast.
+  //
+  // The cast is scoped to this one call rather than the client, deliberately: widening it
+  // would switch off column checking for every other table this route writes, which is the
+  // failure mode CLAUDE.md's `as`-on-a-literal note is about. The column list here is
+  // verified against the live table, and MON-029's freshness clause catches a write that
+  // silently stops landing.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error: reconcileWriteError } = await (supabase as any)
+    .from('reply_reconciliation_snapshot')
+    .upsert({
+      id: 1,
+      campaigns_checked: reconciliation.campaignsChecked,
+      provider_reply_count: reconciliation.providerReplyCount,
+      stored_reply_count: reconciliation.storedReplyCount,
+      missing_count: reconciliation.missingCount,
+      unreachable_campaigns: reconciliation.unreachableCampaigns,
+      incomplete: reconciliation.incomplete,
+      missing_sample: reconciliation.missingSample,
+      detail: reconciliation.detail,
+      computed_at: new Date().toISOString(),
+    }, { onConflict: 'id' })
+
+  if (reconcileWriteError) {
+    // The snapshot not being written is what MON-029's freshness clause exists to catch,
+    // so this cannot pass silently even though it does not fail the poll.
+    logger.error('Reply reconciliation: snapshot write failed', { error: reconcileWriteError.message })
   }
 
   // ── Summary log ────────────────────────────────────────────────────────────
