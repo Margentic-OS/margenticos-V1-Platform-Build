@@ -9478,7 +9478,28 @@ session's verification, not in the code it shipped, and that is the more useful 
   Use it. Sourcing works for keys whose values are bare tokens, which is why it appears to
   work right up until it does not.
 
-## BOUNCE PATH PROOF — first live bounce end to end (2026-08-28, branch bounce-path-proof)
+## BOUNCE PATH PROOF — first live bounce (2026-08-28, branch bounce-path-proof)
+
+> **CORRECTED IN PLACE 2026-09-04. The heading said "end to end" and this section does not
+> prove that.** Everything measured below is accurate, including the timestamps. What it
+> asserted on is `blocked.size`, returned by `findBlockedProspects`, whose own file header
+> says in capitals: "SCOPE: this governs FUTURE uploads only. It does not stop an in-flight
+> sequence."
+>
+> So this proves DETECTION and the PRE-UPLOAD GATE. It proves nothing about whether anything
+> reached the sending provider, and on 2026-08-28 nothing did: `suppressAddressAtProvider`
+> did not exist until 4a27bea on 2026-09-04, seven days later.
+>
+> Two things made the claim unfalsifiable, and they are the part worth carrying:
+> the test campaign was torn down within the hour (organisation archived 14:32:55Z, 17m54s
+> after the signal; the campaign row last written 33m09s after, when its external_id was
+> nulled), so the one inspectable case reads clean whatever our code does; and a hard bounce is stopped by the provider on its own five seconds after the SMTP
+> rejection, so **the observable outcome could not distinguish our code working from our code
+> being absent.**
+>
+> Not deleted, because the measurements are good and the method was right. Only the scope
+> claim was wrong. Filed as a failure shape in the Notion Knowledge Base:
+> "a true, correctly measured check written up under a heading wider than its own scope".
 
 Session ran in a worktree off origin/main while another session held the main tree. Nothing
 in docs/prompts/, the four generation agents, or document-projection was touched.
@@ -11895,7 +11916,11 @@ these. The temperature change itself was measured and dropped; it is not in main
 
 ## Benchmarks page and signal processing — follow-ups from 2026-09-03
 
-- [pre-c1] BOUNCE SIGNALS ARE NEVER MARKED PROCESSED, AND THE FLAG IS THE ONLY THING WRONG
+- [pre-c1] BOUNCE SIGNALS ARE NEVER MARKED PROCESSED — and the flag was NOT the only thing wrong
+
+  > **CORRECTED IN PLACE 2026-09-04.** The original title and the two conclusions marked
+  > below were wrong, and being wrong CONFIDENTLY is why nobody re-opened this for a week.
+  > The suppression measurement itself is correct: 33.4ms, re-measured.
   `signals` rows with `signal_type = 'email_bounced'` sit at `processed = false` forever.
   Live on 2026-09-03: the one bounce signal in the database, created 2026-08-28, was still
   unprocessed six days later, while all three `reply_received` signals were processed
@@ -11905,13 +11930,30 @@ these. The temperature change itself was measured and dropped; it is not in main
   is applied by the POLLER, in the same loop iteration that writes the signal, not by any
   downstream processor. Measured on that row: signal written 14:15:01.813808, suppression
   recorded 14:15:01.847229, `suppressed_emails.source_signal_id` pointing back at it. 34
-  milliseconds. The bounce was fully enforced.
+  milliseconds. ~~The bounce was fully enforced.~~
 
-  So this is a misleading operator signal rather than a missed action: a row that reads
-  "not yet handled" and was handled immediately. `processReplies` filters
-  `.eq('signal_type', 'reply_received')`, so nothing will ever clear it. There is only ONE
-  bounce mechanism, and it is the one already proven end to end. There is no second
-  unproven path.
+  **CORRECTION 2026-09-04: the bounce was RECORDED, not enforced.** Those are different
+  claims and only the first was measured. What was written was one row to
+  `suppressed_emails`, which is read by exactly one thing: `findBlockedProspects`, the
+  gate on FUTURE uploads. Nothing was carried to the sending provider, because no code
+  path existed that could. Enforcement against a person already in a sequence needs the
+  provider, and `suppressAddressAtProvider` landed 2026-09-04.
+
+  ~~So this is a misleading operator signal rather than a missed action.~~ It IS a
+  misleading operator signal, and there was also a missed action. `processReplies` filters
+  `.eq('signal_type', 'reply_received')`, so nothing will ever clear the flag: that part
+  stands.
+
+  **CORRECTION 2026-09-04: "there is no second unproven path" was wrong, and it is the
+  sentence that closed the question.** The second path is the provider half, and it was
+  the only one that could stop mail to someone already uploaded and mid-sequence. A
+  confident negative in a durable record costs more than an open question, because it
+  removes the reason to look again.
+
+  Measured on 2026-09-04, seven days on: that address sits on the global list with
+  `outbound_suppression_status` NULL, and NO code path can ever pick it up — the poller
+  carries a suppression only while it can still see the bounced lead, and that campaign
+  was unregistered and its organisation archived within the hour of the bounce.
 
   Next action: either have `pollInstantlyLeadStatus` stamp `processed`/`processed_at` when
   it records the suppression, or stop treating `processed` as meaningful for signal types
