@@ -2478,6 +2478,51 @@ export type Database = {
           },
         ]
       }
+      suppression_reconciliation_snapshot: {
+        Row: {
+          blocked_count: number
+          checked_count: number
+          computed_at: string
+          detail: string
+          id: number
+          incomplete: boolean
+          invariant_breach_count: number
+          settling_count: number
+          unreachable_count: number
+          unreconciled_count: number
+          unreconciled_prospect_ids: Json
+          uploaded_count: number
+        }
+        Insert: {
+          blocked_count: number
+          checked_count: number
+          computed_at?: string
+          detail: string
+          id?: number
+          incomplete?: boolean
+          invariant_breach_count: number
+          settling_count: number
+          unreachable_count: number
+          unreconciled_count: number
+          unreconciled_prospect_ids?: Json
+          uploaded_count: number
+        }
+        Update: {
+          blocked_count?: number
+          checked_count?: number
+          computed_at?: string
+          detail?: string
+          id?: number
+          incomplete?: boolean
+          invariant_breach_count?: number
+          settling_count?: number
+          unreachable_count?: number
+          unreconciled_count?: number
+          unreconciled_prospect_ids?: Json
+          uploaded_count?: number
+        }
+        Relationships: []
+      }
       synthesis_batch_entries: {
         Row: {
           batch_id: string | null
@@ -3155,6 +3200,15 @@ export type Database = {
         Relationships: []
       }
       mon_025: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_026: {
         Row: {
           check_code: string | null
           detail: string | null

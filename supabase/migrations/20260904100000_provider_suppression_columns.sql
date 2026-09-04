@@ -1,6 +1,10 @@
 -- Suppression that reaches the sending provider: the record of whether it did.
 --
--- Status: PENDING
+-- Status: APPLIED (verified live 2026-09-04; production and the test project)
+--
+-- Read-back after apply, production:
+--   3 columns present, 2 CHECK constraints, the partial index, 1 capability row.
+--   api_handler_ref is NOT NULL on integrations_registry, which the first apply found.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHY THIS EXISTS

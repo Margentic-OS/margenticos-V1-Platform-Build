@@ -56,6 +56,29 @@
 // LANDED, not that the sequence stopped. Those are different claims and only the provider
 // can settle the second one. That is what the reconciliation sweep is for, and it reads
 // every suppressed lead's live sending state rather than trusting this function.
+//
+// ═════════════════════════════════════════════════════════════════════════════
+// THE STOP IS ASYNCHRONOUS. MEASURED, NOT ASSUMED. 2026-09-04.
+//
+// Proved end to end on a live lead that our database said must not be mailed and that the
+// provider still had Active with email 4 queued:
+//
+//   before                    status 1 (Active), interest unset
+//   T+0.5s after the PATCH    status 1 (Active), interest -1, no interest-change stamp
+//   T+43s                     status 3 (Completed), interest -1, interest-change stamped
+//   then                      absent from the provider's own ACTIVE filter entirely
+//
+// So the documented behaviour holds, and the immediate read-back CANNOT SEE IT. For about
+// three quarters of a minute the lead carries our write and still reads Active.
+//
+// This is why the check below asserts the INTEREST FIELD and deliberately says nothing
+// about status. Requiring status to have moved would have failed every suppression this
+// system makes, and the obvious fix for that failure, dropping the read-back, would have
+// removed the confirmation instead of the wrong assertion.
+//
+// The lag is also why the reconciliation sweep leaves a settle window before judging a
+// freshly suppressed prospect: without one it would report every recent suppression as
+// still sending.
 
 import { logger } from '@/lib/logger'
 import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from './constants'

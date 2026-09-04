@@ -207,7 +207,17 @@ export async function suppressProspectAtProvider(
   supabase: ServiceRoleClient,
   subject: SuppressionSubject,
 ): Promise<ProviderSuppressionResult> {
-  const resolved = await resolveSuppressContactHandler(supabase)
+  // The resolve is inside a try for the same reason the calls below are: a database client
+  // that THROWS rather than returning an error must become a recorded failure here, not an
+  // exception escaping into whatever suppression path called this. An escaping throw would
+  // abandon the caller's own bookkeeping half-done, and the caller has already written the
+  // database suppression by the time it gets here.
+  let resolved: Awaited<ReturnType<typeof resolveSuppressContactHandler>>
+  try {
+    resolved = await resolveSuppressContactHandler(supabase)
+  } catch (err) {
+    resolved = { ok: false, error: `capability resolution threw: ${String(err)}` }
+  }
 
   if (!resolved.ok) {
     const result = failure(resolved.error)
@@ -276,14 +286,21 @@ export async function suppressAddressAtProvider(
 
   if (normalised.length === 0) return failure('address is blank')
 
-  const resolved = await resolveSuppressContactHandler(supabase)
+  // Inside a try for the same reason as the prospect path above.
+  let resolved: Awaited<ReturnType<typeof resolveSuppressContactHandler>>
+  try {
+    resolved = await resolveSuppressContactHandler(supabase)
+  } catch (err) {
+    resolved = { ok: false, error: `capability resolution threw: ${String(err)}` }
+  }
   if (!resolved.ok) return failure(resolved.error)
+  const handler = resolved.handler
 
   let result: ProviderSuppressionResult
   try {
-    const found = await resolved.handler.findLeadIds(normalised, organisationId)
+    const found = await handler.findLeadIds(normalised, organisationId)
     result = found.ok
-      ? await stopAll(resolved.handler, found.leadIds, organisationId)
+      ? await stopAll(handler, found.leadIds, organisationId)
       : failure(`address lookup failed: ${found.error}`)
   } catch (err) {
     result = failure(`provider suppression threw: ${String(err)}`)
@@ -313,21 +330,31 @@ export async function suppressAddressAtProvider(
   // diagnostic column. Under-matching is the safe direction here because these columns are
   // evidence, not enforcement: the leads were found and stopped by address at the provider
   // above, and the reconciliation sweep reads the provider rather than this column.
-  const { data: rows, error } = await supabase
-    .from('prospects')
-    .select('id, organisation_id')
-    .eq('email', normalised)
+  try {
+    const { data: rows, error } = await supabase
+      .from('prospects')
+      .select('id, organisation_id')
+      .eq('email', normalised)
 
-  if (error) {
-    logger.warn('provider suppression: could not find prospect rows for a suppressed address', {
+    if (error) {
+      logger.warn('provider suppression: could not find prospect rows for a suppressed address', {
+        organisation_id: organisationId,
+        error: error.message,
+      })
+      return result
+    }
+
+    for (const row of rows ?? []) {
+      await recordOutcome(supabase, row.id, row.organisation_id, result)
+    }
+  } catch (err) {
+    // Evidence, not enforcement. The leads were already found and stopped above, so failing
+    // to annotate the prospect rows must not turn a successful suppression into a thrown
+    // error in the bounce poller that called it.
+    logger.warn('provider suppression: could not annotate prospect rows for a suppressed address', {
       organisation_id: organisationId,
-      error: error.message,
+      error: String(err),
     })
-    return result
-  }
-
-  for (const row of rows ?? []) {
-    await recordOutcome(supabase, row.id, row.organisation_id, result)
   }
 
   return result
