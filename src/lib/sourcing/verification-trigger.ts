@@ -15,13 +15,16 @@
 //
 // Lock pattern: verification_locked_at column, stale-reclaim after 30 minutes
 // Rate limit: 30 emails per minute (enforced by batch spacing)
-// Daily free limit: 100 verifications per day (Amendment 3, binding constraint)
+// Daily limit: read from integrations_registry at run time, NOT compiled in. It was
+// `const FREE_DAILY_LIMIT = 100`, the validator's free-tier allowance, and the account left
+// that tier on 2026-09-01. See src/lib/sourcing/verification-limits.ts.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { myemailverifierHandler, type VerificationResult } from '@/lib/sourcing/handlers/adapter-myemailverifier'
 import { checkSendEligibility } from '@/lib/sourcing/send-eligibility-rules'
 import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
+import { getDailyVerificationLimit } from '@/lib/sourcing/verification-limits'
 
 const STALE_LOCK_THRESHOLD_MINUTES = 30
 const GREY_LISTED_RETRY_WINDOW_HOURS = 6
@@ -34,7 +37,6 @@ const GREY_LISTED_RETRY_WINDOW_HOURS = 6
  * organisation whose every row it will then decline to select.
  */
 export const MAX_RETRY_ATTEMPTS = 3
-const FREE_DAILY_LIMIT = 100
 const RATE_LIMIT_PER_MINUTE = 30
 
 /**
@@ -60,6 +62,10 @@ export interface VerificationRun {
   grey_listed_retry_count: number
   failed_count: number
   verified_at: string
+  // 'free_tier_exhausted' is a HISTORICAL NAME kept as-is because the verify-pending route
+  // and its tests branch on the literal. It means "the daily budget is used up", whatever
+  // tier the account is on. The budget itself is config, not the free tier. See
+  // verification-limits.ts.
   status: 'success' | 'partial' | 'free_tier_exhausted' | 'failed'
   error_message?: string
   daily_verifications_used?: number
@@ -69,7 +75,7 @@ export interface VerificationRun {
  * Verify enriched prospects with independent email validator.
  * Independent of tiering (Amendment 1: parallel pass, not sequential gate).
  * Includes Grey-listed retry logic (Amendment 2).
- * Respects daily free-tier limit (Amendment 3).
+ * Respects the daily verification budget read from the integrations registry.
  */
 export async function verifyEnrichedBatch(
   supabase: SupabaseClient,
@@ -143,20 +149,30 @@ export async function verifyEnrichedBatch(
       return verificationRun
     }
 
-    const dailyUsed = dailyCount ?? 0
-    const dailyRemaining = Math.max(0, FREE_DAILY_LIMIT - dailyUsed)
+    // THE LIMIT IS CONFIG, NOT A CONSTANT. Read after the usage count and before the cap,
+    // so a change to the registry row takes effect on the very next sweep with no deploy.
+    // The source is logged beside the value: a run that quietly fell back to the compiled
+    // default and one that read a real config row must not look identical in the logs.
+    const { limit: dailyLimit, source: limitSource, reason: limitReason } =
+      await getDailyVerificationLimit(supabase)
 
-    logger.info('verification-trigger: daily free-tier check', {
+    const dailyUsed = dailyCount ?? 0
+    const dailyRemaining = Math.max(0, dailyLimit - dailyUsed)
+
+    logger.info('verification-trigger: daily budget check', {
       operation_id: operationId,
       daily_used: dailyUsed,
       daily_remaining: dailyRemaining,
-      free_daily_limit: FREE_DAILY_LIMIT,
+      daily_limit: dailyLimit,
+      daily_limit_source: limitSource,
+      daily_limit_fallback_reason: limitReason,
     })
 
     if (dailyRemaining <= 0) {
-      logger.info('verification-trigger: daily free-tier exhausted', {
+      logger.info('verification-trigger: daily budget exhausted', {
         operation_id: operationId,
         organisation_id: organisationId,
+        daily_limit: dailyLimit,
       })
       verificationRun.status = 'free_tier_exhausted'
       verificationRun.daily_verifications_used = dailyUsed
@@ -234,7 +250,7 @@ export async function verifyEnrichedBatch(
 
     // ── THE TIER GATE ────────────────────────────────────────────────────────
     //
-    // Verification quota is spent per address and the free tier is 100 a day, so probing a
+    // Verification quota is spent per address and the daily budget is finite, so probing a
     // prospect tiering has already rejected takes the day's budget away from one that could
     // actually be emailed. Measured 2026-09-01: 15 unsuppressed rejected rows in the live
     // organisation had all been verified.
@@ -310,7 +326,7 @@ export async function verifyEnrichedBatch(
       // Stop before spending past the budget. The remaining prospects keep their locks
       // released below and are picked up by the next sweep.
       if (probesAttempted >= dailyRemaining) {
-        logger.info('verification-trigger: stopping, daily free tier reached mid-run', {
+        logger.info('verification-trigger: stopping, daily budget reached mid-run', {
           operation_id: operationId,
           probes_attempted: probesAttempted,
           daily_remaining_at_start: dailyRemaining,

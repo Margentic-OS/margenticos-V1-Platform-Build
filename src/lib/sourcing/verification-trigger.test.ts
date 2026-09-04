@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { myemailverifierHandler } from './handlers/adapter-myemailverifier'
+import { FALLBACK_DAILY_VERIFICATION_LIMIT } from './verification-limits'
 
 describe('Email Verification Handler', () => {
   describe('Verdict Mapping & Send-Eligibility Logic', () => {
@@ -181,11 +182,16 @@ describe('Email Verification Handler', () => {
     })
   })
 
-  describe('Daily Free-Tier Limit (Amendment 3)', () => {
-    it('Free tier allows 100 verifications per day', () => {
-      const FREE_DAILY_LIMIT = 100
-
-      expect(FREE_DAILY_LIMIT).toBe(100)
+  describe('Daily verification budget', () => {
+    it('takes its limit from config, with the compiled value as fallback only', () => {
+      // THIS TEST USED TO BE `const FREE_DAILY_LIMIT = 100; expect(FREE_DAILY_LIMIT).toBe(100)`.
+      // It declared a local, asserted the local, and could not have failed if the real
+      // constant had been deleted. It was still passing on 2026-09-03 while the number it
+      // claimed to protect described a vendor tier the account had already left.
+      //
+      // The limit is now read from integrations_registry at run time. What is left to
+      // assert here is that the compiled number is a FALLBACK and nothing else.
+      expect(FALLBACK_DAILY_VERIFICATION_LIMIT).toBe(100)
     })
 
     it('When daily limit is exhausted, trigger should stop without marking unverified send_eligible', () => {
