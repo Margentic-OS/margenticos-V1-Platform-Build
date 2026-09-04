@@ -280,7 +280,7 @@ describe('logClassificationStats: removal reporting', () => {
       [
         { prospect_id: 'a', sourced_tier: null, fit_score: null, tiering_reason: 'not_decision_maker' },
         { prospect_id: 'b', sourced_tier: null, fit_score: null, tiering_reason: 'not_decision_maker' },
-        { prospect_id: 'c', sourced_tier: null, fit_score: null, tiering_reason: 'industry_not_consulting' },
+        { prospect_id: 'c', sourced_tier: null, fit_score: null, tiering_reason: 'industry_off_target' },
         { prospect_id: 'd', sourced_tier: 'tier_1', fit_score: 90, tiering_reason: 'tier_1 (score 90)' },
       ],
       ORG,
@@ -292,7 +292,7 @@ describe('logClassificationStats: removal reporting', () => {
     const payload = warn.mock.calls[0][1] as Record<string, unknown>
 
     expect(payload.removed_not_decision_maker).toBe(2)
-    expect(payload.removed_industry_not_consulting).toBe(1)
+    expect(payload.removed_industry_off_target).toBe(1)
     expect(payload.removed_count).toBe(3)
     expect(payload.tier_1_count).toBe(1)
 
@@ -341,7 +341,7 @@ describe('classifyTier: every disqualifier returns a registered reason', () => {
     ['no_title', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: null, company_headcount: 10, company_industry: 'management consulting', company_name: 'A Consulting' }],
     ['not_decision_maker', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'other-role', company_headcount: 10, company_industry: 'management consulting', company_name: 'A Consulting' }],
     ['company_too_large', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 500, company_industry: 'management consulting', company_name: 'A Consulting' }],
-    ['industry_not_consulting', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'restaurants', company_name: 'Bistro Ltd' }],
+    ['industry_off_target', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'restaurants', company_name: 'Bistro Ltd' }],
   ]
 
   it.each(cases)('%s is a registered removal reason', async (expected, input) => {

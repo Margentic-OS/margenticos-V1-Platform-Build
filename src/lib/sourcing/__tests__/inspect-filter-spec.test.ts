@@ -138,7 +138,7 @@ describe('inspectFilterSpec', () => {
 // enumerated allowlist rather than a skip, so that (a) the four are visible in the test
 // output as a known debt and (b) a FIFTH one appearing fails the build.
 describe('handler targeting vs classifier range', () => {
-  it('has exactly the four known unclassifiable targeted industries, and no more', async () => {
+  it('targets no industry the classifier cannot produce', async () => {
     const { APOLLO_TARGETED_INDUSTRIES } = await import(
       '@/lib/sourcing/handlers/adapter-apollo'
     )
@@ -150,11 +150,15 @@ describe('handler targeting vs classifier range', () => {
       .filter(name => !CLASSIFIABLE_INDUSTRIES.has(name))
       .sort()
 
-    expect(unclassifiable).toEqual([
-      'Engineering Consulting',
-      'Environmental Consulting',
-      'Executive Coaching',
-      'Healthcare Consulting',
-    ])
+    // EMPTY, and it got there by DERIVING the classifier's range from the taxonomy rather
+    // than by adding four entries to a tag table. The four names this used to enumerate
+    // were the visible part of a larger gap: the range was the 15 distinct values of a
+    // hand-written table, so 58 of the 73 canonical names had no route back. The four were
+    // simply the ones the handler also targeted.
+    //
+    // The self-guard above still matters more than this assertion. An empty result is the
+    // correct answer AND the answer a scan that found nothing would give, so the two
+    // toBeGreaterThan checks are what stop this passing vacuously.
+    expect(unclassifiable).toEqual([])
   })
 })
