@@ -22,6 +22,7 @@ import {
   isStrategyDocType,
   type StrategyDocType,
 } from '@/lib/agents/cascade/document-dependencies'
+import { isIntakeStaleReason } from '@/lib/intake/document-staleness'
 
 // Client-facing labels. Never "ICP" or "TOV". Same values as strategy-nav-state, and
 // deliberately not imported from it: that module is about the sidebar, and one of them
@@ -37,6 +38,12 @@ export interface StaleDocRow {
   document_type: string
   status: string | null
   is_stale: boolean | null
+  /**
+   * Why the flag was set, or null for the document-to-document path. Optional so a caller
+   * that has not added it to its select still type-checks; a missing column reads as null
+   * and yields exactly the previous wording.
+   */
+  stale_reason?: string | null
 }
 
 export interface StaleDocument {
@@ -66,11 +73,24 @@ export function selectStaleDocuments(documents: StaleDocRow[]): StaleDocument[] 
     .map(type => ({
       docType: type,
       label: DOC_LABELS[type],
-      reason: buildReason(type),
+      reason: buildReason(
+        type,
+        stale.find(d => d.document_type === type)?.stale_reason ?? null,
+      ),
     }))
 }
 
-function buildReason(type: StrategyDocType): string {
+function buildReason(type: StrategyDocType, staleReason: string | null): string {
+  // An intake answer changing is not an upstream DOCUMENT changing, and for the prospect
+  // profile there is no upstream document at all. Inferring the usual sentence here would
+  // name a cause that did not happen, which is the guess-presented-as-fact this file exists
+  // to avoid. The field key is deliberately NOT shown: it is an internal name, and the
+  // client-facing point is that an answer changed, not which column holds it.
+  if (isIntakeStaleReason(staleReason)) {
+    return 'Written before one of your intake answers was changed. It may still be right. ' +
+      'Regenerate it if it is not.'
+  }
+
   const upstream = UPSTREAM_OF[type]
   if (upstream.length === 0) {
     // Unreachable with today's graph, because nothing marks a document with no upstream.

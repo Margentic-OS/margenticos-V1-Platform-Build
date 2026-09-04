@@ -22,6 +22,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { mergeIntakeWithQuestions } from '@/lib/intake/questions'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { scrubAITells, scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
@@ -162,6 +163,8 @@ interface IntakeRow {
   response_value: string | null
   section: string
   is_critical: boolean
+  /** The form asks this question and this organisation has no row for it at all. */
+  never_presented?: boolean
 }
 
 // Represents any of the three required strategy documents.
@@ -616,7 +619,17 @@ async function fetchIntakeResponses(
     throw new Error(`Messaging agent: failed to fetch intake responses — ${error.message}`)
   }
 
-  return (data ?? []) as IntakeRow[]
+  const rows = (data ?? []) as IntakeRow[]
+
+  // An organisation with NO stored intake at all must still trip the caller's empty check,
+  // so return early rather than handing it back a full set of unanswered questions.
+  if (rows.length === 0) return []
+
+  // Otherwise fill in every question the form asks that this organisation has no row for.
+  // Without this the agent only ever sees questions the client was shown, so a question
+  // added after they finished their intake is invisible here and the CRITICAL marker below
+  // cannot fire on it. See src/lib/intake/questions.ts.
+  return mergeIntakeWithQuestions(rows) as IntakeRow[]
 }
 
 // ─── Pre-flight checks ────────────────────────────────────────────────────────
@@ -815,7 +828,11 @@ function buildBaseContext(params: VariantGenerationContext): {
         .map(r => {
           const answered = r.response_value && r.response_value.trim().length > 0
           const value = answered ? r.response_value : '[not answered]'
-          const flag = r.is_critical && !answered ? ' ⚠️ CRITICAL — NOT ANSWERED' : ''
+          const flag = r.is_critical && !answered
+            ? (r.never_presented
+                ? ' ⚠️ CRITICAL — NOT ANSWERED (added after this client completed intake, so they were never asked)'
+                : ' ⚠️ CRITICAL — NOT ANSWERED')
+            : ''
           return `  Q: ${r.field_label}${flag}\n  A: ${value}`
         })
         .join('\n\n')

@@ -136,6 +136,19 @@ describe('scrubAITells numeric range handling', () => {
     expect(result).not.toContain('. €')
   })
 
+  // The magnitude suffix used to be matched in uppercase only, so "£2M–£10M" was guarded and
+  // "£2m–£10m" was not: it fell through to the sentence-splitting dash rule. Two live ICP
+  // revenue bands are stored as "£2m. £10m" and "£10m. £20m" because of it.
+  it('keeps a range whose magnitude suffix is lowercase', () => {
+    expect(scrubAITells('turnover of £2m–£10m', 'test')).toBe('turnover of £2m-£10m')
+    expect(scrubAITells('turnover of £2M–£10M', 'test')).toBe('turnover of £2M-£10M')
+  })
+
+  it('still breaks a genuine en-dash clause that merely ends in a magnitude letter', () => {
+    // The old class joined this up because "M" sat before the dash with no digit in front.
+    expect(scrubAITells('ask the TEAM–€5K is the budget', 'test')).toContain('TEAM.')
+  })
+
   it('converts a plain number range en-dash to a plain hyphen', () => {
     const result = scrubAITells('billing 3K–15K per month', 'test')
     expect(result).toBe('billing 3K-15K per month')

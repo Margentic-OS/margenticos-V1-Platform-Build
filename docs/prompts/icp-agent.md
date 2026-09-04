@@ -464,6 +464,7 @@ Return raw JSON only.
 {
   "jtbd_statement": "One specific sentence. What job is the buyer hiring this firm to do?",
   "summary": "2–3 sentences. Who are these firms, why do they hire this firm, what outcome do they get?",
+  "client_pricing": "THIS CLIENT'S OWN price, copied from their intake answer AS WRITTEN. Do not reword it, do not convert it into a band, do not round it, do not split a multi-part answer into parts. If the intake does not state a price, empty string.",
   "tier_1": {
     "label": "Ideal Client",
     "description": "One sentence describing this tier's defining characteristic",
@@ -717,16 +718,28 @@ Look for intake answers that contradict each other. Common patterns:
 - Revenue range inconsistent with described client deal sizes
   (e.g. "under £100K revenue" but "average client pays £20K/month": flag this,
   it may mean revenue is ARR vs MRR, or the firm is very new)
-- Geography that is contradicted by currency, website domain, or client names
-  (e.g. EUR currency but US-only client descriptions)
+- Geography that is contradicted by the website domain or by the client names given
+  (currency is deliberately NOT on this list. A currency is a billing choice, not a
+  location, and the geography rules below say why treating it as one is wrong.)
 - Team size inconsistent with described delivery capacity
 
 If you find a material inconsistency, note it in your output. Do not make up
 a resolution. Use the primary signal rule below.
 
 ### Primary signal hierarchy: when data conflicts
-1. Revenue range is the primary anchor for company_profile. Use it to calibrate
-   headcount, stage, and deal size expectations, even if other fields suggest otherwise.
+
+Before using any intake answer as an anchor, ask whose company it describes. The intake is
+answered by the client about THEMSELVES. company_profile and buyer_profile both describe the
+client's BUYER. An answer about the client is evidence about the client, and it is not
+evidence about the people they sell to.
+
+1. The client's own revenue range anchors nothing in company_profile. It is the one figure in
+   the intake that is guaranteed to be about the wrong company. It tells you what this client
+   earns, and company_profile has to say what their buyer earns, which is a different number
+   that this question never asked. Deriving a buyer revenue band from it, or calibrating buyer
+   headcount, stage or deal size from it, produces a figure that reads as researched and rests
+   on nothing. Where nothing else establishes the buyer's revenue, that is an unresolved field
+   under the next section, not an estimate.
 2. Client description (clients_clone) is the primary anchor for buyer_profile.
    Use the founder's own words about their best client over any inferred demographic.
 3. What the firm actually delivered for clients (offer_deliverables) overrides
@@ -756,6 +769,52 @@ This applies to revenue_range, headcount, stage, geography and business_model ab
 because those five read as researched facts and are the ones most often guessed. An
 invented revenue band is worse than an admitted gap: the operator cannot tell it was
 guessed, and the sourcing work downstream will act on it.
+
+TWO OF THOSE FIVE HAVE NO INTAKE QUESTION BEHIND THEM AT ALL. Read this before you fill
+either one.
+
+  company_profile.revenue_range   The intake asks the client for THEIR OWN revenue range and
+                                  never asks what their buyer earns. The only revenue figure
+                                  in this message is about the wrong company.
+  company_profile.headcount       The intake asks no headcount question of any kind. There is
+                                  no figure in this message about the size of anyone's team.
+
+So for these two, the default state is unresolved, and a confident band is the thing that
+needs justifying rather than the gap. You may fill either one only from something in this
+message that actually describes the buyer: the client's account of their own best clients,
+what an engagement involves, an uploaded document, the website content, or a research result.
+Name what it rests on when you do. Where this message contains no such thing, add the
+unresolved_fields entry and write the field as the most honest non-specific value you can
+defend. Do not reason from the client's revenue to the buyer's. Do not reason from the
+client's revenue to the buyer's headcount. Do not carry a band across from a previous version
+of this document unless the evidence for it is still in this message, because a guess that
+survives one refresh looks like a fact by the next one.
+
+Headcount is not the softer case because it sounds less like money. It is the harder one: it
+is the field the sourcing filter parses into an actual ceiling, and a company above that
+ceiling is removed from the run. An invented headcount band silently decides who this client
+is allowed to reach.
+
+THE CLIENT'S OWN PRICE HAS EXACTLY ONE DESTINATION: `client_pricing`, at the top level of the
+document, and it is copied there as written.
+
+It may not appear anywhere else. Not in company_profile.revenue_range, not in any four_forces
+entry, not in a trigger, not in a switching cost, not in the summary. Every one of those
+describes the BUYER, and this figure is about the SELLER. Do not restate it as what the
+buyer's market pays, what the buyer's economics look like, what the buyer's budget is, or what
+a per-unit rate in this market is. Those are claims about other companies, and the intake
+answer is evidence for none of them.
+
+This is not a hypothetical boundary. One live document carries this client's own unit price
+inside a tier 1 anxiety, written as the buyer's market economics, and the same document's
+revenue_range was reshaped into that same per-unit form. The intake asks for the price as free
+text and clients answer in their own units, so the figure arrives in a shape that fits
+anywhere and belongs in only one place.
+
+Copy it whole. A price with several parts stays one string: do not average it, do not take the
+largest part, do not turn "X per month plus Y per event" into a single number. If the intake
+does not state a price, write an empty string. This field never takes an unresolved_fields
+entry, because it is not a fact about the buyer that the document needs in order to be usable.
 
 WHY THIS IS AN ARRAY AND NOT PROSE IN THE FIELD. A gap written into a client-visible field
 is a gap the operator can approve without noticing, and on 27 August two of them reached a

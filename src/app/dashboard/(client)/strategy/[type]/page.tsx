@@ -118,7 +118,7 @@ export default async function StrategyDocumentPage({
   // --- Document fetch ---
   let docQuery = supabase
     .from('strategy_documents')
-    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, change_summary, revision_note, icp_filter_spec, is_stale')
+    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, change_summary, revision_note, icp_filter_spec, is_stale, stale_reason')
     .eq('organisation_id', org.id)
     .eq('document_type', docType)
     .in('status', ['active', 'approved'])

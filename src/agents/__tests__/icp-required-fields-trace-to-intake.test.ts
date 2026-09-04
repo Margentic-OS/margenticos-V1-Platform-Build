@@ -22,7 +22,10 @@ import { join } from 'path'
 // declared source that no longer exists in the form fails, and the count of unbacked
 // fields may shrink but never grow.
 
-const INTAKE_FORM = 'src/components/intake/IntakeForm.tsx'
+// The question set moved out of IntakeForm.tsx into this module so the server could import
+// it too. Reading it here rather than the component keeps this test pointed at the one list
+// that now defines what the form asks.
+const INTAKE_FORM = 'src/lib/intake/questions.ts'
 const SPEC_MODULE = 'src/lib/agents/icp-filter-spec.ts'
 
 /** Every fieldKey the questionnaire actually asks. Read from the form, not from memory. */

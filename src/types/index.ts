@@ -84,6 +84,18 @@ export interface IcpTier {
 export interface IcpDocument {
   jtbd_statement: string
   summary: string
+  /**
+   * THIS CLIENT'S OWN price, as they wrote it in the intake. Never the buyer's.
+   *
+   * It exists so the figure has one destination. Without it the client's price had nowhere
+   * legitimate to go and diffused into whatever buyer-describing field looked numerically
+   * shaped: one live document carries it inside a tier 1 anxiety as the buyer's market
+   * economics. Free text because clients answer in their own units, and forcing those into
+   * a band would make the document state something the client did not say.
+   *
+   * Optional because every document written before this field existed lacks one.
+   */
+  client_pricing?: string
   tier_1: IcpTier
   tier_2: IcpTier
   tier_3: IcpTier
