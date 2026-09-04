@@ -84,4 +84,14 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   // migration files by cron-schedule-registry.test.ts. Removing either half leaves the
   // other unable to see its class of drift.
   ['MON-025', 'mon_025'],
+  // Suppression reaching the provider, added 2026-09-04. Unlike every monitor above it,
+  // mon_026's subject is OUTSIDE this database: whether the sending tool has actually
+  // stopped. A view cannot make an HTTP call, so the sweep computes the verdict and the
+  // view checks it is fresh and green, which is MON-023's shape.
+  //
+  // It is deliberately not derived from prospects.outbound_suppression_status. The failure
+  // it was built for was a hand-written UPDATE, which leaves that column NULL, and auditing
+  // our own writes with our own columns is how a check goes green over the thing it was
+  // written to find.
+  ['MON-026', 'mon_026'],
 ] as const

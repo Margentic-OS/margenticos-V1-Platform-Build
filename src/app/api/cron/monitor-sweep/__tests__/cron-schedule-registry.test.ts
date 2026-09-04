@@ -33,9 +33,6 @@ import { join } from 'node:path'
 
 const MIGRATIONS_DIR = join(process.cwd(), 'supabase', 'migrations')
 
-/** The migration holding the registry seed. */
-const REGISTRY_MIGRATION = '20260903162000_mon_025_cron_schedule_drift.sql'
-
 function migrationFiles(): string[] {
   // Sorted, because filenames are timestamps and LAST DECLARATION WINS. A job scheduled in
   // one migration and re-scheduled in a later one is declared by the later one.
@@ -111,16 +108,38 @@ function declaredSchedules(): { declared: Map<string, string>; sawSchedule: numb
   return { declared, sawSchedule, alterJobs }
 }
 
-/** The seed rows in the registry migration, as jobname -> schedule. */
+/**
+ * The seed rows in the registry, as jobname -> schedule.
+ *
+ * SCANS EVERY MIGRATION, in filename order, and lets a later row win.
+ *
+ * This read one hardcoded filename until 2026-09-04, which was correct while exactly one
+ * migration seeded the table. It stopped being correct the moment a second migration
+ * scheduled a new job and seeded it alongside, in the same file, the way the rest of this
+ * repository does: the derived side gained the job, the seed side could not see it, and this
+ * test failed on a change that was right. Reading all of them keeps the assertion pointed at
+ * what the database will actually hold after every migration has run.
+ */
 function registrySeed(): Map<string, string> {
-  const sql = readFileSync(join(MIGRATIONS_DIR, REGISTRY_MIGRATION), 'utf8')
-  const insert = /INSERT INTO public\.cron_schedule_registry[\s\S]*?VALUES([\s\S]*?)ON CONFLICT/i.exec(sql)
-  if (!insert) throw new Error(`${REGISTRY_MIGRATION}: could not find the registry INSERT`)
-
   const seed = new Map<string, string>()
-  for (const m of insert[1].matchAll(/\(\s*'([^']+)'\s*,\s*'([^']+)'\s*,/g)) {
-    seed.set(m[1], m[2])
+  let inserts = 0
+
+  for (const file of migrationFiles()) {
+    const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8')
+    for (const insert of sql.matchAll(
+      /INSERT INTO public\.cron_schedule_registry[\s\S]*?VALUES([\s\S]*?)ON CONFLICT/gi,
+    )) {
+      inserts++
+      for (const m of insert[1].matchAll(/\(\s*'([^']+)'\s*,\s*'([^']+)'\s*,/g)) {
+        seed.set(m[1], m[2])
+      }
+    }
   }
+
+  // Guard the guard. Every assertion below compares two sets, and two empty sets agree
+  // perfectly. A regex that silently stops matching must fail here rather than pass.
+  if (inserts === 0) throw new Error('no cron_schedule_registry INSERT found in any migration')
+
   return seed
 }
 

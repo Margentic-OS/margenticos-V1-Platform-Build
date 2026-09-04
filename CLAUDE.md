@@ -1524,6 +1524,9 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-034  Send eligibility is evaluated once at verification and frozen on the row;
            changing EXCLUDED_COUNTRIES is NOT retroactive, and our gates govern
            UPLOAD, not delivery
+  ADR-049  Suppression reaches the sending tool through can_suppress_contact, by interest
+           status rather than delete or the workspace blocklist, and MON-026 reconciles
+           against the PROVIDER rather than against our own suppression columns
   ADR-038  A rejection note is carried into the run that replaces the rejected
            suggestion; the note must reach the AGENT, not just a column
   ADR-039  A client-facing view runs as the CALLER, and the GRANT is the control

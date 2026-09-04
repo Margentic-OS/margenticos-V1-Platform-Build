@@ -19,6 +19,23 @@ vi.mock('@sentry/nextjs', () => ({
   flush: vi.fn(() => Promise.resolve()),
 }))
 
+// The bounce path carries every suppressed address out to the sending provider through the
+// can_suppress_contact capability. Mocked here, and asserted on in the suppression file.
+//
+// Mocked rather than served by the fake Supabase, deliberately. The real path resolves the
+// capability from integrations_registry and then makes its own HTTP calls to /leads/list,
+// which is the SAME endpoint this file's fetch stub serves for paging. Letting it through
+// would fold provider-suppression requests into the call counts these tests use to prove
+// paging behaviour, and a test that counts two different things cannot fail for one reason.
+const suppressAddressAtProvider = vi.fn(async () => ({
+  status: 'confirmed' as const,
+  stoppedLeadIds: [] as string[],
+  error: null,
+}))
+vi.mock('@/lib/suppression/provider-suppression', () => ({
+  suppressAddressAtProvider: (...args: unknown[]) => suppressAddressAtProvider(...(args as [])),
+}))
+
 import {
   pollInstantlyLeadStatus,
   INSTANTLY_LEAD_STATUS_BOUNCED,
@@ -109,6 +126,13 @@ function createFakeSupabase(campaigns: FakeCampaign[] = [CAMPAIGN]) {
             if (suppressionRows.some(r => r.email === email && r.revoked_at === null)) {
               return { error: { code: '23505', message: 'suppressed_emails_active_unique' } }
             }
+            // A write failure the production code treats as 'error' rather than as
+            // idempotency. Addressed by a sentinel local part because the real CHECK
+            // violation is unreachable from here: recordSuppression normalises before
+            // inserting, so no fixture address can trigger it.
+            if (email.startsWith('write-fails@')) {
+              return { error: { code: '23503', message: 'suppressed_emails_source_signal_id_fkey' } }
+            }
             suppressionRows.push({
               email,
               reason: row.reason as string,
@@ -148,6 +172,7 @@ beforeEach(() => {
   // Real HTTP path, not the in-process mock dispatch, so the poller's own request and
   // response handling is under test.
   process.env.INSTANTLY_API_ACTIVE = 'true'
+  suppressAddressAtProvider.mockClear()
 })
 
 afterEach(() => {
@@ -296,5 +321,64 @@ describe('bounce and unsubscribe wiring to the suppression list', () => {
     expect(suppressionRows).toHaveLength(2)  // two distinct addresses
     expect(suppressionRows.map(r => r.email).sort()).toEqual(['one@x.com', 'two@x.com'])
     expect(result.errors).toBe(0)       // the duplicate address is not an error
+  })
+
+  // ── THE PROVIDER HALF OF THE GLOBAL STORE ──────────────────────────────────
+  //
+  // suppressed_emails is GLOBAL and keyed by address alone. The provider told us about the
+  // bounce, so it has already stopped ITS OWN lead, the one this poll is reading. It has
+  // NOT stopped the same address sitting in another client's campaign in the same shared
+  // workspace, and nothing else in this system would.
+  //
+  // Measured on the day this was written: one address on the global list, active, and its
+  // lead row still present at the provider.
+
+  it('carries every newly suppressed address out to the provider', async () => {
+    const { client } = createFakeSupabase()
+    vi.stubGlobal('fetch', serveLeads([{ id: 'lead-1', email: 'bounced@x.com', status: -1 }]))
+
+    await pollInstantlyLeadStatus(client, 'test-key', INSTANTLY_LEAD_STATUS_BOUNCED, 'email_bounced')
+
+    expect(suppressAddressAtProvider).toHaveBeenCalledTimes(1)
+    expect(suppressAddressAtProvider).toHaveBeenCalledWith(client, 'org-a', 'bounced@x.com')
+  })
+
+  it('carries the address on a REPEAT signal too, when suppression was already recorded', async () => {
+    // 'already_suppressed' is the normal case on every full scan after the first, and it is
+    // exactly when a NEW duplicate lead for an old suppressed address would be found. A
+    // provider call gated on 'recorded' only would never fire again after day one.
+    const { client } = createFakeSupabase()
+    const lead = { id: 'lead-1', email: 'bounced@x.com', status: -1 }
+
+    // A FRESH stub per poll. serveLeads carries page state, so one stub reused across two
+    // polls serves an exhausted page the second time and the run reads as "no leads",
+    // which would make this test pass or fail for a reason unrelated to its subject.
+    vi.stubGlobal('fetch', serveLeads([lead]))
+    await pollInstantlyLeadStatus(client, 'test-key', INSTANTLY_LEAD_STATUS_BOUNCED, 'email_bounced')
+    suppressAddressAtProvider.mockClear()
+
+    vi.stubGlobal('fetch', serveLeads([lead]))
+    const second = await pollInstantlyLeadStatus(client, 'test-key', INSTANTLY_LEAD_STATUS_BOUNCED, 'email_bounced')
+
+    // Confirm the second run really did see the lead again and hit signal idempotency,
+    // rather than finding nothing to do.
+    expect(second.skipped).toBe(1)
+
+    expect(suppressAddressAtProvider).toHaveBeenCalledTimes(1)
+  })
+
+  it('does NOT call the provider when the suppression row could not be written', async () => {
+    // If the row the send gate reads does not exist, the poll has failed. Telling the
+    // provider anyway would leave the two sides disagreeing in the direction where our
+    // record says a person may be mailed.
+    const { client } = createFakeSupabase()
+    vi.stubGlobal('fetch', serveLeads([{ id: 'lead-1', email: 'write-fails@x.com', status: -1 }]))
+
+    const result = await pollInstantlyLeadStatus(
+      client, 'test-key', INSTANTLY_LEAD_STATUS_BOUNCED, 'email_bounced'
+    )
+
+    expect(result.errors).toBe(1)
+    expect(suppressAddressAtProvider).not.toHaveBeenCalled()
   })
 })

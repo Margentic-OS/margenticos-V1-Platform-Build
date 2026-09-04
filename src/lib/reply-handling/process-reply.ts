@@ -30,15 +30,18 @@ import * as Sentry from '@sentry/nextjs'
 import { Database, Json } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { classifyReply } from '@/lib/agents/reply-classifier'
-// ADR-001 deferred (C3-2): handler imported by vendor name; needs capability-based dispatch — BACKLOG "ADR-001 channel/source agnosticism — pending decision"
+// ADR-001 deferred (C3-2): sendThreadReply is still imported by vendor name; needs
+// capability-based dispatch — BACKLOG "ADR-001 channel/source agnosticism — pending decision".
+// The SUPPRESSION half of this file no longer is: it goes through can_suppress_contact.
 import {
-  suppressLead,
   sendThreadReply,
 } from '@/lib/integrations/handlers/instantly/reply-actions'
 import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
-import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from '@/lib/integrations/handlers/instantly/constants'
-import { mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
-import { InstantlyFlagError } from '@/lib/integrations/handlers/instantly/types'
+import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
+import {
+  suppressProspectAtProvider,
+  suppressAddressAtProvider,
+} from '@/lib/suppression/provider-suppression'
 import { orchestrateDraft } from './draft-orchestrator'
 import { sendFirstReplyEmail } from '@/lib/notifications/send-first-reply-email'
 
@@ -107,44 +110,25 @@ function buildCalendlyReplyBody(
   ].join('\n')
 }
 
-// ── Instantly lead ID resolver ────────────────────────────────────────────────
-// Looks up the Instantly lead UUID by email — needed for suppressLead().
-// The reply email object may carry this as `lead_id` or `from_address_id`.
-// If neither is present, falls back to a POST /leads/list lookup by email.
-// ADR-001 deferred (C3-1): Instantly API called directly inside processor; belongs in handler — BACKLOG "ADR-001 channel/source agnosticism — pending decision"
-
-async function resolveInstantlyLeadId(
-  raw: Record<string, unknown>,
-  apiKey: string,
-  fromEmail: string,
-  baseUrl: string,
-  isActive: boolean,
-): Promise<string | null> {
-  const fromRaw = (raw.lead_id ?? raw.from_address_id) as string | undefined
-  if (fromRaw) return fromRaw
-
-  // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
-  if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
-    throw new InstantlyFlagError('resolveInstantlyLeadId: instantly_api_active is false — cannot call production Instantly')
-  }
-
-  // Fallback: look up by email
-  try {
-    const response = shouldUseMockDispatch(isActive)
-      ? mockLeadsList()
-      : await fetch(`${baseUrl}/leads/list`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: fromEmail, limit: 1 }),
-        })
-    if (!response.ok) return null
-    const json = await response.json().catch(() => null)
-    const items = (Array.isArray(json) ? json : json?.items) as Array<{ id: string }> | undefined
-    return items?.[0]?.id ?? null
-  } catch {
-    return null
-  }
-}
+// ── Provider lead resolution ─────────────────────────────────────────────────
+//
+// REMOVED 2026-09-04, and the reason is worth keeping.
+//
+// resolveInstantlyLeadId lived here. It read raw.lead_id off the reply, and where that was
+// absent it asked the provider for leads matching the address with `limit: 1` and took
+// items[0]. If the address existed as more than one lead it suppressed ONE and left the
+// rest sending, and no caller could tell the difference. The provider's own list endpoint
+// carries a distinct_contacts flag whose whole purpose is collapsing duplicates of one
+// address, which is the provider stating that duplicates are an expected state.
+//
+// Both jobs now belong to the can_suppress_contact capability:
+//   findLeadIds  pages the address lookup to exhaustion and returns EVERY match
+//   stopLead     writes, then reads the lead back before reporting success
+//
+// The stored outbound_lead_id from upload is used as well, not instead: it is the
+// authoritative id for the campaign we uploaded into, and the address sweep is what catches
+// a lead created outside our uploads. raw.lead_id is no longer consulted, because the
+// address sweep finds that same lead and finds its duplicates too.
 
 // ── Idempotency check ─────────────────────────────────────────────────────────
 
@@ -379,11 +363,16 @@ async function processOneSignal(
 
   let prospectId: string | null = null
   let prospectFirstName: string | null = null
+  // The suppression path needs both: the stored provider lead id is the authoritative one
+  // for the campaign we uploaded into, and the row's own address is what the duplicate
+  // sweep searches on. Reading them here avoids a second fetch inside the dispatch.
+  let prospectEmail: string | null = null
+  let prospectLeadId: string | null = null
 
   if (fromEmail?.trim()) {
     const { data: prospect } = await supabase
       .from('prospects')
-      .select('id, first_name, suppressed')
+      .select('id, first_name, suppressed, email, outbound_lead_id')
       .eq('organisation_id', signal.organisation_id)
       .ilike('email', fromEmail)
       .maybeSingle()
@@ -396,6 +385,8 @@ async function processOneSignal(
       }
       prospectId = prospect.id
       prospectFirstName = prospect.first_name
+      prospectEmail = prospect.email
+      prospectLeadId = prospect.outbound_lead_id
     } else {
       logger.warn('process-reply: no prospect matched from_address_email', { signal_id: signalId, from_email: fromEmail })
     }
@@ -533,42 +524,12 @@ async function processOneSignal(
   // ── Dispatch ──────────────────────────────────────────────────────────────
 
   if (actionTaken === 'suppress') {
-    const leadInstantlyId = fromEmail
-      ? await resolveInstantlyLeadId(raw, instantlyApiKey, fromEmail, baseUrl, isActive)
-      : null
-
-    let suppressResult: { ok: boolean; error: string | undefined; raw: unknown } = {
-      ok: false,
-      error: 'no lead ID resolved',
-      raw: undefined,
-    }
-
-    if (leadInstantlyId) {
-      const r = await suppressLead(leadInstantlyId, instantlyApiKey, baseUrl, isActive)
-      suppressResult = { ok: r.ok, error: r.error, raw: r.raw }
-    } else {
-      logger.warn('process-reply: could not resolve Instantly lead ID — DB suppression only', {
-        signal_id: signalId,
-        from_email: fromEmail,
-      })
-      // DB suppression is authoritative — prospect cannot receive any future MargenticOS
-      // communication once prospects.suppressed = true. Instantly-side suppression
-      // (lt_interest_status = -1) is best-effort secondary protection. If the lead ID
-      // can't be resolved, log the warning and proceed; the prospect is safe via DB alone.
-      suppressResult = { ok: true, error: undefined, raw: undefined }
-    }
-
-    // DB suppression is idempotent — always set even if Instantly call failed.
-    if (!prospectId) {
-      // Explicit opt-out with no prospect record — DB suppression cannot be applied.
-      // Instantly-side suppression is the only protection. If that also failed, this
-      // prospect has no suppression at all. Surfaces as error for immediate operator review.
-      logger.error('process-reply: opt_out signal — prospect not found in DB, DB suppression skipped', {
-        signal_id: signalId,
-        from_email: fromEmail,
-        instantly_suppressed: !!leadInstantlyId,
-      })
-    }
+    // ── DB suppression FIRST, then the provider ───────────────────────────────
+    //
+    // Order matters. If the provider call went first and the database write then failed,
+    // the person would be stopped at the provider while our record still said they may be
+    // mailed. That is the failure in the safe direction, but it is still a disagreement,
+    // and the reconciliation sweep would have nothing to compare against.
     if (prospectId) {
       await supabase
         .from('prospects')
@@ -579,26 +540,81 @@ async function processOneSignal(
           updated_at: new Date().toISOString(),
         })
         .eq('id', prospectId)
+    } else {
+      // An explicit opt-out from an address with no prospect row. The database half cannot
+      // be applied at all, so the provider call below is the ONLY thing standing between
+      // this person and the rest of the sequence.
+      logger.error('process-reply: opt_out signal — prospect not found in DB, DB suppression skipped', {
+        signal_id: signalId,
+        from_email: fromEmail,
+      })
     }
 
+    // ── The provider ──────────────────────────────────────────────────────────
+    //
+    // ═══════════════════════════════════════════════════════════════════════════
+    // A SUPPRESSION THAT DID NOT REACH THE PROVIDER IS A FAILURE. FIXED 2026-09-04.
+    //
+    // What stood here reported SUCCESS when no lead id could be resolved:
+    //
+    //     suppressResult = { ok: true, error: undefined, raw: undefined }
+    //
+    // The reasoning written beside it was that the database is authoritative, so the
+    // prospect is safe on the database alone. That is true for FUTURE uploads, which
+    // findBlockedProspects gates, and it is false for the sequence already in flight,
+    // which is the only thing this call can stop. So the one case where the call mattered
+    // most was the one recorded as a success: the action row said succeeded, the signal was
+    // marked processed, and the retry never happened.
+    //
+    // This is validate-one-thing-return-another, the shape CLAUDE.md records from the
+    // opt-out footer that was validated and then discarded by a return-value bug. A check
+    // ran, a different value was returned, and the run reported success.
+    //
+    // Now: no lead resolved is a failure, a provider error is a failure, and a write the
+    // read-back cannot confirm is a failure. Only 'not_required' is a clean pass without a
+    // provider call, and it means the provider genuinely holds nothing for this person.
+    // ═══════════════════════════════════════════════════════════════════════════
+    const suppression = prospectId
+      ? await suppressProspectAtProvider(supabase, {
+          id: prospectId,
+          organisation_id: signal.organisation_id,
+          email: prospectEmail ?? fromEmail ?? null,
+          outbound_lead_id: prospectLeadId,
+        })
+      : fromEmail
+        ? await suppressAddressAtProvider(supabase, signal.organisation_id, fromEmail)
+        : {
+            status: 'failed' as const,
+            stoppedLeadIds: [],
+            error:
+              'opt-out signal carries neither a prospect row nor an address, so nothing ' +
+              'can be stopped anywhere',
+          }
+
+    const suppressionOk = suppression.status !== 'failed'
+
     await updateActionRow(supabase, actionRowId, {
-      action_succeeded: suppressResult.ok,
+      action_succeeded: suppressionOk,
       action_payload: {
-        instantly_lead_id: leadInstantlyId,
+        provider_lead_ids: suppression.stoppedLeadIds,
+        provider_suppression_status: suppression.status,
         lead_email: fromEmail,
-        instantly_skipped: !leadInstantlyId,
       } as Json,
-      action_error: suppressResult.ok ? null : String(suppressResult.error),
-      instantly_response: suppressResult.raw as Json ?? null,
+      action_error: suppression.error,
     })
 
-    if (suppressResult.ok) {
+    if (suppressionOk) {
       await markSignalProcessed(supabase, signalId)
       return 'processed'
     }
 
-    // Instantly call failed — leave unprocessed so it retries, but DB suppression already applied.
-    logger.error('process-reply: suppressLead API failed', { signal_id: signalId, error: suppressResult.error })
+    // Left unprocessed so it retries. The database suppression above already stands, so a
+    // retry re-attempts only the provider half, which is idempotent.
+    logger.error('process-reply: the provider was not told about an opt-out', {
+      signal_id: signalId,
+      prospect_id: prospectId,
+      error: suppression.error,
+    })
     return 'error'
   }
 
