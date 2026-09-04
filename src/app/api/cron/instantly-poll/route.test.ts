@@ -116,6 +116,23 @@ vi.mock('@supabase/supabase-js', () => ({
   /* eslint-enable @typescript-eslint/no-explicit-any */
 }))
 
+// The suppression carry sweep. Mocked here so these tests assert the WIRING — that the
+// route runs it and reports what it said. carry.test.ts drives the real implementation
+// against a fake that honours its filters.
+const carryPendingSuppressions = vi.hoisted(() =>
+  vi.fn(async () => ({
+    activeCount: 3,
+    pendingCount: 1,
+    carriedCount: 1,
+    failedCount: 0,
+    noOrgCount: 0,
+    backoffCount: 0,
+    incomplete: false,
+    detail: 'CARRY-SWEEP-RAN: 1 suppressed address(es) carried to the provider.',
+  })),
+)
+vi.mock('@/lib/suppression/carry', () => ({ carryPendingSuppressions }))
+
 import { POST } from './route'
 
 const CRON_SECRET = 'test-secret-12345'
@@ -160,6 +177,66 @@ describe('POST /api/cron/instantly-poll — the ok rule', () => {
   it('rejects a request without the cron secret', async () => {
     const response = await POST(cronRequest('wrong-secret'))
     expect(response.status).toBe(401)
+  })
+
+  // ── The carry sweep is wired in, and says so where an operator reads ────────
+  //
+  // WITHOUT THIS TEST THE FIX CAN BE DELETED SILENTLY. Mutation-tested 2026-09-04:
+  // removing the carryPendingSuppressions call from the route failed NOTHING across all
+  // 51 tests in this directory, because every other test here is about the poll result.
+  // The sweep is what makes a suppression reach the provider when the poller can no
+  // longer see the bounced lead, so a deletion that nothing notices is the whole defect
+  // class this change exists to close.
+  it('runs the suppression carry sweep and carries its verdict into the heartbeat', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ items: [] })))
+
+    const response = await POST(cronRequest())
+    const body = await response.json()
+
+    expect(carryPendingSuppressions).toHaveBeenCalledTimes(1)
+    // Deliberately says nothing about body.ok: this test is about the sweep running and
+    // being reported, and the campaign fixture here makes the run unhealthy for its own
+    // reasons. The next test isolates the ok rule.
+
+    // Reported in the response...
+    expect(body.suppression_carry.carriedCount).toBe(1)
+
+    // ...and in the heartbeat, which is the line an operator actually reads. A sweep that
+    // ran and said nothing anywhere visible is the shape MON-019 was found in: running,
+    // silent, and indistinguishable from healthy.
+    expect(db.heartbeats).toHaveLength(1)
+    expect(String(db.heartbeats[0].detail)).toContain('CARRY-SWEEP-RAN')
+  })
+
+  it('does not let a carry sweep failure drag the poll run to not-ok', async () => {
+    // Deliberate, and the reasoning is in the route. One address the provider will not
+    // answer for would otherwise hold this heartbeat red for ever, and a permanently red
+    // heartbeat cannot report the NEXT failure — it would mask the poll outage this
+    // instrumentation exists to catch. MON-026 is the instrument for the carry.
+    carryPendingSuppressions.mockResolvedValueOnce({
+      activeCount: 3,
+      pendingCount: 1,
+      carriedCount: 0,
+      failedCount: 1,
+      noOrgCount: 0,
+      backoffCount: 0,
+      incomplete: false,
+      detail: 'CARRY-SWEEP-RAN: 1 suppressed address(es) could not be carried.',
+    })
+    // No registered campaigns, so the campaign-stats refresh has nothing to resolve and
+    // cannot contribute a failure of its own. The carry failure must then be the ONLY
+    // thing that could drag ok down, which is what this test is about. Without this the
+    // test would pass or fail for a reason unrelated to its subject.
+    db.campaigns = []
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ items: [] })))
+
+    const response = await POST(cronRequest())
+    const body = await response.json()
+
+    expect(body.suppression_carry.failedCount).toBe(1)
+    expect(body.ok).toBe(true)
+    expect(db.heartbeats[0].ok).toBe(true)
+    expect(String(db.heartbeats[0].detail)).toContain('CARRY-SWEEP-RAN')
   })
 
   it('returns ok: false when every Instantly call fails', async () => {
