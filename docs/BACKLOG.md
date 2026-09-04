@@ -23,6 +23,194 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## SUPPRESSION REACHING THE PROVIDER (2026-09-04, branch suppression-sync)
+
+Built: the can_suppress_contact capability, provider calls on all three suppression write
+paths, outbound_suppression_* on prospects, and MON-026 reconciling against the provider.
+See ADR-049 and docs/suppression.md. Deferred items only below.
+
+- [pre-c1] A MOCK PROVIDER LEAD ID IS SITTING IN A REAL PROSPECT ROW, AND NOTHING STOPS
+  ANOTHER ONE.
+
+  prospect 7cd92532-55e0-45d4-9d99-4a7c2ae0a12d carries
+  outbound_lead_id = 'mock-lead-0-1780586487684'. That value comes from mockLeadsAdd, so an
+  upload made while instantly_api_active was false wrote a fabricated id into a real row as
+  though the lead existed. The organisation is archived (April 2026) so it harms nothing
+  today, and it made the reconciliation sweep report unreachable until the address fallback
+  was added.
+
+  NOT FIXED because the row is in an archived organisation and rewriting live prospect data
+  to tidy a monitor is the wrong trade. What is unfixed is the CAUSE: uploadLeads writes
+  created.id without caring whether the response came from the mock dispatch. A guard
+  refusing to persist a mock id, or writing a mock upload to a different status, would stop
+  the next one. Cheap, and it belongs with the next change to that handler.
+
+- [post-build] THE RECONCILIATION SWEEP HAS NO PER-ORGANISATION FAIRNESS AND NO CURSOR.
+
+  It reads every uploaded prospect each run and reads the provider for each one the send
+  gate blocks. At 26 uploaded and 6 blocked that is trivial. MAX_LEADS_PER_RUN caps it at
+  500 provider reads and REPORTS when the cap is hit rather than truncating silently, so it
+  degrades honestly, but a run that hits the cap will re-examine the same head of the list
+  every time and never reach the tail.
+
+  The trigger to fix it is the cap actually being hit, which shows up in MON-026's detail
+  line as "the per-run ceiling was reached". Until then a cursor is speculative machinery.
+
+- [post-build] ARCHIVED ORGANISATIONS ARE STILL SWEPT.
+
+  Deliberate, and worth re-examining rather than assuming. verify-catch-all excludes
+  archived organisations because it SPENDS MONEY on them. This sweep only reads, and an
+  archived organisation is our own state, not the provider's: its campaigns could in
+  principle still be live. So it is included, which is the fail-loud direction. If archived
+  organisations ever generate recurring noise here, exclude them and say so in the detail
+  line rather than dropping them silently.
+
+- [research] THE SEND GATE STILL GOVERNS UPLOAD, AND SUPPRESSION STILL IS NOT RETROACTIVE.
+
+  Unchanged by this work and stated so it is not assumed closed. Adding a country to
+  EXCLUDED_COUNTRIES still does not re-evaluate prospects already verified: that verdict is
+  frozen on prospects.email_send_eligible at verification time and re-evaluating costs money
+  per address. See ADR-034. What HAS changed is that a person suppressed for any reason is
+  now stopped at the provider, so the consequence of a late rule change is smaller than it
+  was, as long as somebody suppresses the affected rows.
+## REPLAYING THIS REPO DOES NOT PRODUCE A WORKING SYSTEM (2026-09-04, branch config-seeds)
+
+- [pre-c1] A FULL ORDERED REPLAY LOSES SEVEN INTEGRATION ROWS, AND THE CONFIG-SEED WORK
+  DELIBERATELY DID NOT FIX IT. This is a disaster-recovery gap, not a config gap, and it
+  is bigger than the pass that found it.
+
+  MEASURED, not reasoned about. `supabase/baseline/schema.sql` plus all 140 migrations
+  applied in filename order into a scratch Postgres. `20260420_seed_integrations_registry.sql`
+  begins with an UNGUARDED
+
+      ALTER TABLE integrations_registry
+        ADD CONSTRAINT integrations_registry_capability_tool_name_key UNIQUE (capability, tool_name);
+
+  The baseline already carries that constraint, so the statement raises
+  `relation "integrations_registry_capability_tool_name_key" already exists`, the whole
+  file aborts, and THE INSERT BELOW IT NEVER RUNS. Seven rows are absent from the
+  rebuilt database:
+
+      can_send_email, can_schedule_linkedin_post, can_send_linkedin_dm,
+      can_enrich_contact, can_book_meeting, can_track_meeting,
+      can_validate_email / (the inactive first-choice validator)
+
+  A registry with no `can_send_email` row is a system that cannot dispatch a send at all.
+  This is not a reverted flag; it is a missing capability.
+
+  THE SAME SHAPE, 33 TIMES. 33 of the 51 migration failures in that replay are
+  "already exists". Migrations written before the 2026-08-28 baseline capture re-run
+  against a schema that already contains their changes. Some are harmless because the
+  statement is the whole file; this one is not, because an aborted file takes its data
+  seeding with it.
+
+  THE REPOSITORY ALREADY ADMITS THIS AND NOBODY HAS ACTED ON IT. The baseline header says
+  in its own words: "WHY THIS FILE EXISTS: supabase/migrations/ CANNOT REBUILD THIS
+  DATABASE... no file anywhere creates organisations, prospects or campaigns. The three
+  core create_*_tables migrations from 2026-04-15 exist only in the remote database. If
+  this project were lost, the repository could not recreate it." That paragraph has been
+  true and unactioned since 2026-08-28. What this session adds is the measurement of what
+  the replay actually produces, rather than the knowledge that it would be incomplete.
+
+  WHY IT WAS NOT FIXED HERE. Scope was config seeding. Making the replay clean means
+  deciding what the rebuild path IS: baseline-plus-forward-migrations-only, or an
+  idempotent full history with every pre-baseline DDL guarded. That is a real decision
+  about disaster recovery and it deserves its own session.
+
+  NEXT ACTION: decide the rebuild path, then either fence pre-baseline migrations out of
+  the replay or make their DDL idempotent (`ADD CONSTRAINT IF NOT EXISTS` is not valid
+  Postgres, so this is a DO block per statement, not a one-word change). Until then,
+  treat `supabase/baseline/schema.sql` as the only restore artefact and assume the
+  migration set cannot rebuild anything on its own.
+
+## MIGRATIONS THAT RE-SEED A VALUE SOMEBODY IS MEANT TO CHANGE (2026-09-04, branch seed-10000)
+
+Found by asking, after the verification limit's seed and its live value diverged for one day,
+whether anything else in the same file or nearby had the same shape. REPORT ONLY. Nothing
+below was changed, and the two live divergences are both real today.
+
+THE SHAPE. A migration writes a row that exists to be edited at runtime, and writes it
+UNCONDITIONALLY. It is correct on first run and destructive on replay: rebuilding an
+environment from these files silently reverts a deliberate operator decision, with no error
+and nothing to compare against afterwards. It is the same family as the cron schedule, except
+that MON-025 now catches that one and NOTHING catches this one.
+
+- [RESOLVED 2026-09-04, branch config-seeds] `instantly_api_active` IS TRUE LIVE AND ITS
+  MIGRATION SEEDS IT FALSE.
+
+  `20260521193228_integration_feature_flags.sql` upserts it with
+  `ON CONFLICT DO UPDATE SET is_active = EXCLUDED.is_active`, value false. Live it has been
+  true since 2026-08-16. A replay turns the outbound provider flag OFF.
+
+  This is the most consequential one found, because the failure is silent in the direction
+  that looks fine: sending stops, nothing errors, and the dashboard reads exactly as it does
+  when there is simply nothing to send. The same migration seeds `instantly_api_mode` to
+  `{"mode":"mock"}`, which happens to match live today, so that one is latent rather than
+  live.
+
+- [RESOLVED 2026-09-04, branch config-seeds] `enrichment_live` IS TRUE LIVE AND A FULL
+  ORDERED REPLAY LANDS IT FALSE.
+
+  Two migrations touch it and only one is guarded, which is why this is easy to miss.
+  `20260810_enrichment_live_flag.sql` is CORRECT: it sets the key only
+  `WHERE config->>'enrichment_live' IS NULL`, so its own replay is a no-op. But
+  `20260420_seed_integrations_registry.sql` upserts the whole `can_enrich_contact` row with
+  `config = EXCLUDED.config`, i.e. `'{}'`, which WIPES the key. Replaying both in order
+  therefore wipes it and then re-adds it as false.
+
+  A guard on the later migration does not protect a value the earlier one deletes. That is
+  the part worth carrying: reading only the migration that owns a key is not enough.
+
+- [RESOLVED 2026-09-04, branch config-seeds] THE ACTIVE EMAIL-VALIDATION ROW IS CREATED BY
+  NO MIGRATION AT ALL, so a rebuild from these files does not have it.
+
+  `can_validate_email / myemailverifier` exists in production and is the row the verification
+  sweep now reads its daily budget from. Grepping every migration for the vendor name returns
+  ONE hit, and it is a comment. The row was inserted by hand or by a script that is not in
+  the repository.
+
+  Consequences on a fresh rebuild, all silent: the row is absent, so
+  `20260903160000_daily_verification_limit_config.sql` matches zero rows and does nothing,
+  `getDailyVerificationLimit` finds no active row and falls back to the compiled 100, and the
+  only `can_validate_email` row present is the inactive one. Verification would run at a
+  hundred a day against a validator whose endpoint and key-name config do not exist.
+
+  MEASURED, and it is not hypothetical: the test project's `integrations_registry` holds ZERO
+  ROWS. The baseline it was restored from is schema without data.
+
+  DONE 2026-09-04 (branch config-seeds):
+  `20260904170000_seed_email_validation_registry_row.sql` seeds this row with
+  `ON CONFLICT (capability, tool_name) DO NOTHING`, carrying all six config keys, the
+  handler ref and `is_active = true`. Proved by replay: a rebuild that previously produced
+  only the inactive validator row now produces the active one, and a re-run over the live
+  values changes nothing. The five inert config keys were reproduced rather than dropped,
+  because deleting them would be a second change hiding inside this one; wiring them up or
+  removing them is still the open item recorded further down this file.
+
+- [post-build] WHAT IS ALREADY SAFE, recorded so nobody re-audits it.
+  CORRECTED 2026-09-04 (branch config-seeds), because the paragraph below was WRONG in a
+  reassuring direction and was believed for a day. `system_flags` uses
+  `ON CONFLICT (key) DO NOTHING` in both migrations that seed it, and that protects a
+  RE-RUN over an existing row. IT DOES NOT PROTECT A REBUILD: on an empty table there is
+  no conflict, so the seeded literal is simply inserted. Measured in a scratch replay,
+  a rebuild landed `queue_research` and `queue_research_collect` FALSE while both are
+  true live, and `can_source_prospects` false while it is true live. `DO NOTHING` is a
+  guard against re-seeding, never against rebuilding. All three literals now carry the
+  current value, so both paths land correctly. `can_source_prospects` (20260612) and `can_report_sending_health`
+  (20260827120000) both use `DO NOTHING` and are true live against a false seed, protected
+  only by that clause. `20260728` sets `supported_fields`, which is a handler manifest rather
+  than an operator decision, and re-seeding it is correct.
+
+  The dividing line is not the table. It is whether the row records something a PERSON
+  decided. `DO NOTHING` is right for those; `DO UPDATE` is right for a manifest the code owns.
+
+- [post-build] THE VERIFICATION LIMIT'S OWN SEED AND LIVE VALUE ARE NOW BOTH 10000, brought
+  into agreement on 2026-09-04 rather than left diverged. There is still NO CHECK that they
+  agree. A monitor for this class would have to encode which config keys are meant to drift
+  and which are not, which is a real design question and not a small one. Until then the
+  discipline is manual: change the live value and the seed in the same session.
+
+
 ## THREE STALE VALUES, ONE SHAPE (2026-09-03, branch stale-values)
 
 All three were a number or a name that stopped describing the world and had nothing watching
@@ -110,6 +298,13 @@ for it. Recorded here for the parts that were NOT fixed.
   NEXT ACTION: ask each client which spelling they want, then set `organisations.name` from
   the operator page. Do not regenerate the first one's messaging document without deciding
   the name first.
+
+  URGENCY, settled 2026-09-04: NEITHER of these two clients is currently being sent on behalf
+  of, so nothing here is time-critical and both were deliberately left as they are. The one
+  binding condition survives that: the organisation whose APPROVED COPY USES THE INTAKE
+  SPELLING must have its name decided before anything regenerates its messaging document,
+  because regeneration rewrites the copy and forces the sign-off to `organisations.name`. If
+  either client becomes live, ask the spelling first.
 
 - [post-build] THERE IS STILL NO EDIT PATH FOR AN INTAKE RESPONSE. Only
   `organisations.name` became editable. Intake remains write-once, which is a known standing

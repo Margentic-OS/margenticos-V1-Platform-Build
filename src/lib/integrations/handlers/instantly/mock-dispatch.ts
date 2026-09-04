@@ -106,6 +106,17 @@ export function mockLeadPatch(leadId: string): Response {
   return mockResponse({ id: leadId, lt_interest_status: -1 })
 }
 
+// GET /leads/:id — the read-back in suppress-contact's stopLead, and the reconciliation
+// sweep's live read.
+//
+// Returns a STOPPED lead: interest status -1, which is what stopLead writes, and status 3
+// (Completed), which is what a stopped lead looks like on the readOnly axis. Shaped so the
+// mock path exercises the confirming branch rather than skipping past it, because a mock
+// that cannot satisfy the check makes every mock-mode suppression read as a failure.
+export function mockLeadGet(leadId: string): Response {
+  return mockResponse({ id: leadId, status: 3, lt_interest_status: -1 })
+}
+
 // POST /emails/reply — sendThreadReply
 export function mockEmailReply(): Response {
   return mockResponse({ id: `mock-message-${Date.now()}` })

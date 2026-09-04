@@ -4408,3 +4408,164 @@ The positive reply share is of replies and was never involved.
 
 Display only. No migration, no schema change, no write path: every touched module only
 reads. Nothing stored changes, so `git revert` is sufficient and complete.
+
+---
+
+## ADR-049 — Suppression reaches the sending tool via a capability, by interest status, and a reconciliation reads the provider rather than our own record
+
+**Date:** 2026-09-04
+**Status:** Accepted, implemented, proved on a live prospect
+**Supersedes nothing. Extends ADR-034, which recorded that the third layer did not exist.**
+
+### The problem, as measured rather than as reported
+
+Marking a prospect suppressed changed nothing about what the sending tool had already
+queued. Measured live before any of this was built:
+
+    prospect ecc5f9d2-3b8e-4ad4-a70b-0f829409149f
+      our database:  suppressed = true, client_review_status = 'rejected'
+      the provider:  status 1 (Active), no interest status,
+                     step 3 executed 2026-08-31, step 4 queued behind a seven-day delay
+
+Uploaded 2026-08-21. Nothing in this codebase ever told the provider.
+
+**The framing that turned out to be wrong is worth recording.** It is not true that
+suppression never reached the provider. Of the four write sites, the opt-out reply path DID
+call it, and its two prospects are correctly stopped. The fault was that ONE path did it and
+nothing compared the two sides.
+
+| write site | provider call before | can fire after upload |
+|---|---|---|
+| client rejection route | none | no, guarded to `outbound_upload_status = 'pending'` |
+| research auto-disqualification | none | **yes**, research can re-run on an uploaded prospect |
+| opt-out reply | yes | yes, and handled |
+| a hand-written UPDATE | none | **yes, and this is the one that bit** |
+
+### Decision 1 — a capability, not two more direct callers
+
+`can_suppress_contact` in `integrations_registry`. All three paths and the reconciliation
+sweep go through it.
+
+The opt-out path called the provider handler directly, which its own comment flagged as a
+deferred ADR-001 violation. This work added two more callers. Wiring them the same way would
+have tripled a recorded violation instead of repaying it, for the same effort.
+
+### Decision 2 — interest status, not delete and not the blocklist
+
+Four mechanisms exist. Checked against the provider's documentation on 2026-09-04.
+
+**Rejected: delete.** The API description says plainly that it cannot be undone, and nothing
+documents what survives it. Reply history is load-bearing here, not decoration: the reply
+processor threads replies off the stored email object, campaign analytics counts replies, and
+the reply audit trail is the compliance record showing an opt-out was honoured. Irreversible
+plus undocumented is not a combination to choose when a reversible option exists.
+
+**Rejected: the workspace blocklist, and this is the load-bearing decision.**
+`getInstantlyApiKey` ignores its `organisationId` argument and returns one global key, so
+every client's campaigns live in one workspace and share one blocklist. One client rejecting
+a prospect would block that address out of every other client's campaigns, silently and
+permanently, and blocklist entries accept whole domains. Today there is one campaign and the
+blast radius is zero. The moment there are two, it is not.
+
+**The cost of that refusal, stated:** the blocklist is the only mechanism that can stop an
+address with no lead row yet. Interest status needs a lead id. That half is already covered by
+`findBlockedProspects`, which blocks a suppressed address before it is ever uploaded. The two
+mechanisms cover different halves and this one covers the half that was missing.
+
+### Decision 3 — the write is read back, and the read-back does NOT check status
+
+`stopLead` writes, then GETs the lead and confirms the value landed. A 200 from a write
+endpoint is the same class of evidence as a notification logged as sent before sending.
+
+**The stop is asynchronous. Measured, not assumed:**
+
+    before                    status 1 (Active), interest unset
+    T+0.5s after the PATCH    status 1 (Active), interest -1
+    T+43s                     status 3 (Completed), interest -1
+    then                      absent from the provider's own ACTIVE filter
+
+So the documented behaviour holds and the immediate read-back cannot see it. The check asserts
+the interest field only. Requiring status to have moved would have failed every suppression
+this system makes, and the obvious fix for that failure — dropping the read-back — would have
+removed the confirmation instead of the wrong assertion.
+
+### Decision 4 — a column on the prospect, not just an action row
+
+`outbound_suppression_status` is `not_required`, `confirmed` or `failed`. An action row
+answers "what happened in this run"; the column answers "does this record claim suppressed
+while the provider was never told", which is one predicate over every write site rather than a
+join that exists for one of them.
+
+NULL on a suppressed row is a finding, not a gap: it means something bypassed the shared path.
+
+### Decision 5 — the reconciliation reads the PROVIDER, and it is the half that matters
+
+MON-026, every 30 minutes.
+
+Two of four write sites are code. **The one that actually bit was a hand-written UPDATE**, and
+no amount of care on a code path catches a person typing SQL. Neither does the column above,
+because a hand UPDATE leaves it NULL.
+
+So the sweep never consults our suppression columns to decide anything. It asks the provider,
+per lead, and compares against `findBlockedProspects` — reusing the send gate rather than
+restating it, because a reconciliation that disagrees with the gate it audits would go green
+over exactly the prospects the gate blocks.
+
+**Unreachable is red, not green.** "We could not tell" and "it is fine" are different answers.
+
+**Vacuous truth is UNKNOWN, not OK.** Every rule is "no row is in a bad state", all true over
+an empty set.
+
+### What the first live run changed
+
+It reported 2 unreachable out of 6, and **neither was a provider that could not be reached**:
+
+- one lead had been deleted along with its campaign in August, deliberately
+- one row carried `mock-lead-0-1780586487684`, a MOCK id written into a real prospect row by
+  an upload made while the provider flag was off
+
+Both would have held MON-026 red on artefacts for ever, which teaches an operator to ignore
+the board. The sweep now falls back from the stored id to the **address**, which is the
+authoritative question: a provider holding no lead for an address cannot be sending to it,
+whatever our column says. Only when both the id and the address fail to answer is it
+unreachable.
+
+Second run: 26 uploaded, 6 suppressed, 6 read back, 0 unreconciled, 0 unreachable, 0 invariant
+breaches.
+
+### Two bugs fixed on the way, both of a shape this codebase already names
+
+**The fabricated success.** `process-reply` set `{ ok: true }` when no lead id could be
+resolved, marked the signal processed, and never retried. The reasoning beside it was that the
+database is authoritative — true for future uploads, false for the sequence already in flight,
+which is the only thing that call can stop. So the case where the call mattered most was the
+one recorded as a success. Same family as the opt-out footer that was validated and then
+discarded by a return-value bug.
+
+**The single-match address lookup.** `resolveInstantlyLeadId` asked for `limit: 1` and took
+`items[0]`, so an address held as two leads had one stopped and the rest left sending. The
+provider's own list endpoint carries a `distinct_contacts` flag whose entire purpose is
+collapsing duplicates of one address, which is the provider stating that duplicates are an
+expected state. `findLeadIds` now pages to exhaustion and a partial stop is recorded as a
+failure.
+
+### What was deliberately not done
+
+**`prospects.email_send_eligible` is untouched.** That verdict is frozen at verification and
+re-evaluating it costs money per address. ADR-034 covers it and it stays a separate problem.
+
+**Suppression is still not retroactive across the board.** This stops what the provider holds
+now. It does not re-run any eligibility rule over rows already evaluated.
+
+**The reject route's provider call is a no-op today** and was added anyway. The route is
+guarded to `outbound_upload_status = 'pending'`, so it resolves `not_required` and writes that
+to the row rather than leaving NULL. If that guard is ever relaxed, the path is already
+correct — and the two prospects that prompted this whole build were suppressed by hand
+precisely because that route refused them.
+
+### Rollback
+
+`git revert` restores the code. The two migrations are additive: three nullable columns, a
+partial index, one registry row, one singleton table, one view, one cron job. Reverting the
+code without the migrations leaves unread columns and a cron calling a 404 route, which shows
+up as MON-026 going stale rather than as silence. Drop the cron first if reverting.

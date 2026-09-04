@@ -25,6 +25,23 @@ vi.mock('@sentry/nextjs', () => ({
   flush: vi.fn(() => Promise.resolve()),
 }))
 
+// The bounce path carries every suppressed address out to the sending provider through the
+// can_suppress_contact capability. Mocked here, and asserted on in the suppression file.
+//
+// Mocked rather than served by the fake Supabase, deliberately. The real path resolves the
+// capability from integrations_registry and then makes its own HTTP calls to /leads/list,
+// which is the SAME endpoint this file's fetch stub serves for paging. Letting it through
+// would fold provider-suppression requests into the call counts these tests use to prove
+// paging behaviour, and a test that counts two different things cannot fail for one reason.
+const suppressAddressAtProvider = vi.fn(async () => ({
+  status: 'confirmed' as const,
+  stoppedLeadIds: [] as string[],
+  error: null,
+}))
+vi.mock('@/lib/suppression/provider-suppression', () => ({
+  suppressAddressAtProvider: (...args: unknown[]) => suppressAddressAtProvider(...(args as [])),
+}))
+
 import {
   pollInstantlyLeadStatus,
   INSTANTLY_LEAD_STATUS_BOUNCED,

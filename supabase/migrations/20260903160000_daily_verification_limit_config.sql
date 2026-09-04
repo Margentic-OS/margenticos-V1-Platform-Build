@@ -1,7 +1,15 @@
 -- The daily email-verification budget becomes editable config.
 --
--- Status: APPLIED (verified live 2026-09-03; production and the test project)
--- Read back: config now holds daily_verification_limit = 10500 and no free_daily_limit.
+-- Status: APPLIED (verified live 2026-09-03, production)
+-- SEED AMENDED 2026-09-04: 10500 -> 10000. See the last section. Read back the same day:
+-- the live row holds daily_verification_limit = 10000, jsonb type number, and no
+-- free_daily_limit, so this file and the database now agree.
+--
+-- CORRECTION 2026-09-04 to this file's own status line, which over-claimed. It said
+-- "production and the test project". It RAN in both, but the test project's
+-- integrations_registry holds ZERO ROWS, so there it matched nothing and did nothing.
+-- The baseline the test project was restored from is schema without data. An UPDATE
+-- returning success is not evidence that a row changed, and this line said it was.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHAT WAS WRONG
@@ -28,28 +36,59 @@
 -- positive integer, so this migration and the code can land in either order.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
--- WHERE 10500 COMES FROM, AND WHAT IT IS NOT
+-- WHERE 10000 COMES FROM
 --
--- It is the purchase of 2026-09-01: 10,500 pay-as-you-go credits. That is the only figure
--- in evidence, and it is deliberately not rounded, adjusted or divided into a rate, because
--- any such number would be one this migration invented.
+-- The account holds 10,500 pay-as-you-go credits, bought 2026-09-01. 10000 is a deliberate
+-- daily ceiling set under that balance, chosen 2026-09-04 once the runaway it guards against
+-- was shown to be structurally impossible rather than merely unlikely.
 --
--- IT IS A BALANCE, NOT A DAILY ALLOWANCE, and that distinction matters more than the digits.
--- A pay-as-you-go account has no per-day grant to run out of, so there is no vendor number
--- for this key to mirror. Setting the key to the balance therefore makes the DAILY CAP STOP
--- BINDING: the governor becomes DEFAULT_VERIFY_BATCH_SIZE, which is 40 per invocation, and
--- verify-pending runs every 10 minutes, so the arithmetic ceiling is 144 * 40 = 5,760 a day,
--- already below 10,500.
+-- THE BOUND THAT MAKES IT SAFE IS THE RETRY CAP, NOT THIS NUMBER.
+-- `verification_attempt_count < MAX_RETRY_ATTEMPTS` is a single chained filter, so it
+-- applies across BOTH branches of the row selector's `.or`, and the same cap is applied by
+-- the picker in /api/cron/verify-pending. The counter increments on the success path and
+-- the failure path alike. So a prospect can be probed three times EVER, not three times a
+-- day, and a 500-prospect cohort under total vendor failure costs at most 1,500 probes.
+-- Observed in production on 2026-09-01, which is what the cap being lifetime looks like
+-- from outside: rows reached three attempts and stopped being selected entirely.
 --
--- If a tighter daily ceiling is wanted, it is a commercial decision rather than a code one,
--- and it is now ONE UPDATE ON THIS ROW with no deploy. That is the point of the change.
+-- The daily cap is therefore a backstop against a defect nobody has thought of, not the
+-- thing standing between us and the balance. That is the right job for a number in config.
+--
+-- IT IS STILL NOT A VENDOR ALLOWANCE. A pay-as-you-go account has no per-day grant, so this
+-- key mirrors nothing external and no reading of the invoice will confirm it. Changing it is
+-- ONE UPDATE ON THIS ROW with no deploy, which is the point of the whole change.
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHY THE SEED WAS AMENDED IN PLACE RATHER THAN LEFT AT 10500
+--
+-- This file is APPLIED, and editing an applied migration changes what a REPLAY does. That
+-- is exactly why it was edited.
+--
+-- The seed said 10500 and the live row said 10000 for one day. The row is designed to be
+-- edited live, so the divergence was intended in a sense, but that is no comfort to whoever
+-- rebuilds an environment from these files in six months: the UPDATE below is unconditional,
+-- so a replay would have silently reset a deliberate ceiling to a superseded one.
+--
+-- That is the same silent-revert shape as the cron schedule this session also fixed, where a
+-- migration declaring */30 would have quietly undone a live */10. MON-025 catches that one
+-- because cron schedules have a live check. THIS row has none: nothing compares the seed
+-- against the live config, and a monitor for it would have to encode which config keys are
+-- meant to drift and which are not. So the protection here is simply that the two agree, and
+-- keeping them agreeing is a manual discipline. Anyone changing the live value should change
+-- this line in the same session.
 
 UPDATE integrations_registry
 SET config = (config - 'free_daily_limit')
-             || jsonb_build_object('daily_verification_limit', to_jsonb(10500::int)),
+             || jsonb_build_object('daily_verification_limit', to_jsonb(10000::int)),
     updated_at = now()
 WHERE capability = 'can_validate_email'
-  AND is_active = true;
+  AND is_active = true
+  -- GUARD ADDED 2026-09-04. Without it this UPDATE re-asserts 10000 on every replay, so
+  -- changing the live budget and then replaying would silently restore the old ceiling.
+  -- The key is absent exactly once, on the original run against a row still carrying
+  -- free_daily_limit, which is when this migration is meant to act. On a rebuild the key
+  -- arrives with the seeded row and this correctly does nothing.
+  AND config->>'daily_verification_limit' IS NULL;
 
 -- Read-back belongs in the session that applies this, per CLAUDE.md: assuming the effect of
 -- a write instead of reading it back is the mistake this project keeps making.

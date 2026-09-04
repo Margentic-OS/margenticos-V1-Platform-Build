@@ -60,6 +60,7 @@ import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/aut
 import { mockEmailsList, mockEmailGet, mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
 import { InstantlyFlagError } from '@/lib/integrations/handlers/instantly/types'
 import { recordSuppression } from '@/lib/suppression/suppression-list'
+import { suppressAddressAtProvider } from '@/lib/suppression/provider-suppression'
 const SOURCE = 'instantly'
 
 // Rows requested per list call, for all three resources. One constant because the page
@@ -1172,6 +1173,41 @@ export async function pollInstantlyLeadStatus(
                   `campaign ${instantlyCampaignId} page ${pageCount}: suppression write failed for lead ${leadId}`
                 )
                 campaignFailed = true
+              } else {
+                // ── The global list reaches the provider too ──────────────────
+                //
+                // This looks redundant and is not. The provider told US about this bounce
+                // or unsubscribe, so it has already stopped ITS OWN lead, the one this poll
+                // is reading. But suppressed_emails is GLOBAL and cross-client by design,
+                // and the provider's stop was per lead. The same address sitting in a second
+                // client's campaign in the same workspace goes on being mailed, and nothing
+                // in this system would say so.
+                //
+                // Live example on the day this was written: one address on the global list,
+                // active, and its lead row still present at the provider.
+                //
+                // Runs on 'recorded' and on 'already_suppressed'. The second is the normal
+                // case on every full scan after the first, and it is exactly when a NEW
+                // duplicate lead for an old suppressed address would be found.
+                const carried = await suppressAddressAtProvider(
+                  supabase,
+                  campaign.organisation_id,
+                  leadEmail,
+                )
+
+                // NOT a poll failure. The suppression row is written and the send gate that
+                // depends on it is live, so the poll did its job. Failing the whole campaign
+                // page over an unreachable duplicate sweep would stop bounce detection,
+                // which is worse. It is on the prospect row, in Sentry, and in front of the
+                // reconciliation sweep, which reads the provider rather than this result.
+                if (carried.status === 'failed') {
+                  logger.error('Instantly poll: suppressed address was not carried to the provider', {
+                    signal_type: signalType,
+                    lead_id: leadId,
+                    organisation_id: campaign.organisation_id,
+                    error: carried.error,
+                  })
+                }
               }
             }
           }
