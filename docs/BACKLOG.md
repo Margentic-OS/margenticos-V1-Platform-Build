@@ -23,6 +23,100 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## THREE STALE VALUES, ONE SHAPE (2026-09-03, branch stale-values)
+
+All three were a number or a name that stopped describing the world and had nothing watching
+for it. Recorded here for the parts that were NOT fixed.
+
+- [pre-c1] THE DAILY VERIFICATION LIMIT IS NOW 10,500, WHICH IS A BALANCE AND NOT A DAILY
+  RATE, AND THAT LEAVES THE PER-DAY GUARD EFFECTIVELY OFF.
+
+  `FREE_DAILY_LIMIT = 100` was the first-pass validator's free-tier allowance. The account
+  moved to pay-as-you-go on 2026-09-01, so the constant described a plan it no longer had.
+  The value now lives in `integrations_registry.config.daily_verification_limit` and is
+  editable with no deploy. Proved live: changing the row moved the selected batch size from
+  40 to 7 and back, against the same binary.
+
+  10,500 is the ONLY figure in evidence: it is the purchase. It is deliberately not divided
+  into a rate, because any such number would have been invented. But a pay-as-you-go account
+  has no per-day grant, so setting the key to the balance means the daily cap no longer
+  binds. The real governor is now `DEFAULT_VERIFY_BATCH_SIZE` (40) times the sweep frequency
+  (every 10 minutes), so 5,760 a day at most, which is already under 10,500.
+
+  DECISION NEEDED, and it is commercial rather than technical: what daily ceiling does Doug
+  actually want on verification spend? Whatever the answer, applying it is one UPDATE on one
+  row. Until then a runaway day could in principle consume more than half the purchase.
+
+- [post-build] `free_tier_exhausted` IS A STATUS STRING THAT NAMES A TIER THE ACCOUNT LEFT.
+  Left alone on purpose: `/api/cron/verify-pending` and its tests branch on the literal, and
+  renaming it is churn beyond the number that was actually wrong. It means "the daily budget
+  is used up". Rename it when that route is next opened for another reason.
+
+- [post-build] THE MID-RUN BUDGET GUARD IN `verifyEnrichedBatch` IS UNREACHABLE IN
+  PRODUCTION, and finding that out was an accident.
+
+  Teaching the safety fake to honour `.limit()` turned a passing test red. The test asserted
+  the run reports `partial`, and it only ever did because the fake ignored the row cap and
+  handed back more prospects than the budget allowed. The real query applies
+  `.limit(cappedBatchSize)`, so the loop can never be given more than it can afford, and the
+  guard's condition cannot be met.
+
+  Left in place, and now tested on its own terms as defensive. Worth knowing because it is
+  the third instance of the shape CLAUDE.md already names: a fake that swallows a filter
+  makes the suite green in two different worlds, and here it also invented a production
+  behaviour that a test then enshrined as expected.
+
+- [monitor] MON-025 COVERS SCHEDULE DRIFT AND NOT COMMAND DRIFT. `cron.alter_job` can change
+  a job's COMMAND as well as its schedule, and the command is what carries the URL and the
+  bearer token. A job repointed at a different route would pass MON-025 completely.
+
+  Not built, for a specific reason: the command embeds `CRON_SECRET` as a literal, so a
+  registry of expected commands could not be committed, and a view that exposed
+  `cron.job.command` would put the secret in a monitor. The tractable version compares a
+  REDACTED shape, for instance the URL path with the Authorization header stripped. Worth
+  doing before the repository goes private, not urgent while every job is one of eleven.
+
+- [post-build] THE OTHER FOUR CONFIG KEYS ON THE VALIDATOR ROW ARE STILL SEEDED AND IGNORED.
+  `endpoint`, `api_key_env_var`, `max_retry_attempts`, `retry_window_hours` and
+  `rate_limit_per_minute` all sit in `integrations_registry.config` and nothing reads any of
+  them; the handler and the trigger hold their own constants. This is the same trap that
+  `free_daily_limit` was: config that looks authoritative, is editable, and does nothing.
+  Either wire them up or delete them. Not touched here because only the limit was in scope.
+
+- [pre-c1] TWO ORGANISATIONS HOLD A COMPANY NAME THAT DISAGREES WITH THEIR OWN INTAKE, AND
+  NOBODY HAS ASKED THE CLIENT WHICH IS RIGHT. NO DATA WAS CHANGED.
+
+  Both spellings are now visible together on the operator client page, and
+  `organisations.name` is editable there. What is NOT resolved is the underlying question,
+  which is a client question and not a code one.
+
+  The stakes differ per organisation and that is the part worth carrying:
+
+  - One's ACTIVE messaging document uses the intake spelling nine times and the
+    `organisations.name` spelling not once. Its document predates the sign-off validator.
+    Regenerating it would rewrite the copy AND force the sign-off to `organisations.name`,
+    so the client would see a name change in copy they already approved.
+  - The other's active document, generated later, already uses `organisations.name`
+    twenty-one times and the intake spelling not once. Nothing to reconcile in the copy;
+    only the intake record disagrees.
+
+  So "two organisations disagree" is true and hides an asymmetry: only one of them has
+  shipped copy that would visibly change.
+
+  A THIRD organisation, the archived one, holds an EMPTY STRING as its intake company name
+  rather than no row at all. The UI treats empty and absent differently on purpose, but a
+  blank stored answer is its own small defect and nothing prevents one.
+
+  NEXT ACTION: ask each client which spelling they want, then set `organisations.name` from
+  the operator page. Do not regenerate the first one's messaging document without deciding
+  the name first.
+
+- [post-build] THERE IS STILL NO EDIT PATH FOR AN INTAKE RESPONSE. Only
+  `organisations.name` became editable. Intake remains write-once, which is a known standing
+  limitation, so a client who typos their own company name cannot be corrected without a
+  direct database write. Unchanged by this session; recorded because the fix to one half
+  makes the other half more visible.
+
 ## CLASSIFICATION AND SCORE LANDED WITHOUT THE QUERY CHANGE (2026-09-03, branch classification-and-score)
 
 - [pre-c1] ONE LIVE CLIENT HOLDS AN ICP WHOSE INDUSTRIES CONTRADICT ITS OWN SUMMARY, AND

@@ -181,6 +181,32 @@ Existing rows were left alone. The 16 already-verified prospects keep their verd
 a verdict about an address is a true statement about that address whatever tiering later
 decided, and re-verifying costs money to learn nothing.
 
+**The daily limit on the first pass is config, not code, and it stopped describing the
+account on 2026-09-01.** It was `const FREE_DAILY_LIMIT = 100` in the trigger, and 100 was
+the first-pass validator's FREE TIER allowance. Pay-as-you-go credits were bought on
+2026-09-01, so from that day the constant capped every sweep against a plan the account no
+longer had.
+
+The value now lives on the active `can_validate_email` row in `integrations_registry`, under
+`config.daily_verification_limit`, and is read on every run. Changing it is an UPDATE on one
+row with no deploy. The row is selected by capability and `is_active`, never by vendor name,
+so swapping validator does not touch the code.
+
+The constant survives as a fallback for when the row cannot be read, and it is deliberately
+the small old number: verification resumes on the next sweep, an overrun does not. The log
+line names its source, so a run that fell back and a run that read real config do not look
+the same.
+
+Two things worth knowing about the number that is in there now. It is 10,500, which is the
+purchased BALANCE and not a per-day allowance, because a pay-as-you-go account has no daily
+grant for it to mirror. That makes the daily cap effectively non-binding: the real governor
+is `DEFAULT_VERIFY_BATCH_SIZE`, 40 per invocation, every 10 minutes, so 5,760 a day at most.
+If a tighter daily ceiling is wanted, that is a commercial decision and it is now one UPDATE.
+
+The status string `free_tier_exhausted` is a historical name kept because the cron route and
+its tests branch on the literal. It means the daily budget is used up, whatever tier the
+account is on.
+
 **Greylisted addresses are deliberately not sent to the paid pass.** Greylisting is a
 temporary "try again later", and the free first pass already retries it. Paying a second
 vendor to answer a question that is about to answer itself would be waste.
@@ -191,7 +217,8 @@ vendor to answer a question that is about to answer itself would be waste.
 
 | File | Job |
 |---|---|
-| `src/lib/sourcing/verification-trigger.ts` | Pass one, the free sweep |
+| `src/lib/sourcing/verification-trigger.ts` | Pass one, the first sweep |
+| `src/lib/sourcing/verification-limits.ts` | **The daily budget, read from config with the constant as fallback** |
 | `src/lib/sourcing/tier-verdict.ts` | **The tier gate both passes apply, picker and selector** |
 | `src/lib/sourcing/second-pass-trigger.ts` | Pass two, the paid sweep |
 | `src/lib/sourcing/handlers/adapter-myemailverifier.ts` | Pass one vendor, owns its own words |

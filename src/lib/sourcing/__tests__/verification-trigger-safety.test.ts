@@ -56,11 +56,51 @@ function notRejected(r: FakeRow): boolean {
 /** Records every update payload, keyed by the ids it was applied to. */
 interface Applied { ids: string[]; payload: Record<string, unknown> }
 
-function fakeSupabase(rows: FakeRow[], opts: { dailyCount?: number; countError?: string } = {}) {
+function fakeSupabase(
+  rows: FakeRow[],
+  opts: {
+    dailyCount?: number
+    countError?: string
+    /**
+     * The daily budget the integrations registry serves back.
+     *
+     * The limit moved out of the source and into
+     * integrations_registry.config.daily_verification_limit on 2026-09-03. This fake has to
+     * serve that row, because otherwise the read throws `unexpected table`, the trigger
+     * catches it, falls back to the compiled 100, and every test below silently asserts the
+     * fallback while claiming to assert the budget. Defaults to 100 so the existing
+     * expectations keep meaning what they say.
+     */
+    dailyLimit?: number | null
+    /**
+     * Return every selectable row regardless of the .limit() the query asked for.
+     *
+     * Models the cap FAILING TO APPLY, which is the only state the mid-run budget guard
+     * exists for. It is not reachable through the real query, and saying so here is the
+     * point: the guard is defensive, and a test that pretended otherwise would be the fake
+     * inventing a production behaviour.
+     */
+    ignoreLimit?: boolean
+  } = {},
+) {
   const applied: Applied[] = []
 
   const client = {
     from(table: string) {
+      if (table === 'integrations_registry') {
+        const registryChain: Record<string, unknown> = {
+          select: () => registryChain,
+          eq: () => registryChain,
+          maybeSingle: async () => ({
+            data:
+              opts.dailyLimit === null
+                ? null
+                : { config: { daily_verification_limit: opts.dailyLimit ?? 100 } },
+            error: null,
+          }),
+        }
+        return registryChain
+      }
       if (table !== 'prospects') throw new Error(`unexpected table ${table}`)
       let ids: string[] = []
       // 'rows' = the lockable-prospect select. 'count' = the daily free-tier head count.
@@ -72,6 +112,8 @@ function fakeSupabase(rows: FakeRow[], opts: { dailyCount?: number; countError?:
       const ltFilters: Array<[string, number]> = []
       /** Every or-filter string the query applied. See or() below. */
       const orFilters: string[] = []
+      /** The row cap the query asked for. Applied in then(). See limit() below. */
+      let limitValue: number | null = null
 
       const chain: Record<string, unknown> = {
         select(_cols: string, o?: { count?: string; head?: boolean }) {
@@ -94,7 +136,11 @@ function fakeSupabase(rows: FakeRow[], opts: { dailyCount?: number; countError?:
         gte() { return chain },
         lt(col: string, val: number) { ltFilters.push([col, val]); return chain },
         order() { return chain },
-        limit() { return chain },
+        // HONOURED, not swallowed. CLAUDE.md records `.limit()` being ignored by a fake as
+        // one of three cases where the guard under test could be deleted with the suite
+        // still green. cappedBatchSize is the daily budget's only effect on the SELECT, so
+        // a fake that returns every row cannot see the budget shrink the batch at all.
+        limit(n: number) { limitValue = n; return chain },
         maybeSingle() {
           mode = 'single'
           const row = rows.find(r => r.id === ids[0])
@@ -139,8 +185,10 @@ function fakeSupabase(rows: FakeRow[], opts: { dailyCount?: number; countError?:
                 : true,
             ),
           )
+          const capped =
+            limitValue === null || opts.ignoreLimit ? selectable : selectable.slice(0, limitValue)
           resolve({
-            data: selectable.map(r => ({ id: r.id, email: r.email, country: r.country ?? null })),
+            data: capped.map(r => ({ id: r.id, email: r.email, country: r.country ?? null })),
             error: null,
           })
         },
@@ -223,7 +271,17 @@ describe('BUG 4 — the daily free-tier counter', () => {
     const run = await verifyEnrichedBatch(client, ORG, 5)
 
     expect(execute).toHaveBeenCalledTimes(2)
-    expect(run.status).toBe('partial')
+    // THIS ASSERTED 'partial' AND THAT WAS AN ARTEFACT OF THE FAKE, corrected 2026-09-03
+    // when .limit() started being honoured here.
+    //
+    // The real query applies .limit(cappedBatchSize), so it can never return more rows than
+    // the budget allows. The run therefore does everything it was given and reports
+    // 'success'. The old fake ignored .limit(), handed back all five rows, and drove the
+    // trigger into its mid-run stop, so the test was describing a state production cannot
+    // reach and calling it the expected one.
+    //
+    // The guard itself is still covered, deliberately, by the test below.
+    expect(run.status).toBe('success')
   })
 
   it('reports the tier exhausted without probing at all when nothing is left', async () => {
@@ -231,6 +289,78 @@ describe('BUG 4 — the daily free-tier counter', () => {
     const { client } = fakeSupabase([{ id: 'p1', email: 'a@b.com' }], { dailyCount: 100 })
 
     const run = await verifyEnrichedBatch(client, ORG, 5)
+
+    expect(run.status).toBe('free_tier_exhausted')
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  // ── THE LIMIT IS CONFIG, AND THE BATCH FOLLOWS IT ──────────────────────────
+  //
+  // The number used to be `const FREE_DAILY_LIMIT = 100`, the validator's free-tier
+  // allowance, on an account that moved to pay-as-you-go on 2026-09-01. These prove the
+  // batch actually tracks the registry row rather than a compiled constant, which is the
+  // only claim the change makes.
+
+  it('lets a raised config limit release a batch the old constant would have capped', async () => {
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    // 99 used against the retired constant leaves ONE probe. Against a raised config limit
+    // it leaves five, and five is what should run.
+    const { client } = fakeSupabase(
+      [1, 2, 3, 4, 5].map(n => ({ id: `p${n}`, email: `p${n}@b.com` })),
+      { dailyCount: 99, dailyLimit: 10500 },
+    )
+
+    const run = await verifyEnrichedBatch(client, ORG, 5)
+
+    expect(execute).toHaveBeenCalledTimes(5)
+    expect(run.status).toBe('success')
+    // 5 probes cost 2s of deliberate rate-limit sleep each after the first, so this needs
+    // more than vitest's 5s default. Without the timeout the test aborts mid-loop and its
+    // still-running probes land on the NEXT test's spy, which is how this first read as a
+    // failure in the test after it.
+  }, 30_000)
+
+  it('lets a lowered config limit cap the batch below the requested size', async () => {
+    // The other direction, and the one that proves the value is read rather than ignored.
+    // A limit of 2 with nothing used must produce exactly two probes out of five rows.
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client } = fakeSupabase(
+      [1, 2, 3, 4, 5].map(n => ({ id: `p${n}`, email: `p${n}@b.com` })),
+      { dailyCount: 0, dailyLimit: 2 },
+    )
+
+    const run = await verifyEnrichedBatch(client, ORG, 5)
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    // 'success' rather than 'partial' for the same reason as the test above: the cap is
+    // applied by the SELECT, so the loop is never handed more than it can afford.
+    expect(run.status).toBe('success')
+  }, 30_000)
+
+  it('still stops mid-run if the batch cap ever fails to apply', async () => {
+    // The defensive branch, exercised on its own terms. cappedBatchSize is what normally
+    // keeps the loop inside the budget; this proves that if it ever did not, the run stops
+    // spending anyway rather than working through whatever it was handed.
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client } = fakeSupabase(
+      [1, 2, 3, 4, 5].map(n => ({ id: `p${n}`, email: `p${n}@b.com` })),
+      { dailyCount: 0, dailyLimit: 2, ignoreLimit: true },
+    )
+
+    const run = await verifyEnrichedBatch(client, ORG, 5)
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(run.status).toBe('partial')
+  }, 30_000)
+
+  it('falls back to the compiled default, never to unlimited, when the registry has no row', async () => {
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client } = fakeSupabase(
+      [1, 2, 3].map(n => ({ id: `p${n}`, email: `p${n}@b.com` })),
+      { dailyCount: 100, dailyLimit: null },
+    )
+
+    const run = await verifyEnrichedBatch(client, ORG, 3)
 
     expect(run.status).toBe('free_tier_exhausted')
     expect(execute).not.toHaveBeenCalled()

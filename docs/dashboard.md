@@ -426,6 +426,40 @@ The cost, stated plainly: org-scoping there has no RLS backstop any more. The
 `.eq('organisation_id', orgId)` on every query IS the gate. Every query in that file must
 carry it.
 
+### Company name, editable, with the intake spelling beside it (2026-09-03)
+
+**Where.** Operator → Clients → a client → Client profile → Company name.
+
+**What it does.** The name is editable in place, and if the client typed a different
+spelling into intake, that spelling is shown underneath with a warning.
+
+**Why it needed building.** The company name exists in two places written by two people
+weeks apart. `organisations.name` is typed by the operator when the client is created. The
+`company_name` intake response is typed by the client. Nothing compared them, and NEITHER
+had an edit path, so a typo at client creation could only be fixed with a direct database
+write.
+
+That is not a cosmetic field. `organisations.name` is the **second line of the sign-off
+block on every email**, read by the messaging agent's preflight and enforced there by a
+validator that compares the last line of every body against it.
+
+**What the operator sees, and why the wording matters.** Regenerating a messaging document
+rewrites its copy and forces the sign-off to whatever `organisations.name` holds. For a
+client whose two names differ, that can change the company name in copy they have already
+approved. The notice says so, because that is the question an operator will have the moment
+they see the two names disagree.
+
+**Three states, not two.** No intake answer, an answer that matches, and an answer that
+differs. An empty intake value must not render as "not answered": one live organisation is
+in exactly that state.
+
+**What it deliberately does not do.** It never changes anything on its own, and it does not
+suggest which spelling is right. That is a question for the client.
+
+**Refusals.** An empty name is refused rather than written, because the messaging agent
+fails preflight without one and that failure would land days after the click that caused
+it. A name over 120 characters is refused as a paste accident.
+
 ## View inventory (to be built)
 - Empty state view (months 1–2 default)
 - Client pipeline view (post-unlock)

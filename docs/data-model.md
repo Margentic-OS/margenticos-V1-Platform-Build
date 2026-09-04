@@ -168,6 +168,15 @@ Fields:
   config          — tool-specific config (never secrets — secrets go in env vars)
   created_at / updated_at
 
+Config keys that are actually READ by code, as opposed to seeded and ignored:
+  can_enrich_contact  / enrichment_live           — mock vs live enrichment
+  can_validate_email  / daily_verification_limit  — the first pass's daily budget
+
+That distinction matters. The validator row carried `free_daily_limit: 100` from the day it
+was registered and nothing ever read it, while a constant of the same value sat in the
+trigger. They agreed only because neither had been touched. The key was renamed on
+2026-09-03 because `free` named a tier the account had left. See docs/email-verification.md.
+
 RLS:
   Operator: full access
   Client:   no access
@@ -677,6 +686,50 @@ claims. Same discipline as `enrichment_live`.
 **Why not `integrations_registry.config`.** That table is keyed by capability and holds
 tool configuration. Queue rollout is not a capability and has no vendor. Putting it
 there would repeat the one-table-two-meanings mistake described under `job_queue`.
+
+---
+
+## Table: cron_schedule_registry
+
+**What it holds.** One row per scheduled job, carrying the LAST schedule a migration
+declares for it. Added 2026-09-03 alongside `mon_025`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `jobname` | text | primary key. Matches `cron.job.jobname`. |
+| `schedule` | text | The cron expression the migrations declare. Not necessarily what is live: the whole point is to detect when those differ. |
+| `declared_by` | text | The migration filename. Diagnostic, so a reader knows which file to open. |
+| `notes` | text | Plain English, for a row with a story. |
+| `updated_at` | timestamptz | |
+
+**Why it exists.** `verify-catch-all` was moved from every 30 minutes to every 10 with
+`cron.alter_job` on 2026-09-01, and its migration still said 30 two days later. Nothing
+noticed, because nothing in this platform read `cron.job.schedule` at all. The damage is not
+the drift: it is that REPLAYING THAT MIGRATION SILENTLY REVERTS THE SCHEDULE, and the job
+keeps running, on time, at a third of its intended rate. MON-002 stays green throughout,
+because a slower job is not a stale one.
+
+**Why the declared side has to be a table.** The comparison needs both sides. A view can
+read `cron.job`; it cannot read a `.sql` file. So what the migrations declare has to be
+materialised where the database can see it.
+
+**Why that is not a third source of truth.**
+`src/app/api/cron/monitor-sweep/__tests__/cron-schedule-registry.test.ts` scans every
+migration for `cron.schedule`, `cron.alter_job` and `cron.unschedule`, replays them in file
+order, and fails if the result disagrees with the seed in this table's migration. So the
+table cannot be edited into agreement with a drifted database. Between the two halves:
+
+| Disagreement | Caught by | Where |
+|---|---|---|
+| live differs from the registry | MON-025 | production, continuously |
+| the registry differs from the files | the vitest scan | CI, before merge |
+
+**Never edit this table on its own to turn MON-025 green.** If the live schedule is the
+correct one, add a migration declaring it, so a rebuild keeps it.
+
+RLS: enabled, no policies. Grants revoked from `anon` and `authenticated` by name and
+granted to `service_role`, because RLS with zero policies leaves the Supabase default grant
+sitting underneath it. Read back in both directions on 2026-09-03.
 
 ---
 

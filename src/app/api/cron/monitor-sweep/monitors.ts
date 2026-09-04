@@ -73,4 +73,15 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   // which is how a writable client-facing view passed review twice. It reads all eight
   // table privileges for anon and authenticated across tables, views and matviews.
   ['MON-024', 'mon_024'],
+  // Cron schedule drift, added 2026-09-03. Structural, like MON-022 and MON-024.
+  //
+  // Nothing in this platform read cron.job.schedule until now. A job moved by hand with
+  // cron.alter_job keeps running and keeps its heartbeat fresh, so MON-002 stays green
+  // while the job runs at a fraction of its intended rate, and a later replay of its
+  // migration silently reverts it. Measured on verify-catch-all, 2026-09-01 to 2026-09-03.
+  //
+  // Its declared side lives in cron_schedule_registry, which is itself held to the
+  // migration files by cron-schedule-registry.test.ts. Removing either half leaves the
+  // other unable to see its class of drift.
+  ['MON-025', 'mon_025'],
 ] as const
