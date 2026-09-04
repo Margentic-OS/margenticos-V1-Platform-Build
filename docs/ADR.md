@@ -527,6 +527,19 @@ Buyer criterion derivation (buyer-criterion-agent): claude-opus-4-6
   synthesis the document agents do. It runs ONCE PER ICP APPROVAL, not per prospect, so the
   per-run cost is irrelevant next to getting the answer right: a wrong criterion silently
   discards real buyers before anything is paid for.
+ICP geography derivation (icp-geography-agent): claude-opus-4-6
+  Added 2026-09-04. Opus for the same reason as the buyer criterion: the input is prose
+  and the task is a reading, not a lookup. It runs ONCE PER ICP APPROVAL, alongside the
+  criterion, so the promotion path now makes TWO model calls where it previously made one.
+
+  THE ONE CLIENT IN THIS CODEBASE WITH AN EXPLICIT TIMEOUT AND RETRY LIMIT, and that is a
+  deliberate exception rather than an oversight elsewhere. The Anthropic SDK defaults are a
+  10 minute timeout and 2 retries, so a bare client can occupy 30 minutes. Every route on
+  the promotion path has a 300 second budget, and nothing retries a failed spec
+  derivation: a promotion that runs out of time leaves icp_filter_spec NULL until a human
+  re-approves the document. This client is bounded so that its worst case fits inside the
+  route. Every other Anthropic client in the codebase still inherits the SDK defaults, and
+  that is a known gap rather than a decision.
 Messaging generation agent: claude-sonnet-4-6 (see update note below)
 Reply drafting (reply-draft-agent): claude-sonnet-4-6
 Prospect research (synthesis, writer, floor judge, judge): claude-sonnet-4-6

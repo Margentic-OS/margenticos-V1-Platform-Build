@@ -414,6 +414,16 @@ Per ADR-013, current agent model assignments:
 
   Document generation agents (ICP, positioning, TOV):  claude-opus-4-6
   Buyer criterion derivation:                          claude-opus-4-6
+  ICP geography derivation:                            claude-opus-4-6
+                                                       ONE call per ICP promotion, alongside
+                                                       the buyer criterion. It is the only
+                                                       Anthropic client in this codebase with
+                                                       an explicit timeout and maxRetries: the
+                                                       SDK defaults are 10 minutes and 2
+                                                       retries, which is 30 minutes against a
+                                                       300s route, and nothing retries a failed
+                                                       spec derivation. Every other client here
+                                                       still inherits those defaults.
                                                        Reads every approved document plus
                                                        intake and derives WHO the client
                                                        emails. Runs once per ICP approval,
