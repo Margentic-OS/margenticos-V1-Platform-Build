@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { deriveFilterSpec } from '@/lib/agents/icp-filter-spec'
 import type { IcpDocument } from '@/lib/agents/icp-filter-spec'
+import { aGeography } from '@/test-utils/geography-fixture'
 
 describe('deriveFilterSpec', () => {
   describe('headcount union across tiers', () => {
@@ -38,7 +39,7 @@ describe('deriveFilterSpec', () => {
         },
       }
 
-      const spec = deriveFilterSpec(doc)
+      const spec = deriveFilterSpec(doc, null, aGeography())
 
       // Tier 1: 2-20, Tier 2: 1-3
       // Union: min(2,1) = 1, max(20,3) = 20
@@ -82,7 +83,7 @@ describe('deriveFilterSpec', () => {
         },
       }
 
-      const spec = deriveFilterSpec(doc)
+      const spec = deriveFilterSpec(doc, null, aGeography())
 
       // Must include founder and owner for founder-led ICPs (Apollo filters on these distinct tags)
       expect(spec.seniority_levels).toContain('founder')
@@ -126,7 +127,7 @@ describe('deriveFilterSpec', () => {
         },
       }
 
-      const spec = deriveFilterSpec(doc)
+      const spec = deriveFilterSpec(doc, null, aGeography())
 
       // departments field should not exist
       expect('departments' in spec).toBe(false)

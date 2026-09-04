@@ -20,12 +20,37 @@ import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
 import { clearIndustryMappingCache } from '@/lib/sourcing/industry-mapping'
 import { logger } from '@/lib/logger'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
+import { aTargetableCode } from '@/test-utils/geography-fixture'
 
 vi.mock('@sentry/nextjs', () => ({
   withScope: (fn: (s: unknown) => void) => fn({ setExtra() {}, setContext() {} }),
   captureMessage: () => {},
   captureException: () => {},
   flush: async () => true,
+}))
+
+// ─── Geography is mocked, and it has to be, for a reason worth stating ────────
+//
+// persistIcpFilterSpec now resolves the client's countries before it writes anything, and
+// that step FAILS CLOSED: if it cannot resolve, no spec is written and the re-queue below
+// never runs. That is the correct production behaviour and it is tested in
+// geography-exclusion.test.ts and spec-geography-required.test.ts.
+//
+// It is not the subject here. This file is about the thaw: that a new filter spec clears
+// the tiering_reason on rows the OLD spec removed. Left unmocked, the resolution would
+// throw on a fake database with no integrations_registry, and all five tests would fail
+// for a reason that has nothing to do with re-queueing.
+//
+// The buyer criterion in the same function is deliberately NOT mocked, because it fails
+// OPEN: it throws on the fake, is caught, and the spec is written without job titles.
+// That asymmetry is the actual policy difference between the two, and leaving it visible
+// here is more useful than mocking both.
+vi.mock('@/lib/sourcing/resolve-icp-geography', () => ({
+  resolveIcpGeography: async () => ({
+    countries: [aTargetableCode()],
+    removed_by_exclusion: [],
+    unresolved_phrases: [],
+  }),
 }))
 
 const ORG = '11111111-2222-3333-4444-555555555555'
