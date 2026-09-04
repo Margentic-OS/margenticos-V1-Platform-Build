@@ -448,6 +448,32 @@ question that matters is "is this change present", and only content answers it. 
 same distinction applies to verifying a deploy: check by **containment and presence**,
 never by SHA equality.
 
+### A grep that finds nothing may not have run
+
+**A zero result from `grep` has two causes and they look identical: the code is clean,
+or the search never ran.** Shell quoting, an unescaped metacharacter, a wrong path, a
+glob the shell expanded itself, `--include` patterns zsh ate before grep saw them.
+
+**Always prove the grep can find something you know is there before concluding it
+found nothing.** Search for a string you are certain exists in the same file with the
+same command shape. If that returns zero too, the instrument is broken, not the code.
+
+**The 2026-09-04 near-miss.** A triage session searched
+`grep -c "toolName: 'Instantly'" SettingsView.tsx` and got **0**, and nearly retired a
+backlog row as fixed. The nested quotes were eaten by the shell. Re-run without them,
+the same file returns a hit on line 31, and `PLACEHOLDER_SETTINGS` still carries
+`'Apex Consulting'`, `'Instantly'`, `'Taplio'`, `'Lemlist'`, `'Apollo'` and
+`'Calendly'` as literals. The row would have been closed on the strength of a search
+that never executed.
+
+Same session, same shape: `--include=*.ts` unquoted, which zsh tried to glob-expand and
+aborted the command with "no matches found" rather than running it.
+
+**The general rule, and it is the one this file keeps relearning:** a check that
+returns nothing has not told you the world is empty. It has told you the check
+answered. Establish that an instrument can detect a positive before trusting its
+negative.
+
 **And check the test harness is actually running before trusting it.** This project's
 suite needs `npx dotenv -e .env.test.local -- npx vitest run`. Without that file the
 run **silently skips 33 tests, including cross-organisation isolation, and reports
