@@ -1,8 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { blindSpots } from '@/lib/monitor/blind-spots'
 import { SendingDomainHealthPanel } from '@/components/dashboard/operator/SendingDomainHealthPanel'
+import {
+  buildCheckStates,
+  categoriesInOrder,
+  categoryTitle,
+  type Check,
+  type CheckState,
+  type LiveReading,
+  type MonitorEvent,
+} from '@/lib/monitor/check-state'
 
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }): string {
   const now = new Date()
@@ -21,40 +30,10 @@ function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }): str
   return result
 }
 
-interface Check {
-  code: string
-  title: string
-  description: string
-  category: string
-  is_scheduled: boolean
-  plain_meaning?: string
-  plain_impact?: string
-  plain_action?: string
-}
-
-interface Event {
-  id: number
-  check_code: string
-  state: 'PROBLEM' | 'OK' | 'UNKNOWN'
-  detail: string | null
-  created_at: string
-  resolved_at: string | null
-  acknowledged_at: string | null
-  acknowledged_note: string | null
-}
-
-interface CheckState {
-  check: Check
-  current_state: 'PROBLEM' | 'OK' | 'UNKNOWN'
-  detail: string | null
-  last_event_at: string | null
-  resolved_at: string | null
-  lastEvent: Event | undefined
-}
-
 export default function MonitorPage() {
   const [checks, setChecks] = useState<CheckState[]>([])
-  const [recentEvents, setRecentEvents] = useState<Event[]>([])
+  const [recentEvents, setRecentEvents] = useState<MonitorEvent[]>([])
+  const [checkedAt, setCheckedAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [acknowledgeModal, setAcknowledgeModal] = useState<{ checkCode: string; eventId: number } | null>(null)
@@ -63,72 +42,42 @@ export default function MonitorPage() {
   const [acknowledgedProblemsExpanded, setAcknowledgedProblemsExpanded] = useState(false)
   const [blindSpotsExpanded, setBlindSpotsExpanded] = useState(false)
 
+  // One loader, used by the initial mount, the 30s refresh, and both
+  // acknowledgement actions. It was duplicated inline before; two copies of the
+  // same mapping is how a board tells the truth until you interact with it.
+  const loadMonitorData = useCallback(async () => {
+    // Fetch via server route (uses service_role, bypasses RLS)
+    const response = await fetch('/api/operator/monitor-data')
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `HTTP ${response.status}`)
+    }
+
+    const {
+      checks: checksData,
+      events: eventsData,
+      recentEvents: recentEventsData,
+      live,
+      liveErrors,
+      checkedAt: checkedAtData,
+    } = await response.json()
+
+    setChecks(
+      buildCheckStates(
+        (checksData ?? []) as Check[],
+        (eventsData ?? []) as MonitorEvent[],
+        (live ?? {}) as Record<string, LiveReading>,
+        (liveErrors ?? {}) as Record<string, string>,
+      )
+    )
+    setRecentEvents((recentEventsData ?? []) as MonitorEvent[])
+    setCheckedAt(checkedAtData ?? null)
+  }, [])
+
   useEffect(() => {
-    const loadMonitorData = async () => {
+    const run = async () => {
       try {
-        // Fetch via server route (uses service_role, bypasses RLS)
-        const response = await fetch('/api/operator/monitor-data')
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || `HTTP ${response.status}`)
-        }
-
-        const { checks: checksData, events: eventsData, recentEvents: recentEventsData } = await response.json()
-
-        // Build map of check_code -> latest event
-        const latestEventPerCheck = new Map<string, Event>()
-        eventsData?.forEach((event: any) => {
-          const typedEvent: Event = {
-            id: event.id,
-            check_code: event.check_code,
-            state: event.state as 'PROBLEM' | 'OK' | 'UNKNOWN',
-            detail: event.detail,
-            created_at: event.created_at,
-            resolved_at: event.resolved_at,
-            acknowledged_at: event.acknowledged_at,
-            acknowledged_note: event.acknowledged_note,
-          }
-          if (!latestEventPerCheck.has(typedEvent.check_code)) {
-            latestEventPerCheck.set(typedEvent.check_code, typedEvent)
-          }
-        })
-
-        // Combine checks with their latest events
-        const checksWithState: CheckState[] = checksData?.map((check: any) => {
-          const typedCheck: Check = {
-            code: check.code,
-            title: check.title,
-            description: check.description,
-            category: check.category,
-            is_scheduled: check.is_scheduled,
-            plain_meaning: check.plain_meaning,
-            plain_impact: check.plain_impact,
-            plain_action: check.plain_action,
-          }
-          const lastEvent = latestEventPerCheck.get(typedCheck.code)
-          return {
-            check: typedCheck,
-            current_state: (lastEvent?.state ?? 'UNKNOWN') as 'PROBLEM' | 'OK' | 'UNKNOWN',
-            detail: lastEvent?.detail ?? null,
-            last_event_at: lastEvent?.created_at ?? null,
-            resolved_at: lastEvent?.resolved_at ?? null,
-            lastEvent,
-          }
-        }) ?? []
-
-        setChecks(checksWithState)
-
-        const typedRecent = (recentEventsData ?? []).map((e: any) => ({
-          id: e.id,
-          check_code: e.check_code,
-          state: e.state as 'PROBLEM' | 'OK' | 'UNKNOWN',
-          detail: e.detail,
-          created_at: e.created_at,
-          resolved_at: e.resolved_at,
-          acknowledged_at: e.acknowledged_at,
-          acknowledged_note: e.acknowledged_note,
-        }))
-        setRecentEvents(typedRecent)
+        await loadMonitorData()
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Monitor data could not be loaded: Unknown error')
       } finally {
@@ -136,12 +85,12 @@ export default function MonitorPage() {
       }
     }
 
-    loadMonitorData()
+    run()
 
     // Refresh every 30 seconds
-    const interval = setInterval(loadMonitorData, 30000)
+    const interval = setInterval(run, 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [loadMonitorData])
 
   const handleAcknowledge = async () => {
     if (!acknowledgeModal) return
@@ -158,49 +107,7 @@ export default function MonitorPage() {
       if (response.ok) {
         setAcknowledgeModal(null)
         setAcknowledgeNote('')
-        // Reload data
-        const dataResponse = await fetch('/api/operator/monitor-data')
-        if (dataResponse.ok) {
-          const { checks: checksData, events: eventsData, recentEvents: recentEventsData } = await dataResponse.json()
-          const latestEventPerCheck = new Map<string, Event>()
-          eventsData?.forEach((event: any) => {
-            const typedEvent: Event = {
-              id: event.id,
-              check_code: event.check_code,
-              state: event.state as 'PROBLEM' | 'OK' | 'UNKNOWN',
-              detail: event.detail,
-              created_at: event.created_at,
-              resolved_at: event.resolved_at,
-              acknowledged_at: event.acknowledged_at,
-              acknowledged_note: event.acknowledged_note,
-            }
-            if (!latestEventPerCheck.has(typedEvent.check_code)) {
-              latestEventPerCheck.set(typedEvent.check_code, typedEvent)
-            }
-          })
-          const checksWithState: CheckState[] = checksData?.map((check: any) => {
-            const typedCheck: Check = {
-              code: check.code,
-              title: check.title,
-              description: check.description,
-              category: check.category,
-              is_scheduled: check.is_scheduled,
-              plain_meaning: check.plain_meaning,
-              plain_impact: check.plain_impact,
-              plain_action: check.plain_action,
-            }
-            const lastEvent = latestEventPerCheck.get(typedCheck.code)
-            return {
-              check: typedCheck,
-              current_state: (lastEvent?.state ?? 'UNKNOWN') as 'PROBLEM' | 'OK' | 'UNKNOWN',
-              detail: lastEvent?.detail ?? null,
-              last_event_at: lastEvent?.created_at ?? null,
-              resolved_at: lastEvent?.resolved_at ?? null,
-              lastEvent,
-            }
-          }) ?? []
-          setChecks(checksWithState)
-        }
+        await loadMonitorData()
       } else {
         const errorData = await response.json()
         alert(`Failed to acknowledge: ${errorData.error}`)
@@ -209,6 +116,24 @@ export default function MonitorPage() {
       alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`)
     } finally {
       setAcknowledging(false)
+    }
+  }
+
+  const handleUnacknowledge = async (eventId: number) => {
+    try {
+      const response = await fetch('/api/operator/monitor-unacknowledge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: eventId }),
+      })
+      if (response.ok) {
+        await loadMonitorData()
+      } else {
+        const errorData = await response.json()
+        alert(`Failed to un-acknowledge: ${errorData.error}`)
+      }
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
   }
 
@@ -232,12 +157,11 @@ export default function MonitorPage() {
     )
   }
 
-  const livenessChecks = checks.filter(c => c.check.category === 'liveness')
-  const tier1Checks = checks.filter(c => c.check.category === 'tier1')
-  const unscheduledChecks = checks.filter(c => c.check.category === 'unscheduled')
-  const allProblems = checks.filter(c => c.current_state === 'PROBLEM' && c.resolved_at === null)
-  const activeProblemChecks = allProblems.filter(c => !c.lastEvent?.acknowledged_at)
-  const acknowledgedProblemChecks = allProblems.filter(c => c.lastEvent?.acknowledged_at)
+  const allProblems = checks.filter(c => c.current_state === 'PROBLEM')
+  const activeProblemChecks = allProblems.filter(c => !c.is_acknowledged)
+  const acknowledgedProblemChecks = allProblems.filter(c => c.is_acknowledged)
+  const staleChecks = checks.filter(c => !c.from_live && c.live_error !== null)
+  const sections = categoriesInOrder(checks)
 
   const getStatusBadge = (state: string) => {
     if (state === 'PROBLEM')
@@ -259,10 +183,91 @@ export default function MonitorPage() {
     )
   }
 
+  // What the timestamp on a card actually means. Views that track a cron expose
+  // last_run; views computed entirely at read time do not, and for those the
+  // honest answer is when we read them, not when a row was last written.
+  const renderTimestamp = (check: CheckState) => {
+    if (!check.from_live) {
+      return (
+        <div className="text-xs text-red-600 font-semibold">
+          live read failed
+          {check.lastEvent && (
+            <div className="font-normal text-gray-500">
+              showing state from {formatDistanceToNow(new Date(check.lastEvent.created_at), { addSuffix: true })}
+            </div>
+          )}
+        </div>
+      )
+    }
+    if (check.last_run) {
+      return (
+        <div className="text-xs text-gray-500">
+          last run {formatDistanceToNow(new Date(check.last_run), { addSuffix: true })}
+        </div>
+      )
+    }
+    return (
+      <div className="text-xs text-gray-500">
+        checked {checkedAt ? formatDistanceToNow(new Date(checkedAt), { addSuffix: true }) : 'just now'}
+      </div>
+    )
+  }
+
+  const renderCheckCard = (check: CheckState, compact = false) => (
+    <div
+      key={check.check.code}
+      className={
+        compact
+          ? 'border border-yellow-200 rounded p-3 bg-white'
+          : 'border border-gray-200 rounded-lg p-4'
+      }
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className={compact ? 'font-bold text-sm' : 'font-bold'}>
+              {check.check.code}: {check.check.title}
+            </h3>
+            {getStatusBadge(check.current_state)}
+          </div>
+          <p className="text-sm text-gray-600 mb-2">{check.check.description}</p>
+          {check.detail && <p className="text-sm text-gray-700">{check.detail}</p>}
+          {check.live_error && (
+            <p className="text-xs text-red-600 mt-2">
+              Live view could not be read: {check.live_error}
+            </p>
+          )}
+        </div>
+        <div className="text-right ml-4 shrink-0">{renderTimestamp(check)}</div>
+      </div>
+    </div>
+  )
+
   return (
     <div className="p-8 max-w-7xl">
       <h1 className="text-3xl font-bold mb-2">Monitor Dashboard</h1>
-      <p className="text-gray-600 mb-8">Real-time system health monitoring</p>
+      <p className="text-gray-600 mb-8">
+        Live system health. State and detail are read from the monitor views on every refresh.
+      </p>
+
+      {staleChecks.length > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-8">
+          <h2 className="font-bold text-orange-900 mb-2">
+            {staleChecks.length} monitor(s) could not be read live
+          </h2>
+          <p className="text-sm text-orange-800">
+            These are showing their last recorded state, which may be old. This banner exists so a
+            failed read can never look like a healthy one.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {staleChecks.map(c => (
+              <li key={c.check.code} className="text-xs text-orange-900 font-mono">
+                {c.check.code}: {c.live_error}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {activeProblemChecks.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-8">
@@ -272,12 +277,18 @@ export default function MonitorPage() {
               <div key={c.check.code} className="bg-white border border-red-200 rounded p-3">
                 <div className="flex items-start justify-between mb-2">
                   <div className="font-bold text-red-900">{c.check.code}: {c.check.title}</div>
-                  <button
-                    onClick={() => setAcknowledgeModal({ checkCode: c.check.code, eventId: c.lastEvent?.id || 0 })}
-                    className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
-                  >
-                    Acknowledge
-                  </button>
+                  {c.is_open_problem && c.lastEvent ? (
+                    <button
+                      onClick={() => setAcknowledgeModal({ checkCode: c.check.code, eventId: c.lastEvent!.id })}
+                      className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                    >
+                      Acknowledge
+                    </button>
+                  ) : (
+                    // Live says PROBLEM but the sweep has not recorded a transition yet, so
+                    // there is no row to acknowledge. Saying so beats a button that 404s.
+                    <span className="text-xs text-red-700 italic">not yet recorded by the sweep</span>
+                  )}
                 </div>
                 {c.check.plain_meaning && (
                   <div className="text-sm text-gray-700 mb-2">
@@ -308,12 +319,50 @@ export default function MonitorPage() {
             className="font-bold text-yellow-900 mb-4 cursor-pointer hover:text-yellow-800"
           >
             {acknowledgedProblemsExpanded ? '▼' : '▶'} Acknowledged Problems ({acknowledgedProblemChecks.length})
+            {acknowledgedProblemChecks.some(c => c.detail_changed_since_ack) && (
+              <span className="ml-2 bg-orange-200 text-orange-900 px-2 py-0.5 rounded text-xs">
+                {acknowledgedProblemChecks.filter(c => c.detail_changed_since_ack).length} changed since acknowledged
+              </span>
+            )}
           </button>
           {acknowledgedProblemsExpanded && (
             <div className="space-y-3 mt-4">
               {acknowledgedProblemChecks.map(c => (
                 <div key={c.check.code} className="bg-white border border-yellow-200 rounded p-3">
-                  <div className="font-bold text-yellow-900 mb-1">{c.check.code}: {c.check.title}</div>
+                  <div className="flex items-start justify-between mb-1">
+                    <div className="font-bold text-yellow-900">{c.check.code}: {c.check.title}</div>
+                    {c.lastEvent && (
+                      <button
+                        onClick={() => handleUnacknowledge(c.lastEvent!.id)}
+                        className="px-2 py-1 border border-yellow-600 text-yellow-800 text-xs rounded hover:bg-yellow-100"
+                      >
+                        Un-acknowledge
+                      </button>
+                    )}
+                  </div>
+
+                  {/* The MON-011 case, made visible. Acknowledged against one reading,
+                      the live reading has since moved, and no new row was written
+                      because the state never left PROBLEM. */}
+                  {c.detail_changed_since_ack && (
+                    <div className="bg-orange-50 border border-orange-300 rounded p-2 my-2">
+                      <div className="text-xs font-bold text-orange-900 mb-1">
+                        Changed since acknowledged
+                      </div>
+                      <div className="text-xs text-gray-700">
+                        <span className="font-semibold">Now:</span> {c.detail}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        <span className="font-semibold">When acknowledged:</span>{' '}
+                        {c.lastEvent?.detail ?? '—'}
+                      </div>
+                    </div>
+                  )}
+
+                  {!c.detail_changed_since_ack && c.detail && (
+                    <div className="text-xs text-gray-600 mb-2 italic">Detail: {c.detail}</div>
+                  )}
+
                   {c.lastEvent?.acknowledged_note && (
                     <div className="text-sm text-gray-700 mb-2">
                       <span className="font-semibold">Note:</span> {c.lastEvent.acknowledged_note}
@@ -332,92 +381,51 @@ export default function MonitorPage() {
       )}
 
       <div className="grid gap-8">
-        {/* Liveness Checks */}
-        <section>
-          <h2 className="text-xl font-bold mb-4">Liveness Checks (Scheduled Crons)</h2>
-          <div className="space-y-3">
-            {livenessChecks.map(check => (
-              <div key={check.check.code} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-bold">{check.check.code}: {check.check.title}</h3>
-                      {getStatusBadge(check.current_state)}
-                    </div>
-                    <p className="text-sm text-gray-600 mb-2">{check.check.description}</p>
-                    {check.detail && <p className="text-sm text-gray-700">{check.detail}</p>}
-                  </div>
-                  <div className="text-right">
-                    {check.last_event_at && (
-                      <div className="text-xs text-gray-500">
-                        {formatDistanceToNow(new Date(check.last_event_at), { addSuffix: true })}
-                      </div>
-                    )}
+        {/*
+          Sections are DERIVED from the categories present in monitor_checks, not
+          hardcoded. Three names were hardcoded here and monitor_checks held five,
+          so seven monitors rendered nowhere, the privilege audit and the
+          suppression audit among them.
+        */}
+        {sections.map(category => {
+          const inCategory = checks.filter(c => c.check.category === category)
+          if (inCategory.length === 0) return null
+
+          if (category === 'unscheduled') {
+            return (
+              <section key={category}>
+                <h2 className="text-xl font-bold mb-4">
+                  {categoryTitle(category)} ({inCategory.length})
+                </h2>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <p className="text-sm text-yellow-800 mb-4">
+                    These checks are not yet scheduled. They are listed here as reminders for future implementation.
+                  </p>
+                  <div className="space-y-3">
+                    {inCategory.map(check => renderCheckCard(check, true))}
                   </div>
                 </div>
+              </section>
+            )
+          }
+
+          return (
+            <section key={category}>
+              <h2 className="text-xl font-bold mb-4">
+                {categoryTitle(category)} ({inCategory.length})
+              </h2>
+              <div className="space-y-3">
+                {inCategory.map(check => renderCheckCard(check))}
               </div>
-            ))}
-          </div>
-        </section>
+            </section>
+          )
+        })}
 
         {/* Sending domain health — the detail behind MON-023 */}
         <section>
           <h2 className="text-xl font-bold mb-4">Sending Domain Health</h2>
           <SendingDomainHealthPanel />
         </section>
-
-        {/* Tier 1 Checks */}
-        {tier1Checks.length > 0 && (
-          <section>
-            <h2 className="text-xl font-bold mb-4">Tier 1 Checks (Signal-Based)</h2>
-            <div className="space-y-3">
-              {tier1Checks.map(check => (
-                <div key={check.check.code} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-bold">{check.check.code}: {check.check.title}</h3>
-                        {getStatusBadge(check.current_state)}
-                      </div>
-                      <p className="text-sm text-gray-600 mb-2">{check.check.description}</p>
-                      {check.detail && <p className="text-sm text-gray-700">{check.detail}</p>}
-                    </div>
-                    <div className="text-right">
-                      {check.last_event_at && (
-                        <div className="text-xs text-gray-500">
-                          {formatDistanceToNow(new Date(check.last_event_at), { addSuffix: true })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Unscheduled Checks */}
-        {unscheduledChecks.length > 0 && (
-          <section>
-            <h2 className="text-xl font-bold mb-4">Unscheduled Checks ({unscheduledChecks.length})</h2>
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <p className="text-sm text-yellow-800 mb-4">
-                These checks are not yet scheduled. They are listed here as reminders for future implementation.
-              </p>
-              <div className="space-y-3">
-                {unscheduledChecks.map(check => (
-                  <div key={check.check.code} className="border border-yellow-200 rounded p-3 bg-white">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className="font-bold text-sm">{check.check.code}: {check.check.title}</h4>
-                      {getStatusBadge(check.current_state)}
-                    </div>
-                    <p className="text-xs text-gray-600">{check.check.description}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
 
         {/* What This Monitor Cannot See */}
         <section>
@@ -512,6 +520,10 @@ export default function MonitorPage() {
       {/* Audit Trail */}
       <section className="mt-8">
         <h2 className="text-xl font-bold mb-4">Recent State Transitions (Audit Trail)</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          Transitions only. A monitor holding the same state writes no row here, which is why the
+          cards above read the views rather than this table.
+        </p>
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -561,6 +573,10 @@ export default function MonitorPage() {
                 rows={3}
                 placeholder="E.g., 'pre-fix hang failures, resolved 7 Aug'"
               />
+              <p className="text-xs text-gray-500 mt-2">
+                This hides the check until you un-acknowledge it. If the problem gets worse, the
+                board will show the new reading and mark it changed rather than staying silent.
+              </p>
             </div>
             <div className="flex gap-3 justify-end">
               <button
