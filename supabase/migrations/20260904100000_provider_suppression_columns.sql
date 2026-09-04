@@ -127,11 +127,15 @@ CREATE INDEX IF NOT EXISTS prospects_outbound_suppression_unfinished_idx
 -- is_active = true because the capability is real and implemented. Whether any call
 -- actually leaves this machine is governed by instantly_api_active, which is a separate
 -- row and a separate question, exactly as it is for can_upload_leads.
-INSERT INTO public.integrations_registry (capability, tool_name, is_active, connection_status)
-VALUES ('can_suppress_contact', 'instantly', true, 'connected')
+INSERT INTO public.integrations_registry
+  (capability, tool_name, is_active, connection_status, api_handler_ref)
+VALUES
+  ('can_suppress_contact', 'instantly', true, 'connected',
+   'src/lib/integrations/handlers/instantly/suppress-contact')
 ON CONFLICT (capability, tool_name) DO UPDATE SET
   is_active         = EXCLUDED.is_active,
-  connection_status = EXCLUDED.connection_status;
+  connection_status = EXCLUDED.connection_status,
+  api_handler_ref   = EXCLUDED.api_handler_ref;
 
 -- Read back after applying:
 --   SELECT column_name FROM information_schema.columns

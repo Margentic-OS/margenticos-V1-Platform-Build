@@ -194,6 +194,30 @@ export type Database = {
         }
         Relationships: []
       }
+      cron_schedule_registry: {
+        Row: {
+          declared_by: string
+          jobname: string
+          notes: string | null
+          schedule: string
+          updated_at: string
+        }
+        Insert: {
+          declared_by: string
+          jobname: string
+          notes?: string | null
+          schedule: string
+          updated_at?: string
+        }
+        Update: {
+          declared_by?: string
+          jobname?: string
+          notes?: string | null
+          schedule?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       document_suggestions: {
         Row: {
           ab_variant: string | null
@@ -1507,6 +1531,9 @@ export type Database = {
           operator_override_tier: string | null
           organisation_id: string
           outbound_lead_id: string | null
+          outbound_suppression_at: string | null
+          outbound_suppression_error: string | null
+          outbound_suppression_status: string | null
           outbound_upload_attempted_at: string | null
           outbound_upload_error: string | null
           outbound_upload_status: string
@@ -1589,6 +1616,9 @@ export type Database = {
           operator_override_tier?: string | null
           organisation_id: string
           outbound_lead_id?: string | null
+          outbound_suppression_at?: string | null
+          outbound_suppression_error?: string | null
+          outbound_suppression_status?: string | null
           outbound_upload_attempted_at?: string | null
           outbound_upload_error?: string | null
           outbound_upload_status?: string
@@ -1671,6 +1701,9 @@ export type Database = {
           operator_override_tier?: string | null
           organisation_id?: string
           outbound_lead_id?: string | null
+          outbound_suppression_at?: string | null
+          outbound_suppression_error?: string | null
+          outbound_suppression_status?: string | null
           outbound_upload_attempted_at?: string | null
           outbound_upload_error?: string | null
           outbound_upload_status?: string
@@ -2312,6 +2345,7 @@ export type Database = {
           plain_text: string | null
           revision_note: string | null
           segment_id: string | null
+          stale_reason: string | null
           status: string
           update_trigger: string | null
           updated_at: string
@@ -2335,6 +2369,7 @@ export type Database = {
           plain_text?: string | null
           revision_note?: string | null
           segment_id?: string | null
+          stale_reason?: string | null
           status?: string
           update_trigger?: string | null
           updated_at?: string
@@ -2358,6 +2393,7 @@ export type Database = {
           plain_text?: string | null
           revision_note?: string | null
           segment_id?: string | null
+          stale_reason?: string | null
           status?: string
           update_trigger?: string | null
           updated_at?: string
@@ -3110,6 +3146,15 @@ export type Database = {
         Relationships: []
       }
       mon_024: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_025: {
         Row: {
           check_code: string | null
           detail: string | null
