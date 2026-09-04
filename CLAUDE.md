@@ -28,14 +28,29 @@ Every new Claude Code session must:
 
 2. Read, in order:
    - /CLAUDE.md (this file)
-   - /docs/BACKLOG.md (deferred items and follow-ups)
+   - **The Notion Backlog, via the Notion MCP** — open work lives here, not in a file.
+     MargenticOS — Company Brain -> Backlog. Read the **NOW** view first: it holds
+     only what is costing something today on a live campaign, and it is deliberately
+     short. Then read the gate view matching the current task: BEFORE FIRST CLIENT,
+     BEFORE SCALE or LATER.
    - /docs/ADR.md (architecture decisions)
    - The relevant /prd/sections/NN-*.md file for the current task
    - For prospect research agent v2 state: see `docs/prospect-research-agent-v2-state.md`
 
-Do not skip BACKLOG.md. It captures items consciously deferred in earlier sessions
-that you would otherwise forget. Missing an item in BACKLOG.md has cost real hours
-of rework more than once.
+Do not skip the Notion Backlog. It holds every open item deferred in earlier
+sessions that you would otherwise forget. Missing one has cost real hours of
+rework more than once.
+
+If the Notion MCP is not configured, STOP and tell Doug before doing any build
+work. Do not proceed from memory and do not fall back to `docs/BACKLOG.md` for
+open work: that file is closed to new entries and its open items were migrated
+to Notion on 2026-09-04, so working from it means working from a stale list.
+
+`docs/BACKLOG.md` is the HISTORICAL RECORD and is still worth reading when you
+need the reasoning behind an old decision, or when a code comment cites it by
+line number. It also still holds every non-gate tag ([post-build], [phase2],
+[monitor], [research], [lesson] and the rest), which were not migrated. Read it
+for those. Never add to it.
 
 ---
 
@@ -306,21 +321,57 @@ The /prd folder holds the product specification (see PRD.md).
 
 ---
 
-## Before ending any session — update BACKLOG.md
+## Before ending any session — create a Notion Backlog row
 
 If the session defers any scope item, decides to revisit something later, or hits
-a known limitation that future-Doug will forget about, the item goes in
-/docs/BACKLOG.md before the session ends.
+a known limitation that future-Doug will forget about, **create a row in the Notion
+Backlog** before the session ends. Use the Notion MCP. Do not write it to a file.
 
 This is not optional. The discipline is:
   1. Session surfaces something to defer.
   2. Claude Code flags it explicitly in the session summary.
   3. Doug confirms the item should be deferred (versus addressed now).
-  4. Claude Code writes the item to BACKLOG.md with tag, date, and context.
+  4. Claude Code **creates the Notion Backlog row**, with Gate, Area, Type,
+     Status = Open, and enough context in the page body to act on months later.
   5. Only then does the session end.
 
 Without this, the backlog stays in Doug's head and in individual chat threads,
 and the one that matters slips through when he's switching contexts.
+
+**Write it the moment you find it, not at the end.** The habit that matters is
+recording a finding immediately, while the reasoning is still in context. Only
+the destination changed on 2026-09-04. If you catch yourself thinking "I will
+add that at the end", add it now.
+
+### Which database
+
+  Backlog        A thing not yet done. Anything actionable.
+  Decisions Log  A settled decision and its reasoning. Not a task; nobody can
+                 "complete" it. Set Status = Locked.
+  Knowledge Base A durable measured fact or a lesson. How something actually
+                 behaves, what a limit really is, what an incident cost.
+
+If it cannot be completed, it is not a Backlog row. Filing a finding as a task
+puts something permanently uncompletable in the task list.
+
+### Setting Gate on a Backlog row
+
+  Live risk                   costing something today on a live campaign
+  Before first paying client  must be resolved before the first paying client
+  Before scale                fine at current volume, breaks at 500+ prospects
+  Later                       real, but not before the above
+
+**Every row must have a Gate.** The four gate views filter on it, so an ungated
+row appears in no view and is invisible from the moment it is written.
+
+### Reading the Notion Backlog back
+
+Trust the **views**, not filtered queries. Measured 2026-09-04: SQL-mode queries
+and rows-mode structured filters both misreport the Gate column on this database,
+returning `Gate IS NULL` for rows that the views render with a Gate set, and
+disagreeing with each other on counts. A direct page fetch is truthful. A view is
+truthful. Do not act on a filtered query result without confirming it against a
+view or a page fetch first, and never "repair" data on the strength of one.
 
 ---
 

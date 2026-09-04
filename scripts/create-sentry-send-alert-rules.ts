@@ -1,6 +1,6 @@
 /**
  * One-off script: create 3 Sentry alert rules for send-approved-draft failures.
- * Run once after deploy, capture rule IDs in BACKLOG.md, then keep as reference.
+ * Run once after deploy, record rule IDs in the Notion Backlog, then keep as reference.
  *
  * Rules created:
  *   1. send-failed-individual   — new/regression issue mentioning sendApprovedDraft, 5m re-alert
@@ -136,7 +136,7 @@ async function main() {
     }
   }
 
-  console.log('\nRecord rule IDs in docs/BACKLOG.md under [monitoring].')
+  console.log('\nRecord rule IDs in the Notion Backlog (Company Brain -> Backlog).')
 }
 
 main()

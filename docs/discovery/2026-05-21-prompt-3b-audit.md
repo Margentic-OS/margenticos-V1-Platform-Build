@@ -449,9 +449,9 @@
 ## Section 9.1 — BACKLOG.md Prompt 3B entries
 
 - **Checked:** `docs/BACKLOG.md` for Prompt 3B tagged entries
-- **Found:** No BACKLOG entries tagged for Prompt 3B were found. The session did not add deferred items to BACKLOG.md as required by CLAUDE.md ("Before ending any session — update BACKLOG.md").
+- **Found:** No BACKLOG entries tagged for Prompt 3B were found. The session did not record its deferred items anywhere, as required by CLAUDE.md. (As of 2026-09-04 that requirement is "create a Notion Backlog row"; at the time of this audit it was "update BACKLOG.md".)
 - **Verdict:** NEEDS REVIEW
-- **Recommendation:** The findings in this audit (Section 8.3 migration debt, Section 4.1 checkbox decision, Section 4.2 Sentry direction) should be added to BACKLOG.md as part of the fix pass.
+- **Recommendation:** The findings in this audit (Section 8.3 migration debt, Section 4.1 checkbox decision, Section 4.2 Sentry direction) should be recorded as Notion Backlog rows. Not BACKLOG.md, which is closed to new entries as of 2026-09-04.
 
 ---
 
@@ -676,7 +676,7 @@ If a hostile reviewer wanted to find the most likely bug:
 
 1. **Update `constants.ts` @deprecated comment** to remove the "within Prompt 3B" promise, replacing it with "to be migrated in a future prompt." Why: the promise is false and creates a misleading expectation. Failure if skipped: none functional, but the comment will confuse whoever reads it next. Can be done in one line.
 
-2. **Add BACKLOG.md entries** for A-1 through A-5. Why: CLAUDE.md requires it. Failure if skipped: these findings get lost between sessions. Manual, 5 minutes.
+2. **Create Notion Backlog rows** for A-1 through A-5. Why: CLAUDE.md requires it. Failure if skipped: these findings get lost between sessions. Manual, 5 minutes. (Written as "add BACKLOG.md entries"; the destination changed on 2026-09-04, the requirement did not.)
 
 3. **Decision required from Doug: DFY confirmation checkbox.** Does the two-step button flow (get quote → confirm button) satisfy the safety requirement, or is an explicit "I understand this charges real money" checkbox required? The ADR says "two-step flow," which is satisfied. A checkbox is an additional layer. This is a deliberate design decision, not a bug.
 
