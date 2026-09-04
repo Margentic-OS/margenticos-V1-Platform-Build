@@ -82,7 +82,13 @@ SET config = (config - 'free_daily_limit')
              || jsonb_build_object('daily_verification_limit', to_jsonb(10000::int)),
     updated_at = now()
 WHERE capability = 'can_validate_email'
-  AND is_active = true;
+  AND is_active = true
+  -- GUARD ADDED 2026-09-04. Without it this UPDATE re-asserts 10000 on every replay, so
+  -- changing the live budget and then replaying would silently restore the old ceiling.
+  -- The key is absent exactly once, on the original run against a row still carrying
+  -- free_daily_limit, which is when this migration is meant to act. On a rebuild the key
+  -- arrives with the seeded row and this correctly does nothing.
+  AND config->>'daily_verification_limit' IS NULL;
 
 -- Read-back belongs in the session that applies this, per CLAUDE.md: assuming the effect of
 -- a write instead of reading it back is the mistake this project keeps making.

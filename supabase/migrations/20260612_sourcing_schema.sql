@@ -30,8 +30,17 @@ ALTER TABLE public.prospects
 -- ── A3. Register can_source_prospects capability ───────────────────────────
 -- Follows existing pattern from 20260420_seed_integrations_registry.sql:
 -- (capability, tool_name, is_active, api_handler_ref, config)
+-- AMENDED 2026-09-04. is_active was seeded false and has been TRUE live since
+-- 2026-08-09. DO NOTHING was already correct here and is unchanged: it is what stops a
+-- RE-RUN reverting the live decision.
+--
+-- BUT DO NOTHING DOES NOT PROTECT A REBUILD. On an empty table there is no conflict, so
+-- the literal below is what the row gets. Measured in a scratch replay: a rebuild from
+-- these files landed can_source_prospects false while live is true. The BACKLOG recorded
+-- DO NOTHING rows as "already safe"; that is true of a re-run and false of a rebuild.
+-- The literal therefore carries the current value.
 INSERT INTO public.integrations_registry (capability, tool_name, is_active, api_handler_ref, config)
-VALUES ('can_source_prospects', 'apollo', false, 'src/lib/sourcing/adapter-apollo', '{}')
+VALUES ('can_source_prospects', 'apollo', true, 'src/lib/sourcing/adapter-apollo', '{}')
 ON CONFLICT (capability, tool_name) DO NOTHING;
 
 COMMIT;
