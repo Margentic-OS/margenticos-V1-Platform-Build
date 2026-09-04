@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { createTestServiceClient, bridgeEnvForSelfClientingModules } from '@/test-utils/test-database'
+import { deleteTestOrganisations } from '@/test-utils/delete-test-organisations'
 import {
   getClientVisibleCampaignMetrics,
   getAllCampaignMetricsForOrg,
@@ -145,8 +146,14 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
   })
 
   afterEach(async () => {
-    if (testOrgA) await supabase.from('organisations').delete().eq('id', testOrgA)
-    if (testOrgB) await supabase.from('organisations').delete().eq('id', testOrgB)
+    // Org A carries a reply_handling_actions row, whose foreign key is NO ACTION, so
+    // this delete returned 409 on every test while Org B three lines down succeeded.
+    // 582 Org A rows, zero Org B rows. That asymmetry was the whole leak.
+    await deleteTestOrganisations(
+      supabase,
+      [testOrgA, testOrgB],
+      'get-client-visible-campaign-metrics.test.ts',
+    )
   })
 
   it('client choicepoint returns totals only, never per-address or diagnostic fields', async () => {

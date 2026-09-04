@@ -14,6 +14,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { createTestServiceClient } from '@/test-utils/test-database'
+import { deleteTestOrganisations } from '@/test-utils/delete-test-organisations'
 
 // Needs the TEST database. Run:
 //   npx dotenv -e .env.test.local -- npx vitest run src/lib/faq/write-enforcement.test.ts
@@ -110,9 +111,7 @@ describe('FAQ write-side enforcement (database trigger)', () => {
   }, 60000)
 
   afterAll(async () => {
-    // Cleanup
-    if (org1Id) await serviceClient.from('organisations').delete().eq('id', org1Id)
-    if (org2Id) await serviceClient.from('organisations').delete().eq('id', org2Id)
+    await deleteTestOrganisations(serviceClient, [org1Id, org2Id], 'write-enforcement.test.ts')
   })
 
   it('Trigger REJECTS faq_extractions insert with signal_id from different org', async () => {

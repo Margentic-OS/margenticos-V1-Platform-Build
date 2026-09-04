@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { createTestServiceClient } from '@/test-utils/test-database'
+import { deleteTestOrganisations } from '@/test-utils/delete-test-organisations'
 
 // Built in beforeAll, not at module scope. A throw at module scope makes the file
 // fail to IMPORT, which reports no test count at all rather than a named failure.
@@ -106,11 +107,15 @@ describe('Org Archiving — Contract Tests', () => {
   })
 
   afterAll(async () => {
-    // Cleanup: delete in dependency order
-    await supabase.from('reply_handling_actions').delete().eq('signal_id', testSignalId)
-    await supabase.from('signals').delete().in('organisation_id', [testOrgId, archivedOrgId])
-    await supabase.from('campaigns').delete().in('organisation_id', [testOrgId, archivedOrgId])
-    await supabase.from('organisations').delete().in('id', [testOrgId, archivedOrgId])
+    // This used to clear reply_handling_actions by a SINGLE signal_id. It worked, but
+    // a second signal would have left a row pinning the organisation and the delete
+    // would have started failing silently. The helper clears by organisation_id.
+    // signals and campaigns cascade from the organisation.
+    await deleteTestOrganisations(
+      supabase,
+      [testOrgId, archivedOrgId],
+      'org-archiving-integration.test.ts',
+    )
   })
 
   describe('Operator queries exclude archived orgs', () => {

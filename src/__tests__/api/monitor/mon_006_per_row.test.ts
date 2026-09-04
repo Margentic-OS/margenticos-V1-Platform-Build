@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { createTestServiceClient } from '@/test-utils/test-database'
+import { deleteTestOrganisations } from '@/test-utils/delete-test-organisations'
 
 // Test MON-006 per-row window evaluation (not single-org window).
 // Needs the TEST database, never production. Run:
@@ -49,11 +50,11 @@ describe('MON-006 Per-Row Window Evaluation', () => {
   })
 
   afterAll(async () => {
-    // Clean up test data
-    await serviceClient
-      .from('organisations')
-      .delete()
-      .in('id', [shortWindowOrgId, longWindowOrgId])
+    await deleteTestOrganisations(
+      serviceClient,
+      [shortWindowOrgId, longWindowOrgId],
+      'mon_006_per_row.test.ts',
+    )
   })
 
   it('should evaluate PROBLEM when any org exceeds its own window (two-org scenario)', async () => {

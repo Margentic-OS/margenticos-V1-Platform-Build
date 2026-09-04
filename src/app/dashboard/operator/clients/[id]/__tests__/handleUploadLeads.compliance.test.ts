@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createTestServiceClient } from '@/test-utils/test-database'
+import { deleteTestOrganisation } from '@/test-utils/delete-test-organisations'
 
 // Needs the TEST database. Run:
 //   npx dotenv -e .env.test.local -- npx vitest run "src/app/dashboard/operator/clients/[id]/__tests__/handleUploadLeads.compliance.test.ts"
@@ -49,10 +50,8 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  // Clean up test data
-  await supabase.from('prospects').delete().eq('organisation_id', testOrgId)
-  await supabase.from('campaigns').delete().eq('id', testCampaignId)
-  await supabase.from('organisations').delete().eq('id', testOrgId)
+  // prospects are cleared by the helper, campaigns cascade from the organisation.
+  await deleteTestOrganisation(supabase, testOrgId, 'handleUploadLeads.compliance.test.ts')
 })
 
 describe('handleUploadLeads compliance gates', () => {

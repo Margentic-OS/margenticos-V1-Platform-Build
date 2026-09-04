@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { createTestServiceClient } from '@/test-utils/test-database'
+import { deleteTestOrganisations } from '@/test-utils/delete-test-organisations'
 
 // Needs the TEST database, never production. Run:
 //   npx dotenv -e .env.test.local -- npx vitest run src/__tests__/api/operator/monitor-acknowledge.test.ts
@@ -185,8 +186,7 @@ describe('Badge Count Logic', () => {
   })
 
   afterAll(async () => {
-    // Clean up
-    await serviceClient.from('organisations').delete().in('id', [org1Id, org2Id])
+    await deleteTestOrganisations(serviceClient, [org1Id, org2Id], 'monitor-acknowledge.test.ts')
   })
 
   it('should count only open unacknowledged PROBLEM events for current test', async () => {
@@ -260,11 +260,13 @@ describe('Archived Org Exclusion', () => {
   })
 
   afterAll(async () => {
-    // Clean up
-    await serviceClient
-      .from('organisations')
-      .delete()
-      .in('id', [activeOrgId, archivedOrgId])
+    // These two were the known leak: both orgs get a failed agent_run below, and
+    // agent_runs.organisation_id is NO ACTION, so this delete returned 409 every run.
+    await deleteTestOrganisations(
+      serviceClient,
+      [activeOrgId, archivedOrgId],
+      'monitor-acknowledge.test.ts',
+    )
   })
 
   it('should exclude archived orgs from detection views', async () => {

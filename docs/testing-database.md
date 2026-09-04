@@ -165,3 +165,80 @@ see that warning during an ordinary run, something is wrong.
 This is a deliberate hole and it is the weakest point in the design. Closing it
 means giving those two diagnostics their own runner outside vitest. Logged in
 BACKLOG.
+
+## Deleting what a test created
+
+Use `deleteTestOrganisations` (or `deleteTestOrganisation` for a single id) from
+`src/test-utils/delete-test-organisations.ts`. It is the only sanctioned way to
+remove an organisation a test created. Do not hand-write a delete.
+
+    import { deleteTestOrganisations } from '@/test-utils/delete-test-organisations'
+
+    afterAll(async () => {
+      await deleteTestOrganisations(supabase, [orgId, otherOrgId], 'my-file.test.ts')
+    })
+
+Null and undefined ids are ignored, so a `beforeAll` that threw partway can pass
+its variables straight in without guarding each one.
+
+### Why it exists
+
+On 2026-09-04 the test project held 730 organisations, having been emptied to 1
+that morning. Every run of the suite added roughly 15 more.
+
+Ten cleanup blocks across ten files deleted organisations, all written like this:
+
+    await supabase.from('organisations').delete().eq('id', testOrgId)
+
+PostgREST answers that with **HTTP 409 and a populated `.error`** when a foreign
+key blocks the delete. The bare `await` discarded it. The suite reported green
+while the rows were still there, so the leak had no symptom until someone counted
+the table. `monitor-acknowledge.test.ts` printed `Tests 6 passed (6)` on the same
+run that leaked two organisations.
+
+Only two of the ten were actually failing. The other eight passed **by luck**:
+they happened not to create a row in a child table whose key blocks the delete.
+`org-archiving-integration.test.ts` was one extra signal row away from joining
+them. All ten route through the helper now, because luck is not a fix.
+
+### What the helper guarantees
+
+The defect had two halves, and fixing either alone leaves it reachable:
+
+1. the delete could not succeed — a foreign key blocked it
+2. the failure could not be seen — the result was never checked
+
+The helper does both, so a caller cannot take one without the other. It also
+**reads the organisations back** afterwards, because a delete that matches no
+rows returns no error, and "no error" is not the same as "gone".
+
+### The order, and why it is not obvious
+
+Four keys block a delete of `organisations` directly (NO ACTION):
+`reply_handling_actions`, `agent_runs`, `sourcing_runs`, `enrichment_runs`.
+Emptying those four is not enough, because three of them are themselves pinned:
+`prospects` pins `sourcing_runs` (RESTRICT), `sourcing_runs` and
+`prospect_research_results` both pin `agent_runs`, and `reply_drafts` and
+`reply_handling_actions` both pin `prospects`. Everything else reachable from an
+organisation is CASCADE or SET NULL and needs no help.
+
+That is why this belongs in one helper. No individual test author derived it, and
+the two files that got it right did so by hand, for their own case only.
+
+### Why not ON DELETE CASCADE
+
+All four blocking tables are history and attribution. Cascading them is a
+**production** schema change that would make deleting an organisation silently
+erase its spend and attribution history, to solve a problem that only exists in
+tests. Production archives organisations via `archived_at` and does not
+hard-delete them, so the cascade would buy nothing there and cost the audit
+trail. Decision taken with Doug, 2026-09-04.
+
+### If the list goes stale
+
+It is maintained by hand, which is the shape that drifts, but it does not need a
+registry test: the check runs at runtime on every cleanup. A new NO ACTION key
+added tomorrow makes the final delete fail with 23503, the helper throws naming
+the exact constraint and table, and the suite goes red on the next run. Verified
+by deleting `reply_handling_actions` from the list (10 tests red) and `agent_runs`
+(the file red), 2026-09-04.
