@@ -125,6 +125,25 @@ describe('the allowlist covers the ICP output schema', () => {
     ).toEqual([])
   })
 
+  it('client_pricing is in the schema and is classified operator-only', () => {
+    // Directional, for the same reason as unresolved_fields below. This field holds THIS
+    // CLIENT'S OWN price. Reclassifying it downstream would feed a currency amount to the
+    // agent that writes prospect-facing copy, which Rule 9 Tier One forbids outright, and
+    // would rebuild the leak the field was added to close.
+    expect(runtimeSchemaKeys()).toContain('client_pricing')
+    expect(ICP_OPERATOR_ONLY_KEYS as readonly string[]).toContain('client_pricing')
+    expect(ICP_DOWNSTREAM_KEYS as readonly string[]).not.toContain('client_pricing')
+  })
+
+  it('projection strips client_pricing from what a downstream agent sees', () => {
+    const out = projectIcpForDownstream({
+      jtbd_statement: 'j', summary: 's', tier_1: {}, tier_2: {}, tier_3: {},
+      client_pricing: 'REDACT_ME',
+    })
+    expect('client_pricing' in out).toBe(false)
+    expect(JSON.stringify(out)).not.toContain('REDACT_ME')
+  })
+
   it('unresolved_fields is in the schema and is classified operator-only', () => {
     // Directional: catches both the key leaving the schema and it being reclassified as
     // downstream, which would put flagged claims back into copy.

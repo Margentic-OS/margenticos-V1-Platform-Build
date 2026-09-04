@@ -49,10 +49,19 @@ export const ICP_DOWNSTREAM_KEYS = [
  * assumptions_we_have_made   the pre-2026-08-27 disclosure array. The rule that produced it
  *                            is gone, but one live document still carries it, so it is
  *                            classified here rather than left to fall through.
+ * client_pricing             THIS CLIENT'S OWN price, verbatim from intake. Operator-only for
+ *                            the same reason the field exists: it is a currency amount, and
+ *                            Rule 9 Tier One forbids a price reaching prospect-facing copy.
+ *                            Sending it downstream would rebuild the leak the field was added
+ *                            to close. Nothing is lost by withholding it, because the
+ *                            positioning, TOV and messaging agents each read intake_responses
+ *                            directly and already see offer_price raw; this allowlist governs
+ *                            only what they see OF THE ICP DOCUMENT.
  */
 export const ICP_OPERATOR_ONLY_KEYS = [
   'unresolved_fields',
   'assumptions_we_have_made',
+  'client_pricing',
 ] as const
 
 export type IcpDownstreamKey = (typeof ICP_DOWNSTREAM_KEYS)[number]

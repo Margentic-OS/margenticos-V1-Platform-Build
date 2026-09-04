@@ -2306,6 +2306,7 @@ export type Database = {
           icp_filter_spec: Json | null
           id: string
           is_stale: boolean
+          stale_reason: string | null
           last_updated_at: string
           organisation_id: string
           pending_since: string | null
@@ -2329,6 +2330,7 @@ export type Database = {
           icp_filter_spec?: Json | null
           id?: string
           is_stale?: boolean
+          stale_reason?: string | null
           last_updated_at?: string
           organisation_id: string
           pending_since?: string | null
@@ -2352,6 +2354,7 @@ export type Database = {
           icp_filter_spec?: Json | null
           id?: string
           is_stale?: boolean
+          stale_reason?: string | null
           last_updated_at?: string
           organisation_id?: string
           pending_since?: string | null

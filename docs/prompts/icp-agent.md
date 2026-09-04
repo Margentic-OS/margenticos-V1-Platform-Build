@@ -464,6 +464,7 @@ Return raw JSON only.
 {
   "jtbd_statement": "One specific sentence. What job is the buyer hiring this firm to do?",
   "summary": "2–3 sentences. Who are these firms, why do they hire this firm, what outcome do they get?",
+  "client_pricing": "THIS CLIENT'S OWN price, copied from their intake answer AS WRITTEN. Do not reword it, do not convert it into a band, do not round it, do not split a multi-part answer into parts. If the intake does not state a price, empty string.",
   "tier_1": {
     "label": "Ideal Client",
     "description": "One sentence describing this tier's defining characteristic",
@@ -793,6 +794,27 @@ Headcount is not the softer case because it sounds less like money. It is the ha
 is the field the sourcing filter parses into an actual ceiling, and a company above that
 ceiling is removed from the run. An invented headcount band silently decides who this client
 is allowed to reach.
+
+THE CLIENT'S OWN PRICE HAS EXACTLY ONE DESTINATION: `client_pricing`, at the top level of the
+document, and it is copied there as written.
+
+It may not appear anywhere else. Not in company_profile.revenue_range, not in any four_forces
+entry, not in a trigger, not in a switching cost, not in the summary. Every one of those
+describes the BUYER, and this figure is about the SELLER. Do not restate it as what the
+buyer's market pays, what the buyer's economics look like, what the buyer's budget is, or what
+a per-unit rate in this market is. Those are claims about other companies, and the intake
+answer is evidence for none of them.
+
+This is not a hypothetical boundary. One live document carries this client's own unit price
+inside a tier 1 anxiety, written as the buyer's market economics, and the same document's
+revenue_range was reshaped into that same per-unit form. The intake asks for the price as free
+text and clients answer in their own units, so the figure arrives in a shape that fits
+anywhere and belongs in only one place.
+
+Copy it whole. A price with several parts stays one string: do not average it, do not take the
+largest part, do not turn "X per month plus Y per event" into a single number. If the intake
+does not state a price, write an empty string. This field never takes an unresolved_fields
+entry, because it is not a fact about the buyer that the document needs in order to be usable.
 
 WHY THIS IS AN ARRAY AND NOT PROSE IN THE FIELD. A gap written into a client-visible field
 is a gap the operator can approve without noticing, and on 27 August two of them reached a

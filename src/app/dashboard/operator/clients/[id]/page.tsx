@@ -132,7 +132,7 @@ export default async function ClientDetailPage({
       .maybeSingle(),
     supabase
       .from('strategy_documents')
-      .select('document_type, status, version, last_updated_at, is_stale')
+      .select('document_type, status, version, last_updated_at, is_stale, stale_reason')
       .eq('organisation_id', org.id)
       .eq('status', 'active')
       .order('document_type', { ascending: true }),
