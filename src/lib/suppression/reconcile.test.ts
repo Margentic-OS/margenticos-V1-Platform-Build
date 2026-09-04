@@ -277,4 +277,80 @@ describe('reconcileSuppression', () => {
     const orgs = findBlockedProspects.mock.calls.map(c => c[1]).sort()
     expect(orgs).toEqual(['org-1', 'org-2'])
   })
+
+  // ── THE ADDRESS FALLBACK ───────────────────────────────────────────────────
+  //
+  // Added after the first live run. It reported 2 unreachable out of 6, and neither was a
+  // provider that could not be reached: one lead had been deleted with its campaign months
+  // earlier, and one row carried a MOCK lead id written by an upload made while the
+  // provider flag was off. Both would have held MON-026 red on artefacts for ever.
+
+  it('asks the provider about the ADDRESS when the stored lead id 404s', async () => {
+    const db = createFakeDb([
+      { id: 'p1', organisation_id: 'org-1', email: 'a@b.com', outbound_lead_id: 'deleted-lead', outbound_suppression_at: OLD },
+    ])
+    gateBlocks(['p1'])
+    readLead.mockResolvedValue({ ok: false, error: 'Provider returned 404: no such lead' })
+    findLeadIds.mockResolvedValue({ ok: true, leadIds: [] })
+
+    const v = await reconcileSuppression(db)
+
+    // The provider holds no lead for this address, so it cannot be sending to them.
+    expect(v.checkedCount).toBe(1)
+    expect(v.unreachableCount).toBe(0)
+    expect(v.unreconciledCount).toBe(0)
+    expect(findLeadIds).toHaveBeenCalledWith('a@b.com', 'org-1')
+  })
+
+  it('finds a RUNNING lead the stored id could not reach', async () => {
+    // The fallback must not be a way to pass. A malformed stored id beside a real, running
+    // lead is exactly the state that would otherwise go unnoticed.
+    const db = createFakeDb([
+      { id: 'p1', organisation_id: 'org-1', email: 'a@b.com', outbound_lead_id: 'mock-lead-0-123', outbound_suppression_at: OLD },
+    ])
+    gateBlocks(['p1'])
+    readLead
+      .mockResolvedValueOnce({ ok: false, error: 'Provider returned 400 reading lead back' })
+      .mockResolvedValueOnce({ ok: true, state: { leadId: 'real-lead', status: 1, interestStatus: null } })
+    findLeadIds.mockResolvedValue({ ok: true, leadIds: ['real-lead'] })
+
+    const v = await reconcileSuppression(db)
+    expect(v.unreconciledCount).toBe(1)
+    expect(v.unreconciledProspectIds).toEqual(['p1'])
+  })
+
+  it('checks EVERY lead the address returns, not just the first', async () => {
+    // A stopped lead sitting beside a running one is not stopped. Same duplicate case the
+    // suppression path exists to handle, on the reading side.
+    const db = createFakeDb([
+      { id: 'p1', organisation_id: 'org-1', email: 'a@b.com', outbound_lead_id: 'bad-id', outbound_suppression_at: OLD },
+    ])
+    gateBlocks(['p1'])
+    findLeadIds.mockResolvedValue({ ok: true, leadIds: ['stopped-1', 'running-2'] })
+    readLead
+      // The stored id does not answer, so the address lookup takes over.
+      .mockResolvedValueOnce({ ok: false, error: 'Provider returned 400 reading lead back' })
+      .mockResolvedValueOnce({ ok: true, state: { leadId: 'stopped-1', status: 3, interestStatus: -1 } })
+      .mockResolvedValueOnce({ ok: true, state: { leadId: 'running-2', status: 1, interestStatus: null } })
+
+    const v = await reconcileSuppression(db)
+
+    expect(v.unreconciledCount).toBe(1)
+    expect(v.unreconciledProspectIds).toEqual(['p1'])
+    // All three reads happened: the stored id, then both addresses.
+    expect(readLead).toHaveBeenCalledTimes(3)
+  })
+
+  it('is unreachable only when BOTH the id and the address fail to answer', async () => {
+    const db = createFakeDb([
+      { id: 'p1', organisation_id: 'org-1', email: 'a@b.com', outbound_lead_id: 'lead-1', outbound_suppression_at: OLD },
+    ])
+    gateBlocks(['p1'])
+    readLead.mockResolvedValue({ ok: false, error: 'provider 500' })
+    findLeadIds.mockResolvedValue({ ok: false, error: 'provider 500' })
+
+    const v = await reconcileSuppression(db)
+    expect(v.unreachableCount).toBe(1)
+    expect(v.checkedCount).toBe(0)
+  })
 })

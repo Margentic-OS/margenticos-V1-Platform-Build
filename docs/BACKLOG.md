@@ -23,6 +23,57 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## SUPPRESSION REACHING THE PROVIDER (2026-09-04, branch suppression-sync)
+
+Built: the can_suppress_contact capability, provider calls on all three suppression write
+paths, outbound_suppression_* on prospects, and MON-026 reconciling against the provider.
+See ADR-049 and docs/suppression.md. Deferred items only below.
+
+- [pre-c1] A MOCK PROVIDER LEAD ID IS SITTING IN A REAL PROSPECT ROW, AND NOTHING STOPS
+  ANOTHER ONE.
+
+  prospect 7cd92532-55e0-45d4-9d99-4a7c2ae0a12d carries
+  outbound_lead_id = 'mock-lead-0-1780586487684'. That value comes from mockLeadsAdd, so an
+  upload made while instantly_api_active was false wrote a fabricated id into a real row as
+  though the lead existed. The organisation is archived (April 2026) so it harms nothing
+  today, and it made the reconciliation sweep report unreachable until the address fallback
+  was added.
+
+  NOT FIXED because the row is in an archived organisation and rewriting live prospect data
+  to tidy a monitor is the wrong trade. What is unfixed is the CAUSE: uploadLeads writes
+  created.id without caring whether the response came from the mock dispatch. A guard
+  refusing to persist a mock id, or writing a mock upload to a different status, would stop
+  the next one. Cheap, and it belongs with the next change to that handler.
+
+- [post-build] THE RECONCILIATION SWEEP HAS NO PER-ORGANISATION FAIRNESS AND NO CURSOR.
+
+  It reads every uploaded prospect each run and reads the provider for each one the send
+  gate blocks. At 26 uploaded and 6 blocked that is trivial. MAX_LEADS_PER_RUN caps it at
+  500 provider reads and REPORTS when the cap is hit rather than truncating silently, so it
+  degrades honestly, but a run that hits the cap will re-examine the same head of the list
+  every time and never reach the tail.
+
+  The trigger to fix it is the cap actually being hit, which shows up in MON-026's detail
+  line as "the per-run ceiling was reached". Until then a cursor is speculative machinery.
+
+- [post-build] ARCHIVED ORGANISATIONS ARE STILL SWEPT.
+
+  Deliberate, and worth re-examining rather than assuming. verify-catch-all excludes
+  archived organisations because it SPENDS MONEY on them. This sweep only reads, and an
+  archived organisation is our own state, not the provider's: its campaigns could in
+  principle still be live. So it is included, which is the fail-loud direction. If archived
+  organisations ever generate recurring noise here, exclude them and say so in the detail
+  line rather than dropping them silently.
+
+- [research] THE SEND GATE STILL GOVERNS UPLOAD, AND SUPPRESSION STILL IS NOT RETROACTIVE.
+
+  Unchanged by this work and stated so it is not assumed closed. Adding a country to
+  EXCLUDED_COUNTRIES still does not re-evaluate prospects already verified: that verdict is
+  frozen on prospects.email_send_eligible at verification time and re-evaluating costs money
+  per address. See ADR-034. What HAS changed is that a person suppressed for any reason is
+  now stopped at the provider, so the consequence of a late rule change is smaller than it
+  was, as long as somebody suppresses the affected rows.
+
 ## THREE STALE VALUES, ONE SHAPE (2026-09-03, branch stale-values)
 
 All three were a number or a name that stopped describing the world and had nothing watching

@@ -239,9 +239,9 @@ export async function reconcileSuppression(
       break
     }
 
-    let state
+    let verdict: LeadVerdict
     try {
-      state = await readLeadSafely(resolved.handler, row.outbound_lead_id, row.organisation_id)
+      verdict = await judgeProspect(resolved.handler, row)
     } catch (err) {
       unreachable++
       logger.error('suppression reconcile: provider read threw', {
@@ -251,25 +251,24 @@ export async function reconcileSuppression(
       continue
     }
 
-    if (!state.ok) {
+    if (verdict.kind === 'unreachable') {
       unreachable++
-      logger.error('suppression reconcile: could not read a suppressed lead back', {
+      logger.error('suppression reconcile: could not establish whether a suppressed prospect is still being sent to', {
         prospect_id: row.id,
         organisation_id: row.organisation_id,
-        error: state.error,
+        error: verdict.error,
       })
       continue
     }
 
     checked++
 
-    if (isStillSending(state.state)) {
+    if (verdict.kind === 'sending') {
       stillSending.push(row.id)
       logger.error('suppression reconcile: our record says do not mail and the provider is still sending', {
         prospect_id: row.id,
         organisation_id: row.organisation_id,
-        provider_status: state.state.status,
-        provider_interest_status: state.state.interestStatus,
+        provider_status: verdict.status,
       })
     }
   }
@@ -301,13 +300,84 @@ export async function reconcileSuppression(
   }
 }
 
-/** Narrow wrapper so a handler that throws is handled at the call site, not swallowed here. */
-async function readLeadSafely(
+type LeadVerdict =
+  | { kind: 'sending'; status: number | null }
+  | { kind: 'stopped' }
+  | { kind: 'unreachable'; error: string }
+
+/**
+ * Is the provider still sending to this prospect?
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * WHY THE STORED LEAD ID IS NOT THE END OF THE QUESTION
+ *
+ * The first version of this read the stored outbound_lead_id and counted any failure as
+ * unreachable. Run against live data it reported 2 unreachable out of 6, and NEITHER was a
+ * provider that could not be reached:
+ *
+ *   404  the lead was deleted along with its campaign, deliberately, in August. There is no
+ *        lead, so nothing can be sent to it.
+ *   400  the stored id was 'mock-lead-0-1780586487684'. A MOCK id, written into a real
+ *        prospect row by an upload made while the provider flag was off. It is not a valid
+ *        id and never will be, so re-reading it will fail identically for ever.
+ *
+ * Both would have left MON-026 permanently red on artefacts, which teaches an operator to
+ * ignore the board, and neither told us the thing the sweep is for.
+ *
+ * THE ID IS A SHORTCUT, THE ADDRESS IS THE QUESTION. So when the stored id does not answer,
+ * this asks the provider what it holds for the ADDRESS. That is the same lookup the
+ * suppression path itself uses, and it is authoritative in a way a stored id is not: a
+ * provider holding no lead for an address cannot be sending to it, whatever our column says.
+ *
+ * Only when the address lookup ALSO fails is this unreachable, and then it genuinely is:
+ * two independent questions both went unanswered.
+ */
+async function judgeProspect(
   handler: SuppressContactHandler,
-  leadId: string,
-  organisationId: string,
-) {
-  return handler.readLead(leadId, organisationId)
+  row: Candidate,
+): Promise<LeadVerdict> {
+  let firstError: string | null = null
+
+  if (row.outbound_lead_id) {
+    const direct = await handler.readLead(row.outbound_lead_id, row.organisation_id)
+    if (direct.ok) {
+      return isStillSending(direct.state)
+        ? { kind: 'sending', status: direct.state.status }
+        : { kind: 'stopped' }
+    }
+    firstError = direct.error
+  }
+
+  const email = row.email?.trim().toLowerCase() ?? ''
+  if (email.length === 0) {
+    return { kind: 'unreachable', error: firstError ?? 'no provider lead id and no address' }
+  }
+
+  const found = await handler.findLeadIds(email, row.organisation_id)
+  if (!found.ok) {
+    return {
+      kind: 'unreachable',
+      error: `${firstError ? firstError + '; ' : ''}address lookup also failed: ${found.error}`,
+    }
+  }
+
+  // The provider holds nothing for this address. It cannot be sending to them.
+  if (found.leadIds.length === 0) return { kind: 'stopped' }
+
+  // EVERY lead, not the first. One stopped lead beside one running lead is not stopped, and
+  // this is the same duplicate case the suppression path exists to handle.
+  for (const leadId of found.leadIds) {
+    const state = await handler.readLead(leadId, row.organisation_id)
+    if (!state.ok) {
+      return {
+        kind: 'unreachable',
+        error: `${firstError ? firstError + '; ' : ''}lead ${leadId} could not be read: ${state.error}`,
+      }
+    }
+    if (isStillSending(state.state)) return { kind: 'sending', status: state.state.status }
+  }
+
+  return { kind: 'stopped' }
 }
 
 /**

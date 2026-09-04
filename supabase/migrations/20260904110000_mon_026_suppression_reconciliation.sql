@@ -12,6 +12,27 @@
 --   suppression_reconciliation_snapshot  anon/authenticated SELECT: false. service_role: true.
 --   mon_026                              anon/authenticated SELECT: false. service_role: true.
 --
+-- FIRST LIVE RUN, 2026-09-04, after the write paths were fixed:
+--   26 uploaded, 6 suppressed, 6 read back from the provider,
+--   0 unreconciled, 0 unreachable, 0 invariant breaches.
+--
+-- The FIRST live run reported 2 unreachable, and investigating them changed the sweep. See
+-- judgeProspect in src/lib/suppression/reconcile.ts: neither was a provider that could not
+-- be reached. One lead had been deleted with its campaign in August, and one row carried a
+-- MOCK lead id written by an upload made while the provider flag was off. The sweep now
+-- falls back from the stored id to the ADDRESS, which is the authoritative question.
+--
+-- PROVED TO GO RED, each probe inside BEGIN ... ROLLBACK against the live snapshot:
+--   unreconciled_count = 1      -> PROBLEM, naming the prospect id in the detail line
+--   invariant_breach_count = 2  -> PROBLEM
+--   unreachable_count = 3       -> PROBLEM
+--   incomplete = true           -> PROBLEM
+--   computed_at 2 hours old     -> PROBLEM, "120 minutes old, past the 90-minute limit"
+--   uploaded_count = 0          -> UNKNOWN, "Nothing to evaluate... This is not a pass."
+--   snapshot row deleted        -> UNKNOWN, "No suppression reconciliation has run yet."
+-- Live state re-read after every probe: still OK, one row present. A monitor that has never
+-- been seen to go red is a monitor nobody has tested.
+--
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHY THIS EXISTS, AND WHY IT IS THE HALF THAT MATTERS
 --
