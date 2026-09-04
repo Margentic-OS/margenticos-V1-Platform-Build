@@ -1,6 +1,21 @@
 -- MON-029: every reply the provider holds has a signal row.
 --
--- Status: PENDING (not yet applied)
+-- Status: APPLIED (verified live 2026-09-04; production)
+--
+-- Read-back after apply, production:
+--   mon_029 -> UNKNOWN, "No reply reconciliation has run yet." Correct before the first
+--              sweep, and UNKNOWN rather than OK, which is the point.
+--   reply_reconciliation_snapshot + mon_029, anon/authenticated: false on all eight
+--   privileges. service_role: true.
+--
+-- PROVED TO GO RED IN EVERY STATE, inside BEGIN ... ROLLBACK:
+--   3 provider / 3 stored        -> OK
+--   missing_count 1              -> PROBLEM, naming the provider id
+--   unreachable_campaigns 1      -> PROBLEM (not a pass)
+--   incomplete true              -> PROBLEM
+--   provider_reply_count 0       -> UNKNOWN (the non-vacuity guard)
+--   computed_at 2 hours old      -> PROBLEM, and it reported STALE while the counts were
+--                                   healthy, which proves freshness is evaluated first
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHY THIS IS THE ONE THAT WOULD HAVE CAUGHT IT

@@ -1,6 +1,17 @@
 -- MON-027: the reply poller's own alarm is finally read by something.
 --
--- Status: PENDING (not yet applied)
+-- Status: APPLIED (verified live 2026-09-04; production)
+--
+-- Read-back after apply, production:
+--   mon_027 -> OK, "All 3 polling cursor(s) clean, no recorded errors."
+--   mon_027 anon/authenticated SELECT: false, all eight privileges. service_role: true.
+--
+-- PROVED TO GO RED, each probe inside BEGIN ... ROLLBACK against live data:
+--   last_error set on 'replies'  -> PROBLEM, "The reply cursor is being HELD..."
+--   error_count 3 on a non-reply -> PROBLEM, naming the resource and the error text
+--   all cursors clean again      -> OK
+--   polling_cursors emptied      -> UNKNOWN, "This is not a pass"
+-- Live state re-read after every probe: still OK, 3 rows, 0 errors.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHY THIS EXISTS

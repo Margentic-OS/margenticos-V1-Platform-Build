@@ -1,6 +1,21 @@
 -- MON-028: a reply draft is not sitting unactioned.
 --
--- Status: PENDING (not yet applied)
+-- Status: APPLIED (verified live 2026-09-04; production)
+--
+-- Read-back after apply, production:
+--   mon_028 -> PROBLEM on its FIRST read, against a real draft:
+--              "1 reply draft(s) waiting on an operator past their threshold.
+--               Oldest: 33.6 hours, status manual_required."
+--   reply_draft_ageing_config: 1 row, organisation_id NULL, threshold_hours 24.
+--   Both relations, anon/authenticated: false on all eight privileges. service_role: true.
+--
+-- PROVED, each probe inside BEGIN ... ROLLBACK:
+--   default row deleted          -> UNKNOWN, "every draft would pass... not a pass"
+--   per-client override of 999h  -> OK, which proves the COALESCE actually resolves rather
+--                                   than the default alone being read
+--   override removed             -> PROBLEM again
+-- A monitor that has only ever been seen green over its default is a monitor whose
+-- override path has never been tested.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHY THIS EXISTS

@@ -12,17 +12,26 @@
 // thing was CALLED. A result-shaped test on a sweep that no longer runs asserts about a
 // default-initialised zero and passes.
 //
-// route.ts:107 assigns `results.replies = await pollInstantlyReplies(...)`, and
-// results.replies is pre-initialised to { written: 0, errors: 0, attempted: false, ... }.
-// Delete the assignment and the ok rule still computes, the heartbeat still writes, and
-// the route still returns 200 with a clean-looking body. Nothing in route.test.ts fails.
+// TWO MUTATIONS WERE RUN AGAINST THIS DIRECTORY. The numbers below are measured, because
+// the first draft of this comment overstated the case and the measurement corrected it.
 //
-// So this file mocks the polling module and asserts the call itself. It is deliberately
-// the ONLY file here that does, because a mocked poller cannot tell you anything about
-// polling — the two kinds of test are complements, not substitutes.
+//   Delete `results.replies = await pollInstantlyReplies(...)` at route.ts:107
+//     -> caught. This file goes red, AND THREE tests in route.test.ts go red too, via the
+//        ok rule. So the directory is NOT blind to this one, and it would be wrong to claim
+//        otherwise.
 //
-// MUTATION-PROVED: deleting the pollInstantlyReplies call in route.ts turns the first test
-// red. Deleting either lead-status call turns the second red.
+//   Sweep unsubscribes with INSTANTLY_LEAD_STATUS_BOUNCED — one identifier changed, the
+//   kind of slip that survives review because both lines look right
+//     -> caught by THIS FILE ALONE. All 53 other tests in the directory stay green while
+//        unsubscribes silently stop being detected for ever.
+//
+// The second is why this file exists. Asserting the CALL, and asserting it by ARGUMENT
+// rather than by count, covers a class the result-shaped tests structurally cannot: a sweep
+// that still runs, still returns a well-formed result, and is asking the provider for the
+// wrong thing.
+//
+// It is deliberately the ONLY file here that mocks the pollers, because a mocked poller
+// cannot tell you anything about polling. The two kinds are complements, not substitutes.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { NextRequest } from 'next/server'
