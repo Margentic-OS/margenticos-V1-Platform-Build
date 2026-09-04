@@ -19,6 +19,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { createTestServiceClient } from '@/test-utils/test-database'
+import { deleteTestOrganisations } from '@/test-utils/delete-test-organisations'
 import { cancelQueuedResearchJobs, countQueuedResearchJobs } from '../job-queue'
 
 const STAMP = Date.now()
@@ -26,7 +27,6 @@ const STAMP = Date.now()
 let supabase: SupabaseClient<Database>
 let orgId: string
 let otherOrgId: string
-const prospectIds: string[] = []
 
 async function makeOrg(suffix: string): Promise<string> {
   const { data, error } = await supabase
@@ -49,9 +49,7 @@ async function makeProspect(organisationId: string): Promise<string> {
     .select('id')
     .single()
   if (error || !data) throw new Error(`prospect insert failed: ${error?.message}`)
-  const id = (data as { id: string }).id
-  prospectIds.push(id)
-  return id
+  return (data as { id: string }).id
 }
 
 /**
@@ -101,13 +99,9 @@ beforeAll(async () => {
 }, 60_000)
 
 afterAll(async () => {
-  // job_queue cascades from both organisations and prospects, so deleting the
-  // organisations is enough. Prospects are deleted first anyway, so a partial run leaves
-  // less behind.
-  if (prospectIds.length > 0) await supabase.from('prospects').delete().in('id', prospectIds)
-  for (const id of [orgId, otherOrgId]) {
-    if (id) await supabase.from('organisations').delete().eq('id', id)
-  }
+  // job_queue cascades from both organisations and prospects; the helper clears
+  // prospects and then the organisations.
+  await deleteTestOrganisations(supabase, [orgId, otherOrgId], 'cancel-research.test.ts')
 }, 60_000)
 
 describe('cancelQueuedResearchJobs', () => {

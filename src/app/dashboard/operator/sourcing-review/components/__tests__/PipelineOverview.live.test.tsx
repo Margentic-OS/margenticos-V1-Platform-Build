@@ -38,6 +38,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { fetch as undiciFetch } from 'undici'
 import type { Database } from '@/types/database'
 import { requireTestDatabaseCredentials } from '@/test-utils/test-database'
+import { deleteTestOrganisation } from '@/test-utils/delete-test-organisations'
 import { getMetricsForOrganisations, type PipelineMetrics } from '@/lib/operator/sourcing-metrics'
 import { PipelineOverview } from '../PipelineOverview'
 
@@ -189,12 +190,7 @@ beforeAll(async () => {
 }, 60_000)
 
 afterAll(async () => {
-  if (prospectIds.length > 0) {
-    await supabase.from('prospects').delete().in('id', prospectIds)
-  }
-  if (orgId) {
-    await supabase.from('organisations').delete().eq('id', orgId)
-  }
+  await deleteTestOrganisation(supabase, orgId, 'PipelineOverview.live.test.tsx')
 })
 
 afterEach(() => {

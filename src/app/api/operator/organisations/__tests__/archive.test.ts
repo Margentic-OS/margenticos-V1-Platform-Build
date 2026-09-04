@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { createTestServiceClient } from '@/test-utils/test-database'
+import { deleteTestOrganisation } from '@/test-utils/delete-test-organisations'
 
 // Needs the TEST database. Run:
 //   npx dotenv -e .env.test.local -- npx vitest run src/app/api/operator/organisations/__tests__/archive.test.ts
@@ -36,9 +37,7 @@ describe('Archive/Unarchive Organisation', () => {
   })
 
   afterAll(async () => {
-    if (testOrgId) {
-      await supabase.from('organisations').delete().eq('id', testOrgId)
-    }
+    await deleteTestOrganisation(supabase, testOrgId, 'archive.test.ts')
   })
 
   it('archives an organisation by setting archived_at', async () => {

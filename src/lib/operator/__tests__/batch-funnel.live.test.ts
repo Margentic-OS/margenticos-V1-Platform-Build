@@ -23,6 +23,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { createTestServiceClient } from '@/test-utils/test-database'
+import { deleteTestOrganisation } from '@/test-utils/delete-test-organisations'
 import { getMetricsForOrganisations, type PipelineMetrics } from '@/lib/operator/sourcing-metrics'
 
 const STAMP = Date.now()
@@ -33,7 +34,6 @@ let orgId: string
 let runWithProspects: string
 let runWithProspectsB: string
 let runWhoseRowsAreGone: string
-const prospectIds: string[] = []
 
 async function seedRun(startedAt: string, written: number): Promise<string> {
   const { data, error } = await supabase
@@ -61,9 +61,7 @@ async function seedProspect(fields: Record<string, unknown>): Promise<string> {
     .select('id')
     .single()
   if (error || !data) throw new Error(`seed prospect failed: ${error?.message}`)
-  const id = (data as { id: string }).id
-  prospectIds.push(id)
-  return id
+  return (data as { id: string }).id
 }
 
 /** A prospect that survived tiering into tier 1. */
@@ -98,13 +96,9 @@ beforeAll(async () => {
 }, 60_000)
 
 afterAll(async () => {
-  // Prospects first: the foreign key is ON DELETE RESTRICT, so a run cannot be removed
-  // while anything points at it. That ordering is itself the constraint working.
-  if (prospectIds.length > 0) await supabase.from('prospects').delete().in('id', prospectIds)
-  if (orgId) {
-    await supabase.from('sourcing_runs').delete().eq('organisation_id', orgId)
-    await supabase.from('organisations').delete().eq('id', orgId)
-  }
+  // Prospects before sourcing_runs (RESTRICT), sourcing_runs before the organisation.
+  // That ordering now lives in the helper, where every caller gets it.
+  await deleteTestOrganisation(supabase, orgId, 'batch-funnel.live.test.ts')
 })
 
 async function metrics(): Promise<PipelineMetrics> {
