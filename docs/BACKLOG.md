@@ -11212,3 +11212,104 @@ these. The temperature change itself was measured and dropped; it is not in main
 
   Next action: decide the denominator deliberately, then make `TIER1_BENCHMARKS` state which
   denominator its industry ranges assume, so the comparison cannot silently mix the two.
+
+---
+
+## Benchmarks page and signal processing — follow-ups from 2026-09-03
+
+- [pre-c1] BOUNCE SIGNALS ARE NEVER MARKED PROCESSED, AND THE FLAG IS THE ONLY THING WRONG
+  `signals` rows with `signal_type = 'email_bounced'` sit at `processed = false` forever.
+  Live on 2026-09-03: the one bounce signal in the database, created 2026-08-28, was still
+  unprocessed six days later, while all three `reply_received` signals were processed
+  within five minutes.
+
+  THE CONSEQUENCE HAS ALREADY HAPPENED AND IT IS NOT WHAT THE FLAG SUGGESTS. Suppression
+  is applied by the POLLER, in the same loop iteration that writes the signal, not by any
+  downstream processor. Measured on that row: signal written 14:15:01.813808, suppression
+  recorded 14:15:01.847229, `suppressed_emails.source_signal_id` pointing back at it. 34
+  milliseconds. The bounce was fully enforced.
+
+  So this is a misleading operator signal rather than a missed action: a row that reads
+  "not yet handled" and was handled immediately. `processReplies` filters
+  `.eq('signal_type', 'reply_received')`, so nothing will ever clear it. There is only ONE
+  bounce mechanism, and it is the one already proven end to end. There is no second
+  unproven path.
+
+  Next action: either have `pollInstantlyLeadStatus` stamp `processed`/`processed_at` when
+  it records the suppression, or stop treating `processed` as meaningful for signal types
+  no processor consumes and make that explicit in the operator signals view. Prefer the
+  first: a column that means different things per signal type is the next confusion.
+  Trigger: before the operator signals view is used to judge whether anything is stuck.
+
+- [pre-c1] BOUNCE AND OPT-OUT WRITE TO DIFFERENT SUPPRESSION STORES, AND NEITHER WRITES BOTH
+  `recordSuppression` writes ONLY `suppressed_emails`. The reply opt-out path in
+  `process-reply.ts` writes ONLY `prospects.suppressed` + `suppression_reason`. So the
+  bounced prospect observed on 2026-09-03 reads `suppressed = false`,
+  `suppression_reason = NULL`, `email_send_eligible = true` on its own row, while sitting
+  on the global list.
+
+  THIS IS CURRENTLY CORRECT AND IS DOCUMENTED AS DELIBERATE. `findBlockedProspects` in
+  `send-gate.ts` checks BOTH stores and is the only place either is read, and the file says
+  why the two are not derived from each other: `prospects.suppressed` carries four distinct
+  per-organisation meanings that have nothing to do with deliverability.
+
+  What makes it worth an entry is that the prospect row LOOKS sendable to anyone reading it
+  directly, and the operator UI reads rows. Next action: decide whether the prospect view
+  should surface global suppression alongside the per-org flag, so a human reading one row
+  sees what the send gate sees. Do NOT "fix" this by having one path write both stores; that
+  destroys the four meanings the file warns about.
+
+- [post-build] MEETINGS ARE NOT LINKED TO A CAMPAIGN, AND THE COLUMN THAT WOULD IS NEVER WRITTEN
+  `meetings.campaign_id` exists with a foreign key to `campaigns`. The Calendly webhook is
+  the only writer of meeting rows and does not set it: see the insert in
+  `src/app/api/webhooks/calendly/route.ts`, which sets `prospect_id` and eight other fields
+  and not this one. Every meeting the system creates will have it NULL.
+
+  So the meeting booking rate has an organisation-wide numerator over an
+  organisation-wide denominator, which is consistent. The campaign link is reachable one
+  hop away through `prospect_id -> prospects.campaign_id` if it is ever needed.
+
+  Deliberately not built on 2026-09-03: there is one campaign per organisation today, so
+  the org-versus-campaign distinction has no instances to get wrong. Next action: populate
+  `campaign_id` at webhook time (via the prospect) BEFORE the first client runs two
+  concurrent campaigns, because backfilling it later means inferring which campaign a past
+  meeting came from. Trigger: second live campaign for any one organisation.
+
+- [pre-c1] THE REPLY RANGE RESTS ON TWO SOURCES WHOSE MEDIANS DIFFER THREEFOLD
+  0.7 to 3% now, from Smartlead (median 0.74% of contacts, 850M+ emails) and ReplyLead
+  (median 2.12% per contacted lead, 242,669 unique leads). Both state a per-contact
+  denominator explicitly, which is why they were used. But 0.74 and 2.12 are not close, and
+  the range is wide because of it rather than because performance varies that much within
+  one population.
+
+  A client whose rate lands at 1.5% is "within the range" against both and meaningfully
+  different against each. Next action: decide whether to show one source rather than a span
+  of two, and if so which population ours resembles — Smartlead's is every sender on a
+  self-serve tool, ReplyLead's is campaigns with 500+ contacted leads. Ours is closer to
+  the second. Trigger: before the first paying client passes 400 people contacted and the
+  card actually prints a number.
+
+- [monitor] NO PER-PERSON MEETING BENCHMARK EXISTS, AND THE CARD NOW SAYS SO
+  The 1 to 3% range was removed on 2026-09-03 because its cited source publishes no meeting
+  metric. Four candidate replacements were read; the only one with first-party data and a
+  stated method (GROU, 0.35% median across 47 B2B clients) measures per SEND, and the rest
+  are unattributed. See ADR-048 for the full list and the rejection reason for each.
+
+  The card shows our rate with no range and states why, on the card and in the page
+  attribution. Next action: none required. If a per-person meeting benchmark with a named
+  sample and a stated denominator is ever published, add it with its unit. Do NOT add a
+  per-email figure to this card: it would need the unit changed, and the unit drives the
+  arithmetic.
+
+- [post-build] computeCampaignMetrics HAS NO meetingRate AND IS STILL THE PIPELINE PAGE'S SOURCE
+  `getClientVisibleCampaignMetrics` and `getAllCampaignMetricsForOrg` both gained
+  `meetingRate` on 2026-09-03. `campaign-metrics.ts` did not, because nothing renders a
+  meeting rate from it: the Pipeline page uses its counts only.
+
+  This is the same module already recorded above as returning zero positive replies for a
+  client session, and the two entries have one answer between them. Next action: delete
+  `computeCampaignMetrics` and point the Pipeline page at the chokepoint, rather than adding
+  a third field to a second module that does nearly the same job. Two modules computing the
+  same metrics is how one bug came to live in two places, and it is now how one metric lives
+  in one place and not the other.
+  Trigger: before `pipeline_unlocked` is turned on for any client.

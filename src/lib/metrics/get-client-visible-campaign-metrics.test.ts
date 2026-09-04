@@ -172,6 +172,7 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
       'positiveReplyCount',
       'meetingsBooked',
       'meetingsHeld',
+      'meetingRate',
       'hasData',
     ])
 
@@ -298,5 +299,91 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
     // reads contacted_count to do this without returning it, which is why the assertion
     // above still holds.
     expect(operatorResult.replyRate).toBe(clientResult.replyRate)
+    // Same rule for the meeting rate, for the same reason and from the same day.
+    expect(operatorResult.meetingRate).toBe(clientResult.meetingRate)
+  })
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // THE MEETING RATE, PROVED AGAINST A REAL DATABASE WITH CONSTRUCTED DATA
+  //
+  // The production meetings table holds ZERO rows, and did before this change and after
+  // it. So there is no live before-and-after to show: both sides would read 0 and prove
+  // nothing. These tests build the rows instead, in the test database, sized so that the
+  // two candidate denominators cannot produce the same answer.
+  //
+  // The fixture is org A: 100 emails sent, 60 people contacted, 1 meeting booked.
+  //   1 / 60 people = 1.6667%
+  //   1 / 100 emails = 1.0%
+  // Nothing rounds one into the other.
+
+  it('divides meetings by people contacted, not by emails sent', async () => {
+    const result = await getClientVisibleCampaignMetrics(testOrgA)
+
+    // MUTATION GUARD. Put sentCount back under the meeting rate and the first line goes
+    // red; the second is what it would go red AS, stated so the failure is legible.
+    expect(result.meetingRate).toBeCloseTo((1 / 60) * 100, 10)
+    expect(result.meetingRate).not.toBeCloseTo((1 / 100) * 100, 10)
+  })
+
+  it('agrees with a direct query of the same two tables', async () => {
+    // The chokepoint's answer beside the database's own, rather than beside a constant
+    // typed into this file. A hardcoded expectation only proves the code matches what
+    // someone believed when they wrote the test; this proves it matches the rows.
+    const result = await getClientVisibleCampaignMetrics(testOrgA)
+
+    const { count: meetingsFromDb } = await supabase
+      .from('meetings')
+      .select('*', { count: 'exact', head: true })
+      .eq('organisation_id', testOrgA)
+
+    const { data: campaignRows } = await supabase
+      .from('campaigns')
+      .select('contacted_count, sent_count')
+      .eq('organisation_id', testOrgA)
+
+    const peopleFromDb = (campaignRows ?? []).reduce((n, c) => n + (c.contacted_count ?? 0), 0)
+    const emailsFromDb = (campaignRows ?? []).reduce((n, c) => n + (c.sent_count ?? 0), 0)
+
+    expect(meetingsFromDb).toBe(result.meetingsBooked)
+    expect(peopleFromDb).toBe(result.contactedCount)
+    // The claim itself, computed from the direct read.
+    expect(result.meetingRate).toBeCloseTo((meetingsFromDb! / peopleFromDb) * 100, 10)
+    // And the denominator really is the smaller of the two, which is what makes the
+    // assertion above discriminating rather than a tautology.
+    expect(peopleFromDb).toBeLessThan(emailsFromDb)
+  })
+
+  it('is null rather than zero when nobody has been contacted', async () => {
+    // Null, not 0. A rate of zero is a claim that outreach produced no meetings; "we have
+    // not contacted anyone yet" is a different statement, and a client reading 0.0% on
+    // their first day would be reading the first one.
+    //
+    // Needs its own organisation: orgA and orgB both carry a contacted_count, so neither
+    // can reach this branch. Built and removed here rather than added to beforeEach,
+    // where it would sit unused by every other test in the file.
+    const now = Date.now()
+    const uncontacted = await supabase
+      .from('organisations')
+      .insert({
+        name: `Test Org C ${now}`,
+        slug: `test-org-c-${now}`,
+        founder_first_name: 'Test',
+      })
+      .select('id')
+      .single()
+
+    const orgC = uncontacted.data!.id
+    try {
+      const result = await getClientVisibleCampaignMetrics(orgC)
+
+      expect(result.contactedCount).toBe(0)
+      expect(result.meetingRate).toBeNull()
+      expect(result.replyRate).toBeNull()
+      // And hasData is false, which is the flag every caller is told to check before
+      // rendering any rate at all.
+      expect(result.hasData).toBe(false)
+    } finally {
+      await supabase.from('organisations').delete().eq('id', orgC)
+    }
   })
 })
