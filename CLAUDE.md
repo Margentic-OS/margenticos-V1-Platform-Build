@@ -432,9 +432,29 @@ too little**: a list of "still open" rows will contain items already done. The
 reverse error, concluding something exists when it has since been deleted, happens
 only where main REMOVED code, and is much rarer.
 
-Also: `git cherry` compares by patch-id and reports commits as missing when
-surrounding context has drifted. To ask whether work is on main, **compare content**
-(`git show origin/main:path`, `git ls-tree origin/main`), not patch-ids.
+**`git cherry` answers a different question than the one you are asking.** It
+compares by **patch-id**, so it reports a commit as unmerged whenever the surrounding
+context has drifted, even though the change itself is upstream. In the same 2026-09-04
+incident it reported **4 of 7 commits as NOT UPSTREAM when all 7 had landed.** Acting
+on that would have meant re-applying work already on main.
+
+To ask whether work is on main, **compare content, never identity**:
+
+    git show origin/main:path/to/file | grep 'the thing you added'
+    git ls-tree origin/main -- path/to/file        # present or deleted?
+
+Identity comparisons (patch-id, SHA equality) answer "is this the same commit". The
+question that matters is "is this change present", and only content answers it. The
+same distinction applies to verifying a deploy: check by **containment and presence**,
+never by SHA equality.
+
+**And check the test harness is actually running before trusting it.** This project's
+suite needs `npx dotenv -e .env.test.local -- npx vitest run`. Without that file the
+run **silently skips 33 tests, including cross-organisation isolation, and reports
+green**. Measured on 2026-09-04: 1,830 tests on a stale tree without the env file,
+against **2,938 on main with it**. A green run at the wrong count is the same class of
+lie as the clean tree and the Notion listing. **State the test count.** Below ~2,924
+means the env file is not being read.
 
 ### Label every finding by evidence type, because they expire differently
 
