@@ -1,63 +1,139 @@
 // @vitest-environment jsdom
+//
+// NO EM/EN DASHES IN THE INTAKE FORM THE CLIENT ACTUALLY SEES.
+//
+// This is the first thing a new client reads, and CLAUDE.md's rule about dashes
+// exists because our ICP is founders who have been burned by AI email. A dash in
+// a question label is the worst place for one.
+//
+// ── WHY THIS FILE LOOKS THE WAY IT DOES ──────────────────────────────────────
+//
+// The version this replaces pasted the question labels into a local array and
+// asserted that array held no dashes, under the comment "These are the hardcoded
+// labels from the form". It never imported IntakeForm. The strings it checked
+// were the strings it had just written, so it could not fail, and it did not:
+// two live question labels in questions.ts have carried em dashes throughout.
+// Found by the 2026-09-04 test audit.
+//
+// It renders the real component now. Every section is present in the DOM at once
+// (IntakeForm.tsx:262 renders all five and hides the inactive ones with a class),
+// so one render reaches every label without clicking through.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, cleanup } from '@testing-library/react'
+import IntakeForm from '../IntakeForm'
+import { ALL_QUESTIONS } from '@/lib/intake/questions'
 
-// Test that no em/en dashes appear in hardcoded intake form text
-describe('IntakeForm - no dashes in form copy', () => {
-  const EM_DASH = '—' // U+2014
-  const EN_DASH = '–' // U+2013
+// The save path is a server action. Nothing here exercises it; it is mocked so
+// the component can mount.
+vi.mock('@/app/intake/actions', () => ({
+  saveIntakeResponse: vi.fn(async () => ({ success: true })),
+}))
 
-  it('should not contain em dashes in question labels', () => {
-    // These are the hardcoded labels from the form
-    const labels = [
-      "What makes your firm genuinely different from others who do what you do? Not the marketing answer. The real one.",
-      "Think about your single best client, the one you'd clone if you could. Describe them. Not their job title. What makes them different to work with? What do they believe or understand that most of your clients don't?",
-      "What do you think actually tipped them toward working with you? Not the polished answer. The real one. Was there a specific conversation, a moment, something you said or showed them?",
-    ]
+const EM_DASH = '—'
+const EN_DASH = '–'
+const DOUBLE_HYPHEN = '--'
+const hasDash = (s: string) =>
+  s.includes(EM_DASH) || s.includes(EN_DASH) || s.includes(DOUBLE_HYPHEN)
 
-    labels.forEach(label => {
-      expect(label).not.toContain(EM_DASH)
-    })
+/** Distinct rendered strings carrying a dash. Distinct, so one string shown in
+ *  several places is one defect rather than several. */
+function renderedDashStrings(): { all: string[]; chars: number } {
+  const { container } = render(<IntakeForm initialValues={{}} initialFiles={[]} />)
+  const found = new Set<string>()
+  const walker = container.ownerDocument.createTreeWalker(container, 4 /* SHOW_TEXT */)
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = (n.textContent ?? '').replace(/\s+/g, ' ').trim()
+    if (text && hasDash(text)) found.add(text)
+  }
+  return { all: [...found].sort(), chars: (container.textContent ?? '').length }
+}
+
+/** A rendered string counts as a question label if a real question uses it. */
+const isQuestionLabel = (text: string) =>
+  ALL_QUESTIONS.some(q => {
+    const label = (q.label ?? '').replace(/\s+/g, ' ').trim()
+    return label.length > 0 && (label === text || text.includes(label))
   })
 
-  it('should not contain en dashes in revenue range options', () => {
-    // These are the hardcoded revenue options
-    const revenueRanges = [
-      '£100K - £300K',
-      '£300K - £600K',
-      '£600K - £1M',
-      '£1M - £2M',
-      '€100K - €300K',
-      'USD100K - USD300K',
-    ]
+// ═══════════════════════════════════════════════════════════════════════════
+// Measured 2026-09-04 against the form as it stands. Five dash-bearing strings
+// reach the client:
+//
+//   QUESTION LABELS (2), both in src/lib/intake/questions.ts:
+//     :132  "...Start from the beginning — how did they first become aware..."
+//     :176  "...Deliverables, outputs, access — what exists at the end..."
+//
+//   HELPER AND PROMPT TEXT (3):
+//     IntakeForm.tsx:222        "...rather than type them — people say 3x more"
+//     IntakeForm.tsx:296        "Speak this one if you can — it'll take 60 seconds"
+//     FileUploadSection.tsx:201 "...emails, case studies — anything showing your voice"
+//
+// The remaining em dashes in these files are either in code comments or, like
+// IntakeForm.tsx:361, behind a condition this render does not meet. Both are
+// therefore out of scope for a test that asserts on what is actually rendered:
+// :361 needs a short answer already typed, and this form starts empty.
+//
+// FIXING THE DASHES IS NOT THIS FILE'S JOB and is tracked separately. This file
+// only has to stop lying about them.
+// ═══════════════════════════════════════════════════════════════════════════
+const BASELINE_QUESTION_LABELS = 2
+const BASELINE_OTHER = 3
 
-    revenueRanges.forEach(range => {
-      expect(range).not.toContain(EN_DASH)
-      expect(range).not.toContain(EM_DASH)
-    })
+describe('intake form copy carries no em or en dashes', () => {
+  afterEach(() => cleanup())
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // EXPECTED TO FAIL. This is the goal state, and it is red on purpose.
+  //
+  // WHAT UNBLOCKS IT: removing the five dashes listed above. When the last one
+  // goes, THIS TEST STARTS FAILING BY PASSING (vitest treats a passing it.fails
+  // as a failure) and that is the signal to delete the `.fails` and the two
+  // baselines, leaving a plain zero.
+  //
+  // IT IS NOT THE PROTECTION. The two ratchets below it are.
+  // ═════════════════════════════════════════════════════════════════════════
+  it.fails('GOAL: zero dashes anywhere the client can read them', () => {
+    const { all } = renderedDashStrings()
+    expect(all, `${all.length} dash-bearing strings rendered:\n${all.join('\n')}`).toEqual([])
   })
 
-  it('should not contain dashes in success message', () => {
-    const message = 'This takes 3-5 minutes. You can close this tab. Documents will be waiting when you return.'
-    expect(message).not.toContain(EN_DASH)
-    expect(message).not.toContain(EM_DASH)
+  // THE ONES THAT ACTUALLY PROTECT, and both are green today. Split apart because
+  // a dash in a question label is a worse defect than one in helper text, and a
+  // combined count would let a new label dash hide behind a removed helper dash.
+  it('no more dash-bearing QUESTION LABELS than measured on 2026-09-04', () => {
+    const hits = renderedDashStrings().all.filter(isQuestionLabel)
+    expect(
+      hits.length,
+      `${hits.length} question labels with dashes, baseline ${BASELINE_QUESTION_LABELS}. ` +
+        `Baselines may only go down.\n${hits.join('\n')}`,
+    ).toBeLessThanOrEqual(BASELINE_QUESTION_LABELS)
   })
 
-  it('should mark optional sections correctly in tab navigation', () => {
-    // The "Your voice" and "Existing assets" sections should have no critical fields
-    // and should be marked as optional, not green
-    const voiceQuestions = [
-      { fieldKey: 'voice_style', isCritical: false },
-      { fieldKey: 'voice_dislikes', isCritical: false },
-    ]
+  it('no more dash-bearing helper or prompt strings than measured on 2026-09-04', () => {
+    const hits = renderedDashStrings().all.filter(t => !isQuestionLabel(t))
+    expect(
+      hits.length,
+      `${hits.length} non-label strings with dashes, baseline ${BASELINE_OTHER}. ` +
+        `Baselines may only go down.\n${hits.join('\n')}`,
+    ).toBeLessThanOrEqual(BASELINE_OTHER)
+  })
 
-    const assetsQuestions = [
-      { fieldKey: 'assets_existing_positioning', isCritical: false },
-      { fieldKey: 'assets_past_outreach', isCritical: false },
-    ]
+  // Guards the guard: proves the scan reads a real, fully rendered form rather
+  // than an empty container, which is how the version this replaced passed.
+  it('renders the whole form, every section, not an empty shell', () => {
+    const { chars } = renderedDashStrings()
+    expect(chars).toBeGreaterThan(2000)
+  })
 
-    const hasCritical = (questions: any[]) => questions.some(q => q.isCritical)
-    expect(hasCritical(voiceQuestions)).toBe(false)
-    expect(hasCritical(assetsQuestions)).toBe(false)
+  it('every critical question label is actually present in the rendered DOM', () => {
+    const { container } = render(<IntakeForm initialValues={{}} initialFiles={[]} />)
+    const text = (container.textContent ?? '').replace(/\s+/g, ' ')
+    const critical = ALL_QUESTIONS.filter(q => q.isCritical)
+    expect(critical.length).toBeGreaterThan(10)
+    const missing = critical
+      .map(q => (q.label ?? '').replace(/\s+/g, ' ').trim())
+      .filter(label => label.length > 0 && !text.includes(label))
+    expect(missing, `labels not rendered:\n${missing.join('\n')}`).toEqual([])
   })
 })
