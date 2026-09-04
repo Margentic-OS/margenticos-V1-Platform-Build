@@ -130,6 +130,13 @@ it plainly. Top up the pay-as-you-go balance.
 After that `second_pass_attempt_count` has hit its cap and it is left alone deliberately,
 because every retry costs money. `second_pass_error` holds the last failure message.
 
+**A sweep says "verified 0" every time and never does anything.** Check whether the
+organisation it nominates has any rows the trigger will actually accept. Both sweeps use two
+queries: one picks the organisation, a second picks rows inside it. If those two ever
+disagree about which prospects count, the picker keeps choosing an organisation the trigger
+refuses everything from, no other organisation is ever reached, and the heartbeat reports
+success throughout. That happened between 2026-09-01 and 2026-09-03 and is described below.
+
 **Prospects are researched that should not be.** The research spend gate
 (`checkResearchEligibility`) reads both passes. If it is skipping prospects you expect it to
 research, the reason is reported in the operator's skip summary rather than hidden.
@@ -149,6 +156,31 @@ This is why populating country was a hard prerequisite for the second pass: re-v
 German catch-all would otherwise have returned it as send-eligible with the country rule never
 consulted.
 
+**Neither pass will spend anything on a prospect tiering has rejected, and this took two
+attempts to get right.** Tiering decides whether a prospect is worth pursuing at all. A
+prospect it rejected should never consume verification quota on the free pass or real money
+on the paid one.
+
+The gate reached the first pass's row selector on 2026-09-01 and did not reach the other
+three places that decide who gets verified. The result was worse than doing nothing. Both
+sweeps serve one organisation per run, choosing it with a separate query, and that query was
+still counting rejected rows as work. So the picker nominated an organisation, the trigger
+refused every row in it, and the sweep wrote a successful heartbeat. Roughly 290 times over
+two days. No other organisation could have been served during that window.
+
+Measured before the fix: 16 rejected prospects, 14 of which had been verified on the free
+pass, and 6 of which had been billed on the paid pass. Those 6 were 6 of the 52 paid calls
+ever made, and 5 came back as valid addresses that will never be emailed.
+
+The rule is deliberately narrow. It refuses a prospect tiering **rejected**, and allows one
+tiering has not looked at yet. Those are different states, and treating "not yet decided" as
+"no" would make verification wait on tiering for no reason. Only the send gate, at the very
+end of the pipeline, insists on a positive verdict.
+
+Existing rows were left alone. The 16 already-verified prospects keep their verdicts, because
+a verdict about an address is a true statement about that address whatever tiering later
+decided, and re-verifying costs money to learn nothing.
+
 **Greylisted addresses are deliberately not sent to the paid pass.** Greylisting is a
 temporary "try again later", and the free first pass already retries it. Paying a second
 vendor to answer a question that is about to answer itself would be waste.
@@ -160,6 +192,7 @@ vendor to answer a question that is about to answer itself would be waste.
 | File | Job |
 |---|---|
 | `src/lib/sourcing/verification-trigger.ts` | Pass one, the free sweep |
+| `src/lib/sourcing/tier-verdict.ts` | **The tier gate both passes apply, picker and selector** |
 | `src/lib/sourcing/second-pass-trigger.ts` | Pass two, the paid sweep |
 | `src/lib/sourcing/handlers/adapter-myemailverifier.ts` | Pass one vendor, owns its own words |
 | `src/lib/sourcing/handlers/adapter-bouncer.ts` | Pass two vendor, owns its own words |

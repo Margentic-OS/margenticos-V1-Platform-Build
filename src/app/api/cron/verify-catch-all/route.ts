@@ -43,6 +43,7 @@ import {
   DEFAULT_SECOND_PASS_BATCH_SIZE,
 } from '@/lib/sourcing/second-pass-trigger'
 import { SECOND_PASS_WORTH_PAYING_FOR } from '@/lib/sourcing/verification-verdict'
+import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
 
 export const dynamic = 'force-dynamic'
 // Every long route in this repo declares this. The operator verification route shipped
@@ -99,13 +100,25 @@ async function writeHeartbeat(
 async function findOrganisationWithSecondPassBacklog(
   supabase: SupabaseClient,
 ): Promise<string | null> {
-  const { data, error } = await supabase
+  const { data, error } = await excludeTierRejected(supabase
     .from('prospects')
     .select('organisation_id, created_at, organisations!inner(archived_at)')
     .eq('suppressed', false)
     .not('email', 'is', null)
     .in('independent_email_status', SECOND_PASS_WORTH_PAYING_FOR as string[])
-    .is('second_pass_status', null)
+    .is('second_pass_status', null))
+    // THE TIER GATE, AND HERE IT GUARDS CASH RATHER THAN A FREE TIER.
+    //
+    // Measured 2026-09-03 against verification_calls: 6 of the 52 paid second-pass calls
+    // ever made were spent on prospects tiering had already rejected. Five came back
+    // deliverable, which is the worst outcome available: an address confirmed, at cost, for
+    // a prospect that will never be emailed.
+    //
+    // This must match the row selector in second-pass-trigger.ts exactly. Gating only one of
+    // the two turns a money bug into a starvation bug, which is what happened on the
+    // first-pass sweep and is documented on its picker.
+    //
+    // excludeTierRejected, not requireTierPresent: see src/lib/sourcing/tier-verdict.ts.
     .is('organisations.archived_at', null)
     .order('created_at', { ascending: true })
     .limit(1)

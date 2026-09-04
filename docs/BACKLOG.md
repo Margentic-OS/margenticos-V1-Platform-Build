@@ -23,6 +23,107 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## A SWEEP THAT NOMINATES AN ORGANISATION AND SELECTS ZERO ROWS LOOKS EXACTLY LIKE A SWEEP WITH NOTHING TO DO (2026-09-03, branch verify-tier)
+
+- [monitor] THE HEARTBEAT WROTE `ok: true` FOR ROUGHLY 290 CONSECUTIVE FIRINGS WHILE THE
+  JOB COULD NOT DO ANYTHING. This is the reason the tier-gate starvation survived two days,
+  and it is a bigger problem than the bug it hid.
+
+  What happened. The tier gate landed on `verifyEnrichedBatch` on 2026-09-01 and not on
+  `findOrganisationWithPendingVerification`, the query that picks which organisation to hand
+  it. The picker kept nominating an organisation whose only pending rows the trigger then
+  refused. Every ten minutes, from 2026-09-01 20:24 until the fix:
+
+      cron_heartbeats: "success: verified 0, send-eligible 0, failed 0, daily used 0."
+      ok: true
+
+  That line is IDENTICAL to the line a healthy idle sweep writes. Nothing distinguished
+  "there is no work" from "there is work, I nominated its organisation, and I am
+  structurally unable to touch it". MON-002 reads staleness in `cron_heartbeats` and never
+  consults `ok`, so even an honest `false` would not have surfaced it, and the sweep was
+  running exactly on time.
+
+  THE THREE STATES A SWEEP CAN BE IN, AND THE FACT THAT ONLY TWO ARE REPRESENTED:
+
+      picker found no organisation, nothing pending anywhere ....... genuinely idle
+      picker found an organisation, selector took rows ............. working
+      picker found an organisation, selector took ZERO rows ........ THE BUG STATE
+
+  The third collapses into the first in every instrument the platform has: the heartbeat
+  detail, the Sentry check-in, and the HTTP response body. All three are driven from one
+  value, which is the right design, and that one value cannot express the distinction.
+
+  WHAT IT WOULD TAKE, described rather than built (this branch fixes the gate, not the
+  observability, and conflating the two would have made the fix unreviewable):
+
+  1. The sweep already knows both facts. `verifyEnrichedBatch` returns a run object and the
+     route holds `organisationId`. `organisation_id !== null && total_verified === 0 &&
+     failed_count === 0` IS the bug state, computed from values already in scope. It needs
+     no new query.
+  2. Write it into the heartbeat detail as its own phrase, not as a variant of success:
+     something a human scanning `cron_heartbeats` reads as wrong. "Nominated <org> and
+     selected nothing" is not "nothing pending".
+  3. Decide whether it should set `ok: false`. Argument for: it is never correct, and a
+     picker and selector that disagree is always a defect. Argument against: it is
+     transiently reachable in a legitimate race, where the last selectable row is claimed by
+     an overlapping run between the two queries. Suggested resolution: `ok: true` on a
+     single occurrence, `ok: false` once it repeats N times in a row, because the race
+     cannot repeat and a disagreement can. That needs a small amount of state, which is why
+     it is a separate change.
+  4. MON-002 cannot carry this. It derives liveness from `max(ran_at)` staleness alone and
+     is documented as never reading `ok`. This needs either a monitor that reads `ok` and
+     the detail text, or its own `mon_NNN` view. If a new view is added, note the
+     `security_invoker` rule in CLAUDE.md: nine existing `mon_*` views are anon-readable and
+     bypass RLS.
+
+  THE GENERAL FORM, which is the part worth carrying beyond this one sweep. Every
+  "one organisation per invocation" job in this repo has the same blind spot, because the
+  shape is inherent to the picker/selector split rather than to anything specific here. It
+  is the same family as the monitor-sweep parallel arrays: a check that runs, reports
+  success, and cannot see the class it was written to find. A monitor that cannot fail is
+  not a monitor.
+
+- [monitor] SIBLING QUERY PAIRS: THE FULL LIST, SWEPT 2026-09-03. Report only, nothing
+  below was changed.
+
+  Asked because this was the THIRD time a rule was applied to one selection point and not
+  its sibling: the retry bound, the tier gate at enrichment, and now the tier gate at
+  verification. Every place where one query picks which organisation to work on and a second
+  query picks rows inside it:
+
+  1. `verify-pending` -> `verifyEnrichedBatch`. FIXED on this branch. Picks ONE org.
+  2. `verify-catch-all` -> `runSecondPassBatch`. FIXED on this branch. Picks ONE org.
+  3. `runSynthesisBatchSweep` -> `submitPendingForOneOrganisation`
+     (`src/lib/agents/research/batch-sweep.ts:791` and `:174`). Both filter
+     `state = 'pending_submission'` and AGREE. One divergence: the selector adds
+     `prospects!inner(...)`, which the picker does not, so an entry whose prospect row is
+     missing would nominate an organisation the selector then takes nothing from.
+  4. `intake-nudge` (`route.ts:35` -> `:59`). Picker reads `organisations` on
+     `intake_last_activity_at`; the selector then computes intake completeness from
+     `intake_responses` and skips at >= 80%. The completeness rule exists only on the second
+     query.
+  5. `warmup-halfway` (`route.ts:36` -> `:59`). Picker reads `organisations` on
+     `warmup_started_at`; the selector then de-duplicates against `notifications_log`. The
+     dedupe rule exists only on the second query.
+
+  THE DISCRIMINATOR, and the reason only two of the five were urgent: 1 and 2 order by
+  `created_at` and take `.limit(1)`, so a divergence STARVES, and one organisation's
+  unselectable rows block every other organisation forever. 3, 4 and 5 loop over ALL
+  organisations, so the same divergence costs one wasted iteration and blocks nothing. Both
+  are worth knowing about; only the first kind is a live incident.
+
+  Not the pattern, checked and excluded: `auto-approve` and `reap-agent-runs` are row-level
+  scans with no organisation picker; the Instantly poller
+  (`src/lib/integrations/polling/instantly.ts:969`) is a single fan-out over all campaigns;
+  the research enqueue and `runResearchBatchForOrg` take an operator-supplied organisation
+  id rather than picking one.
+
+  NEXT ACTION if this is ever built out: a test that reads the WORLD rather than itself,
+  in the shape of the monitor-sweep registry test. Enumerate the picker/selector pairs in
+  one place and assert the filter sets match, so a new filter on one side fails until it is
+  added to the other. Note the limit stated in CLAUDE.md about migration-scanning tests:
+  such a test proves the pairs listed in it, and a pair nobody registered is invisible to
+  it, so the registry has to be derived rather than typed.
 ## REPLY RATE DENOMINATOR (2026-09-03, branch reply-denominator)
 
 - [post-build] THE REPLY RATE NUMERATOR IS REPLIES, NOT PEOPLE WHO REPLIED.

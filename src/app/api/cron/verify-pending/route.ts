@@ -40,6 +40,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
 import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE, MAX_RETRY_ATTEMPTS } from '@/lib/sourcing/verification-trigger'
+import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
 
 export const dynamic = 'force-dynamic'
 // The trigger sleeps 2s per address for rate limiting, so a batch is mostly deliberate
@@ -108,12 +109,28 @@ async function findOrganisationWithPendingVerification(
   // the platform, so every sweep would pick them first — spending a 100/day free tier on a
   // dead test organisation and reporting itself busy while real work waited. The enqueue
   // helpers already refuse archived organisations; this now matches them.
-  const { data, error } = await supabase
+  const { data, error } = await excludeTierRejected(supabase
     .from('prospects')
     .select('organisation_id, created_at, organisations!inner(archived_at)')
     .eq('enrichment_status', 'enriched')
     .is('independent_email_status', null)
-    .not('email', 'is', null)
+    .not('email', 'is', null))
+    // THE TIER GATE, ON THE PICKER AS WELL AS THE TRIGGER, FOR THE REASON DIRECTLY BELOW.
+    //
+    // The retry-cap comment below already states this shape in the abstract. The tier gate
+    // then shipped into verifyEnrichedBatch alone and reproduced it exactly, which is what
+    // this line fixes. Measured 2026-09-03: the only two rows this query could see on the
+    // whole platform were both tier-rejected, so every firing nominated their organisation,
+    // the trigger's gate selected zero from it, and the heartbeat wrote ok. Roughly 290
+    // firings over two days, all reporting success, none able to do anything.
+    //
+    // It was invisible rather than harmless: no second organisation had pending work, so
+    // nothing was actually blocked. The next one to acquire some would never have been
+    // reached.
+    //
+    // excludeTierRejected, not requireTierPresent, so this agrees with the trigger exactly.
+    // A picker STRICTER than the trigger starves the same way in the opposite direction.
+    // See src/lib/sourcing/tier-verdict.ts.
     // THE SAME RETRY CAP verifyEnrichedBatch APPLIES, because this query has to agree with it.
     //
     // This picks the organisation; the trigger picks the rows. Bounding only the trigger turns
