@@ -23,6 +23,8 @@ import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { produceOpening, resolveVariantId, loadClientName } from './research/produce-opening'
 import { loadProspectContext } from './research/prospect-context'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import { suppressProspectAtProvider } from '@/lib/suppression/provider-suppression'
 import type { OpeningResult } from './research/write-opening'
 import type {
   ProspectContext,
@@ -231,6 +233,50 @@ export async function updateProspect(
       prospect_id: prospect.id,
       error: error.message,
     })
+    // No provider call on a failed database write: the suppression this would enforce was
+    // never recorded, so enforcing it would leave the provider stopped and our record open.
+    return
+  }
+
+  // ── Carry the suppression out to the sending provider ──────────────────────
+  //
+  // Research is not only a pre-upload step. A re-run on an already-uploaded prospect is a
+  // real and known path, and a disqualification reached at that point used to change
+  // nothing about the sequence the provider was already running.
+  //
+  // Runs only on a disqualification that was actually written. A provider call on every
+  // research completion would be a call per prospect for a state that has not changed.
+  if (update.suppressed === true) {
+    // A separate, branded service-role client: the local getServiceClient() is untyped and
+    // unbranded, and the suppression path requires the brand by design.
+    const serviceClient = await createServiceRoleClient()
+
+    // The lead id recorded at upload, if this prospect was ever uploaded. Not on
+    // ProspectContext, and worth one small read: it is the authoritative id for the campaign
+    // we uploaded into, where the address sweep is the net for anything created outside it.
+    const { data: row } = await serviceClient
+      .from('prospects')
+      .select('outbound_lead_id')
+      .eq('id', prospect.id)
+      .eq('organisation_id', prospect.organisation_id)
+      .maybeSingle()
+
+    const outcome = await suppressProspectAtProvider(serviceClient, {
+      id: prospect.id,
+      organisation_id: prospect.organisation_id,
+      email: prospect.email,
+      outbound_lead_id: row?.outbound_lead_id ?? null,
+    })
+
+    // Never throws the run away. Research producing a verdict is worth keeping even when
+    // the provider could not be reached, and the failure is on the row, in Sentry, and in
+    // front of the reconciliation sweep.
+    if (outcome.status === 'failed') {
+      logger.error('prospect-research-v2: disqualified prospect was not suppressed at the provider', {
+        prospect_id: prospect.id,
+        error: outcome.error,
+      })
+    }
   }
 }
 
