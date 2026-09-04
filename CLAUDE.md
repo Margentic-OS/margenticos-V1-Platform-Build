@@ -364,14 +364,47 @@ puts something permanently uncompletable in the task list.
 **Every row must have a Gate.** The four gate views filter on it, so an ungated
 row appears in no view and is invisible from the moment it is written.
 
-### Reading the Notion Backlog back
+### Reading the Notion Backlog back — LISTINGS AND FILTERS LIE. PAGE FETCH DOES NOT.
 
-Trust the **views**, not filtered queries. Measured 2026-09-04: SQL-mode queries
-and rows-mode structured filters both misreport the Gate column on this database,
-returning `Gate IS NULL` for rows that the views render with a Gate set, and
-disagreeing with each other on counts. A direct page fetch is truthful. A view is
-truthful. Do not act on a filtered query result without confirming it against a
-view or a page fetch first, and never "repair" data on the strength of one.
+**Never use a Notion listing or filter for anything that decides scope.** Not to
+count rows, not to decide what is in a batch, and never to decide that a field is
+empty.
+
+Measured on the Backlog database on 2026-09-04. Four read paths, three answers,
+one column:
+
+  aggregate COUNT / GROUP BY   ->  146, and "0 rows ungated"
+  unfiltered view enumeration  ->  47 rows, has_more false, Gate key ABSENT on the rest
+  rows-mode `Gate is_empty`    ->  127 rows, including rows that plainly have a Gate
+  targeted page fetch          ->  Gate correctly set
+  the browser UI               ->  Gate correctly set, every row
+
+**The page API and the browser are truthful. Listings and filters are not.** They
+were caught misreporting the same column three separate ways in one session,
+including a view that returned `has_more: false` on a partial result set, which is
+a listing asserting completeness it does not have.
+
+The pattern, so it is recognisable next time: rows edited recently were reported
+correctly and older rows silently lost the field **in the index only**. So the
+error is invisible unless you already know what the answer should be, and it looks
+exactly like data loss. **It is not.** The UI was checked on 2026-09-04 and every
+Gate renders correctly, including the rows the enumeration omits.
+
+Rules that follow:
+
+1. **Page-fetch before marking anything Done**, or before acting on any row's
+   field values.
+2. Never "repair" a field on the strength of a listing. A bulk write to fix
+   phantom nulls would have overwritten ~100 correct rows.
+3. If you must enumerate, derive the list from a capture you can audit, state how
+   you derived it, and say the number out loud so it can be checked. Do not present
+   a listing count as a measurement.
+4. An empty or short result is not evidence of absence. It is evidence the
+   instrument answered.
+
+This is the same shape as the audit query in the database-security section that
+filtered `relkind = 'r'` and returned zero rows reassuringly for months: **when the
+check is the thing that is wrong, nothing downstream of it can notice.**
 
 ---
 
