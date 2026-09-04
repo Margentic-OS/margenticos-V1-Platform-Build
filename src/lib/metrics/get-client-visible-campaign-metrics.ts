@@ -76,6 +76,9 @@ export interface ClientVisibleCampaignMetrics {
   positiveReplyCount: number
   meetingsBooked: number
   meetingsHeld: number
+  // MEETINGS PER PERSON CONTACTED, not per email. Same unit as replyRate and for the same
+  // reason. Null when nobody has been contacted yet.
+  meetingRate: number | null
   // True once a single email has gone out. Callers must not render rates when false.
   hasData: boolean
 }
@@ -166,12 +169,32 @@ export async function getClientVisibleCampaignMetrics(
     bouncedCount,
     unsubscribedCount,
     repliedCount,
-    // ─── DENOMINATED IN PEOPLE, NOT EMAILS, SINCE 2026-09-03 ─────────────────
+    // ─── DENOMINATED IN PEOPLE, NOT EMAILS ────────────────────────────────────
     //
-    // A four-step sequence sends up to four emails to one person, so sentCount counted
-    // the same person up to four times and this rate came out roughly a quarter of what
-    // published reply-rate figures mean. Live: 2 replies from 60 emails reads 3.3%, the
-    // same 2 replies from 24 people reads 8.3%.
+    // A four-step sequence sends up to four emails to one person, so sentCount counts the
+    // same person up to four times. Per person is the more meaningful statistic: four
+    // emails to one person are one person deciding once, not four independent chances of
+    // a reply. Live: 2 replies from 60 emails reads 3.3%, the same 2 replies from 24
+    // people reads 8.3%.
+    //
+    // THE ORIGINAL VERSION OF THIS COMMENT WAS WRONG AND IS CORRECTED HERE, because it
+    // would mislead the next reader exactly as it misled the last one.
+    //
+    // It said the per-email rate "came out roughly a quarter of what published
+    // reply-rate figures mean". That is backwards. The published figure this page showed
+    // was the Instantly report's, and that report defines its reply rate as "percentage
+    // of all replies received (including follow-up responses) divided by TOTAL EMAILS
+    // SENT". Per email. So the per-email rate was the one that MATCHED the range, and
+    // moving to people made the comparison wrong rather than right, for one day.
+    //
+    // The move to people is still correct on the statistics and stands. What was missing
+    // was moving the RANGE with it, which was done on 2026-09-03: the benchmarks page now
+    // cites two sources that state a per-contact denominator in their own words. See
+    // tier1-benchmarks.ts.
+    //
+    // THE LESSON, since it cost a shipped defect: a denominator change is a change to
+    // BOTH SIDES of a comparison. Changing our half and leaving the published half is not
+    // a partial fix, it is a new defect pointing the other way.
     //
     // CHANGED HERE, AT THE CHOKEPOINT, RATHER THAN ON ONE PAGE. This value is rendered on
     // the benchmarks page, the pipeline page and the client campaign metrics view.
@@ -185,6 +208,22 @@ export async function getClientVisibleCampaignMetrics(
     // confirmed happened.
     meetingsBooked: meetings.length,
     meetingsHeld: meetings.filter(m => m.meeting_status === 'held').length,
+    // Same denominator as replyRate, and computed HERE for the same reason: so no two
+    // pages can render different meeting rates for one client. The benchmarks page adds a
+    // sample gate on top of this, which decides whether to SHOW it, never what it is.
+    //
+    // Numerator is meetingsBooked, not meetingsHeld. The question this answers is "did
+    // outreach produce meetings", and a meeting that was booked and later cancelled was
+    // still produced by outreach.
+    //
+    // NOT CAMPAIGN-SCOPED, and that is deliberate rather than overlooked. meetings has a
+    // campaign_id column but the Calendly webhook, which is the only writer of meeting
+    // rows, never populates it: see webhooks/calendly/route.ts. The link exists one hop
+    // away through prospect_id -> prospects.campaign_id. Left alone because there is
+    // currently one campaign per organisation, so the org-wide numerator and the
+    // campaign-scoped denominator have no instance where they disagree. Recorded in
+    // BACKLOG rather than built against a distinction with no examples.
+    meetingRate: contactedCount > 0 ? (meetings.length / contactedCount) * 100 : null,
     hasData: sentCount > 0,
   }
 }
@@ -201,6 +240,10 @@ export interface AllCampaignMetrics {
   replyRate: number | null
   positiveReplyCount: number
   meetingCount: number
+  // Meetings per PERSON contacted, identical definition to the client-facing meetingRate.
+  // An operator comparing their panel against what the client sees must not find two
+  // numbers, which is the same rule replyRate follows.
+  meetingRate: number | null
   bouncedCount: number
   hasData: boolean
 }
@@ -253,6 +296,7 @@ export async function getAllCampaignMetricsForOrg(
     replyRate: contactedCount > 0 ? (repliedCount / contactedCount) * 100 : null,
     positiveReplyCount: positiveRepliesResult.count ?? 0,
     meetingCount: meetingsResult.count ?? 0,
+    meetingRate: contactedCount > 0 ? ((meetingsResult.count ?? 0) / contactedCount) * 100 : null,
     bouncedCount,
     hasData: sentCount > 0,
   }

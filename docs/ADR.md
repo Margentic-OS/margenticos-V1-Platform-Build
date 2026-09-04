@@ -4257,3 +4257,154 @@ with the database as the consumer.
 had one. A clean split along the code path. Fixed, and the fix asserts the NEW document id
 is passed, because deriving from the old one would write a spec onto an already-archived
 row and look right.
+
+---
+
+## ADR-048 — A rate declares its unit, the unit drives the denominator, and an unsourced range is removed rather than kept
+
+**Date:** 2026-09-03
+**Status:** Accepted
+**Supersedes nothing. Corrects the range half of the 2026-09-02 reply-denominator change.**
+
+### The decision
+
+Three parts, and the third is the one that generalises.
+
+1. **The meeting booking rate is denominated in people contacted**, matching the reply
+   rate, computed at the metrics chokepoint so no two pages can render different values.
+   Its sample gate is `MIN_PEOPLE_FOR_MEETING_RATE = 1500`, derived independently rather
+   than reused from the reply gate.
+
+2. **The meeting booking industry range is REMOVED, not replaced.** No defensible
+   per-person published benchmark exists. The card shows our rate alone and says so.
+
+3. **Every benchmark declares a `unit`, and the page derives its denominator from that
+   declaration.** A card cannot name one unit and divide by another.
+
+### What went wrong, which is why part 3 exists
+
+Commit `9283bbe` (2026-09-02) moved the reply rate's denominator from emails sent to people
+contacted. The statistics are sound and that change stands: `sqrt(p(1-p)/n)` assumes n
+independent trials, and four emails to one person are one person deciding once, prompted
+four times. Counting them as four overstates the sample by roughly the sequence length.
+
+What it missed is that the 3 to 6% range it was rendered beside is measured **per email
+sent** by its own source. The Instantly report defines its metric as "percentage of all
+replies received (including follow-up responses) divided by TOTAL EMAILS SENT", average
+3.43%, top quartile 5.5% — which is where 3 to 6 came from. So for one day the page divided
+by people and compared the result against a range built by dividing by emails.
+
+The code comments in `get-client-visible-campaign-metrics.ts` and `BenchmarksView.tsx` both
+asserted the opposite: that the published figures were people-denominated and the old
+per-email rate was "the one being compared against a range measured the other way". The old
+rate was in fact the one that matched. Both comments are corrected in place rather than
+deleted, because a wrong comment that reads as a rationale is what carried the error
+through review.
+
+**The rate was not reverted.** Per person is the better statistic. The range moved instead,
+to two sources that state a per-contact denominator in their own words, both verified
+against the primary source rather than a summary:
+
+| Source | Sample | Figure |
+|---|---|---|
+| Smartlead, State of Cold Email 2026 | 850M+ emails, Jan–Jun 2026 | median 0.74% of contacts; top 10% 2.63%+ |
+| ReplyLead, August 2026 | 115 campaigns, 242,669 unique leads | median 2.12% per contacted lead; IQR 1.39–3.00% |
+
+Range shown: 0.7 to 3%. The two medians differ threefold. That is a real disagreement
+between populations and the width of the range is the honest shape of it.
+
+### Why the meeting range is deleted rather than corrected
+
+It read 1 to 3%, cited to the Instantly report. That report **publishes no meeting metric
+at all**, in any unit. The number on a client-facing card presenting itself as research had
+no source behind it. This is the second citation to fail on this one card: Belkins was
+removed earlier for contradicting the same range, and the replacement did not carry the
+figure either.
+
+Four candidates were read and rejected:
+
+- **GROU** — 0.35% median, 0.9% top quartile, 47 B2B clients. The only one with first-party
+  data and a stated method, and explicitly "the percentage of SENDS that result in a
+  calendar booking". Wrong unit.
+- **Prospeo** — 1 to 4% per sequence started. The article attributes it to nothing.
+- **LeadHaste** — 0.4 to 3.0% "per unique prospect". No sample, no method, no named source,
+  selling consulting on the same page.
+- **Assorted blogs** — several attribute 1 to 3% to the Instantly report. That is our own
+  unsourced number circulating back with a citation attached, which is the strongest
+  argument for deleting it.
+
+**Removal is stated on the card, not silent.** A heading reading "Industry range" with
+nothing under it looks like a loading failure. The card carries the reason, and so does the
+page attribution. In the type system `MetricBenchmark` is a discriminated union: the
+member with `industryRange: null` requires `rangeAbsentNote`, so dropping a range without
+writing down why does not typecheck.
+
+### The generalisation, which is the part to carry forward
+
+**A denominator change is a change to BOTH SIDES of a comparison.** Changing our half and
+leaving the published half is not a partial fix; it is a new defect pointing the other way.
+The 2026-09-02 change made the reply rate more meaningful and less comparable in the same
+edit, and nothing on screen or in the type system could see the second half.
+
+This is a new instance of a shape already in CLAUDE.md: *a producer and a consumer that are
+each correct and disagree on FORMAT*. Here the two sides are our arithmetic and a published
+figure, and the disagreement is a unit rather than a string encoding. The fix is the same
+in kind: make the seam explicit and test the PAIR.
+
+Structurally:
+
+```ts
+// tier1-benchmarks.ts — the unit is declared once, beside the range it belongs to
+replyRate: { industryRange: { min: 0.7, max: 3 }, unit: 'people contacted', ... }
+
+// BenchmarksView.tsx — and the arithmetic is derived from it
+function denominatorFor(unit: RateUnit): number {
+  switch (unit) {
+    case 'people contacted': return contactedCount
+    case 'emails sent':      return sentCount
+    case 'replies':          return repliedCount
+  }
+}
+```
+
+Changing the unit changes the division. There is no second place to update, so the label
+and the arithmetic cannot drift. Both halves print their unit on the card, ours on the
+counts line and the range on its own, because a reader who can see only one of the two
+cannot check whether they match.
+
+### The sample gate is derived, not copied
+
+`MIN_PEOPLE_FOR_MEETING_RATE = 1500`, from the same standard error of a proportion at the
+rate meetings actually run:
+
+```
+0.0025 = sqrt(0.009 × 0.991 / n)   ->   n ≈ 1,427, rounded to 1,500
+```
+
+Reusing `MIN_PEOPLE_FOR_RATE = 400` would print a meeting rate off roughly 3.6 expected
+events, a figure that moves by a third of itself when the next meeting lands. It is a
+separate constant with a separate derivation for the same reason `MIN_PEOPLE_FOR_RATE` is
+separate from `MIN_SENDS_FOR_RATE`: same formula, different question, and dragging one
+along with the other is how the units got confused in the first place.
+
+The cost, stated: about 3.75× the reply gate, so the meeting card shows a dash for
+considerably longer. A long dash beats a confident number off 3.6 expected meetings.
+
+### What was deliberately not done
+
+**The numerator is not campaign-scoped.** `meetings.campaign_id` exists with a foreign key
+to `campaigns`, but the Calendly webhook — the only writer of meeting rows — never
+populates it. The link is reachable one hop away through `prospect_id →
+prospects.campaign_id`. Left alone: there is currently one campaign per organisation, both
+sides are already org-scoped by `.eq('organisation_id', …)`, and the distinction has no
+instances. Recorded in BACKLOG rather than built against a case that does not exist.
+
+**Bounce and opt-out stay per email.** Deliverability is a property of a message. A bounce
+is one address rejecting one delivery; an opt-out arrives from one email even when three
+more were scheduled. Dividing either by people would answer a question nobody asks of them.
+The positive reply share is of replies and was never involved.
+
+### Rollback
+
+Display only. No migration, no schema change, no write path: every touched module only
+reads. Nothing stored changes, so `git revert` is sufficient and complete.

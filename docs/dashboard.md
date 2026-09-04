@@ -304,8 +304,51 @@ true from the first email; only the rate has to wait.
 
 | Gate | Value | Derivation |
 |---|---|---|
-| Send-denominated rates (reply, meeting, bounce, opt-out) | 400 emails | standard error of a proportion under 1 point at a 4% rate needs n ≈ 384; at a 1% rate, under half a point needs n ≈ 396 |
+| Send-denominated rates (bounce, opt-out) | 400 emails | standard error of a proportion under 1 point at a 4% rate needs n ≈ 384; at a 1% rate, under half a point needs n ≈ 396 |
+| Reply rate | 400 people | same algebra, different unit. n is a count of people, and the formula assumes n INDEPENDENT trials: four emails to one person are one person deciding once, not four chances |
+| Meeting booking rate | 1,500 people | derived separately, NOT copied from the reply gate. Meetings run near 0.9%, and half a point apart at that rate needs 0.0025 = sqrt(0.009 × 0.991 / n) → n ≈ 1,427. At 400 people the expected meeting count is about 3.6, and a rate off 3.6 events moves by a third of itself when the next one lands |
 | Positive reply share | 25 replies | denominator is replies and the proportion sits near half, where the error is widest: a 10-point standard error needs n = 25 |
+
+**EVERY RATE STATES ITS UNIT, AND THE UNIT DRIVES THE ARITHMETIC.** This is the fix for
+the worst defect this page has produced, and it is worth reading before changing any rate
+here.
+
+On 2026-09-02 the reply rate moved from emails sent to people contacted. That is the
+better statistic and it stands. What the change missed is that the 3 to 6% range it was
+rendered beside came from the Instantly report, which defines its metric as "percentage of
+all replies received (including follow-up responses) divided by TOTAL EMAILS SENT". Per
+email. So the page divided by people and compared the answer against a range built by
+dividing by emails, and the code comments in both files asserted the opposite. Half a
+comparison moved.
+
+Fixed on 2026-09-03 by moving the RANGE, not by reverting the rate. `replyRate` now cites
+Smartlead's State of Cold Email 2026 (850M+ emails, median 0.74% of contacts, top 10%
+2.63%+) and ReplyLead's August 2026 analysis (115 campaigns, 242,669 unique leads, median
+2.12% per contacted lead, interquartile 1.39% to 3.00%). Both state a per-contact
+denominator in their own words. The range spans them at 0.7 to 3%; the two medians differ
+threefold, which is a real disagreement between populations rather than something to
+average away.
+
+**The structural guard.** Every entry in `tier1-benchmarks.ts` declares a `unit`, and
+`BenchmarksView` derives its denominator from it through `denominatorFor()`. A card cannot
+say "people contacted" while dividing by emails: changing the unit changes the arithmetic,
+and there is no second place to update. Both halves of the comparison print their unit,
+ours on the counts line ("160 replies from 2,000 people contacted") and the published
+range on its own ("0.7–3% of people contacted"), because a reader who can see only one of
+the two units cannot tell whether they match. That was the state of this page for a day.
+
+**The meeting booking rate has no industry range, deliberately.** It read 1 to 3%, cited
+to the Instantly report, which publishes no meeting metric at all in any unit. The number
+had no source. That is the SECOND citation to fail on this one card; Belkins was removed
+before it for contradicting the same range. Four replacements were read and rejected: the
+only one with a stated method (GROU, 0.35% median across 47 B2B clients) measures per
+SEND, and the rest are unattributed vendor opinion, several of them attributing 1 to 3% to
+the Instantly report that does not contain it. The card shows the rate alone and says on
+its face that there is no range. In the type system this is a discriminated union member,
+not an optional field, so removing a range without writing down why does not compile.
+
+Bounce and opt-out stay per email and must: deliverability is a property of a message, not
+of the person it was addressed to. The positive share is of replies and always was.
 
 **The ninety-days block is collapsed by default.** It was four paragraphs above the
 cards, which is why nobody read it. It is now a disclosure with the lead line

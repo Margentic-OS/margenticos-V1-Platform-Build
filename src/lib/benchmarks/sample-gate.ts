@@ -21,12 +21,15 @@
 //
 // The standard error of a measured proportion is sqrt(p(1-p)/n).
 //
-// SEND-DENOMINATED RATES (meeting booking, bounce, opt-out): the thresholds worth
-// distinguishing sit about a percentage point apart, so a standard error under one point
-// is the bar.
+// SEND-DENOMINATED RATES (bounce, opt-out): the thresholds worth distinguishing sit about
+// a percentage point apart, so a standard error under one point is the bar.
 //   reply rate near 4%:            0.01 = sqrt(0.04 * 0.96 / n)  ->  n ~= 384
-//   meeting rate near 1%, half a point:  0.005 = sqrt(0.01 * 0.99 / n)  ->  n ~= 396
+//   a rate near 1%, half a point:  0.005 = sqrt(0.01 * 0.99 / n)  ->  n ~= 396
 // Both land in the same place, so one number covers them: 400 emails.
+//
+// The meeting booking rate WAS in this group and is not any more. It moved to people on
+// 2026-09-03 and got its own constant, derived at the rate meetings actually run rather
+// than at the 1% used above. See MIN_PEOPLE_FOR_MEETING_RATE.
 //
 // PEOPLE-DENOMINATED RATES (reply, since 2026-09-03): same arithmetic, different unit.
 // n is a count of PEOPLE, and the number is the same 400 because the algebra above does
@@ -62,6 +65,30 @@ export const MIN_SENDS_FOR_RATE = 400
 //
 // If one of them ever moves, the other must be considered separately, not dragged along.
 export const MIN_PEOPLE_FOR_RATE = 400
+
+// ─── DERIVED SEPARATELY FROM THE REPLY GATE, NOT COPIED FROM IT ──────────────
+//
+// Meetings are roughly an order of magnitude rarer than replies, so a gate sized for
+// replies would print a meeting rate off a sample that cannot carry one. Reusing
+// MIN_PEOPLE_FOR_RATE here would have been the whole defect in miniature: the same
+// number under a rate that needs a different one.
+//
+// Same formula, sqrt(p(1-p)/n), at the rate meetings actually run. We underwrite roughly
+// 0.9%, and the distinction worth resolving at that level is about a quarter of a point,
+// because a meeting rate is read as "roughly one in a hundred" or "roughly one in two
+// hundred" and those sit 0.5pp apart:
+//
+//   0.0025 = sqrt(0.009 * 0.991 / n)  ->  n = 0.009 * 0.991 / 0.0025^2  ->  n ~= 1,427
+//
+// Rounded to 1,500, in the same spirit as the numbers above: a judgement about when a
+// figure stops being noise, not a precision instrument.
+//
+// WHAT THIS COSTS, STATED PLAINLY. It is about 3.75x the reply gate, so the meeting card
+// shows a dash for considerably longer than the reply card, and at present volumes that
+// is many months. That is the correct trade. At 400 people the expected meeting count is
+// about 3.6, and a rate built on 3.6 events moves by a third of itself when the next one
+// lands. A long dash is better than a confident number off 3.6 expected meetings.
+export const MIN_PEOPLE_FOR_MEETING_RATE = 1500
 
 export const MIN_REPLIES_FOR_POSITIVE_RATE = 25
 

@@ -154,7 +154,25 @@ describe('a rejection recorded BEFORE enrichment lands in the same removed count
     await supabase.from('prospects').delete().eq('id', gateRejectedId)
     const cleaned = await metrics()
     expect(cleaned.removed_count).toBe(removedBefore)
-  })
+    // ─── 15s, NOT THE 5s DEFAULT. MEASURED, NOT GUESSED ─────────────────────
+    //
+    // This timed out at exactly 5006ms under full-suite load, which is the timeout
+    // firing and not a duration. Re-measured with the gate lifted, same full-suite
+    // run: 4635ms. So it was completing, at 93% of its budget, and losing the race
+    // on any run where the database answered slightly slower.
+    //
+    // Where 4635ms goes, and why it is not a hang. Every other test in this file
+    // calls metrics() ONCE and lands between 1317 and 1490ms against the real test
+    // database. This one calls it THREE times, before and after the insert and again
+    // after the delete, because the claim it makes is a DELTA rather than an
+    // absolute. Three reads at ~1330ms is ~3990ms, plus the insert and the delete
+    // round trips. That accounts for the whole figure with nothing left over.
+    //
+    // 15s is about 3.2x the measured time. Enough that ordinary database variance
+    // cannot reach it, and short enough that a genuine hang still fails the suite in
+    // seconds rather than parking it. The assertions are untouched: the fix is the
+    // budget, not the test.
+  }, 15_000)
 })
 
 describe('batch funnels reconcile with the organisation-wide cards', () => {
