@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { OrganisationNameEditor } from './OrganisationNameEditor'
 
 interface DocumentStatus {
   type: string
@@ -8,7 +9,16 @@ interface DocumentStatus {
 }
 
 interface ClientProfileBlockProps {
+  orgId: string
   orgName: string
+  /**
+   * The client's own company_name intake response, or null when unanswered.
+   *
+   * Rendered beside orgName so the two can be compared on one screen. They are stored in
+   * different tables, written by different people weeks apart, and until 2026-09-03 nothing
+   * had ever put them side by side. See OrganisationNameEditor.
+   */
+  intakeCompanyName: string | null
   founderName?: string
   clientEmail?: string
   website?: string
@@ -30,7 +40,9 @@ interface ClientProfileBlockProps {
 }
 
 export function ClientProfileBlock({
+  orgId,
   orgName,
+  intakeCompanyName,
   founderName,
   clientEmail,
   website,
@@ -63,10 +75,11 @@ export function ClientProfileBlock({
         <div>
           <p className="text-[10px] uppercase tracking-[0.09em] text-text-secondary mb-3 font-medium">Company</p>
           <div className="space-y-2">
-            <div className="flex justify-between items-start">
-              <span className="text-[12px] text-text-secondary">Company name</span>
-              <span className="text-[12px] font-medium text-text-primary">{orgName}</span>
-            </div>
+            <OrganisationNameEditor
+              orgId={orgId}
+              orgName={orgName}
+              intakeName={intakeCompanyName}
+            />
             {founderName && (
               <div className="flex justify-between items-start">
                 <span className="text-[12px] text-text-secondary">Founder</span>

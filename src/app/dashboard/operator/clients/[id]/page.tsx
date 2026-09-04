@@ -92,6 +92,7 @@ export default async function ClientDetailPage({
     pendingSuggestionsResult,
     intakeWebsiteResult,
     intakeRevenueResult,
+    intakeCompanyNameResult,
     campaignMetrics,
   ] = await Promise.all([
     supabase
@@ -153,6 +154,15 @@ export default async function ClientDetailPage({
       .eq('organisation_id', org.id)
       .eq('field_key', 'company_revenue_range')
       .maybeSingle(),
+    // The client's own spelling of their company name, fetched so the profile block can put
+    // it beside organisations.name. Two fields, two tables, two authors, weeks apart, and
+    // nothing compared them until 2026-09-03. See OrganisationNameEditor.
+    supabase
+      .from('intake_responses')
+      .select('response_value')
+      .eq('organisation_id', org.id)
+      .eq('field_key', 'company_name')
+      .maybeSingle(),
     // serviceRole, not supabase. getAllCampaignMetricsForOrg declares a service-role
     // client and was handed the SSR session client, with the correct client already in
     // scope four lines up. It returned the right numbers only because the operator RLS
@@ -178,6 +188,10 @@ export default async function ClientDetailPage({
   const clientUser = clientUserResult.data
   const website = intakeWebsiteResult.data?.response_value ?? undefined
   const revenueRange = intakeRevenueResult.data?.response_value ?? undefined
+  // `?? null`, NOT `?? undefined`. The editor distinguishes an unanswered intake from an
+  // answered one, and collapsing both into undefined would report a real disagreement as
+  // "not answered yet".
+  const intakeCompanyName = intakeCompanyNameResult.data?.response_value ?? null
 
   const derivedCampaignsStatus: SetupStatusValue = deriveCampaignsStatus(
     campaigns.map(c => ({ shell_synced_at: c.shellSyncedAt })),
@@ -262,7 +276,9 @@ export default async function ClientDetailPage({
               <WaitingOnYouBlock items={waitingItems} />
 
               <ClientProfileBlock
+                orgId={org.id}
                 orgName={org.name}
+                intakeCompanyName={intakeCompanyName}
                 founderName={org.founder_first_name ?? undefined}
                 clientEmail={clientUser?.email}
                 website={website}

@@ -3,6 +3,7 @@
 import * as Sentry from '@sentry/nextjs'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { revalidatePath } from 'next/cache'
 import { validateCampaign } from '@/lib/integrations/handlers/instantly/validateCampaign'
 import { uploadLeads } from '@/lib/integrations/handlers/instantly/uploadLeads'
 import { orderMailboxes } from '@/lib/integrations/handlers/instantly/orderMailboxes'
@@ -995,6 +996,87 @@ export async function handleDfyRealOrder(orgId: string, domains: string[]): Prom
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+// ── Organisation name ─────────────────────────────────────────────────────────
+//
+// THERE WAS NO EDIT PATH FOR THIS FIELD AT ALL.
+//
+// organisations.name is typed once by the operator at client creation. The client then
+// types their own company name into intake weeks later. Nothing compared the two, and
+// neither could be corrected afterwards without a direct database write.
+//
+// It is not a cosmetic field. It is the SECOND LINE OF THE SIGN-OFF BLOCK on every email
+// this platform sends, read from organisations.name by the messaging agent's preflight and
+// enforced there by a validator. A typo at client creation is a typo under every email.
+//
+// Measured 2026-09-03: of five organisations, two hold a name that differs from the intake
+// spelling, and a third has a blank intake value. Which spelling is right is a question for
+// the client, so this action deliberately changes nothing on its own and no data was
+// touched. It exists so that when the answer is known, applying it does not need a
+// developer.
+
+/** Guards against a paste accident becoming the sign-off line on every email. */
+const MAX_ORGANISATION_NAME_LENGTH = 120
+
+export async function updateOrganisationName(
+  orgId: string,
+  name: string,
+): Promise<{ error?: string }> {
+  const trimmed = name.trim()
+
+  // EMPTY IS REFUSED HERE, not left to the database. organisations.name is nullable, and
+  // the messaging agent fails preflight with "Organisation name is missing" when it is
+  // blank. Letting the field be cleared from the UI would turn an edit into a broken
+  // generation run some days later, which is a long way from the click that caused it.
+  if (!trimmed) {
+    return {
+      error:
+        'Company name cannot be empty. It is the second line of the sign-off on every ' +
+        'email, and generation refuses to run without it.',
+    }
+  }
+  if (trimmed.length > MAX_ORGANISATION_NAME_LENGTH) {
+    return { error: `Company name must be ${MAX_ORGANISATION_NAME_LENGTH} characters or fewer.` }
+  }
+
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  // The session client, not the service client. operators_full_access_organisations is an
+  // ALL policy on authenticated gated by is_operator(), so RLS is a real second layer here
+  // and there is no reason to step around it.
+  const { error } = await supabase
+    .from('organisations')
+    .update({ name: trimmed })
+    .eq('id', orgId)
+
+  if (error) return { error: error.message }
+
+  logger.info('operator: organisation name updated', {
+    organisation_id: orgId,
+    // The value itself is deliberately not logged. Client names are client data, and this
+    // line exists to record that a change happened and by whom.
+    updated_by: user.id,
+    new_length: trimmed.length,
+  })
+
+  // The client profile block renders this field, and the mismatch notice next to it is
+  // computed at render time. Without this the operator saves, sees the old value, and
+  // reasonably concludes it did not work.
+  revalidatePath(`/dashboard/operator/clients/${orgId}`)
+
+  return {}
 }
 
 // ── Warmup control ────────────────────────────────────────────────────────────
