@@ -68,6 +68,25 @@ export const NOT_MAPPED: Readonly<Record<string, string>> = {
   assets_past_outreach: 'Reference material, as above.',
 }
 
+/**
+ * Whether this save is an EDIT to an existing answer, as opposed to a first answer or a
+ * no-op re-save.
+ *
+ * Extracted from the server action so it can be mutation-tested. Inline it was untestable,
+ * and replacing it with `true` passed the whole suite while flagging documents on every
+ * blur, because the form saves whether or not anything was typed.
+ *
+ * @param previous the stored answer, or null when no row existed
+ *
+ * A first answer returns false: no document was built without it, so nothing it feeds can
+ * have been written on a different premise. Compared on trimmed values, because whitespace
+ * is not a change of meaning and the stored value is trimmed for word counting anyway.
+ */
+export function isIntakeAnswerEdit(previous: string | null, next: string): boolean {
+  if (previous === null) return false
+  return previous.trim() !== next.trim()
+}
+
 /** Documents to flag when `fieldKey` changes. Empty for anything unmapped. */
 export function documentsAffectedBy(fieldKey: string): readonly StrategyDocType[] {
   return DOCUMENTS_FED_BY_FIELD[fieldKey] ?? []

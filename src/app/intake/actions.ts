@@ -10,6 +10,7 @@ import { logger } from '@/lib/logger'
 import {
   documentsAffectedBy,
   intakeStaleReason,
+  isIntakeAnswerEdit,
 } from '@/lib/intake/document-staleness'
 
 export async function saveIntakeResponse(
@@ -86,10 +87,7 @@ export async function saveIntakeResponse(
   // An answer that CHANGED, not one written for the first time. A first answer cannot
   // invalidate a document, because no document was built without it: either it predates
   // generation, or generation has not happened yet.
-  const previous = existing?.response_value ?? null
-  const isEdit = previous !== null && previous.trim() !== responseValue.trim()
-
-  if (isEdit) {
+  if (isIntakeAnswerEdit(existing?.response_value ?? null, responseValue)) {
     await markDocumentsStaleForIntakeEdit(
       supabase,
       userRecord.organisation_id,

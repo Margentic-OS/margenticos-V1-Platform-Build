@@ -5,6 +5,7 @@ import {
   documentsAffectedBy,
   intakeStaleReason,
   isIntakeStaleReason,
+  isIntakeAnswerEdit,
 } from '@/lib/intake/document-staleness'
 import { ALL_QUESTIONS } from '@/lib/intake/questions'
 import { selectStaleDocuments } from '@/lib/dashboard/stale-documents'
@@ -44,6 +45,32 @@ describe('the field-to-document map', () => {
 
   it('returns nothing for a field it does not know', () => {
     expect(documentsAffectedBy('not_a_field')).toEqual([])
+  })
+})
+
+describe('what counts as an edit', () => {
+  // THE GUARD. The form saves on blur whether or not anything was typed. Replacing this
+  // with `true` flags documents on every visit to every field, and trains the operator to
+  // ignore the flag.
+  it('does not treat a no-op re-save as an edit', () => {
+    expect(isIntakeAnswerEdit('same words', 'same words')).toBe(false)
+  })
+
+  it('ignores whitespace-only differences', () => {
+    expect(isIntakeAnswerEdit('same words', '  same words  ')).toBe(false)
+  })
+
+  it('does not treat a first answer as an edit', () => {
+    // No document was built without it, so nothing it feeds was written on another premise.
+    expect(isIntakeAnswerEdit(null, 'a brand new answer')).toBe(false)
+  })
+
+  it('treats a real change as an edit', () => {
+    expect(isIntakeAnswerEdit('old answer', 'new answer')).toBe(true)
+  })
+
+  it('treats clearing an answer as an edit', () => {
+    expect(isIntakeAnswerEdit('had an answer', '')).toBe(true)
   })
 })
 
