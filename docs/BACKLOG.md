@@ -23,6 +23,56 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## REPLAYING THIS REPO DOES NOT PRODUCE A WORKING SYSTEM (2026-09-04, branch config-seeds)
+
+- [pre-c1] A FULL ORDERED REPLAY LOSES SEVEN INTEGRATION ROWS, AND THE CONFIG-SEED WORK
+  DELIBERATELY DID NOT FIX IT. This is a disaster-recovery gap, not a config gap, and it
+  is bigger than the pass that found it.
+
+  MEASURED, not reasoned about. `supabase/baseline/schema.sql` plus all 140 migrations
+  applied in filename order into a scratch Postgres. `20260420_seed_integrations_registry.sql`
+  begins with an UNGUARDED
+
+      ALTER TABLE integrations_registry
+        ADD CONSTRAINT integrations_registry_capability_tool_name_key UNIQUE (capability, tool_name);
+
+  The baseline already carries that constraint, so the statement raises
+  `relation "integrations_registry_capability_tool_name_key" already exists`, the whole
+  file aborts, and THE INSERT BELOW IT NEVER RUNS. Seven rows are absent from the
+  rebuilt database:
+
+      can_send_email, can_schedule_linkedin_post, can_send_linkedin_dm,
+      can_enrich_contact, can_book_meeting, can_track_meeting,
+      can_validate_email / (the inactive first-choice validator)
+
+  A registry with no `can_send_email` row is a system that cannot dispatch a send at all.
+  This is not a reverted flag; it is a missing capability.
+
+  THE SAME SHAPE, 33 TIMES. 33 of the 51 migration failures in that replay are
+  "already exists". Migrations written before the 2026-08-28 baseline capture re-run
+  against a schema that already contains their changes. Some are harmless because the
+  statement is the whole file; this one is not, because an aborted file takes its data
+  seeding with it.
+
+  THE REPOSITORY ALREADY ADMITS THIS AND NOBODY HAS ACTED ON IT. The baseline header says
+  in its own words: "WHY THIS FILE EXISTS: supabase/migrations/ CANNOT REBUILD THIS
+  DATABASE... no file anywhere creates organisations, prospects or campaigns. The three
+  core create_*_tables migrations from 2026-04-15 exist only in the remote database. If
+  this project were lost, the repository could not recreate it." That paragraph has been
+  true and unactioned since 2026-08-28. What this session adds is the measurement of what
+  the replay actually produces, rather than the knowledge that it would be incomplete.
+
+  WHY IT WAS NOT FIXED HERE. Scope was config seeding. Making the replay clean means
+  deciding what the rebuild path IS: baseline-plus-forward-migrations-only, or an
+  idempotent full history with every pre-baseline DDL guarded. That is a real decision
+  about disaster recovery and it deserves its own session.
+
+  NEXT ACTION: decide the rebuild path, then either fence pre-baseline migrations out of
+  the replay or make their DDL idempotent (`ADD CONSTRAINT IF NOT EXISTS` is not valid
+  Postgres, so this is a DO block per statement, not a one-word change). Until then,
+  treat `supabase/baseline/schema.sql` as the only restore artefact and assume the
+  migration set cannot rebuild anything on its own.
+
 ## MIGRATIONS THAT RE-SEED A VALUE SOMEBODY IS MEANT TO CHANGE (2026-09-04, branch seed-10000)
 
 Found by asking, after the verification limit's seed and its live value diverged for one day,
@@ -35,7 +85,8 @@ environment from these files silently reverts a deliberate operator decision, wi
 and nothing to compare against afterwards. It is the same family as the cron schedule, except
 that MON-025 now catches that one and NOTHING catches this one.
 
-- [pre-c1] `instantly_api_active` IS TRUE LIVE AND ITS MIGRATION SEEDS IT FALSE.
+- [RESOLVED 2026-09-04, branch config-seeds] `instantly_api_active` IS TRUE LIVE AND ITS
+  MIGRATION SEEDS IT FALSE.
 
   `20260521193228_integration_feature_flags.sql` upserts it with
   `ON CONFLICT DO UPDATE SET is_active = EXCLUDED.is_active`, value false. Live it has been
@@ -47,7 +98,8 @@ that MON-025 now catches that one and NOTHING catches this one.
   `{"mode":"mock"}`, which happens to match live today, so that one is latent rather than
   live.
 
-- [pre-c1] `enrichment_live` IS TRUE LIVE AND A FULL ORDERED REPLAY LANDS IT FALSE.
+- [RESOLVED 2026-09-04, branch config-seeds] `enrichment_live` IS TRUE LIVE AND A FULL
+  ORDERED REPLAY LANDS IT FALSE.
 
   Two migrations touch it and only one is guarded, which is why this is easy to miss.
   `20260810_enrichment_live_flag.sql` is CORRECT: it sets the key only
@@ -59,8 +111,8 @@ that MON-025 now catches that one and NOTHING catches this one.
   A guard on the later migration does not protect a value the earlier one deletes. That is
   the part worth carrying: reading only the migration that owns a key is not enough.
 
-- [pre-c1] THE ACTIVE EMAIL-VALIDATION ROW IS CREATED BY NO MIGRATION AT ALL, so a rebuild
-  from these files does not have it.
+- [RESOLVED 2026-09-04, branch config-seeds] THE ACTIVE EMAIL-VALIDATION ROW IS CREATED BY
+  NO MIGRATION AT ALL, so a rebuild from these files does not have it.
 
   `can_validate_email / myemailverifier` exists in production and is the row the verification
   sweep now reads its daily budget from. Grepping every migration for the vendor name returns
@@ -76,13 +128,25 @@ that MON-025 now catches that one and NOTHING catches this one.
   MEASURED, and it is not hypothetical: the test project's `integrations_registry` holds ZERO
   ROWS. The baseline it was restored from is schema without data.
 
-  NEXT ACTION: a migration that seeds this row with `ON CONFLICT DO NOTHING`, so a rebuild has
-  it and an existing database is untouched. Not done here because the instruction was to
-  report and fix nothing else.
+  DONE 2026-09-04 (branch config-seeds):
+  `20260904170000_seed_email_validation_registry_row.sql` seeds this row with
+  `ON CONFLICT (capability, tool_name) DO NOTHING`, carrying all six config keys, the
+  handler ref and `is_active = true`. Proved by replay: a rebuild that previously produced
+  only the inactive validator row now produces the active one, and a re-run over the live
+  values changes nothing. The five inert config keys were reproduced rather than dropped,
+  because deleting them would be a second change hiding inside this one; wiring them up or
+  removing them is still the open item recorded further down this file.
 
-- [post-build] WHAT IS ALREADY SAFE, recorded so nobody re-audits it. `system_flags` uses
-  `ON CONFLICT (key) DO NOTHING` in both migrations that seed it, so the queue rollout flags
-  survive a replay. `can_source_prospects` (20260612) and `can_report_sending_health`
+- [post-build] WHAT IS ALREADY SAFE, recorded so nobody re-audits it.
+  CORRECTED 2026-09-04 (branch config-seeds), because the paragraph below was WRONG in a
+  reassuring direction and was believed for a day. `system_flags` uses
+  `ON CONFLICT (key) DO NOTHING` in both migrations that seed it, and that protects a
+  RE-RUN over an existing row. IT DOES NOT PROTECT A REBUILD: on an empty table there is
+  no conflict, so the seeded literal is simply inserted. Measured in a scratch replay,
+  a rebuild landed `queue_research` and `queue_research_collect` FALSE while both are
+  true live, and `can_source_prospects` false while it is true live. `DO NOTHING` is a
+  guard against re-seeding, never against rebuilding. All three literals now carry the
+  current value, so both paths land correctly. `can_source_prospects` (20260612) and `can_report_sending_health`
   (20260827120000) both use `DO NOTHING` and are true live against a false seed, protected
   only by that clause. `20260728` sets `supported_fields`, which is a handler manifest rather
   than an operator decision, and re-seeding it is correct.
