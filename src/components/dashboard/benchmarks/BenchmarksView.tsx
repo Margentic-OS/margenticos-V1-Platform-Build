@@ -7,8 +7,10 @@ import {
   readRate,
   MIN_SENDS_FOR_RATE,
   MIN_PEOPLE_FOR_RATE,
+  MIN_PEOPLE_FOR_MEETING_RATE,
   MIN_REPLIES_FOR_POSITIVE_RATE,
 } from '@/lib/benchmarks/sample-gate'
+import type { MetricBenchmark, RateUnit } from '@/lib/benchmarks/tier1-benchmarks'
 import type { ClientVisibleCampaignMetrics } from '@/lib/metrics/get-client-visible-campaign-metrics'
 
 // The ninety-days block, as data rather than JSX, because the first line is rendered on
@@ -69,35 +71,89 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
   // Collapsed by default, per the trade-off noted above the copy.
   const [ninetyDaysOpen, setNinetyDaysOpen] = useState(false)
 
-  // ─── REPLY RATE IS DENOMINATED IN PEOPLE, NOT EMAILS ──────────────────────
+  // ─── THE DENOMINATOR IS DERIVED FROM THE DECLARED UNIT, NOT CHOSEN HERE ───
   //
-  // It divided by sentCount until 2026-09-03. A four-step sequence sends up to four
-  // emails to one person, so that denominator counted the same person up to four times
-  // and the rate came out roughly a quarter of what the published figures mean. Measured
-  // on the live campaign: 2 replies from 60 emails reads 3.3%, the same 2 replies from 24
-  // people reads 8.3%. Identical performance, nearly three times apart, and the smaller
-  // number was the one being compared against a range measured the other way.
+  // Every card divides by whatever its benchmark's `unit` names, and prints that same
+  // unit beside both its own count and the published range. So a card cannot say "people
+  // contacted" while dividing by emails: changing the unit in tier1-benchmarks.ts changes
+  // this arithmetic, and there is no second place to update.
+  //
+  // THAT IS THE FIX FOR WHAT WENT WRONG, and it is worth being exact about what did.
+  //
+  // The reply rate moved from emails to people on 2026-09-02, correctly: four emails to
+  // one person are one person deciding once, not four independent trials, so a rate per
+  // person is the more meaningful number and it has NOT been reverted. What the change
+  // missed was that the 3 to 6% range it was rendered beside is measured PER EMAIL SENT
+  // by its own source. The comment that stood here said the opposite. It claimed the
+  // published figures were people-denominated and that the old per-email rate was "the
+  // one being compared against a range measured the other way", when the old rate was in
+  // fact the one that matched. Both halves of the comparison were per email before the
+  // change, and only one half moved.
+  //
+  // Corrected by sourcing per-person ranges rather than by reverting the rate. See
+  // tier1-benchmarks.ts for the two studies and their stated units.
   //
   // contactedCount is the same figure the overview renders as "prospects contacted", read
   // from campaigns.contacted_count. Do NOT substitute the provider's own field of that
   // name: see campaign-analytics.ts, where it read 52 against 24 leads.
   //
-  // WHAT THIS RATE IS, EXACTLY. The numerator is the provider's reply count, which is a
-  // count of REPLIES and not of people who replied. We cannot decompose it: our own
+  // WHAT THE REPLY RATE IS, EXACTLY. The numerator is the provider's reply count, which
+  // is a count of REPLIES and not of people who replied. We cannot decompose it: our own
   // signals rows carry a NULL prospect_id, so "distinct people who replied" is not
-  // available from this database today. So the rate is replies per person contacted,
-  // which is the right denominator and an approximate numerator. It overstates only when
-  // one person replies twice, which is rarer than one person receiving four emails.
-  // Recorded in BACKLOG.
-  const reply    = readRate(repliedCount, contactedCount, MIN_PEOPLE_FOR_RATE)
+  // available from this database today. So it is replies per person contacted: the right
+  // denominator and an approximate numerator. It overstates only when one person replies
+  // twice, which is rarer than one person receiving four emails. Recorded in BACKLOG.
+  function denominatorFor(unit: RateUnit): number {
+    switch (unit) {
+      case 'people contacted': return contactedCount
+      case 'emails sent':      return sentCount
+      case 'replies':          return repliedCount
+    }
+  }
 
-  // Still send-denominated, deliberately, and flagged for a decision rather than changed
-  // in the same pass. See the report accompanying this change.
-  const meeting  = readRate(meetingsBooked, sentCount, MIN_SENDS_FOR_RATE)
-  const bounce   = readRate(bouncedCount, sentCount, MIN_SENDS_FOR_RATE)
-  const optOut   = readRate(unsubscribedCount, sentCount, MIN_SENDS_FOR_RATE)
-  // Different denominator: this is a share OF replies, not of emails.
-  const positive = readRate(positiveReplyCount, repliedCount, MIN_REPLIES_FOR_POSITIVE_RATE)
+  // numeratorNoun is the only free text per card. The denominator and its name both come
+  // from the unit, so the sentence cannot describe a division the card did not perform.
+  function card(numerator: number, numeratorNoun: string, benchmark: MetricBenchmark, minimum: number) {
+    const denominator = denominatorFor(benchmark.unit)
+    return {
+      reading: readRate(numerator, denominator, minimum),
+      countsLine: `${fmt(numerator)} ${numeratorNoun} from ${fmt(denominator)} ${benchmark.unit}`,
+      benchmark,
+    }
+  }
+
+  const reply = card(
+    repliedCount, plural(repliedCount, 'reply', 'replies'),
+    TIER1_BENCHMARKS.replyRate, MIN_PEOPLE_FOR_RATE,
+  )
+
+  // PEOPLE, since 2026-09-03, and gated on its OWN constant. Meetings are about an order
+  // of magnitude rarer than replies, so MIN_PEOPLE_FOR_RATE would have printed a rate off
+  // roughly 3.6 expected events. MIN_PEOPLE_FOR_MEETING_RATE is derived separately at the
+  // rate meetings actually run; see sample-gate.ts for the arithmetic.
+  const meeting = card(
+    meetingsBooked, plural(meetingsBooked, 'meeting', 'meetings'),
+    TIER1_BENCHMARKS.meetingBookingRate, MIN_PEOPLE_FOR_MEETING_RATE,
+  )
+
+  // BOTH STAY PER EMAIL, and that is not an omission. Deliverability is a property of each
+  // message: a bounce is one address rejecting one delivery, and an opt-out arrives from
+  // one email even when three more were scheduled. Dividing either by people would answer
+  // a question nobody asks of them.
+  const bounce = card(
+    bouncedCount, 'bounced',
+    TIER1_BENCHMARKS.bounceRate, MIN_SENDS_FOR_RATE,
+  )
+  const optOut = card(
+    unsubscribedCount, 'opted out',
+    TIER1_BENCHMARKS.optOutRate, MIN_SENDS_FOR_RATE,
+  )
+
+  // A share OF replies. Its denominator was never emails and is unaffected by any of this.
+  const positive = card(
+    positiveReplyCount, 'positive',
+    TIER1_BENCHMARKS.positiveReplyRate, MIN_REPLIES_FOR_POSITIVE_RATE,
+  )
 
   return (
     <>
@@ -147,71 +203,51 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
         )}
       </div>
 
-      {/* Rate cards */}
+      {/* Rate cards. Each is handed its whole card object, so the reading, the counts
+          line and the benchmark that produced them travel together and cannot be
+          recombined wrongly at the call site. */}
       <div className="grid grid-cols-2 gap-4">
-        <BenchmarkCard
-          label="Reply rate"
-          reading={reply}
-          countsLine={`${fmt(repliedCount)} ${plural(repliedCount, 'reply', 'replies')} from ${fmt(contactedCount)} ${plural(contactedCount, 'person', 'people')} contacted`}
-          denominatorNoun="people contacted"
-          industryRange={TIER1_BENCHMARKS.replyRate.industryRange}
-          sourceLabel={TIER1_BENCHMARKS.replyRate.sourceLabel}
-        />
-
-        <BenchmarkCard
-          label="Positive reply rate"
-          reading={positive}
-          countsLine={`${fmt(positiveReplyCount)} positive of ${fmt(repliedCount)} ${plural(repliedCount, 'reply', 'replies')}`}
-          denominatorNoun="replies"
-          industryRange={TIER1_BENCHMARKS.positiveReplyRate.industryRange}
-          sourceLabel={TIER1_BENCHMARKS.positiveReplyRate.sourceLabel}
-        />
-
-        <BenchmarkCard
-          label="Meeting booking rate"
-          reading={meeting}
-          countsLine={`${fmt(meetingsBooked)} ${plural(meetingsBooked, 'meeting', 'meetings')} from ${fmt(sentCount)} sent`}
-          denominatorNoun="emails"
-          industryRange={TIER1_BENCHMARKS.meetingBookingRate.industryRange}
-          sourceLabel={TIER1_BENCHMARKS.meetingBookingRate.sourceLabel}
-        />
-
-        <BenchmarkCard
-          label="Bounce rate"
-          reading={bounce}
-          countsLine={`${fmt(bouncedCount)} bounced of ${fmt(sentCount)} sent`}
-          denominatorNoun="emails"
-          industryRange={TIER1_BENCHMARKS.bounceRate.industryRange}
-          sourceLabel={TIER1_BENCHMARKS.bounceRate.sourceLabel}
-        />
-
-        <BenchmarkCard
-          label="Opt-out rate"
-          reading={optOut}
-          countsLine={`${fmt(unsubscribedCount)} opted out of ${fmt(sentCount)} sent`}
-          denominatorNoun="emails"
-          industryRange={TIER1_BENCHMARKS.optOutRate.industryRange}
-          sourceLabel={TIER1_BENCHMARKS.optOutRate.sourceLabel}
-        />
+        <BenchmarkCard label="Reply rate" {...reply} />
+        <BenchmarkCard label="Positive reply rate" {...positive} />
+        <BenchmarkCard label="Meeting booking rate" {...meeting} />
+        <BenchmarkCard label="Bounce rate" {...bounce} />
+        <BenchmarkCard label="Opt-out rate" {...optOut} />
       </div>
 
-      {/* Attribution. The Belkins citation is deliberately absent: their own published
-          production figure is 0.16 meetings per 1,000 emails, two orders of magnitude
-          below the bottom of the meeting booking range they were cited beside. */}
+      {/* Attribution. Every range names the unit it was measured in, on its own card,
+          because a range and a rate are only comparable when both counted the same thing.
+          The meeting card carries no range at all: see tier1-benchmarks.ts. */}
       <div className="px-1 pt-3 pb-2 space-y-1">
         <p className="text-[11px] text-text-secondary leading-relaxed max-w-[70ch]">
-          Industry ranges are context, not targets. They are drawn from{' '}
+          Industry ranges are context, not targets. Each card states what its range was
+          measured against, because a rate and a range only compare when both counted the
+          same thing. Reply rates are drawn from{' '}
           <a
-            href="https://instantly.ai/cold-email-benchmark-report-2026"
+            href="https://www.smartlead.ai/benchmarks/average-cold-email-reply-rate"
             target="_blank"
             rel="noopener noreferrer"
             className="underline"
           >
-            a 2025 cold email industry report
+            a 2026 study of over 850 million emails
           </a>{' '}
-          covering billions of emails, and from Google and Yahoo&apos;s 2024 bulk sender
-          guidelines for bounce rates. Open rate is excluded because it has been unreliable
-          since Apple Mail&apos;s 2021 privacy changes.
+          and{' '}
+          <a
+            href="https://replylead.com/realistic-cold-email-reply-rate.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+          >
+            a 2026 analysis of 115 campaigns
+          </a>
+          , both measured per person contacted. Bounce rates come from Google and
+          Yahoo&apos;s 2024 bulk sender guidelines. Open rate is excluded because it has
+          been unreliable since Apple Mail&apos;s 2021 privacy changes.
+        </p>
+        <p className="text-[11px] text-text-secondary leading-relaxed max-w-[70ch]">
+          There is no industry range on the meeting booking card. The figure shown there
+          previously cited a report that does not measure meetings, and we could not find
+          a published range measured per person contacted. Your own rate is shown without
+          one rather than beside a number we cannot stand behind.
         </p>
         <p className="text-[10px] text-text-muted">
           Ranges last reviewed: {BENCHMARKS_LAST_UPDATED}

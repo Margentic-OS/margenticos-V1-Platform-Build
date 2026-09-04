@@ -29,23 +29,28 @@ function metrics(overrides: Partial<ClientVisibleCampaignMetrics> = {}): ClientV
     positiveReplyCount: 0,
     meetingsBooked: 0,
     meetingsHeld: 0,
+    meetingRate: null,
     hasData: true,
     ...overrides,
   }
 }
 
-// A sample large enough for every send-denominated card to report.
+// A sample large enough for EVERY card to report, meetings included.
+//
+// 2,000 people and 4,000 emails, not the old 500 and 1,000. The meeting rate is gated on
+// 1,500 PEOPLE now, so the old fixture cleared four gates and silently missed the fifth,
+// and a fixture that cannot reach the case is not a test of it.
 function largeSample(): ClientVisibleCampaignMetrics {
   return metrics({
-    contactedCount: 500,
-    sentCount: 1000,
-    deliveredCount: 980,
-    bouncedCount: 20,
-    unsubscribedCount: 5,
-    repliedCount: 40,
-    positiveReplyCount: 20,
-    meetingsBooked: 15,
-    meetingsHeld: 9,
+    contactedCount: 2000,
+    sentCount: 4000,
+    deliveredCount: 3920,
+    bouncedCount: 80,
+    unsubscribedCount: 20,
+    repliedCount: 160,
+    positiveReplyCount: 80,
+    meetingsBooked: 30,
+    meetingsHeld: 18,
   })
 }
 
@@ -80,13 +85,16 @@ describe('no targets anywhere', () => {
   it('keeps the industry ranges as context', () => {
     render(<BenchmarksView metrics={largeSample()} />)
     expect(screen.getAllByText('Industry range').length).toBeGreaterThan(0)
-    expect(screen.getByText('3–6%')).toBeInTheDocument()
-    expect(screen.getByText('40–65%')).toBeInTheDocument()
+    // The unit is printed WITH the range now. A bare "3–6%" is what let a per-email
+    // range sit under a per-person rate without anything on screen saying so.
+    expect(screen.getByText('0.7–3% of people contacted')).toBeInTheDocument()
+    expect(screen.getByText('40–65% of replies')).toBeInTheDocument()
+    expect(screen.getByText('0–2% of emails sent')).toBeInTheDocument()
   })
 
   it('says where a rate sits without saying whether it is good', () => {
     render(<BenchmarksView metrics={largeSample()} />)
-    // Meeting booking 15 from 1000 is 1.5%, inside the 1 to 3 range.
+    // Bounce 80 of 4,000 is 2.0%, at the top of the 0 to 2 range.
     expect(screen.getAllByText('Within the industry range').length).toBeGreaterThan(0)
   })
 })
@@ -111,7 +119,7 @@ describe('too early to report', () => {
     // The reply card names PEOPLE, and says so, because the denominator is the thing a
     // reader has to be able to see. The opt-out card still names emails.
     expect(screen.getByText('1 reply from 15 people contacted')).toBeInTheDocument()
-    expect(screen.getByText('1 opted out of 26 sent')).toBeInTheDocument()
+    expect(screen.getByText('1 opted out from 26 emails sent')).toBeInTheDocument()
   })
 
   it('withholds a zero rate too', () => {
@@ -167,7 +175,7 @@ describe('the Belkins citation', () => {
   it('leaves the remaining attribution intact and says ranges are not targets', () => {
     render(<BenchmarksView metrics={largeSample()} />)
     expect(screen.getByText(/Industry ranges are context, not targets/)).toBeInTheDocument()
-    expect(screen.getByText(/a 2025 cold email industry report/)).toBeInTheDocument()
+    expect(screen.getByText(/a 2026 study of over 850 million emails/)).toBeInTheDocument()
   })
 })
 
@@ -284,14 +292,167 @@ describe('reply rate is denominated in people, not emails', () => {
     expect(screen.queryByText('3.3%')).not.toBeInTheDocument()
   })
 
-  it('leaves the other four cards on their own denominators', () => {
-    // This change is reply rate only. Bounce is per email by definition, and the other
-    // three are flagged for a decision rather than changed in the same pass.
+  it('leaves bounce, opt-out and the positive share on their own denominators', () => {
+    // Bounce and opt-out are per email BY DEFINITION: deliverability is a property of a
+    // message, not of a person. The positive share is of replies. None of them move.
     render(<BenchmarksView metrics={largeSample()} />)
 
-    expect(screen.getByText('15 meetings from 1,000 sent')).toBeInTheDocument()
-    expect(screen.getByText('20 bounced of 1,000 sent')).toBeInTheDocument()
-    expect(screen.getByText('5 opted out of 1,000 sent')).toBeInTheDocument()
-    expect(screen.getByText('20 positive of 40 replies')).toBeInTheDocument()
+    expect(screen.getByText('80 bounced from 4,000 emails sent')).toBeInTheDocument()
+    expect(screen.getByText('20 opted out from 4,000 emails sent')).toBeInTheDocument()
+    expect(screen.getByText('80 positive from 160 replies')).toBeInTheDocument()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE MEETING RATE IS DENOMINATED IN PEOPLE, AND ITS GATE IS ITS OWN
+//
+// These are MUTATION GUARDS, written so that undoing the change turns them red rather
+// than leaving a green suite over a reverted denominator. Each one names the mutation it
+// catches. If you are reading this because one failed, the question is not "why is this
+// test strict" but "did the denominator move back".
+
+describe('meeting booking rate is denominated in people, not emails', () => {
+  // Deliberately a sample where the two denominators give VISIBLY different answers and
+  // both are printable, so neither can pass by rounding into the other.
+  //   30 meetings / 2,000 people = 1.5%
+  //   30 meetings / 4,000 emails = 0.75%
+  function bigEnough(): ClientVisibleCampaignMetrics {
+    return metrics({
+      contactedCount: 2000,
+      sentCount: 4000,
+      repliedCount: 160,
+      positiveReplyCount: 80,
+      bouncedCount: 0,
+      unsubscribedCount: 0,
+      meetingsBooked: 30,
+      meetingsHeld: 18,
+    })
+  }
+
+  it('computes 1.5% and not 0.75%', () => {
+    // MUTATION: put sentCount back under the meeting rate and this reads 0.8%.
+    render(<BenchmarksView metrics={bigEnough()} />)
+
+    expect(screen.getByText('1.5%')).toBeInTheDocument()
+    expect(screen.queryByText('0.8%')).not.toBeInTheDocument()
+    expect(screen.queryByText('0.75%')).not.toBeInTheDocument()
+  })
+
+  it('names people in the counts line, and never names sent on the meeting card', () => {
+    // The denominator has to be legible on the card. That is the whole reason the defect
+    // this file records survived: the unit was in nobody's line of sight.
+    render(<BenchmarksView metrics={bigEnough()} />)
+
+    expect(screen.getByText('30 meetings from 2,000 people contacted')).toBeInTheDocument()
+    expect(screen.queryByText('30 meetings from 4,000 emails sent')).not.toBeInTheDocument()
+  })
+
+  it('gates on 1,500 people, not on the 400 the reply card uses', () => {
+    // MUTATION: swap MIN_PEOPLE_FOR_MEETING_RATE for MIN_PEOPLE_FOR_RATE and the meeting
+    // rate prints here off 8 meetings, while the reply rate legitimately does not wait.
+    render(<BenchmarksView metrics={metrics({
+      contactedCount: 800, sentCount: 2000, repliedCount: 64,
+      meetingsBooked: 8, bouncedCount: 0, unsubscribedCount: 0, positiveReplyCount: 0,
+    })} />)
+
+    // Reply rate clears its own gate at 800 people and prints.
+    expect(screen.getByText('8.0%')).toBeInTheDocument()
+    // The meeting rate does not: 8 / 800 would be 1.0%.
+    expect(screen.queryByText('1.0%')).not.toBeInTheDocument()
+    expect(screen.getByText(/around 1,500 people contacted/)).toBeInTheDocument()
+    expect(screen.getByText(/700 to go/)).toBeInTheDocument()
+  })
+
+  it('measures the meeting shortfall in people, never in emails', () => {
+    render(<BenchmarksView metrics={metrics({ contactedCount: 24, sentCount: 60 })} />)
+    // 1,500 - 24 people. On the old send denominator it was 400 - 60 = 340 emails, which
+    // is the same sentence measuring a different thing.
+    expect(screen.getByText(/1,476 to go/)).toBeInTheDocument()
+  })
+})
+
+describe('the meeting card shows no industry range, and says why', () => {
+  it('prints no range and no position pill for meetings', () => {
+    render(<BenchmarksView metrics={largeSample()} />)
+
+    // The removed number, in every form it was ever rendered in.
+    const text = document.body.textContent ?? ''
+    expect(text).not.toContain('1–3%')
+    expect(text).not.toContain('1-3%')
+    expect(text).not.toContain('1–3% of people contacted')
+  })
+
+  it('says the range is absent rather than leaving the heading empty', () => {
+    // A heading with nothing under it reads as a loading failure. Silently dropping the
+    // number would have been the easy version of this change and the wrong one.
+    render(<BenchmarksView metrics={largeSample()} />)
+
+    expect(screen.getByText(/No published range/)).toBeInTheDocument()
+    // Said in BOTH places on purpose: on the card, where a reader looking at the meeting
+    // rate will see it, and in the attribution, where a reader auditing the sources will.
+    // Exactly two, so neither copy can be dropped without this failing.
+    expect(screen.getAllByText(/cited a report that does not measure meetings/)).toHaveLength(2)
+  })
+
+  it('never claims the meeting rate sits anywhere relative to a range', () => {
+    // 30 from 2,000 is 1.5%, which would have been "within" the old 1 to 3 range. With no
+    // range there is nothing to be within, and inventing a position would be the deleted
+    // number coming back wearing a different hat.
+    render(<BenchmarksView metrics={largeSample()} />)
+
+    const meetingCard = screen.getByText('Meeting booking rate').closest('div')
+    expect(meetingCard?.textContent).not.toContain('Within the industry range')
+    expect(meetingCard?.textContent).not.toContain('Above the industry range')
+    expect(meetingCard?.textContent).not.toContain('Below the industry range')
+  })
+})
+
+describe('every card states the unit it was measured in', () => {
+  // The generalisation of the whole defect. A rate whose denominator is invisible is a
+  // rate nobody can check, and that is how a per-person number came to be compared with a
+  // per-email range for a day without anyone noticing.
+  it('names a unit on every counts line', () => {
+    render(<BenchmarksView metrics={largeSample()} />)
+
+    for (const line of [
+      '160 replies from 2,000 people contacted',
+      '80 positive from 160 replies',
+      '30 meetings from 2,000 people contacted',
+      '80 bounced from 4,000 emails sent',
+      '20 opted out from 4,000 emails sent',
+    ]) {
+      expect(screen.getByText(line)).toBeInTheDocument()
+    }
+  })
+
+  it('names a unit beside every published range too', () => {
+    // Both halves of the comparison, not just ours. A reader who can see only one unit
+    // cannot tell whether the two match, which was exactly the state of this page.
+    render(<BenchmarksView metrics={largeSample()} />)
+
+    expect(screen.getByText('0.7–3% of people contacted')).toBeInTheDocument()
+    expect(screen.getByText('40–65% of replies')).toBeInTheDocument()
+    expect(screen.getByText('0–2% of emails sent')).toBeInTheDocument()
+    expect(screen.getByText('0–1% of emails sent')).toBeInTheDocument()
+  })
+})
+
+describe('the reply range is measured per person, matching the rate above it', () => {
+  it('no longer shows the per-email range from the Instantly report', () => {
+    // 3 to 6% came from a source defining its metric as replies divided by TOTAL EMAILS
+    // SENT. It sat under a per-person rate for one day. If it renders again, the range
+    // and the rate have gone back to counting different things.
+    render(<BenchmarksView metrics={largeSample()} />)
+
+    const text = document.body.textContent ?? ''
+    expect(text).not.toContain('3–6%')
+    expect(text).not.toContain('3-6%')
+  })
+
+  it('cites the two per-person sources by their measurement, not by name alone', () => {
+    render(<BenchmarksView metrics={largeSample()} />)
+
+    expect(screen.getByText(/both measured per person contacted/)).toBeInTheDocument()
+    expect(screen.getAllByText('Smartlead and ReplyLead · 2026').length).toBeGreaterThan(0)
   })
 })

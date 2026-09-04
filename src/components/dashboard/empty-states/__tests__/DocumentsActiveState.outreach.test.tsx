@@ -43,6 +43,7 @@ function metrics(overrides: Partial<ClientVisibleCampaignMetrics> = {}): ClientV
     positiveReplyCount: 0,
     meetingsBooked: 0,
     meetingsHeld: 0,
+    meetingRate: null,
     hasData: true,
     ...overrides,
   }
