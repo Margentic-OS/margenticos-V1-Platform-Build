@@ -1,7 +1,7 @@
 -- Migration: suppressed_emails gains carry state
 -- Date: 2026-09-04
 --
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-09-04)
 --
 -- ─────────────────────────────────────────────────────────────────────────────
 -- WHAT THIS FIXES

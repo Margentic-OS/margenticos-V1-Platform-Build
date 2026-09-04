@@ -1,7 +1,7 @@
 -- Migration: MON-026 also watches whether suppressions REACHED the provider
 -- Date: 2026-09-04
 --
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-09-04)
 --
 -- ─────────────────────────────────────────────────────────────────────────────
 -- WHAT MON-026 COULD NOT SEE
