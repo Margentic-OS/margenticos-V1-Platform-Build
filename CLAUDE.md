@@ -406,6 +406,50 @@ This is the same shape as the audit query in the database-security section that
 filtered `relkind = 'r'` and returned zero rows reassuringly for months: **when the
 check is the thing that is wrong, nothing downstream of it can notice.**
 
+### Reading the CODE back — A CLEAN TREE IS NOT A CURRENT TREE
+
+**`git status` clean means no uncommitted changes. It says nothing about whether the
+branch reflects main.**
+
+Any session whose output depends on what the code currently contains must
+**`git fetch origin` and work from `origin/main`**, and must **state the commit it
+read in its first report**. A verdict about code with no commit attached is not a
+verdict.
+
+**The 2026-09-04 incident.** A triage session checked `git status` at start, saw
+clean, and treated clean as current. The branch was **280 commits behind main**,
+diverged 2026-08-27. Eighty-nine backlog rows were judged against it. It concluded
+that client approval on strategy documents had not been removed, because
+`DocApprovalControls.tsx` and `/api/documents/approve/` were both still present in
+the working tree. On main both are **deleted**, replaced by `DocumentVersionHistory`,
+`DocumentRevisionControls` and `/api/documents/revert`, plus a test literally named
+`no-client-approval-surface.test.tsx`. The work had shipped days earlier.
+
+**The error has a direction, and knowing it saves re-work.** A stale tree makes you
+conclude work does NOT exist when it does. It cannot invent work that was never
+written. So stale-tree findings are wrong in the direction of **too much work, not
+too little**: a list of "still open" rows will contain items already done. The
+reverse error, concluding something exists when it has since been deleted, happens
+only where main REMOVED code, and is much rarer.
+
+Also: `git cherry` compares by patch-id and reports commits as missing when
+surrounding context has drifted. To ask whether work is on main, **compare content**
+(`git show origin/main:path`, `git ls-tree origin/main`), not patch-ids.
+
+### Label every finding by evidence type, because they expire differently
+
+  DATABASE-EVIDENCED   read from the live database, a live API, or a deployed
+                       environment. **Stays true as main moves.** Production is
+                       production whatever branch is checked out.
+
+  CODE-EVIDENCED       read from a file in a working tree. **Expires the moment main
+                       moves.** Worthless without the commit it was read at.
+
+State which every time. A closed row backed by a database read needs no re-checking
+when the branch changes; a closed row backed by a grep needs re-proving against the
+current commit. Mixing them means re-verifying everything or trusting everything, and
+both are wrong.
+
 ---
 
 ## Model selection — right model for each task
