@@ -80,6 +80,19 @@ describe('monitor-sweep monitor registry', () => {
     expect(MONITORS.some(([code]) => code === 'MON-022')).toBe(true)
   })
 
+  it('includes MON-025, without which the cron schedule scan is the only check', () => {
+    // cron-schedule-registry.test.ts reads the migration FILES and proves the registry seed
+    // matches them. That is a history check, in the sense CLAUDE.md warns about: it says
+    // nothing about what cron.job actually holds right now. MON-025 is the live half, and
+    // it is the only thing in this platform that reads cron.job.schedule at all.
+    expect(
+      MONITORS.some(([code]) => code === 'MON-025'),
+      'mon_025 is the live cron-schedule check behind cron-schedule-registry.test.ts. ' +
+      'Removing it leaves a migration scan as the only guard, and a scan cannot see a ' +
+      'schedule changed by hand with cron.alter_job.',
+    ).toBe(true)
+  })
+
   it('MON-022 is what makes the migration scans in this repo trustworthy', () => {
     // Several tests assert that a migration still CREATEs an index. Migrations are
     // append-only, so those prove a migration once created it and nothing more: a later

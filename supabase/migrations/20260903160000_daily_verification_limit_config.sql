@@ -1,6 +1,7 @@
 -- The daily email-verification budget becomes editable config.
 --
--- Status: PENDING (apply via Supabase MCP apply_migration, then mark APPLIED)
+-- Status: APPLIED (verified live 2026-09-03; production and the test project)
+-- Read back: config now holds daily_verification_limit = 10500 and no free_daily_limit.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHAT WAS WRONG
