@@ -130,14 +130,49 @@ describe('inspectFilterSpec', () => {
   })
 })
 
-// This is the assertion that would have caught the live gap, and it checks the registry
-// against the WORLD rather than against itself: it reads the handler's OWN targeting list
-// and asserts every name in it can come back out of the classifier.
+// ─── The search range and the classifier range are not the same set ──────────
 //
-// It is currently EXPECTED TO FAIL for four names and is written as an explicit,
-// enumerated allowlist rather than a skip, so that (a) the four are visible in the test
-// output as a known debt and (b) a FIFTH one appearing fails the build.
+// This checks the registry against the WORLD rather than against itself: it reads the
+// handler's OWN targeting list and asks whether each name can come back out of the
+// classifier.
+//
+// IT USED TO ENUMERATE FOUR KNOWN-BAD NAMES so a fifth would fail the build. That was
+// right while the handler targeted nineteen consulting industries. It is the wrong shape
+// now, because the gap stopped being a short list of oversights and became STRUCTURAL:
+//
+//   what the handler can SEARCH for   every canonical industry with a NAICS code
+//   what the classifier can RECOGNISE only the range of APOLLO_TO_SPEC, which is
+//                                     still consulting-shaped
+//
+// Enumerating the difference would be dozens of names of pure noise that churn on every
+// taxonomy edit, and a test that churns is a test that gets updated without being read.
+//
+// WHY THE GAP IS NOT CLOSED IN THE SAME CHANGE THAT OPENED IT. Closing it means writing
+// this provider's industry TAG vocabulary into APOLLO_TO_SPEC, and that vocabulary
+// cannot be measured from the sourcing path: the free people-search response carries
+// `has_industry` as a BOOLEAN and never the value. The tags only appear after paid
+// enrichment. Writing them from memory is precisely the guess that put a wrong parameter
+// name in the query twice before, and a wrong tag here silently misclassifies rather
+// than erroring. So it is measured first, then written. Logged in BACKLOG.
+//
+// WHAT THIS TEST GUARDS INSTEAD, and both directions matter:
+//
+//   1. NO REGRESSION. Every name the classifier can produce must still be searchable.
+//      That direction should be total, and a break in it means a client can be told
+//      their industry is recognised while nothing can go looking for it.
+//   2. A RATCHET on the gap. It may shrink, never grow. A new canonical industry added
+//      without a classifier tag widens it and fails here.
 describe('handler targeting vs classifier range', () => {
+  // ZERO, and it got there by DERIVING the classifier's range from the taxonomy rather
+  // than by enumerating tags. It was 58 when the range was the 15 distinct values of the
+  // hand-written alias table; CLASSIFIABLE_INDUSTRIES is now built from
+  // CANONICAL_INDUSTRIES, and the handler has a code for every canonical industry, so
+  // the two sets coincide and the gap has nowhere to hide.
+  //
+  // At zero this stops being a ratchet and becomes a plain INVARIANT, so it is asserted
+  // as an empty set rather than as a count under a ceiling. A count only ever says how
+  // many; the set names them, which is what the next reader needs. Never soften it back
+  // into a ceiling without saying why.
   it('targets no industry the classifier cannot produce', async () => {
     const { APOLLO_TARGETED_INDUSTRIES } = await import(
       '@/lib/sourcing/handlers/adapter-apollo'
@@ -150,15 +185,35 @@ describe('handler targeting vs classifier range', () => {
       .filter(name => !CLASSIFIABLE_INDUSTRIES.has(name))
       .sort()
 
-    // EMPTY, and it got there by DERIVING the classifier's range from the taxonomy rather
-    // than by adding four entries to a tag table. The four names this used to enumerate
-    // were the visible part of a larger gap: the range was the 15 distinct values of a
-    // hand-written table, so 58 of the 73 canonical names had no route back. The four were
-    // simply the ones the handler also targeted.
-    //
-    // The self-guard above still matters more than this assertion. An empty result is the
-    // correct answer AND the answer a scan that found nothing would give, so the two
-    // toBeGreaterThan checks are what stop this passing vacuously.
-    expect(unclassifiable).toEqual([])
+    expect(
+      unclassifiable,
+      'A prospect in one of these is sourced and then removed as industry_off_target ' +
+      'with nothing saying why. Add the provider tag to TAG_ALIASES in industry-mapping.ts, ' +
+      'which owns that translation.',
+    ).toEqual([])
+  })
+
+  // THE OTHER DIRECTION, and it is a different failure. The test above catches a name the
+  // query can ask for and the classifier cannot label. This one catches a name the
+  // classifier can produce and no query can go looking for, which reads to a client as an
+  // industry we recognise and can never source.
+  it('can search for every industry the classifier is able to produce', async () => {
+    const { APOLLO_TARGETED_INDUSTRIES } = await import(
+      '@/lib/sourcing/handlers/adapter-apollo'
+    )
+    const targetable = new Set<string>(APOLLO_TARGETED_INDUSTRIES)
+    // Same self-guard: an empty result is the correct answer AND the answer a scan that
+    // found nothing would give, so these are what stop it passing vacuously.
+    expect(targetable.size).toBeGreaterThan(0)
+    expect(CLASSIFIABLE_INDUSTRIES.size).toBeGreaterThan(0)
+
+    const producedButUnsearchable = [...CLASSIFIABLE_INDUSTRIES]
+      .filter(name => !targetable.has(name))
+      .sort()
+
+    expect(
+      producedButUnsearchable,
+      'The classifier can label a prospect with an industry no query can go looking for.',
+    ).toEqual([])
   })
 })

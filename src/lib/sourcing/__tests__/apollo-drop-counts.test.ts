@@ -28,6 +28,18 @@ function mockApolloResponse(people: unknown[]) {
   } as unknown as Response
 }
 
+// The query is built from the spec, so a partial spec no longer reaches the API at all.
+// These tests are about the POST-FILTER drop counts, which run on returned rows, so they
+// carry the smallest spec that builds a query and vary only the two fields under test.
+const MINIMUM_BUILDABLE_SPEC: Record<string, unknown> = {
+  job_titles: ['role-a'],
+  person_countries: ['GB'],
+  company_countries: ['GB'],
+  company_headcount_min: 1,
+  company_headcount_max: 50,
+  industries: ['Management Consulting'],
+}
+
 describe('Apollo handler: aggregate drop report', () => {
   const originalKey = process.env.APOLLO_API_KEY
 
@@ -55,7 +67,7 @@ describe('Apollo handler: aggregate drop report', () => {
     )
 
     const candidates = await apolloHandler.execute(
-      { job_titles_excluded: ['recruiter'], keywords_excluded: ['staffing'] },
+      { ...MINIMUM_BUILDABLE_SPEC, job_titles_excluded: ['recruiter'], keywords_excluded: ['staffing'] },
       100,
     )
 
@@ -88,7 +100,7 @@ describe('Apollo handler: aggregate drop report', () => {
       mockApolloResponse([apolloPerson('1', 'Founder', 'Acme Consulting')]),
     )
 
-    await apolloHandler.execute({}, 100)
+    await apolloHandler.execute({ ...MINIMUM_BUILDABLE_SPEC }, 100)
 
     const infoCompletion = info.mock.calls.find(c =>
       String(c[0]).includes('sourcing complete'),
