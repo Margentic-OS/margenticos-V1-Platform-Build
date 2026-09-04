@@ -24,6 +24,14 @@ import {
 } from '@/lib/email/templates/approval-reminder'
 import * as Sentry from '@sentry/nextjs'
 
+// The promotion path derives a filter spec in the background, and that makes TWO
+// Anthropic calls: the buyer criterion and the ICP geography. Neither is retried if the
+// function is cut short, and a spec that fails to write stays NULL until a human
+// re-approves the document. This route declared no maxDuration at all and ran on the
+// platform default; 300 is what every other route on this path already declares.
+export const maxDuration = 300
+
+
 // Written into reviewed_by to identify auto-approved suggestions in the DB.
 const SYSTEM_AUTO_APPROVE_ID = '00000000-0000-0000-0000-000000000001'
 

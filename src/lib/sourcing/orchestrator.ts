@@ -9,7 +9,7 @@ import type {
 import { FILTER_FIELDS } from '@/lib/sourcing/types'
 import { inspectFilterSpec } from '@/lib/sourcing/inspect-filter-spec'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
-import { apolloHandler } from '@/lib/sourcing/handlers/adapter-apollo'
+import { HANDLER_DISPATCH } from '@/lib/sourcing/handler-registry'
 import { checkCandidates, type ProspectCandidate } from '@/lib/sourcing/dedupe'
 import { startSourcingRun, type SourcingRunHandle } from '@/lib/sourcing/sourcing-run-record'
 
@@ -203,10 +203,10 @@ export async function runSourcing(
     // ── Step 4: Manifest check ───────────────────────────────────────────────
     // Get handler and validate it supports all populated spec fields.
     // Note: handler resolution uses tool_name, not api_handler_ref (which is intentionally unused for dispatch).
-    const handlerDispatch: Record<string, SourcingHandler> = {
-      'apollo': apolloHandler as SourcingHandler,
-    }
-    const handler = handlerDispatch[capabilityRow.tool_name]
+    // The map is shared with the ICP filter spec derivation, which asks the same
+    // question at promotion time. Two copies would drift silently: a handler in one and
+    // not the other derives specs it cannot source.
+    const handler = HANDLER_DISPATCH[capabilityRow.tool_name]
     if (!handler) {
       logger.error('Sourcing orchestrator: no handler registered for tool', {
         operation_id: operationId,

@@ -23,6 +23,14 @@ import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 import { notifyAfterPromotion } from '@/lib/notifications/notify-after-promotion'
 import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
+
+// The promotion path derives a filter spec in the background, and that makes TWO
+// Anthropic calls: the buyer criterion and the ICP geography. Neither is retried if the
+// function is cut short, and a spec that fails to write stays NULL until a human
+// re-approves the document. This route declared no maxDuration at all and ran on the
+// platform default; 300 is what every other route on this path already declares.
+export const maxDuration = 300
+
 import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
 
 export async function POST(

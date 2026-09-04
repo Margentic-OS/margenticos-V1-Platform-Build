@@ -11,14 +11,23 @@
  * it is the change. This runs the same pure function on the same input and throws the
  * answer away.
  *
- * SPENDS NOTHING. deriveFilterSpec makes no model call. The buyer criterion, which does,
- * is READ FROM THE STORED SPEC and passed in rather than re-derived.
+ * IT NOW SPENDS, AND IT DID NOT USED TO. deriveFilterSpec is still pure, but geography is
+ * no longer a hardcoded constant: it is derived per client from that client's own ICP by
+ * ONE Anthropic call per organisation, via resolveIcpGeography. That is the whole point of
+ * the change, and there is no cheaper way to preview it, because the answer is a reading
+ * of the client's prose rather than a lookup.
+ *
+ * The buyer criterion, which also costs a call, is still READ FROM THE STORED SPEC and
+ * passed in rather than re-derived, so the cost is one call per organisation and not two.
+ *
+ * STILL WRITES NOTHING. Every derived value is printed and discarded.
  */
 
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '../src/types/database'
 import { deriveFilterSpec, type IcpDocument } from '../src/lib/agents/icp-filter-spec'
 import type { ICPFilterSpec } from '../src/lib/agents/icp-filter-spec'
+import { resolveIcpGeography, type ResolvedGeography } from '../src/lib/sourcing/resolve-icp-geography'
 
 function show(label: string, value: unknown): string {
   return `  ${label.padEnd(22)} ${JSON.stringify(value)}`
@@ -41,11 +50,33 @@ async function main() {
 
     console.log(`\n${'='.repeat(78)}\n${name}   doc ${String(r.id).slice(0, 8)}`)
 
-    let derived: ICPFilterSpec | null = null
+    // Geography first, because it is the half that changed and the half that can refuse.
+    // Its failure is reported and the derivation is skipped, which is exactly what
+    // persistIcpFilterSpec does in production: it fails closed and writes no spec at all.
+    let geography: ResolvedGeography | null = null
     try {
-      derived = deriveFilterSpec(r.content as unknown as IcpDocument, stored?.buyer_criterion ?? null)
+      geography = await resolveIcpGeography({
+        supabase: supabase as never,
+        doc: r.content as unknown as IcpDocument,
+      })
+      console.log(show('derived countries', geography.countries))
+      console.log(show('  subtracted', geography.removed_by_exclusion))
+      console.log(show('  named no country', geography.unresolved_phrases))
     } catch (e) {
-      console.log(`  DERIVATION REFUSES: ${(e as Error).message}`)
+      console.log(`  GEOGRAPHY REFUSES: ${(e as Error).message}`)
+    }
+
+    let derived: ICPFilterSpec | null = null
+    if (geography) {
+      try {
+        derived = deriveFilterSpec(
+          r.content as unknown as IcpDocument,
+          stored?.buyer_criterion ?? null,
+          geography,
+        )
+      } catch (e) {
+        console.log(`  DERIVATION REFUSES: ${(e as Error).message}`)
+      }
     }
 
     for (const field of ['industries', 'keywords', 'job_titles', 'seniority_levels',
@@ -60,6 +91,6 @@ async function main() {
       }
     }
   }
-  console.log('\nNothing was written. deriveFilterSpec is pure and its result was discarded.\n')
+  console.log('\nNothing was written. Every derived value above was discarded.\n')
 }
 main().catch(e => { console.error(e); process.exit(1) })

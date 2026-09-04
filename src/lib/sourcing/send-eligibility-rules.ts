@@ -8,7 +8,13 @@ interface SendEligibilityCheck {
 }
 
 // Country codes that are excluded from sending. ISO 3166-1 alpha-2, canonical.
-const EXCLUDED_COUNTRIES = ['DE'] as const
+//
+// EXPORTED, membership unchanged. The ICP filter spec derivation subtracts this together
+// with the sourcing-side list at one single point, so an excluded country never enters a
+// client's spec in the first place. This rule keeps firing exactly as it did: it is the
+// last line for prospects already in the database, which a derivation-time subtraction
+// cannot reach. See src/lib/sourcing/geography-exclusion.ts.
+export const EXCLUDED_COUNTRIES = ['DE'] as const
 
 /**
  * Every spelling of every excluded country, precomputed.
