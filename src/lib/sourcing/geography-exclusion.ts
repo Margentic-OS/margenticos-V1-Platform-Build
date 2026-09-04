@@ -54,13 +54,36 @@ import { LEGALLY_EXCLUDED_COUNTRIES } from '@/lib/sourcing/handlers/adapter-apol
 import { EXCLUDED_COUNTRIES } from '@/lib/sourcing/send-eligibility-rules'
 
 /**
+ * Merge the enforcement lists into one set.
+ *
+ * A SEPARATE FUNCTION ONLY SO THAT IT CAN BE TESTED, and that is worth the extra name.
+ * The two real lists overlap today: the send-side list is currently a SUBSET of the
+ * sourcing-side one, so dropping either from the union below changes nothing that any
+ * test using real values could detect. Mutation-testing confirmed exactly that: removing
+ * one source left every test in this module's suite green.
+ *
+ * So the union is proved on synthetic tokens, where the two sources can be made to
+ * differ. Without this the union would be an untested operation that merely looks
+ * covered because the constants happen to overlap.
+ */
+export function mergeExclusionSources(
+  ...sources: Iterable<string>[]
+): ReadonlySet<string> {
+  const merged = new Set<string>()
+  for (const source of sources) {
+    for (const code of source) merged.add(code.trim().toUpperCase())
+  }
+  return merged
+}
+
+/**
  * Every country code excluded at any enforcement stage, derived from the stages
  * themselves so it cannot drift from them.
  */
-export const ALL_EXCLUDED_COUNTRIES: ReadonlySet<string> = new Set<string>([
-  ...LEGALLY_EXCLUDED_COUNTRIES,
-  ...EXCLUDED_COUNTRIES,
-])
+export const ALL_EXCLUDED_COUNTRIES: ReadonlySet<string> = mergeExclusionSources(
+  LEGALLY_EXCLUDED_COUNTRIES,
+  EXCLUDED_COUNTRIES,
+)
 
 export interface GeographyExclusionOutcome {
   /** The codes that survive, in the order they were given. */

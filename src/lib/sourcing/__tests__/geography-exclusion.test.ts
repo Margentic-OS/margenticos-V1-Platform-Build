@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   applyGeographyExclusions,
+  mergeExclusionSources,
   ALL_EXCLUDED_COUNTRIES,
 } from '@/lib/sourcing/geography-exclusion'
 import { LEGALLY_EXCLUDED_COUNTRIES } from '@/lib/sourcing/handlers/adapter-apollo'
@@ -39,6 +40,42 @@ describe('the excluded set is the union of both enforcement lists', () => {
     expect(ALL_EXCLUDED_COUNTRIES.size).toBeGreaterThan(0)
     expect(LEGALLY_EXCLUDED_COUNTRIES.size).toBeGreaterThan(0)
     expect(EXCLUDED_COUNTRIES.length).toBeGreaterThan(0)
+  })
+
+  // ─── THE LIMIT OF THE TWO TESTS ABOVE, STATED RATHER THAN LEFT TO LOOK LIKE COVERAGE ──
+  //
+  // The send-side list is currently a SUBSET of the sourcing-side list. So the union
+  // returns the same set whether or not the send-side source is included, and neither
+  // test above can fail if it is dropped. Mutation-tested and confirmed: removing that
+  // source left all fourteen tests in this file green.
+  //
+  // They are still worth keeping. They fail the moment the lists stop overlapping, which
+  // is exactly when the union starts doing work. But the union OPERATION needs proving
+  // somewhere the sources can be made to differ, and that is the test below.
+  //
+  // The tokens are deliberately not countries. 'ZZ' and 'XY' are unassigned in ISO 3166
+  // and cannot be confused for a real place, which is the point: no real country name
+  // belongs in a fixture.
+  describe('the union operation itself, on sources that actually differ', () => {
+    it('carries every code from every source', () => {
+      const merged = mergeExclusionSources(['ZZ'], ['XY'])
+      expect(merged.has('ZZ')).toBe(true)
+      expect(merged.has('XY')).toBe(true)
+      expect(merged.size).toBe(2)
+    })
+
+    it('deduplicates a code present in both', () => {
+      expect(mergeExclusionSources(['ZZ'], ['ZZ']).size).toBe(1)
+    })
+
+    it('normalises case, so a lowercase source entry still excludes', () => {
+      expect(mergeExclusionSources(['zz'], []).has('ZZ')).toBe(true)
+    })
+
+    it('drops no source when one is empty', () => {
+      expect(mergeExclusionSources([], ['ZZ']).has('ZZ')).toBe(true)
+      expect(mergeExclusionSources(['ZZ'], []).has('ZZ')).toBe(true)
+    })
   })
 })
 
