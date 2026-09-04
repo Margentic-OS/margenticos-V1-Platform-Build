@@ -140,12 +140,18 @@ export async function POST(
     updated_at: now,
   }
 
+  // { count: 'exact' } is what makes the guard below real. postgrest-js only sends the
+  // `Prefer: count=` header `if (count)`, so WITHOUT this option count comes back null,
+  // `count === 0` is false, and the 409 branch is unreachable: two concurrent approvals
+  // would both fall through to the send. The .in() filter was always correct; nothing was
+  // reading its result.
   const { error: updateError, count } = await supabase
     .from('reply_drafts')
     .update(
       isOperatorAuthored
         ? { ...baseUpdate, ai_draft_body: finalBody }
-        : baseUpdate
+        : baseUpdate,
+      { count: 'exact' }
     )
     .eq('id', id)
     .in('status', [...APPROVABLE_STATUSES])  // idempotency: only one concurrent approve can win
