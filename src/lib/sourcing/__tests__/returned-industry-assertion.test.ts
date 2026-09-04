@@ -382,6 +382,47 @@ describe('classifyTier: every disqualifier returns a registered reason', () => {
     expect(result.tiering_reason).toBe('industry_off_target')
   })
 
+  // ── The rescue must SCORE, not only save ──────────────────────────────────
+  //
+  // MUTATION GUARD, and the gap it closes is why it is here. calculateIndustryScore used
+  // to return 0 before reaching the keyword branch whenever the tag was absent or did not
+  // resolve. Disqualifier 6 had just admitted those prospects ON that keyword, so the gate
+  // and the score disagreed about the same evidence, and the score won on the axis worth
+  // 45 of 100.
+  //
+  // Nothing caught it: every existing rescue test above asserts only that the prospect
+  // SURVIVES. Restore either early return and all of them still pass. These assert the
+  // points, which is the half that was unprotected, and they are the reason 18 stored
+  // MargenticOS rows moved when it was fixed.
+  it.each([
+    ['a tag that resolves to nothing', 'a-tag-no-canonical-name-matches'],
+    ['no tag at all', null],
+  ])('scores the keyword rescue when the industry is %s', async (_label, industry) => {
+    const withKeywords = { ...spec(['Management Consulting']), keywords: ['education'] }
+    const result = await classifyTier(
+      { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: industry, company_name: 'Riverside Education Trust' },
+      withKeywords,
+    )
+    // 20 industry + 35 seniority (a primary fragment) + 20 headcount. Asserting the exact
+    // total rather than "not null" is the point: the defect this pins produced a perfectly
+    // valid tier, 20 points light.
+    expect(result.tiering_reason).toContain('industry 20')
+    expect(result.fit_score).toBe(75)
+  })
+
+  // The 20 is not quietly raised to 45. A word in a company name must not reach tier 1 on
+  // its own: tier 1 needs 80 and the other two axes cap at 55 together, so the on-target
+  // 45 is required. This pins that ceiling.
+  it('does not let keyword evidence alone reach the on-target score', async () => {
+    const withKeywords = { ...spec(['Management Consulting']), keywords: ['education'] }
+    const result = await classifyTier(
+      { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: null, company_name: 'Riverside Education Trust' },
+      withKeywords,
+    )
+    expect(result.fit_score).toBeLessThan(80)
+    expect(result.sourced_tier).not.toBe('tier_1')
+  })
+
   // ── A missing criterion withholds the tier rather than fabricating one ─────
   //
   // The regression this pins: seniority is 35 of 100 and tier 1 needs 80, so a client
