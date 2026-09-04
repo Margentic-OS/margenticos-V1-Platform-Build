@@ -81,9 +81,15 @@ CREATE TABLE IF NOT EXISTS system_flags (
   updated_by  text
 );
 
+-- AMENDED 2026-09-04. queue_research was seeded false and has been TRUE live since
+-- 2026-08-24 (updated_by 'c5-live-verification-complete'). The COLUMN default above stays
+-- false and is still load-bearing; this is the seeded ROW value, which is a different
+-- thing. DO NOTHING is unchanged and still protects a re-run. It does NOT protect a
+-- rebuild: on an empty table nothing conflicts, so a rebuild took the literal and landed
+-- the proven-off path while live is on. Measured, not assumed.
 INSERT INTO system_flags (key, enabled, note) VALUES
   ('queue_enrich',   false, 'Route Apollo enrichment through job_queue instead of running it inline in the request. false = inline path.'),
-  ('queue_research', false, 'Route prospect research through job_queue instead of running it inline in the request. false = inline path.'),
+  ('queue_research', true,  'Route prospect research through job_queue instead of running it inline in the request. false = inline path.'),
   ('queue_compose',  false, 'Route sequence composition through job_queue instead of running it inline in handleUploadLeads. false = inline path.')
 ON CONFLICT (key) DO NOTHING;
 

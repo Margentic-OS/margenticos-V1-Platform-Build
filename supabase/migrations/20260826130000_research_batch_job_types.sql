@@ -161,16 +161,26 @@ GRANT EXECUTE ON FUNCTION public.enqueue_research_phase(text, uuid, uuid, text, 
 -- ═════════════════════════════════════════════════════════════════════════════
 -- 4. ROLLOUT FLAGS
 --
--- Both seeded false. False means "the existing single-job research path", which is the
--- one already proven in production, and it is the answer to every error in
--- isQueueEnabled as well.
+-- queue_research_sources is seeded false. False means "the existing single-job research
+-- path", which is the one already proven in production, and it is the answer to every
+-- error in isQueueEnabled as well.
+--
+-- AMENDED 2026-09-04. queue_research_collect was ALSO seeded false and has been TRUE live
+-- since 2026-08-26 (updated_by 'first-batch-runbook:drain-valve'). It now carries true.
+-- DO NOTHING is unchanged; it protects a re-run and does not protect a rebuild, which is
+-- why the literal had to move. Its own note says why false is the wrong value to rebuild
+-- into: this is the DRAIN VALVE, and a rebuild that lands it false strands batches that
+-- have already been submitted and already been paid for.
+--
+-- The exclusivity index below is unaffected: it permits at most one of queue_research and
+-- queue_research_sources to be enabled, and only queue_research is true.
 
 INSERT INTO system_flags (key, enabled, note) VALUES
   ('queue_research_sources', false,
    'THE BATCH PATH SWITCH. true routes research through the Batch API in two phases '
    '(research_sources then research_collect). false = the existing single-job research '
    'path. Mutually exclusive with queue_research, enforced by an index.'),
-  ('queue_research_collect', false,
+  ('queue_research_collect', true,
    'THE DRAIN VALVE. Lets the second phase claim work. DO NOT TURN THIS OFF TO ROLL '
    'BACK: turn queue_research_sources off instead, and leave this ON so batches already '
    'submitted and already paid for can still be collected. Turning this off strands '
