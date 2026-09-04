@@ -220,6 +220,26 @@ const _specFieldsAllExist: [_FieldsNotOnTheType] extends [never] ? true : never 
 void _specFieldsAreExhaustive
 void _specFieldsAllExist
 
+// ─── The geography this spec is built from ───────────────────────────────────
+//
+// Structurally identical to ResolvedGeography in resolve-icp-geography.ts, and declared
+// here rather than imported from there ON PURPOSE. That module reaches the integrations
+// layer, and importing it would make this tool-agnostic module depend on a handler,
+// which is both an architectural violation and a literal import cycle: the Apollo handler
+// already imports this file.
+//
+// So this is the CONSUMER'S view of the value: the fields deriveFilterSpec actually reads,
+// and nothing about how they were obtained. The producer satisfies it structurally, and
+// TypeScript checks that at the call site.
+export interface SpecGeography {
+  /** ISO-2 codes this client's document named, after exclusions. Never empty. */
+  countries: string[]
+  /** Excluded codes the document named and that were subtracted. */
+  removed_by_exclusion: string[]
+  /** Phrases from the document that named no country, verbatim. */
+  unresolved_phrases: string[]
+}
+
 // ─── ICP document types (mirrors icp-generation-agent.ts output schema) ───────
 
 export interface IcpCompanyProfile {
@@ -252,28 +272,29 @@ export interface IcpDocument {
   }
 }
 
-// ─── Default spec values ──────────────────────────────────────────────────────
-// Applied universally for English-speaking B2B consulting ICPs unless overridden.
-// Modify per-client in the filter spec approval UI when needed.
+// ─── There are no default countries any more ─────────────────────────────────
 //
-// These three MATCH the sourcing filter in adapter-apollo.ts, and they have to.
-// The filter is the enforcement: it is hardcoded and nothing in this spec can
-// widen it. But a default that lists a country the filter refuses is a document
-// that lies, and it made the adapter log a divergence on every single run, which
-// is the kind of noise a team learns to scroll past.
+// DEFAULT_PERSON_COUNTRIES and DEFAULT_COMPANY_COUNTRIES held the same three countries as
+// each other and both were assigned unconditionally, so every client received that same
+// trio no matter what their own document said. The codes are not repeated here: naming
+// them would put a real market back into this module, which is the thing being removed.
 //
-// CA and DE are gone on legal grounds, not preference. Canada is out on CASL,
-// which requires consent before first contact. Germany is out because two GmbHs
-// were mailed against an exclusion that lived in convention and had nothing to
-// read it. AU and NL are gone for the narrower reason that the filter does not
-// source them, so listing them here claimed reach that did not exist.
+// The ICP agent has always written a geography onto each targeting tier, and this module
+// parsed it into a field that nothing ever read.
 //
-// Widening this list alone changes NOTHING about who gets sourced. Both this and
-// APOLLO_FILTER have to change together, and the legal reasons above have to be
-// answered first.
-
-const DEFAULT_PERSON_COUNTRIES = ['GB', 'IE', 'US']
-const DEFAULT_COMPANY_COUNTRIES = ['GB', 'IE', 'US']
+// MEASURED CONSEQUENCE, which is why they are deleted rather than adjusted: one live
+// client sells into a single country and its sourcing returned firms from a different
+// one. Nineteen of twenty were the right kind of organisation, so the industry half of
+// the spec was working correctly the whole time. Almost none was in the right place.
+//
+// They are DELETED rather than parameterised for the same reason the sixteen default job
+// titles and the four default excluded keywords were: a default that names a market is
+// that market applied to everyone, and the client it is wrong for has no way to say so.
+// Countries are worse than either, because the wrong one is a legal exposure and not
+// merely a wasted send.
+//
+// Geography now arrives as a parameter, already derived from this client's own document,
+// already subtracted, already checked reachable. See resolveIcpGeography.
 
 // ─── There is no default keyword list any more ───────────────────────────────
 //
@@ -350,10 +371,31 @@ export function deriveKeywords(industries: readonly string[]): string[] {
  */
 export function deriveFilterSpec(
   doc: IcpDocument,
-  buyerCriterion?: BuyerCriterion | null,
+  buyerCriterion: BuyerCriterion | null,
+  geography: SpecGeography,
 ): ICPFilterSpec {
   const t1 = doc.tier_1
   const t2 = doc.tier_2
+
+  // ── Geography is required and has no substitute ───────────────────────────
+  //
+  // Checked at runtime as well as in the type, because every caller reads a spec out of
+  // the database and casts it, and a JavaScript caller or a stale stored shape reaches
+  // here with undefined. The type is the notice to whoever writes the next caller; this
+  // is the one that fires. There is deliberately no branch that continues without it.
+  if (
+    !geography ||
+    !Array.isArray(geography.countries) ||
+    geography.countries.length === 0
+  ) {
+    throw new Error(
+      'ICP filter spec: no geography was supplied, so there is no country to target. ' +
+      'Countries are derived per client from that client\'s own ICP document by ' +
+      'resolveIcpGeography, and there is no default: the three hardcoded countries that ' +
+      'used to sit here were handed to every client regardless of their document, and ' +
+      'sourced one client into the wrong country entirely.',
+    )
+  }
 
   // Merge Tier 1 + Tier 2 industries, deduplicate, validate each name.
   const rawIndustries = [...new Set([
@@ -434,8 +476,17 @@ export function deriveFilterSpec(
       }
       return ['c_suite', 'vp', 'director'] as const
     })() as ICPFilterSpec['seniority_levels'],
-    person_countries: DEFAULT_PERSON_COUNTRIES,
-    company_countries: DEFAULT_COMPANY_COUNTRIES,
+    // BOTH FROM THE SAME RESOLVED LIST, and they must stay that way. A document states
+    // one geography, so a person list and a company list that could differ would be two
+    // values derived from one sentence with nothing keeping them in step. Constraining
+    // only the company returns its employees wherever in the world they live, which is
+    // the exposure that mailed two prospects in an excluded country; the handler refuses
+    // a spec that constrains only one of them, and this is why it never has to.
+    //
+    // Fresh arrays, not the same instance twice. Handing both fields one array means a
+    // caller mutating one silently changes the other.
+    person_countries: [...geography.countries],
+    company_countries: [...geography.countries],
     company_headcount_min: headcountMin,
     company_headcount_max: headcountMax,
     industries,
@@ -456,7 +507,7 @@ export function deriveFilterSpec(
     // handed to every client, ending in "DE and NL included", which had also been false
     // since the country defaults moved to GB/IE/US. A hardcoded note is worse than no
     // note: it reads as a finding about this client and is a finding about another one.
-    notes: buildNotes(t1, t2, buyerCriterion),
+    notes: buildNotes(t1, t2, buyerCriterion, geography),
   }
 }
 
@@ -470,12 +521,42 @@ export function deriveFilterSpec(
 function buildNotes(
   t1: IcpDocument['tier_1'],
   t2: IcpDocument['tier_2'],
-  buyerCriterion?: BuyerCriterion | null,
+  buyerCriterion: BuyerCriterion | null,
+  geography: SpecGeography,
 ): string {
   const parts: string[] = [
     `Tier 1 primary: ${t1.company_profile.revenue_range}, headcount ${t1.company_profile.headcount}.`,
     `Tier 2 secondary: ${t2.company_profile.revenue_range}, headcount ${t2.company_profile.headcount}.`,
+    `Targeting: ${geography.countries.join(', ')}, derived from this ICP's own tier 1 and tier 2 geography.`,
   ]
+
+  // ── The two ways this spec is narrower than the document, said out loud ────
+  //
+  // Both of these make the spec target LESS than the client's document describes, and
+  // neither is visible from the country list alone: an operator comparing the two sees a
+  // shorter list and no reason for it. A narrowing nobody can see is the shape that let
+  // three hardcoded countries survive in production for months.
+
+  // The sentence is built here rather than imported from the module that performs the
+  // subtraction, because that module reaches the integrations layer and this one must not.
+  // The VALUE still comes from there and from nowhere else; only the wording is local.
+  if (geography.removed_by_exclusion.length > 0) {
+    parts.push(
+      `Excluded from targeting on legal grounds, after derivation: ` +
+      `${geography.removed_by_exclusion.join(', ')}. This ICP names them and they are ` +
+      'removed for every client regardless of what any document says.',
+    )
+  }
+
+  if (geography.unresolved_phrases.length > 0) {
+    parts.push(
+      `Named no country and was skipped: ${geography.unresolved_phrases
+        .map(p => `"${p}"`)
+        .join('; ')}. A phrase describing an area larger than a country is never expanded ` +
+      'into the countries inside it, because which ones it meant would be a guess. ' +
+      'To target them, name them outright in the ICP and re-approve it.',
+    )
+  }
 
   const disqualifiers = [...new Set([
     ...(t1.disqualifiers ?? []),

@@ -9,6 +9,10 @@ import {
 import { inspectFilterSpec } from '@/lib/sourcing/inspect-filter-spec'
 import { deriveBuyerCriterion } from '@/agents/buyer-criterion-agent'
 import type { BuyerCriterion } from '@/lib/sourcing/buyer-criterion'
+import {
+  resolveIcpGeography,
+  type ResolvedGeography,
+} from '@/lib/sourcing/resolve-icp-geography'
 
 /**
  * Derives and persists the ICP filter spec for a newly promoted strategy document.
@@ -132,12 +136,63 @@ export async function persistIcpFilterSpec(
       })
     }
 
+    // ── 3.2 Resolve this client's geography, and FAIL CLOSED if it cannot ──────
+    //
+    // DIFFERENT FAILURE POLICY FROM THE BUYER CRITERION ABOVE, deliberately.
+    //
+    // A missing buyer criterion fails OPEN: the spec is written without job titles and
+    // the sourcing handler refuses it later. That is right for titles, because the cost
+    // of being wrong is commercial and the refusal is recoverable.
+    //
+    // Geography fails CLOSED. A spec with no countries, or with the wrong ones, is a
+    // legal exposure rather than a wasted send, and there is no value that could stand in
+    // for a missing country list without guessing which markets a client sells to. So the
+    // whole write is abandoned and icp_filter_spec stays NULL.
+    //
+    // NULL IS AN EXISTING, LOUD FAILURE and that is why it is reused rather than a new
+    // mechanism being invented: the sourcing orchestrator already refuses to run on a NULL
+    // spec with an operator-facing message. Nothing is sourced, nothing is spent, and the
+    // document that caused it is named in this log and in Sentry.
+    //
+    // WHAT THIS DOES NOT DO, per ADR-034: it governs the NEXT spec. Prospects already
+    // sourced, enriched or uploaded under the previous spec are untouched, and no code
+    // path recalls anything already handed to the sending provider.
+    let geography: ResolvedGeography
+    try {
+      geography = await resolveIcpGeography({ supabase, doc: doc.content as IcpDocument })
+    } catch (geoError) {
+      const msg = geoError instanceof Error ? geoError.message : String(geoError)
+      logger.error('persistIcpFilterSpec: geography could not be resolved', {
+        operation_id: operationId,
+        document_id: documentId,
+        organisation_id: doc.organisation_id,
+        error: msg,
+        consequence:
+          'The filter spec is NOT written and stays NULL. Sourcing will refuse to run for ' +
+          'this client until the ICP is fixed and re-approved. This is deliberate: there ' +
+          'is no default country list, and a spec written without one would either target ' +
+          'nowhere or target somewhere this client never asked for.',
+      })
+      Sentry.captureException(geoError, {
+        tags: { component: 'persistIcpFilterSpec', step: 'geography' },
+        extra: {
+          operation_id: operationId,
+          document_id: documentId,
+          organisation_id: doc.organisation_id,
+        },
+      })
+      try {
+        await Sentry.flush(2000)
+      } catch {}
+      return
+    }
+
     // ── 3.25 Derive the filter spec from ICP content ───────────────────────────
     // deriveFilterSpec throws if industries are non-canonical.
     // Catch that explicitly and report the invalid names.
     let spec: ICPFilterSpec
     try {
-      spec = deriveFilterSpec(doc.content as IcpDocument, buyerCriterion)
+      spec = deriveFilterSpec(doc.content as IcpDocument, buyerCriterion, geography)
     } catch (specError) {
       const msg = specError instanceof Error ? specError.message : String(specError)
       logger.error('persistIcpFilterSpec: deriveFilterSpec failed (non-canonical industries)', {

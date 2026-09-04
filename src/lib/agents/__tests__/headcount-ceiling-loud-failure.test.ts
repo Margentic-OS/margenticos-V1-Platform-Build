@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { deriveFilterSpec } from '@/lib/agents/icp-filter-spec'
 import type { IcpDocument } from '@/lib/agents/icp-filter-spec'
+import { aGeography } from '@/test-utils/geography-fixture'
 
 // deriveFilterSpec used to resolve an unparseable headcount with `?? 1` and `?? 20`. Those
 // fallbacks were indistinguishable downstream from a parsed range, and 20 is a hard ceiling:
@@ -26,22 +27,22 @@ const docWith = (t1: string, t2: string): IcpDocument => ({
 
 describe('an unusable headcount stops the run instead of defaulting', () => {
   it('throws when neither tier bounds the range at all', () => {
-    expect(() => deriveFilterSpec(docWith('Varies', 'Unknown'))).toThrow(/headcount bound/i)
+    expect(() => deriveFilterSpec(docWith('Varies', 'Unknown'), null, aGeography())).toThrow(/headcount bound/i)
   })
 
   it('throws when no tier supplies an upper bound', () => {
     // Both tiers are open-ended upward. There is no ceiling to filter on, and 20 is not one.
-    expect(() => deriveFilterSpec(docWith('Over 500 employees', 'At least 100 staff')))
+    expect(() => deriveFilterSpec(docWith('Over 500 employees', 'At least 100 staff'), null, aGeography()))
       .toThrow(/upper headcount bound/i)
   })
 
   it('names both raw strings so the operator can see what to fix', () => {
-    expect(() => deriveFilterSpec(docWith('Varies', 'Unknown'))).toThrow(/Varies[\s\S]*Unknown/)
+    expect(() => deriveFilterSpec(docWith('Varies', 'Unknown'), null, aGeography())).toThrow(/Varies[\s\S]*Unknown/)
   })
 
   it('still resolves when only one tier bounds a side', () => {
     // A bare lower bound in one tier is not a failure if the other tier supplies a ceiling.
-    const spec = deriveFilterSpec(docWith('Over 500 employees', '50-120 staff'))
+    const spec = deriveFilterSpec(docWith('Over 500 employees', '50-120 staff'), null, aGeography())
     expect(spec.company_headcount_min).toBe(50)
     expect(spec.company_headcount_max).toBe(120)
   })

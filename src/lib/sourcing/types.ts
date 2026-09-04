@@ -59,6 +59,26 @@ export interface SourcingHandler {
   // say so out loud rather than default their way past the gate.
   targeted_industries: readonly string[]
 
+  // The ISO-3166 alpha-2 country codes this handler's query can actually target.
+  //
+  // REQUIRED for the same reason targeted_industries is. The ICP filter spec derivation
+  // reads this before writing a country into a spec, so that a client document naming a
+  // country the handler cannot reach fails at the document that caused it rather than at
+  // a sourcing run days later. Optional here would mean a new handler skips that check by
+  // omission.
+  //
+  // WHAT IT IS NOT. This is a statement of REACH, not of permission. A code appearing
+  // here says the handler knows how to ask its provider for that country; it says nothing
+  // about whether that country is lawful to contact. Exclusions are applied separately
+  // and earlier, in geography-exclusion.ts, and the handler keeps its own refusal as a
+  // backstop. A handler must therefore advertise every country it can translate,
+  // including ones that are excluded, or the two mechanisms would be describing each
+  // other instead of the world.
+  //
+  // Canonical ISO-2 only, never a provider's own place names, so it compares directly
+  // against ICPFilterSpec.person_countries and company_countries.
+  targetable_countries: readonly string[]
+
   adapter: (spec: unknown) => unknown
   execute: (spec: unknown, cap?: number) => Promise<unknown[]>
 }

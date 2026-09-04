@@ -163,6 +163,19 @@ export function toIso2CountryCode(raw: string | null | undefined): string | null
 }
 
 /**
+ * Every ISO-2 code this module can produce, derived from the alias table.
+ *
+ * Exists so that callers who need to reason about the GAP between what the platform
+ * recognises and what a given sourcing handler can reach do not have to read the table's
+ * internals or restate any part of it. That gap is real: a handler's translation table is
+ * smaller than this, and a country in the difference is one an ICP can legitimately name
+ * and no query can express.
+ */
+export function knownIso2CountryCodes(): Set<string> {
+  return new Set(Object.values(COUNTRY_ALIASES))
+}
+
+/**
  * Every spelling that means "this ISO-2 code", for callers that must compare a possibly
  * un-normalised stored value against a code. Used by the send-eligibility rule so a
  * compliance exclusion cannot be defeated by a format that predates this module.

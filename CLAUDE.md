@@ -508,6 +508,23 @@ Per ADR-013, current agent model assignments:
                                                        intake and derives WHO the client
                                                        emails. Runs once per ICP approval,
                                                        not per prospect. See ADR-046.
+  ICP geography derivation:                            claude-opus-4-6
+                                                       Reads ONLY the tier 1 and tier 2
+                                                       geography of the ICP being promoted,
+                                                       and derives WHERE the client sells.
+                                                       Tier 3 is the disqualifier tier and is
+                                                       deliberately not read. Runs once per
+                                                       ICP approval, alongside the buyer
+                                                       criterion, so that path now makes TWO
+                                                       model calls. See ADR-013.
+                                                       It is the only Anthropic client in this
+                                                       codebase with an explicit timeout and
+                                                       maxRetries: the SDK defaults are 10
+                                                       minutes and 2 retries, which is 30
+                                                       minutes against a 300s route, and
+                                                       nothing retries a failed spec
+                                                       derivation. Every other client here
+                                                       still inherits those defaults.
   Messaging generation agent:                          claude-sonnet-4-6
                                                        (local-dev workaround —
                                                         revert to opus-4-6 when

@@ -239,7 +239,12 @@ const ISO_TO_APOLLO_LOCATION: Record<string, string> = {
 //
 // Note what this does NOT do, per ADR-034: it governs UPLOAD, not delivery, and it
 // cannot recall anything already in flight with the sending provider.
-const LEGALLY_EXCLUDED_COUNTRIES = new Set(['CA', 'DE'])
+// EXPORTED, membership unchanged. The ICP filter spec derivation subtracts this union
+// with the send-side list at one single point, so a country on it never enters a spec and
+// the refusal below stops being the only thing standing between a client's document and
+// an unlawful query. See src/lib/sourcing/geography-exclusion.ts. Exporting it rather
+// than restating it there is what stops the two drifting.
+export const LEGALLY_EXCLUDED_COUNTRIES = new Set(['CA', 'DE'])
 
 /**
  * Build the Apollo request from one client's stored spec.
@@ -539,6 +544,17 @@ export const apolloHandler = {
 
   // What the hardcoded query targets, for the orchestrator's pre-search gate.
   targeted_industries: [...APOLLO_TARGETED_INDUSTRIES],
+
+  // Which countries this handler can ask its provider for, DERIVED from the translation
+  // table rather than listed beside it. A hand-written copy would be a second list to
+  // keep in step, and the direction it would drift is the dangerous one: a code advertised
+  // here and absent from the table is a country the spec derivation lets through and the
+  // query then cannot express.
+  //
+  // Includes the legally excluded codes on purpose. This says what the handler can
+  // translate, not what it is allowed to send; translateCountries refuses the excluded
+  // ones separately and keeps doing so.
+  targetable_countries: Object.keys(ISO_TO_APOLLO_LOCATION),
 
   // Adapter: build the request from THIS CLIENT'S spec.
   //
