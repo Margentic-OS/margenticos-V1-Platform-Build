@@ -752,3 +752,48 @@ sitting underneath it. Read back in both directions on 2026-09-03.
 4. "I need to run a query as admin to fix data"
    → Use the service role key server-side — it bypasses RLS
    → Never expose the service role key client-side
+
+---
+
+## The monitor views (`mon_NNN`) and their state contract
+
+Each monitored check is one view named `mon_NNN`, returning exactly one row with four
+columns in this order: `check_code`, `state`, `detail`, `last_run`. `state` is one of
+`OK`, `PROBLEM`, `UNKNOWN`. The sweep at `/api/cron/monitor-sweep` reads each view listed
+in `monitor-sweep/monitors.ts`, compares against the newest `monitor_events` row for that
+code, and writes a new event only on a change.
+
+**The view is the entire decision.** The route computes nothing. So a view that returns the
+wrong state produces a wrong board with no other code involved.
+
+### Three shapes, all deliberate
+
+| Shape | Views | State rule |
+|---|---|---|
+| Latest run | `mon_001`–`mon_005`, `mon_010`, `mon_016` | stale, **or the latest heartbeat has `ok = false`** |
+| Failure window | `mon_019`, `mon_020`, `mon_021` | stale, or any heartbeat failed inside a fixed interval |
+| Real contents | `mon_006`, `mon_011`–`mon_015`, `mon_017`, `mon_018`, `mon_022`–`mon_026` | ignores heartbeats, reads the data itself |
+
+"Latest run" clears as soon as one run succeeds, so green means working right now.
+"Failure window" stays red for the whole interval after recovery, which catches a job
+failing intermittently at the cost of a lagging green.
+
+### Two properties a heartbeat-backed view must not lose
+
+1. **Exactly one row, always.** The sweep calls `.single()`, which errors on zero rows and
+   is then counted as a failed check rather than as `UNKNOWN`. A view built as
+   `SELECT ... FROM latest` returns no rows when the job has never run. Use
+   `FROM (SELECT 1) one LEFT JOIN LATERAL (... LIMIT 1) latest ON true` instead.
+2. **State and detail from the SAME row.** Until 2026-09-04 six views derived state from
+   `max(ran_at)` and detail from `max(CASE WHEN ok = false THEN detail END)` over all
+   history with no time bound. They could not agree, and did not: MON-005 was read live
+   showing state `OK` beside a failure message from the previous day. Resolve one latest
+   heartbeat and derive all three output columns from it.
+
+### What a monitor cannot tell you
+
+`state` reflects the last time the sweep RAN, not this instant. The dashboard reads the
+stored `monitor_events` row, not the view, so a rule change does not rewrite existing
+events: it takes effect the next time the sweep observes a genuine change, within 15
+minutes. Monitor state is system-wide. There is no `organisation_id` on `monitor_events`,
+`monitor_checks` or `cron_heartbeats`, and no client-facing route reads any of them.

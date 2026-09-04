@@ -20,12 +20,20 @@
 //   mon_016, mon_017, mon_018 (durable job queue)
 //   mon_019 (email verification sweep)
 //
-// The three queue checks deliberately do NOT follow mon_002's shape. mon_002 derives its
-// state from max(ran_at) staleness alone and reads cron_heartbeats.ok only for the detail
-// string, so a cron that runs on time and fails every run reads OK there. mon_016 reads
-// ok into its STATE, and mon_017 and mon_018 ignore the heartbeat entirely and read the
-// queue's real contents, so a green worker heartbeat cannot mask a queue that never
-// drains.
+// EVERY heartbeat-backed view now reads cron_heartbeats.ok into its STATE, not only into
+// the detail string. Until 2026-09-04 six of them did not: mon_001, mon_002, mon_003,
+// mon_004, mon_005 and mon_010 derived state from max(ran_at) staleness alone, so a cron
+// that ran exactly on schedule and failed every run reported OK. This comment used to
+// describe that as a live contrast against mon_016 and left it in place. It was the
+// defect, not a design note. Fixed in 20260904190000_monitor_state_reads_latest_run.sql,
+// which also stopped those views quoting a failure detail from an unbounded max() over all
+// history, so state and detail can no longer come from different rows.
+//
+// Two shapes are now in use, both deliberate:
+//   mon_001..005, 010, 016   "did the LATEST run fail" -> PROBLEM, clears on next success
+//   mon_019, 020, 021        "did ANY run fail in a window" -> stickier, stays red longer
+// mon_017 and mon_018 ignore the heartbeat entirely and read the queue's real contents, so
+// a green worker heartbeat cannot mask a queue that never drains.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
