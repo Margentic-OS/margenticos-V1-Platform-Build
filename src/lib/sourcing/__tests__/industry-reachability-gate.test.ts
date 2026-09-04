@@ -224,8 +224,15 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
 
   it('refuses the run when no spec industry is targeted by the handler query', async () => {
     const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
+    // NAMES THE HANDLER CANNOT TRANSLATE, which since the query became spec-driven is
+    // no longer the same thing as "a sector outside consulting". The Apollo handler has
+    // a NAICS code for every CANONICAL industry, so education and agriculture are now
+    // reachable and this test used to assert the opposite. What remains genuinely
+    // unreachable is a name with no registered translation, so the fixture uses abstract
+    // tokens: a real sector name here would be Rule Zero debt and would also go stale
+    // again the moment that sector got a code.
     const supabase = makeSupabase(
-      baseSpec(['Primary and Secondary Education', 'Higher Education']),
+      baseSpec(['Not A Targeted Industry', 'Also Not Targeted']),
       state,
     )
 
@@ -234,7 +241,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
     expect(result.error).toBeDefined()
     expect(result.error).toContain('Sourcing refused')
     // Names what was expected and what the handler actually goes looking for.
-    expect(result.error).toContain('Primary and Secondary Education')
+    expect(result.error).toContain('Not A Targeted Industry')
     expect(result.error).toContain('Management Consulting')
     expect(result.candidates_sourced).toBe(0)
     expect(result.candidates_qualified).toBe(0)
@@ -268,7 +275,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
     const warn = vi.spyOn(logger, 'warn')
     const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
     const supabase = makeSupabase(
-      baseSpec(['Management Consulting', 'Higher Education', 'Agriculture']),
+      baseSpec(['Management Consulting', 'Unreachable One', 'Unreachable Two']),
       state,
     )
 
@@ -282,7 +289,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
     const payload = partial![1] as Record<string, unknown>
     expect(payload.unreachable_count).toBe(2)
     expect(payload.reachable_count).toBe(1)
-    expect(payload.unreachable_industries).toEqual(['Higher Education', 'Agriculture'])
+    expect(payload.unreachable_industries).toEqual(['Unreachable One', 'Unreachable Two'])
   })
 
   it('says out loud when the spec constrains no industry at all', async () => {

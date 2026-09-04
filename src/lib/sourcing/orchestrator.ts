@@ -262,11 +262,15 @@ export async function runSourcing(
     //
     // WHAT THIS CATCHES. The manifest check above asks whether the handler
     // SUPPORTS a field. It does not ask whether the query the handler actually
-    // sends has anything to do with what the client asked for. Since the Apollo
-    // query became hardcoded, those are different questions: the manifest check
-    // passes for every client, and a client whose ICP names schools would be
-    // handed management consultancies with no error, no warning and a run
+    // sends can express what the client asked for. A client whose ICP names an
+    // industry the handler has no translation for would otherwise be handed
+    // whatever the query did produce, with no error, no warning and a run
     // recorded as completed. That is the shape this gate exists to end.
+    //
+    // The Apollo query is now built from the spec, so handler.targeted_industries
+    // is derived from that handler's own translation table rather than being a
+    // hand-written list. What this gate now catches is the narrower and still real
+    // case of an industry no handler can translate.
     //
     // WHY IT RUNS HERE, BEFORE handler.execute(). Failing after the search would
     // still be loud, but it would be loud after the Apollo call, the pagination
@@ -284,11 +288,11 @@ export async function runSourcing(
     const targetedIndustries = handler.targeted_industries ?? []
 
     if (specIndustries.length === 0) {
-      // Not a failure, and deliberately so. An empty industries list is the spec
-      // declining to constrain industry, not a spec that disagrees with the query,
-      // and there is no intersection to be empty. It is still worth saying out
-      // loud, because the practical result is the same: the client takes whatever
-      // the hardcoded filter targets and nothing recorded that they chose it.
+      // Not a failure here, and deliberately so: an empty industries list is the
+      // spec declining to constrain industry, not a spec that disagrees with the
+      // query, and there is no intersection to be empty. It is still worth saying
+      // out loud. The Apollo handler refuses such a spec outright a step later,
+      // because it has no NAICS codes to search on, but a future handler might not.
       logger.warn('Sourcing orchestrator: ICP names no industries, handler targeting is unchecked', {
         operation_id: operationId,
         client_id,
@@ -314,9 +318,10 @@ export async function runSourcing(
           'returned would be off-specification. ' +
           `ICP asked for: ${specIndustries.join(', ')}. ` +
           `Handler targets: ${targetedIndustries.join(', ')}. ` +
-          'The query is hardcoded rather than derived from the spec, so this cannot be fixed by ' +
-          'editing the ICP: either the handler needs a query that serves this client, or this client ' +
-          'needs a different handler.'
+          'The query IS built from this spec, so the gap is a missing translation rather than a ' +
+          'hardcoded filter: this handler has no code registered for those industry names. Add ' +
+          'them to CANONICAL_TO_NAICS in the handler, which owns that translation, or route this ' +
+          'client to a handler that can express them.'
         )
       }
 

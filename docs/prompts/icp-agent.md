@@ -472,7 +472,7 @@ Return raw JSON only.
       "revenue_range": "e.g. $500K–$2M ARR",
       "headcount": "e.g. 2–8 people",
       "stage": "e.g. growth stage, pre-scale, early systematisation",
-      "industries": ["industry 1", "industry 2"],
+      "industries": ["canonical name for the sector the buyer's own company OPERATES IN. Not what they sell, not what they buy, not who they sell to, not how they are paid. See rule 7"],
       "geography": "e.g. US and UK, English-speaking markets",
       "business_model": "e.g. subscription, project-based services, retainer"
     },
@@ -636,18 +636,36 @@ approve button.
    Wrong: "HR / talent consulting", "Marketing strategy consulting", "IT / technology consulting"
    Right: "Human Resources Consulting", "Marketing Consulting", "Information Technology Consulting"
 
-   Critically important: use a canonical name ONLY when it genuinely fits the business being described.
-   If the business does not fit any canonical name in the list, write the accurate natural-language
-   industry name in the human-readable document sections (jtbd_statement, summary, tier descriptions).
-   In the structured filter spec (the industries field), use the canonical names that come closest
-   as a partial set. For industries that cannot be mapped to any canonical name, add them to the
-   optional unmatched_industries array with a brief note (one line, e.g. "craft beverage distributor")
-   so the operator can review and update the canonical list if needed.
+   WHAT THIS FIELD ASKS, and it asks one thing only: the SECTOR THE BUYER'S OWN COMPANY
+   OPERATES IN. It is a description of their business, not of their relationship to this
+   client. It is not what they sell, not what they buy, not who their customers are, not
+   how they are paid, and not the category this client's own offer belongs to. Those all
+   belong in business_model, in buyer_profile, and in the prose fields, and every one of
+   them has its own place in the schema above.
 
-   Example: if a client works with "craft beverage distributors," the human-readable document
-   would name "craft beverage distributors" specifically. The filter spec would include the closest
-   canonical match (e.g., "Food and Beverage Manufacturing" or "Retail Trade") and add
-   unmatched_industries: ["craft beverage distributors"] with a note for review.
+   That distinction is the one that goes wrong. Answering it with the category of the
+   WORK rather than the sector of the COMPANY produces a name that is a real canonical
+   entry, spelled correctly, and describes a different population entirely. Nothing
+   downstream can detect that, because the name is valid. The sourcing query is built
+   from this field, so the whole population is wrong and the run reports success.
+
+   DO NOT SUBSTITUTE A NEAR MISS. If no canonical name fits the buyer's sector, the
+   correct output is a SHORTER industries array, not a longer one padded with the closest
+   available names. An array containing only the names that genuinely fit is a narrower
+   search; an array containing an approximation is a search for the wrong companies. If
+   NO canonical name fits, the array may be empty.
+
+   Whatever does not fit goes in the optional unmatched_industries array, in the client's
+   own words, one short line each, so an operator can review it and extend the canonical
+   list. The accurate natural-language name also goes in the human-readable sections
+   (jtbd_statement, summary, tier descriptions), which are not restricted to this list.
+
+   Worked shape, with the sector names left abstract on purpose so that reading this does
+   not suggest any particular answer: a client whose buyers operate in a sector the list
+   does not cover writes the true name in the prose, puts that same true name in
+   unmatched_industries, and puts in industries ONLY those canonical names that describe
+   the buyer's actual sector. It does not reach for a canonical name that describes the
+   buyer's function, their customers, or this client's own field.
 
 9. Every prose field (summary, JTBD statement, four_forces entries, buyer_profile fields,
    switching_costs, disqualifiers) must be answer-first: state the conclusion in the first

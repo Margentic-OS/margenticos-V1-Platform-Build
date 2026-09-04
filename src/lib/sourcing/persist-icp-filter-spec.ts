@@ -8,6 +8,7 @@ import {
 } from '@/lib/agents/icp-filter-spec'
 import { inspectFilterSpec } from '@/lib/sourcing/inspect-filter-spec'
 import { deriveBuyerCriterion } from '@/agents/buyer-criterion-agent'
+import type { BuyerCriterion } from '@/lib/sourcing/buyer-criterion'
 
 /**
  * Derives and persists the ICP filter spec for a newly promoted strategy document.
@@ -69,12 +70,74 @@ export async function persistIcpFilterSpec(
       return
     }
 
-    // ── 3. Derive the filter spec from ICP content ─────────────────────────────
+    // ── 3. Derive this client's buyer criterion FIRST ──────────────────────────
+    //
+    // ORDER IS LOAD-BEARING AND IT CHANGED. The criterion used to be derived after the
+    // spec and attached to it. It now runs first, because deriveFilterSpec reads it:
+    // `job_titles` and `job_titles_excluded` are the criterion's accept and reject
+    // fragments, rather than sixteen literals naming one market's roles.
+    //
+    // WHO the client emails, as opposed to what we ask the provider to search. Derived
+    // from every approved document plus intake, not from the ICP alone: an ICP describes
+    // a market, and the positioning document is what says which problem the client solves
+    // and therefore who owns it.
+    //
+    // It rides in the spec, so it is approved with the ICP, regenerates with the ICP, and
+    // is thawed by the same re-queue below. No new document and no new approval step.
+    //
+    // NEVER FAILS THE WRITE, and that is now a LARGER consequence than it was. A spec
+    // with no criterion has no job titles either, so it cannot build a people search and
+    // the sourcing handler refuses to run on it. That is deliberate: a refusal is
+    // recoverable by approving an ICP, and sourcing a default set of titles is not
+    // recoverable at all once the emails are sent. The old comment said this client
+    // "pays to enrich every approved prospect"; that is still true of the enrichment
+    // gate, which still fails open, and sourcing now stops before reaching it.
+    let buyerCriterion: BuyerCriterion | null = null
+    try {
+      buyerCriterion = await deriveBuyerCriterion({
+        supabase,
+        organisation_id: doc.organisation_id,
+      })
+
+      if (buyerCriterion.status !== 'derived') {
+        logger.warn('persistIcpFilterSpec: buyer criterion will not gate', {
+          operation_id: operationId,
+          document_id: documentId,
+          organisation_id: doc.organisation_id,
+          status: buyerCriterion.status,
+          reason:
+            buyerCriterion.unsettled_reason ??
+            buyerCriterion.sanity?.note ??
+            null,
+          consequence:
+            'Enrichment will run unfiltered for this client until it is resolved. Its ' +
+            'title fragments are still used to build the sourcing query.',
+        })
+      }
+    } catch (criterionError) {
+      const msg = criterionError instanceof Error ? criterionError.message : String(criterionError)
+      logger.error('persistIcpFilterSpec: buyer criterion derivation failed', {
+        operation_id: operationId,
+        document_id: documentId,
+        organisation_id: doc.organisation_id,
+        error: msg,
+        consequence:
+          'The spec is stored WITHOUT a buyer criterion and therefore WITHOUT job titles. ' +
+          'Sourcing will refuse to run for this client, and tiering will withhold a tier, ' +
+          'until an ICP is re-approved. Both are recoverable; neither spends money.',
+      })
+      Sentry.captureException(criterionError, {
+        tags: { component: 'persistIcpFilterSpec', step: 'buyer_criterion' },
+        extra: { operation_id: operationId, document_id: documentId },
+      })
+    }
+
+    // ── 3.25 Derive the filter spec from ICP content ───────────────────────────
     // deriveFilterSpec throws if industries are non-canonical.
     // Catch that explicitly and report the invalid names.
     let spec: ICPFilterSpec
     try {
-      spec = deriveFilterSpec(doc.content as IcpDocument)
+      spec = deriveFilterSpec(doc.content as IcpDocument, buyerCriterion)
     } catch (specError) {
       const msg = specError instanceof Error ? specError.message : String(specError)
       logger.error('persistIcpFilterSpec: deriveFilterSpec failed (non-canonical industries)', {
@@ -104,55 +167,7 @@ export async function persistIcpFilterSpec(
       return
     }
 
-    // ── 3.25 Derive this client's buyer criterion ──────────────────────────────
-    //
-    // WHO the client emails, as opposed to what we ask the provider to search. Derived
-    // from every approved document plus intake, not from the ICP alone: an ICP describes
-    // a market, and the positioning document is what says which problem the client solves
-    // and therefore who owns it.
-    //
-    // It rides in the spec, so it is approved with the ICP, regenerates with the ICP, and
-    // is thawed by the same re-queue below. No new document and no new approval step.
-    //
-    // NEVER FAILS THE WRITE. A spec with no criterion makes the gate fail open and warn,
-    // which is a pipeline that spends more than it should. A spec that failed to persist
-    // makes sourcing fail outright. The first is recoverable by approving an ICP; the
-    // second is not recoverable without an operator noticing.
-    try {
-      spec.buyer_criterion = await deriveBuyerCriterion({
-        supabase,
-        organisation_id: doc.organisation_id,
-      })
-
-      if (spec.buyer_criterion.status !== 'derived') {
-        logger.warn('persistIcpFilterSpec: buyer criterion will not gate', {
-          operation_id: operationId,
-          document_id: documentId,
-          organisation_id: doc.organisation_id,
-          status: spec.buyer_criterion.status,
-          reason:
-            spec.buyer_criterion.unsettled_reason ??
-            spec.buyer_criterion.sanity?.note ??
-            null,
-          consequence: 'Enrichment will run unfiltered for this client until it is resolved.',
-        })
-      }
-    } catch (criterionError) {
-      const msg = criterionError instanceof Error ? criterionError.message : String(criterionError)
-      logger.error('persistIcpFilterSpec: buyer criterion derivation failed', {
-        operation_id: operationId,
-        document_id: documentId,
-        organisation_id: doc.organisation_id,
-        error: msg,
-        consequence:
-          'The spec is stored WITHOUT a buyer criterion. Enrichment fails open and warns, ' +
-          'so this client pays to enrich every approved prospect until an ICP is re-approved.',
-      })
-      Sentry.captureException(criterionError, {
-        tags: { component: 'persistIcpFilterSpec', step: 'buyer_criterion' },
-        extra: { operation_id: operationId, document_id: documentId },
-      })
-    }
+    if (buyerCriterion) spec.buyer_criterion = buyerCriterion
 
     // ── 3.5 Inspect the spec we are about to write ─────────────────────────────
     // Report only. A finding here does NOT stop the write: a spec with a flaw is more
