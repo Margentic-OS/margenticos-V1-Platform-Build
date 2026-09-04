@@ -571,7 +571,11 @@ in its definition).
 
 ## BACKLOG ITEMS
 
-Ready to paste into `/docs/BACKLOG.md`:
+> **2026-09-04: do not paste these into `docs/BACKLOG.md`.** That file is closed to
+> new entries. If any of these are still open, create a Notion Backlog row for each
+> instead. The text below is kept as the audit's original output.
+
+Originally written as ready to paste into `/docs/BACKLOG.md`:
 
 ---
 

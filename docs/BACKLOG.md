@@ -1,12 +1,50 @@
+# ============================================================================
+# CLOSED TO NEW ENTRIES — 2026-09-04
+#
+# OPEN WORK LIVES IN THE NOTION BACKLOG. NOT HERE.
+#
+#   MargenticOS — Company Brain -> Backlog -> open the NOW view first.
+#   Reach it with the Notion MCP. A session logging a finding creates a
+#   Notion Backlog row. It does not add to this file.
+#
+# THIS FILE IS THE HISTORICAL RECORD. Nothing has been deleted from it and
+# nothing will be. It stays readable, greppable and citable, and roughly 60
+# code comments and docs still point at it by line number. Those citations
+# are still correct: they refer to history, which does not change.
+#
+# WHAT MOVED, 2026-09-04. All 87 [pre-c0] and [pre-c1] entries were
+# reconciled against the Notion Backlog. 80 were open, 21 already had a
+# Notion row, and the remaining 58 were migrated: 50 new Backlog rows,
+# 5 Knowledge Base entries, 3 Decisions Log entries. Gates carried from
+# tags: [pre-c0] -> "Live risk", [pre-c1] -> "Before first paying client".
+#
+# WHAT DID NOT MOVE. Every other tag. [post-build], [phase2], [monitor],
+# [research], [pre-launch], [lesson], [commercial] and the rest are still
+# here and only here. If you need one of those, read this file. If you act
+# on one, open a Notion row for it and note the line number you took it from.
+#
+# WHY. Two backlogs both took new actionable items and neither was complete.
+# The entry "BACKLOG.md and the Notion Backlog are diverging" flagged that on
+# 2026-08-18, and it recurred for another fortnight, because the note lived in
+# a file rather than in the instruction.
+# See Decisions Log: "DECIDED — Notion is canonical for open work;
+# BACKLOG.md is closed to new entries". It supersedes the 2026-08-29 entry
+# that said sessions should keep writing here.
+# ============================================================================
+
 # BACKLOG.md — MargenticOS deferred items and follow-ups
 # Started April 2026
 #
-# Purpose: single source of truth for things to remember across sessions.
+# Purpose (as originally written): single source of truth for things to
+# remember across sessions. That role passed to the Notion Backlog on
+# 2026-09-04 for open work; this file keeps it for history.
 # This file captures items that have been consciously deferred, partially built,
 # or flagged for future attention — but are not yet ADRs or formal spec items.
 #
-# Every Claude Code session must read this file at the start.
-# Before ending any session, any item the session deferred must be added here.
+# HISTORICAL, superseded 2026-09-04 by the banner above. This file used to
+# say: every Claude Code session must read this file at the start, and any
+# deferred item must be added here before the session ends. Both instructions
+# are withdrawn. Sessions read the Notion Backlog and write findings there.
 #
 # Format per entry:
 #   ## Category header

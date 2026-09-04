@@ -3,8 +3,10 @@
 > **STATUS 2026-08-25: BUILT. This document is now HISTORY, not instructions.**
 >
 > The build landed in commit 90870a9 (branch `second-pass-verification`). Live technical
-> reference: **`docs/email-verification.md`**. Open items: `docs/BACKLOG.md`, section
-> "Catch-all second pass".
+> reference: **`docs/email-verification.md`**. Open items: the **Notion Backlog**
+> (Company Brain -> Backlog), which is canonical for open work as of 2026-09-04.
+> The original "Catch-all second pass" section in `docs/BACKLOG.md` is retained
+> there as history.
 >
 > **Three things in this document turned out to be wrong or incomplete. They are corrected
 > here so nobody rebuilds against them.**
