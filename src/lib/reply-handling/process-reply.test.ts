@@ -203,7 +203,12 @@ describe('process-reply opt-out dispatch', () => {
 
     // AND THE SIGNAL IS NOT MARKED PROCESSED, so the next cron run retries. This is the
     // half the old code lost: it marked processed and the retry never came.
-    expect(db.rec.signalUpdates).toHaveLength(0)
+    //
+    // Asserted as "no update set processed" rather than "no update happened at all". The
+    // signal row IS written on this path now — resolving the prospect stores the link on
+    // signals.prospect_id — and a bare length check would conflate storing that link with
+    // closing the signal. Those are opposite things and only one of them ends the retry.
+    expect(db.rec.signalUpdates.some((u: Record<string, unknown>) => u.processed === true)).toBe(false)
   })
 
   it('still applies the database suppression when the provider call fails', async () => {
@@ -255,7 +260,9 @@ describe('process-reply opt-out dispatch', () => {
 
     expect(result.processed).toBe(1)
     expect(db.rec.actionUpdates[0].action_succeeded).toBe(true)
-    expect(db.rec.signalUpdates[0]).toMatchObject({ processed: true })
+    // By predicate, not by index: the prospect-link write also lands in signalUpdates and
+    // arrives first, so [0] would be asserting about the wrong write.
+    expect(db.rec.signalUpdates.some((u: Record<string, unknown>) => u.processed === true)).toBe(true)
   })
 
   it('accepts not_required as a pass, because the provider genuinely holds nothing', async () => {
@@ -297,5 +304,51 @@ describe('process-reply opt-out dispatch', () => {
     expect(suppressProspectAtProvider).not.toHaveBeenCalled()
     expect(result.processed).toBe(1)
     expect(db.rec.prospectUpdates).toHaveLength(0)
+  })
+})
+
+// ── The prospect link on the signal ───────────────────────────────────────────
+//
+// signals.prospect_id was written in exactly one statement in the whole codebase — the
+// poller's INSERT, hardcoded to NULL with the note "prospect linkage is downstream signal
+// processing concern". Downstream is this module. It resolved the prospect into a local,
+// used it for reply_handling_actions.prospect_id and reply_drafts.prospect_id, and never
+// wrote it back. Measured in production 2026-09-04: 0 of 4 signal rows carried a
+// prospect_id while all 3 action rows did. "Who replied" was unanswerable from signals.
+//
+// MUTATION-PROVED: deleting the .from('signals').update({ prospect_id }) block in
+// process-reply.ts turns both tests below red.
+
+describe('the resolved prospect is stored on the signal, not just held in a local', () => {
+  it('writes prospect_id onto the signal row when the prospect resolves', async () => {
+    suppressProspectAtProvider.mockResolvedValue({
+      status: 'confirmed', stoppedLeadIds: ['lead-1'], error: null,
+    })
+
+    const db = createFakeDb()
+    await processReplies(db, 'key')
+
+    const link = db.rec.signalUpdates.find((u: Record<string, unknown>) => 'prospect_id' in u)
+    expect(link).toBeDefined()
+    expect(link!.prospect_id).toBe('p1')
+    expect(link!.__id).toBe('sig-1')
+  })
+
+  it('writes the link even when the prospect is ALREADY suppressed and the run returns early', async () => {
+    // This path returns 'skipped' before any action row is written, so the action row
+    // cannot carry the link here. If the signal is not linked on this path either, the
+    // rows an operator is most likely to be investigating are the ones with no link at all.
+    const db = createFakeDb({
+      prospect: {
+        id: 'p-suppressed', first_name: 'Sam', suppressed: true,
+        email: 'optout@example.com', outbound_lead_id: 'lead-1',
+      },
+    })
+    const result = await processReplies(db, 'key')
+
+    expect(result.skipped).toBe(1)
+    const link = db.rec.signalUpdates.find((u: Record<string, unknown>) => 'prospect_id' in u)
+    expect(link).toBeDefined()
+    expect(link!.prospect_id).toBe('p-suppressed')
   })
 })
