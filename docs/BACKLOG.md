@@ -11380,13 +11380,14 @@ See `docs/testing-database.md`. Three things were deliberately left.
   in place. Not urgent, but it is the same defect class sitting in the same file
   as the one that cost 146 rows.
 
-- [post-build] Auth users created by tests are not counted (2026-09-04)
+- [post-build] Auth users created by tests — CHECKED, not leaking (2026-09-04)
   `monitor-acknowledge.test.ts` creates an operator via `auth.admin.createUser`
-  and deletes it unchecked. Nobody has counted `auth.users` in the test project
-  the way organisations were counted. If that delete has been failing the same
-  way, there is a second population leaking quietly with no dashboard. Worth one
-  query before assuming it is fine. Do not assume the organisations fix covered
-  it: it is a different table with a different API and no foreign key involved.
+  and deletes it unchecked, so it looked like a candidate for the same leak.
+  Measured rather than assumed: `SELECT count(*) FROM auth.users` on
+  tidqheqjzvwmrrrebzir returns **0**. That delete is working, and there is no
+  second population leaking. Recorded here so nobody spends time re-deriving it.
+  The delete is still unchecked, so it belongs to the item above rather than to
+  a leak of its own.
 
 - [post-build] Two sessions ran the suite against the test project at once
   (2026-09-04)
