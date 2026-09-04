@@ -161,25 +161,62 @@ function calculateHeadcountScore(headcount: number | null): number {
 }
 
 /**
- * Calculate industry score based on mapping to ICP spec.
- * Returns 0-45 points based on on-target vs. adjacent industry.
+ * The industry axis, 0 to 45.
+ *
+ * TWO EARLY RETURNS USED TO THROW AWAY THE EVIDENCE THE DISQUALIFIER HAD JUST ACCEPTED,
+ * and that is what this rewrite fixes. It is the validate-one-thing-return-another shape
+ * from CLAUDE.md, on the scoring side rather than the gating side.
+ *
+ * Disqualifier 6 REMOVES a prospect whose tag is not on target unless the company carries
+ * one of this client's own keywords. So every survivor with an off-target or unreadable
+ * tag has keyword evidence BY CONSTRUCTION: the gate is what let it through. This function
+ * then returned 0 for two of those three cases, because it bailed out before reaching the
+ * keyword branch:
+ *
+ *   `if (!prospect.company_industry) return 0`  the provider sent no tag at all. This is
+ *   not a rare case, it is the ONLY case for a client whose prospects are not yet enriched:
+ *   sourcing does not write company_industry, so all 40 rows for the two newest clients
+ *   are in it. Disqualifier 6 is skipped entirely for them, so they survive, and then
+ *   score zero on an axis worth 45.
+ *
+ *   `if (!mappedIndustry) return 0`  a tag arrived and no canonical name matched its
+ *   wording. Disqualifier 6 required keyword evidence to let this prospect live, and the
+ *   next line discarded it.
+ *
+ * Absence of evidence was being scored as evidence of absence, on the one axis large
+ * enough to decide the tier by itself.
+ *
+ * THE RULE IS NOW ONE RULE, and the three cases collapse into it:
+ *
+ *   45  the tag resolves to a canonical name this client's specification names.
+ *   20  it does not, and the company still carries one of this client's own keywords.
+ *        The 20 rather than 45 is deliberate and is not softened here: a keyword in a
+ *        company name is weaker evidence than a resolved sector, and when the tag DID
+ *        resolve to something else it is evidence in conflict.
+ *    0  no evidence either way.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT DO. It does not raise keyword evidence to 45 when the
+ * tag is missing. That would let a company in an unrelated sector reach tier 1 on nothing
+ * but a word in its name, and the words are broad: a client whose canonical name yields a
+ * common head noun would promote anything containing it. The structural consequence is
+ * recorded rather than engineered around: tier 1 needs 80, seniority and headcount cap at
+ * 55 together, so TIER 1 REQUIRES THE 45. A client whose provider tags never resolve
+ * cannot produce a tier 1 prospect at all. That is not fixed here because fixing it means
+ * knowing the provider's tag vocabulary, which needs the paid enrichment sample the
+ * BACKLOG describes. It is in BACKLOG, with this arithmetic.
  */
 function calculateIndustryScore(
   prospect: EnrichedProspect,
   icpFilterSpec: ICPFilterSpec,
   databaseMappings: Record<string, string>,
 ): number {
-  if (!prospect.company_industry) return 0
+  const mappedIndustry = prospect.company_industry
+    ? mapApolloToSpecIndustryWithDatabase(prospect.company_industry, databaseMappings)
+    : null
 
-  const mappedIndustry = mapApolloToSpecIndustryWithDatabase(
-    prospect.company_industry,
-    databaseMappings,
-  )
-
-  if (!mappedIndustry) return 0
-
-  // On-target industry = 45 points
+  // On target: the resolved sector is one this client's specification names.
   if (
+    mappedIndustry &&
     icpFilterSpec.industries &&
     icpFilterSpec.industries.some(
       ind => ind.toLowerCase() === mappedIndustry.toLowerCase()
@@ -188,7 +225,8 @@ function calculateIndustryScore(
     return 45
   }
 
-  // Adjacent industry (carries one of this client's own target keywords) = 20 points
+  // Not on target, by absence or by conflict. The client's own keywords are the only
+  // evidence left, and they are the same evidence disqualifier 6 admitted this prospect on.
   if (hasTargetKeywordEvidence(prospect, icpFilterSpec)) {
     return 20
   }
