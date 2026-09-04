@@ -23,6 +23,48 @@
 #   [post-build] post-build housekeeping
 #   [commercial] commercial / legal / operational (not a build item)
 
+## CLASSIFICATION AND SCORE LANDED WITHOUT THE QUERY CHANGE (2026-09-03, branch classification-and-score)
+
+- [pre-c1] ONE LIVE CLIENT HOLDS AN ICP WHOSE INDUSTRIES CONTRADICT ITS OWN SUMMARY, AND
+  THE CAUSE IS DATED. Stated as measured.
+
+  That client's ICP document was created 2026-06-10. The canonical taxonomy was expanded
+  on 2026-06-11, in the commit titled "sector-complete taxonomy". Before that commit the
+  list held EXACTLY 25 names and every one of them was a consulting or professional
+  services category. There was no name in it for a business that manufactures or
+  distributes a physical product.
+
+  So the document was generated against a list that did not contain its answer. Its
+  summary and its business_model field both describe wholesale distribution of a physical
+  product into facilities. Its industries name two consulting categories, which were the
+  closest things available on the day. The names that would fit are in the taxonomy now
+  and were not then.
+
+  This is worth separating from a model failure, because the remedy is different. Nothing
+  in the prompt or the model was wrong at the time; the vocabulary was too small. It is
+  now 73 names, so regenerating that ICP can produce a correct answer where it previously
+  could not.
+
+  A SECOND CLIENT WAS NAMED IN THE INSTRUCTION AND DOES NOT BELONG HERE. Checked directly:
+  its ICP was created 2026-08-28, after the expansion, its industries name the sector its
+  own summary describes, and derivation reproduces them exactly. Its problem is the
+  country list, which is a different entry. Recording the check rather than the assumption,
+  because acting on "both are wrong" would have meant regenerating a correct document.
+
+- [post-build] THE SPEC-DRIVEN QUERY IS DELIBERATELY NOT ON THIS BRANCH. Classification,
+  the fit score, the reason rename and the derived headcount ceiling land without it.
+
+  The split is on purpose and the reason is worth keeping: those fixes are independent of
+  what any client's stored spec contains, and they repair a defect that DELETES CORRECT
+  PROSPECTS AFTER ENRICHMENT HAS ALREADY BEEN PAID FOR. The query change is not
+  independent: it makes every client's stored spec load-bearing, and one stored spec names
+  industries its own document contradicts. Landing the query first would point a faithful
+  query at a wrong specification.
+
+  The query change, the derivation change and the ICP prompt change remain on branch
+  sourcing-and-tiering, unmerged.
+
+
 ## A SWEEP THAT NOMINATES AN ORGANISATION AND SELECTS ZERO ROWS LOOKS EXACTLY LIKE A SWEEP WITH NOTHING TO DO (2026-09-03, branch verify-tier)
 
 - [monitor] THE HEARTBEAT WROTE `ok: true` FOR ROUGHLY 290 CONSECUTIVE FIRINGS WHILE THE

@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 
 // Apollo industry tags to ICP spec consulting verticals mapping
 // Apollo uses broad sectors; spec uses consulting-specific names
 // This layer normalizes Apollo tags to spec industries with fail-closed behavior
 
-const APOLLO_TO_SPEC: Record<string, string> = {
+const TAG_ALIASES: Record<string, string> = {
   'human resources': 'Human Resources Consulting',
   'information technology & services': 'Information Technology Consulting',
   'financial services': 'Financial Advisory Services',
@@ -30,26 +31,49 @@ const APOLLO_TO_SPEC: Record<string, string> = {
   'it consulting': 'Information Technology Consulting',
 }
 
+// ─── Layer 1: the identity map, DERIVED from the canonical taxonomy ──────────
+//
+// Every canonical industry, keyed by its own lowercased name. Derived from
+// CANONICAL_INDUSTRIES rather than listed, so a name added to the taxonomy is
+// recognisable here in the same commit with nothing to remember. There is no second
+// list that can fall out of step with the first.
+//
+// IT INVENTS NO PROVIDER VOCABULARY. It resolves a tag only when the provider's own
+// string already IS a canonical name, which is a fact about the two strings rather than
+// a guess about the provider. Writing the provider's tag spellings from memory is the
+// separate, unmeasurable thing the BACKLOG entry refuses to do, and this does not do it:
+// a tag whose wording differs still returns null, still fails closed, and still reaches
+// the operator's mapping queue.
+//
+// MEASURED against the 24 distinct company_industry values stored in the prospects table
+// on 2026-09-03: three of them resolve on this layer and previously resolved nowhere.
+// The rest are wording gaps that only a paid enrichment sample can close, as recorded.
+const CANONICAL_BY_LOWERCASE: ReadonlyMap<string, string> = new Map(
+  CANONICAL_INDUSTRIES.map(name => [name.toLowerCase(), name]),
+)
+
 // ─── What this mapping can PRODUCE ───────────────────────────────────────────
 //
-// The RANGE of APOLLO_TO_SPEC, not its domain. This is the set of canonical industry
-// names a sourced prospect can ever be classified as.
+// The set of canonical industry names a sourced prospect can ever be classified as.
 //
-// It exists because the map is MANY-TO-ONE and therefore not invertible. Both
-// 'business coaching' and 'executive coaching' map to 'Business Coaching', so the
-// canonical name 'Executive Coaching' is in CANONICAL_INDUSTRIES, is listed in the
-// Apollo handler's APOLLO_TARGETED_INDUSTRIES, passes the orchestrator's reachability
-// gate, and can then never come back out of this function. A client whose ICP named
-// only that industry would pass every pre-search check and lose every prospect to
-// `industry_not_consulting` at tier classification.
+// DERIVED FROM THE TAXONOMY AS OF 2026-09-03, and that is the substance of the change.
+// It used to be `new Set(Object.values(TAG_ALIASES))`: the 15 distinct values of the
+// hand-written table above, every one of them from a single market. Because that table
+// is MANY-TO-ONE and therefore not invertible, 58 of the 73 canonical names had no route
+// back at all. A client could name such an industry, pass the orchestrator's reachability
+// gate, pay to source and enrich it, and then lose every prospect at classification under
+// `industry_off_target` with nothing saying the sector was merely unknown to the
+// translator. That was structural rather than a short list of oversights, which is why it
+// is closed by deriving the set instead of by extending the list.
 //
-// LIMIT, stated so it is not over-trusted: this is the STATIC range only. Operators can
-// add rows to industry_tag_mappings, which can only ADD names, never remove them. So a
-// name flagged here may be classifiable in practice. That is why every consumer of this
+// LIMIT, stated so it is not over-trusted: this is the STATIC range. Operators can add
+// rows to industry_tag_mappings, which can only ADD names, never remove them, so a name
+// absent here may still be classifiable in practice. That is why every consumer of this
 // set reports rather than gates, and why callers may pass extra names they know about.
-export const CLASSIFIABLE_INDUSTRIES: ReadonlySet<string> = new Set(
-  Object.values(APOLLO_TO_SPEC),
-)
+export const CLASSIFIABLE_INDUSTRIES: ReadonlySet<string> = new Set<string>([
+  ...CANONICAL_BY_LOWERCASE.values(),
+  ...Object.values(TAG_ALIASES),
+])
 
 // Cache for database mappings — keyed by apollo_tag
 let mappingCache: Record<string, string> | null = null
@@ -61,19 +85,37 @@ export function mapApolloToSpecIndustry(apolloIndustry: string | null): string |
 
   const normalised = apolloIndustry.toLowerCase().trim()
 
-  // Direct match in static mapping
-  if (APOLLO_TO_SPEC[normalised]) {
-    return APOLLO_TO_SPEC[normalised]
+  // 1. The provider's own string IS a canonical name. Exact, and checked first.
+  //
+  // ORDER IS LOAD-BEARING FOR EXACTLY ONE KEY. 'executive coaching' is both a canonical
+  // name and an alias key pointing at a DIFFERENT canonical name. Identity-first is what
+  // stops a provider tag that names a canonical industry precisely from being rewritten
+  // into a neighbouring one, and that collision is why 'Executive Coaching' was one of
+  // the four industries this handler could target and never classify. Measured: no
+  // stored prospect carries that tag, so this reorders nothing that exists today.
+  const identity = CANONICAL_BY_LOWERCASE.get(normalised)
+  if (identity) {
+    return identity
   }
 
-  // Partial match: if the Apollo tag contains one of our mapping keys
-  for (const [key, value] of Object.entries(APOLLO_TO_SPEC)) {
+  // 2. A known alias, for a tag whose wording differs from the canonical name.
+  if (TAG_ALIASES[normalised]) {
+    return TAG_ALIASES[normalised]
+  }
+
+  // 3. The same aliases, contained in a longer tag.
+  //
+  // SUBSTRING MATCHING IS DELIBERATELY NOT EXTENDED TO THE 73 CANONICAL NAMES. Each
+  // alias key was chosen against a tag known to contain it. A short canonical name found
+  // inside an unrelated longer tag would misclassify SILENTLY, which is worse than
+  // returning null, and no measurement supports doing it.
+  for (const [key, value] of Object.entries(TAG_ALIASES)) {
     if (normalised.includes(key)) {
       return value
     }
   }
 
-  // No match found - fail closed, return null (will be flagged)
+  // No match. Fail closed: an unknown tag is flagged for operator mapping, never guessed.
   return null
 }
 

@@ -17,7 +17,7 @@
 //    CLASSIFIABLE_INDUSTRIES in industry-mapping.ts. That tag map is many-to-one, so a
 //    canonical name can pass the orchestrator's reachability gate and then never be
 //    produced by the classifier, and every prospect for it is removed as
-//    `industry_not_consulting` with nothing saying why.
+//    `industry_off_target` with nothing saying why.
 //
 //    This module names no vendor on purpose. The tool-specific taxonomy is owned by the
 //    translation layer (industry-mapping.ts) and by the handlers; everything upstream of
@@ -37,6 +37,7 @@ export type SpecFindingCode =
   | 'field_missing'
   | 'field_wrong_type'
   | 'industry_unclassifiable'
+  | 'headcount_ceiling_unusable'
 
 export interface SpecFinding {
   code: SpecFindingCode
@@ -136,11 +137,31 @@ export function inspectFilterSpec(
           detail:
             `"${name}" is targeted but no sourcing-tool industry tag maps to it, so a ` +
             'prospect can never be classified as this industry and every one will be ' +
-            'removed as industry_not_consulting. Add an industry_tag_mappings row, or ' +
+            'removed as industry_off_target. Add an industry_tag_mappings row, or ' +
             'map a tool tag to it in industry-mapping.ts, which owns that translation.',
         })
       }
     }
+  }
+
+  // ─── A present, correctly-typed, and unusable headcount ceiling ────────────
+  //
+  // The type check above passes for 0 and for a negative number, and the size
+  // disqualifier in tier-classification treats those as "this client stated no ceiling"
+  // and does not run. That is the right reading of the value and the wrong thing to do
+  // in silence, because the spec LOOKS complete: every field is present and every field
+  // is the right kind, so nothing else here would say a word.
+  const ceiling = (spec as Record<string, unknown>).company_headcount_max
+  if (typeof ceiling === 'number' && Number.isFinite(ceiling) && ceiling <= 0) {
+    findings.push({
+      code: 'headcount_ceiling_unusable',
+      field: 'company_headcount_max',
+      detail:
+        `company_headcount_max is ${ceiling}, which states no usable upper bound, so the ` +
+        'size disqualifier does not run for this client and company size can only lower a ' +
+        'fit score rather than remove a prospect. Set it to the top of the band the ICP ' +
+        'states.',
+    })
   }
 
   return findings

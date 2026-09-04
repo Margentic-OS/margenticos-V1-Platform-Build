@@ -909,6 +909,26 @@ Before returning, ask yourself:
 - Did the data quality pass surface any inconsistencies? If yes, are they noted?
 - Is unresolved_fields present? It is required. Return [] if nothing is unresolved, never
   omit the key.
+- Do the `industries` you chose name the same sector the summary and the jtbd_statement
+  describe? Read those two back and check the sector they imply against the canonical
+  names you picked, in every tier. A canonical name can be spelled correctly, be on the
+  list, and still describe a different population from the one the prose describes, and
+  nothing downstream can detect that, because the name is valid. The sourcing query is
+  built from `industries` alone.
+
+  IF THEY DISAGREE, SAY SO. DO NOT PICK ONE. Add an unresolved_fields entry naming BOTH
+  field paths, with why_unresolved stating plainly that the two disagree and
+  question_to_settle_it asking which describes the buyer. Leave both fields exactly as you
+  wrote them.
+
+  Resolving it yourself is the failure mode this check exists to prevent. Both are prose
+  from this same call, so a disagreement is evidence that one of them is wrong and NOT
+  evidence about which. Quietly rewriting the industries to match the summary, or the
+  summary to match the industries, destroys the only signal that anything was wrong and
+  produces a document that is internally consistent and externally incorrect. A surfaced
+  disagreement costs an operator one question. A silently resolved one costs a sourcing
+  run against the wrong population.
+
 - Does revenue_range cohere with headcount? Work it through explicitly before returning.
   If the two cannot both be true given what intake says about how this client bills, add an
   unresolved_fields entry naming both rather than choosing one.

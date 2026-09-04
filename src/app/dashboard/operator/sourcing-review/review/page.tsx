@@ -61,7 +61,7 @@ export default async function ReviewPage({
   // The query above ends `.not('sourced_tier', 'is', null)`, so until now this
   // screen could only ever show survivors. An operator looking at 12 tier-1 rows
   // had no way to tell whether the batch was 12 prospects or 200, and no way at
-  // all to see that 47 of them went in industry_not_consulting.
+  // all to see that 47 of them went in industry_off_target.
   //
   // `sourced_tier IS NULL` alone does not mean removed: it is also every prospect
   // that has not been through tiering yet. tiering_reason is what separates them,

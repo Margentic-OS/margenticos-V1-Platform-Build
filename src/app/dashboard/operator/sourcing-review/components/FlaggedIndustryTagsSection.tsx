@@ -11,25 +11,20 @@ interface FlaggedIndustryTagsSectionProps {
   canonicalIndustries: string[]
 }
 
-const CANONICAL_INDUSTRIES = [
-  'Business Coaching',
-  'Change Management Consulting',
-  'Compliance Consulting',
-  'Data Analytics Consulting',
-  'Executive Coaching',
-  'Financial Advisory Services',
-  'Human Resources Consulting',
-  'Information Technology Consulting',
-  'Management Consulting',
-  'Marketing Consulting',
-  'Operations Consulting',
-  'Organizational Development',
-  'Procurement Consulting',
-  'Risk Management Consulting',
-  'Sales Consulting',
-  'Strategy Consulting',
-  'Supply Chain Consulting',
-]
+// The industries an operator may map a tag to arrive on the `canonicalIndustries` prop.
+//
+// THIS FILE USED TO HOLD ITS OWN LIST OF 17, and the prop that carries the real one was
+// declared, never destructured, and silently ignored. So the list below the select was
+// the only thing an operator could choose from, which made it a GATE rather than a
+// display: a tag belonging to any of the other canonical industries could not be mapped
+// at all, and the operator had no way to see that the option was missing rather than
+// disallowed. It also offered one entry that is not a canonical industry name, which
+// would have written a value nothing downstream can match into
+// industry_tag_mappings.canonical_industry.
+//
+// It is deleted rather than corrected. A second copy of the taxonomy in a component is
+// the parallel-list shape whatever its contents, and correcting the entries would have
+// left the next edit to the taxonomy silently absent here in exactly the same way.
 
 async function mapIndustryTag(
   apolloTag: string,
@@ -137,7 +132,7 @@ function TagGroup({
 
       <div className="bg-[#FEF7E6] border border-[#F0D080] rounded-[6px] p-3 mb-4">
         <p className="text-xs text-[#7A4800] mb-3">
-          Unmapped tags never reach clients. Map this tag only if it belongs to a canonical consulting industry.
+          Unmapped tags never reach clients. Map this tag only when it belongs to one of the canonical industries below.
         </p>
 
         <div className="flex gap-2 items-end">
@@ -248,7 +243,10 @@ function ProspectApproveRow({ prospect }: { prospect: Prospect }) {
   )
 }
 
-export function FlaggedIndustryTagsSection({ prospects }: FlaggedIndustryTagsSectionProps) {
+export function FlaggedIndustryTagsSection({
+  prospects,
+  canonicalIndustries,
+}: FlaggedIndustryTagsSectionProps) {
   // Group flagged prospects by the sourcing tool's own industry tag.
   //
   // THE PROP AND VARIABLE NAMES STILL CARRY THE VENDOR NAME; THE VISIBLE COPY NO LONGER
@@ -293,7 +291,7 @@ export function FlaggedIndustryTagsSection({ prospects }: FlaggedIndustryTagsSec
             key={tag}
             apolloTag={tag}
             prospects={tagProspects}
-            canonicalIndustries={CANONICAL_INDUSTRIES}
+            canonicalIndustries={canonicalIndustries}
           />
         ))}
       </div>

@@ -32,13 +32,20 @@ export interface EnrichedProspect {
 // second list. Anything not in here still gets counted, under `removed_other`,
 // with the raw reasons named: a reason that falls through must be visible rather
 // than silently absent, which is the whole point of this file's changes.
+//
+// THIS LIST IS THE REASONS THE CURRENT CODE CAN PRODUCE, not every reason a stored row
+// can carry. `industry_not_consulting` was renamed to `industry_off_target` and is gone
+// from here because nothing writes it any more, but rows removed under the old name are
+// still in the database and still have to render. Operator-facing wording therefore
+// keeps BOTH keys, in prospect-status.ts, which is the only place that wording lives.
 export const REMOVAL_REASONS = [
   'email_unverified',
   'no_title',
   'not_decision_maker',
+  'no_buyer_criterion',
   'company_too_large',
   'industry_excluded',
-  'industry_not_consulting',
+  'industry_off_target',
 ] as const
 
 export type RemovalReason = typeof REMOVAL_REASONS[number]
@@ -68,22 +75,48 @@ interface TierResult {
 // and scored another only on an exact match. Both now read the one criterion, through
 // a single evaluation per prospect, so there is no second copy left to drift.
 
-// Consultancy evidence patterns
-const CONSULTANCY_PATTERNS = [
-  'consulting',
-  'consultancy',
-  'advisory',
-  'advisor',
-  'coaching',
-  'coach',
-  'fractional',
-]
+// ─── The hardcoded consultancy patterns are DELETED, not parameterised ───────
+//
+// CONSULTANCY_PATTERNS was seven literal fragments naming one market's vocabulary,
+// applied identically to every client. It is the same Rule Zero violation as the
+// decision-maker list above, arriving one function later, and it survived that
+// deletion because it sits on the INDUSTRY axis rather than the buyer axis and so
+// was not what anyone was looking at.
+//
+// It did two jobs and both were wrong for any client outside that one market:
+//
+//   1. It RESCUED an off-target prospect from disqualifier 6. A firm whose industry
+//      tag missed but whose NAME says what it is got a second chance. For a client
+//      selling into schools or hospitals, the rescue could only ever fire on a
+//      consulting firm, so the rescue was dead code for them and live for one client.
+//   2. It awarded 20 fit points for an "adjacent" industry, on the same basis.
+//
+// What replaces it is the client's OWN keywords, from their own spec. That field
+// already exists, is already per client, and is already what the sourcing handler
+// post-filters on through keywords_excluded. Reading it here means the rescue speaks
+// whatever vocabulary the client's documents use, and a client whose spec names no
+// keywords simply gets no rescue rather than another market's.
 
 /**
- * Check if company or person has evidence of being a consultancy/advisory/coaching business.
- * Looks for signals in company name and job title.
+ * Does the company name or job title carry any of the words THIS client targets?
+ *
+ * The keywords come from the client's spec and from nowhere else. An empty or absent
+ * keyword list returns false, which is the honest answer: no evidence was asked for,
+ * so none was found. It must not fall back to a default list, because a default list
+ * is what this replaced.
+ *
+ * Matched as a lowercase substring over `company_name + job_title`, which is what the
+ * deleted version did. The matching is unchanged on purpose: this commit changes WHERE
+ * the words come from, so that the tier movement it causes is attributable to that and
+ * not to a simultaneous change in how they are compared.
  */
-function hasConsultancyEvidence(prospect: EnrichedProspect): boolean {
+function hasTargetKeywordEvidence(
+  prospect: EnrichedProspect,
+  icpFilterSpec: ICPFilterSpec,
+): boolean {
+  const keywords = icpFilterSpec.keywords
+  if (!keywords || keywords.length === 0) return false
+
   const signals = [
     prospect.company_name || '',
     prospect.job_title || '',
@@ -91,7 +124,10 @@ function hasConsultancyEvidence(prospect: EnrichedProspect): boolean {
     .join(' ')
     .toLowerCase()
 
-  return CONSULTANCY_PATTERNS.some(pattern => signals.includes(pattern))
+  return keywords.some(keyword => {
+    const needle = keyword.toLowerCase().trim()
+    return needle.length > 0 && signals.includes(needle)
+  })
 }
 
 /**
@@ -101,9 +137,10 @@ function hasConsultancyEvidence(prospect: EnrichedProspect): boolean {
  * re-derived here. Re-deriving is how the old inline ladder drifted from the list it
  * was supposed to mirror.
  *
- * A survivor always scores, because a prospect the criterion rejects never reaches
- * scoring. The zero cases are a client with no criterion yet and a prospect with no
- * title, both of which reach here only by failing open.
+ * A survivor always scores. Every verdict that would score zero is now stopped before
+ * this point: `reject` and `no_criterion` are disqualifiers 3 and 3b, and `no_title` is
+ * disqualifier 2. The zero branch below is therefore unreachable from classifyTier and
+ * is kept only so the function is total for any other caller.
  */
 function calculateSeniorityScore(verdict: BuyerVerdict): number {
   return seniorityScoreFor(verdict)
@@ -124,25 +161,62 @@ function calculateHeadcountScore(headcount: number | null): number {
 }
 
 /**
- * Calculate industry score based on mapping to ICP spec.
- * Returns 0-45 points based on on-target vs. adjacent industry.
+ * The industry axis, 0 to 45.
+ *
+ * TWO EARLY RETURNS USED TO THROW AWAY THE EVIDENCE THE DISQUALIFIER HAD JUST ACCEPTED,
+ * and that is what this rewrite fixes. It is the validate-one-thing-return-another shape
+ * from CLAUDE.md, on the scoring side rather than the gating side.
+ *
+ * Disqualifier 6 REMOVES a prospect whose tag is not on target unless the company carries
+ * one of this client's own keywords. So every survivor with an off-target or unreadable
+ * tag has keyword evidence BY CONSTRUCTION: the gate is what let it through. This function
+ * then returned 0 for two of those three cases, because it bailed out before reaching the
+ * keyword branch:
+ *
+ *   `if (!prospect.company_industry) return 0`  the provider sent no tag at all. This is
+ *   not a rare case, it is the ONLY case for a client whose prospects are not yet enriched:
+ *   sourcing does not write company_industry, so all 40 rows for the two newest clients
+ *   are in it. Disqualifier 6 is skipped entirely for them, so they survive, and then
+ *   score zero on an axis worth 45.
+ *
+ *   `if (!mappedIndustry) return 0`  a tag arrived and no canonical name matched its
+ *   wording. Disqualifier 6 required keyword evidence to let this prospect live, and the
+ *   next line discarded it.
+ *
+ * Absence of evidence was being scored as evidence of absence, on the one axis large
+ * enough to decide the tier by itself.
+ *
+ * THE RULE IS NOW ONE RULE, and the three cases collapse into it:
+ *
+ *   45  the tag resolves to a canonical name this client's specification names.
+ *   20  it does not, and the company still carries one of this client's own keywords.
+ *        The 20 rather than 45 is deliberate and is not softened here: a keyword in a
+ *        company name is weaker evidence than a resolved sector, and when the tag DID
+ *        resolve to something else it is evidence in conflict.
+ *    0  no evidence either way.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT DO. It does not raise keyword evidence to 45 when the
+ * tag is missing. That would let a company in an unrelated sector reach tier 1 on nothing
+ * but a word in its name, and the words are broad: a client whose canonical name yields a
+ * common head noun would promote anything containing it. The structural consequence is
+ * recorded rather than engineered around: tier 1 needs 80, seniority and headcount cap at
+ * 55 together, so TIER 1 REQUIRES THE 45. A client whose provider tags never resolve
+ * cannot produce a tier 1 prospect at all. That is not fixed here because fixing it means
+ * knowing the provider's tag vocabulary, which needs the paid enrichment sample the
+ * BACKLOG describes. It is in BACKLOG, with this arithmetic.
  */
 function calculateIndustryScore(
   prospect: EnrichedProspect,
   icpFilterSpec: ICPFilterSpec,
   databaseMappings: Record<string, string>,
 ): number {
-  if (!prospect.company_industry) return 0
+  const mappedIndustry = prospect.company_industry
+    ? mapApolloToSpecIndustryWithDatabase(prospect.company_industry, databaseMappings)
+    : null
 
-  const mappedIndustry = mapApolloToSpecIndustryWithDatabase(
-    prospect.company_industry,
-    databaseMappings,
-  )
-
-  if (!mappedIndustry) return 0
-
-  // On-target industry = 45 points
+  // On target: the resolved sector is one this client's specification names.
   if (
+    mappedIndustry &&
     icpFilterSpec.industries &&
     icpFilterSpec.industries.some(
       ind => ind.toLowerCase() === mappedIndustry.toLowerCase()
@@ -151,12 +225,58 @@ function calculateIndustryScore(
     return 45
   }
 
-  // Adjacent industry (has consultancy evidence) = 20 points
-  if (hasConsultancyEvidence(prospect)) {
+  // Not on target, by absence or by conflict. The client's own keywords are the only
+  // evidence left, and they are the same evidence disqualifier 6 admitted this prospect on.
+  if (hasTargetKeywordEvidence(prospect, icpFilterSpec)) {
     return 20
   }
 
   return 0
+}
+
+/**
+ * The headcount ceiling for THIS client, or null when the client stated none.
+ *
+ * WHAT HAPPENS WHEN A CLIENT HAS NO CAP: the disqualifier does not run, and this logs a
+ * warn naming the organisation. It does NOT fall back to a default ceiling and it does
+ * NOT withhold the tier.
+ *
+ * Not a default, because a default ceiling is exactly what this replaced. Inventing 100
+ * again for the specification that forgot to say is the same defect with a narrower
+ * blast radius, and it would be invisible in precisely the case where the number is
+ * least likely to be right.
+ *
+ * Not a withheld tier either, and this is the part that differs from disqualifier 3b
+ * above, deliberately. A missing buyer criterion FABRICATED a value: seniority is 35 of
+ * the 100 points and the code scored it 0 while reporting it had not decided, so the
+ * verdict froze on the row with a silent ceiling of 65. Nothing comparable happens here.
+ * calculateHeadcountScore already handles an unknown headcount explicitly, an oversized
+ * company still scores 0 on that axis and lands lower on its own, and no axis is
+ * fabricated. Removing every prospect for a client whose specification omits one field
+ * would turn a missing input into a total pipeline stop, which is a heavier answer than
+ * the input deserves.
+ *
+ * A specification that reaches here at all has already passed the sourcing orchestrator,
+ * which refuses a null spec outright. As of 2026-09-03 every stored spec carries a
+ * usable cap, so this branch is unreached in production and exists for specs written
+ * before the field, and for a hand-edited one.
+ *
+ * IT DOES NOT LOG, and that is deliberate rather than an omission. classifyTier runs once
+ * per PROSPECT and the missing ceiling is a fact about the RUN, so warning here would
+ * emit the same line once per row and bury itself, which is exactly what
+ * reportSpecDivergence had to be moved out of the pagination loop to stop doing. The
+ * report belongs where the spec is read once: inspectFilterSpec, which the orchestrator
+ * calls a single time before the first request and which already reports this field
+ * absent or of the wrong type. A non-positive number is reported there too.
+ */
+function resolveHeadcountCeiling(icpFilterSpec: ICPFilterSpec): number | null {
+  const ceiling = icpFilterSpec.company_headcount_max
+
+  if (typeof ceiling !== 'number' || !Number.isFinite(ceiling) || ceiling <= 0) {
+    return null
+  }
+
+  return ceiling
 }
 
 /**
@@ -224,8 +344,70 @@ export async function classifyTier(
     }
   }
 
-  // Disqualifier 4: Company headcount > 100
-  if (prospect.company_headcount !== null && prospect.company_headcount > 100) {
+  // Disqualifier 3b: THERE IS NO CRITERION TO JUDGE BY. Withhold the tier, loudly.
+  //
+  // This is not a verdict about the prospect. It is a refusal to produce one, and the
+  // difference matters because `sourced_tier` is a MATERIALISED VERDICT: nothing
+  // re-evaluates it once written except the spec-change thaw in persist-icp-filter-spec.
+  //
+  // WHAT IT USED TO DO, and why that was worse than either alternative. The gate above
+  // fails OPEN on `no_criterion`, deliberately, so an unvalidated criterion cannot
+  // quietly stop a client's pipeline. But `seniorityScoreFor` then returns 0 for the
+  // same verdict, because there is no rank to read. So the prospect was let through the
+  // disqualifier as "we did not check" and scored as "we checked and this person is
+  // worth nothing". The seniority axis is 35 of the 100 points and tier 1 needs 80, so
+  // a client with no criterion had a SILENT CEILING OF 65 and could never produce a
+  // tier 1 prospect however good its prospects were. Nothing said so. The batch looked
+  // like poor sourcing rather than a missing input, and the wrong verdict froze on the
+  // row.
+  //
+  // That is the validate-one-thing-return-another shape from CLAUDE.md: the check ran,
+  // reported that it had not decided, and the thing downstream decided anyway.
+  //
+  // FAIL LOUDLY WAS CHOSEN OVER FAIL OPEN, and the choice is narrow on purpose:
+  //
+  //   - Only the TIER is withheld. The pre-enrichment buyer gate in
+  //     enrichment-selection.ts reads the same evaluateBuyerCriterion and still fails
+  //     open. Nothing about spend changes, so this cannot make a client pay more.
+  //   - It is RECOVERABLE with no new machinery. persistIcpFilterSpec already clears
+  //     tiering_reason for every row with a null tier when a new spec is stored, so the
+  //     moment an ICP carrying a criterion is approved these rows re-tier by themselves.
+  //   - It is VISIBLE. `removed_no_buyer_criterion` is derived from REMOVAL_REASONS, so
+  //     it gets its own always-present count in logClassificationStats, and a non-zero
+  //     removal count logs at warn.
+  //
+  // A fabricated tier computed from a missing axis is worse than no tier, because the
+  // first looks like data and the second looks like a question.
+  if (buyerVerdict.decision === 'no_criterion') {
+    return {
+      prospect_id: prospectId,
+      sourced_tier: null,
+      fit_score: null,
+      tiering_reason: 'no_buyer_criterion' satisfies RemovalReason,
+    }
+  }
+
+  // Disqualifier 4: the company is larger than THIS CLIENT asked for.
+  //
+  // The ceiling was the literal 100 for every client, whatever their specification said.
+  // That is the same Rule Zero shape as the deleted buyer and keyword lists, arriving on
+  // the size axis: a number that describes one market applied to all of them.
+  //
+  // It is not a harmless approximation in either direction. A client whose specification
+  // reaches higher than 100 had everything above it REMOVED, and removed under a reason
+  // that reads like a deliberate verdict rather than a stale constant. A client whose
+  // specification stops well below 100 had the gate do nothing, and the size axis fell
+  // entirely to the 0-to-20 fit points, which cannot remove anything.
+  //
+  // The bound is inclusive because company_headcount_max is the top of the band the ICP
+  // states, not the first value outside it.
+  const headcountCeiling = resolveHeadcountCeiling(icpFilterSpec)
+
+  if (
+    headcountCeiling !== null &&
+    prospect.company_headcount !== null &&
+    prospect.company_headcount > headcountCeiling
+  ) {
     return {
       prospect_id: prospectId,
       sourced_tier: null,
@@ -257,7 +439,7 @@ export async function classifyTier(
     }
   }
 
-  // Disqualifier 6: Not on-target AND no consultancy evidence
+  // Disqualifier 6: Not on-target AND no evidence in this client's own keywords
   if (prospect.company_industry) {
     const mappedIndustry = mapApolloToSpecIndustryWithDatabase(
       prospect.company_industry,
@@ -272,14 +454,14 @@ export async function classifyTier(
         ind => ind.toLowerCase() === mappedIndustry.toLowerCase()
       )
 
-    // Disqualify if: NOT on-target AND no consultancy evidence
+    // Disqualify if: NOT on-target AND no keyword evidence
     // This applies to both unmapped industries and mapped-but-off-target industries
-    if (!isOnTarget && !hasConsultancyEvidence(prospect)) {
+    if (!isOnTarget && !hasTargetKeywordEvidence(prospect, icpFilterSpec)) {
       return {
         prospect_id: prospectId,
         sourced_tier: null,
         fit_score: null,
-        tiering_reason: 'industry_not_consulting' satisfies RemovalReason,
+        tiering_reason: 'industry_off_target' satisfies RemovalReason,
       }
     }
   }
@@ -338,8 +520,8 @@ export function logClassificationStats(
   //
   // WHY FLAT AND NOT NESTED. `breakdown_by_reason` is a nested object, so in the
   // production log stream the only literal that appears is the outer key. A search
-  // for `industry_not_consulting` finds it inside the JSON blob but nothing can
-  // alert or chart on it without parsing the object first. `removed_industry_not_consulting`
+  // for `industry_off_target` finds it inside the JSON blob but nothing can
+  // alert or chart on it without parsing the object first. `removed_industry_off_target`
   // is a key in its own right, always present, always a number.
   //
   // ALWAYS PRESENT, including as a zero. A key that only appears when non-zero

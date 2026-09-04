@@ -30,7 +30,10 @@ function spec(industries: string[]): ICPFilterSpec {
     person_countries: [],
     company_countries: [],
     company_headcount_min: 0,
-    company_headcount_max: 0,
+    // A REAL CEILING, because the size disqualifier now reads it from the spec rather
+    // than from a constant. At 0 the spec states no usable ceiling, the disqualifier
+    // correctly does not run, and the company_too_large case below becomes unreachable.
+    company_headcount_max: 100,
     industries: industries as ICPFilterSpec['industries'],
     industries_excluded: [],
     keywords: [],
@@ -277,7 +280,7 @@ describe('logClassificationStats: removal reporting', () => {
       [
         { prospect_id: 'a', sourced_tier: null, fit_score: null, tiering_reason: 'not_decision_maker' },
         { prospect_id: 'b', sourced_tier: null, fit_score: null, tiering_reason: 'not_decision_maker' },
-        { prospect_id: 'c', sourced_tier: null, fit_score: null, tiering_reason: 'industry_not_consulting' },
+        { prospect_id: 'c', sourced_tier: null, fit_score: null, tiering_reason: 'industry_off_target' },
         { prospect_id: 'd', sourced_tier: 'tier_1', fit_score: 90, tiering_reason: 'tier_1 (score 90)' },
       ],
       ORG,
@@ -289,7 +292,7 @@ describe('logClassificationStats: removal reporting', () => {
     const payload = warn.mock.calls[0][1] as Record<string, unknown>
 
     expect(payload.removed_not_decision_maker).toBe(2)
-    expect(payload.removed_industry_not_consulting).toBe(1)
+    expect(payload.removed_industry_off_target).toBe(1)
     expect(payload.removed_count).toBe(3)
     expect(payload.tier_1_count).toBe(1)
 
@@ -338,12 +341,112 @@ describe('classifyTier: every disqualifier returns a registered reason', () => {
     ['no_title', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: null, company_headcount: 10, company_industry: 'management consulting', company_name: 'A Consulting' }],
     ['not_decision_maker', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'other-role', company_headcount: 10, company_industry: 'management consulting', company_name: 'A Consulting' }],
     ['company_too_large', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 500, company_industry: 'management consulting', company_name: 'A Consulting' }],
-    ['industry_not_consulting', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'restaurants', company_name: 'Bistro Ltd' }],
+    ['industry_off_target', { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'restaurants', company_name: 'Bistro Ltd' }],
   ]
 
   it.each(cases)('%s is a registered removal reason', async (expected, input) => {
     const result = await classifyTier(input, spec(['Management Consulting']))
     expect(result.tiering_reason).toBe(expected)
+    expect(REMOVAL_REASONS as readonly string[]).toContain(result.tiering_reason)
+  })
+
+  // ── The rescue reads THIS client's keywords, and nothing else ──────────────
+  //
+  // MUTATION GUARD. Point hasTargetKeywordEvidence back at a hardcoded list and the
+  // first case still passes, because a consulting word would rescue it either way. The
+  // second is the one that fails: a client whose keywords name a different market must
+  // rescue on THAT market's word, and a hardcoded consulting list cannot.
+  it('rescues an off-target prospect on a keyword from the client\'s own spec', async () => {
+    const withKeywords = { ...spec(['Management Consulting']), keywords: ['education'] }
+    const result = await classifyTier(
+      { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'restaurants', company_name: 'Riverside Education Trust' },
+      withKeywords,
+    )
+    expect(result.sourced_tier).not.toBeNull()
+  })
+
+  it('does not rescue on a word the client never asked for', async () => {
+    const withKeywords = { ...spec(['Management Consulting']), keywords: ['education'] }
+    const result = await classifyTier(
+      { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'restaurants', company_name: 'Northern Star Consulting' },
+      withKeywords,
+    )
+    expect(result.tiering_reason).toBe('industry_off_target')
+  })
+
+  it('offers no rescue at all when the spec names no keywords', async () => {
+    const result = await classifyTier(
+      { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'restaurants', company_name: 'Anything At All' },
+      spec(['Management Consulting']),
+    )
+    expect(result.tiering_reason).toBe('industry_off_target')
+  })
+
+  // ── The rescue must SCORE, not only save ──────────────────────────────────
+  //
+  // MUTATION GUARD, and the gap it closes is why it is here. calculateIndustryScore used
+  // to return 0 before reaching the keyword branch whenever the tag was absent or did not
+  // resolve. Disqualifier 6 had just admitted those prospects ON that keyword, so the gate
+  // and the score disagreed about the same evidence, and the score won on the axis worth
+  // 45 of 100.
+  //
+  // Nothing caught it: every existing rescue test above asserts only that the prospect
+  // SURVIVES. Restore either early return and all of them still pass. These assert the
+  // points, which is the half that was unprotected, and they are the reason 18 stored
+  // MargenticOS rows moved when it was fixed.
+  it.each([
+    ['a tag that resolves to nothing', 'a-tag-no-canonical-name-matches'],
+    ['no tag at all', null],
+  ])('scores the keyword rescue when the industry is %s', async (_label, industry) => {
+    const withKeywords = { ...spec(['Management Consulting']), keywords: ['education'] }
+    const result = await classifyTier(
+      { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: industry, company_name: 'Riverside Education Trust' },
+      withKeywords,
+    )
+    // 20 industry + 35 seniority (a primary fragment) + 20 headcount. Asserting the exact
+    // total rather than "not null" is the point: the defect this pins produced a perfectly
+    // valid tier, 20 points light.
+    expect(result.tiering_reason).toContain('industry 20')
+    expect(result.fit_score).toBe(75)
+  })
+
+  // The 20 is not quietly raised to 45. A word in a company name must not reach tier 1 on
+  // its own: tier 1 needs 80 and the other two axes cap at 55 together, so the on-target
+  // 45 is required. This pins that ceiling.
+  it('does not let keyword evidence alone reach the on-target score', async () => {
+    const withKeywords = { ...spec(['Management Consulting']), keywords: ['education'] }
+    const result = await classifyTier(
+      { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: null, company_name: 'Riverside Education Trust' },
+      withKeywords,
+    )
+    expect(result.fit_score).toBeLessThan(80)
+    expect(result.sourced_tier).not.toBe('tier_1')
+  })
+
+  // ── A missing criterion withholds the tier rather than fabricating one ─────
+  //
+  // The regression this pins: seniority is 35 of 100 and tier 1 needs 80, so a client
+  // with no criterion used to be capped at 65 and silently tier every prospect at 2 or
+  // 3. Asserting `sourced_tier` is null is what fails if the withholding is removed;
+  // asserting the reason is what fails if it is withheld under the wrong name.
+  it.each([
+    ['absent', undefined],
+    ['unsettled', 'unsettled' as const],
+    ['out_of_band', 'out_of_band' as const],
+  ])('withholds a tier when the buyer criterion is %s', async (_label, status) => {
+    const base = spec(['Management Consulting'])
+    const noCriterion: ICPFilterSpec = status
+      ? { ...base, buyer_criterion: { ...base.buyer_criterion!, status } }
+      : { ...base, buyer_criterion: undefined }
+
+    const result = await classifyTier(
+      { id: 'x', organisation_id: ORG, email_status: 'verified', enrichment_status: 'enriched', job_title: 'qualifying-role', company_headcount: 10, company_industry: 'management consulting', company_name: 'A Consulting' },
+      noCriterion,
+    )
+
+    expect(result.sourced_tier).toBeNull()
+    expect(result.fit_score).toBeNull()
+    expect(result.tiering_reason).toBe('no_buyer_criterion')
     expect(REMOVAL_REASONS as readonly string[]).toContain(result.tiering_reason)
   })
 
