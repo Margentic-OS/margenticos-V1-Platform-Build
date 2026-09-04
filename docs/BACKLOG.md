@@ -566,6 +566,45 @@ non-consulting client on that branch sources correctly and is then removed at cl
 
 ## CLASSIFICATION AND TIERING MADE PORTABLE — WHAT IS STILL OPEN (2026-09-03, branch sourcing-and-tiering)
 
+- [post-build] THE PROVIDER'S KEYWORD-TAG VOCABULARY IS A CEILING WE DO NOT CONTROL, AND
+  IT FAILS OPEN. Recorded 2026-09-03 as a constraint, with no proposal attached.
+
+  `keywords` is derived per client from that client's own canonical industry names and is
+  sent as `q_organization_keyword_tags`. The provider matches those against ITS OWN closed
+  vocabulary, which we do not publish, cannot enumerate from the search response, and do
+  not influence. A canonical name whose derived keyword is not in that vocabulary is
+  therefore approximated at best.
+
+  WHAT IS MEASURED, from docs/discovery/2026-08-28-apollo-filter-silent-ignore.md, which
+  regenerates its own numbers via scripts/apollo-prove-filter.ts:
+
+    The tags are an AND against the NAICS code, not a union. On one client the tags
+    written for a different market removed 89% of the reachable pool, 98 rows against 925,
+    and the run still returned a small plausible number with nothing saying what was lost.
+
+    AN UNRECOGNISED TAG VALUE IS DROPPED, NOT APPLIED. Tags the provider did not know
+    returned the same count as sending no tags at all, 925 against 925.
+
+  That second line is the ceiling, and it is worse than a short vocabulary would be. A
+  recognised tag NARROWS. An unrecognised tag does NOTHING, silently, and the count that
+  comes back is the unfiltered one. So a client whose derived keywords fall outside the
+  provider's vocabulary does not get a smaller wrong result, they get the whole NAICS band
+  with the keyword axis quietly absent, and no signal distinguishes that from a keyword
+  axis that genuinely matched everything.
+
+  ONE FIGURE IN THE INSTRUCTION IS NOT RECORDED AS FACT, because nothing here measures it.
+  The instruction gave the vocabulary as roughly 20 names, with 53 canonical industries
+  therefore only approximable. No measurement in this repository establishes the size of
+  that vocabulary, and the discovery script does not enumerate it. Writing an unverified
+  count into a document that later gets read as a measurement is the specific failure this
+  file exists to stop, so it is stated as unknown. The consequence recorded above does not
+  depend on the number: at any vocabulary size, the unrecognised remainder fails open.
+
+  HOW IT WOULD BE MEASURED, if it is ever worth doing: apollo-prove-filter.ts already has
+  the shape. Hold NAICS constant, send one derived keyword at a time, and compare each
+  count against the no-tag baseline. A tag that moves the count is in the vocabulary; a tag
+  that returns the baseline is not. That is one free search per canonical name.
+
 - [post-build] THE CANONICAL 73 IS ITSELF A HARDCODED CEILING, IN TWO COPIES. Reported
   2026-09-03, not changed.
 
