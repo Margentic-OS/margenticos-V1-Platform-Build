@@ -55,7 +55,7 @@ async function main() {
 
   const { data: prospects } = await supabase
     .from('prospects')
-    .select('id, organisation_id, email_status, enrichment_status, job_title, company_headcount, company_industry, company_name, sourced_tier, tiering_reason')
+    .select('id, organisation_id, email_status, enrichment_status, job_title, company_headcount, company_industry, company_name, sourced_tier, tiering_reason, fit_score')
     .eq('organisation_id', orgId)
 
   const rows = prospects ?? []
@@ -68,14 +68,19 @@ async function main() {
   const before: Record<string, number> = {}
   const after: Record<string, number> = {}
   const moved: string[] = []
+  const recomputed: Array<number | null> = []
+  let reasonDrift = 0
 
   for (const p of rows) {
     const storedTier = p.sourced_tier ?? 'removed'
     before[storedTier] = (before[storedTier] ?? 0) + 1
 
     const result = await classifyTier(p as unknown as EnrichedProspect, spec, supabase)
+    recomputed.push(result.fit_score)
     const newTier = result.sourced_tier ?? 'removed'
     after[newTier] = (after[newTier] ?? 0) + 1
+
+    if ((p.tiering_reason ?? null) !== result.tiering_reason) reasonDrift++
 
     if (storedTier !== newTier) {
       moved.push(`    ${p.id.slice(0, 8)}  ${storedTier} -> ${newTier}   ` +
@@ -90,7 +95,23 @@ async function main() {
     console.log(`  ${k.padEnd(14)} ${String(b).padStart(6)} ${String(a).padStart(12)} ${(a - b >= 0 ? '+' : '') + (a - b)}`)
   }
 
-  console.log(`\n  rows whose tier changed: ${moved.length}`)
+  // Score distribution, because a tier count hides movement INSIDE a tier. A change that
+  // shifts every survivor by 20 points without crossing a threshold reads as "no movement"
+  // on tiers alone, and is the change most likely to cross one on the next batch.
+  const bucket = (n: number | null) => n === null ? 'removed' : `${Math.floor(n / 10) * 10}-${Math.floor(n / 10) * 10 + 9}`
+  const sBefore: Record<string, number> = {}, sAfter: Record<string, number> = {}
+  for (const p of rows) {
+    sBefore[bucket(p.fit_score as number | null)] = (sBefore[bucket(p.fit_score as number | null)] ?? 0) + 1
+  }
+  for (const r of recomputed) sAfter[bucket(r)] = (sAfter[bucket(r)] ?? 0) + 1
+  const sKeys = [...new Set([...Object.keys(sBefore), ...Object.keys(sAfter)])].sort()
+  console.log('\n  fit score      stored    recomputed')
+  for (const k of sKeys) {
+    console.log(`  ${k.padEnd(13)} ${String(sBefore[k] ?? 0).padStart(6)} ${String(sAfter[k] ?? 0).padStart(12)}`)
+  }
+
+  console.log(`\n  rows whose stored tiering_reason string differs from recomputed: ${reasonDrift}`)
+  console.log(`  rows whose tier changed: ${moved.length}`)
   for (const line of moved.slice(0, 40)) console.log(line)
   if (moved.length > 40) console.log(`    ... and ${moved.length - 40} more`)
   console.log('')

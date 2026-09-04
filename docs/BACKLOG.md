@@ -566,6 +566,39 @@ non-consulting client on that branch sources correctly and is then removed at cl
 
 ## CLASSIFICATION AND TIERING MADE PORTABLE — WHAT IS STILL OPEN (2026-09-03, branch sourcing-and-tiering)
 
+- [post-build] THE CANONICAL 73 IS ITSELF A HARDCODED CEILING, IN TWO COPIES. Reported
+  2026-09-03, not changed.
+
+  CANONICAL_INDUSTRIES is a literal `as const` array of 73 names in
+  src/lib/agents/icp-filter-spec.ts. The SAME 73 are duplicated verbatim into
+  docs/prompts/icp-agent.md between CANONICAL-INDUSTRY-LIST markers, which the ICP agent
+  reads at run time. Verified identical on 2026-09-03, by comparing the two sets directly.
+  Nothing enforces that they stay identical, and the marker comments look like a generator
+  contract without there being a generator.
+
+  WHAT HAPPENS WHEN A CLIENT'S REAL SECTOR IS ABSENT depends on where it lands, and the
+  three behaviours do not agree with each other:
+
+    CLOSEST MATCH, at generation. Rule 7 told the agent to use "the canonical names that
+    come closest as a partial set". That is the instruction that produces a valid,
+    correctly spelled name describing a different population, which nothing downstream can
+    detect. Rewritten on this branch to forbid the substitution and shorten the array
+    instead.
+
+    PASS-THROUGH, in theory. unmatched_industries exists for exactly this and is NULL on
+    all five organisations. It has never once been used.
+
+    HARD REFUSAL, at derivation. validateCanonicalIndustry THROWS, the spec is stored
+    NULL, and the sourcing orchestrator then refuses the run. One organisation is in this
+    state today, from a name invented at generation rather than routed to
+    unmatched_industries, which is the same defect as the closest-match one wearing the
+    opposite face.
+
+  So the taxonomy is a ceiling, and adding to it is a product decision that requires
+  editing two files that must agree. Before building anything else that assumes 73 is
+  complete, decide whether the list is generated from one source and whether
+  unmatched_industries is ever read.
+
 - [pre-c1] THE COUNTRY LIST IS STILL HARDCODED, AND IT IS THE LARGEST REMAINING DEFECT
   FOR A LIVE CLIENT. Not fixed in this pass, deliberately, because the input needed to fix
   it properly does not exist in a usable form.
@@ -617,6 +650,35 @@ non-consulting client on that branch sources correctly and is then removed at cl
   this branch by withholding the tier rather than fabricating it; the industry version is
   still live and is quieter, because it produces a plausible tier rather than none.
 
+- [pre-c1] TIER 1 IS UNREACHABLE FOR A CLIENT WHOSE PROVIDER TAGS DO NOT RESOLVE, and the
+  arithmetic is short enough to state completely. Fixed as far as the evidence allows on
+  2026-09-03; the remainder needs the paid vocabulary sample and is NOT fixed.
+
+      industry   0, 20 or 45      45 only when a resolved tag is named by the spec
+      seniority  up to 35
+      headcount  up to 20
+      tier 1     needs 80
+
+  Seniority and headcount cap at 55 together, so tier 1 REQUIRES the on-target 45, and
+  that 45 requires a provider tag that resolves to a canonical name the client's spec
+  names. A client whose tags never resolve therefore has a hard ceiling of 75 however
+  good its prospects are, and every prospect lands in tier 2 or 3. That is the state all
+  40 prospects for the two newest clients are in, because sourcing writes no
+  company_industry at all.
+
+  WHAT WAS FIXED: calculateIndustryScore had two early returns that discarded the keyword
+  evidence disqualifier 6 had just admitted the prospect on, scoring 0 where the gate had
+  said 'enough'. Consistent now, and worth 20 points to 18 stored rows.
+
+  WHAT WAS NOT, AND WHY NOT: raising keyword evidence to the full 45 when no tag resolves
+  would close the ceiling and is wrong. The keywords are derived from canonical names and
+  include bare head nouns, so any company carrying that one word in its name would reach
+  tier 1 on no sector evidence at all. The honest fix is for tags to resolve, which is
+  the provider-vocabulary measurement recorded above.
+
+  DO NOT "fix" this by lowering the tier 1 threshold. That moves every client at once to
+  compensate for one missing input.
+
 - [post-build] THE OPERATOR'S INDUSTRY-MAPPING SECTION IS NOT RENDERED BY ANY PAGE.
   `FlaggedIndustryTagsSection.tsx` is defined and imported nowhere.
 
@@ -628,6 +690,37 @@ non-consulting client on that branch sources correctly and is then removed at cl
   Related and measured: `industry_tag_mappings` has ZERO rows. The operator-mapping path
   has never been used, so the "database mappings take precedence" branch in
   industry-mapping.ts is untested against production data.
+
+- [post-build] `tiering_reason` IS A MIXED-VOCABULARY COLUMN AND WILL STAY ONE. Decided
+  2026-09-03, deliberately, not deferred for want of time.
+
+  Both halves of the value derive from client criteria now, so both move whenever a
+  client's documents move. The removal codes are a fixed vocabulary, but which one a row
+  gets depends on that client's spec; the survivor string is free text carrying the score
+  breakdown, so it changes whenever any axis changes. The value is therefore NOT a stable
+  identifier and must never be treated as one.
+
+  MEASURED 2026-09-03 with scripts/compare-tiering.ts, which recomputes without writing:
+
+      129  rows carry a stored tiering_reason, all for one organisation
+       58  of those would read differently if recomputed today
+        1  carries `industry_not_consulting`, the removal code renamed on this branch
+       40  rows for the two newer clients carry NULL and have never been tiered
+
+  NOT REWRITTEN, and rewriting is the wrong instinct here. Rewriting a stored verdict so
+  it matches a renamed constant changes the record to match the code, and the record is
+  what says how the row was actually judged at the time. The cost of leaving it is
+  cosmetic: prospect-status.ts maps both keys, sourcing-metrics.ts preserves an
+  unrecognised value rather than dropping it, and every other consumer reads the column
+  only as NULL versus NOT NULL and is indifferent to the wording.
+
+  WHAT THIS OBLIGES ANY FUTURE READER TO DO: never filter, group or alert on an exact
+  tiering_reason string and expect completeness. Old rows carry vocabulary nothing
+  produces any more, and that will keep being true after the next rename.
+
+  ONE FIGURE FROM THE INSTRUCTION DID NOT RECONCILE, recorded rather than quietly
+  adjusted: the count given was 106 historical rows. Nothing measured comes to 106. The
+  numbers above are what the column actually contains.
 
 - [post-build] ONE STORED ROW STILL CARRIES `industry_not_consulting`, the reason string
   this branch renamed. It renders correctly, because prospect-status.ts keeps both keys on
