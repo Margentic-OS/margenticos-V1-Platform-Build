@@ -22,6 +22,15 @@
 //
 // Failures are isolated per event type: a bounce polling failure does not abort
 // reply polling. Each type reports independently in the response.
+//
+// It also CARRIES SUPPRESSIONS TO THE PROVIDER, since 2026-09-04. Detection writes an
+// address to the global suppression list; carrying it out to the sending provider is what
+// actually stops mail to somebody already mid-sequence, and until now that only happened
+// while this poll could still see the bounced lead. The sweep is driven off the suppression
+// ROW instead, so an address whose campaign was unregistered, deleted or archived still gets
+// carried. It rides here because this is already the bounce path's cron and already a write
+// path to the provider; the reconciliation sweep stays separate on purpose, because an
+// instrument must not audit its own writes.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -39,6 +48,7 @@ import { fetchCampaignStats, INSTANTLY_ABNORMAL_STOP_STATUSES } from '@/lib/inte
 import { fetchCampaignSendingStatus, SENDING_STATES_NEEDING_ATTENTION } from '@/lib/integrations/handlers/instantly/campaign-sending-status'
 import { getInstantlyApiKey, getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 import { syncSendingHealth } from '@/lib/sending-health/sync'
+import { carryPendingSuppressions, type CarryVerdict } from '@/lib/suppression/carry'
 import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
 
 const MONITOR_SLUG = 'instantly-poll'
@@ -127,6 +137,49 @@ export async function POST(request: NextRequest) {
     const msg = err instanceof Error ? err.message : String(err)
     logger.error('Instantly poll: unsubscribe polling threw unexpectedly', { error: msg })
     results.unsubscribes.errors++
+  }
+
+  // ── Carry suppressions to the provider ──────────────────────────────────────
+  //
+  // Runs after the three polls so that anything detected THIS run is included rather than
+  // waiting for the next one. Everything here is idempotent: a confirmed row is never
+  // selected again, and re-stopping an already-stopped lead is a no-op at the provider.
+  //
+  // A carry failure does NOT make the run fail. That is deliberate and it is the same
+  // judgement the poller makes inline. One address the provider will not answer for would
+  // otherwise hold this heartbeat red permanently, and a permanently red heartbeat cannot
+  // report the NEXT failure — it would mask exactly the poll outage this instrumentation
+  // exists to catch. The failure is on the suppression row, in Sentry, in the detail line
+  // below, and in MON-026, which is the instrument built for this question.
+  let carryVerdict: CarryVerdict = {
+    activeCount: 0, pendingCount: 0, carriedCount: 0, failedCount: 0,
+    noOrgCount: 0, backoffCount: 0, incomplete: false,
+    detail: 'Suppression carry did not run.',
+  }
+  try {
+    carryVerdict = await carryPendingSuppressions(supabase)
+    logger.info('Instantly poll: suppression carry complete', {
+      active: carryVerdict.activeCount,
+      pending: carryVerdict.pendingCount,
+      carried: carryVerdict.carriedCount,
+      failed: carryVerdict.failedCount,
+      no_org: carryVerdict.noOrgCount,
+      backoff: carryVerdict.backoffCount,
+      incomplete: carryVerdict.incomplete,
+    })
+    if (carryVerdict.failedCount > 0 || carryVerdict.noOrgCount > 0) {
+      Sentry.captureException(
+        new Error(
+          `Suppression carry: ${carryVerdict.failedCount} address(es) not carried to the ` +
+          `provider, ${carryVerdict.noOrgCount} with no organisation context`,
+        ),
+        { level: 'warning', extra: { carry: carryVerdict } },
+      )
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    logger.error('Instantly poll: suppression carry threw unexpectedly', { error: msg })
+    carryVerdict = { ...carryVerdict, incomplete: true, detail: `Suppression carry threw: ${msg}` }
   }
 
   // ── Campaign stats, status, and live sending health refresh ────────────────
@@ -423,6 +476,7 @@ export async function POST(request: NextRequest) {
     ...results,
     campaign_stats: campaignStatsResult,
     sending_health: sendingHealthResult,
+    suppression_carry: carryVerdict,
   })
 
   // ── Record heartbeat ───────────────────────────────────────────────────────────
@@ -432,11 +486,12 @@ export async function POST(request: NextRequest) {
       job_name: 'instantly-poll',
       ok: runOk,
       detail: runOk
-        ? `Polled: ${totalWritten} signals written, ${campaignStatsResult.updated} campaign(s) refreshed, ${campaignStatsResult.sendingChecked} sending-status check(s)`
+        ? `Polled: ${totalWritten} signals written, ${campaignStatsResult.updated} campaign(s) refreshed, ${campaignStatsResult.sendingChecked} sending-status check(s). ${carryVerdict.detail}`
         // Name the first campaign-stats cause when there is one. A count alone sends the
         // reader to the logs; the external_id sends them to the row that needs fixing.
         : `Run failed: ${totalErrors} error(s), ${resourcesThatFailedToPoll} resource(s) reached zero successful Instantly calls` +
-          (firstCampaignStatsError ? `. Campaign stats: ${firstCampaignStatsError}` : ''),
+          (firstCampaignStatsError ? `. Campaign stats: ${firstCampaignStatsError}` : '') +
+          `. ${carryVerdict.detail}`,
     })
     .throwOnError()
 
@@ -464,5 +519,6 @@ export async function POST(request: NextRequest) {
     results,
     campaign_stats: campaignStatsResult,
     sending_health: sendingHealthResult,
+    suppression_carry: carryVerdict,
   })
 }

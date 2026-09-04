@@ -31,7 +31,21 @@
 //   email_send_eligible       the deliverability verdict, materialised at verification.
 //                             It means the ADDRESS is deliverable and nothing else.
 //   client_review_status      the client is the gatekeeper on who gets contacted.
-//   suppressed = false        opted out, bounced, or disqualified.
+//   suppressed = false        THIS DOES NOT COVER BOUNCES. Corrected 2026-09-04; the
+//                             comment here previously read "opted out, bounced, or
+//                             disqualified" and the middle word was false.
+//                             prospects.suppressed carries FOUR per-organisation meanings,
+//                             none of them deliverability: client rejection, research
+//                             disqualification, an explicit opt-out reply, and a sourcing
+//                             dedupe block. A bounce writes the GLOBAL suppressed_emails
+//                             table and never touches this column, deliberately, because
+//                             deriving one from the other destroys all four meanings.
+//                             So this predicate ALONE does not gate a bounced address.
+//                             findBlockedProspects in src/lib/suppression/send-gate.ts
+//                             checks both stores, and every send path must go through it.
+//                             The one caller that does not is the operator's ready-to-send
+//                             count, which therefore overstates. Tracked in the Notion
+//                             Backlog, gate "Before first paying client".
 
 import { requireTierPresent } from '@/lib/sourcing/tier-verdict'
 

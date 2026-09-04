@@ -63,6 +63,15 @@ import { findBlockedProspects } from './send-gate'
 /** Beyond the measured provider lag, well inside the sweep cadence. See the header. */
 export const SETTLE_WINDOW_MINUTES = 10
 
+/**
+ * A suppression is allowed to be uncarried for a while before it counts as stuck.
+ *
+ * The carry runs on the 15-minute poll cron, so a suppression recorded moments ago is
+ * legitimately uncarried and must not be reported. Beyond two poll intervals it is not
+ * waiting for anything.
+ */
+export const CARRY_GRACE_MINUTES = 30
+
 /** A ceiling on provider reads per run, so one sweep cannot run away. */
 export const MAX_LEADS_PER_RUN = 500
 
@@ -81,6 +90,18 @@ export interface ReconciliationVerdict {
   settlingCount: number
   /** Uploaded prospects with no provider lead id. The invariant, asserted not assumed. */
   invariantBreachCount: number
+  /**
+   * Active suppressions never carried to the provider, past the grace window.
+   *
+   * THIS IS THE COUNT THE PROSPECT-BASED SWEEP ABOVE STRUCTURALLY CANNOT SEE. Everything
+   * else here starts from prospects with outbound_upload_status = 'uploaded', so an
+   * address on the global list with no uploaded prospect row of ours is invisible to it,
+   * however long it has gone uncarried. Reading the suppression list directly is what
+   * makes MON-026 able to fire on that case.
+   */
+  uncarriedCount: number
+  /** Active suppressions whose last carry attempt to the provider failed. */
+  carryFailedCount: number
   /** Identifiers for the operator, capped so the detail line stays readable. */
   unreconciledProspectIds: string[]
   /** True when the sweep could not complete, so no count below it can be trusted. */
@@ -117,6 +138,51 @@ async function loadUploadedProspects(
   return { ok: true, rows: (data ?? []) as Candidate[] }
 }
 
+/**
+ * How many active suppressions have not reached the provider.
+ *
+ * Read from suppressed_emails, NOT derived from prospects, because the whole point is to
+ * see addresses the prospect-based sweep cannot reach.
+ *
+ * Returns nulls on a query failure rather than zeros. A zero here would read as "nothing
+ * is stuck", and a failed read is not that.
+ */
+async function readCarryState(
+  supabase: ServiceRoleClient,
+  now: number,
+): Promise<{ uncarried: number; failed: number } | null> {
+  const graceCutoff = new Date(now - CARRY_GRACE_MINUTES * 60_000).toISOString()
+
+  const uncarried = await supabase
+    .from('suppressed_emails')
+    .select('id', { count: 'exact', head: true })
+    .is('revoked_at', null)
+    .is('carry_status', null)
+    .lt('created_at', graceCutoff)
+
+  if (uncarried.error) {
+    logger.error('suppression reconcile: could not count uncarried suppressions', {
+      error: uncarried.error.message,
+    })
+    return null
+  }
+
+  const failed = await supabase
+    .from('suppressed_emails')
+    .select('id', { count: 'exact', head: true })
+    .is('revoked_at', null)
+    .eq('carry_status', 'failed')
+
+  if (failed.error) {
+    logger.error('suppression reconcile: could not count failed carries', {
+      error: failed.error.message,
+    })
+    return null
+  }
+
+  return { uncarried: uncarried.count ?? 0, failed: failed.count ?? 0 }
+}
+
 function isSettling(row: Candidate, now: number): boolean {
   // NULL is never settling. Nothing was ever sent to the provider, so there is nothing in
   // flight to wait for, and this is precisely the hand-UPDATE case.
@@ -144,6 +210,8 @@ export async function reconcileSuppression(
     unreachableCount: 0,
     settlingCount: 0,
     invariantBreachCount: 0,
+    uncarriedCount: 0,
+    carryFailedCount: 0,
     unreconciledProspectIds: [] as string[],
   }
 
@@ -216,6 +284,12 @@ export async function reconcileSuppression(
 
   // ── Ask the provider ───────────────────────────────────────────────────────
   const now = Date.now()
+
+  // Independent of everything above: this reads the suppression list itself, so it covers
+  // addresses that have no uploaded prospect row and are therefore invisible to the
+  // prospect-based pass. A null here means the read failed, which makes the run incomplete
+  // rather than silently contributing two zeros.
+  const carryState = await readCarryState(supabase, now)
   let checked = 0
   let unreachable = 0
   let settling = 0
@@ -273,20 +347,9 @@ export async function reconcileSuppression(
     }
   }
 
-  const detail = buildDetail({
-    uploadedCount,
-    blockedCount: blocked.length,
-    checkedCount: checked,
-    unreconciledCount: stillSending.length,
-    unreachableCount: unreachable,
-    settlingCount: settling,
-    invariantBreachCount: invariantBreaches.length,
-    unreconciledProspectIds: stillSending.slice(0, MAX_IDS_IN_DETAIL),
-    incomplete: hitCap,
-    detail: '',
-  }, hitCap)
+  const incomplete = hitCap || carryState === null
 
-  return {
+  const verdict: ReconciliationVerdict = {
     uploadedCount,
     blockedCount: blocked.length,
     checkedCount: checked,
@@ -294,10 +357,14 @@ export async function reconcileSuppression(
     unreachableCount: unreachable,
     settlingCount: settling,
     invariantBreachCount: invariantBreaches.length,
+    uncarriedCount: carryState?.uncarried ?? 0,
+    carryFailedCount: carryState?.failed ?? 0,
     unreconciledProspectIds: stillSending.slice(0, MAX_IDS_IN_DETAIL),
-    incomplete: hitCap,
-    detail,
+    incomplete,
+    detail: '',
   }
+
+  return { ...verdict, detail: buildDetail(verdict, hitCap, carryState === null) }
 }
 
 type LeadVerdict =
@@ -386,7 +453,7 @@ async function judgeProspect(
  * Always carries the denominator. A bare "0 unreconciled" is indistinguishable from a sweep
  * that examined nothing, which is the reading this codebase has been misled by before.
  */
-function buildDetail(v: ReconciliationVerdict, hitCap: boolean): string {
+function buildDetail(v: ReconciliationVerdict, hitCap: boolean, carryUnknown: boolean): string {
   const parts: string[] = []
 
   if (v.unreconciledCount > 0) {
@@ -413,10 +480,31 @@ function buildDetail(v: ReconciliationVerdict, hitCap: boolean): string {
     )
   }
 
+  if (v.carryFailedCount > 0) {
+    parts.push(
+      `${v.carryFailedCount} suppressed address(es) failed to reach the sending provider, ` +
+      `so mail already in flight to them was never stopped.`,
+    )
+  }
+
+  if (v.uncarriedCount > 0) {
+    parts.push(
+      `${v.uncarriedCount} suppressed address(es) have never been carried to the provider ` +
+      `at all, past the ${CARRY_GRACE_MINUTES}-minute grace window.`,
+    )
+  }
+
   if (hitCap) {
     parts.push(
       `The per-run ceiling of ${MAX_LEADS_PER_RUN} provider reads was reached, so this run ` +
       `did not cover everything and the counts above are a floor, not a total.`,
+    )
+  }
+
+  if (carryUnknown) {
+    parts.push(
+      `The suppression list's carry state could not be read, so whether every suppression ` +
+      `reached the provider is unknown rather than fine.`,
     )
   }
 
@@ -463,6 +551,8 @@ export async function writeReconciliationSnapshot(
       unreachable_count: verdict.unreachableCount,
       settling_count: verdict.settlingCount,
       invariant_breach_count: verdict.invariantBreachCount,
+      uncarried_count: verdict.uncarriedCount,
+      carry_failed_count: verdict.carryFailedCount,
       incomplete: verdict.incomplete,
       unreconciled_prospect_ids: verdict.unreconciledProspectIds,
       detail: verdict.detail.slice(0, 2000),

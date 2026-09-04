@@ -2425,6 +2425,9 @@ export type Database = {
       }
       suppressed_emails: {
         Row: {
+          carry_attempted_at: string | null
+          carry_error: string | null
+          carry_status: string | null
           created_at: string
           email: string
           id: string
@@ -2435,6 +2438,9 @@ export type Database = {
           source_signal_id: string | null
         }
         Insert: {
+          carry_attempted_at?: string | null
+          carry_error?: string | null
+          carry_status?: string | null
           created_at?: string
           email: string
           id?: string
@@ -2445,6 +2451,9 @@ export type Database = {
           source_signal_id?: string | null
         }
         Update: {
+          carry_attempted_at?: string | null
+          carry_error?: string | null
+          carry_status?: string | null
           created_at?: string
           email?: string
           id?: string
@@ -2481,6 +2490,7 @@ export type Database = {
       suppression_reconciliation_snapshot: {
         Row: {
           blocked_count: number
+          carry_failed_count: number
           checked_count: number
           computed_at: string
           detail: string
@@ -2488,6 +2498,7 @@ export type Database = {
           incomplete: boolean
           invariant_breach_count: number
           settling_count: number
+          uncarried_count: number
           unreachable_count: number
           unreconciled_count: number
           unreconciled_prospect_ids: Json
@@ -2495,6 +2506,7 @@ export type Database = {
         }
         Insert: {
           blocked_count: number
+          carry_failed_count?: number
           checked_count: number
           computed_at?: string
           detail: string
@@ -2502,6 +2514,7 @@ export type Database = {
           incomplete?: boolean
           invariant_breach_count: number
           settling_count: number
+          uncarried_count?: number
           unreachable_count: number
           unreconciled_count: number
           unreconciled_prospect_ids?: Json
@@ -2509,6 +2522,7 @@ export type Database = {
         }
         Update: {
           blocked_count?: number
+          carry_failed_count?: number
           checked_count?: number
           computed_at?: string
           detail?: string
@@ -2516,6 +2530,7 @@ export type Database = {
           incomplete?: boolean
           invariant_breach_count?: number
           settling_count?: number
+          uncarried_count?: number
           unreachable_count?: number
           unreconciled_count?: number
           unreconciled_prospect_ids?: Json

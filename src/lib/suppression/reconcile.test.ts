@@ -54,10 +54,45 @@ interface Row {
  * id precisely so that a row marked uploaded with no lead id is visible as an invariant
  * breach. A fake that ignored the filter would return the same rows either way and could
  * not tell the two selectors apart.
+ *
+ * It also serves suppressed_emails, because the sweep now reads the carry state directly
+ * from the suppression list rather than deriving it from prospects. That read is the only
+ * part of MON-026 that can see an address with no uploaded prospect row, so it must be
+ * exercised here rather than stubbed away. carryCounts controls what it returns;
+ * carryError makes the read fail, which must make the run incomplete rather than
+ * contribute two reassuring zeros.
  */
-function createFakeDb(rows: Row[], opts: { error?: string } = {}) {
+function createFakeDb(
+  rows: Row[],
+  opts: { error?: string; carryCounts?: { uncarried: number; failed: number }; carryError?: string } = {},
+) {
   const client: any = {
     from(table: string) {
+      if (table === 'suppressed_emails') {
+        const state: { eq: Record<string, unknown>; is: Record<string, unknown> } = { eq: {}, is: {} }
+        const b: any = {
+          select: () => b,
+          eq: (col: string, v: unknown) => { state.eq[col] = v; return b },
+          is: (col: string, v: unknown) => { state.is[col] = v; return b },
+          lt: () => b,
+          then: (resolve: (v: unknown) => void) => {
+            if (opts.carryError) {
+              return Promise.resolve(resolve({ data: null, error: { message: opts.carryError }, count: null }))
+            }
+            // The sweep MUST exclude revoked rows on both counts. A fake that ignored this
+            // could not tell a correct query from one that counts lifted suppressions.
+            if (!('revoked_at' in state.is)) {
+              throw new Error('fake: the carry read must filter on revoked_at')
+            }
+            const counts = opts.carryCounts ?? { uncarried: 0, failed: 0 }
+            const isFailedQuery = state.eq.carry_status === 'failed'
+            return Promise.resolve(
+              resolve({ data: null, error: null, count: isFailedQuery ? counts.failed : counts.uncarried }),
+            )
+          },
+        }
+        return b
+      }
       if (table !== 'prospects') throw new Error(`fake does not implement table ${table}`)
       const state: { eq: Record<string, string> } = { eq: {} }
       const builder: any = {
@@ -352,5 +387,52 @@ describe('reconcileSuppression', () => {
     const v = await reconcileSuppression(db)
     expect(v.unreachableCount).toBe(1)
     expect(v.checkedCount).toBe(0)
+  })
+
+  // ── The carry state: the half the prospect-based pass cannot see ────────────
+
+  it('reports an uncarried suppression EVEN WITH NO UPLOADED PROSPECTS AT ALL', async () => {
+    // THE BLIND SPOT, STATED AS A TEST. Everything above this line starts from prospects
+    // with outbound_upload_status = 'uploaded'. An address on the global list with no
+    // uploaded prospect row of ours is invisible to that pass, however long it has gone
+    // uncarried — there is nothing to iterate, so it reports zero and is structurally
+    // unable to check. Delete the readCarryState call and this goes red.
+    const db = createFakeDb([], { carryCounts: { uncarried: 1, failed: 0 } })
+
+    const v = await reconcileSuppression(db)
+
+    expect(v.uploadedCount).toBe(0)
+    expect(v.uncarriedCount).toBe(1)
+    expect(v.detail).toContain('never been carried to the provider')
+  })
+
+  it('reports a failed carry alongside a clean provider comparison', async () => {
+    // The provider pass passes and the carry pass does not. A verdict that reported only
+    // the first would read green over an address the provider was never told about.
+    const db = createFakeDb(
+      [{ id: 'p1', organisation_id: 'org-1', email: 'a@b.com', outbound_lead_id: 'lead-1', outbound_suppression_at: OLD }],
+      { carryCounts: { uncarried: 0, failed: 2 } },
+    )
+    gateBlocks(['p1'])
+    readLead.mockResolvedValue({ ok: true, state: { leadId: 'lead-1', status: 3, interestStatus: -1 } })
+
+    const v = await reconcileSuppression(db)
+
+    expect(v.unreconciledCount).toBe(0)
+    expect(v.carryFailedCount).toBe(2)
+    expect(v.detail).toContain('failed to reach the sending provider')
+  })
+
+  it('is INCOMPLETE when the carry state cannot be read, rather than reporting two zeros', async () => {
+    // A failed read is not "nothing is stuck". Zeros from a query that errored are the
+    // reading this codebase has been misled by three times, and mon_026 treats incomplete
+    // as PROBLEM precisely so they cannot produce a green tile.
+    const db = createFakeDb([], { carryError: 'permission denied' })
+
+    const v = await reconcileSuppression(db)
+
+    expect(v.incomplete).toBe(true)
+    expect(v.uncarriedCount).toBe(0)
+    expect(v.detail).toContain('unknown rather than fine')
   })
 })

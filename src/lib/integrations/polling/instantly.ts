@@ -60,7 +60,7 @@ import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/aut
 import { mockEmailsList, mockEmailGet, mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
 import { InstantlyFlagError } from '@/lib/integrations/handlers/instantly/types'
 import { recordSuppression } from '@/lib/suppression/suppression-list'
-import { suppressAddressAtProvider } from '@/lib/suppression/provider-suppression'
+import { carryOneSuppression } from '@/lib/suppression/carry'
 const SOURCE = 'instantly'
 
 // Rows requested per list call, for all three resources. One constant because the page
@@ -1189,17 +1189,37 @@ export async function pollInstantlyLeadStatus(
                 // Runs on 'recorded' and on 'already_suppressed'. The second is the normal
                 // case on every full scan after the first, and it is exactly when a NEW
                 // duplicate lead for an old suppressed address would be found.
-                const carried = await suppressAddressAtProvider(
-                  supabase,
-                  campaign.organisation_id,
-                  leadEmail,
-                )
+                //
+                // ═══════════════════════════════════════════════════════════════
+                // THIS CALL IS FOR LATENCY. IT IS NOT WHAT MAKES THE CARRY RELIABLE.
+                //
+                // It used to call suppressAddressAtProvider directly, and that was the ONLY
+                // thing that ever carried a bounce to the provider. Which meant the carry
+                // depended on this loop still SEEING the bounced lead: still returned by
+                // the provider, in a campaign we still have registered, for an organisation
+                // we have not archived. Lose any of those and the address sat on the global
+                // list for ever, uncarried, with nothing able to pick it up. That is exactly
+                // what happened to the only bounce this system has ever had.
+                //
+                // carryPendingSuppressions is what makes it reliable now, driven off the
+                // suppression ROW rather than off this loop's view of the provider. This
+                // call just gets it done a poll interval sooner. Delete it and the sweep
+                // still carries the address; nothing else changes.
+                //
+                // Both go through carryOneSuppression so there is one writer of the carry
+                // state and the processed flag, not two that can disagree.
+                // ═══════════════════════════════════════════════════════════════
+                const carried = await carryOneSuppression(supabase, {
+                  email: leadEmail,
+                  organisationId: campaign.organisation_id,
+                })
 
                 // NOT a poll failure. The suppression row is written and the send gate that
                 // depends on it is live, so the poll did its job. Failing the whole campaign
                 // page over an unreachable duplicate sweep would stop bounce detection,
-                // which is worse. It is on the prospect row, in Sentry, and in front of the
-                // reconciliation sweep, which reads the provider rather than this result.
+                // which is worse. The failure is recorded on the suppression row itself, in
+                // Sentry, and in front of the reconciliation sweep, which reads the provider
+                // rather than this result. The sweep retries it after the backoff.
                 if (carried.status === 'failed') {
                   logger.error('Instantly poll: suppressed address was not carried to the provider', {
                     signal_type: signalType,

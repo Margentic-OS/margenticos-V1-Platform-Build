@@ -19,21 +19,23 @@ vi.mock('@sentry/nextjs', () => ({
   flush: vi.fn(() => Promise.resolve()),
 }))
 
-// The bounce path carries every suppressed address out to the sending provider through the
-// can_suppress_contact capability. Mocked here, and asserted on in the suppression file.
+// The bounce path carries every suppressed address out to the sending provider through
+// carryOneSuppression, which owns the provider call and the carry bookkeeping. Mocked here,
+// and asserted on in the suppression file. carry.test.ts drives the real one.
 //
 // Mocked rather than served by the fake Supabase, deliberately. The real path resolves the
 // capability from integrations_registry and then makes its own HTTP calls to /leads/list,
 // which is the SAME endpoint this file's fetch stub serves for paging. Letting it through
 // would fold provider-suppression requests into the call counts these tests use to prove
 // paging behaviour, and a test that counts two different things cannot fail for one reason.
-const suppressAddressAtProvider = vi.fn(async () => ({
+const carryOneSuppression = vi.fn(async () => ({
   status: 'confirmed' as const,
   stoppedLeadIds: [] as string[],
   error: null,
+  signalMarkedProcessed: true,
 }))
-vi.mock('@/lib/suppression/provider-suppression', () => ({
-  suppressAddressAtProvider: (...args: unknown[]) => suppressAddressAtProvider(...(args as [])),
+vi.mock('@/lib/suppression/carry', () => ({
+  carryOneSuppression: (...args: unknown[]) => carryOneSuppression(...(args as [])),
 }))
 
 import {
@@ -172,7 +174,7 @@ beforeEach(() => {
   // Real HTTP path, not the in-process mock dispatch, so the poller's own request and
   // response handling is under test.
   process.env.INSTANTLY_API_ACTIVE = 'true'
-  suppressAddressAtProvider.mockClear()
+  carryOneSuppression.mockClear()
 })
 
 afterEach(() => {
@@ -339,8 +341,11 @@ describe('bounce and unsubscribe wiring to the suppression list', () => {
 
     await pollInstantlyLeadStatus(client, 'test-key', INSTANTLY_LEAD_STATUS_BOUNCED, 'email_bounced')
 
-    expect(suppressAddressAtProvider).toHaveBeenCalledTimes(1)
-    expect(suppressAddressAtProvider).toHaveBeenCalledWith(client, 'org-a', 'bounced@x.com')
+    expect(carryOneSuppression).toHaveBeenCalledTimes(1)
+    expect(carryOneSuppression).toHaveBeenCalledWith(client, {
+      email: 'bounced@x.com',
+      organisationId: 'org-a',
+    })
   })
 
   it('carries the address on a REPEAT signal too, when suppression was already recorded', async () => {
@@ -355,7 +360,7 @@ describe('bounce and unsubscribe wiring to the suppression list', () => {
     // which would make this test pass or fail for a reason unrelated to its subject.
     vi.stubGlobal('fetch', serveLeads([lead]))
     await pollInstantlyLeadStatus(client, 'test-key', INSTANTLY_LEAD_STATUS_BOUNCED, 'email_bounced')
-    suppressAddressAtProvider.mockClear()
+    carryOneSuppression.mockClear()
 
     vi.stubGlobal('fetch', serveLeads([lead]))
     const second = await pollInstantlyLeadStatus(client, 'test-key', INSTANTLY_LEAD_STATUS_BOUNCED, 'email_bounced')
@@ -364,7 +369,7 @@ describe('bounce and unsubscribe wiring to the suppression list', () => {
     // rather than finding nothing to do.
     expect(second.skipped).toBe(1)
 
-    expect(suppressAddressAtProvider).toHaveBeenCalledTimes(1)
+    expect(carryOneSuppression).toHaveBeenCalledTimes(1)
   })
 
   it('does NOT call the provider when the suppression row could not be written', async () => {
@@ -379,6 +384,6 @@ describe('bounce and unsubscribe wiring to the suppression list', () => {
     )
 
     expect(result.errors).toBe(1)
-    expect(suppressAddressAtProvider).not.toHaveBeenCalled()
+    expect(carryOneSuppression).not.toHaveBeenCalled()
   })
 })
