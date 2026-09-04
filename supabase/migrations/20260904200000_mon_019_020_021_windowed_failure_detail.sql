@@ -1,5 +1,5 @@
 -- Migration: mon_019, mon_020 and mon_021 stop quoting a failure from all of history
--- Status: PENDING
+-- Status: APPLIED (verified live 2026-09-04, production and test project)
 --
 -- ─────────────────────────────────────────────────────────────────────────────
 -- THE DEFECT
