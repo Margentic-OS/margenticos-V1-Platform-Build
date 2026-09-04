@@ -210,8 +210,11 @@ async function getCursor(
 //                   Advanced on a clean run, and also on a run that stopped at the page
 //                   cap, because the pages before the cap were fetched and written and
 //                   the cursor points past finished work. NOT advanced when a page fetch
-//                   failed (that page must be re-fetched) and NOT advanced when the
-//                   cursor stopped advancing (the cursor is the thing that failed).
+//                   failed (that page must be re-fetched), NOT advanced when the
+//                   cursor stopped advancing (the cursor is the thing that failed), and
+//                   NOT advanced when any signal row on a page failed to write (that
+//                   event would otherwise be lost for good; the page is re-fetched and
+//                   the rows that did land dedupe on the idempotency constraint).
 //                   ALWAYS NULL for leads_bounced and leads_unsubscribed, by design, not
 //                   by omission: those resources re-scan in full every run because a lead
 //                   created weeks ago can bounce today and a creation-ordered cursor
@@ -523,7 +526,7 @@ function parseInstantlyResponse(json: unknown): { data: unknown[]; nextCursor: s
 // `status` is the HTTP status where there was a response, null for network/parse
 // failures that never produced one. It is reported separately from `error` so the
 // per-campaign log and last_error can both carry it without re-parsing the message.
-interface InstantlyListResponse {
+export interface InstantlyListResponse {
   data: unknown[] | null
   nextCursor: string | null
   error: string | null
@@ -531,7 +534,14 @@ interface InstantlyListResponse {
 }
 
 // GET request — used for /emails (cursor-based, query params)
-async function instantlyGet(
+//
+// EXPORTED so the reply reconciliation sweep (src/lib/reply-handling/reconcile.ts) asks the
+// provider through the very same function the poller does. That identity is the whole basis
+// for the comparison being meaningful: same endpoint, same auth, same flag gate, same
+// response parsing. A reconciler with its own request path would be comparing two things
+// that differ for reasons other than a lost reply, which is exactly the mistake the
+// campaign analytics reply_count would have led to.
+export async function instantlyGet(
   path: string,
   apiKey: string,
   params: Record<string, string>,
@@ -813,6 +823,11 @@ export async function pollInstantlyReplies(
 
       if (!emails || emails.length === 0) break
 
+      // Set when a signal row on THIS page failed to write to the database. The cursor must
+      // not move past a page that did not fully land: see the block below the row loop.
+      let pageWriteFailed = false
+      let firstWriteFailureId: string | null = null
+
       for (const email of emails) {
         const e = email as Record<string, unknown>
         const emailId = e.id as string | undefined
@@ -863,7 +878,50 @@ export async function pollInstantlyReplies(
 
         if (outcome === 'written') result.written++
         else if (outcome === 'skipped') result.skipped++
-        else result.errors++
+        else {
+          result.errors++
+          pageWriteFailed = true
+          if (firstWriteFailureId === null) firstWriteFailureId = emailId
+        }
+      }
+
+      // ── A page whose rows did not all land does not move the cursor ───────────
+      //
+      // THE DEFECT THIS CLOSES. The cursor used to advance on PAGE-FETCH success, so a
+      // reply whose signal row failed to write was skipped, the cursor moved past it, and
+      // the event was unrecoverable short of hand-editing polling_cursors.last_cursor.
+      // Worse, writeSignal's error path never called recordPollFailure, so state.failures
+      // stayed 0 and writePollState then wrote error_count 0 and last_error NULL: the run
+      // that lost a reply actively CLEARED the poller's own error state and reported clean.
+      //
+      // Re-fetching the page next run is safe and cheap. signals has a unique constraint on
+      // the idempotency key, so every row that DID land comes back as 'skipped' (23505) and
+      // only the row that failed is retried. Re-reading a page costs one API call.
+      //
+      // THE ACCEPTED TRADE-OFF, stated because it is real: this is head-of-line blocking. A
+      // row that fails the same way for ever pins the cursor and stalls every later reply.
+      // That is the right direction — stalled and loud beats lost and silent — but it is
+      // only safe because MON-027 reads polling_cursors and goes red on a stuck cursor.
+      // Before MON-027, error_count and last_error were written here and read by NOTHING,
+      // so this stall would have been as silent as the loss it replaces. Do not remove one
+      // without the other.
+      //
+      // WHY ONLY THE DATABASE WRITE, and not the three `continue`s above it. Those three
+      // (missing id, missing eaccount, unresolved campaign) drop an event too, but they are
+      // DETERMINISTIC: the same payload fails identically on every re-fetch, so blocking on
+      // them would be a stall no operator action can clear, which is strictly worse than
+      // today. A failed database write is transient by nature and clears on retry. The two
+      // classes need different answers and this one is scoped to the recoverable class.
+      if (pageWriteFailed) {
+        recordPollFailure(state, `signal write failed on page ${pageCount} (first failing event ${firstWriteFailureId})`)
+        logger.error('Instantly poll: reply page had a failed signal write — holding the cursor', {
+          resource,
+          page: pageCount,
+          first_failing_event_id: firstWriteFailureId,
+          consequence: 'cursor not advanced; this page is re-fetched next run and already-written rows dedupe',
+        })
+        cursorIsTrustworthy = false
+        break
       }
 
       // Advance the cursor after processing the page, so a mid-page failure doesn't

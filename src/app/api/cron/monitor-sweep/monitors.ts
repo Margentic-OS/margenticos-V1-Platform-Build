@@ -94,4 +94,24 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   // our own writes with our own columns is how a check goes green over the thing it was
   // written to find.
   ['MON-026', 'mon_026'],
+  // The reply poller's own state, added 2026-09-04. polling_cursors.error_count and
+  // last_error were written by the poller and read by NOTHING for the life of the system:
+  // zero of the 23 mon_* views touched that table, and the only reader in src/ was the
+  // poller's own getCursor, which reads last_cursor alone.
+  //
+  // It ships in the same commit as the cursor-hold change in pollInstantlyReplies, and that
+  // is not a coincidence. Holding the cursor turns a silent lost reply into a visible stall,
+  // which is only an improvement if something can see the stall. This is that something.
+  ['MON-027', 'mon_027'],
+  // A reply draft nobody has actioned, added 2026-09-04. MON-014 and MON-015 both look
+  // adjacent and both watch a FAILURE; a draft waiting on a person has not failed, so both
+  // stayed green while one sat at manual_required for two days. Its threshold lives in
+  // reply_draft_ageing_config, one default row plus per-client overrides, and the view
+  // reports UNKNOWN if the default row is missing rather than passing vacuously.
+  ['MON-028', 'mon_028'],
+  // Replies reconciled against the provider, added 2026-09-04. The only check here that
+  // catches a lost reply POSITIVELY rather than inferring it from an error flag the next
+  // run overwrites. MON-023's stored-verdict shape, because the comparison needs an HTTP
+  // call and a view cannot make one.
+  ['MON-029', 'mon_029'],
 ] as const
