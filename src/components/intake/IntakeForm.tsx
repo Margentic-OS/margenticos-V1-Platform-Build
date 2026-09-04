@@ -12,210 +12,20 @@ import { saveIntakeResponse } from '@/app/intake/actions'
 import type { IntakeFileRecord } from '@/app/intake/actions'
 import FileUploadSection from './FileUploadSection'
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type FieldType = 'short' | 'long' | 'select' | 'currency'
-
-interface Question {
-  fieldKey: string
-  label: string
-  helpText?: string
-  isCritical: boolean
-  type: FieldType
-  options?: string[]
-  getOptions?: (values: Record<string, string>) => string[]
-  dictation?: boolean
-}
-
-interface Section {
-  id: string
-  title: string
-  questions: Question[]
-}
-
-// ─── Currency helpers ────────────────────────────────────────────────────────
-
-const CURRENCY_SYMBOLS: Record<string, string> = { GBP: '£', EUR: '€', USD: '$' }
-
-const revenueOptions = (values: Record<string, string>): string[] => {
-  const sym = CURRENCY_SYMBOLS[values['company_currency']] ?? '£'
-  return [
-    `Under ${sym}100K`,
-    `${sym}100K - ${sym}300K`,
-    `${sym}300K - ${sym}600K`,
-    `${sym}600K - ${sym}1M`,
-    `${sym}1M - ${sym}2M`,
-    `Over ${sym}2M`,
-  ]
-}
-
-// ─── Question definitions ────────────────────────────────────────────────────
-
-const SECTIONS: Section[] = [
-  {
-    id: 'company',
-    title: 'Your business',
-    questions: [
-      {
-        fieldKey: 'company_name',
-        label: "What's your company name?",
-        isCritical: true,
-        type: 'short',
-      },
-      {
-        fieldKey: 'company_url',
-        label: "What's your website URL?",
-        isCritical: false,
-        type: 'short',
-      },
-      {
-        fieldKey: 'company_currency',
-        label: 'What currency do you work in?',
-        isCritical: true,
-        type: 'currency',
-        options: ['GBP', 'EUR', 'USD'],
-      },
-      {
-        fieldKey: 'company_revenue_range',
-        label: "What's your current annual revenue range?",
-        isCritical: true,
-        type: 'select',
-        getOptions: revenueOptions,
-      },
-      {
-        fieldKey: 'company_what_you_do',
-        label: 'Who do you help and what problem do you solve for them?',
-        isCritical: true,
-        type: 'long',
-        dictation: true,
-      },
-      {
-        fieldKey: 'company_years_operating',
-        label: 'How long have you been operating?',
-        isCritical: true,
-        type: 'short',
-      },
-      {
-        fieldKey: 'company_differentiators',
-        label: "What makes your firm genuinely different from others who do what you do? Not the marketing answer. The real one.",
-        isCritical: true,
-        type: 'long',
-        dictation: true,
-      },
-    ],
-  },
-  {
-    id: 'clients',
-    title: 'Your clients',
-    questions: [
-      {
-        fieldKey: 'clients_clone',
-        label: "Think about your single best client, the one you'd clone if you could. Describe them. Not their job title. What makes them different to work with? What do they believe or understand that most of your clients don't?",
-        isCritical: true,
-        type: 'long',
-        dictation: true,
-      },
-      {
-        fieldKey: 'clients_trigger',
-        label: "When your best clients first came to you, what was happening in their business? What had changed, broken, or become urgent enough that they finally did something?",
-        isCritical: true,
-        type: 'long',
-        dictation: true,
-      },
-      {
-        fieldKey: 'clients_how_found',
-        label: "Walk me through how your last best client found you. Start from the beginning — how did they first become aware you existed?",
-        isCritical: true,
-        type: 'long',
-        dictation: true,
-      },
-      {
-        fieldKey: 'clients_what_tipped',
-        label: "What do you think actually tipped them toward working with you? Not the polished answer. The real one. Was there a specific conversation, a moment, something you said or showed them?",
-        isCritical: true,
-        type: 'long',
-        dictation: true,
-      },
-      {
-        fieldKey: 'clients_channel',
-        label: "Do your best clients typically come from referrals, inbound, or outbound? What does that usually look like in practice?",
-        isCritical: true,
-        type: 'long',
-      },
-    ],
-  },
-  {
-    id: 'offer',
-    title: 'Your offer',
-    questions: [
-      {
-        fieldKey: 'offer_structure',
-        label: "How does your service actually work? What does a client buy and what does the engagement look like?",
-        isCritical: true,
-        type: 'long',
-      },
-      {
-        fieldKey: 'offer_price',
-        label: "What's the price point or range for your core offer?",
-        isCritical: true,
-        type: 'short',
-      },
-      {
-        fieldKey: 'offer_length',
-        label: 'How long does a typical engagement last?',
-        isCritical: true,
-        type: 'short',
-      },
-      {
-        fieldKey: 'offer_deliverables',
-        label: "What does a client actually get? Deliverables, outputs, access — what exists at the end that didn't before?",
-        isCritical: true,
-        type: 'long',
-        dictation: true,
-      },
-    ],
-  },
-  {
-    id: 'voice',
-    title: 'Your voice',
-    questions: [
-      {
-        fieldKey: 'voice_style',
-        label: 'How would you describe your communication style in your own words?',
-        isCritical: false,
-        type: 'long',
-      },
-      {
-        fieldKey: 'voice_dislikes',
-        label: "Is there anything you hate seeing in business communication? Phrases, styles, tones that make you cringe.",
-        isCritical: false,
-        type: 'long',
-      },
-    ],
-  },
-  {
-    id: 'assets',
-    title: 'Existing assets',
-    questions: [
-      {
-        fieldKey: 'assets_existing_positioning',
-        label: "Is there any positioning or messaging you currently use that you'd like us to know about? Could be a tagline, an about page, a pitch you've used.",
-        isCritical: false,
-        type: 'long',
-      },
-      {
-        fieldKey: 'assets_past_outreach',
-        label: "Have you tried outbound before? What worked and what didn't? Even partial attempts count.",
-        isCritical: false,
-        type: 'long',
-      },
-    ],
-  },
-]
-
-const ALL_QUESTIONS = SECTIONS.flatMap(s => s.questions)
-const CRITICAL_COUNT = ALL_QUESTIONS.filter(q => q.isCritical).length // 15 (voice_samples removed — file upload is canonical)
-const THRESHOLD = Math.ceil(CRITICAL_COUNT * 0.8) // 12
+// Question definitions live in src/lib/intake/questions.ts so the server can import the
+// same list. See that file for why the denominator must not come from stored rows.
+import {
+  SECTIONS,
+  ALL_QUESTIONS,
+  CRITICAL_COUNT,
+  THRESHOLD,
+  CURRENCY_SYMBOLS,
+  CURRENCY_FIELD_KEY,
+  REVENUE_FIELD_KEY,
+  reconcileRevenueRange,
+  type Question,
+  type Section,
+} from '@/lib/intake/questions'
 
 // Shared input classes — 16px font size prevents iOS Safari from zooming on focus
 const inputBase =
@@ -348,6 +158,28 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
       return next
     })
     save(question, value)
+
+    // Changing the currency rebuilds the revenue options, so the stored revenue answer
+    // carries a symbol that no longer appears in the list. The <select> then falls back to
+    // the placeholder while the row keeps the old answer, which is how a row ends up saying
+    // one currency and its revenue band another. Re-symbolise the same band where the answer
+    // is recognisable, and clear it where it is not, saving either way so the stored value
+    // and what the client sees cannot disagree.
+    if (question.fieldKey === CURRENCY_FIELD_KEY) {
+      const revenueQuestion = ALL_QUESTIONS.find(q => q.fieldKey === REVENUE_FIELD_KEY)
+      if (!revenueQuestion) return
+      const stored = values[REVENUE_FIELD_KEY] ?? ''
+      if (!stored) return
+      const reconciled = reconcileRevenueRange(stored, value)
+      if (reconciled === stored) return
+      setValues(prev => ({ ...prev, [REVENUE_FIELD_KEY]: reconciled }))
+      setSavedKeys(prev => {
+        const next = new Set(prev)
+        next.delete(REVENUE_FIELD_KEY)
+        return next
+      })
+      save(revenueQuestion, reconciled)
+    }
   }, [save, values])
 
   const sectionComplete = (section: Section) =>

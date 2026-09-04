@@ -46,10 +46,17 @@ Before returning any output, scan for every item above.
 
 const DASH_PATTERN = /\s*[—–]\s*|--/g
 
-// Numeric/currency range en-dashes (€1K–€3K, 3K–15K, 10%–20%) → plain hyphen.
+// Numeric/currency range en-dashes (€1K–€3K, 3K–15K, 10%–20%, £2m–£10m) → plain hyphen.
 // Applied before DASH_PATTERN in scrubAITells so valid ranges are not turned into sentences.
 // Matches only when the en-dash has numeric/currency chars on both sides with no whitespace.
-const NUMERIC_RANGE_PATTERN = /([0-9KMB%])–([€$£¥%0-9])/g
+//
+// The magnitude suffix is matched in BOTH cases and only when a digit precedes it. The old
+// class was [0-9KMB%], uppercase only, so "£2M–£10M" was guarded and "£2m–£10m" was not:
+// the char before the dash was "m", nothing matched, and DASH_PATTERN turned a range into
+// two sentences. Two ICP revenue bands are stored as "£2m. £10m" and "£10m. £20m" because
+// of it. Requiring the digit also removes a false positive the old class had, where a word
+// ending in K, M or B directly before an en-dash and a figure ("TEAM–€5K") was joined up.
+const NUMERIC_RANGE_PATTERN = /([0-9%]|\d[KMBkmb])–([€$£¥%0-9])/g
 
 const AI_TELL_PATTERNS: ReadonlyArray<{ label: string; pattern: RegExp }> = [
   { label: 'delve into',                          pattern: /delve into/i },

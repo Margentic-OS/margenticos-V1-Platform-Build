@@ -1,3 +1,4 @@
+import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
@@ -64,14 +65,19 @@ export default async function ApprovePage({
     .order('created_at', { ascending: false })
     .range(from, from + APPROVAL_PAGE_SIZE - 1)
 
-  const icpSummary: { targetTitle?: string; revenueRange?: string } = {}
+  // Typed as ICPFilterSpec rather than Record<string, unknown>. The cast was what let this
+  // block read `spec.target_job_titles`, a field that has never existed on the spec (it is
+  // `job_titles`), so the target role never rendered and nothing failed to compile. That is
+  // the "type assertion that switches off the check that would have caught it" shape from
+  // CLAUDE.md: the wide type made a wrong field name unremarkable.
+  const icpSummary: { targetTitle?: string; headcountRange?: string } = {}
   if (icpResult.data?.icp_filter_spec) {
-    const spec = icpResult.data.icp_filter_spec as Record<string, unknown>
-    if (spec.target_job_titles && Array.isArray(spec.target_job_titles)) {
-      icpSummary.targetTitle = (spec.target_job_titles as string[]).slice(0, 2).join(', ')
+    const spec = icpResult.data.icp_filter_spec as unknown as ICPFilterSpec
+    if (Array.isArray(spec.job_titles) && spec.job_titles.length > 0) {
+      icpSummary.targetTitle = spec.job_titles.slice(0, 2).join(', ')
     }
     if (spec.company_headcount_min && spec.company_headcount_max) {
-      icpSummary.revenueRange = `${spec.company_headcount_min}-${spec.company_headcount_max} employees`
+      icpSummary.headcountRange = `${spec.company_headcount_min}-${spec.company_headcount_max} employees`
     }
   }
 

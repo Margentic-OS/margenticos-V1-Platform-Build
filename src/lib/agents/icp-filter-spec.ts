@@ -302,12 +302,42 @@ export function deriveFilterSpec(doc: IcpDocument): ICPFilterSpec {
   // Both tiers are sourced; tier classification happens downstream (sourced_tier).
   // The ICP headcount strings are human-readable ("1–3 people") — parse the bounds.
   // Previous pairing (t1-min / t2-max) silently inverted when tier 2 was smaller, excluding valid tier 1 range.
-  const t1Min = parseHeadcountMin(t1.company_profile.headcount) ?? 1
-  const t1Max = parseHeadcountMax(t1.company_profile.headcount) ?? 20
-  const t2Min = parseHeadcountMin(t2.company_profile.headcount) ?? 1
-  const t2Max = parseHeadcountMax(t2.company_profile.headcount) ?? 8
-  const headcountMin = Math.min(t1Min, t2Min)
-  const headcountMax = Math.max(t1Max, t2Max)
+  // Both tiers are sourced, so the spec spans the union of the two ranges.
+  //
+  // The `?? 1` / `?? 20` / `?? 8` fallbacks that used to sit here are DELETED, not adjusted.
+  // They turned "this document does not say" into a confident 1-20 that nothing downstream
+  // could tell apart from a parsed one, and 20 is a hard ceiling: resolveHeadcountCeiling
+  // removes every prospect above it. A default that silently decides who a client is allowed
+  // to reach is worse than a run that stops and says the document is unusable.
+  const t1Range = parseHeadcountRange(t1.company_profile.headcount)
+  const t2Range = parseHeadcountRange(t2.company_profile.headcount)
+
+  const mins = [t1Range.min, t2Range.min].filter((n): n is number => n !== null)
+  const maxs = [t1Range.max, t2Range.max].filter((n): n is number => n !== null)
+
+  if (mins.length === 0 || maxs.length === 0) {
+    const side = mins.length === 0 ? 'lower' : 'upper'
+    throw new Error(
+      `ICP filter spec: neither tier establishes a ${side} headcount bound. ` +
+      `Tier 1 headcount reads ${JSON.stringify(t1.company_profile.headcount)}, ` +
+      `tier 2 reads ${JSON.stringify(t2.company_profile.headcount)}. ` +
+      'Fix the headcount fields on the ICP document and regenerate the spec.',
+    )
+  }
+
+  const headcountMin = Math.min(...mins)
+  const headcountMax = Math.max(...maxs)
+
+  // Math.min/Math.max over non-empty lists cannot invert this. The check is here so that a
+  // later edit to the lines above cannot write an inverted pair to the database, which is
+  // what happened before: nothing validated the pair and it was stored exactly as parsed.
+  if (headcountMin > headcountMax) {
+    throw new Error(
+      `ICP filter spec: headcount range inverted (min ${headcountMin} > max ${headcountMax}) ` +
+      `from tier 1 ${JSON.stringify(t1.company_profile.headcount)} and ` +
+      `tier 2 ${JSON.stringify(t2.company_profile.headcount)}.`,
+    )
+  }
 
   return {
     job_titles: [
@@ -356,19 +386,75 @@ export function deriveFilterSpec(doc: IcpDocument): ICPFilterSpec {
       `headcount ${t2.company_profile.headcount}. ` +
       'Exclude: pre-validation founders (<3 clients, no pricing page), ' +
       'ops managers (not decision-makers), firms with in-house sales teams (10+ people). ' +
-      'DE and NL included: English-operating consulting founders. Review per-client at onboarding.',
+      'Sourced countries: ' + DEFAULT_COMPANY_COUNTRIES.join(', ') + '. Review per-client at onboarding.',
   }
 }
 
-// ─── Headcount parsers ────────────────────────────────────────────────────────
-// Extracts the first/last integer from strings like "1–3 people" or "3–8 people total".
+// ─── Headcount parser ─────────────────────────────────────────────────────────
+//
+// ONE function returning a PAIR, replacing the previous parseHeadcountMin and
+// parseHeadcountMax. Two functions that each re-parsed the same string independently were
+// free to disagree about it, which is the parallel-array shape from CLAUDE.md: nothing could
+// express the constraint that they describe the same range. A pair makes the disagreement
+// unrepresentable.
+//
+// What the old pair did, measured on real inputs:
+//   "Over 500 employees"     min 500, max null  -> caller's ?? fallback gave max 20. INVERTED.
+//   "1,000-5,000 employees"  min 1,   max 0     -> it read "1" and "000" as the two bounds.
+//   "Fewer than 10 people"   min 10             -> an upper bound stored as a lower one.
+// None of that errored. `min` was simply the first integer and `max` the second, so any
+// string that was not exactly "<lo> to <hi>" was misread silently, and the misreading went
+// to the database as a real filter. resolveHeadcountCeiling reads the max and REMOVES every
+// prospect above it, so an inverted or zero ceiling decides who a client may reach.
+//
+// null on either side means "this string does not bound that end", NOT "use a default".
+// Callers must resolve nulls explicitly. See deriveFilterSpec.
 
-function parseHeadcountMin(raw: string): number | null {
-  const m = raw.match(/(\d+)/)
-  return m ? parseInt(m[1], 10) : null
+export interface HeadcountRange {
+  min: number | null
+  max: number | null
 }
 
-function parseHeadcountMax(raw: string): number | null {
-  const matches = [...raw.matchAll(/(\d+)/g)]
-  return matches.length >= 2 ? parseInt(matches[1][1], 10) : null
+const RANGE_SEPARATOR = /(\d+)\s*(?:-|–|—|to|through)\s*(\d+)/i
+const UPPER_BOUND = /\b(?:under|below|fewer than|less than|up to|at most|no more than|maximum(?: of)?|max)\s+(\d+)/i
+const LOWER_BOUND = /\b(?:over|above|more than|at least|minimum(?: of)?|min|starting at|from)\s+(\d+)/i
+const TRAILING_PLUS = /(\d+)\s*\+/
+
+export function parseHeadcountRange(raw: string | null | undefined): HeadcountRange {
+  // Strip the separators out of comma-grouped thousands FIRST. Without this "1,000" is two
+  // separate integers to every pattern below, which is exactly how "1,000-5,000" became 1-0.
+  const text = (raw ?? '').replace(/(\d),(?=\d{3}\b)/g, '$1')
+
+  // A two-sided range wins over everything else, and is read in EITHER order: a document
+  // saying "80-20 people" means the same set as "20-80", and sorting is the only reading
+  // that is not simply wrong.
+  const range = text.match(RANGE_SEPARATOR)
+  if (range) {
+    const a = parseInt(range[1], 10)
+    const b = parseInt(range[2], 10)
+    return { min: Math.min(a, b), max: Math.max(a, b) }
+  }
+
+  const upper = text.match(UPPER_BOUND)
+  const lower = text.match(LOWER_BOUND) ?? text.match(TRAILING_PLUS)
+
+  // Both directions present without a range separator, e.g. "under X or over Y".
+  if (upper && lower) {
+    const a = parseInt(upper[1], 10)
+    const b = parseInt(lower[1], 10)
+    return { min: Math.min(a, b), max: Math.max(a, b) }
+  }
+  if (upper) return { min: null, max: parseInt(upper[1], 10) }
+  if (lower) return { min: parseInt(lower[1], 10), max: null }
+
+  // A single bare figure is an exact size, not the open-ended bound the old code made of it.
+  const single = text.match(/(\d+)/)
+  if (single) {
+    const n = parseInt(single[1], 10)
+    return { min: n, max: n }
+  }
+
+  // Nothing numeric at all: "Varies", "". Explicitly unbounded on both sides. The caller
+  // decides whether it can proceed, because only the caller knows what other evidence it has.
+  return { min: null, max: null }
 }

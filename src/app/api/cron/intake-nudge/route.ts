@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { criticalCompleteness } from '@/lib/intake/questions'
 import { logger } from '@/lib/logger'
 import * as Sentry from '@sentry/nextjs'
 import { sendTransactionalEmail } from '@/lib/email/send'
@@ -57,14 +58,12 @@ export async function POST(request: NextRequest) {
         // Check intake completeness
         const { data: intakeRows } = await supabase
           .from('intake_responses')
-          .select('is_critical, response_value')
+          .select('field_key, is_critical, response_value')
           .eq('organisation_id', org.id)
 
-        const criticalRows = (intakeRows ?? []).filter(r => r.is_critical)
-        const answeredRows = criticalRows.filter(r => (r.response_value ?? '').trim().length > 0)
-        const completeness = criticalRows.length > 0
-          ? Math.round((answeredRows.length / criticalRows.length) * 100)
-          : 0
+        // Denominator is the question set, not the rows this organisation has. Counting rows
+        // made a client who was never shown a question read as complete on it.
+        const completeness = Math.round(criticalCompleteness(intakeRows ?? []).ratio * 100)
 
         if (completeness >= 80) {
           // Intake is complete, skip

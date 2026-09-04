@@ -22,6 +22,7 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
+import { criticalCompleteness } from '@/lib/intake/questions'
 import { logger } from '@/lib/logger'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import { intakeCompleteTemplate, intakeCompleteSubject } from '@/lib/email/templates/intake-complete'
@@ -80,14 +81,15 @@ export async function POST(_request: NextRequest) {
   // segment_id is read here so the ICP and Messaging dispatches can carry it.
   const { data: intakeRows } = await supabase
     .from('intake_responses')
-    .select('is_critical, response_value, segment_id')
+    .select('field_key, is_critical, response_value, segment_id')
     .eq('organisation_id', orgId)
 
-  const criticalRows = (intakeRows ?? []).filter(r => r.is_critical)
-  const answeredRows = criticalRows.filter(r => (r.response_value ?? '').trim().length > 0)
-  const completeness = criticalRows.length > 0
-    ? answeredRows.length / criticalRows.length
-    : 0
+  // Denominator comes from the QUESTION SET, not from the rows this client happens to have.
+  // Counting rows meant a question added after a client finished their intake was missing
+  // from both halves of the fraction, so they read as 100% complete on a question they had
+  // never been shown. See src/lib/intake/questions.ts.
+  const { answered: answeredCount, critical: criticalCount, ratio: completeness } =
+    criticalCompleteness(intakeRows ?? [])
 
   // Resolve segment_id from backfilled intake rows. Fall back to first org segment if NULL.
   const intakeSegmentId: string | null =
@@ -99,7 +101,9 @@ export async function POST(_request: NextRequest) {
       .from('organisations')
       .update({ agents_dispatched_at: null })
       .eq('id', orgId)
-    logger.warn('intake-complete: below 80% threshold — dispatch aborted', { orgId, completeness })
+    logger.warn('intake-complete: below 80% threshold — dispatch aborted', {
+      orgId, completeness, answered: answeredCount, critical: criticalCount,
+    })
     return NextResponse.json(
       { error: 'Intake completeness is below 80%. Answer more critical fields and try again.' },
       { status: 400 }

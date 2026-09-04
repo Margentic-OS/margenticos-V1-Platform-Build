@@ -37,7 +37,10 @@ interface Gate1ApproveBatchProps {
   organisationName: string
   icpSummary: {
     targetTitle?: string
-    revenueRange?: string
+    // Headcount, not revenue. The label on this card read "Revenue range" over a value that
+    // has always been "<min>-<max> employees", on the screen where prospects are approved
+    // for spending.
+    headcountRange?: string
   }
 }
 
@@ -192,12 +195,12 @@ export function Gate1ApproveBatch({
             </div>
           )}
 
-          {icpSummary.revenueRange && (
+          {icpSummary.headcountRange && (
             <div>
               <p className="text-xs uppercase font-normal tracking-[0.07em] text-text-secondary mb-1">
-                Revenue range
+                Headcount range
               </p>
-              <p className="text-sm font-medium text-text-primary">{icpSummary.revenueRange}</p>
+              <p className="text-sm font-medium text-text-primary">{icpSummary.headcountRange}</p>
             </div>
           )}
         </div>
