@@ -208,8 +208,35 @@ access to project tools without manual copy-paste of credentials or schemas.
 Required MCPs for this project:
   Supabase MCP   — reads actual database schema, verifies RLS policies,
                    catches data model errors before runtime
-  GitHub MCP     — handles commits and branch management with full context
-  Filesystem MCP — manages /docs and /prd folders directly
+  Notion MCP     — the Backlog, Decisions Log and Knowledge Base. Open work
+                   lives there and not in a file. See the session start ritual.
+
+Git and GitHub are deliberately NOT an MCP here. Commits, branches, pushes and
+PRs go through the Bash tool and the `gh` CLI, which is what every session has
+actually used. Files go through Claude Code's native file tools, not a
+Filesystem MCP.
+
+A GitHub MCP and a Filesystem MCP were both listed as "required" here from the
+start of the project and NEITHER WAS EVER CONFIGURED, in `.mcp.json.example` or
+in any live config. Do not reinstate either without a concrete need and a caller.
+
+**The 2026-09-05 finding.** A GitHub personal access token, scope `repo`, existed
+solely because this list asked for a GitHub MCP that nobody built. It expired
+2026-05-09 and was deleted 2026-09-05. Nothing noticed, because nothing used it:
+zero references to GITHUB_TOKEN, GH_TOKEN or GITHUB_PAT anywhere in the repo, no
+GitHub credential in Vercel Production or Preview, and no `.github/` workflows at
+all. September pushes reached origin regardless of what git authenticates with.
+**A required-tools list that names a tool nobody set up produces credentials
+nobody uses**, and a standing credential with no consumer is the worst kind: when
+it leaks, nothing breaks, so nothing tells you it leaked.
+
+This is the same family as the rest of this week, a document asserting something
+that was never true. The clean tree that was 280 commits stale, the audit query
+that filtered `relkind = 'r'` and could not see a view, the Notion listing that
+reported every row ungated. In each the file said one thing, the world was
+another, and the check that should have noticed was itself the broken part.
+**A tool earns a place on a required list once it is configured and something
+calls it, never before.**
 
 Doug has not set up MCPs before. When an MCP is needed and not yet configured,
 stop and provide exact step-by-step setup instructions before continuing.
