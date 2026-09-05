@@ -83,13 +83,17 @@ export async function sendThreadReply(
     eaccount: string
     subject: string
     bodyText: string
+    // Pre-rendered HTML of bodyText, assembled by the CALLER. This file still composes
+    // nothing: it forwards what it is handed, which is the same contract bodyText has
+    // always had. See the note on the body payload below for why both are sent.
+    bodyHtml: string
   },
   apiKey: string,
   baseUrl: string,
   isActive: boolean,
   options?: { signal?: AbortSignal }
 ): Promise<ActionResult> {
-  const { replyToUuid, eaccount, subject, bodyText } = params
+  const { replyToUuid, eaccount, subject, bodyText, bodyHtml } = params
 
   // Safety gate: flag off + INSTANTLY_API_BASE_URL pointing at production = misconfiguration.
   if (!isActive && !shouldUseMockDispatch(isActive) && baseUrl.includes('api.instantly.ai')) {
@@ -107,11 +111,21 @@ export async function sendThreadReply(
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
+        // BOTH text and html, deliberately.
+        //
+        // Sending text alone is what caused every line break in every reply to vanish on
+        // delivery. Measured 2026-09-05 against a real sent message: the provider wraps a
+        // text-only body in an HTML document and drops it into <body> WITHOUT converting
+        // newlines, and HTML collapses whitespace. A body ending "...15min\n\nDoug"
+        // arrived as "...15min Doug", with the sign-off run into the call to action.
+        //
+        // html carries the structure. text is kept so a plain-text client still receives
+        // real newlines rather than nothing.
         body: JSON.stringify({
           reply_to_uuid: replyToUuid,
           eaccount,
           subject,
-          body: { text: bodyText },
+          body: { text: bodyText, html: bodyHtml },
         }),
         signal: options?.signal,
       })

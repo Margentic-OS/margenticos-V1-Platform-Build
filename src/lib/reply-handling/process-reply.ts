@@ -44,6 +44,10 @@ import {
 } from '@/lib/suppression/provider-suppression'
 import { orchestrateDraft } from './draft-orchestrator'
 import { sendOperatorReplyNotification } from '@/lib/notifications/send-operator-reply-notification'
+// The same converter campaign outbound uses. buildCalendlyReplyBody below returns three
+// paragraphs separated by blank lines, and without this every one of them collapsed into a
+// single run-on line on delivery.
+import { plainTextToHtml } from '@/lib/composition/custom-variables'
 
 type SupabaseServiceClient = ServiceRoleClient
 
@@ -723,8 +727,12 @@ async function processOneSignal(
 
     const replySubject = (raw.subject as string | undefined) ?? ''
 
+    // THIS PATH SENDS WITHOUT AN OPERATOR SEEING IT, so a formatting fault here reaches a
+    // prospect who has just said they want to book, unreviewed. buildCalendlyReplyBody
+    // returns a greeting, a line carrying the booking link, and a sign-off, separated by
+    // blank lines. Sent as text alone, all three arrived as one run-on line.
     const replyResult = await sendThreadReply(
-      { replyToUuid, eaccount, subject: replySubject, bodyText },
+      { replyToUuid, eaccount, subject: replySubject, bodyText, bodyHtml: plainTextToHtml(bodyText) },
       instantlyApiKey,
       baseUrl,
       isActive,

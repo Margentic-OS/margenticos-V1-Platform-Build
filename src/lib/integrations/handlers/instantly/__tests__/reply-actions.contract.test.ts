@@ -83,7 +83,7 @@ describe('sendThreadReply — feature flag guard', () => {
   it('throws InstantlyFlagError when flag is false and URL is production', async () => {
     await expect(
       sendThreadReply(
-        { replyToUuid: REPLY_UUID, eaccount: 'test@example.com', subject: 'Re: Hello', bodyText: 'Thanks' },
+        { replyToUuid: REPLY_UUID, eaccount: 'test@example.com', subject: 'Re: Hello', bodyText: 'Thanks', bodyHtml: '<p>Thanks</p>' },
         API_KEY,
         'https://api.instantly.ai/api/v2',
         false
@@ -95,7 +95,7 @@ describe('sendThreadReply — feature flag guard', () => {
     delete process.env.INSTANTLY_API_BASE_URL
     makeFetchSpy(200, { id: 'msg-789' })
     const result = await sendThreadReply(
-      { replyToUuid: REPLY_UUID, eaccount: 'test@example.com', subject: 'Re: Hello', bodyText: 'Thanks' },
+      { replyToUuid: REPLY_UUID, eaccount: 'test@example.com', subject: 'Re: Hello', bodyText: 'Thanks', bodyHtml: '<p>Thanks</p>' },
       API_KEY,
       MOCK_BASE_URL,
       false
@@ -116,7 +116,7 @@ describe('sendThreadReply — request shape', () => {
   it('sends POST request to /emails/reply', async () => {
     const fetchSpy = makeFetchSpy(200, { id: 'msg-789' })
     await sendThreadReply(
-      { replyToUuid: REPLY_UUID, eaccount: 'test@example.com', subject: 'Re: Hello', bodyText: 'Thanks' },
+      { replyToUuid: REPLY_UUID, eaccount: 'test@example.com', subject: 'Re: Hello', bodyText: 'Thanks', bodyHtml: '<p>Thanks</p>' },
       API_KEY,
       MOCK_BASE_URL,
       true
@@ -130,7 +130,7 @@ describe('sendThreadReply — request shape', () => {
   it('sends reply_to_uuid, eaccount, subject, and body in request', async () => {
     const fetchSpy = makeFetchSpy(200, { id: 'msg-789' })
     await sendThreadReply(
-      { replyToUuid: REPLY_UUID, eaccount: 'test@example.com', subject: 'Re: Hello', bodyText: 'Thanks' },
+      { replyToUuid: REPLY_UUID, eaccount: 'test@example.com', subject: 'Re: Hello', bodyText: 'Thanks', bodyHtml: '<p>Thanks</p>' },
       API_KEY,
       MOCK_BASE_URL,
       true
