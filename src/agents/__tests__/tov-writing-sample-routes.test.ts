@@ -327,3 +327,50 @@ describe('the intake_files filters are real', () => {
     expect(prompt).not.toContain(FILE_TEXT)
   })
 })
+
+// THE REGRESSION TARGET. One organisation has exercised the upload route for real: three
+// files, extraction complete, 119 + 499 + 96 = 714 words. Read from the live database on
+// 2026-09-05, and it is the only stored evidence that the file path ever worked.
+//
+// The change here rewrites the counting expression and the block that renders it, so the
+// number that matters is the one belonging to the only rows that could regress. It must
+// still read 714 across 3 sources.
+describe('the multi-file upload shape still counts the same', () => {
+  const FILE_WORDS = [119, 499, 96] as const
+  const TOTAL = 714
+
+  function fileOfWords(words: number, index: number): UploadedFileRow {
+    return {
+      original_filename: `sample-${index}.txt`,
+      // Distinct leading token per file so a de-duplicating bug cannot hide behind
+      // identical text, then padded to the exact word count.
+      extracted_text: [`marker${index}`, ...Array(words - 1).fill('word')].join(' '),
+      file_purpose: 'voice_sample',
+      extraction_status: 'complete',
+    }
+  }
+
+  it('sums three uploaded files to 714 words across 3 sources', async () => {
+    const files = FILE_WORDS.map((w, i) => fileOfWords(w, i))
+    expect(files.reduce((n, f) => n + wordsIn(f.extracted_text), 0)).toBe(TOTAL)
+
+    const { prompt, suggestion } = await runWith({ typed: null, files })
+
+    expect(prompt).toContain(`${TOTAL} words across 3 source(s)`)
+    expect(prompt).not.toContain(PROMPT_ABSENCE)
+    expect(suggestion.suggestion_reason).toContain(`3 source(s), ${TOTAL} words`)
+    // 714 is far above the 100-word thin threshold, so this shape is a full extraction.
+    expect(suggestion.confidence_level).not.toBe('high') // completeness is 0 in this fixture
+    expect(suggestion.suggestion_reason).not.toContain('Thin samples')
+  })
+
+  it('keeps every file, so none is dropped by the rewritten block', async () => {
+    const files = FILE_WORDS.map((w, i) => fileOfWords(w, i))
+    const { prompt } = await runWith({ typed: null, files })
+
+    for (let i = 0; i < files.length; i++) {
+      expect(prompt).toContain(`marker${i}`)
+      expect(prompt).toContain(`sample-${i}.txt`)
+    }
+  })
+})
