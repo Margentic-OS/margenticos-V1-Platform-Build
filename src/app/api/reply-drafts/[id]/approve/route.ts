@@ -32,12 +32,13 @@ import { asServiceRoleClient } from '@/lib/supabase/service-role'
 import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
 import { sendApprovedDraft } from '@/lib/reply-handling/send-approved-draft'
+import { APPROVABLE_STATUSES, isApprovable } from '@/lib/reply-handling/triage-statuses'
 
-// Statuses the operator can approve. manual_required / draft_failed rows have ai_draft_body = NULL;
-// the approve handler coalesces finalBody into ai_draft_body to satisfy the DB constraint that
-// requires ai_draft_body IS NOT NULL for all non-placeholder statuses (reply_drafts_body_required).
-const APPROVABLE_STATUSES = ['pending', 'manual_required', 'draft_failed'] as const
-type ApprovableStatus = (typeof APPROVABLE_STATUSES)[number]
+// Statuses the operator can approve now come from the shared triage module, derived from
+// the one list the queue serves. manual_required / draft_failed rows have ai_draft_body =
+// NULL; the approve handler coalesces finalBody into ai_draft_body to satisfy the DB
+// constraint that requires ai_draft_body IS NOT NULL for live statuses
+// (reply_drafts_body_required).
 
 export async function POST(
   request: NextRequest,
@@ -115,7 +116,7 @@ export async function POST(
     return NextResponse.json({ error: 'Draft not found.' }, { status: 404 })
   }
 
-  if (!APPROVABLE_STATUSES.includes(draft.status as ApprovableStatus)) {
+  if (!isApprovable(draft.status)) {
     return NextResponse.json(
       { error: `Draft is in '${draft.status}' status — cannot approve.` },
       { status: 409 }
