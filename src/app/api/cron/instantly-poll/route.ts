@@ -460,17 +460,7 @@ export async function POST(request: NextRequest) {
   // clause goes red on its own. Neither failure mode can produce a false all-clear.
   const reconciliation = await reconcileReplies(supabase, apiKey, baseUrl, isActive)
 
-  // reply_reconciliation_snapshot was added by 20260904212000_mon_029_reply_reconciliation.sql
-  // and is not in the generated types yet. Same situation, and the same narrow cast, as the
-  // calendly_url read in process-reply.ts. Regenerate the types and delete the cast.
-  //
-  // The cast is scoped to this one call rather than the client, deliberately: widening it
-  // would switch off column checking for every other table this route writes, which is the
-  // failure mode CLAUDE.md's `as`-on-a-literal note is about. The column list here is
-  // verified against the live table, and MON-029's freshness clause catches a write that
-  // silently stops landing.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error: reconcileWriteError } = await (supabase as any)
+  const { error: reconcileWriteError } = await supabase
     .from('reply_reconciliation_snapshot')
     .upsert({
       id: 1,
