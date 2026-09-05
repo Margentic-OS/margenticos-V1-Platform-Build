@@ -7,7 +7,11 @@ import {
   isIntakeStaleReason,
   isIntakeAnswerEdit,
 } from '@/lib/intake/document-staleness'
-import { ALL_QUESTIONS } from '@/lib/intake/questions'
+import {
+  ALL_QUESTIONS,
+  TYPED_VOICE_SAMPLES_FIELD_KEY,
+  UNREGISTERED_FORM_FIELD_KEYS,
+} from '@/lib/intake/questions'
 import { selectStaleDocuments } from '@/lib/dashboard/stale-documents'
 
 describe('the field-to-document map', () => {
@@ -107,5 +111,37 @@ describe('stale reason provenance', () => {
       document_type: 'messaging', status: 'active', is_stale: true,
     }])
     expect(doc.reason).toContain('Written before the latest')
+  })
+})
+
+// Answers the form collects that are not questions in SECTIONS.
+//
+// The map's own module-load guard reads SECTIONS to decide whether a key is real. SECTIONS
+// is not the whole of what the form collects, so a live field could not be mapped at all:
+// adding it threw "not a question the intake form asks" at import time and took two test
+// files down with it. The guard now reads the union. These tests hold both halves in place.
+describe('unregistered form fields', () => {
+  it('flags the voice guide when pasted writing samples change', () => {
+    // Pasted samples are the guide's PRIMARY source. Before 2026-09-05 they were mapped to
+    // nothing, so revising them flagged no document at all.
+    expect(documentsAffectedBy(TYPED_VOICE_SAMPLES_FIELD_KEY)).toContain('tov')
+  })
+
+  it('is not a registry question, which is why the guard had to widen', () => {
+    // If this ever becomes false the field is being rendered twice by IntakeForm, which
+    // maps over SECTIONS to build its inputs. See the note in questions.ts.
+    expect(ALL_QUESTIONS.map(q => q.fieldKey)).not.toContain(TYPED_VOICE_SAMPLES_FIELD_KEY)
+    expect(UNREGISTERED_FORM_FIELD_KEYS).toContain(TYPED_VOICE_SAMPLES_FIELD_KEY)
+  })
+
+  it('still rejects a key that is neither a question nor a declared form field', () => {
+    // The guard must keep catching typos. It runs at module load over the real maps, so
+    // this reproduces its condition rather than re-importing the module.
+    const known = new Set([
+      ...ALL_QUESTIONS.map(q => q.fieldKey),
+      ...UNREGISTERED_FORM_FIELD_KEYS,
+    ])
+    expect(known.has('voice_typed_sample')).toBe(false) // a plausible typo, one letter short
+    expect(known.has(TYPED_VOICE_SAMPLES_FIELD_KEY)).toBe(true)
   })
 })

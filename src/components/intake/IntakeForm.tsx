@@ -17,6 +17,7 @@ import FileUploadSection from './FileUploadSection'
 import {
   SECTIONS,
   ALL_QUESTIONS,
+  TYPED_VOICE_SAMPLES_FIELD_KEY,
   CRITICAL_COUNT,
   THRESHOLD,
   CURRENCY_SYMBOLS,
@@ -410,25 +411,25 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
                       rows={8}
                       placeholder="Paste emails, proposals, posts, or any writing that sounds like you…"
                       className={`${inputBase} resize-y`}
-                      value={values['voice_typed_samples'] ?? ''}
-                      onChange={e => handleChange('voice_typed_samples', e.target.value)}
+                      value={values[TYPED_VOICE_SAMPLES_FIELD_KEY] ?? ''}
+                      onChange={e => handleChange(TYPED_VOICE_SAMPLES_FIELD_KEY, e.target.value)}
                       onBlur={() => {
-                        const value = values['voice_typed_samples'] ?? ''
+                        const value = values[TYPED_VOICE_SAMPLES_FIELD_KEY] ?? ''
                         startTransition(async () => {
                           await saveIntakeResponse(
-                            'voice_typed_samples',
+                            TYPED_VOICE_SAMPLES_FIELD_KEY,
                             'Voice samples (typed)',
                             value,
                             false,
                             'voice'
                           )
                           if (value.trim()) {
-                            setSavedKeys(prev => new Set(prev).add('voice_typed_samples'))
+                            setSavedKeys(prev => new Set(prev).add(TYPED_VOICE_SAMPLES_FIELD_KEY))
                           }
                         })
                       }}
                     />
-                    {savedKeys.has('voice_typed_samples') && (values['voice_typed_samples'] ?? '').trim() && (
+                    {savedKeys.has(TYPED_VOICE_SAMPLES_FIELD_KEY) && (values[TYPED_VOICE_SAMPLES_FIELD_KEY] ?? '').trim() && (
                       <p className="mt-1.5 text-[10px] text-text-muted">Saved</p>
                     )}
                   </div>
