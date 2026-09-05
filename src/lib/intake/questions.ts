@@ -228,6 +228,27 @@ export const SECTION_BY_FIELD_KEY: Record<string, string> = Object.fromEntries(
   SECTIONS.flatMap(s => s.questions.map(q => [q.fieldKey, s.id])),
 )
 
+// ─── Answers the form stores that are NOT questions in SECTIONS ───────────────
+//
+// SECTIONS is not the whole of what the form asks, and anything treating it as such is
+// wrong in a way that is invisible. The voice section offers upload-or-paste as a tabbed
+// control hand-written in IntakeForm; the paste tab stores a real answer under the key
+// below, and it appears in no section.
+//
+// IT MUST NOT BE MOVED INTO SECTIONS. IntakeForm builds its inputs by mapping over
+// SECTIONS, so a question added there would render a SECOND input for a field that
+// already has one. The field is unregistered by necessity, not by oversight.
+//
+// Declared here so the two directions of checking can both see it: mergeIntakeWithQuestions
+// carries it to the agents through its retired branch, and document-staleness can map it
+// without its own guard reading it as a typo. A key in neither this list nor SECTIONS is
+// still a typo and still throws.
+export const TYPED_VOICE_SAMPLES_FIELD_KEY = 'voice_typed_samples'
+
+export const UNREGISTERED_FORM_FIELD_KEYS: readonly string[] = [
+  TYPED_VOICE_SAMPLES_FIELD_KEY,
+]
+
 // ─── Server-side shapes ───────────────────────────────────────────────────────
 
 // The subset of an intake_responses row this module reasons about. Deliberately narrow so

@@ -19,7 +19,7 @@
 // RULE ZERO: nothing here names an industry, sector, country, company or job title.
 
 import type { StrategyDocType } from '@/lib/agents/cascade/document-dependencies'
-import { SECTION_BY_FIELD_KEY } from '@/lib/intake/questions'
+import { SECTION_BY_FIELD_KEY, UNREGISTERED_FORM_FIELD_KEYS } from '@/lib/intake/questions'
 
 /**
  * Documents built directly from a given intake answer.
@@ -36,6 +36,11 @@ export const DOCUMENTS_FED_BY_FIELD: Readonly<Record<string, readonly StrategyDo
   // How the client sounds. The voice guide is derived from how they write, nothing else.
   voice_style: ['tov'],
   voice_dislikes: ['tov'],
+  // Writing pasted into intake rather than uploaded as a file. It is the guide's PRIMARY
+  // source, so an edit here invalidates the guide more directly than a style change does.
+  // Missing from this map until 2026-09-05, which meant revising your own samples flagged
+  // nothing at all.
+  voice_typed_samples: ['tov'],
 
   // What the client sells and what makes them different: positioning rests on these.
   company_differentiators: ['positioning'],
@@ -108,10 +113,14 @@ export function isIntakeStaleReason(reason: string | null | undefined): boolean 
   return typeof reason === 'string' && reason.startsWith(INTAKE_STALE_PREFIX)
 }
 
-// Every mapped and excused key must be a question the form actually asks. A key that is
+// Every mapped and excused key must be an answer the form actually collects. A key that is
 // neither is a typo or a retired question, and both would silently never fire.
+//
+// "What the form collects" is SECTIONS plus the unregistered fields, not SECTIONS alone.
+// Reading it as SECTIONS alone is what made this guard reject voice_typed_samples, which is
+// a live field the form has written since 2026-06-07. A typo is in neither set and still throws.
 for (const key of [...Object.keys(DOCUMENTS_FED_BY_FIELD), ...Object.keys(NOT_MAPPED)]) {
-  if (!(key in SECTION_BY_FIELD_KEY)) {
-    throw new Error(`document-staleness: "${key}" is not a question the intake form asks`)
+  if (!(key in SECTION_BY_FIELD_KEY) && !UNREGISTERED_FORM_FIELD_KEYS.includes(key)) {
+    throw new Error(`document-staleness: "${key}" is not an answer the intake form collects`)
   }
 }

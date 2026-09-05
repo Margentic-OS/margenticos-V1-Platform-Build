@@ -12,8 +12,12 @@
 //   Web research is not relevant here — the voice is in the samples, not the market.
 //
 // KEY INPUTS:
-//   voice_samples (field_key: 'voice_samples') — primary extraction source. The agent
-//     derives vocabulary, rhythm, personality, and structure from these samples.
+//   Writing samples — primary extraction source, arriving by EITHER of two routes, which
+//     are weighed identically. The agent derives vocabulary, rhythm, personality and
+//     structure from them.
+//       uploaded  — intake_files rows with file_purpose 'voice_sample'
+//       pasted    — the intake answer under TYPED_VOICE_SAMPLES_FIELD_KEY
+//     ('voice_samples' is a third, fully deprecated key with no live rows. Not read.)
 //   voice_style  (field_key: 'voice_style')  — secondary signal. The founder's
 //     self-description of their style. Cross-referenced against samples; if they
 //     contradict, samples win and the contradiction is surfaced in suggestion_reason
@@ -26,7 +30,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { mergeIntakeWithQuestions } from '@/lib/intake/questions'
+import { mergeIntakeWithQuestions, TYPED_VOICE_SAMPLES_FIELD_KEY } from '@/lib/intake/questions'
 import { logger } from '@/lib/logger'
 import { assertNoUnsourcedVendorNames } from '@/lib/agents/vendor-name-gate'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
@@ -105,16 +109,24 @@ interface UploadedVoiceSample {
   text: string
 }
 
-// Extracted voice inputs — pulled from intake_files (uploaded) and intake preferences.
-// voice_samples text field is deprecated; file upload is the canonical input.
+// THE PASTE TAB WAS READ BY NOTHING UNTIL 2026-09-05. The sample count came from uploaded
+// files only, so a client who pasted their writing was told their guide had no samples
+// behind it, while the same prompt carried that writing as an ordinary intake answer.
+// Two live organisations were in that state. Upload and paste are now weighed the same.
+
+// Extracted voice inputs — pulled from intake_files (uploaded) and from intake itself.
+// Upload and paste are two routes to the same thing and are weighed the same.
+// voice_samples is a THIRD, fully deprecated key with no live rows; it stays excluded.
 interface VoiceInputs {
   style: string
   sampleWordCount: number
   samplesEmpty: boolean
   samplesThin: boolean
-  /** True if style description appears to contradict the uploaded samples. */
+  /** True if style description appears to contradict the samples, from either route. */
   apparentContradiction: boolean
   uploadedSamples: UploadedVoiceSample[]
+  /** Writing pasted into intake. Empty string when none was given. */
+  typedSamples: string
 }
 
 // ─── Main agent function ──────────────────────────────────────────────────────
@@ -165,13 +177,13 @@ export async function runTovGenerationAgent(
 
   if (voiceInputs.samplesEmpty) {
     logger.warn(
-      'TOV agent: voice_samples is empty — generating from voice_style and intake preferences only. ' +
+      'TOV agent: no writing samples from either route — generating from voice_style and intake preferences only. ' +
       'Confidence will be low.',
       { organisation_id }
     )
   } else if (voiceInputs.samplesThin) {
     logger.warn(
-      `TOV agent: voice_samples is thin (${voiceInputs.sampleWordCount} words) — ` +
+      `TOV agent: writing samples are thin (${voiceInputs.sampleWordCount} words) — ` +
       'extraction quality may be limited.',
       { organisation_id, wordCount: voiceInputs.sampleWordCount }
     )
@@ -404,23 +416,30 @@ function extractVoiceInputs(
   const val = (key: string) =>
     intake.find(r => r.field_key === key)?.response_value?.trim() ?? ''
 
-  // voice_samples text field is deprecated. File upload is the canonical input.
   const style = val('voice_style')
 
-  const sampleWordCount = uploadedSamples.reduce(
-    (sum, s) => sum + s.text.split(/\s+/).filter(w => w.length > 0).length,
-    0
-  )
+  // Pasted writing counts exactly as much as an uploaded file. Which route a client took
+  // is a fact about the form, not about how much of their voice we have to work with.
+  const typedSamples = val(TYPED_VOICE_SAMPLES_FIELD_KEY)
+
+  const countWords = (text: string) =>
+    text.split(/\s+/).filter(w => w.length > 0).length
+
+  const sampleWordCount =
+    uploadedSamples.reduce((sum, s) => sum + countWords(s.text), 0) +
+    countWords(typedSamples)
 
   const samplesEmpty = sampleWordCount === 0
   const samplesThin  = !samplesEmpty && sampleWordCount < THIN_SAMPLE_WORD_THRESHOLD
 
-  // Heuristic contradiction check against uploaded files only.
+  // Heuristic contradiction check across BOTH routes, for the same reason the count is.
   // These are signals, not definitive — Claude makes the authoritative call.
   let apparentContradiction = false
   if (!samplesEmpty && style.length > 0) {
     const styleLower    = style.toLowerCase()
-    const allSampleText = uploadedSamples.map(s => s.text).join('\n\n')
+    const allSampleText = [...uploadedSamples.map(s => s.text), typedSamples]
+      .filter(t => t.trim().length > 0)
+      .join('\n\n')
     const samplesLower  = allSampleText.toLowerCase()
 
     const claimsDirect   = styleLower.includes('direct') || styleLower.includes('concise') || styleLower.includes('brief')
@@ -444,7 +463,7 @@ function extractVoiceInputs(
     }
   }
 
-  return { style, sampleWordCount, samplesEmpty, samplesThin, apparentContradiction, uploadedSamples }
+  return { style, sampleWordCount, samplesEmpty, samplesThin, apparentContradiction, uploadedSamples, typedSamples }
 }
 
 // ─── Prompt construction ──────────────────────────────────────────────────────
@@ -460,13 +479,19 @@ function buildUserMessage(params: {
   regeneration_notes: RegenerationNotes | undefined
 }): string {
   const { intake, voiceInputs, existingDocument, patterns, completeness, websitePages } = params
-  const { style, samplesEmpty, samplesThin, sampleWordCount, apparentContradiction, uploadedSamples } = voiceInputs
+  const { style, samplesEmpty, samplesThin, sampleWordCount, apparentContradiction, uploadedSamples, typedSamples } = voiceInputs
 
   // Group intake responses by section, excluding voice_style —
   // that is surfaced separately as a secondary cross-reference block.
-  // voice_samples is excluded too: it is a deprecated field, file upload is canonical.
+  // voice_samples is excluded too: it is a fully deprecated field with no live rows.
+  //
+  // The pasted samples are excluded for a DIFFERENT reason: they are promoted into the
+  // writing-samples block below. Without this they would appear twice in one prompt, once
+  // as a sample and once as an ordinary answer. Before 2026-09-05 they appeared ONLY here,
+  // which is how the model could quote writing the same prompt said did not exist.
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
     if (row.field_key === 'voice_samples' || row.field_key === 'voice_style') return acc
+    if (row.field_key === TYPED_VOICE_SAMPLES_FIELD_KEY) return acc
     if (!acc[row.section]) acc[row.section] = []
     acc[row.section].push(row)
     return acc
@@ -490,19 +515,32 @@ function buildUserMessage(params: {
     })
     .join('\n\n---\n\n')
 
-  // Writing samples block — canonical source is uploaded files only.
+  // Writing samples block — uploaded files and text pasted into intake, weighed the same.
+  //
+  // The absence wording says SAMPLES, never UPLOADS. It fires only when both routes are
+  // empty, and it must keep firing then: an organisation that genuinely provided nothing
+  // needs this warning, and silencing a true one is worse than the false one this replaced.
+  const sampleSources = [
+    ...uploadedSamples.map(s => ({ label: s.filename, text: s.text })),
+    ...(typedSamples.trim().length > 0
+      ? [{ label: 'Pasted into intake', text: typedSamples }]
+      : []),
+  ]
+
+  const sampleScale = `${sampleWordCount} words across ${sampleSources.length} source(s)`
+
   const sampleStatus = samplesEmpty
-    ? '⚠️ NO SAMPLES UPLOADED — generate from voice_style and intake preferences only. Mark confidence as low.'
+    ? '⚠️ NO SAMPLES PROVIDED — generate from voice_style and intake preferences only. Mark confidence as low.'
     : samplesThin
-      ? `⚠️ THIN SAMPLES (${sampleWordCount} words across ${uploadedSamples.length} file(s)) — extract what you can. Note the limitation. Mark confidence as low.`
-      : `${sampleWordCount} words across ${uploadedSamples.length} file(s) — full extraction is possible.`
+      ? `⚠️ THIN SAMPLES (${sampleScale}) — extract what you can. Note the limitation. Mark confidence as low.`
+      : `${sampleScale} — full extraction is possible.`
 
   const voiceSamplesBlock = samplesEmpty
-    ? `\n\n---\n\n## WRITING SAMPLES (primary extraction source)\n\n${sampleStatus}\n\n[No files uploaded]`
+    ? `\n\n---\n\n## WRITING SAMPLES (primary extraction source)\n\n${sampleStatus}\n\n[Nothing provided]`
     : '\n\n---\n\n## WRITING SAMPLES (primary extraction source)\n\n' +
       `${sampleStatus}\n\n` +
-      uploadedSamples
-        .map(s => `### ${s.filename}\n\n${s.text}`)
+      sampleSources
+        .map(s => `### ${s.label}\n\n${s.text}`)
         .join('\n\n---\n\n')
 
   // Voice style block — secondary signal, cross-reference only.
@@ -674,11 +712,14 @@ async function writeDocumentSuggestion(
 
   // Voice sample quality note — included in suggestion_reason so Doug knows
   // how much raw material the agent had to work with.
+  const sampleSourceCount =
+    voiceInputs.uploadedSamples.length + (voiceInputs.typedSamples.trim().length > 0 ? 1 : 0)
+
   const sampleNote = voiceInputs.samplesEmpty
-    ? ' ⚠️ No writing samples uploaded. Guide is based on self-description only — upload samples and regenerate for better accuracy.'
+    ? ' ⚠️ No writing samples provided. Guide is based on self-description only — add samples and regenerate for better accuracy.'
     : voiceInputs.samplesThin
-      ? ` ⚠️ Thin samples — ${voiceInputs.sampleWordCount} words across ${voiceInputs.uploadedSamples.length} file(s). More samples will improve accuracy.`
-      : ` Writing samples: ${voiceInputs.uploadedSamples.length} file(s), ${voiceInputs.sampleWordCount} words.`
+      ? ` ⚠️ Thin samples — ${voiceInputs.sampleWordCount} words across ${sampleSourceCount} source(s). More samples will improve accuracy.`
+      : ` Writing samples: ${sampleSourceCount} source(s), ${voiceInputs.sampleWordCount} words.`
 
   // Contradiction note — surfaces in suggestion_reason when the pre-check flagged one.
   // Claude's analysis is authoritative; this note flags that Doug should read voice_style_note.
