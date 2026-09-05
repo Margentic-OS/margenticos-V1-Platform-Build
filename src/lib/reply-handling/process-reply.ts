@@ -378,6 +378,33 @@ async function processOneSignal(
       .maybeSingle()
 
     if (prospect) {
+      // ── Store the link on the signal, not just in this local ──────────────
+      //
+      // signals.prospect_id was written exactly once, by the poller, hardcoded to NULL with
+      // the note that prospect linkage is a downstream concern. Downstream is here, and it
+      // resolved the prospect into a local variable and never wrote it back, so the column
+      // was NULL on every signal row in production while reply_handling_actions carried the
+      // answer. "Who replied" was unanswerable from the signals table alone.
+      //
+      // BEFORE the suppressed check below, deliberately. That check returns early, and the
+      // prospect is just as identified on that path: linking only the paths that continue
+      // would leave exactly the rows an operator is most likely to be investigating unlinked.
+      //
+      // Best-effort on purpose: this is a link for later reads, and failing to store it must
+      // never stop the reply being handled. The action row is the durable record of the act.
+      const { error: linkError } = await supabase
+        .from('signals')
+        .update({ prospect_id: prospect.id })
+        .eq('id', signalId)
+        .eq('organisation_id', signal.organisation_id)
+
+      if (linkError) {
+        logger.warn('process-reply: could not store prospect link on signal', {
+          signal_id: signalId,
+          error: linkError.message,
+        })
+      }
+
       if (prospect.suppressed) {
         logger.info('process-reply: prospect already suppressed', { signal_id: signalId, prospect_id: prospect.id })
         await markSignalProcessed(supabase, signalId)

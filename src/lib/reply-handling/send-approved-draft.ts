@@ -222,6 +222,11 @@ export async function sendApprovedDraft(
   let dbUpdateSucceeded = false
 
   try {
+    // { count: 'exact' } is required for the count === 0 branch below to be reachable at
+    // all: postgrest-js only requests a count when the option is passed, so without it
+    // count is null and the "another process won" path never runs. Here both branches
+    // happen to set dbUpdateSucceeded = true, so the omission was masked rather than
+    // harmless — the race was never actually being detected or logged.
     const { error: updateErr, count } = await supabase
       .from('reply_drafts')
       .update({
@@ -229,7 +234,7 @@ export async function sendApprovedDraft(
         sent_at: new Date().toISOString(),
         instantly_message_id: instantlyMessageId,
         updated_at: new Date().toISOString(),
-      })
+      }, { count: 'exact' })
       .eq('id', replyDraftId)
       .eq('status', 'approved')   // idempotency guard — only one concurrent caller wins
 
