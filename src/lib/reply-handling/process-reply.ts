@@ -43,7 +43,7 @@ import {
   suppressAddressAtProvider,
 } from '@/lib/suppression/provider-suppression'
 import { orchestrateDraft } from './draft-orchestrator'
-import { sendFirstReplyEmail } from '@/lib/notifications/send-first-reply-email'
+import { sendOperatorReplyNotification } from '@/lib/notifications/send-operator-reply-notification'
 
 type SupabaseServiceClient = ServiceRoleClient
 
@@ -508,15 +508,23 @@ async function processOneSignal(
 
   const tierAssigned = ['suppress', 'ooo_log', 'send_reply'].includes(actionTaken) ? 1 : 2
 
-  // ── Fire first-reply email if this is a qualifying reply (not opt_out/ooo/unclear) ───
-  // Excludes: opt_out, out_of_office, unclear
+  // ── Tell the OPERATOR a reply needs actioning, on every qualifying reply ───────
+  //
+  // Excludes: opt_out, out_of_office, unclear. Those three are handled without a person:
+  // an opt-out suppresses, an out-of-office pauses, and unclear is logged. Nothing waits
+  // on the operator, so notifying would train them to ignore the alert.
   // Includes: positive_direct_booking, positive_passive, information_request_*, objection_mild
+  //
+  // This replaces a CLIENT email that fired once per organisation for ever. The client's
+  // dashboard is the right surface for their replies and it already exists; the operator
+  // is the one who has to act and was receiving nothing at all.
   if (!['opt_out', 'out_of_office', 'unclear'].includes(intent)) {
-    await sendFirstReplyEmail({
+    await sendOperatorReplyNotification({
       supabase,
       organisationId: signal.organisation_id,
+      signalId: signalId,          // the dedup key: one notification per reply event
       prospectId: prospectId,
-      classifiedIntent: intent,  // kept for logging
+      classifiedIntent: intent,
       signalCreatedAt: signal.created_at,  // backfill guard: only fire for new events
     })
   }

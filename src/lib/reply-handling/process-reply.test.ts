@@ -49,8 +49,8 @@ vi.mock('@/lib/agents/reply-classifier', () => ({
   classifyReply: (...a: unknown[]) => classifyReply(...(a as [])),
 }))
 
-vi.mock('@/lib/notifications/send-first-reply-email', () => ({
-  sendFirstReplyEmail: vi.fn(async () => undefined),
+vi.mock('@/lib/notifications/send-operator-reply-notification', () => ({
+  sendOperatorReplyNotification: vi.fn(async () => ({ sent: true })),
 }))
 
 vi.mock('./draft-orchestrator', () => ({

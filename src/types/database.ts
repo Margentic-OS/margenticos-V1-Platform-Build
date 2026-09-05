@@ -1823,6 +1823,45 @@ export type Database = {
           },
         ]
       }
+      reply_draft_ageing_config: {
+        Row: {
+          id: string
+          note: string | null
+          organisation_id: string | null
+          threshold_hours: number
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          note?: string | null
+          organisation_id?: string | null
+          threshold_hours: number
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          note?: string | null
+          organisation_id?: string | null
+          threshold_hours?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reply_draft_ageing_config_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reply_draft_ageing_config_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reply_drafts: {
         Row: {
           ai_draft_body: string | null
@@ -2040,6 +2079,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      reply_reconciliation_snapshot: {
+        Row: {
+          campaigns_checked: number
+          computed_at: string
+          detail: string | null
+          id: number
+          incomplete: boolean
+          missing_count: number
+          missing_sample: string[]
+          provider_reply_count: number
+          stored_reply_count: number
+          unreachable_campaigns: number
+        }
+        Insert: {
+          campaigns_checked?: number
+          computed_at?: string
+          detail?: string | null
+          id?: number
+          incomplete?: boolean
+          missing_count?: number
+          missing_sample?: string[]
+          provider_reply_count?: number
+          stored_reply_count?: number
+          unreachable_campaigns?: number
+        }
+        Update: {
+          campaigns_checked?: number
+          computed_at?: string
+          detail?: string | null
+          id?: number
+          incomplete?: boolean
+          missing_count?: number
+          missing_sample?: string[]
+          provider_reply_count?: number
+          stored_reply_count?: number
+          unreachable_campaigns?: number
+        }
+        Relationships: []
       }
       segments: {
         Row: {
@@ -3224,6 +3302,33 @@ export type Database = {
         Relationships: []
       }
       mon_026: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_027: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_028: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_029: {
         Row: {
           check_code: string | null
           detail: string | null

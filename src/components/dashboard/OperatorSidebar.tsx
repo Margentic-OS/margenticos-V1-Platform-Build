@@ -28,9 +28,21 @@ const NAV_STRATEGY = [
   { label: 'Messaging', href: '/dashboard/strategy/messaging' },
 ]
 
+// 'Reply queue' is a STATIC entry, not one of the per-client ones built below, because the
+// triage queue is cross-organisation: GET /api/reply-drafts applies no organisation_id
+// filter (ADR-021, operator endpoints are cross-org) and the page takes no client param.
+// Putting it in the per-client list would have made it unreachable whenever no client was
+// selected, which is the same class of bug as having no entry at all.
+//
+// It is SEPARATE from 'Replies' rather than replacing it. They are different screens:
+// 'Replies' is per-client and read-only, and the triage queue is cross-client and is the
+// only screen in the product with an approve button. Merging them would lose one or the
+// other. The label matches the page's own <OperatorTopbar title>, so the nav and the page
+// agree on what the thing is called.
 const NAV_OPERATOR = [
   { label: 'All clients', href: '/dashboard/operator' },
   { label: 'Monitor', href: '/dashboard/operator/monitor' },
+  { label: 'Reply queue', href: '/dashboard/operator/triage' },
   { label: 'Sourcing review', href: '/dashboard/operator/sourcing-review' },
   { label: 'Approvals', href: '/dashboard/operator/approvals' },
   { label: 'Settings', href: '/dashboard/operator/settings' },
@@ -46,6 +58,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
   const router = useRouter()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [badgeCount, setBadgeCount] = useState(0)
+  const [replyQueueCount, setReplyQueueCount] = useState(0)
 
   useEffect(() => {
     const fetchBadgeCount = async () => {
@@ -60,9 +73,27 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
       }
     }
 
-    fetchBadgeCount()
-    // Refresh badge every 30 seconds
-    const interval = setInterval(fetchBadgeCount, 30000)
+    // The reply queue's own count. Read from the SAME endpoint the queue page polls, so the
+    // badge and the page can never disagree about how many replies are waiting. A separate
+    // count endpoint would be a second source of truth for one number.
+    const fetchReplyQueueCount = async () => {
+      try {
+        const response = await fetch('/api/reply-drafts', { credentials: 'same-origin' })
+        if (response.ok) {
+          const { drafts } = await response.json()
+          setReplyQueueCount(Array.isArray(drafts) ? drafts.length : 0)
+        }
+      } catch {
+        // Silent fail — the badge is an aid, and its absence must not hide the nav entry.
+      }
+    }
+
+    const refresh = () => { fetchBadgeCount(); fetchReplyQueueCount() }
+
+    refresh()
+    // Refresh badges every 30 seconds. One timer for both, so adding the reply count did
+    // not add a second polling loop to every operator page.
+    const interval = setInterval(refresh, 30000)
     return () => clearInterval(interval)
   }, [])
 
@@ -243,6 +274,11 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
                 {item.href === '/dashboard/operator/monitor' && badgeCount > 0 && (
                   <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-red-600 rounded-full">
                     {badgeCount > 99 ? '99+' : badgeCount}
+                  </span>
+                )}
+                {item.href === '/dashboard/operator/triage' && replyQueueCount > 0 && (
+                  <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-red-600 rounded-full">
+                    {replyQueueCount > 99 ? '99+' : replyQueueCount}
                   </span>
                 )}
               </Link>
