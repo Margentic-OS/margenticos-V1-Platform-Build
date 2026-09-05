@@ -2,10 +2,16 @@
 //
 // Operator rejects a reply draft. No send. No extraction.
 //
-// Accepted statuses: 'pending' | 'send_failed'
-//   pending    — normal path (operator decides not to send the draft)
-//   send_failed — post-approval send failure; operator dismisses the row from the queue
-//                 and handles the reply manually outside the platform
+// Accepted statuses: every status the triage queue serves (REJECTABLE_STATUSES).
+//   pending         — normal path (operator decides not to send the draft)
+//   manual_required — no draft was generated; operator handles the reply outside the platform
+//   draft_failed    — drafter failed after retries; same
+//   send_failed     — post-approval send failure; operator dismisses the row from the queue
+//                     and handles the reply manually outside the platform
+//
+// Rejecting a manual_required or draft_failed row leaves ai_draft_body NULL. That is
+// legal as of 20260905120000_rejected_draft_may_have_no_body.sql: no draft was produced,
+// so no draft is recorded.
 //
 // Three auth checks on every request:
 //   1. User is authenticated
@@ -25,6 +31,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
+import { REJECTABLE_STATUSES, isRejectable } from '@/lib/reply-handling/triage-statuses'
 
 export async function POST(
   request: NextRequest,
@@ -92,7 +99,7 @@ export async function POST(
     return NextResponse.json({ error: 'Draft not found.' }, { status: 404 })
   }
 
-  if (draft.status !== 'pending' && draft.status !== 'send_failed') {
+  if (!isRejectable(draft.status)) {
     return NextResponse.json(
       { error: `Draft is already '${draft.status}' — cannot reject.` },
       { status: 409 }
@@ -108,15 +115,25 @@ export async function POST(
 
   const { error: updateError, count } = await supabase
     .from('reply_drafts')
-    .update({
-      status: 'rejected',
-      reviewed_by_user_id: user.id,
-      reviewed_at: now,
-      draft_metadata: updatedMetadata,
-      updated_at: now,
-    })
+    .update(
+      {
+        status: 'rejected',
+        reviewed_by_user_id: user.id,
+        reviewed_at: now,
+        draft_metadata: updatedMetadata,
+        updated_at: now,
+      },
+      // { count: 'exact' } is what makes the guard below real. postgrest-js sends the
+      // `Prefer: count=` header only `if (count)`, so WITHOUT this option PostgREST
+      // replies `content-range: */*`, the client returns count null, `count === 0` is
+      // false, and the 409 branch is unreachable. Measured against the test project
+      // 2026-09-05: without the option `*/*`, with it `*/0`. The .in() filter below was
+      // always correct; nothing was reading its result. Same defect the approve route
+      // carried until PR #65, which fixed only that route.
+      { count: 'exact' }
+    )
     .eq('id', id)
-    .in('status', ['pending', 'send_failed'])  // idempotency: both rejectable statuses
+    .in('status', [...REJECTABLE_STATUSES])  // idempotency: only one concurrent reject can win
 
   if (updateError) {
     logger.error('reply-drafts reject: update failed', { draft_id: id, error: updateError.message })

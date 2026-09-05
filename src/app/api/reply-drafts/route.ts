@@ -27,6 +27,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { logger } from '@/lib/logger'
 import { extractReplyBody } from '@/lib/reply-handling/extract-reply-body'
+import { TRIAGE_STATUSES } from '@/lib/reply-handling/triage-statuses'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,8 +38,6 @@ const STATUS_PRIORITY: Record<string, number> = {
   manual_required: 2,
   draft_failed: 2,
 }
-
-const TRIAGE_STATUSES = ['pending', 'manual_required', 'draft_failed', 'send_failed'] as const
 
 
 export async function GET() {

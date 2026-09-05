@@ -171,7 +171,18 @@ export function TriageQueue() {
         return
       }
       if (res.status === 409) {
-        updateCardState(draftId, { inFlight: 'idle', actionError: 'This draft was already acted on in another session — refreshing.' })
+        // Surface what the route actually said. This used to substitute "This draft was
+        // already acted on in another session", which the client cannot know and which was
+        // often untrue: a 409 also means the draft is in a status this action does not
+        // accept. On 2026-09-05 that invented message sent an operator hunting for a
+        // concurrent session that did not exist, while the route was saying, accurately,
+        // which status had blocked the write. Never replace a server error with a guess
+        // about its cause.
+        const conflict = await res.json().catch(() => ({})) as Record<string, unknown>
+        const msg = typeof conflict.error === 'string'
+          ? conflict.error
+          : `This draft could not be approved (409).`
+        updateCardState(draftId, { inFlight: 'idle', actionError: msg })
         await fetchDrafts()
         return
       }
@@ -225,7 +236,12 @@ export function TriageQueue() {
         return
       }
       if (res.status === 409) {
-        updateCardState(draftId, { inFlight: 'idle', actionError: 'This draft was already acted on in another session — refreshing.' })
+        // Surface what the route actually said — see the note in handleApprove.
+        const conflict = await res.json().catch(() => ({})) as Record<string, unknown>
+        const msg = typeof conflict.error === 'string'
+          ? conflict.error
+          : `This draft could not be rejected (409).`
+        updateCardState(draftId, { inFlight: 'idle', actionError: msg })
         await fetchDrafts()
         return
       }
