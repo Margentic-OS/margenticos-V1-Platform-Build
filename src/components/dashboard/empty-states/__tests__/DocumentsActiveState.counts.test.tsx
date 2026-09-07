@@ -8,10 +8,13 @@
 // That scoping lives in (client)/page.tsx; what is pinned here is that the card renders
 // the number it is given rather than deriving its own.
 //
-// REPLIES. The card rendered metrics.repliedCount, which is the sending tool's tally
-// mirrored by the poller. Live 2026-09-07 it read 2 while five people had actually
-// replied. It now renders peopleRepliedCount: distinct prospects, from our own signals.
-// One person replying twice is one reply.
+// REPLIES. The card rendered metrics.repliedCount, the sending tool's tally. It now
+// renders peopleRepliedCount: distinct PEOPLE who wrote to us, computed from our own
+// intents. Out-of-office and not_a_response are excluded because nobody replied to us in
+// either case; opt_out, objection_mild and unclear all count.
+//
+// The two values below are deliberately different so the test can tell which the card
+// reads. On the live organisation both happen to be 2.
 //
 // Out-of-office stays out of INTEREST, which is a different number on the same row and is
 // governed by CLIENT_VISIBLE_INTENTS. An out-of-office IS a reply; it is just not interest.
@@ -33,9 +36,7 @@ const metrics = {
   deliveredCount: 92,
   bouncedCount: 0,
   unsubscribedCount: 0,
-  // The provider's tally. Deliberately different from peopleRepliedCount so the test can
-  // tell which one the card reads.
-  repliedCount: 2,
+  repliedCount: 9,
   peopleRepliedCount: 5,
   replyRate: null,
   positiveReplyCount: 0,
