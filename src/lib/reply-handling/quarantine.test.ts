@@ -16,6 +16,7 @@ vi.mock('@/lib/logger', () => ({
 }))
 
 import {
+  extractReplyWrittenAt,
   quarantineReply,
   replayQuarantinedReplies,
   applyQuarantineRetention,
@@ -348,5 +349,72 @@ describe('applyQuarantineRetention', () => {
     // has to be deliberate.
     expect(QUARANTINE_REDACT_AFTER_DAYS).toBe(30)
     expect(QUARANTINE_DELETE_AFTER_DAYS).toBe(180)
+  })
+})
+
+describe('extractReplyWrittenAt', () => {
+  // MUTATION PROOF: delete the reply_written_at line from quarantineReply's insert and the
+  // "stores when the person wrote" test goes red. Delete the timestamp_created fallback and
+  // the fallback test goes red.
+  //
+  // WHY A COLUMN AND NOT AN EXPRESSION IN THE VIEW: raw_data is nulled by the 30-day
+  // redaction, so a view parsing the payload would revert to our own timestamp exactly when
+  // a row has been waiting longest. That is asserted below.
+
+  it('prefers timestamp_email, which is when the person actually wrote', () => {
+    expect(
+      extractReplyWrittenAt({
+        timestamp_email: '2026-09-05T16:16:45.000Z',
+        timestamp_created: '2026-09-05T16:17:04.000Z',
+      }),
+    ).toBe('2026-09-05T16:16:45.000Z')
+  })
+
+  it('falls back to timestamp_created when there is no send time', () => {
+    expect(extractReplyWrittenAt({ timestamp_created: '2026-09-05T16:17:04.000Z' }))
+      .toBe('2026-09-05T16:17:04.000Z')
+  })
+
+  it('returns null rather than guessing when no usable timestamp exists', () => {
+    // MON-031 falls back to first_seen_at and says in its own detail line that the figure
+    // is a floor. Inventing a time here would make that sentence a lie.
+    expect(extractReplyWrittenAt({ id: 'email-1' })).toBeNull()
+    expect(extractReplyWrittenAt({ timestamp_email: '' })).toBeNull()
+    expect(extractReplyWrittenAt({ timestamp_email: 'not a date' })).toBeNull()
+    expect(extractReplyWrittenAt(null)).toBeNull()
+    expect(extractReplyWrittenAt(['a'])).toBeNull()
+  })
+
+  it('is stored on the row when a reply is quarantined', async () => {
+    const { client, rows } = createFake([])
+
+    await quarantineReply(client, {
+      providerEmailId: 'email-1',
+      providerCampaignId: 'campaign-x',
+      eaccount: 'sender@example.com',
+      rawData: { id: 'email-1', timestamp_email: '2026-09-05T16:16:45.000Z' },
+      originalOutboundBody: null,
+    })
+
+    expect((rows[0] as unknown as Record<string, unknown>).reply_written_at)
+      .toBe('2026-09-05T16:16:45.000Z')
+  })
+
+  it('the stored value survives redaction, which is the whole point', async () => {
+    // Retention nulls raw_data. If the age were parsed out of the payload it would be lost
+    // here, and the row would appear to have been waiting only since it was quarantined.
+    const NOW = new Date('2026-10-15T00:00:00Z')
+    const written = '2026-09-05T16:16:45.000Z'
+    const { client, rows } = createFake([
+      quarantinedRow({
+        first_seen_at: new Date(NOW.getTime() - 31 * 86400_000).toISOString(),
+      }),
+    ])
+    ;(rows[0] as unknown as Record<string, unknown>).reply_written_at = written
+
+    await applyQuarantineRetention(client, NOW)
+
+    expect(rows[0].raw_data).toBeNull()
+    expect((rows[0] as unknown as Record<string, unknown>).reply_written_at).toBe(written)
   })
 })

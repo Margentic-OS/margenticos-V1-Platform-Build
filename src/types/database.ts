@@ -2092,6 +2092,7 @@ export type Database = {
           provider_campaign_id: string | null
           provider_email_id: string
           raw_data: Json | null
+          reply_written_at: string | null
           resolved_at: string | null
           resolved_signal_id: string | null
         }
@@ -2106,6 +2107,7 @@ export type Database = {
           provider_campaign_id?: string | null
           provider_email_id: string
           raw_data?: Json | null
+          reply_written_at?: string | null
           resolved_at?: string | null
           resolved_signal_id?: string | null
         }
@@ -2120,6 +2122,7 @@ export type Database = {
           provider_campaign_id?: string | null
           provider_email_id?: string
           raw_data?: Json | null
+          reply_written_at?: string | null
           resolved_at?: string | null
           resolved_signal_id?: string | null
         }
@@ -3374,6 +3377,24 @@ export type Database = {
         Relationships: []
       }
       mon_029: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_030: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_031: {
         Row: {
           check_code: string | null
           detail: string | null
