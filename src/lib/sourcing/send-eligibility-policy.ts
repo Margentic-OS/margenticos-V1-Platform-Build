@@ -41,6 +41,7 @@
 // ═════════════════════════════════════════════════════════════════════════════
 
 import { toCanonicalVerdict, isKnownVendorVerdict } from '@/lib/sourcing/verification-verdict'
+import { OPERATOR_HOLD_REASON } from '@/lib/sourcing/send-eligibility-rules'
 
 /**
  * THE ONE LINE THAT CHANGES IF THE CATCH ALL POLICY CHANGES.
@@ -91,6 +92,8 @@ export type IneligibleReason =
   | 'undeliverable'
   | 'catch_all'
   | 'country_excluded'
+  /** An operator placed a durable hold on this specific prospect. Not a rule. */
+  | 'operator_hold'
 
 export type ResearchEligibility =
   | { eligible: true }
@@ -154,11 +157,23 @@ export function checkResearchEligibility(p: VerificationFacts): ResearchEligibil
 
   // Country exclusion is a hard commercial rule and is already materialised into its own
   // column by checkSendEligibility. Nothing about researching changes it.
+  // MATCHED ON THE VALUE, NOT ON NON-NULLNESS, since 2026-09-07.
+  //
+  // This block used to report 'country_excluded' for ANY non-null value, which was true
+  // while the country rule was the only writer and became false the moment an operator hold
+  // could be recorded. The eligibility ANSWER is deliberately unchanged: any non-null reason
+  // still refuses research, so an unrecognised legacy value keeps failing closed exactly as
+  // before. Only the reported REASON is now specific, which is what lets an operator tell a
+  // rule from a hand edit in the skip summary.
   if (p.email_send_ineligible_reason !== null) {
+    const held = p.email_send_ineligible_reason === OPERATOR_HOLD_REASON
     return {
       eligible: false,
-      reason: 'country_excluded',
-      detail: `Send-ineligible for a non-verification reason: ${p.email_send_ineligible_reason}.`,
+      reason: held ? 'operator_hold' : 'country_excluded',
+      detail: held
+        ? 'An operator placed a durable hold on this prospect. Researching it would spend ' +
+          'money on an address nothing is going to email.'
+        : `Send-ineligible for a non-verification reason: ${p.email_send_ineligible_reason}.`,
     }
   }
 
@@ -236,6 +251,7 @@ export function summariseIneligible(reasons: IneligibleReason[]): string {
     undeliverable:    'verified undeliverable',
     catch_all:        'catch-all domain',
     country_excluded: 'excluded country',
+    operator_hold:    'held by an operator',
   }
 
   return [...counts.entries()]

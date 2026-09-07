@@ -33,6 +33,24 @@ describe('whyNotSendable', () => {
     expect(whyNotSendable(VERIFIED)).toBeNull()
   })
 
+  it('reports an operator hold as a HOLD, not as an excluded country', () => {
+    // Three live rows were held by hand with no reason recorded, because the only reason
+    // this column could carry meant "country". An operator reading the pipeline screen has
+    // to be able to tell a legal rule from a colleague's decision.
+    const reason = whyNotSendable({
+      ...VERIFIED,
+      email_send_eligible: false,
+      email_send_ineligible_reason: 'operator_hold',
+    })
+    expect(reason).toBe('operator_hold')
+    expect(reason).not.toBe('excluded_country')
+  })
+
+  it('has operator-facing wording for the hold that names no country', () => {
+    expect(NOT_SENDABLE_LABELS.operator_hold).toBe('Held by an operator')
+    expect(NOT_SENDABLE_LABELS.operator_hold).not.toMatch(/\b(AU|CA|DE|Australia|Canada|Germany)\b/)
+  })
+
   it('reads the MATERIALISED column, because that is what the send path reads', () => {
     // The send gate reads email_send_eligible and nothing else. A prospect whose raw
     // verdict looks fine but whose column says false is NOT sendable, and reporting it as

@@ -33,6 +33,7 @@
 // and they live in one map at the bottom of this file.
 
 import { toCanonicalVerdict } from '@/lib/sourcing/verification-verdict'
+import { OPERATOR_HOLD_REASON } from '@/lib/sourcing/send-eligibility-rules'
 import { REMOVAL_REASONS } from '@/lib/sourcing/tier-classification'
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -50,6 +51,8 @@ import { REMOVAL_REASONS } from '@/lib/sourcing/tier-classification'
  */
 export type NotSendableReason =
   | 'excluded_country'
+  /** An operator placed a durable hold on this specific prospect. Not a rule. */
+  | 'operator_hold'
   | 'not_verified'
   | 'undeliverable'
   | 'unconfirmable'
@@ -82,8 +85,12 @@ export interface SendabilityFacts {
 export function whyNotSendable(facts: SendabilityFacts): NotSendableReason | null {
   if (facts.email_send_eligible === true) return null
 
-  // The one reason the column actually records. Bucketed, never rendered raw: the values
-  // name a country.
+  // TWO reasons the column records, since 2026-09-07, and they are told apart by VALUE.
+  //
+  // An operator hold is reported as itself. Anything else non-null is a country exclusion
+  // and stays bucketed, never rendered raw, because those values name a country. The
+  // ordering matters only for readability; the two cases are disjoint.
+  if (facts.email_send_ineligible_reason === OPERATOR_HOLD_REASON) return 'operator_hold'
   if (facts.email_send_ineligible_reason !== null) return 'excluded_country'
 
   if (facts.independent_verified_at === null) return 'not_verified'
@@ -204,6 +211,7 @@ export const VERIFICATION_MAX_ATTEMPTS = 3
 
 export const NOT_SENDABLE_LABELS: Record<NotSendableReason, string> = {
   excluded_country:   'Excluded country',
+  operator_hold:      'Held by an operator',
   not_verified:       'Not verified yet',
   undeliverable:      'Address does not exist',
   unconfirmable:      'Address cannot be confirmed',

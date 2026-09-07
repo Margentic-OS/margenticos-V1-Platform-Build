@@ -38,6 +38,23 @@ describe('the case this exists to stop', () => {
   it('lets a clean verified address through', () => {
     expect(checkResearchEligibility(verified()).eligible).toBe(true)
   })
+
+  it('tells an OPERATOR HOLD apart from a country exclusion, which the column could not before', () => {
+    // Until 2026-09-07 this gate reported 'country_excluded' for ANY non-null reason, so a
+    // hand-placed hold would have been summarised to the operator as an excluded country.
+    // That is the confusion the hold columns exist to remove, and it has to be removed HERE
+    // too, or the skip summary keeps lying about why research was not spent.
+    const v = checkResearchEligibility(verified({ email_send_ineligible_reason: 'operator_hold' }))
+    expect(v.eligible).toBe(false)
+    if (!v.eligible) expect(v.reason).toBe('operator_hold')
+  })
+
+  it('still fails CLOSED on a reason it does not recognise', () => {
+    // The eligibility answer must not have been loosened by making the reason specific. An
+    // unrecognised legacy value still refuses research, exactly as before.
+    const v = checkResearchEligibility(verified({ email_send_ineligible_reason: 'something_legacy' }))
+    expect(v.eligible).toBe(false)
+  })
 })
 
 describe('DECISION 1 — Catch All is policy, not fact, and lives in one constant', () => {

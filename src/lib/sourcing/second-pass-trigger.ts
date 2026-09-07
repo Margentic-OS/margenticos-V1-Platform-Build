@@ -537,7 +537,7 @@ async function recordSecondPassResult(
 ): Promise<SendEligibilityDecision> {
   const { data: current } = await supabase
     .from('prospects')
-    .select('second_pass_attempt_count')
+    .select('second_pass_attempt_count, send_hold_at')
     .eq('id', prospect.id)
     .eq('organisation_id', organisationId)
     .maybeSingle()
@@ -550,6 +550,10 @@ async function recordSecondPassResult(
       prospect.independent_email_status,
     ),
     secondPass: result.verdict,
+    // READ FRESH, in the same statement as the attempt count, rather than carried on the
+    // candidate. A hold placed between this run being queued and this row being written must
+    // still be honoured, and the candidate was selected before that window opened.
+    heldAt: (current?.send_hold_at as string | null) ?? null,
   })
 
   const { error } = await supabase

@@ -1635,6 +1635,9 @@ export type Database = {
           second_pass_score: number | null
           second_pass_status: string | null
           second_pass_verified_at: string | null
+          send_hold_at: string | null
+          send_hold_by: string | null
+          send_hold_reason: string | null
           segment_id: string | null
           signal_observation: string | null
           signal_relevance: string
@@ -1720,6 +1723,9 @@ export type Database = {
           second_pass_score?: number | null
           second_pass_status?: string | null
           second_pass_verified_at?: string | null
+          send_hold_at?: string | null
+          send_hold_by?: string | null
+          send_hold_reason?: string | null
           segment_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string
@@ -1805,6 +1811,9 @@ export type Database = {
           second_pass_score?: number | null
           second_pass_status?: string | null
           second_pass_verified_at?: string | null
+          send_hold_at?: string | null
+          send_hold_by?: string | null
+          send_hold_reason?: string | null
           segment_id?: string | null
           signal_observation?: string | null
           signal_relevance?: string

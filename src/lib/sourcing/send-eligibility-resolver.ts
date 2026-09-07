@@ -53,7 +53,7 @@
 // RECORDED on every prospect so that a threshold can be derived later from real data, and
 // gated on by nothing.
 
-import { checkSendEligibility } from '@/lib/sourcing/send-eligibility-rules'
+import { checkSendEligibility, OPERATOR_HOLD_REASON } from '@/lib/sourcing/send-eligibility-rules'
 import type { CanonicalVerdict } from '@/lib/sourcing/verification-verdict'
 
 export interface SendEligibilityInput {
@@ -63,6 +63,15 @@ export interface SendEligibilityInput {
   firstPass: CanonicalVerdict | null
   /** Canonical verdict from the paid second pass. null means it has not run. */
   secondPass: CanonicalVerdict | null
+  /**
+   * prospects.send_hold_at. Non-null means an operator has placed a durable hold.
+   *
+   * REQUIRED, not optional, and that is the entire point of this field. An optional hold
+   * would let a caller omit it and silently get the pre-2026-09-07 behaviour, which is the
+   * behaviour that overwrote three hand-held rows. Every caller must now state whether the
+   * prospect is held, and `tsc` refuses the ones that do not.
+   */
+  heldAt: string | null
 }
 
 export interface SendEligibilityDecision {
@@ -94,6 +103,28 @@ export function resolveSendEligibility(input: SendEligibilityInput): SendEligibi
   // safely run until prospects.country was populated and canonical: a German catch-all
   // resolved to deliverable would otherwise come back send-eligible with this never
   // consulted. See src/lib/sourcing/country-code.ts.
+  // ── An operator hold outranks everything, including the country rule ──
+  //
+  // FIRST, ABOVE JURISDICTION, and the ordering is load-bearing. A hold is a human decision
+  // about THIS prospect; every rule below it is a policy applied to evidence. If the hold
+  // were checked after the country rule, a held prospect in a non-excluded country would
+  // fall through to the verdicts and be recomputed to ELIGIBLE, which is precisely the
+  // failure this whole change exists to remove: three prospects held only by a hand-edited
+  // boolean, on a column this function rewrites from scratch at every re-verification.
+  //
+  // It reports its own reason rather than borrowing a country code, so a later reader can
+  // tell a RULE from a HAND EDIT. That distinction did not previously exist in the data.
+  if (input.heldAt !== null) {
+    return {
+      eligible: false,
+      ineligibleReason: OPERATOR_HOLD_REASON,
+      detail:
+        `Held by an operator on ${input.heldAt}. A hold is a decision about this specific ` +
+        'prospect and no verification verdict, in either pass, can lift it. Only an ' +
+        'operator clearing the hold can.',
+    }
+  }
+
   const country = checkSendEligibility(input.country, input.email)
   if (!country.is_eligible) {
     return {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { resolveSendEligibility } from '../send-eligibility-resolver'
+import { firstPassSendEligibility } from '../send-eligibility-rules'
 import { toCanonicalVerdict, isKnownVendorVerdict, SECOND_PASS_WORTH_PAYING_FOR } from '../verification-verdict'
 
 const US = 'US'
@@ -53,7 +54,7 @@ describe('resolveSendEligibility: the approved disagreement rule', () => {
   it('THE POINT OF THE BUILD: catch-all resolved to deliverable becomes eligible', () => {
     const d = resolveSendEligibility({
       country: US, email: 'emily@esstrategic.co',
-      firstPass: 'risky', secondPass: 'deliverable',
+      firstPass: 'risky', secondPass: 'deliverable', heldAt: null,
     })
     expect(d.eligible).toBe(true)
     expect(d.ineligibleReason).toBeNull()
@@ -64,7 +65,7 @@ describe('resolveSendEligibility: the approved disagreement rule', () => {
     // Both are risky. Risky is where we started, so nothing has been gained.
     const d = resolveSendEligibility({
       country: US, email: 'sohail@thesouthstarconsulting.com',
-      firstPass: 'risky', secondPass: 'risky',
+      firstPass: 'risky', secondPass: 'risky', heldAt: null,
     })
     expect(d.eligible).toBe(false)
   })
@@ -72,7 +73,7 @@ describe('resolveSendEligibility: the approved disagreement rule', () => {
   it('a confirmed dead mailbox is NOT resurrected by a deliverable second opinion', () => {
     const d = resolveSendEligibility({
       country: US, email: 'dead@example.com',
-      firstPass: 'undeliverable', secondPass: 'deliverable',
+      firstPass: 'undeliverable', secondPass: 'deliverable', heldAt: null,
     })
     expect(d.eligible).toBe(false)
     expect(d.detail).toMatch(/cannot overturn/i)
@@ -81,21 +82,21 @@ describe('resolveSendEligibility: the approved disagreement rule', () => {
   it('unknown on the first pass is resolvable by the second', () => {
     const d = resolveSendEligibility({
       country: US, email: 'x@example.com',
-      firstPass: 'unknown', secondPass: 'deliverable',
+      firstPass: 'unknown', secondPass: 'deliverable', heldAt: null,
     })
     expect(d.eligible).toBe(true)
   })
 
   it('first pass deliverable is eligible with no second pass at all', () => {
     const d = resolveSendEligibility({
-      country: US, email: 'x@example.com', firstPass: 'deliverable', secondPass: null,
+      country: US, email: 'x@example.com', firstPass: 'deliverable', secondPass: null, heldAt: null,
     })
     expect(d.eligible).toBe(true)
   })
 
   it('never verified is ineligible and says so', () => {
     const d = resolveSendEligibility({
-      country: US, email: 'x@example.com', firstPass: null, secondPass: null,
+      country: US, email: 'x@example.com', firstPass: null, secondPass: null, heldAt: null,
     })
     expect(d.eligible).toBe(false)
     expect(d.detail).toMatch(/never verified/i)
@@ -103,7 +104,7 @@ describe('resolveSendEligibility: the approved disagreement rule', () => {
 
   it('catch-all with no second pass yet is ineligible', () => {
     const d = resolveSendEligibility({
-      country: US, email: 'x@example.com', firstPass: 'risky', secondPass: null,
+      country: US, email: 'x@example.com', firstPass: 'risky', secondPass: null, heldAt: null,
     })
     expect(d.eligible).toBe(false)
     expect(d.detail).toMatch(/has not run/i)
@@ -117,7 +118,7 @@ describe('resolveSendEligibility: country is a hard AND that only ever removes e
     // never consulted.
     const d = resolveSendEligibility({
       country: 'DE', email: 'jochen@knot-consulting.com',
-      firstPass: 'risky', secondPass: 'deliverable',
+      firstPass: 'risky', secondPass: 'deliverable', heldAt: null,
     })
     expect(d.eligible).toBe(false)
     expect(d.ineligibleReason).toBe('country_excluded_de')
@@ -128,7 +129,7 @@ describe('resolveSendEligibility: country is a hard AND that only ever removes e
     // row predating normalisation cannot slip through.
     const d = resolveSendEligibility({
       country: 'Germany', email: 'broeskamp.udo@broeskamp.com',
-      firstPass: 'deliverable', secondPass: null,
+      firstPass: 'deliverable', secondPass: null, heldAt: null,
     })
     expect(d.eligible).toBe(false)
     expect(d.ineligibleReason).toBe('country_excluded_de')
@@ -137,7 +138,7 @@ describe('resolveSendEligibility: country is a hard AND that only ever removes e
   it('country NEVER grants eligibility that the verdicts denied', () => {
     // A permitted country cannot rescue an undeliverable address.
     const d = resolveSendEligibility({
-      country: US, email: 'dead@example.com', firstPass: 'undeliverable', secondPass: null,
+      country: US, email: 'dead@example.com', firstPass: 'undeliverable', secondPass: null, heldAt: null,
     })
     expect(d.eligible).toBe(false)
   })
@@ -148,7 +149,7 @@ describe('resolveSendEligibility: country is a hard AND that only ever removes e
     // operator as an excluded country.
     for (const firstPass of ['risky', 'unknown', 'undeliverable', null] as const) {
       const d = resolveSendEligibility({
-        country: US, email: 'x@example.com', firstPass, secondPass: null,
+        country: US, email: 'x@example.com', firstPass, secondPass: null, heldAt: null,
       })
       expect(d.eligible).toBe(false)
       expect(d.ineligibleReason, `firstPass=${firstPass} must not write a verdict reason`).toBeNull()
@@ -160,7 +161,7 @@ describe('resolveSendEligibility: the score is recorded, never gated on', () => 
   it('takes no score argument at all, so no threshold can be smuggled in', () => {
     // n=10 on one day, entirely inside the vendor's stated sweet spot, with the whole range
     // between 75 and 90 unobserved. The status is the gate; the score is evidence for later.
-    const input = { country: US, email: 'x@example.com', firstPass: 'risky' as const, secondPass: 'deliverable' as const }
+    const input = { country: US, email: 'x@example.com', firstPass: 'risky' as const, secondPass: 'deliverable' as const, heldAt: null }
     expect(Object.keys(input)).not.toContain('score')
     expect(resolveSendEligibility(input).eligible).toBe(true)
   })
@@ -172,7 +173,7 @@ describe('the two gates want opposite defaults for an unreadable vendor word', (
     const d = resolveSendEligibility({
       country: US, email: 'x@example.com',
       firstPass: toCanonicalVerdict('myemailverifier', 'Brand New Status'),
-      secondPass: null,
+      secondPass: null, heldAt: null,
     })
     expect(d.eligible).toBe(false)
   })
@@ -184,5 +185,163 @@ describe('the two gates want opposite defaults for an unreadable vendor word', (
     expect(isKnownVendorVerdict('myemailverifier', 'Deliverable')).toBe(false)
     expect(isKnownVendorVerdict('myemailverifier', 'Valid')).toBe(true)
     expect(isKnownVendorVerdict('bouncer', 'deliverable')).toBe(true)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AN OPERATOR HOLD, AND WHY EVERY CASE BELOW USES REAL EVIDENCE
+//
+// These are not invented fixtures. On 2026-09-07 three prospects in the live database read
+// email_send_eligible = false with email_send_ineligible_reason = NULL, operator_override_at
+// = NULL and independent_email_status = 'Valid'. Their countries were AU, CA and CA, and
+// EXCLUDED_COUNTRIES is ['DE'], so no rule in the codebase excluded any of them. A hand-run
+// UPDATE was the only thing holding them, on a column this resolver rewrites from scratch at
+// every re-verification.
+//
+// So the inputs below are exactly what the resolver would have seen on the next
+// re-verification of those rows, and the assertion is what it must now answer instead.
+
+describe('an operator hold survives re-verification', () => {
+  // The live shape: verified Valid, in a country no rule excludes.
+  const LIVE_HELD = [
+    { label: 'the AU row',        country: 'AU', email: 'held-au@example.com' },
+    { label: 'the first CA row',  country: 'CA', email: 'held-ca-1@example.com' },
+    { label: 'the second CA row', country: 'CA', email: 'held-ca-2@example.com' },
+  ] as const
+
+  it.each(LIVE_HELD)(
+    'THE GUARD: $label is deliverable and un-excluded, and is held anyway',
+    ({ country, email }) => {
+      const held = resolveSendEligibility({
+        country, email,
+        firstPass: 'deliverable', secondPass: null,
+        heldAt: '2026-08-29T00:00:00.000Z',
+      })
+
+      expect(held.eligible).toBe(false)
+
+      // A NULL reason on a held row is the ORIGINAL DEFECT, not a cosmetic gap: it is what
+      // made a hand edit indistinguishable from a rule. Asserted separately from the flag so
+      // a regression that keeps the row held but loses the reason still fails.
+      expect(held.ineligibleReason).toBe('operator_hold')
+      expect(held.ineligibleReason).not.toBeNull()
+    },
+  )
+
+  it.each(LIVE_HELD)(
+    'CONTROL: $label WITHOUT the hold resolves to eligible, which is the bug being prevented',
+    ({ country, email }) => {
+      // This is the assertion that makes the one above mean something. If these three rows
+      // did not resolve to ELIGIBLE without a hold, the hold would not be load-bearing and
+      // the test above could pass for the wrong reason.
+      const unheld = resolveSendEligibility({
+        country, email,
+        firstPass: 'deliverable', secondPass: null,
+        heldAt: null,
+      })
+      expect(unheld.eligible).toBe(true)
+      expect(unheld.ineligibleReason).toBeNull()
+    },
+  )
+
+  it('outranks the country rule, so a held excluded row reports the HOLD, not the country', () => {
+    // Ordering is load-bearing and this is what pins it. DE is genuinely excluded, so if the
+    // country rule ran first this would report country_excluded_de and the operator would
+    // never learn a human had also held the row.
+    const d = resolveSendEligibility({
+      country: 'DE', email: 'x@example.de',
+      firstPass: 'deliverable', secondPass: null,
+      heldAt: '2026-08-29T00:00:00.000Z',
+    })
+    expect(d.eligible).toBe(false)
+    expect(d.ineligibleReason).toBe('operator_hold')
+  })
+
+  it('an unheld German row still reports the country, so the hold has not shadowed the rule', () => {
+    // The mirror of the case above. Without this, moving the hold check to the top could
+    // swallow the country rule entirely and every test above would still pass.
+    const d = resolveSendEligibility({
+      country: 'DE', email: 'x@example.de',
+      firstPass: 'deliverable', secondPass: null,
+      heldAt: null,
+    })
+    expect(d.eligible).toBe(false)
+    expect(d.ineligibleReason).toBe('country_excluded_de')
+  })
+
+  it('can only ever REMOVE eligibility, never grant it', () => {
+    // A hold on an already-undeliverable address must not resurrect it. The hold is a veto,
+    // not an override.
+    const d = resolveSendEligibility({
+      country: 'US', email: 'dead@example.com',
+      firstPass: 'undeliverable', secondPass: null,
+      heldAt: '2026-08-29T00:00:00.000Z',
+    })
+    expect(d.eligible).toBe(false)
+  })
+
+  it('no second-pass verdict can lift a hold', () => {
+    // The second pass exists to overturn a risky first pass. It must not overturn a human.
+    const d = resolveSendEligibility({
+      country: 'US', email: 'catchall@example.com',
+      firstPass: 'risky', secondPass: 'deliverable',
+      heldAt: '2026-08-29T00:00:00.000Z',
+    })
+    expect(d.eligible).toBe(false)
+    expect(d.ineligibleReason).toBe('operator_hold')
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// THE FIRST PASS IS A SECOND WRITER, AND IT IS THE ONE THAT WOULD HAVE UNDONE THE HOLD
+//
+// send-eligibility-resolver.ts's own header says email_send_eligible "is only ever written
+// from this one function". That is NOT true: recordVerificationResult in
+// verification-trigger.ts writes both columns from its own longhand expression, and the
+// first pass is the path that actually re-verifies a prospect. A hold honoured only by the
+// resolver would therefore have been undone by the very run it was meant to survive.
+//
+// firstPassSendEligibility is that expression, extracted so it can be tested at all.
+
+describe('firstPassSendEligibility: the other writer of the same two columns', () => {
+  const DELIVERABLE_UNEXCLUDED = { is_eligible: true, reason: null }
+
+  it('THE GUARD: a held prospect is ineligible even when country and vendor both say yes', () => {
+    const w = firstPassSendEligibility({
+      heldAt: '2026-08-29T00:00:00.000Z',
+      country: DELIVERABLE_UNEXCLUDED,
+      vendorSendEligible: true,
+    })
+    expect(w.email_send_eligible).toBe(false)
+    expect(w.email_send_ineligible_reason).toBe('operator_hold')
+  })
+
+  it('CONTROL: the same prospect unheld is eligible, so the hold is what did the work', () => {
+    const w = firstPassSendEligibility({
+      heldAt: null,
+      country: DELIVERABLE_UNEXCLUDED,
+      vendorSendEligible: true,
+    })
+    expect(w.email_send_eligible).toBe(true)
+    expect(w.email_send_ineligible_reason).toBeNull()
+  })
+
+  it('does not shadow the country rule when nothing is held', () => {
+    const w = firstPassSendEligibility({
+      heldAt: null,
+      country: { is_eligible: false, reason: 'country_excluded_de' },
+      vendorSendEligible: true,
+    })
+    expect(w.email_send_eligible).toBe(false)
+    expect(w.email_send_ineligible_reason).toBe('country_excluded_de')
+  })
+
+  it('does not grant eligibility the vendor withheld', () => {
+    const w = firstPassSendEligibility({
+      heldAt: null,
+      country: DELIVERABLE_UNEXCLUDED,
+      vendorSendEligible: false,
+    })
+    expect(w.email_send_eligible).toBe(false)
   })
 })
