@@ -1,6 +1,6 @@
 // all-docs-generated: sent to the operator when all four strategy documents
 // (ICP, Positioning, TOV, Messaging) have finished generating.
-// Operator-facing only — not seen by clients.
+// Operator-facing only. Not seen by clients.
 
 interface AllDocsGeneratedParams {
   orgName: string

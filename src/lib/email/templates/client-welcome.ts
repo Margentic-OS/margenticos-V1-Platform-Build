@@ -1,14 +1,14 @@
 // client-welcome: sent to the founder when the operator creates their organisation.
 // Contains the invite OTP code from supabase.auth.admin.generateLink (email_otp field).
-// No clickable token link — immune to Outlook Safe Links prefetch.
-// Industry-agnostic copy — no consulting-specific language.
+// No clickable token link, so it is immune to Outlook Safe Links prefetch.
+// Industry-agnostic copy. No consulting-specific language.
 // No AI tells: no em dashes, no "seamless", no "leverage", etc.
 
 interface ClientWelcomeParams {
   founderFirstName: string
   orgName: string
   otpCode: string
-  loginUrl: string  // /login?email=...&invite=1 — non-consumable, safe for scanners
+  loginUrl: string  // /login?email=...&invite=1, non-consumable and safe for scanners
 }
 
 export function clientWelcomeTemplate({ founderFirstName, orgName, otpCode, loginUrl }: ClientWelcomeParams): string {

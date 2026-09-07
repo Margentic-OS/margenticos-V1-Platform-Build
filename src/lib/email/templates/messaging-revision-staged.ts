@@ -3,7 +3,7 @@
 // immediately after the revision agent runs), messaging revisions are staged
 // as pending document_suggestions and require operator approval before going live.
 // Fires from the messaging revision path (wired in S5).
-// Operator-facing only — not seen by clients.
+// Operator-facing only. Not seen by clients.
 
 interface MessagingRevisionStagedParams {
   orgName: string
@@ -25,7 +25,7 @@ export function messagingRevisionStagedTemplate({
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Messaging revision staged — ${orgName}</title>
+  <title>Messaging revision staged: ${orgName}</title>
 </head>
 <body style="margin:0;padding:0;background:#f5f0e8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0e8;padding:40px 20px;">
@@ -34,7 +34,7 @@ export function messagingRevisionStagedTemplate({
         <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
           <tr>
             <td style="background:#2d5a27;padding:24px 32px;">
-              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS — Operator</p>
+              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS Operator</p>
             </td>
           </tr>
           <tr>

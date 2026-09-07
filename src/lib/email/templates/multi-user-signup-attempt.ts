@@ -1,7 +1,7 @@
 // multi-user-signup-attempt: sent to the operator when someone attempts
 // to create an account for an organisation that already has a client user.
 // Used so the operator can manually review and handle the request.
-// Operator-facing only — not seen by the person who attempted to sign up.
+// Operator-facing only. Not seen by the person who attempted to sign up.
 
 interface MultiUserSignupAttemptParams {
   attemptedEmail: string
@@ -33,7 +33,7 @@ export function multiUserSignupAttemptTemplate({
         <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
           <tr>
             <td style="background:#7a2e2e;padding:24px 32px;">
-              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS — Operator alert</p>
+              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS Operator alert</p>
             </td>
           </tr>
           <tr>

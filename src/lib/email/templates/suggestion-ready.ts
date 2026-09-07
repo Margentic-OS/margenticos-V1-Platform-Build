@@ -1,6 +1,6 @@
 // suggestion-ready: sent to the operator when a strategy document agent completes
 // and writes a suggestion row. Fires from each agent route's success path.
-// Operator-facing only — not seen by clients.
+// Operator-facing only. Not seen by clients.
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   icp:         'ICP',
@@ -34,7 +34,7 @@ export function suggestionReadyTemplate({ orgName, orgId, docType }: SuggestionR
         <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
           <tr>
             <td style="background:#2d5a27;padding:24px 32px;">
-              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS — Operator</p>
+              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS Operator</p>
             </td>
           </tr>
           <tr>

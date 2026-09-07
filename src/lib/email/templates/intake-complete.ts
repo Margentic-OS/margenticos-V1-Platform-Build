@@ -1,6 +1,6 @@
 // intake-complete: sent to the operator when a client's intake crosses the 80%
 // threshold and the four strategy agents are dispatched.
-// Operator-facing only — not seen by clients.
+// Operator-facing only. Not seen by clients.
 
 interface IntakeCompleteParams {
   orgName: string

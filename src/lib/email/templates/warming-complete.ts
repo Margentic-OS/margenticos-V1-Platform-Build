@@ -1,6 +1,6 @@
 // warming-complete: sent to client when operator marks warmup/placement-test complete
 // Event: operator sets organisations.warmup_completed_at
-// Plain text, signed "Doug" — relationship email
+// Plain text, signed "Doug". Relationship email.
 
 export interface WarmingCompleteParams {
   sendDate: string  // formatted date e.g. "August 10"
