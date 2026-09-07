@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import type { Prospect } from '@/lib/prospect-tiers-data'
+import type { RosterGroup, RosterProspect } from '@/lib/dashboard/prospect-roster'
+import { defaultGroupKey, formatDayLabel } from '@/lib/dashboard/prospect-roster'
 import { RemovalReasonModal } from './RemovalReasonModal'
 import { logger } from '@/lib/logger'
 
@@ -14,65 +15,60 @@ const REMOVAL_REASONS = [
   'Just not right',
 ]
 
-interface ProspectWithTier extends Prospect {
-  tier: 'tier_1' | 'tier_2' | 'tier_3'
-}
-
 interface ProspectReviewClientProps {
-  prospects: ProspectWithTier[]
+  groups: RosterGroup[]
   pendingCount: number
+  rosterCount: number
   autoSanctionDate: string | null
   organisationId: string
 }
 
 export function ProspectReviewClient({
-  prospects,
+  groups,
   pendingCount,
+  rosterCount,
   autoSanctionDate,
-  organisationId,
 }: ProspectReviewClientProps) {
   const router = useRouter()
   const [removals, setRemovals] = useState<Record<string, { reason: string; collapsed: boolean }>>({})
   const [approvalState, setApprovalState] = useState<'idle' | 'confirming' | 'processing' | 'done'>('idle')
   const [removingProspectId, setRemovingProspectId] = useState<string | null>(null)
   const [isRemovalLoading, setIsRemovalLoading] = useState(false)
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => defaultGroupKey(groups))
 
+  // Only a prospect still awaiting a decision can be removed, so this subtraction is over
+  // one population rather than two. The previous version subtracted every removal from a
+  // pending-only total, so removing an already-decided row drove the button below the
+  // true count and could disable approval while prospects were still pending.
   const remainingCount = pendingCount - Object.keys(removals).length
 
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr)
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  }
+  const selectedGroup = groups.find(g => g.key === selectedKey) ?? groups[0]
+
+  const isPending = (p: RosterProspect) => p.client_review_status === 'pending_review'
 
   const handleRemove = async (prospectId: string, reason: string) => {
-    console.log('[TRACE] handleRemove called:', { prospectId, reason })
     setIsRemovalLoading(true)
 
     try {
-      console.log('[TRACE] Fetching reject API...')
       const response = await fetch('/api/dashboard/client/prospects/reject', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prospect_id: prospectId, reason: reason || null }),
       })
 
-      console.log('[TRACE] API response:', response.status, response.ok)
       if (!response.ok) {
         const json = await response.json()
         throw new Error(json.error ?? `HTTP ${response.status}`)
       }
 
-      console.log('[TRACE] Updating local state...')
       setRemovals({
         ...removals,
         [prospectId]: { reason, collapsed: true },
       })
       setRemovingProspectId(null)
       setIsRemovalLoading(false)
-      console.log('[TRACE] Removal complete')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      console.error('[TRACE] handleRemove error:', msg)
       logger.error('ProspectReviewClient: remove failed', { prospect_id: prospectId, error: msg })
       alert(`Failed to remove prospect: ${msg}`)
       setRemovingProspectId(null)
@@ -81,7 +77,7 @@ export function ProspectReviewClient({
   }
 
   const handleUndo = (prospectId: string) => {
-    const { [prospectId]: _, ...rest } = removals
+    const { [prospectId]: _removed, ...rest } = removals
     setRemovals(rest)
   }
 
@@ -106,8 +102,11 @@ export function ProspectReviewClient({
       }
 
       setApprovalState('done')
+      // The roster stays reachable after approval, so this refreshes into the read-only
+      // state rather than navigating away from it.
       setTimeout(() => {
-        router.push('/dashboard')
+        router.refresh()
+        setApprovalState('idle')
       }, 2000)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -117,7 +116,7 @@ export function ProspectReviewClient({
     }
   }
 
-  const renderProspectRow = (prospect: ProspectWithTier) => {
+  const renderProspectRow = (prospect: RosterProspect, groupIsTask: boolean) => {
     const isRemoved = prospect.id in removals
     const removal = removals[prospect.id]
 
@@ -125,9 +124,7 @@ export function ProspectReviewClient({
       return (
         <div key={prospect.id} className="border-b border-gray-200 hover:bg-gray-50">
           <div className="px-6 py-3 flex items-center justify-between">
-            <div className="text-sm text-gray-500">
-              Removed ({removal.reason})
-            </div>
+            <div className="text-sm text-gray-500">Removed ({removal.reason})</div>
             <button
               onClick={() => handleUndo(prospect.id)}
               className="text-xs text-blue-600 hover:text-blue-700 font-medium"
@@ -139,13 +136,13 @@ export function ProspectReviewClient({
       )
     }
 
-    if (isRemoved && !removal.collapsed) {
-      return null
-    }
-
     const firstName = prospect.first_name || ''
     const lastName = prospect.last_name || ''
     const fullName = `${firstName} ${lastName}`.trim() || 'Unknown'
+
+    // Remove is offered only where it means something: a prospect still awaiting this
+    // client's decision, inside a group that is still a task. Everything else is a record.
+    const canRemove = groupIsTask && isPending(prospect)
 
     return (
       <div key={prospect.id} className="border-b border-gray-200 hover:bg-gray-50">
@@ -186,81 +183,126 @@ export function ProspectReviewClient({
                 </svg>
               </a>
             )}
-            <button
-              onClick={() => setRemovingProspectId(prospect.id)}
-              className="text-sm font-medium text-red-600 hover:text-red-700 whitespace-nowrap"
-            >
-              Remove
-            </button>
+            {canRemove && (
+              <button
+                onClick={() => setRemovingProspectId(prospect.id)}
+                className="text-sm font-medium text-red-600 hover:text-red-700 whitespace-nowrap"
+              >
+                Remove
+              </button>
+            )}
           </div>
         </div>
       </div>
     )
   }
 
-  const removingProspect = prospects.find(p => p.id === removingProspectId)
+  const removingProspect = groups
+    .flatMap(g => g.prospects)
+    .find(p => p.id === removingProspectId)
   const removingProspectName = removingProspect
     ? `${(removingProspect.first_name || '').trim()} ${(removingProspect.last_name || '').trim()}`.trim() || 'this prospect'
     : 'this prospect'
 
+  const hasPending = pendingCount > 0
+
   return (
     <div className="space-y-6">
-      {/* Batch Card Header */}
+      {/* Header. Nothing here names an industry or a buyer type: this surface serves any
+          B2B client, and the previous copy hardcoded one sector into the headline. */}
       <div className="bg-white rounded-lg border border-gray-200 p-8 shadow-sm">
         <div className="space-y-4">
           <div>
             <h2 className="text-xl font-semibold text-gray-900">
-              {prospects.length} founder{prospects.length !== 1 ? 's' : ''} of consulting firms ready for your review
+              {hasPending
+                ? `${pendingCount} ${pendingCount === 1 ? 'person' : 'people'} ready for your review`
+                : `${rosterCount} ${rosterCount === 1 ? 'person' : 'people'} in your campaign`}
             </h2>
             <p className="text-sm text-gray-600 mt-2">
-              Remove anyone you would rather we not contact. We proceed with the rest.
+              {hasPending
+                ? 'Remove anyone you would rather we not contact. We proceed with the rest.'
+                : 'Everyone we are contacting on your behalf, grouped by when they joined the campaign.'}
             </p>
           </div>
 
-          {autoSanctionDate && (
+          {hasPending && autoSanctionDate && (
             <div className="text-sm text-gray-600">
-              Auto-approved on {formatDate(autoSanctionDate)} if no action taken.
+              Auto-approved on {formatDayLabel(autoSanctionDate)} if no action taken.
             </div>
           )}
         </div>
       </div>
 
-      {/* Prospects Table */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        <div>{prospects.map(p => renderProspectRow(p))}</div>
-      </div>
-
-      {/* Approval Section */}
-      {approvalState === 'done' ? (
-        <div className="bg-green-50 rounded-lg border border-green-200 p-8 text-center">
-          <p className="text-lg font-semibold text-green-900">Done. We will take it from here.</p>
-          <p className="text-sm text-green-800 mt-2">Redirecting to dashboard...</p>
-        </div>
-      ) : (
-        <div className="flex justify-center">
-          <button
-            onClick={handleApproveAll}
-            disabled={remainingCount === 0}
-            className={`px-8 py-3 rounded font-semibold text-white transition-colors ${
-              remainingCount === 0
-                ? 'bg-gray-400 cursor-not-allowed'
-                : approvalState === 'processing'
-                  ? 'bg-blue-400 cursor-wait'
-                  : approvalState === 'confirming'
-                    ? 'bg-blue-700 hover:bg-blue-800'
-                    : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-          >
-            {approvalState === 'processing'
-              ? 'Approving...'
-              : approvalState === 'confirming'
-                ? `Confirm: approve ${remainingCount} remaining`
-                : `Approve remaining ${remainingCount}`}
-          </button>
+      {/* Group tabs */}
+      {groups.length > 1 && (
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Prospect batches">
+          {groups.map(group => {
+            const active = group.key === selectedGroup?.key
+            return (
+              <button
+                key={group.key}
+                role="tab"
+                aria-selected={active}
+                onClick={() => setSelectedKey(group.key)}
+                className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
+                  active
+                    ? 'bg-gray-900 text-white border-gray-900'
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                {group.label}
+                <span className={`ml-2 text-xs ${active ? 'text-gray-300' : 'text-gray-500'}`}>
+                  {group.prospects.length}
+                </span>
+              </button>
+            )
+          })}
         </div>
       )}
 
-      {/* Removal Reason Modal */}
+      {selectedGroup && (
+        <>
+          <p className="text-sm text-gray-600">{selectedGroup.subtitle}</p>
+
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+            <div>{selectedGroup.prospects.map(p => renderProspectRow(p, selectedGroup.isTask))}</div>
+          </div>
+        </>
+      )}
+
+      {/* Approval only exists while something is pending. Once approved this whole
+          section is gone rather than disabled: the page is a record, not a dead task. */}
+      {hasPending && (
+        approvalState === 'done' ? (
+          <div className="bg-green-50 rounded-lg border border-green-200 p-8 text-center">
+            <p className="text-lg font-semibold text-green-900">Done. We will take it from here.</p>
+            <p className="text-sm text-green-800 mt-2">Updating your list...</p>
+          </div>
+        ) : (
+          <div className="flex justify-center">
+            <button
+              onClick={handleApproveAll}
+              disabled={remainingCount === 0}
+              className={`px-8 py-3 rounded font-semibold text-white transition-colors ${
+                remainingCount === 0
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : approvalState === 'processing'
+                    ? 'bg-blue-400 cursor-wait'
+                    : approvalState === 'confirming'
+                      ? 'bg-blue-700 hover:bg-blue-800'
+                      : 'bg-blue-600 hover:bg-blue-700'
+              }`}
+            >
+              {approvalState === 'processing'
+                ? 'Approving...'
+                : approvalState === 'confirming'
+                  ? `Confirm: approve ${remainingCount} remaining`
+                  : `Approve remaining ${remainingCount}`}
+            </button>
+          </div>
+        )
+      )}
+
       {removingProspectId && (
         <RemovalReasonModal
           prospectName={removingProspectName}

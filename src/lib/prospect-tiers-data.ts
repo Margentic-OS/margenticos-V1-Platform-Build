@@ -19,6 +19,10 @@ export interface Prospect {
   website_url: string | null
   client_review_status: string | null
   client_review_reason: string | null
+  // The batch a prospect entered the campaign with. The roster groups on this, so a
+  // prospect that becomes sendable later joins whichever batch actually uploads it.
+  outbound_upload_attempted_at: string | null
+  email_send_eligible: boolean | null
 }
 
 export interface TierData {
@@ -170,7 +174,7 @@ async function getTierData(
 
   const { data: prospectData, error: prospectError } = await adminClient
     .from('prospects')
-    .select('id, first_name, last_name, company_name, job_title, linkedin_url, website_url, client_review_status, client_review_reason')
+    .select('id, first_name, last_name, company_name, job_title, linkedin_url, website_url, client_review_status, client_review_reason, outbound_upload_attempted_at, email_send_eligible')
     .eq('organisation_id', orgId)
     .eq('sourced_tier', tier)
     .not('tier_published_at', 'is', null)
@@ -196,6 +200,8 @@ async function getTierData(
     website_url: p.website_url,
     client_review_status: p.client_review_status,
     client_review_reason: p.client_review_reason,
+    outbound_upload_attempted_at: p.outbound_upload_attempted_at,
+    email_send_eligible: p.email_send_eligible,
   }))
 
   return {
