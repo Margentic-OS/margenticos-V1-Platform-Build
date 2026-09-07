@@ -1,6 +1,22 @@
 -- Drop the policy that let a client WRITE a prospects row it could not READ.
 --
--- Status: PENDING
+-- Status: APPLIED (verified live 2026-09-07)
+--
+-- READ-BACK RESULTS, measured after applying:
+--
+--   pg_policies on prospects -> exactly two rows, as expected:
+--     clients_read_own_prospects_denied  SELECT  {authenticated}  false
+--     operators_full_access_prospects    ALL     {authenticated}  is_operator()
+--
+--   has_table_privilege -> anon all false; authenticated and service_role all true.
+--     Correct and expected: the grant is shared with operators, RLS is what separates them.
+--
+-- BEHAVIOURAL CHECKS, which a privilege read cannot make:
+--   acting as the OPERATOR  -> 208 prospects visible, 129 for MargenticOS. Unbroken.
+--   acting as the CLIENT    -> 0 prospects visible, 0 rows through client_prospects_view.
+--   client UPDATE probe, inside BEGIN ... ROLLBACK
+--                           -> 0 rows writable, where it could previously have written 129.
+--   client roster           -> still 103, unchanged. 95 still in a live campaign.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHAT WAS WRONG
