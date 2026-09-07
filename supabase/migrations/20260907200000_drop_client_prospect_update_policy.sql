@@ -1,0 +1,94 @@
+-- Drop the policy that let a client WRITE a prospects row it could not READ.
+--
+-- Status: PENDING
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHAT WAS WRONG
+--
+-- Two policies on public.prospects disagreed with each other:
+--
+--   clients_read_own_prospects_denied   SELECT  USING (false)
+--   clients_update_own_prospect_review  UPDATE  USING (organisation_id = get_my_organisation_id())
+--
+-- A client could change a row it was not permitted to read. That is upside down on its
+-- own, and it had a consequence: an RLS denial is not an error, so every client-facing
+-- SELECT through a session client returned zero rows silently.
+--
+-- Two tier lock guards were built on such a read. Both read prospects as the client, both
+-- got an empty result, both concluded nothing had been uploaded, and the UPDATE below them
+-- succeeded anyway, because UPDATE was the one thing the policy allowed. On the live
+-- organisation that was 95 prospects already in a live campaign that a client could have
+-- unsanctioned mid-send. The reads were fixed in 93bc18f; this removes the cause.
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHY THIS DROPS A POLICY AND DOES **NOT** REVOKE THE TABLE GRANT
+--
+-- The instinct from the CLAUDE.md rule "RLS is one layer, not the only one" is to also run
+--
+--     REVOKE ALL ON TABLE public.prospects FROM anon, authenticated;
+--
+-- DO NOT DO THAT ON THIS TABLE. It would break every operator sourcing screen.
+--
+-- operators_full_access_prospects is ALL ... USING (is_operator()) on the **authenticated**
+-- role. Operators authenticate as `authenticated`, exactly like clients; the only thing
+-- separating the two personas is the is_operator() predicate inside the policy. And the
+-- operator screens read prospects through the SESSION client:
+--
+--     dashboard/operator/sourcing-review/review/page.tsx    (2 reads, session client)
+--     dashboard/operator/sourcing-review/approve/page.tsx   (1 read, session client)
+--     lib/operator/sourcing-metrics.ts                      (session client)
+--
+-- Revoking from `authenticated` removes the operator's access along with the client's, and
+-- it does it SILENTLY: RLS and grant denials both return zero rows rather than an error, so
+-- the sourcing screens would simply go blank. That is the 2026-06-05 incident exactly, a
+-- REVOKE that forgot a legitimate caller and failed quietly for days.
+--
+-- SO, RECORDED RATHER THAN PRETENDED: **on this table the second layer underneath RLS is
+-- not available.** One database role serves two personas that are separated only by a rule
+-- inside a policy, so any grant-level control necessarily hits both. RLS is the only layer
+-- here, and that is a property of the role model, not an oversight. Changing it would mean
+-- giving operators their own role, which is a much larger change than this one.
+--
+-- anon needs nothing: it already holds no privilege on prospects, verified before writing.
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHY DROPPING IS SAFE: NOTHING LIVE USED IT
+--
+-- Every client-facing write path to prospects, audited before this migration:
+--
+--   client/prospects/reject              service-role route   LIVE (ProspectReviewClient)
+--   client/prospects/approve-all         service-role route   LIVE (ProspectReviewClient)
+--   client/prospects/[id]/reject         session UPDATE       no caller, DELETED in bbd393c
+--   prospect-tiers/[tier]/sanction       session UPDATE       no caller, DELETED in bbd393c
+--   prospect-tiers/[tier]/unsanction     session UPDATE       no caller, DELETED in bbd393c
+--
+-- The two paths a client actually uses already go through service-role routes that own
+-- their own auth. The three session-client writers were orphaned by the roster rebuild and
+-- were deleted FIRST, in bbd393c, deliberately: removing the last reference to a permission
+-- before removing the permission means there is never a window where a live route silently
+-- writes zero rows.
+
+DROP POLICY IF EXISTS clients_update_own_prospect_review ON public.prospects;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- READ-BACK, BOTH DIRECTIONS. Run after applying; expected results in the comments.
+--
+--   SELECT policyname, cmd, roles::text, qual
+--     FROM pg_policies WHERE schemaname='public' AND tablename='prospects';
+--   -- expect exactly two rows:
+--   --   clients_read_own_prospects_denied  SELECT  {authenticated}  false
+--   --   operators_full_access_prospects    ALL     {authenticated}  is_operator()
+--
+--   SELECT r.rolname,
+--          has_table_privilege(r.rolname,'public.prospects','SELECT') AS sel,
+--          has_table_privilege(r.rolname,'public.prospects','INSERT') AS ins,
+--          has_table_privilege(r.rolname,'public.prospects','UPDATE') AS upd,
+--          has_table_privilege(r.rolname,'public.prospects','DELETE') AS del
+--     FROM (SELECT unnest(ARRAY['anon','authenticated','service_role']) AS rolname) r;
+--   -- expect anon all false; authenticated and service_role all true at the GRANT level,
+--   -- which is correct and is what the note above explains: the grant is shared with
+--   -- operators and RLS is what separates them.
+--
+-- And two behavioural checks that a privilege read cannot make for you:
+--   - an operator still sees prospects on the sourcing review screens
+--   - the client roster still renders 103
