@@ -124,4 +124,12 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   // read for two days. Those are channels somebody has to go and look at. This one is read
   // on every sweep.
   ['MON-030', 'mon_030'],
+  // Unattributable replies held in quarantine, added 2026-09-07. Numbered 031 because 030
+  // was taken by the email-delivery monitor above, which landed on main the same day from
+  // another branch. Two monitors were independently written as MON-030; this is the one
+  // that moved.
+  //
+  // Born dark by nature: an empty table and a broken quarantine write read identically, so
+  // the view says so in its own OK detail rather than implying proof it does not have.
+  ['MON-031', 'mon_031'],
 ] as const

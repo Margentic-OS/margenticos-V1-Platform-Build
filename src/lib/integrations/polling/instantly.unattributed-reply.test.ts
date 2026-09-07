@@ -1,30 +1,40 @@
-// A reply the poller cannot attribute must not clear the poller's error state.
+// A reply the poller cannot attribute is parked, not dropped.
 //
 // ═══════════════════════════════════════════════════════════════════════════════
-// THE DEFECT THIS CLOSES
+// WHAT THIS BRANCH USED TO DO
 //
-// A reply whose campaign_id resolves to no row in `campaigns` is dropped permanently:
-// the cursor advances past it and nothing re-reads it. That much is deliberate, because
-// the failure is deterministic and holding the cursor would stall every later reply.
-//
-// What was NOT deliberate: the branch never called recordPollFailure. writePollState
-// writes
+// A reply whose campaign_id resolved to no row in `campaigns` was discarded: the cursor
+// advanced past it and nothing re-read it. Worse, the branch never called
+// recordPollFailure, and writePollState writes
 //     error_count: state.failures > 0 ? prior + state.failures : 0
 //     last_error:  state.failures > 0 ? state.firstError : null
-// so the run that lost the reply left state.failures at 0 and reset error_count to 0 and
-// last_error to NULL. It destroyed the record of earlier runs' real failures on its way
-// past. MON-027 reads error_count, saw 0, reported OK.
+// so the run that lost the reply reset error_count to 0 and last_error to NULL,
+// destroying the record of earlier runs' real failures on its way past. MON-027 reads
+// error_count, saw 0, reported OK.
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+// WHAT IT DOES NOW
+//
+// The reply is QUARANTINED with the provider's campaign id and email id, and registering
+// that campaign replays it into a real signal. This is possible because the reply poll is
+// workspace-wide: the poller already had the reply in hand, and was throwing it away.
+//
+// So the unresolved-campaign case is no longer counted as an error. It is a handled
+// outcome, and counting it would pin MON-002 red on every run holding a quarantined
+// reply. MON-030 owns the alerting. recordPollFailure now fires here only when the
+// QUARANTINE WRITE ITSELF FAILS, which is the case where the reply really is lost.
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 // WHY THESE ASSERT ON THE CAMPAIGN ID AND NOT ON "NOT NULL"
 //
 // A non-null last_error only proves something was recorded. What an operator needs is
 // WHICH campaign to register, and that string is the entire remedy. A test satisfied by
-// any non-empty message would pass against a message that says "an error occurred", which
-// is the failure this row exists to end.
+// any non-empty message would pass against one saying "an error occurred".
 //
-// MUTATION PROOF: delete the recordPollFailure call from the unresolved-campaign branch in
-// instantly.ts and the first two tests here go red.
+// MUTATION PROOFS:
+//   remove the quarantineReply call            -> "parks the reply" goes red
+//   drop the failed-write recordPollFailure    -> "records a poll failure ONLY" goes red
+//   record a failure on the success path too   -> "parks the reply" goes red on result.errors
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
@@ -53,9 +63,12 @@ const UNREGISTERED_EXTERNAL_ID = 'campaign-nobody-registered'
 // The campaigns lookup honours external_id, because that is the filter under test: a
 // fake that returned the same campaign whatever it was asked for could not tell a
 // resolved campaign from an unresolved one, and every assertion below would be vacuous.
-function createFakeSupabase(opts: { priorErrorCount?: number } = {}) {
+function createFakeSupabase(
+  opts: { priorErrorCount?: number; failQuarantineWrite?: boolean } = {}
+) {
   const cursorUpserts: Record<string, unknown>[] = []
   const signalInserts: Record<string, unknown>[] = []
+  const quarantined: Record<string, unknown>[] = []
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const client: any = {
@@ -95,6 +108,18 @@ function createFakeSupabase(opts: { priorErrorCount?: number } = {}) {
         return builder
       }
 
+      if (table === 'unattributed_replies') {
+        return {
+          insert: async (row: Record<string, unknown>) => {
+            if (opts.failQuarantineWrite) {
+              return { error: { code: '23514', message: 'quarantine insert refused' } }
+            }
+            quarantined.push(row)
+            return { error: null }
+          },
+        }
+      }
+
       if (table === 'signals') {
         return {
           insert: (row: Record<string, unknown>) => ({
@@ -111,7 +136,7 @@ function createFakeSupabase(opts: { priorErrorCount?: number } = {}) {
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  return { client, cursorUpserts, signalInserts }
+  return { client, cursorUpserts, signalInserts, quarantined }
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -143,39 +168,60 @@ afterEach(() => {
 })
 
 describe('a reply on an unregistered campaign is recorded, not silently swallowed', () => {
-  it('names the provider campaign id in last_error, so the operator knows what to register', async () => {
+  it('parks the reply with its provider campaign id, rather than dropping it', async () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
       jsonResponse({ items: [replyRow('email-1', UNREGISTERED_EXTERNAL_ID)] })
     ))
 
-    const { client, cursorUpserts, signalInserts } = createFakeSupabase()
+    const { client, signalInserts, quarantined } = createFakeSupabase()
     const result = await pollInstantlyReplies(client, 'test-key')
 
+    // No signal, because no organisation could be resolved. But the reply survives.
     expect(signalInserts).toHaveLength(0)
-    expect(result.errors).toBe(1)
-
-    const row = onlyUpsert(cursorUpserts)
-    // The remedy, not merely the existence of a problem.
-    expect(row.last_error).toContain(UNREGISTERED_EXTERNAL_ID)
-    expect(row.last_error).toContain('not registered')
+    expect(quarantined).toHaveLength(1)
+    expect(quarantined[0].provider_campaign_id).toBe(UNREGISTERED_EXTERNAL_ID)
+    expect(quarantined[0].provider_email_id).toBe('email-1')
+    // Counted as skipped, NOT as an error: a quarantined reply is a handled outcome and
+    // reddening MON-002 on every run that holds one would pin the poll heartbeat.
+    expect(result.errors).toBe(0)
+    expect(result.skipped).toBe(1)
   })
 
-  it('ADDS to error_count instead of resetting it, so an earlier failure survives', async () => {
-    // This is the erasure. Before the fix this run wrote error_count 0 over a prior 4.
+  it('records a poll failure ONLY when the quarantine write itself fails', async () => {
+    // This is the case where the reply really is lost, so it must be loud. The campaign id
+    // is in the message because that is the remedy, not merely the symptom.
     vi.stubGlobal('fetch', vi.fn(async () =>
       jsonResponse({ items: [replyRow('email-1', UNREGISTERED_EXTERNAL_ID)] })
     ))
 
-    const { client, cursorUpserts } = createFakeSupabase({ priorErrorCount: 4 })
-    await pollInstantlyReplies(client, 'test-key')
+    const { client, cursorUpserts } = createFakeSupabase({ failQuarantineWrite: true })
+    const result = await pollInstantlyReplies(client, 'test-key')
 
+    expect(result.errors).toBe(1)
     const row = onlyUpsert(cursorUpserts)
-    expect(row.error_count).toBe(5)
+    expect(row.last_error).toContain(UNREGISTERED_EXTERNAL_ID)
+    expect(row.last_error).toContain('could not be quarantined')
   })
 
-  it('still advances the cursor, because the failure is deterministic', async () => {
-    // Recorded is not the same as held. Holding here would stall every later reply behind
-    // a payload that can never succeed, which is strictly worse than dropping it loudly.
+  it('ADDS to error_count instead of resetting it when a reply is genuinely lost', async () => {
+    // The erasure this closes: a run that lost a reply used to write error_count 0 over a
+    // prior 4, destroying the record of earlier failures on its way past.
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ items: [replyRow('email-1', UNREGISTERED_EXTERNAL_ID)] })
+    ))
+
+    const { client, cursorUpserts } = createFakeSupabase({
+      priorErrorCount: 4,
+      failQuarantineWrite: true,
+    })
+    await pollInstantlyReplies(client, 'test-key')
+
+    expect(onlyUpsert(cursorUpserts).error_count).toBe(5)
+  })
+
+  it('still advances the cursor, because the reply is safely parked', async () => {
+    // Quarantined is not held. Holding here would stall every later reply behind a payload
+    // that can never resolve until an operator acts, which is strictly worse.
     vi.stubGlobal('fetch', vi.fn(async () =>
       jsonResponse({ items: [replyRow('email-1', UNREGISTERED_EXTERNAL_ID)] })
     ))

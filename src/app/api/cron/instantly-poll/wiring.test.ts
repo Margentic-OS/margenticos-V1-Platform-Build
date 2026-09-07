@@ -106,6 +106,13 @@ vi.mock('@supabase/supabase-js', () => ({
         select: () => builder,
         is: () => builder,
         eq: () => builder,
+        // The quarantine retention sweep rides this route and issues delete().lt() and
+        // update().lt().is().is(), so the catch-all builder has to carry them. Added when
+        // retention landed: without them the route threw AFTER the calls under test had
+        // already happened, which is the loud-fake behaviour this file wants.
+        lt: () => builder,
+        delete: () => builder,
+        update: () => builder,
         maybeSingle: async () => ({ data: null, error: null }),
         upsert: async () => ({ error: null }),
         insert: async () => ({ error: null }),

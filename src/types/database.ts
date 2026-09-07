@@ -2080,6 +2080,51 @@ export type Database = {
           },
         ]
       }
+      unattributed_replies: {
+        Row: {
+          body_redacted_at: string | null
+          eaccount: string | null
+          first_seen_at: string
+          id: string
+          last_seen_at: string
+          original_outbound_body: string | null
+          provider: string
+          provider_campaign_id: string | null
+          provider_email_id: string
+          raw_data: Json | null
+          resolved_at: string | null
+          resolved_signal_id: string | null
+        }
+        Insert: {
+          body_redacted_at?: string | null
+          eaccount?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          original_outbound_body?: string | null
+          provider?: string
+          provider_campaign_id?: string | null
+          provider_email_id: string
+          raw_data?: Json | null
+          resolved_at?: string | null
+          resolved_signal_id?: string | null
+        }
+        Update: {
+          body_redacted_at?: string | null
+          eaccount?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          original_outbound_body?: string | null
+          provider?: string
+          provider_campaign_id?: string | null
+          provider_email_id?: string
+          raw_data?: Json | null
+          resolved_at?: string | null
+          resolved_signal_id?: string | null
+        }
+        Relationships: []
+      }
       reply_reconciliation_snapshot: {
         Row: {
           campaigns_checked: number
