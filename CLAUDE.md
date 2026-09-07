@@ -506,8 +506,26 @@ suite needs `npx dotenv -e .env.test.local -- npx vitest run`. Without that file
 run **silently skips 33 tests, including cross-organisation isolation, and reports
 green**. Measured on 2026-09-04: 1,830 tests on a stale tree without the env file,
 against **2,938 on main with it**. A green run at the wrong count is the same class of
-lie as the clean tree and the Notion listing. **State the test count.** Below ~2,924
-means the env file is not being read.
+lie as the clean tree and the Notion listing. **State the test count.**
+
+**THE FLOOR IS ~3,300, measured on main 2026-09-07. The ~2,924 figure above is
+SUPERSEDED, not wrong when it was written.** It is kept because the ratio is the part
+that matters: the env file was worth about 1,100 tests in September 2026, and a run
+missing it still reports green. The absolute number only ever moves up, so a floor is a
+perishable fact and the next session should expect to move it again rather than trust
+this line.
+
+Measured at c44c66c: **3,302 tests across 233 files**. The same tree plus the three
+money-filter guards, minus ten deleted assert-nothing cases, is **3,305 across 236**.
+So below ~3,300 means the env file is probably not being read; a drop of a few tests
+with the file present means someone deleted a test, which is a different question and
+should be answered from the git history rather than from this line.
+
+**A count is not a health check.** Roughly 8 to 11 live-database files fail on any given
+full run, and the set CHANGES between identical runs on the same commit: measured on
+2026-09-07, two runs at c44c66c failed eight files each and the two sets overlapped by
+only four. Before treating any failure as yours, re-run it at the merge base. An
+unchanged failing file is noise from a shared test database, not a regression.
 
 ### Label every finding by evidence type, because they expire differently
 

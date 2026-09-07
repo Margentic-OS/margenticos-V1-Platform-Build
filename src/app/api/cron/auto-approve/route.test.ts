@@ -78,19 +78,3 @@ describe('Auto-approve window logic', () => {
     expect(isDue).toBe(false)
   })
 })
-
-describe('Auto-approve client-revision exclusion', () => {
-  it('client-revision suggestions (update_trigger="client_revision") are excluded from auto-approval', () => {
-    // This test verifies the query filter .neq('update_trigger', 'client_revision')
-    // is present in the route's row selection logic.
-    // The route must not auto-approve suggestions with update_trigger='client_revision'.
-    // Instead, MON-006 monitor surfaces these for operator review.
-    expect(true).toBe(true) // Placeholder: actual test runs via vitest against live DB
-  })
-
-  it('agent-originated suggestions (update_trigger IS NULL) ARE auto-approved when due', () => {
-    // Agent-generated suggestions have NULL update_trigger.
-    // These should be auto-approved if their created_at + auto_approve_window_hours has passed.
-    expect(true).toBe(true) // Placeholder: actual test runs via vitest against live DB
-  })
-})
