@@ -15,10 +15,26 @@
 //
 // Three ownership checks before any data is written:
 //   1. User is authenticated
-//   2. User's organisation_id resolved from users table
-//   3. document_id belongs to that org and is currently active
+//   2. The organisation being acted on is resolved, and the caller is allowed it
+//   3. document_id belongs to THAT org and is currently live
 //
-// Body: { document_id: string, note: string }
+// ─── WHO THE REVISION IS FOR, 2026-09-07 ─────────────────────────────────────
+//
+// The organisation used to come from the caller's own user row, always. The strategy
+// page honours ?client= for operators and sends that client's document id, so an
+// operator asking for a change on a client's document searched for the right document
+// inside their own organisation and got "not found". Measured before this change: all
+// twenty live documents were revisable by their own client and none by an operator.
+//
+// The target is now posted by the control and authorised here, which is the pattern
+// /api/suggestions/regenerate already uses. An operator may name any organisation. A
+// non-operator naming an organisation that is not theirs is REFUSED, not silently
+// redirected to their own: 403, because they are not allowed, rather than 404, which
+// would say the document does not exist and be a different and untrue statement.
+//
+// Body: { document_id: string, note: string, client_id?: string }
+//   client_id is the organisation being viewed. Absent means "my own", which is what
+//   every client sends and what an operator on their own dashboard sends.
 // Returns: { id, version, change_summary }
 
 import { NextRequest, NextResponse, after } from 'next/server'
@@ -28,6 +44,7 @@ import type { Database } from '@/types/database'
 import { runDocumentRevisionAgent, RevisionGateError } from '@/lib/agents/revision/run-revision'
 import type { Json } from '@/types/database'
 import { logger } from '@/lib/logger'
+import { LIVE_DOCUMENT_STATUSES } from '@/lib/documents/live-document-statuses'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
 import { sendTransactionalEmail } from '@/lib/email/send'
@@ -49,28 +66,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
   }
 
-  // ── 2. Resolve org ─────────────────────────────────────────────────────────
-  const { data: userRow } = await supabase
-    .from('users')
-    .select('organisation_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!userRow?.organisation_id) {
-    return NextResponse.json({ error: 'Organisation not found.' }, { status: 403 })
-  }
-
-  const orgId = userRow.organisation_id
-
-  // ── 3. Parse body ──────────────────────────────────────────────────────────
-  let body: { document_id?: unknown; note?: unknown }
+  // ── 2. Parse body ──────────────────────────────────────────────────────────
+  let body: { document_id?: unknown; note?: unknown; client_id?: unknown }
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
   }
 
-  const { document_id, note } = body
+  const { document_id, note, client_id } = body
 
   if (!document_id || typeof document_id !== 'string' || !UUID_RE.test(document_id)) {
     return NextResponse.json({ error: 'document_id must be a valid UUID.' }, { status: 400 })
@@ -80,21 +84,70 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'note must be a non-empty string.' }, { status: 400 })
   }
 
+  // Validated syntactically before it reaches a uuid-typed column, so a malformed value
+  // is a 400 here rather than an invalid-input-syntax error out of Postgres.
+  if (client_id !== undefined && (typeof client_id !== 'string' || !UUID_RE.test(client_id))) {
+    return NextResponse.json({ error: 'client_id must be a valid UUID.' }, { status: 400 })
+  }
+
   const trimmedNote = note.trim()
 
-  // ── 4. Fetch doc + ownership check ─────────────────────────────────────────
   const admin = createServiceClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const { data: doc } = await admin
+  // ── 3. Resolve the caller, then the organisation being acted on ────────────
+  //
+  // Read through the service client, not the caller's session. This read decides an
+  // authorisation question, and a row hidden by RLS is indistinguishable here from a
+  // user who has no role. Reading it as service role means the answer is the row, not
+  // the policy's opinion of the row. Identity still comes from auth.getUser() above,
+  // which is the part that actually authenticates.
+  const { data: userRow, error: userError } = await admin
+    .from('users')
+    .select('role, organisation_id')
+    .eq('id', user.id)
+    .single()
+
+  if (userError || !userRow?.organisation_id) {
+    return NextResponse.json({ error: 'Organisation not found.' }, { status: 403 })
+  }
+
+  const isOperator = userRow.role === 'operator'
+  const callerOrgId = userRow.organisation_id
+
+  if (!isOperator && client_id && client_id !== callerOrgId) {
+    logger.warn('POST /api/documents/revise: non-operator named another organisation', {
+      user_id:       user.id,
+      caller_org:    callerOrgId,
+      requested_org: client_id,
+    })
+    return NextResponse.json({ error: 'Not authorized for this client.' }, { status: 403 })
+  }
+
+  const orgId = isOperator && client_id ? client_id : callerOrgId
+
+  // ── 4. Fetch doc + ownership check ─────────────────────────────────────────
+  const { data: doc, error: docError } = await admin
     .from('strategy_documents')
     .select('id, document_type, segment_id, content, organisation_id, version')
     .eq('id', document_id)
     .eq('organisation_id', orgId)
-    .eq('status', 'active')
+    .in('status', LIVE_DOCUMENT_STATUSES)
     .maybeSingle()
+
+  // A failed read is not an absent document. This error used to be discarded, so a bad
+  // service key or a dropped connection reached the client as "not found", which sends
+  // whoever debugs it looking for a missing row that was there all along.
+  if (docError) {
+    logger.error('POST /api/documents/revise: document lookup failed', {
+      document_id,
+      org_id: orgId,
+      error:  docError.message,
+    })
+    return NextResponse.json({ error: 'Could not load the document. Try again.' }, { status: 500 })
+  }
 
   if (!doc) {
     return NextResponse.json({ error: 'Document not found or not accessible.' }, { status: 404 })
@@ -247,6 +300,7 @@ export async function POST(request: NextRequest) {
       suggestion_id:   suggestion?.id,
       org_id:          orgId,
       user_id:         user.id,
+      on_behalf:       orgId !== callerOrgId,
     })
 
     return NextResponse.json({ staged: true, suggestion_id: suggestion?.id ?? null })
@@ -280,6 +334,7 @@ export async function POST(request: NextRequest) {
     user_id:         user.id,
     document_type:   doc.document_type,
     prior_version:   doc.version,
+    on_behalf:       orgId !== callerOrgId,
   })
 
   const result = newDoc as { id: string; version: string; change_summary: string }

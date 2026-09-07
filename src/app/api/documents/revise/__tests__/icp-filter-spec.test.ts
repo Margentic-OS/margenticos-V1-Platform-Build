@@ -13,9 +13,22 @@
 // not the one that was revised. Passing the old id would derive a spec from stale content
 // and write it to a row that is already archived, which is the version of this fix that
 // would look right and do nothing.
+//
+// ─── WHAT CHANGED HERE, 2026-09-07 ───────────────────────────────────────────
+//
+// The doubles returned OLD_DOC for any filter, so this file passed without the lookup
+// having matched anything. It now runs against a fake that honours filters and is seeded
+// with the document being revised, so the route has to find it before any of the
+// assertions below are reached. See fake-supabase.ts.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
+import { makeFakeSupabase, type Row } from './fake-supabase'
+
+const ORG = '22222222-2222-2222-2222-222222222222'
+const OLD_DOC_ID = '11111111-1111-1111-1111-111111111111'
+const NEW_DOC_ID = '99999999-9999-9999-9999-999999999999'
+const USER = 'the-signed-in-user'
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -49,14 +62,7 @@ vi.mock('next/server', async (importOriginal) => {
 
 const mockGetUser = vi.fn()
 vi.mock('@supabase/ssr', () => ({
-  createServerClient: vi.fn(() => ({
-    auth: { getUser: mockGetUser },
-    from: () => ({
-      select: function () { return this },
-      eq: function () { return this },
-      single: vi.fn().mockResolvedValue({ data: { organisation_id: 'test-org-id' } }),
-    }),
-  })),
+  createServerClient: vi.fn(() => ({ auth: { getUser: mockGetUser } })),
 }))
 
 const persistIcpFilterSpec = vi.fn().mockResolvedValue(undefined)
@@ -73,55 +79,13 @@ vi.mock('@/lib/email/send', () => ({
   sendTransactionalEmail: vi.fn().mockResolvedValue({ success: true, messageId: 'm' }),
 }))
 
-const OLD_DOC = {
-  id: 'old-doc-uuid',
-  document_type: 'icp',
-  segment_id: null,
-  content: { summary: 'Before.' },
-  organisation_id: 'test-org-id',
-  version: '3',
-}
+const NEW_DOC = { id: NEW_DOC_ID, version: '4', change_summary: 'Made the summary shorter.' }
 
-const NEW_DOC = { id: 'new-doc-uuid', version: '4', change_summary: 'Made the summary shorter.' }
-
-function ownershipChain() {
-  return {
-    select: function () { return this },
-    eq: function () { return this },
-    maybeSingle: vi.fn().mockResolvedValue({ data: OLD_DOC }),
-  }
-}
-
-function countChain() {
-  const chain: Record<string, unknown> = {}
-  chain['select'] = () => chain
-  chain['eq'] = () => chain
-  chain['neq'] = () => chain
-  chain['gte'] = () => chain
-  chain['then'] = (resolve: (v: unknown) => unknown) =>
-    Promise.resolve({ count: 0, error: null }).then(resolve)
-  return chain
-}
-
-let strategyDocCalls = 0
-const rpc = vi.fn().mockResolvedValue({ data: NEW_DOC, error: null })
+let fake: ReturnType<typeof makeFakeSupabase>
+const rpcCalls: Array<{ fn: string; args: Row }> = []
 
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({
-    from: (table: string) => {
-      if (table === 'strategy_documents') {
-        strategyDocCalls++
-        return strategyDocCalls === 1 ? ownershipChain() : countChain()
-      }
-      if (table === 'document_suggestions') return countChain()
-      return {
-        select: function () { return this },
-        eq: function () { return this },
-        single: vi.fn().mockResolvedValue({ data: { name: 'An organisation' } }),
-      }
-    },
-    rpc: (...args: unknown[]) => rpc(...args),
-  })),
+  createClient: vi.fn(() => fake.client),
 }))
 
 function request(body: unknown) {
@@ -134,25 +98,43 @@ function request(body: unknown) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  strategyDocCalls = 0
-  rpc.mockResolvedValue({ data: NEW_DOC, error: null })
+  rpcCalls.length = 0
   persistIcpFilterSpec.mockResolvedValue(undefined)
   triggerCascadeIfEligible.mockResolvedValue(undefined)
-  mockGetUser.mockResolvedValue({ data: { user: { id: 'test-user-id' } }, error: null })
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER } }, error: null })
+
+  fake = makeFakeSupabase({
+    tables: {
+      users: [{ id: USER, role: 'client', organisation_id: ORG }],
+      strategy_documents: [{
+        id: OLD_DOC_ID, organisation_id: ORG, document_type: 'icp',
+        status: 'active', segment_id: null, version: '3',
+        content: { summary: 'Before.' },
+        update_trigger: 'signal_suggestion',
+        created_at: '2020-01-01T00:00:00.000Z',
+      }],
+      document_suggestions: [],
+      organisations: [{ id: ORG, name: 'An organisation' }],
+    },
+    rpc: (fn, args) => {
+      rpcCalls.push({ fn, args })
+      return { data: NEW_DOC, error: null }
+    },
+  })
 })
 
 describe('a client revision to the prospect profile derives its filter spec', () => {
   it('calls persistIcpFilterSpec with the NEW document id, and still runs the sequencer', async () => {
     const { POST } = await import('../route')
     const res = await POST(request({
-      document_id: '11111111-1111-1111-1111-111111111111',
+      document_id: OLD_DOC_ID,
       note: 'Shorten the summary.',
     }))
 
     expect(res.status).toBe(200)
     expect(persistIcpFilterSpec).toHaveBeenCalledTimes(1)
     expect(persistIcpFilterSpec.mock.calls[0][1]).toBe(NEW_DOC.id)
-    expect(persistIcpFilterSpec.mock.calls[0][1]).not.toBe(OLD_DOC.id)
+    expect(persistIcpFilterSpec.mock.calls[0][1]).not.toBe(OLD_DOC_ID)
 
     // The spec derivation was inserted into the same after() block the cascade already
     // occupied. Both must run: a fix that quietly replaced one deferred call with another
