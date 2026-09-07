@@ -45,7 +45,15 @@ function requireEnv(name: string): string {
   return v
 }
 
-async function readMonitor(supabase: ReturnType<typeof createClient>) {
+function makeSupabase() {
+  return createClient(
+    requireEnv('NEXT_PUBLIC_SUPABASE_URL'),
+    requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
+  )
+}
+type Db = ReturnType<typeof makeSupabase>
+
+async function readMonitor(supabase: Db) {
   const { data, error } = await supabase.from('mon_030').select('state, detail').single()
   if (error) return `could not read mon_030: ${error.message}`
   return `${(data as { state: string }).state} - ${(data as { detail: string }).detail}`
@@ -53,10 +61,7 @@ async function readMonitor(supabase: ReturnType<typeof createClient>) {
 
 async function main() {
   const operatorEmail = requireEnv('RESEND_OPERATOR_EMAIL')
-  const supabase = createClient(
-    requireEnv('NEXT_PUBLIC_SUPABASE_URL'),
-    requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
-  )
+  const supabase = makeSupabase()
 
   console.log('MON-030 before:', await readMonitor(supabase))
   console.log()
