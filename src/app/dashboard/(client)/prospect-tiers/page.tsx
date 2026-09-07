@@ -5,6 +5,7 @@ import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import { getClientProspectTiers } from '@/lib/prospect-tiers-data'
 import type { TierData, Prospect } from '@/lib/prospect-tiers-data'
 import { ProspectReviewClient } from './components/ProspectReviewClient'
+import { buildRosterGroups, countPending, countRoster } from '@/lib/dashboard/prospect-roster'
 import { logger } from '@/lib/logger'
 
 function getOrgInitials(name: string): string {
@@ -59,49 +60,34 @@ export default async function ProspectTiersPage() {
   const tier2Data = tierData.find(t => t.tier === 'tier_2')
 
   // Combine all prospects from tier_1 and tier_2, sorted tier_1 first
-  const tier1Prospects: ProspectWithTier[] = (tier1Data?.prospects ?? []).map(p => ({
-    id: p.id,
-    first_name: p.first_name,
-    last_name: p.last_name,
-    company_name: p.company_name,
-    job_title: p.job_title,
-    linkedin_url: p.linkedin_url,
-    website_url: p.website_url,
-    client_review_status: p.client_review_status,
-    client_review_reason: p.client_review_reason,
-    tier: 'tier_1',
-  }))
+  const withTier = (list: Prospect[], tier: ProspectWithTier['tier']): ProspectWithTier[] =>
+    list.map(p => ({ ...p, tier }))
 
-  const tier2Prospects: ProspectWithTier[] = (tier2Data?.prospects ?? []).map(p => ({
-    id: p.id,
-    first_name: p.first_name,
-    last_name: p.last_name,
-    company_name: p.company_name,
-    job_title: p.job_title,
-    linkedin_url: p.linkedin_url,
-    website_url: p.website_url,
-    client_review_status: p.client_review_status,
-    client_review_reason: p.client_review_reason,
-    tier: 'tier_2',
-  }))
+  const allProspects: ProspectWithTier[] = [
+    ...withTier(tier1Data?.prospects ?? [], 'tier_1'),
+    ...withTier(tier2Data?.prospects ?? [], 'tier_2'),
+  ]
 
-  const allProspects: ProspectWithTier[] = [...tier1Prospects, ...tier2Prospects]
-  // Only count prospects explicitly in pending_review status (not auto-approved nulls)
-  const pendingProspects = allProspects.filter(p => p.client_review_status === 'pending_review')
+  // The roster decides what the client sees. It excludes only prospects the client
+  // rejected, and pending prospects we cannot currently email. Everything else appears,
+  // grouped by the batch it entered the campaign with.
+  const groups = buildRosterGroups(allProspects)
+  const pendingCount = countPending(groups)
+  const rosterCount = countRoster(groups)
   const autoSanctionDate = tierData.length > 0 ? tierData[0].auto_sanction_at : null
 
-  // Redirect to overview if no pending prospects (review is one-time handshake)
-  if (pendingProspects.length === 0) {
-    redirect('/dashboard')
-  }
+  // NO REDIRECT WHEN NOTHING IS PENDING. This page used to send the client to /dashboard
+  // once approval completed, which made the list of people being contacted on their
+  // behalf unreachable. It is a permanent record now, so it stays. See Decisions Log
+  // 2026-09-07, superseding the 2026-08-11 decision that hid it.
 
   return (
     <>
       <DashboardTopbar
-        eyebrow="Ready to deploy"
-        title="Review prospects"
+        eyebrow={pendingCount > 0 ? 'Ready to deploy' : 'Your campaign'}
+        title={pendingCount > 0 ? 'Review prospects' : 'Your prospects'}
         subtitle={organisationName}
-        statusLabel="Waiting for approval"
+        statusLabel={pendingCount > 0 ? 'Waiting for approval' : 'Approved'}
         statusVariant="setup"
         orgInitials={getOrgInitials(organisationName)}
       />
@@ -113,14 +99,17 @@ export default async function ProspectTiersPage() {
               <p className="text-xs text-[#8B2020] mb-3">We could not load your prospects. Please refresh the page or contact support if the problem persists.</p>
               <p className="text-xs text-[#8B2020] font-mono bg-[#FFF0E8] p-2 rounded break-all">{fetchError}</p>
             </div>
-          ) : allProspects.length === 0 ? (
+          ) : rosterCount === 0 ? (
             <div className="bg-[#FEF7E6] rounded-[10px] border border-[#F0D080] p-6 text-center">
-              <p className="text-sm text-[#7A4800]">No prospects awaiting your review.</p>
+              <p className="text-sm text-[#7A4800]">
+                No prospects yet. They will appear here as soon as your first list is ready.
+              </p>
             </div>
           ) : (
             <ProspectReviewClient
-              prospects={allProspects}
-              pendingCount={pendingProspects.length}
+              groups={groups}
+              pendingCount={pendingCount}
+              rosterCount={rosterCount}
               autoSanctionDate={autoSanctionDate}
               organisationId={organisationId}
             />

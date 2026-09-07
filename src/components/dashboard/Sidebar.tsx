@@ -14,6 +14,7 @@ interface SidebarProps {
   pipelineUnlocked: boolean
   dashboardState: DashboardState
   pendingProspectsCount: number
+  rosterProspectsCount?: number
   // True once a single email has actually gone out. The setup checklist below cannot be
   // derived from dashboardState alone: 'documents_active' is where a client sits both the
   // day their documents are approved and six weeks later with mail in the field, and the
@@ -82,7 +83,7 @@ function getStepStatus(
   return 'pending'
 }
 
-export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingProspectsCount, outreachStarted, strategyNav, allOrgs }: SidebarProps) {
+export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingProspectsCount, rosterProspectsCount, outreachStarted, strategyNav, allOrgs }: SidebarProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
@@ -188,8 +189,15 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
           })}
         </ul>
 
-        {/* Prospects section */}
-        {pendingProspectsCount > 0 && (
+        {/* Prospects section.
+            THE ENTRY PERSISTS AFTER APPROVAL. It used to render only while something was
+            pending, which combined with the page's own redirect to make the list of
+            people being contacted unreachable the moment the client approved. The roster
+            is a permanent record now, so the nav shows whenever there is a roster at all.
+            See Decisions Log 2026-09-07, superseding the 2026-08-11 decision.
+            rosterProspectsCount is optional so existing callers keep working; when it is
+            not supplied the pending count alone decides, which is the old behaviour. */}
+        {(rosterProspectsCount ?? pendingProspectsCount) > 0 && (
           <>
             <p className="px-2 mb-2 text-[10px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
               Prospects
@@ -205,10 +213,12 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
                       : 'text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]',
                   ].join(' ')}
                 >
-                  <span>Review prospects</span>
-                  <span className="text-[9px] font-medium text-[#F5F0E8] bg-brand-green-accent px-1.5 py-0.5 rounded-[4px]">
-                    {pendingProspectsCount}
-                  </span>
+                  <span>{pendingProspectsCount > 0 ? 'Review prospects' : 'Your prospects'}</span>
+                  {pendingProspectsCount > 0 && (
+                    <span className="text-[9px] font-medium text-[#F5F0E8] bg-brand-green-accent px-1.5 py-0.5 rounded-[4px]">
+                      {pendingProspectsCount}
+                    </span>
+                  )}
                 </Link>
               </li>
             </ul>

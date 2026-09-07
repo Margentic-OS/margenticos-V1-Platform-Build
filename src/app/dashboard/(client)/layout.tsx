@@ -12,6 +12,7 @@ async function resolveDashboardState(
 ): Promise<{
   state: DashboardState
   pendingProspectsCount: number
+  rosterProspectsCount: number
   outreachStarted: boolean
   strategyNav: StrategyNavState
 }> {
@@ -22,6 +23,7 @@ async function resolveDashboardState(
     { count: filledCritical },
     { count: activeDocs },
     { count: pendingCount },
+    { count: rosterCount },
     campaignsResult,
     strategyDocsResult,
     pendingSuggestionsResult,
@@ -44,14 +46,30 @@ async function resolveDashboardState(
         .select('*', { count: 'exact', head: true })
         .eq('organisation_id', orgId)
         .in('status', ['approved', 'active']),
+      // TIER 1 AND TIER 2 ONLY, matching what the roster page actually renders. This
+      // counted every tier, so the badge could exceed the page: on the live organisation
+      // 5 tier-3 prospects sat at pending_review while the page showed none of them.
       supabase
         .from('prospects')
         .select('*', { count: 'exact', head: true })
         .eq('organisation_id', orgId)
         .eq('client_review_status', 'pending_review')
-        .not('sourced_tier', 'is', null)
+        .in('sourced_tier', ['tier_1', 'tier_2'])
         .not('tier_published_at', 'is', null)
         .eq('suppressed', false),
+      // Does the client have a roster at all? The nav entry persists after approval, so
+      // its visibility is driven by "is there anything to show" rather than by pending
+      // work. Deliberately does not model the roster's pending-and-unsendable exclusion:
+      // that would need a filter PostgREST cannot express cleanly, and over-counting only
+      // risks landing on the page's empty state rather than hiding a real list.
+      supabase
+        .from('prospects')
+        .select('*', { count: 'exact', head: true })
+        .eq('organisation_id', orgId)
+        .in('sourced_tier', ['tier_1', 'tier_2'])
+        .not('tier_published_at', 'is', null)
+        .eq('suppressed', false)
+        .or('client_review_status.is.null,client_review_status.neq.rejected'),
       // campaigns is one of the few tables a client session CAN read
       // (clients_read_own_campaigns), so the session client is correct here.
       supabase
@@ -92,7 +110,13 @@ async function resolveDashboardState(
     (pendingSuggestionsResult.data ?? []).map(r => r.document_type),
   )
 
-  return { state, pendingProspectsCount: pendingCount ?? 0, outreachStarted, strategyNav }
+  return {
+    state,
+    pendingProspectsCount: pendingCount ?? 0,
+    rosterProspectsCount: rosterCount ?? 0,
+    outreachStarted,
+    strategyNav,
+  }
 }
 
 export default async function ClientLayout({
@@ -135,6 +159,7 @@ export default async function ClientLayout({
     : {
         state: 'intake_incomplete' as const,
         pendingProspectsCount: 0,
+        rosterProspectsCount: 0,
         outreachStarted: false,
         // No org resolved means nothing is approved, so the section stays open. Erring
         // toward expanded is the safe direction: the failure mode of collapsing is a
@@ -156,6 +181,7 @@ export default async function ClientLayout({
           pipelineUnlocked={org?.pipeline_unlocked ?? false}
           dashboardState={dashboardStateResult.state}
           pendingProspectsCount={dashboardStateResult.pendingProspectsCount}
+          rosterProspectsCount={dashboardStateResult.rosterProspectsCount}
           outreachStarted={dashboardStateResult.outreachStarted}
           strategyNav={dashboardStateResult.strategyNav}
           allOrgs={allOrgs}
