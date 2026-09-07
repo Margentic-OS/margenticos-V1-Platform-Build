@@ -62,10 +62,12 @@ type SupabaseServiceClient = ServiceRoleClient
 
 // The 5 intents clients are allowed to see: positive/engaged signals.
 //
-// EXPORTED because it is the single definition of "a reply the client may see". The
-// client-facing metrics chokepoint counts against this same list, so the "Interested"
-// number on the overview can never disagree with the number of cards on the replies page.
-// A second, private copy of this list anywhere is a bug waiting to happen.
+// EXPORTED because it is the single definition of "a reply the client may see". A second,
+// private copy of this list anywhere is a bug waiting to happen.
+//
+// IT NO LONGER DRIVES THE "Interested" COUNT. That moved to POSITIVE_REPLY_INTENTS below,
+// which excludes objection_mild. The two lists answer different questions: which replies a
+// client may SEE, and which of them count as positive. See the note there.
 export const CLIENT_VISIBLE_INTENTS = [
   'positive_direct_booking',
   'positive_passive',
@@ -75,6 +77,44 @@ export const CLIENT_VISIBLE_INTENTS = [
 ] as const
 
 export type ClientVisibleIntent = typeof CLIENT_VISIBLE_INTENTS[number]
+
+// ─── WHAT COUNTS AS A REPLY ──────────────────────────────────────────────────
+//
+// A reply is a message A PERSON WROTE IN RESPONSE TO OUR EMAIL. Unique people, not
+// messages. Two things are therefore excluded, for two different reasons:
+//
+//   out_of_office    nobody wrote it. It is an automated bounce-back.
+//   not_a_response   a person wrote it, but not to us. A security notice, a delegation,
+//                    a wrong-person redirect.
+//
+// Everything else counts, INCLUDING opt_out and objection_mild. A refusal is still a
+// person engaging with what we sent, and every published reply-rate figure we compare
+// against counts it. `unclear` counts too: it means a human replied and we cannot tell
+// what they meant, which is a reply with an unknown meaning, not a non-reply.
+//
+// This list is the reason not_a_response exists as its own intent. It used to be folded
+// into `unclear`, and one label carrying both meanings made this number impossible to
+// compute correctly: excluding all `unclear` would have dropped genuine ambiguous replies,
+// and including it counted a security notice as engagement.
+export const NON_REPLY_INTENTS = ['out_of_office', 'not_a_response'] as const
+
+// ─── WHAT COUNTS AS A POSITIVE REPLY ─────────────────────────────────────────
+//
+// Interested, asked a question, or asked for a meeting. This is the number published
+// sources tie to booked meetings, and it is deliberately NARROWER than
+// CLIENT_VISIBLE_INTENTS: objection_mild is a reply worth SHOWING a client and is not a
+// positive one. "Come back next quarter" is not interest.
+//
+// So the two lists now answer two different questions and are no longer the same set.
+// That is intentional. The invariant that used to hold here, that the Interested count
+// equals the number of cards on the replies page, is gone ON PURPOSE: a client may see a
+// soft pushback among their replies without it inflating how many people were interested.
+export const POSITIVE_REPLY_INTENTS = [
+  'positive_direct_booking',
+  'positive_passive',
+  'information_request_generic',
+  'information_request_commercial',
+] as const
 
 // Two values. Never five, and never the raw intent.
 export type ClientReplyBadge = 'interested' | 'meeting_booked'

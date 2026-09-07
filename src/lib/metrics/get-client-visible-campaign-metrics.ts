@@ -52,7 +52,7 @@ import { asServiceRoleClient, type ServiceRoleClient } from '@/lib/supabase/serv
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
-import { CLIENT_VISIBLE_INTENTS } from '@/lib/reply-handling/get-client-visible-replies'
+import { NON_REPLY_INTENTS, POSITIVE_REPLY_INTENTS } from '@/lib/reply-handling/get-client-visible-replies'
 import { fetchWithTimeout, SERVICE_READ_TIMEOUT_MS } from '@/lib/supabase/read-timeout'
 import { recordDashboardFailure } from '@/lib/dashboard/record-dashboard-failure'
 
@@ -81,9 +81,10 @@ export interface ClientVisibleCampaignMetrics {
   // client's Replies card understated reality by more than half. A client asking "how
   // many replies" means people, not messages, and not the provider's opinion of either.
   //
-  // Counts every reply regardless of intent, deliberately. Out-of-office is kept out of
-  // INTEREST by CLIENT_VISIBLE_INTENTS, which is a different question and is unaffected:
-  // an out-of-office is a reply, it is just not interest.
+  // Excludes the two things that are not replies: out_of_office (nobody wrote it) and
+  // not_a_response (a person wrote it, but not to us). opt_out, objection_mild and unclear
+  // all COUNT: a refusal is still a person engaging, and every published reply-rate figure
+  // we compare against counts it. Defined by NON_REPLY_INTENTS at the reply chokepoint.
   peopleRepliedCount: number
   // REPLIES PER PERSON CONTACTED, not per email. See the note by its computation below.
   replyRate: number | null
@@ -137,6 +138,13 @@ function serviceRoleClient(): SupabaseServiceClient {
  * The caller is responsible for having resolved clientOrgId through the session client
  * (resolveViewingOrg). This function trusts that id and scopes every query to it.
  */
+/** Distinct non-null prospect ids. Used by both metric functions so they cannot diverge. */
+function countDistinctPeople(rows: { prospect_id: string | null }[] | null): number {
+  return new Set(
+    (rows ?? []).map(r => r.prospect_id).filter((id): id is string => id !== null),
+  ).size
+}
+
 export async function getClientVisibleCampaignMetrics(
   clientOrgId: string
 ): Promise<ClientVisibleCampaignMetrics> {
@@ -163,7 +171,7 @@ export async function getClientVisibleCampaignMetrics(
       .from('reply_handling_actions')
       .select('*', { count: 'exact', head: true })
       .eq('organisation_id', clientOrgId)
-      .in('classified_intent', CLIENT_VISIBLE_INTENTS),
+      .in('classified_intent', POSITIVE_REPLY_INTENTS),
 
     // meeting_status, not status. Both columns exist and both default to 'booked', but
     // meeting_status is the one the Calendly webhook and the confirm route actually
@@ -173,17 +181,18 @@ export async function getClientVisibleCampaignMetrics(
       .select('meeting_status')
       .eq('organisation_id', clientOrgId),
 
-    // Distinct people, so prospect_id is selected and de-duplicated here rather than
-    // counted in the database: PostgREST has no COUNT(DISTINCT). Rows with a null
-    // prospect_id are unattributed replies (the quarantine case) and are excluded, because
-    // this number answers "how many of your prospects replied" and an unattributed reply
-    // cannot be attributed to one.
+    // Distinct PEOPLE who actually replied. Read from reply_handling_actions rather than
+    // from signals, because the intent is what decides whether a message is a reply at
+    // all, and only the action row carries it. prospect_id is de-duplicated here rather
+    // than in the database: PostgREST has no COUNT(DISTINCT). A null prospect_id is an
+    // unattributed reply and is excluded, because this answers "how many of your prospects
+    // replied" and an unattributed one cannot be attributed to a prospect.
     supabase
-      .from('signals')
+      .from('reply_handling_actions')
       .select('prospect_id')
       .eq('organisation_id', clientOrgId)
-      .eq('signal_type', 'reply_received')
-      .not('prospect_id', 'is', null),
+      .not('prospect_id', 'is', null)
+      .not('classified_intent', 'in', `(${NON_REPLY_INTENTS.join(',')})`),
   ])
 
   // EVERY ONE OF THESE FOUR READS USED TO DEGRADE TO ZERO IN SILENCE.
@@ -225,11 +234,7 @@ export async function getClientVisibleCampaignMetrics(
 
   const meetings = meetingsResult.data ?? []
 
-  const peopleRepliedCount = new Set(
-    (replySignalsResult.data ?? [])
-      .map(r => r.prospect_id)
-      .filter((id): id is string => id !== null),
-  ).size
+  const peopleRepliedCount = countDistinctPeople(replySignalsResult.data)
 
   return {
     contactedCount,
@@ -300,7 +305,14 @@ export async function getClientVisibleCampaignMetrics(
 
 export interface AllCampaignMetrics {
   sentCount: number
+  // The sending tool's tally. replyRate is denominated against it, matching the published
+  // benchmark ranges. See peopleRepliedCount for the number that counts people.
   repliedCount: number
+  // People who replied, same definition as the client-facing metric and computed from the
+  // same NON_REPLY_INTENTS list. Present HERE as well so an operator comparing their panel
+  // against the client's dashboard cannot find two different reply counts for one client,
+  // which is the rule this file already applies to replyRate and meetingRate.
+  peopleRepliedCount: number
   // Same definition as the client-facing one: replies per PERSON contacted.
   //
   // contacted_count is READ to compute this and deliberately NOT returned. The two shapes
@@ -332,7 +344,7 @@ export async function getAllCampaignMetricsForOrg(
   supabase: SupabaseServiceClient,
   orgId: string
 ): Promise<AllCampaignMetrics> {
-  const [campaignsResult, positiveRepliesResult, meetingsResult] = await Promise.all([
+  const [campaignsResult, positiveRepliesResult, meetingsResult, peopleRepliedResult] = await Promise.all([
     supabase
       .from('campaigns')
       .select('sent_count, contacted_count, replied_count, bounced_count')
@@ -344,12 +356,21 @@ export async function getAllCampaignMetricsForOrg(
       .from('reply_handling_actions')
       .select('*', { count: 'exact', head: true })
       .eq('organisation_id', orgId)
-      .in('classified_intent', CLIENT_VISIBLE_INTENTS),
+      .in('classified_intent', POSITIVE_REPLY_INTENTS),
 
     supabase
       .from('meetings')
       .select('*', { count: 'exact', head: true })
       .eq('organisation_id', orgId),
+
+    // Distinct people who replied. Same query shape and same exclusion list as the
+    // client-facing function, so the two cannot drift.
+    supabase
+      .from('reply_handling_actions')
+      .select('prospect_id')
+      .eq('organisation_id', orgId)
+      .not('prospect_id', 'is', null)
+      .not('classified_intent', 'in', `(${NON_REPLY_INTENTS.join(',')})`),
   ])
 
   const campaigns = campaignsResult.data ?? []
@@ -361,6 +382,7 @@ export async function getAllCampaignMetricsForOrg(
   return {
     sentCount,
     repliedCount,
+    peopleRepliedCount: countDistinctPeople(peopleRepliedResult.data),
     // People-denominated, matching the client-facing function exactly. An operator
     // comparing their panel against what the client sees must not find two numbers.
     replyRate: contactedCount > 0 ? (repliedCount / contactedCount) * 100 : null,

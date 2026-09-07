@@ -16,6 +16,7 @@ function campaign(overrides: Partial<LivenessInput> = {}): LivenessInput {
   return {
     external_id: EXT,
     sending_state: 'sending',
+    sending_status_raw: null,
     sending_status_checked_at: new Date(NOW.getTime() - 5 * 60 * 1000).toISOString(),
     ...overrides,
   }
@@ -66,7 +67,7 @@ describe('deriveCampaignLiveness — reporting why nothing is going out', () => 
   it.each([
     ['blocked', 'Sending paused by the email provider'],
     ['limit_reached', 'Daily sending limit reached'],
-    ['waiting', 'Waiting to send'],
+    ['waiting', 'Nothing due right now'],
     ['paused', 'Paused'],
     ['draft', 'Not started'],
     ['completed', 'Sequence finished'],
@@ -92,7 +93,7 @@ describe('deriveCampaignLiveness — reporting why nothing is going out', () => 
       [campaign({ sending_state: 'blocked', sending_status_checked_at: stale }), campaign({ sending_state: 'waiting' })],
       NOW,
     )
-    expect(result.label).toBe('Waiting to send')
+    expect(result.label).toBe('Nothing due right now')
   })
 
   it('never leaks an Instantly status code into client-facing copy', () => {
@@ -133,5 +134,48 @@ describe('deriveCampaignLiveness — not knowing is a state, and it is never gue
       NOW,
     )
     expect(result.verdict).toBe('sending')
+  })
+})
+
+// "Waiting to send" read as NOT STARTED while the campaign was live and 44 people had been
+// contacted. The send window had simply closed for the day. Five provider reasons collapse
+// into sending_state = 'waiting', and only sending_status_raw can tell them apart; it was
+// already being stored and was being thrown away.
+describe('deriveCampaignLiveness — the waiting state is five reasons, not one', () => {
+  const waiting = (raw: string | null) =>
+    deriveCampaignLiveness(
+      [campaign({ sending_state: 'waiting', sending_status_raw: raw })],
+      NOW,
+    )
+
+  it('tells a client sending resumes when the window has closed', () => {
+    const result = waiting('out_of_schedule')
+    expect(result.label).toBe('Sending resumes tomorrow')
+    expect(result.detail).toContain('window has closed')
+  })
+
+  it('does not say "resumes tomorrow" when the reason is not the window', () => {
+    for (const raw of ['waiting_for_leads', 'follow_up_delay_not_met', 'waiting_for_esp_match', null]) {
+      expect(waiting(raw).label).toBe('Nothing due right now')
+    }
+  })
+
+  // The whole point: neither string may read as "stopped" or "not started".
+  it('never uses wording that reads as not started', () => {
+    for (const raw of ['out_of_schedule', 'waiting_for_leads', null]) {
+      const { label, detail } = waiting(raw)
+      expect(`${label} ${detail}`).not.toMatch(/not started|stopped|paused/i)
+    }
+  })
+
+  it('still reports the more urgent reason when one campaign is blocked', () => {
+    const result = deriveCampaignLiveness(
+      [
+        campaign({ sending_state: 'waiting', sending_status_raw: 'out_of_schedule' }),
+        campaign({ sending_state: 'blocked', sending_status_raw: null }),
+      ],
+      NOW,
+    )
+    expect(result.label).toBe('Sending paused by the email provider')
   })
 })

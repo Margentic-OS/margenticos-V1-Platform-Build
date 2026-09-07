@@ -15,6 +15,7 @@ export type ReplyIntent =
   | 'information_request_generic'
   | 'information_request_commercial'
   | 'objection_mild'
+  | 'not_a_response'
   | 'unclear'
 
 const INTENT_LABELS: Record<ReplyIntent, string> = {
@@ -24,6 +25,7 @@ const INTENT_LABELS: Record<ReplyIntent, string> = {
   information_request_generic:  'Asked a general question',
   information_request_commercial: 'Asked about terms or pricing',
   opt_out:                      'Opted out',
+  not_a_response:               'Not a reply to us',
   out_of_office:                'Out of office',
   unclear:                      'Intent unclear',
 }

@@ -210,7 +210,7 @@ export default async function DashboardPage({
   const [campaignsRes, uploadedCountRes, metrics] = await Promise.all([
     supabase
       .from('campaigns')
-      .select('id, shell_synced_at, external_id, sending_state, sending_status_checked_at')
+      .select('id, shell_synced_at, external_id, sending_state, sending_status_raw, sending_status_checked_at')
       .eq('organisation_id', org.id)
       .not('external_id', 'is', null),
     // Service client, not the session client. clients_read_own_prospects_denied is

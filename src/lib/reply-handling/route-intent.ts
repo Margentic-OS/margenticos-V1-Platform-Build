@@ -30,6 +30,7 @@ const KNOWN_INTENTS = new Set([
   'objection_mild',
   'information_request_generic',
   'information_request_commercial',
+  'not_a_response',
   'unclear',
 ])
 
@@ -67,6 +68,10 @@ export function routeIntent({
       return (faqMatchTopScore ?? 0) >= FAQ_TIER2_THRESHOLD ? 'tier_2' : 'tier_3'
 
     case 'information_request_commercial':
+    // not_a_response routes EXACTLY as unclear does: tier 3, a human looks, nothing is
+    // drafted or sent. The split exists so one label stops carrying two meanings for
+    // COUNTING, not to change what happens to the message.
+    case 'not_a_response':
     case 'unclear':
       return 'tier_3'
 
