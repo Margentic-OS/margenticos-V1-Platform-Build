@@ -1,6 +1,16 @@
 -- email_delivery_failures, and MON-030 which reads it.
 --
--- Status: PENDING (apply via Supabase MCP apply_migration, then mark APPLIED)
+-- Status: APPLIED (verified live 2026-09-07; production AND the integration-test project)
+--
+-- Read-back after apply, BOTH projects, all in both directions:
+--   email_delivery_failures  service_role SELECT/INSERT true; anon SELECT/INSERT false;
+--                            authenticated SELECT/UPDATE false; relrowsecurity true
+--   mon_030                  service_role SELECT true; anon false; authenticated false
+--   mon_030 first read       OK, "No unresolved email delivery failures."
+--
+-- Applied to the test project as well as production deliberately. A migration that lands
+-- only in production makes the live integration tests fail on a missing relation, and the
+-- failure looks like a code bug rather than a missing migration.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
 -- WHY THIS EXISTS
