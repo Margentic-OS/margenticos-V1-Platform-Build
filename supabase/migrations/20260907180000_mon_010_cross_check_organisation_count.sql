@@ -1,6 +1,13 @@
 -- 20260907180000_mon_010_cross_check_organisation_count.sql
 --
--- Status: PENDING (apply via MCP apply_migration, then verify live and stamp APPLIED)
+-- Status: APPLIED (verified live 2026-09-07)
+--   Applied via MCP apply_migration as `mon_010_cross_check_organisation_count`.
+--   Read back live: MON-010 returns 1 row, state UNKNOWN, because the newest heartbeat
+--   still carries the pre-fix wording "Processed 0 organisations". That is the intended
+--   behaviour: the view has stopped asserting health it cannot verify. It will report OK
+--   or PROBLEM truthfully once the fixed cron writes the new format at the next 09:00 UTC.
+--   Grants unchanged by the REPLACE, verified in both directions:
+--     anon SELECT false, authenticated SELECT false, service_role SELECT true.
 --
 -- MON-010 STOPS TRUSTING THE JOB'S OWN SELF-REPORT.
 --
