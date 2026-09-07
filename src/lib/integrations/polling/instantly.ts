@@ -833,7 +833,36 @@ export async function pollInstantlyReplies(
         const emailId = e.id as string | undefined
         const instantlyCampaignId = (e.campaign_id ?? e.campaign) as string | undefined
 
+        // ── The three deterministic drops below now RECORD, and here is why ──────
+        //
+        // Each of these discards a reply permanently: the cursor advances past it and
+        // nothing re-reads it. They already incremented result.errors, which reddens the
+        // poll heartbeat for one 15-minute cycle. None of them called recordPollFailure.
+        //
+        // That omission was worse than silence. writePollState writes
+        //   error_count: state.failures > 0 ? prior + state.failures : 0
+        //   last_error:  state.failures > 0 ? state.firstError : null
+        // so a run that dropped a reply left state.failures at 0 and ACTIVELY RESET
+        // error_count to 0 and last_error to NULL, destroying the record of any earlier
+        // run's real failures. MON-027 reads error_count, saw 0, and reported OK. The run
+        // that lost the reply was the run that cleared the evidence.
+        //
+        // These deliberately do NOT hold the cursor. They are deterministic: the same
+        // payload fails identically on every re-fetch, so blocking would be a stall no
+        // operator action can clear. Recorded and skipped is the right shape here; the
+        // database-write path below is the one that correctly stalls.
+        //
+        // INTERIM SHAPE, NOT SETTLED. The unresolved-campaign case is the one that matters
+        // and recording it is not the same as saving the reply. It is superseded by
+        // quarantine (Notion: "Quarantine an unattributable reply instead of discarding
+        // it"), which parks the reply with its provider campaign id so registering the
+        // campaign replays it. When that lands, this branch becomes a quarantine write plus
+        // a count, MON-030 owns the alerting, and recordPollFailure stays here only for the
+        // two malformed-payload cases and for a FAILED quarantine write. Leaving it as an
+        // error afterwards would pin MON-002 red on every run that quarantines anything.
         if (!emailId) {
+          const reason = 'reply email missing id field, dropped permanently'
+          recordPollFailure(state, reason)
           logger.warn('Instantly poll: reply email missing id field', { raw: e })
           result.errors++
           continue
@@ -842,6 +871,11 @@ export async function pollInstantlyReplies(
         const eaccount = e.eaccount as string | undefined
         if (!eaccount) {
           // Without eaccount the signal is permanently stuck at dispatch ("raw_data missing id or eaccount").
+          recordPollFailure(
+            state,
+            `reply ${emailId} has no eaccount, dropped permanently` +
+              (instantlyCampaignId ? ` (provider campaign ${instantlyCampaignId})` : '')
+          )
           logger.warn('Instantly poll: reply email missing eaccount — skipping to prevent stuck signal', {
             email_id: emailId,
             from_email: (e.from_address_email ?? null) as string | null,
@@ -858,6 +892,18 @@ export async function pollInstantlyReplies(
 
         if (!campaignRow) {
           // Cannot write signal without organisation_id. Event is logged above in resolveCampaign.
+          //
+          // The provider campaign id goes in the message deliberately. It lands in
+          // polling_cursors.last_error, which MON-027 renders, and it is the one piece of
+          // information that turns "a reply was dropped" into an action: register that
+          // campaign. A count alone sends the reader to the logs; the id sends them to the
+          // row that needs fixing.
+          recordPollFailure(
+            state,
+            `reply ${emailId} arrived for provider campaign ` +
+              `${instantlyCampaignId ?? 'unknown'} which is not registered in campaigns, ` +
+              'dropped permanently'
+          )
           result.errors++
           continue
         }
