@@ -470,3 +470,69 @@ it. A name over 120 characters is refused as a paste accident.
 ## Phased unlock reminder
 Pipeline view locked until: 2 months elapsed OR 5 meetings booked (whichever first).
 Controlled by organisations.pipeline_unlocked field.
+
+---
+
+## Generation status: what the screen says while a document is being made
+
+Added 2026-09-07, after the dashboard spent two days telling an operator that a suggestion
+was being prepared for a run that had already failed.
+
+### What connects to what
+
+`/api/suggestions/regenerate` returns **202 on acceptance** and runs the agent in `after()`,
+so the response says nothing about whether a document was produced. Two controls call it:
+
+- `RegenerateButton` — operator only, on an existing document
+- `NotYetGeneratedState` — client-reachable, when no document exists yet
+
+Both then poll `/api/generation-status`, which reports the most recent run for that
+organisation and document type as an **outcome**:
+
+| outcome | meaning |
+|---|---|
+| `generating` | a run is in flight and started within the last 10 minutes |
+| `succeeded` | the most recent run completed |
+| `failed` | the most recent run failed |
+| `stalled` | the run says running but started outside the window, so nothing is coming |
+| `none` | no run has ever been recorded |
+
+`error_message` is returned to **operators only**. A client cannot act on "Claude returned
+content that is not valid JSON" and it names our internals.
+
+### Two things that look like details and are not
+
+**Polling is anchored to the button press.** The status route answers with the LATEST run,
+which on a document page is usually a previous, completed one. Without comparing
+`started_at` against the moment the button was pressed, both controls would report the
+previous regeneration's success as this one's, instantly, and be wrong in the most
+convincing way available.
+
+**Both call `router.refresh()` on success.** The page is a server component with no
+revalidate. Without that call a SUCCESSFUL run also looks like a hang, because the finished
+document never appears until a manual reload.
+
+Polling stops after six minutes and reports `stalled`. Observed runs take 85 to 120 seconds
+and the agent's own guard is 240s, so reaching the ceiling means no verdict is coming.
+
+### What to check if the screen hangs again
+
+1. `agent_runs` for that organisation and `<doc_type>-generation`: what is the latest row's
+   `status` and `error_message`?
+2. Hit `/api/generation-status?client_id=…&document_type=…` directly. If it says `failed`
+   and the screen does not, the bug is in the component. If it says `generating` for a run
+   that is long dead, the freshness window or the reaper is the problem.
+3. MON-030, in case the operator alert about the failure also failed to send. See
+   `docs/transactional-email.md`.
+
+### Why the old version could not work
+
+The route returned `{ isGenerating }` and nothing else, computed from `status='running'`
+alone. A boolean that collapses "still working", "finished", "failed" and "never started"
+into one bit gets read as the happy case every time, and it was:
+
+    if (!isGenerating) {
+      // Generation completed — clear polling and remain in generating state
+    }
+
+A failed run also stops being in flight. See ADR-050 for the wider pattern.
