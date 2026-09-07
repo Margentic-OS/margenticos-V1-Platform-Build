@@ -39,6 +39,7 @@ function metrics(overrides: Partial<ClientVisibleCampaignMetrics> = {}): ClientV
     bouncedCount: 0,
     unsubscribedCount: 0,
     repliedCount: 1,
+    peopleRepliedCount: 1,
     replyRate: (1 / 26) * 100,
     positiveReplyCount: 0,
     meetingsBooked: 0,
@@ -92,7 +93,9 @@ describe('the overview once a single email has gone out', () => {
     renderOverview(metrics({
       contactedCount: 15,
       deliveredCount: 24,
+      // The card reads peopleRepliedCount, not the provider's repliedCount.
       repliedCount: 3,
+      peopleRepliedCount: 3,
       positiveReplyCount: 2,
       meetingsHeld: 1,
     }))

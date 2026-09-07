@@ -209,7 +209,7 @@ export function DocumentsActiveState({
                   {[
                     { label: 'Contacted', value: metrics.contactedCount },
                     { label: 'Delivered', value: metrics.deliveredCount },
-                    { label: 'Replies', value: metrics.repliedCount },
+                    { label: 'Replies', value: metrics.peopleRepliedCount },
                     { label: 'Interested', value: metrics.positiveReplyCount },
                     { label: 'Meetings held', value: metrics.meetingsHeld },
                   ].map(stat => (
