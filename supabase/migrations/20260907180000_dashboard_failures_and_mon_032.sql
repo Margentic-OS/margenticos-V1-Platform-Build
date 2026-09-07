@@ -1,4 +1,13 @@
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-09-07). Privileges read back in BOTH directions:
+--   dashboard_failures: service_role SELECT true, INSERT true; anon SELECT false, INSERT
+--   false; authenticated SELECT false, UPDATE false, DELETE false; RLS enabled true.
+--   mon_032: service_role SELECT true; anon false; authenticated false.
+-- mon_032 reads OK on the empty table, and says in its own detail that this is not proof.
+-- Proven to detect a positive: two probe rows inside BEGIN..ROLLBACK moved it to PROBLEM
+-- with the right counts, and the table was read back at 0 rows afterwards.
+-- MON-024 re-read after the change: still OK, 78 relations scanned.
+-- Also applied to the test project tidqheqjzvwmrrrebzir (table and view only).
+-- Status marker: APPLIED
 -- Record that a client's dashboard failed, and put it on the board.
 --
 -- ─────────────────────────────────────────────────────────────────────────────

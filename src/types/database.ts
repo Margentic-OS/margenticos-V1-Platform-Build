@@ -218,6 +218,54 @@ export type Database = {
         }
         Relationships: []
       }
+      dashboard_failures: {
+        Row: {
+          detail: string | null
+          digest: string | null
+          id: string
+          kind: string
+          occurred_at: string
+          organisation_id: string | null
+          route: string
+          source: string
+        }
+        Insert: {
+          detail?: string | null
+          digest?: string | null
+          id?: string
+          kind: string
+          occurred_at?: string
+          organisation_id?: string | null
+          route: string
+          source: string
+        }
+        Update: {
+          detail?: string | null
+          digest?: string | null
+          id?: string
+          kind?: string
+          occurred_at?: string
+          organisation_id?: string | null
+          route?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dashboard_failures_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "client_organisation_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dashboard_failures_organisation_id_fkey"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_suggestions: {
         Row: {
           ab_variant: string | null
@@ -332,6 +380,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      email_delivery_failures: {
+        Row: {
+          audience: string
+          created_at: string
+          error_message: string
+          id: string
+          recipient: string
+          resolved_at: string | null
+          stage: string
+          subject: string
+        }
+        Insert: {
+          audience: string
+          created_at?: string
+          error_message: string
+          id?: string
+          recipient: string
+          resolved_at?: string | null
+          stage: string
+          subject: string
+        }
+        Update: {
+          audience?: string
+          created_at?: string
+          error_message?: string
+          id?: string
+          recipient?: string
+          resolved_at?: string | null
+          stage?: string
+          subject?: string
+        }
+        Relationships: []
       }
       enrichment_runs: {
         Row: {
@@ -2080,54 +2161,6 @@ export type Database = {
           },
         ]
       }
-      unattributed_replies: {
-        Row: {
-          body_redacted_at: string | null
-          eaccount: string | null
-          first_seen_at: string
-          id: string
-          last_seen_at: string
-          original_outbound_body: string | null
-          provider: string
-          provider_campaign_id: string | null
-          provider_email_id: string
-          raw_data: Json | null
-          reply_written_at: string | null
-          resolved_at: string | null
-          resolved_signal_id: string | null
-        }
-        Insert: {
-          body_redacted_at?: string | null
-          eaccount?: string | null
-          first_seen_at?: string
-          id?: string
-          last_seen_at?: string
-          original_outbound_body?: string | null
-          provider?: string
-          provider_campaign_id?: string | null
-          provider_email_id: string
-          raw_data?: Json | null
-          reply_written_at?: string | null
-          resolved_at?: string | null
-          resolved_signal_id?: string | null
-        }
-        Update: {
-          body_redacted_at?: string | null
-          eaccount?: string | null
-          first_seen_at?: string
-          id?: string
-          last_seen_at?: string
-          original_outbound_body?: string | null
-          provider?: string
-          provider_campaign_id?: string | null
-          provider_email_id?: string
-          raw_data?: Json | null
-          reply_written_at?: string | null
-          resolved_at?: string | null
-          resolved_signal_id?: string | null
-        }
-        Relationships: []
-      }
       reply_reconciliation_snapshot: {
         Row: {
           campaigns_checked: number
@@ -2883,6 +2916,62 @@ export type Database = {
         }
         Relationships: []
       }
+      unattributed_replies: {
+        Row: {
+          body_redacted_at: string | null
+          eaccount: string | null
+          first_seen_at: string
+          id: string
+          last_seen_at: string
+          original_outbound_body: string | null
+          provider: string
+          provider_campaign_id: string | null
+          provider_email_id: string
+          raw_data: Json | null
+          reply_written_at: string | null
+          resolved_at: string | null
+          resolved_signal_id: string | null
+        }
+        Insert: {
+          body_redacted_at?: string | null
+          eaccount?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          original_outbound_body?: string | null
+          provider?: string
+          provider_campaign_id?: string | null
+          provider_email_id: string
+          raw_data?: Json | null
+          reply_written_at?: string | null
+          resolved_at?: string | null
+          resolved_signal_id?: string | null
+        }
+        Update: {
+          body_redacted_at?: string | null
+          eaccount?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          original_outbound_body?: string | null
+          provider?: string
+          provider_campaign_id?: string | null
+          provider_email_id?: string
+          raw_data?: Json | null
+          reply_written_at?: string | null
+          resolved_at?: string | null
+          resolved_signal_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unattributed_replies_resolved_signal_id_fkey"
+            columns: ["resolved_signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           created_at: string
@@ -3395,6 +3484,15 @@ export type Database = {
         Relationships: []
       }
       mon_031: {
+        Row: {
+          check_code: string | null
+          detail: string | null
+          last_run: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      mon_032: {
         Row: {
           check_code: string | null
           detail: string | null

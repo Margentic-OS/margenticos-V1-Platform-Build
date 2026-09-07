@@ -24,11 +24,22 @@ const VIEWED_ORG = '0ed34697-0fa9-4f08-ac15-d3504ac45caf' // live MargenticOS
 /** Every organisation_id the service client was filtered by. */
 const orgIdsQueried: string[] = []
 
+/** How many of the two counts were given an abort signal. See countChain. */
+let boundedReads = 0
+
 let currentUserRole = 'operator'
 
 function countChain() {
   const c: Record<string, unknown> = {}
   for (const method of ['select', 'in', 'not', 'or']) c[method] = vi.fn(() => c)
+  // HONOURED, NOT SWALLOWED. service_role carries no statement_timeout, so both of these
+  // counts are bounded in the source. A fake that quietly returned the chain from an
+  // unimplemented .abortSignal() would pass whether or not the ceiling is applied.
+  c.abortSignal = vi.fn((signal: AbortSignal) => {
+    if (!(signal instanceof AbortSignal)) throw new Error('abortSignal called with no signal')
+    boundedReads += 1
+    return c
+  })
   c.eq = vi.fn((column: string, value: string) => {
     if (column === 'organisation_id') orgIdsQueried.push(value)
     return c
@@ -72,6 +83,7 @@ async function callRoute(clientParam?: string) {
 }
 
 beforeEach(() => {
+  boundedReads = 0
   orgIdsQueried.length = 0
   currentUserRole = 'operator'
 })
@@ -112,6 +124,19 @@ describe('the layout no longer queries prospects itself', () => {
   // organisation from the shared module if it does not build the query at all. Stated as a
   // limit rather than over-trusted: this proves the duplication is gone, not that the
   // remaining query is right. The behavioural tests above cover that.
+  // Added 2026-09-07 alongside the read ceiling. service_role has no statement_timeout in
+  // the database (read back from pg_roles), so these two counts were the reads behind the
+  // sidebar with no ceiling on either side of the connection: a hang held the nav until
+  // the 300s function timeout cut the response, which the client sees as a blank page.
+  it('bounds both prospect counts with an abort signal', async () => {
+    await callRoute(VIEWED_ORG)
+    expect(
+      boundedReads,
+      'a prospect nav count ran unbounded. Nothing else limits it: service_role has no ' +
+      'statement_timeout, so the only remaining ceiling is the 300s function timeout.',
+    ).toBe(2)
+  })
+
   it('has no direct prospects query left in the client layout', async () => {
     const { readFileSync } = await import('node:fs')
     const source = readFileSync('src/app/dashboard/(client)/layout.tsx', 'utf8')
