@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import type { StrategyNavState } from '@/lib/dashboard/strategy-nav-state'
 import { appendClientParam } from '@/lib/dashboard/client-param'
@@ -90,6 +90,44 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
   // O-3: when an operator is viewing a client via ?client=, resolve the
   // client's name from the passed org list rather than the operator's own name.
   const clientId = allOrgs && allOrgs.length > 0 ? searchParams.get('client') : null
+
+  // THE LAYOUT CANNOT SEE ?client=. A Next.js App Router layout gets `params` but never
+  // `searchParams`, so the server-rendered counts above are computed for the viewer's own
+  // organisation. That is correct for every real client, because resolveViewingOrg pins a
+  // client to their own org whatever the URL says, and it is WRONG for an operator using
+  // "View as client": the sidebar counted "MargenticOS (archived April 2026)" at 0 while
+  // the page rendered "MargenticOS" at 103.
+  //
+  // So when, and only when, a client param is present, ask the route that CAN see it. The
+  // route uses the same resolveViewingOrg the page uses, which is what stops the two
+  // disagreeing. Failure leaves the server-rendered counts untouched.
+  const [correctedCounts, setCorrectedCounts] = useState<
+    { pendingProspectsCount: number; rosterProspectsCount: number } | null
+  >(null)
+
+  useEffect(() => {
+    if (!clientId) {
+      setCorrectedCounts(null)
+      return
+    }
+    let cancelled = false
+    fetch(`/api/dashboard/client/nav-counts?client=${encodeURIComponent(clientId)}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(json => {
+        if (cancelled || !json || typeof json.rosterProspectsCount !== 'number') return
+        setCorrectedCounts({
+          pendingProspectsCount: json.pendingProspectsCount ?? 0,
+          rosterProspectsCount: json.rosterProspectsCount ?? 0,
+        })
+      })
+      .catch(() => {
+        // Keep the server-rendered counts. A failed correction must not empty the nav.
+      })
+    return () => { cancelled = true }
+  }, [clientId])
+
+  const effectivePendingCount = correctedCounts?.pendingProspectsCount ?? pendingProspectsCount
+  const effectiveRosterCount = correctedCounts?.rosterProspectsCount ?? rosterProspectsCount
   const resolvedOrgName = clientId
     ? (allOrgs?.find(o => o.id === clientId)?.name ?? orgName)
     : orgName
@@ -197,7 +235,7 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
             See Decisions Log 2026-09-07, superseding the 2026-08-11 decision.
             rosterProspectsCount is optional so existing callers keep working; when it is
             not supplied the pending count alone decides, which is the old behaviour. */}
-        {(rosterProspectsCount ?? pendingProspectsCount) > 0 && (
+        {(effectiveRosterCount ?? effectivePendingCount) > 0 && (
           <>
             <p className="px-2 mb-2 text-[10px] font-normal uppercase tracking-[0.09em] text-[rgba(245,240,232,0.28)]">
               Prospects
@@ -213,10 +251,10 @@ export function Sidebar({ orgName, pipelineUnlocked, dashboardState, pendingPros
                       : 'text-[rgba(245,240,232,0.50)] hover:bg-[rgba(245,240,232,0.04)] hover:text-[rgba(245,240,232,0.75)]',
                   ].join(' ')}
                 >
-                  <span>{pendingProspectsCount > 0 ? 'Review prospects' : 'Your prospects'}</span>
-                  {pendingProspectsCount > 0 && (
+                  <span>{effectivePendingCount > 0 ? 'Review prospects' : 'Your prospects'}</span>
+                  {effectivePendingCount > 0 && (
                     <span className="text-[9px] font-medium text-[#F5F0E8] bg-brand-green-accent px-1.5 py-0.5 rounded-[4px]">
-                      {pendingProspectsCount}
+                      {effectivePendingCount}
                     </span>
                   )}
                 </Link>

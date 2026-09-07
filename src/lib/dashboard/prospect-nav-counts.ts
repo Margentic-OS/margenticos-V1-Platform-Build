@@ -1,0 +1,70 @@
+// The two counts that decide the Prospects nav entry, in ONE place.
+//
+// They were inline in (client)/layout.tsx, which meant the layout was the only thing that
+// could produce them, and the layout cannot see `?client=`: a Next.js App Router layout
+// receives `params` but never `searchParams`. So when an operator used "View as client",
+// the sidebar counted the operator's OWN organisation while the page rendered the viewed
+// one. On the live workspace that is doug@margenticos.com resolving to "MargenticOS
+// (archived April 2026)" while the page renders "MargenticOS", two organisations whose
+// names differ only by a suffix.
+//
+// Pulling the query out here lets the layout keep server-rendering the common case and
+// lets an API route serve the operator-preview case, without two copies of the filter
+// drifting apart. There is one definition of "how many prospects does this org have on
+// the roster", and both callers use it.
+//
+// SERVICE-ROLE CLIENT, ALWAYS. clients_read_own_prospects_denied is USING (false), so a
+// session client returns zero rows and no error for every one of these reads.
+
+import type { ServiceRoleClient } from '@/lib/supabase/service-role'
+
+export interface ProspectNavCounts {
+  pendingProspectsCount: number
+  rosterProspectsCount: number
+}
+
+export const EMPTY_NAV_COUNTS: ProspectNavCounts = {
+  pendingProspectsCount: 0,
+  rosterProspectsCount: 0,
+}
+
+/**
+ * Counts for one organisation.
+ *
+ * Both queries are scoped to tier 1 and tier 2, matching what the roster page renders.
+ * Counting every tier made the badge exceed the page: 5 tier-3 prospects sat at
+ * pending_review on the live organisation while the page showed none of them.
+ */
+export async function getProspectNavCounts(
+  serviceClient: ServiceRoleClient,
+  organisationId: string,
+): Promise<ProspectNavCounts> {
+  const [{ count: pendingCount }, { count: rosterCount }] = await Promise.all([
+    serviceClient
+      .from('prospects')
+      .select('*', { count: 'exact', head: true })
+      .eq('organisation_id', organisationId)
+      .eq('client_review_status', 'pending_review')
+      .in('sourced_tier', ['tier_1', 'tier_2'])
+      .not('tier_published_at', 'is', null)
+      .eq('suppressed', false),
+    // Does this organisation have a roster at all? The nav entry persists after approval,
+    // so visibility is driven by "is there anything to show" rather than by pending work.
+    // Deliberately does not model the roster's pending-and-unsendable exclusion: that
+    // needs a filter PostgREST cannot express cleanly, and over-counting only risks
+    // landing on the page's empty state rather than hiding a real list.
+    serviceClient
+      .from('prospects')
+      .select('*', { count: 'exact', head: true })
+      .eq('organisation_id', organisationId)
+      .in('sourced_tier', ['tier_1', 'tier_2'])
+      .not('tier_published_at', 'is', null)
+      .eq('suppressed', false)
+      .or('client_review_status.is.null,client_review_status.neq.rejected'),
+  ])
+
+  return {
+    pendingProspectsCount: pendingCount ?? 0,
+    rosterProspectsCount: rosterCount ?? 0,
+  }
+}
