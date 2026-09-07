@@ -1,4 +1,10 @@
--- 20260907180000_mon_010_cross_check_organisation_count.sql
+-- 20260907190000_mon_010_cross_check_organisation_count.sql
+--
+-- RENAMED from 20260907180000 before push. That prefix collided with
+-- 20260907180000_dashboard_failures_and_mon_032.sql, which landed on main from another
+-- session while this branch was being built. The applied migration name recorded remotely
+-- is `mon_010_cross_check_organisation_count`, which is independent of this filename, so
+-- the rename does not affect the already-applied state on either database.
 --
 -- Status: APPLIED (verified live 2026-09-07)
 --   Applied via MCP apply_migration as `mon_010_cross_check_organisation_count`.
