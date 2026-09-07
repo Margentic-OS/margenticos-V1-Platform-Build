@@ -42,6 +42,7 @@ import {
   suppressProspectAtProvider,
   suppressAddressAtProvider,
 } from '@/lib/suppression/provider-suppression'
+import { resolveOooResumeAt } from './ooo-resume'
 import { orchestrateDraft } from './draft-orchestrator'
 import { sendOperatorReplyNotification } from '@/lib/notifications/send-operator-reply-notification'
 // The same converter campaign outbound uses. buildCalendlyReplyBody below returns three
@@ -70,30 +71,6 @@ export interface ProcessResult {
 // ── OOO return date parser ────────────────────────────────────────────────────
 // Deterministic regex — ADR-018: no LLM for pattern-matchable text.
 // Returns ISO timestamptz string if a plausible future date is found, null otherwise.
-
-const OOO_DATE_PATTERNS: RegExp[] = [
-  /(?:back|return(?:ing)?|available|in the office)\s+(?:on\s+)?([A-Za-z]+ \d{1,2}(?:st|nd|rd|th)?(?:,? \d{4})?)/i,
-  /until\s+([A-Za-z]+ \d{1,2}(?:st|nd|rd|th)?(?:,? \d{4})?)/i,
-  /(?:return(?:ing)?|back)\s+(?:on\s+)?(\d{1,2}[\\/\-.]\d{1,2}[\\/\-.]\d{2,4})/i,
-]
-
-function parseOooReturnDate(body: string): string | null {
-  for (const pattern of OOO_DATE_PATTERNS) {
-    const match = body.match(pattern)
-    if (!match?.[1]) continue
-
-    const parsed = new Date(match[1])
-    if (isNaN(parsed.getTime())) continue
-
-    const now = new Date()
-    const sixMonthsOut = new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000)
-
-    if (parsed <= now || parsed > sixMonthsOut) continue
-
-    return parsed.toISOString()
-  }
-  return null
-}
 
 // ── Calendly reply body ───────────────────────────────────────────────────────
 // Hardcoded template — no LLM needed, no scrubAITells needed (not generated copy).
@@ -783,19 +760,32 @@ async function processOneSignal(
   }
 
   if (actionTaken === 'ooo_log') {
-    const returnDate = parseOooReturnDate(emailBody)
+    // resolveOooResumeAt ALWAYS returns a time. It cannot return null, which is the whole
+    // reason it exists: the previous code wrote the parser's null straight through, and on
+    // 2026-09-07 the first two real autoreplies both landed here with
+    // scheduled_resume_at = NULL, leaving those sequences with no defined behaviour.
+    const resume = resolveOooResumeAt(emailBody)
     await updateActionRow(supabase, actionRowId, {
       action_succeeded: true,
       action_payload: {
         instantly_handled: true,
         date_parse_attempted: true,
-        date_found: returnDate !== null,
-        parsed_return_date: returnDate,
+        date_found: resume.source === 'parsed',
+        parsed_return_date: resume.source === 'parsed' ? resume.resumeAt : null,
+        // Recorded so a later reader can tell a read date from a defaulted one without
+        // re-deriving it, and so the parser's real hit rate is measurable.
+        resume_source: resume.source,
+        resume_matched_text: resume.matchedText,
       } as Json,
-      scheduled_resume_at: returnDate,
+      scheduled_resume_at: resume.resumeAt,
     })
     await markSignalProcessed(supabase, signalId)
-    logger.info('process-reply: OOO logged', { signal_id: signalId, return_date: returnDate, date_found: returnDate !== null })
+    logger.info('process-reply: OOO logged', {
+      signal_id: signalId,
+      return_date: resume.resumeAt,
+      resume_source: resume.source,
+      date_found: resume.source === 'parsed',
+    })
     return 'processed'
   }
 
