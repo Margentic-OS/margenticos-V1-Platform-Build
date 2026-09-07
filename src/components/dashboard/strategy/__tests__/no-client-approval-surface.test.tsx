@@ -73,6 +73,7 @@ describe('the controls a client sees on a live document', () => {
     const { container } = render(
       <DocumentRevisionControls
         docId="doc-1"
+        clientId="org-1"
         changeSummary="A summary of what changed."
         revisionNote="A note somebody typed."
         hasPendingRevision={false}
@@ -84,7 +85,7 @@ describe('the controls a client sees on a live document', () => {
 
   it('offers no approval while a revision is staged either', () => {
     const { container } = render(
-      <DocumentRevisionControls docId="doc-1" changeSummary={null} revisionNote={null} hasPendingRevision />,
+      <DocumentRevisionControls docId="doc-1" clientId="org-1" changeSummary={null} revisionNote={null} hasPendingRevision />,
     )
     assertNoApprovalVocabulary(container.textContent ?? '', 'DocumentRevisionControls (staged)')
   })
@@ -93,7 +94,7 @@ describe('the controls a client sees on a live document', () => {
     // The negative assertions above would all pass on an empty component. This is what
     // stops this file proving that the page is blank.
     render(
-      <DocumentRevisionControls docId="doc-1" changeSummary={null} revisionNote={null} hasPendingRevision={false} />,
+      <DocumentRevisionControls docId="doc-1" clientId="org-1" changeSummary={null} revisionNote={null} hasPendingRevision={false} />,
     )
     expect(screen.getByRole('button', { name: /request an update/i })).toBeInTheDocument()
   })

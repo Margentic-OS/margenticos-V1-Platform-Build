@@ -1,9 +1,23 @@
 // Verifies that POST /api/documents/revise maps RevisionGateError → 422 with the
 // human-readable error message DocumentRevisionControls will render.
+//
+// ─── WHAT CHANGED HERE, 2026-09-07 ───────────────────────────────────────────
+//
+// The doubles in this file used to accept any filter and return the same document
+// regardless, so the route's ownership check could be deleted outright with this file
+// still green. It now runs against a fake that honours filters, seeded with rows that
+// have to be matched. The 422 assertion is unchanged and still the point of the file;
+// what changed is that reaching the assertion now requires the lookup to have actually
+// found the seeded document. See fake-supabase.ts.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 import { RevisionGateError } from '@/lib/agents/revision/run-revision'
+import { makeFakeSupabase } from './fake-supabase'
+
+const ORG = '11111111-1111-1111-1111-111111111111'
+const DOC = '7660973b-3895-4aae-bd9e-5819f000d488'
+const USER = 'the-signed-in-user'
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -36,75 +50,17 @@ vi.mock('next/headers', () => ({
   cookies: vi.fn().mockResolvedValue({ getAll: () => [], set: vi.fn() }),
 }))
 
-// Cookie client (auth)
+// Cookie client — authentication only. The route resolves role and organisation
+// through the service client, so nothing else is read from the session here.
 const mockGetUser = vi.fn()
 vi.mock('@supabase/ssr', () => ({
-  createServerClient: vi.fn(() => ({
-    auth: { getUser: mockGetUser },
-    from: vi.fn().mockReturnValue({
-      select: vi.fn().mockReturnThis(),
-      eq:     vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { organisation_id: 'test-org-id' } }),
-    }),
-  })),
+  createServerClient: vi.fn(() => ({ auth: { getUser: mockGetUser } })),
 }))
 
-// Service client (data access) — two sequential calls to from('strategy_documents'):
-//   call 1: ownership check (.maybeSingle())
-//   call 2: rate-limit count (awaited directly → needs .count = 0)
-const MOCK_DOC = {
-  id: 'doc-uuid',
-  document_type: 'messaging',
-  segment_id: null,
-  content: { variants: {} },
-  organisation_id: 'test-org-id',
-  version: 5,
-}
+let fake: ReturnType<typeof makeFakeSupabase>
 
-function makeDocOwnershipChain() {
-  return {
-    select: function() { return this },
-    eq:     function() { return this },
-    maybeSingle: vi.fn().mockResolvedValue({ data: MOCK_DOC }),
-  }
-}
-
-function makeRateLimitChain() {
-  const chain: Record<string, unknown> = {
-    count: 0,
-    error: null,
-  }
-  const self = chain
-  chain['select'] = () => self
-  chain['eq']     = () => self
-  chain['neq']    = () => self
-  chain['gte']    = () => self
-  chain['then']   = (resolve: (v: unknown) => unknown) =>
-    Promise.resolve({ count: 0, error: null }).then(resolve)
-  return chain
-}
-
-let strategyDocCallCount = 0
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({
-    from: (table: string) => {
-      if (table === 'strategy_documents') {
-        strategyDocCallCount++
-        return strategyDocCallCount === 1 ? makeDocOwnershipChain() : makeRateLimitChain()
-      }
-      if (table === 'document_suggestions') {
-        return makeRateLimitChain()
-      }
-      return {
-        select: vi.fn().mockReturnThis(),
-        eq:     vi.fn().mockReturnThis(),
-        neq:    vi.fn().mockReturnThis(),
-        gte:    vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({ data: { organisation_id: 'test-org-id' } }),
-      }
-    },
-    rpc: vi.fn().mockResolvedValue({ data: null, error: new Error('should not reach promote') }),
-  })),
+  createClient: vi.fn(() => fake.client),
 }))
 
 vi.mock('@/lib/email/send', () => ({
@@ -116,10 +72,22 @@ vi.mock('@/lib/email/send', () => ({
 describe('POST /api/documents/revise — 422 error mapping', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    strategyDocCallCount = 0
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'test-user-id' } },
-      error: null,
+    mockGetUser.mockResolvedValue({ data: { user: { id: USER } }, error: null })
+
+    fake = makeFakeSupabase({
+      tables: {
+        users: [{ id: USER, role: 'client', organisation_id: ORG }],
+        strategy_documents: [{
+          id: DOC, organisation_id: ORG, document_type: 'messaging',
+          status: 'active', segment_id: null, version: '5',
+          content: { variants: {} },
+          update_trigger: 'signal_suggestion',
+          created_at: '2020-01-01T00:00:00.000Z',
+        }],
+        document_suggestions: [],
+        organisations: [{ id: ORG, name: 'The organisation' }],
+      },
+      rpc: () => ({ data: null, error: { message: 'should not reach promote' } }),
     })
   })
 
@@ -131,7 +99,7 @@ describe('POST /api/documents/revise — 422 error mapping', () => {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ document_id: '7660973b-3895-4aae-bd9e-5819f000d488', note: 'Add credentials' }),
+        body: JSON.stringify({ document_id: DOC, note: 'Add credentials' }),
       },
     )
 

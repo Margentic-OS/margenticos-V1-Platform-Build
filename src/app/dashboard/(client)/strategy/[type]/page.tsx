@@ -28,6 +28,7 @@ import { StaleDocumentNotice } from '@/components/dashboard/strategy/StaleDocume
 import { selectStaleDocuments } from '@/lib/dashboard/stale-documents'
 import type { DocumentType } from '@/types'
 import type { Json } from '@/types/database'
+import { LIVE_DOCUMENT_STATUSES } from '@/lib/documents/live-document-statuses'
 
 const VALID_TYPES: DocumentType[] = ['icp', 'positioning', 'tov', 'messaging']
 
@@ -121,7 +122,7 @@ export default async function StrategyDocumentPage({
     .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, change_summary, revision_note, icp_filter_spec, is_stale, stale_reason')
     .eq('organisation_id', org.id)
     .eq('document_type', docType)
-    .in('status', ['active', 'approved'])
+    .in('status', LIVE_DOCUMENT_STATUSES)
     .order('last_updated_at', { ascending: false })
     .limit(1)
 
@@ -317,6 +318,7 @@ export default async function StrategyDocumentPage({
               />
               <DocumentRevisionControls
                 docId={doc.id}
+                clientId={org.id}
                 changeSummary={doc.change_summary}
                 revisionNote={doc.revision_note}
                 hasPendingRevision={hasPendingRevision}

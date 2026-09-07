@@ -17,6 +17,12 @@ import { useRouter } from 'next/navigation'
 
 interface Props {
   docId: string
+  // The organisation whose document is on screen, which is not always the viewer's own:
+  // an operator reaches this page for a client through ?client=. The route authorises
+  // this value rather than trusting it, and refuses a non-operator who sends one that
+  // is not theirs. Sending it is what lets an operator file a change for the client
+  // they are looking at instead of being told the document does not exist.
+  clientId: string
   changeSummary: string | null
   revisionNote: string | null
   hasPendingRevision?: boolean
@@ -41,6 +47,7 @@ async function postJson(url: string, body: Record<string, string>): Promise<stri
 
 export function DocumentRevisionControls({
   docId,
+  clientId,
   changeSummary,
   revisionNote,
   hasPendingRevision = false,
@@ -70,7 +77,7 @@ export function DocumentRevisionControls({
     if (!note.trim()) return
     setError(null)
     setLoading('revising')
-    const err = await postJson('/api/documents/revise', { document_id: docId, note: note.trim() })
+    const err = await postJson('/api/documents/revise', { document_id: docId, note: note.trim(), client_id: clientId })
     if (err) { setError(err); setLoading(null); return }
     router.refresh()
   }
