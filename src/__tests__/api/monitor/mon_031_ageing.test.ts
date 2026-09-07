@@ -24,6 +24,23 @@
 // to `min(first_seen_at)` and the first test here goes red. Drop the COALESCE entirely and
 // the null-timestamp test goes red.
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ISOLATION LIMIT, KNOWN AND STATED
+//
+// mon_031 aggregates the WHOLE unattributed_replies table. These tests assert on counts
+// and on the single oldest row, so they are only correct while nothing else writes to
+// that table. Today nothing does, and `clearQuarantine` scopes its deletes to this run's
+// marker so it cannot destroy another file's rows.
+//
+// If a second test file ever inserts into unattributed_replies, these will fail
+// intermittently and the cause will not be obvious. Observed once already: this file
+// passed three times in isolation and failed one assertion inside a full parallel run.
+// Either serialise the two files or give this one its own database.
+//
+// This is the same shared-database contention already filed against the suite as a
+// whole. It is repeated here because a global-aggregate view makes this file more
+// exposed to it than an ordinary row-scoped test.
+
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
