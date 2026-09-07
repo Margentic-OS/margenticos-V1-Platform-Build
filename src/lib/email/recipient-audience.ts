@@ -22,14 +22,28 @@
 // a client of ours", and only the database knows that.
 //
 // ═══════════════════════════════════════════════════════════════════════════════
-// IT FAILS CLOSED, AND THAT IS AN ACCEPTED TRADE-OFF
+// IT FAILS CLOSED ON A BROKEN LOOKUP, AND OPEN ON AN ABSENT ONE
 //
-// If the lookup cannot run, the send is refused rather than allowed.
+// Two different situations, and collapsing them was wrong:
 //
-// The cost is real: during a database outage, operator alerts stop. The alternative
-// is that during a database outage we send operator alerts to an address nobody
-// verified, which is the exact failure this module exists to prevent. A blocked
-// alert is recoverable and loud. A leaked one is neither.
+//   Credentials present, query FAILS   -> REFUSE. Something is wrong with a database we
+//                                         are supposed to be able to reach, and sending
+//                                         to an address nobody verified is the exact
+//                                         failure this module exists to prevent.
+//
+//   Credentials ABSENT                 -> allow, and log loudly. This is a unit test or
+//                                         an unconfigured environment, not an outage.
+//                                         recordEmailDeliveryFailure in this same
+//                                         directory already draws the identical line and
+//                                         says so: "No credentials means unit tests, or a
+//                                         misconfigured environment."
+//
+// The trade-off in the second case, stated plainly: a production missing
+// SUPABASE_SERVICE_ROLE_KEY would send an operator alert unverified. That production
+// cannot read its own client list, cannot record a delivery failure, and cannot serve a
+// dashboard, so the guard is not what is protecting anybody at that point. Turning a
+// missing environment variable into a total operator-alert blackout costs more than it
+// buys. The first case is where the real risk lives and it still refuses.
 
 import { logger } from '@/lib/logger'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
@@ -47,9 +61,20 @@ export type RecipientVerdict =
  *
  * Injectable so the guard can be tested without a database. The default reads live.
  */
-export type ClientAddressReader = () => Promise<{ addresses: string[]; failed: boolean }>
+export type ClientAddressReader = () => Promise<{
+  addresses: string[]
+  failed: boolean
+  /** True when there is no database to ask, as opposed to a database that would not answer. */
+  credentialsMissing?: boolean
+}>
 
 const defaultClientAddressReader: ClientAddressReader = async () => {
+  // Checked BEFORE constructing a client, so an unconfigured environment costs nothing
+  // and does not sit waiting on a connection that cannot be made.
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return { addresses: [], failed: false, credentialsMissing: true }
+  }
+
   try {
     const supabase = await createServiceRoleClient()
 
@@ -98,7 +123,15 @@ export async function assertOperatorRecipient(
     return { ok: false, reason: 'operator recipient is empty' }
   }
 
-  const { addresses, failed } = await readClientAddresses()
+  const { addresses, failed, credentialsMissing } = await readClientAddresses()
+
+  if (credentialsMissing) {
+    logger.error(
+      'recipient-audience: no database credentials, operator recipient NOT verified',
+      { recipient_domain: normalised.split('@')[1] ?? 'unknown' },
+    )
+    return { ok: true }
+  }
 
   if (failed) {
     // See the header: closed, not open.

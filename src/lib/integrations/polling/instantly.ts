@@ -856,7 +856,7 @@ export async function pollInstantlyReplies(
         // SCOPE. These two malformed-payload cases genuinely have nowhere to go: without an
         // id there is no idempotency key to quarantine under, and both fail identically on
         // every re-fetch. The third case, an unresolvable campaign, is NO LONGER one of
-        // these: it is quarantined below and MON-030 owns its alerting.
+        // these: it is quarantined below and MON-031 owns its alerting.
         if (!emailId) {
           const reason = 'reply email missing id field, dropped permanently'
           recordPollFailure(state, reason)
@@ -898,7 +898,7 @@ export async function pollInstantlyReplies(
           // This is the branch the interim recordPollFailure note above described, now
           // superseded. It no longer records a poll failure: a quarantined reply is a
           // HANDLED outcome, and reddening MON-002 on every run that holds one would pin
-          // the poll heartbeat permanently. MON-030 owns the alerting for this class.
+          // the poll heartbeat permanently. MON-031 owns the alerting for this class.
           //
           // A FAILED quarantine write is still a poll failure, because then the reply
           // really is gone.

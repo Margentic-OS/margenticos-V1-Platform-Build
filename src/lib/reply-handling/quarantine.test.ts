@@ -2,7 +2,7 @@
 //
 // The invariant every test here defends: a quarantined reply is resolved ONLY by a real
 // signal write, and removed ONLY by retention. Nothing may mark a row resolved to make
-// MON-030 go green, because green then means "nobody is waiting" when somebody is.
+// MON-031 go green, because green then means "nobody is waiting" when somebody is.
 //
 // MUTATION PROOFS, each stated on its test:
 //   - drop the 23505 branch in quarantineReply           -> the idempotency test goes red
@@ -160,7 +160,7 @@ describe('quarantineReply', () => {
 
     expect(outcome).toBe('parked')
     expect(rows).toHaveLength(1)
-    // The campaign id is what MON-030 names and what registering resolves. Without it the
+    // The campaign id is what MON-031 names and what registering resolves. Without it the
     // row is an alarm nobody can action.
     expect(rows[0].provider_campaign_id).toBe('campaign-unregistered')
     expect(rows[0].raw_data).toEqual({ id: 'email-1' })
@@ -169,7 +169,7 @@ describe('quarantineReply', () => {
   it('is idempotent, and does NOT reset the ageing clock on re-observation', async () => {
     // MUTATION: remove the 23505 branch and this goes red. The poller re-reads pages after
     // a cursor rewind, so without this a single reply would either duplicate or look
-    // permanently new and never age into view on MON-030.
+    // permanently new and never age into view on MON-031.
     const existing = quarantinedRow()
     const originalFirstSeen = existing.first_seen_at
     const { client, rows } = createFake([existing])
@@ -214,7 +214,7 @@ describe('replayQuarantinedReplies', () => {
 
   it('leaves a REDACTED row unresolved, so the alarm survives the data being gone', async () => {
     // MUTATION: resolve redacted rows too and this goes red. Resolving them would clear
-    // MON-030 while a real person is still waiting for an answer nobody can now send.
+    // MON-031 while a real person is still waiting for an answer nobody can now send.
     const { client, rows, signalInserts } = createFake([
       quarantinedRow({ body_redacted_at: new Date('2026-09-05T00:00:00Z').toISOString(), raw_data: null }),
     ])
@@ -288,7 +288,7 @@ describe('applyQuarantineRetention', () => {
   const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86400_000).toISOString()
 
   it('REDACTS at 30 days but KEEPS the row and the campaign id', async () => {
-    // MUTATION: delete instead of redact and this goes red. Deleting would make MON-030 go
+    // MUTATION: delete instead of redact and this goes red. Deleting would make MON-031 go
     // green because the row aged out, which is a monitor healing by forgetting. MON-028's
     // advice text already bans the equivalent move for reply drafts.
     const { client, rows } = createFake([

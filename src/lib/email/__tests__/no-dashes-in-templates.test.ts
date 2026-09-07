@@ -1,19 +1,32 @@
-// No email template may contain an em dash or an en dash.
+// No CUSTOMER-FACING email template may contain an em dash or an en dash.
 //
 // ═══════════════════════════════════════════════════════════════════════════════
-// WHY THIS IS A TEST AND NOT A STYLE NOTE
+// WHY CUSTOMER-FACING ONLY, WHICH IS NARROWER THAN THIS TEST FIRST WAS
 //
-// sendTransactionalEmail REJECTS any subject, html or text containing '—' or '–'. It
-// returns success: false and raises a Sentry exception. So a dash in a template is not
-// a cosmetic problem: that email never sends, for anyone, for ever.
+// This file originally scanned every template. It was narrowed when it met main, which had
+// independently established the better rule: the dash ban is a PROSPECT-FACING STYLE RULE,
+// not a rendering rule. MargenticOS's ICP is founder-led consulting firms burned by AI
+// email and the em dash is the most recognisable tell. An internal alert reaches neither a
+// client nor a prospect, so applying the rule there was a category error, and it cost every
+// operator notification the system ever tried to send.
 //
-// Six templates carried one in their SENT content on 2026-09-07, four of them live
-// operator alerts including agent-failure, which is the message that tells the operator
-// a document agent has broken. Those alerts had been silently failing to send.
+// sendTransactionalEmail now skips the dash checks for audience: 'operator'. So a dash in
+// an operator template is no longer a defect and this test must not claim it is. Forbidding
+// what the sender deliberately permits would be a test asserting a rule the system does not
+// have.
 //
-// The project has banned these characters since its first day, in prose, in CLAUDE.md.
-// Prose did not enforce it. This is the same lesson as the commit-gate hooks: a rule
-// that depends on somebody remembering is not a control.
+// For a CUSTOMER template the dash is still two faults at once: the send is rejected
+// outright, and if it were not, the copy carries the tell. That is what remains guarded.
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE LIST IS AN OPERATOR ALLOWLIST, SO THE DEFAULT IS STRICT
+//
+// A template not named below is treated as customer-facing and scanned. That matches the
+// sender's own default ('customer', the strict choice), so forgetting to classify a new
+// template can only ever make it stricter, never laxer.
+//
+// The allowlist is checked against the filesystem: if a named file stops existing the test
+// fails rather than silently exempting nothing.
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 // WHY IT SCANS THE WHOLE FILE, COMMENTS INCLUDED
@@ -35,10 +48,26 @@ const TEMPLATE_DIR = join(process.cwd(), 'src/lib/email/templates')
 const EM_DASH = '—'
 const EN_DASH = '–'
 
+// Templates sent with audience: 'operator'. Verified against their call sites on
+// 2026-09-07. Everything else is treated as customer-facing and scanned.
+const OPERATOR_TEMPLATES = [
+  'agent-failure.ts',
+  'approval-reminder.ts',
+  'intake-complete.ts',
+  'multi-user-signup-attempt.ts',
+  'operator-reply.ts',
+  'revision-gate-failure.ts',
+  'suggestion-ready.ts',
+]
+
 function templateFiles(): string[] {
   return readdirSync(TEMPLATE_DIR)
     .filter(name => name.endsWith('.ts'))
     .sort()
+}
+
+function customerFacingTemplates(): string[] {
+  return templateFiles().filter(name => !OPERATOR_TEMPLATES.includes(name))
 }
 
 function offendingLines(contents: string): { line: number; text: string; char: string }[] {
@@ -56,6 +85,7 @@ describe('email templates carry no em or en dashes', () => {
     // would make every assertion below pass over nothing, which is the vacuous-green
     // shape this suite exists to prevent.
     expect(templateFiles().length).toBeGreaterThan(10)
+    expect(customerFacingTemplates().length).toBeGreaterThan(5)
   })
 
   it('can detect a dash it is given, so a clean result means something', () => {
@@ -66,7 +96,16 @@ describe('email templates carry no em or en dashes', () => {
     expect(offendingLines("const z = 'a - b'")).toHaveLength(0)
   })
 
-  it.each(templateFiles())('%s contains no em or en dash', (name) => {
+  it('every allowlisted operator template actually exists', () => {
+    // Guards the allowlist itself. A renamed file would otherwise exempt nothing while
+    // looking like it exempted something, and the renamed template would be scanned under
+    // rules it was deliberately released from.
+    const present = templateFiles()
+    const missing = OPERATOR_TEMPLATES.filter(name => !present.includes(name))
+    expect(missing, `allowlisted but absent: ${missing.join(', ')}`).toHaveLength(0)
+  })
+
+  it.each(customerFacingTemplates())('%s contains no em or en dash', (name) => {
     const contents = readFileSync(join(TEMPLATE_DIR, name), 'utf8')
     const hits = offendingLines(contents)
 
@@ -76,8 +115,9 @@ describe('email templates carry no em or en dashes', () => {
 
     expect(
       hits,
-      `${name} contains ${hits.length} forbidden dash(es). sendTransactionalEmail ` +
-        `rejects these, so every send using this template fails.\n${report}`
+      `${name} is customer-facing and contains ${hits.length} forbidden dash(es). ` +
+        `sendTransactionalEmail rejects these for a customer audience, so every send ` +
+        `using this template fails, and the dash is an AI tell besides.\n${report}`
     ).toHaveLength(0)
   })
 })

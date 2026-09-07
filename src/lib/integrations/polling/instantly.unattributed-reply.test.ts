@@ -21,7 +21,7 @@
 //
 // So the unresolved-campaign case is no longer counted as an error. It is a handled
 // outcome, and counting it would pin MON-002 red on every run holding a quarantined
-// reply. MON-030 owns the alerting. recordPollFailure now fires here only when the
+// reply. MON-031 owns the alerting. recordPollFailure now fires here only when the
 // QUARANTINE WRITE ITSELF FAILS, which is the case where the reply really is lost.
 //
 // ═══════════════════════════════════════════════════════════════════════════════

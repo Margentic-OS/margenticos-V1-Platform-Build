@@ -157,15 +157,14 @@ export async function sendOperatorReplyNotification(
       // One notification per REPLY EVENT. See the header for what a failed send does here.
       subjectId: params.signalId,
       to: operator.email,
-      // Operator-only. The address comes from a role lookup rather than an env var, so
-      // it is already the safer path, but the assertion is cheap and the failure mode
-      // it guards (a client user row carrying role='operator') is not otherwise caught.
-      audience: 'operator' as const,
       subject: operatorReplySubject(templateParams),
       html: operatorReplyTemplate(templateParams),
       text: operatorReplyTemplateText(templateParams),
       // Internal alert. Exempt from the customer-facing style rules, never from the
-      // rendering checks. See EmailAudience in src/lib/email/send.ts.
+      // rendering checks. It also asserts the recipient is not a client address: the
+      // address here comes from a role lookup rather than an env var, so it is already
+      // the safer path, but a client user row carrying role='operator' is not otherwise
+      // caught. See EmailAudience in src/lib/email/send.ts.
       audience: 'operator',
     })
 

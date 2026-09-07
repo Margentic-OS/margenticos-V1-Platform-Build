@@ -41,7 +41,7 @@ export type QuarantineOutcome = 'parked' | 'already_held' | 'failed'
  *
  * Idempotent on (provider, provider_email_id). The poller may see the same reply again
  * after a cursor rewind, and re-observation must not create a second row or reset the
- * ageing clock that MON-030 reports.
+ * ageing clock that MON-031 reports.
  */
 export async function quarantineReply(
   supabase: ServiceRoleClient,
@@ -66,7 +66,7 @@ export async function quarantineReply(
 
   // 23505 is the idempotency key doing its job, not a failure. Refresh last_seen_at so
   // the row shows it is still being observed, and leave first_seen_at alone: the ageing
-  // MON-030 reports is age since we FIRST could not attribute it, and touching it would
+  // MON-031 reports is age since we FIRST could not attribute it, and touching it would
   // let a repeatedly-seen reply look permanently new.
   if (error.code === '23505') {
     const { error: touchError } = await supabase
@@ -131,7 +131,7 @@ export async function replayQuarantinedReplies(
 
   for (const row of rows ?? []) {
     // A redacted row has no payload left to replay. It stays unresolved on purpose, so
-    // MON-030 keeps naming it and somebody answers it by hand. Marking it resolved here
+    // MON-031 keeps naming it and somebody answers it by hand. Marking it resolved here
     // would be the monitor healing by forgetting.
     if (row.body_redacted_at) {
       result.unreplayable++
@@ -206,7 +206,7 @@ export interface RetentionResult {
 /**
  * Applies the retention rule.
  *
- * Redaction keeps the row and the campaign id, so MON-030 stays PROBLEM. A monitor that
+ * Redaction keeps the row and the campaign id, so MON-031 stays PROBLEM. A monitor that
  * went green because rows aged out would be healing by forgetting, which MON-028's own
  * advice text already bans for reply drafts.
  */

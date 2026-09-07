@@ -175,12 +175,12 @@ export async function registerCampaign(
   //
   // Replies that arrived before this campaign was registered were parked rather than
   // dropped. Registering is exactly the event that makes them attributable, so this is
-  // where they come back. See MON-030.
+  // where they come back. See MON-031.
   //
   // Deliberately not fatal. The campaign IS registered at this point and reporting a
   // failure here would tell the operator the registration failed when it did not. A
   // replay that does not run leaves the rows quarantined, which is the safe state and
-  // stays visible on MON-030 rather than disappearing.
+  // stays visible on MON-031 rather than disappearing.
   try {
     const replay = await replayQuarantinedReplies(await createServiceRoleClient(), {
       providerCampaignId: campaignUuid,
