@@ -36,6 +36,35 @@ export interface QuarantineInput {
 
 export type QuarantineOutcome = 'parked' | 'already_held' | 'failed'
 
+// Candidate fields in the provider payload carrying WHEN THE PERSON WROTE, best first.
+// timestamp_email is the send time; timestamp_created is when the provider recorded it,
+// which is close enough to be a useful fallback and always better than our own clock.
+const WRITTEN_AT_CANDIDATE_FIELDS = ['timestamp_email', 'timestamp_created']
+
+/**
+ * When the prospect actually wrote, out of the provider payload.
+ *
+ * Extracted ONCE at write time rather than read out of raw_data in the monitor, because
+ * raw_data is nulled by the 30-day redaction. A view parsing the payload would silently
+ * fall back to our own timestamp exactly when a row has been waiting longest.
+ *
+ * Returns null rather than guessing. MON-031 falls back to first_seen_at and says so.
+ */
+export function extractReplyWrittenAt(rawData: Json): string | null {
+  if (typeof rawData !== 'object' || rawData === null || Array.isArray(rawData)) return null
+  const record = rawData as Record<string, unknown>
+
+  for (const field of WRITTEN_AT_CANDIDATE_FIELDS) {
+    const value = record[field]
+    if (typeof value !== 'string' || value.length === 0) continue
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) continue
+    return parsed.toISOString()
+  }
+
+  return null
+}
+
 /**
  * Parks a reply that resolved to no campaign of ours.
  *
@@ -58,6 +87,7 @@ export async function quarantineReply(
       eaccount: input.eaccount,
       raw_data: input.rawData,
       original_outbound_body: input.originalOutboundBody,
+      reply_written_at: extractReplyWrittenAt(input.rawData),
       first_seen_at: nowISO,
       last_seen_at: nowISO,
     })
