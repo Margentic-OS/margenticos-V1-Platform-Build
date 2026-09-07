@@ -356,19 +356,32 @@ describe('the validator is deterministic across calls', () => {
   // the ones in between.
   //
   // Restore any `g` flag in send.ts and this test goes red on the second iteration.
+  // THE OFFENDING CHARACTER MUST BE IN THE SUBJECT, and this is not a detail.
+  //
+  // The first version of this test put the dash in the html and passed with the `g` flag
+  // restored, so it asserted determinism while being structurally incapable of detecting
+  // its absence. The reason: the validator checks [subject, html, text] in order, and a
+  // clean subject is itself a failed .test() that resets lastIndex to 0 before the html is
+  // ever looked at. The state never survives to the next call.
+  //
+  // Only a match on the FIRST string checked leaves lastIndex non-zero on return. Measured
+  // with the g flag restored: dash in subject gives em dash, null, em dash, null. Dash in
+  // html gives em dash four times.
+  //
+  // /api/resend-test is the real instance: its subject is "MargenticOS — Resend wiring
+  // verified", so that endpoint's verdict genuinely alternated between calls.
   it('returns the same verdict for the same input, ten times running', () => {
-    const html = '<p>MargenticOS — Operator Alert</p>'
+    const subject = 'MargenticOS — Resend wiring verified'
     const verdicts = Array.from({ length: 10 }, () =>
-      validateEmailContent('subject', html, undefined, 'customer'),
+      validateEmailContent(subject, '<p>clean body</p>', undefined, 'customer'),
     )
     expect(new Set(verdicts).size).toBe(1)
     expect(verdicts[0]).toContain('em dash')
   })
 
   it('is deterministic for the clean case too', () => {
-    const html = '<p>Nothing wrong here</p>'
     const verdicts = Array.from({ length: 10 }, () =>
-      validateEmailContent('subject', html, undefined, 'customer'),
+      validateEmailContent('clean subject', '<p>Nothing wrong here</p>', undefined, 'customer'),
     )
     expect(new Set(verdicts).size).toBe(1)
     expect(verdicts[0]).toBeNull()
