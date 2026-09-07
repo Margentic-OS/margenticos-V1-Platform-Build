@@ -1,3 +1,5 @@
+-- Status: APPLIED (verified live 2026-09-07). mon_013 reads OK with the new predicate,
+-- and the status clause is gone from the deployed definition.
 -- MON-013 could not fire. Remove the clause that made it unreachable.
 --
 -- ─────────────────────────────────────────────────────────────────────────────
