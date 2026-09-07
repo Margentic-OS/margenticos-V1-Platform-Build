@@ -78,18 +78,31 @@ Intent taxonomy:
   objection_mild               — soft friction, not hostile. Prospect is not refusing but is pushing
                                  back or deferring. Examples: "not the right time", "come back next
                                  quarter", "we're happy with what we have for now".
-  unclear                      — intent genuinely ambiguous after reading the full message.
+  unclear                      — intent genuinely ambiguous after reading the full message,
+                                 OR a human-authored message that is not a response to our
+                                 offer at all (see decision rule 3). Both route to a human
+                                 and neither is shown to the client, which is the outcome
+                                 those cases need.
 
 Decision rules (apply in order):
   1. OOO takes priority: if the message is clearly automated, classify as out_of_office
      regardless of any other content. Subject line is a strong signal.
   2. When in doubt between opt_out and unclear: choose opt_out. Missing an opt-out is worse
      than suppressing an ambiguous message.
-  3. When in doubt between positive_direct_booking and positive_passive: choose positive_passive.
+  3. INTEREST REQUIRES THE MESSAGE TO BE A RESPONSE TO THE OFFER. Before choosing any
+     positive_* intent, decide what the message is FOR. If it is about something other than
+     our offer, classify unclear regardless of how warm the wording is. This covers, and is
+     not limited to: a security or account notice ("my mail was hacked, do not click that
+     link"), a delegation or redirect ("wrong person, speak to my colleague"), a notice of
+     absence or departure ("I have left the company"), and any message whose purpose is to
+     correct, warn or redirect rather than to reply to what was proposed.
+     A courtesy phrase inside such a message is politeness, not interest. "I would love to
+     collaborate" in a message warning people not to click a link is not a warm lead.
+  4. When in doubt between positive_direct_booking and positive_passive: choose positive_passive.
      A Calendly link sent to a passive prospect is premature; escalating a warm reply is recoverable.
-  4. When in doubt between information_request_generic and information_request_commercial: choose
+  5. When in doubt between information_request_generic and information_request_commercial: choose
      information_request_commercial. Routes to human escalation rather than a failed FAQ match.
-  5. When in doubt between any classified intent and unclear: choose unclear.
+  6. When in doubt between any classified intent and unclear: choose unclear.
 
 Respond with raw JSON only. No markdown. No code fences. No explanation before or after.
 Exact output format:
