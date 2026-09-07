@@ -1,3 +1,8 @@
+-- Status: APPLIED (verified live 2026-09-07). Privileges read back in BOTH directions:
+--   service_role SELECT true; anon SELECT false; authenticated SELECT false;
+--   anon INSERT false; authenticated UPDATE false; RLS enabled true.
+--   mon_031: service_role true, anon false, authenticated false.
+-- mon_031 reads OK on an empty table, which the view itself says is not proof.
 -- Quarantine a reply we cannot attribute, instead of discarding it.
 --
 -- ─────────────────────────────────────────────────────────────────────────────

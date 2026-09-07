@@ -1,3 +1,5 @@
+-- Status: APPLIED (verified live 2026-09-07). pg_get_constraintdef reads back
+-- CHECK (stage = ANY (ARRAY['content_validation','provider_send','recipient_refused'])).
 -- Extend the email_delivery_failures stage CHECK with 'recipient_refused'.
 --
 -- Two guards landed in sendTransactionalEmail on 2026-09-07, after the table in
