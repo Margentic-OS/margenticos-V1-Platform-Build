@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { Sidebar } from '@/components/dashboard/Sidebar'
 import type { DashboardState } from '@/components/dashboard/Sidebar'
 import { OperatorViewingBanner } from '@/components/dashboard/OperatorViewingBanner'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { deriveStrategyNavState } from '@/lib/dashboard/strategy-nav-state'
 import type { StrategyNavState } from '@/lib/dashboard/strategy-nav-state'
 
@@ -17,6 +18,16 @@ async function resolveDashboardState(
   strategyNav: StrategyNavState
 }> {
   const supabase = await createClient()
+
+  // PROSPECTS IS NOT READABLE BY A CLIENT SESSION. The RLS policy
+  // clients_read_own_prospects_denied has USING (false), so every SELECT a client session
+  // makes against this table returns zero rows AND NO ERROR. Counting through it does not
+  // fail, it silently answers 0, which is why the Prospects nav entry has never once
+  // appeared for a real client login.
+  //
+  // Same trap the comment in (client)/page.tsx already records for reply_handling_actions.
+  // The fix there was a service-role client; this is the same fix for the same reason.
+  const prospectReader = await createServiceRoleClient()
 
   const [
     { count: totalCritical },
@@ -49,7 +60,7 @@ async function resolveDashboardState(
       // TIER 1 AND TIER 2 ONLY, matching what the roster page actually renders. This
       // counted every tier, so the badge could exceed the page: on the live organisation
       // 5 tier-3 prospects sat at pending_review while the page showed none of them.
-      supabase
+      prospectReader
         .from('prospects')
         .select('*', { count: 'exact', head: true })
         .eq('organisation_id', orgId)
@@ -62,7 +73,7 @@ async function resolveDashboardState(
       // work. Deliberately does not model the roster's pending-and-unsendable exclusion:
       // that would need a filter PostgREST cannot express cleanly, and over-counting only
       // risks landing on the page's empty state rather than hiding a real list.
-      supabase
+      prospectReader
         .from('prospects')
         .select('*', { count: 'exact', head: true })
         .eq('organisation_id', orgId)

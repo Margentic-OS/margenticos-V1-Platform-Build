@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { logger } from '@/lib/logger'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 export async function POST(
   request: NextRequest,
@@ -40,7 +41,24 @@ export async function POST(
     // Check if tier is locked: any prospect reached 'uploaded' (durable) or is 'uploading' (in flight).
     // Use both checks: 'uploaded' survives reclaim, 'uploading' catches in-flight sends.
     // This prevents tier unlock via stale-lock reclaim once sending has genuinely started.
-    const { data: lockedData, error: lockedError } = await supabase
+    // THE LOCK READ USES A SERVICE CLIENT AND THE UPDATE BELOW DOES NOT, DELIBERATELY.
+    //
+    // prospects carries two policies that disagree: clients_read_own_prospects_denied is
+    // USING (false) for SELECT, while clients_update_own_prospect_review permits UPDATE on
+    // the client's own organisation. So a client session cannot read this table but can
+    // write it.
+    //
+    // Through the session client this SELECT returned [] for every real client, with no
+    // error, because an RLS denial is not an error. The 409 below could therefore never
+    // fire, and the UPDATE that follows it succeeded, because UPDATE is the one thing the
+    // policy allows. A client could sanction or unsanction a tier whose prospects were
+    // already uploaded or in flight: 95 of them on the live organisation.
+    //
+    // A guard that reads zero rows and concludes "safe" is the shape CLAUDE.md keeps
+    // returning to. The read is now service-role so the guard can see what it is guarding.
+    const prospectReader = await createServiceRoleClient()
+
+    const { data: lockedData, error: lockedError } = await prospectReader
       .from('prospects')
       .select('id')
       .eq('organisation_id', orgId)

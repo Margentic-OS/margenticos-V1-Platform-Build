@@ -207,7 +207,10 @@ export default async function DashboardPage({
       .select('id, shell_synced_at, external_id, sending_state, sending_status_checked_at')
       .eq('organisation_id', org.id)
       .not('external_id', 'is', null),
-    supabase
+    // Service client, not the session client. clients_read_own_prospects_denied is
+    // USING (false), so this count came back 0 for every real client while 95 prospects
+    // were in a live campaign, and deriveCampaignsStatus judged the campaign from it.
+    adminClient
       .from('prospects')
       .select('id', { count: 'exact', head: true })
       .eq('organisation_id', org.id)
