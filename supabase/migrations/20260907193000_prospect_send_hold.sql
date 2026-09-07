@@ -1,3 +1,6 @@
+-- Status: APPLIED (verified live 2026-09-07)
+-- Read-back: 3 columns present, CHECK prospects_send_hold_complete present, partial index
+-- prospects_send_hold_at_idx present. Constraint proved to REJECT a hold with a null reason.
 -- A DURABLE, OPERATOR-SET HOLD ON SENDING TO ONE PROSPECT.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
