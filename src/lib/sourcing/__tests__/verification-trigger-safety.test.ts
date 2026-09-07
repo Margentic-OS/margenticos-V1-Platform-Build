@@ -39,6 +39,8 @@ interface FakeRow {
    */
   sourced_tier?: string | null
   tiering_reason?: string | null
+  /** prospects.send_hold_at. Non-null means an operator has held this prospect. */
+  send_hold_at?: string | null
 }
 
 /**
@@ -114,10 +116,20 @@ function fakeSupabase(
       const orFilters: string[] = []
       /** The row cap the query asked for. Applied in then(). See limit() below. */
       let limitValue: number | null = null
+      /**
+       * The column list the query asked maybeSingle for.
+       *
+       * HONOURED, not swallowed. maybeSingle used to return a fixed
+       * { verification_attempt_count } whatever was selected, which is the shape CLAUDE.md
+       * records three times: the production code can stop reading a column entirely and no
+       * test notices, because the fake never supplied it in the first place.
+       */
+      let selectedCols = ''
 
       const chain: Record<string, unknown> = {
-        select(_cols: string, o?: { count?: string; head?: boolean }) {
+        select(cols: string, o?: { count?: string; head?: boolean }) {
           if (o?.head) mode = 'count'
+          selectedCols = cols
           return chain
         },
         eq(col: string, val: string) { if (col === 'id') ids = [val]; return chain },
@@ -144,10 +156,26 @@ function fakeSupabase(
         maybeSingle() {
           mode = 'single'
           const row = rows.find(r => r.id === ids[0])
-          return Promise.resolve({
-            data: row ? { verification_attempt_count: row.verification_attempt_count ?? 0 } : null,
-            error: null,
-          })
+          if (!row) return Promise.resolve({ data: null, error: null })
+
+          // A column this fake does not implement THROWS rather than coming back undefined.
+          // Silently returning a partial row is how a fake stops being able to test the
+          // thing it is pointed at: the caller reads undefined, treats it as "no value",
+          // and the assertion passes for a reason that has nothing to do with the code.
+          const data: Record<string, unknown> = {}
+          for (const col of selectedCols.split(',').map(c => c.trim()).filter(Boolean)) {
+            switch (col) {
+              case 'verification_attempt_count':
+                data[col] = row.verification_attempt_count ?? 0
+                break
+              case 'send_hold_at':
+                data[col] = row.send_hold_at ?? null
+                break
+              default:
+                throw new Error(`fake maybeSingle does not implement column "${col}"`)
+            }
+          }
+          return Promise.resolve({ data, error: null })
         },
         update(payload: Record<string, unknown>) {
           const upd: Record<string, unknown> = {
@@ -470,5 +498,57 @@ describe('THE TIER GATE — verification does not spend quota on a prospect tier
     await verifyEnrichedBatch(client, ORG, 5)
 
     expect(execute).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// THE HOLD HAS TO BE READ, NOT JUST HONOURED
+//
+// firstPassSendEligibility is unit-tested next door and refuses a held prospect correctly.
+// That proves the POLICY. It does not prove this trigger passes the real column into it, and
+// a policy that is never handed the value is not a guard.
+//
+// Mutation-checked: replacing the column read in recordVerificationResult with a literal
+// `null` leaves every other test in the sourcing suite green. These are the tests that go
+// red, and that is the only reason they exist.
+
+describe('an operator hold reaches the first pass, and survives it', () => {
+  const HELD_AT = '2026-08-29T00:00:00.000Z'
+
+  it('THE GUARD: a held prospect the vendor calls Valid is written back INELIGIBLE', async () => {
+    // The live shape exactly: a deliverable address in a country no rule excludes, held only
+    // by an operator. Before the hold columns existed this run wrote email_send_eligible =
+    // true and silently undid a hand edit.
+    vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client, applied } = fakeSupabase([
+      { id: 'p1', email: 'a@b.com', country: 'CA', send_hold_at: HELD_AT },
+    ])
+
+    await verifyEnrichedBatch(client, ORG, 5)
+
+    const verdicts = payloadsFor(applied, 'p1').filter(p => 'email_send_eligible' in p)
+    expect(verdicts.length).toBeGreaterThan(0)
+    for (const p of verdicts) {
+      expect(p.email_send_eligible).toBe(false)
+      // A held row with a NULL reason is the original defect. Asserted separately so a
+      // regression that keeps the row held but loses the reason still fails.
+      expect(p.email_send_ineligible_reason).toBe('operator_hold')
+    }
+  })
+
+  it('CONTROL: the same prospect UNHELD is written back eligible', async () => {
+    // Without this the assertion above could pass because the run never wrote a verdict at
+    // all, or because something unrelated refuses Canadians. It does not: the only
+    // difference between these two cases is send_hold_at.
+    vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client, applied } = fakeSupabase([
+      { id: 'p1', email: 'a@b.com', country: 'CA', send_hold_at: null },
+    ])
+
+    await verifyEnrichedBatch(client, ORG, 5)
+
+    const verdicts = payloadsFor(applied, 'p1').filter(p => 'email_send_eligible' in p)
+    expect(verdicts.length).toBeGreaterThan(0)
+    expect(verdicts.some(p => p.email_send_eligible === true)).toBe(true)
   })
 })
