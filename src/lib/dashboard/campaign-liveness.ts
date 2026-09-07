@@ -31,6 +31,10 @@ export interface CampaignLiveness {
 
 export interface LivenessInput {
   sending_state: string | null
+  // The provider's own reason code, stored alongside our collapsed state. Five different
+  // provider reasons map to sending_state = 'waiting', and only this column can tell them
+  // apart. Nullable because a reading can arrive without one.
+  sending_status_raw: string | null
   sending_status_checked_at: string | null
   external_id: string | null
 }
@@ -55,9 +59,13 @@ const REASON_COPY: Record<string, { label: string; detail: string | null }> = {
     label: 'Daily sending limit reached',
     detail: 'Today’s emails have all gone out. Sending picks up again tomorrow.',
   },
+  // THE FALLBACK FOR 'waiting', not its only meaning. Five provider reasons collapse into
+  // this state, so this copy has to cover the four that are not a closed window:
+  // waiting_for_leads, follow_up_delay_not_met, waiting_for_esp_match and
+  // campaign_running_subsequences. See WAITING_OUT_OF_SCHEDULE_COPY for the fifth.
   waiting: {
-    label: 'Waiting to send',
-    detail: 'Either outside the sending window, or nobody is due an email right now.',
+    label: 'Nothing due right now',
+    detail: 'Everyone is either mid-sequence or waiting on their next step. Sending continues automatically.',
   },
   paused: {
     label: 'Paused',
@@ -72,6 +80,26 @@ const REASON_COPY: Record<string, { label: string; detail: string | null }> = {
     detail: 'Everyone on this list has had the full sequence.',
   },
 }
+
+// The fifth 'waiting' reason, split out because it is the one a client sees most and the
+// one the collapsed copy served worst.
+//
+// "Waiting to send" reads as NOT STARTED. It was shown while the campaign was live and 44
+// people had been contacted, which is exactly backwards: the send window had simply closed
+// for the day. A client reading it concluded nothing was happening.
+//
+// KNOWN LIMIT, accepted deliberately. This says "tomorrow" without knowing the schedule.
+// We do not store the sending window; it lives in the provider. On a Friday evening, with
+// no weekend sending, "tomorrow" is optimistic by two days. Syncing a schedule we do not
+// own was judged more plumbing than the precision buys. If that changes, this is the one
+// string to revisit.
+const WAITING_OUT_OF_SCHEDULE_COPY = {
+  label: 'Sending resumes tomorrow',
+  detail: 'Today’s sending window has closed. The next batch goes out in the morning.',
+}
+
+// The provider's reason code for "the campaign is fine, the window is shut".
+const OUT_OF_SCHEDULE_RAW = 'out_of_schedule'
 
 /**
  * Derives what a client may be told about whether their outreach is running.
@@ -118,10 +146,21 @@ export function deriveCampaignLiveness(
 
   // Nothing is sending. Report the most urgent reason among the fresh readings.
   for (const reason of REASON_PRIORITY) {
-    if (fresh.some(c => c.sending_state === reason)) {
-      const copy = REASON_COPY[reason]
-      return { verdict: 'not_sending', label: copy.label, detail: copy.detail }
+    const matching = fresh.filter(c => c.sending_state === reason)
+    if (matching.length === 0) continue
+
+    // 'waiting' is five provider reasons wearing one name. Only out_of_schedule gets the
+    // "resumes tomorrow" copy; the other four are genuinely "nothing due right now".
+    if (reason === 'waiting' && matching.some(c => c.sending_status_raw === OUT_OF_SCHEDULE_RAW)) {
+      return {
+        verdict: 'not_sending',
+        label: WAITING_OUT_OF_SCHEDULE_COPY.label,
+        detail: WAITING_OUT_OF_SCHEDULE_COPY.detail,
+      }
     }
+
+    const copy = REASON_COPY[reason]
+    return { verdict: 'not_sending', label: copy.label, detail: copy.detail }
   }
 
   // Fresh readings exist but every sending_state is null: Instantly answered and carried
