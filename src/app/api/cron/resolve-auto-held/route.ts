@@ -45,14 +45,38 @@ export async function POST(request: NextRequest) {
 
   try {
     // ── Resolve auto-held meetings ─────────────────────────────────────────
-    const results = await resolveAutoHeldMeetings()
+    // The service-role client above is PASSED, not merely created. It used to be
+    // created and then dropped on the floor: this call had no argument, and the
+    // resolver fell back to the anon session client. See the header comment in
+    // src/lib/meetings/auto-held-resolution.ts.
+    const run = await resolveAutoHeldMeetings(supabase)
+
+    // A run in which any organisation's read or update was refused is NOT a healthy
+    // run, even though the remaining organisations were processed normally.
+    const ok = run.organisations_failed === 0
 
     logger.info('resolve-auto-held cron: completed', {
-      organisations_processed: results.length,
-      total_resolved: results.reduce((sum, r) => sum + r.resolved_count, 0),
+      organisations_examined: run.organisations_examined,
+      organisations_failed: run.organisations_failed,
+      total_resolved: run.meetings_resolved,
     })
 
-    Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'ok', checkInId })
+    // DETAIL FORMAT IS LOAD-BEARING. mon_010 reads the integer after 'Examined' and
+    // compares it against the live count of non-archived organisations, so that a run
+    // examining zero while organisations exist is a PROBLEM whatever `ok` says. The
+    // view anchors on '^Examined (\d+) organisations' and reports UNKNOWN if it cannot
+    // match, so changing this string breaks the monitor loudly rather than silently.
+    // The word 'Processed' was the old wording and is deliberately not reused: it
+    // could not distinguish organisations WALKED from organisations that had work.
+    const detail = ok
+      ? `Examined ${run.organisations_examined} organisations, resolved ${run.meetings_resolved} meetings`
+      : `Examined ${run.organisations_examined} organisations, resolved ${run.meetings_resolved} meetings, ${run.organisations_failed} FAILED`
+
+    Sentry.captureCheckIn({
+      monitorSlug: MONITOR_SLUG,
+      status: ok ? 'ok' : 'error',
+      checkInId,
+    })
     try { await Sentry.flush(2000) } catch {}
 
     try {
@@ -60,21 +84,22 @@ export async function POST(request: NextRequest) {
         .from('cron_heartbeats')
         .insert({
           job_name: 'resolve-auto-held',
-          ok: true,
-          detail: `Processed ${results.length} organisations, resolved ${results.reduce((sum, r) => sum + r.resolved_count, 0)} meetings`,
+          ok,
+          detail,
         })
     } catch (e) {
       logger.error('failed to record heartbeat', { error: e })
     }
 
     return NextResponse.json({
-      ok: true,
+      ok,
       results: {
-        organisations_processed: results.length,
-        meetings_resolved: results.reduce((sum, r) => sum + r.resolved_count, 0),
-        detail: results,
+        organisations_examined: run.organisations_examined,
+        organisations_failed: run.organisations_failed,
+        meetings_resolved: run.meetings_resolved,
+        detail: run.organisations_with_resolutions,
       },
-    })
+    }, { status: ok ? 200 : 500 })
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     logger.error('resolve-auto-held cron: threw unexpectedly', { error: msg })
