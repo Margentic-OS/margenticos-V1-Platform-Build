@@ -3,7 +3,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
-import { sendTransactionalEmail } from '@/lib/email/send'
+import { sendTransactionalEmail, type EmailAudience } from '@/lib/email/send'
 
 export interface SendEmailWithDedupParams {
   supabase: SupabaseClient
@@ -14,6 +14,8 @@ export interface SendEmailWithDedupParams {
   subject: string
   html: string
   text?: string
+  /** Defaults to 'customer' downstream. Set 'operator' for internal alerts. */
+  audience?: EmailAudience
 }
 
 export async function sendTransactionalEmailWithDedup(
@@ -60,12 +62,15 @@ export async function sendTransactionalEmailWithDedup(
       throw logError
     }
 
-    // Send the email
+    // Send the email. audience passes straight through: this wrapper carries operator
+    // alerts as well as client mail, and swallowing the field here would silently put
+    // every deduped operator notification back under the customer-facing style rules.
     const result = await sendTransactionalEmail({
       to: params.to,
       subject: params.subject,
       html: params.html,
       ...(params.text ? { text: params.text } : {}),
+      ...(params.audience ? { audience: params.audience } : {}),
     })
 
     if (!result.success) {

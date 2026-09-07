@@ -117,6 +117,9 @@ export async function POST(_request: NextRequest) {
     if (operatorEmail) {
       await sendTransactionalEmail({
         to: operatorEmail,
+        // Internal alert. Exempt from the customer-facing style rules, never from the
+        // rendering checks. See EmailAudience in src/lib/email/send.ts.
+        audience: 'operator',
         subject: intakeCompleteSubject(orgName),
         html: intakeCompleteTemplate({ orgName, orgId }),
       })

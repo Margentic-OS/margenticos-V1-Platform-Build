@@ -94,6 +94,9 @@ export async function POST(request: NextRequest) {
 
   await sendTransactionalEmail({
     to: operatorEmail,
+    // Internal alert. Exempt from the customer-facing style rules, never from the
+    // rendering checks. See EmailAudience in src/lib/email/send.ts.
+    audience: 'operator',
     subject: multiUserSignupAttemptSubject(org.name),
     html: multiUserSignupAttemptTemplate({
       attemptedEmail: email,
