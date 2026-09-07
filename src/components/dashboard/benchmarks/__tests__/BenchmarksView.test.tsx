@@ -25,6 +25,7 @@ function metrics(overrides: Partial<ClientVisibleCampaignMetrics> = {}): ClientV
     bouncedCount: 0,
     unsubscribedCount: 1,
     repliedCount: 1,
+    peopleRepliedCount: 1,
     replyRate: (1 / 26) * 100,
     positiveReplyCount: 0,
     meetingsBooked: 0,

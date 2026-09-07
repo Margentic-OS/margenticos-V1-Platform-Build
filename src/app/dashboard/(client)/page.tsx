@@ -180,12 +180,18 @@ export default async function DashboardPage({
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
+  // TIERS 1 AND 2 ONLY, matching the roster page exactly.
+  //
+  // This read `.not('sourced_tier','is',null)`, which is every tier, so the Overview said
+  // "108 contacts approved" while the roster rendered 103. The 5 difference is tier 3, the
+  // DISQUALIFIER tier: people the client has never seen and never will. A client-facing
+  // promise of 108 that the next screen contradicts by 5 is worse than either number alone.
   const { data: prospectCounts } = await adminClient
     .from('prospects')
     .select('sourced_tier, client_review_status', { count: 'exact' })
     .eq('organisation_id', org.id)
     .not('tier_published_at', 'is', null)
-    .not('sourced_tier', 'is', null)
+    .in('sourced_tier', ['tier_1', 'tier_2'])
     .eq('suppressed', false)
 
   const prospectData = prospectCounts ?? []

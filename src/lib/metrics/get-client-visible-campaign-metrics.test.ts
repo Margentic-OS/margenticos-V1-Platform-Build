@@ -175,6 +175,12 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
       'bouncedCount',
       'unsubscribedCount',
       'repliedCount',
+      // A TOTAL, not per-address. Added 2026-09-07: distinct people who replied, counted
+      // from our own signals, because the client-facing Replies card was rendering the
+      // sending tool's tally (2) while five people had actually replied. Passing the
+      // ADR-030 boundary because it is a count with no address, no mailbox and no
+      // per-recipient detail attached.
+      'peopleRepliedCount',
       'replyRate',
       'positiveReplyCount',
       'meetingsBooked',

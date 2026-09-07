@@ -67,7 +67,22 @@ export interface ClientVisibleCampaignMetrics {
   // never see which addresses did.
   bouncedCount: number
   unsubscribedCount: number
+  // THE PROVIDER'S REPLY COUNT. Mirrored from the sending tool by the poller. Kept
+  // because replyRate is denominated against it and the published benchmark ranges use
+  // the same definition. NOT what a client-facing "Replies" card should show: see
+  // peopleRepliedCount.
   repliedCount: number
+  // PEOPLE who have replied, counted from our own signals rather than the provider's
+  // tally. Distinct prospects, so one person replying twice is one reply.
+  //
+  // Live 2026-09-07: the provider said 2 while five people had actually replied, so the
+  // client's Replies card understated reality by more than half. A client asking "how
+  // many replies" means people, not messages, and not the provider's opinion of either.
+  //
+  // Counts every reply regardless of intent, deliberately. Out-of-office is kept out of
+  // INTEREST by CLIENT_VISIBLE_INTENTS, which is a different question and is unaffected:
+  // an out-of-office is a reply, it is just not interest.
+  peopleRepliedCount: number
   // REPLIES PER PERSON CONTACTED, not per email. See the note by its computation below.
   replyRate: number | null
   // Replies whose classified intent is in the client-visible positive set. Counted from
@@ -116,7 +131,7 @@ export async function getClientVisibleCampaignMetrics(
 ): Promise<ClientVisibleCampaignMetrics> {
   const supabase = serviceRoleClient()
 
-  const [campaignsResult, positiveRepliesResult, meetingsResult] = await Promise.all([
+  const [campaignsResult, positiveRepliesResult, meetingsResult, replySignalsResult] = await Promise.all([
     supabase
       .from('campaigns')
       .select('contacted_count, sent_count, replied_count, bounced_count, unsubscribed_count')
@@ -146,6 +161,18 @@ export async function getClientVisibleCampaignMetrics(
       .from('meetings')
       .select('meeting_status')
       .eq('organisation_id', clientOrgId),
+
+    // Distinct people, so prospect_id is selected and de-duplicated here rather than
+    // counted in the database: PostgREST has no COUNT(DISTINCT). Rows with a null
+    // prospect_id are unattributed replies (the quarantine case) and are excluded, because
+    // this number answers "how many of your prospects replied" and an unattributed reply
+    // cannot be attributed to one.
+    supabase
+      .from('signals')
+      .select('prospect_id')
+      .eq('organisation_id', clientOrgId)
+      .eq('signal_type', 'reply_received')
+      .not('prospect_id', 'is', null),
   ])
 
   const campaigns = campaignsResult.data ?? []
@@ -162,6 +189,12 @@ export async function getClientVisibleCampaignMetrics(
 
   const meetings = meetingsResult.data ?? []
 
+  const peopleRepliedCount = new Set(
+    (replySignalsResult.data ?? [])
+      .map(r => r.prospect_id)
+      .filter((id): id is string => id !== null),
+  ).size
+
   return {
     contactedCount,
     sentCount,
@@ -169,6 +202,7 @@ export async function getClientVisibleCampaignMetrics(
     bouncedCount,
     unsubscribedCount,
     repliedCount,
+    peopleRepliedCount,
     // ─── DENOMINATED IN PEOPLE, NOT EMAILS ────────────────────────────────────
     //
     // A four-step sequence sends up to four emails to one person, so sentCount counts the
