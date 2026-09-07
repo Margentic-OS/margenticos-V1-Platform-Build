@@ -49,6 +49,7 @@ import { fetchCampaignSendingStatus, SENDING_STATES_NEEDING_ATTENTION } from '@/
 import { getInstantlyApiKey, getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 import { syncSendingHealth } from '@/lib/sending-health/sync'
 import { reconcileReplies } from '@/lib/reply-handling/reconcile'
+import { applyQuarantineRetention } from '@/lib/reply-handling/quarantine'
 import { carryPendingSuppressions, type CarryVerdict } from '@/lib/suppression/carry'
 import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
 
@@ -458,6 +459,19 @@ export async function POST(request: NextRequest) {
   // And it fails closed rather than open: if instantlyGet is broken the sweep reports
   // unreachable, which is PROBLEM, not a pass. If the whole route dies, MON-029's freshness
   // clause goes red on its own. Neither failure mode can produce a false all-clear.
+  // ── Quarantine retention ───────────────────────────────────────────────────
+  //
+  // Redact unattributed replies past 30 days, delete past 180. Rides here rather than
+  // taking its own cron because the client is already resolved and both queries are
+  // indexed and bounded, so running it every 15 minutes costs nothing when there is
+  // nothing to do, which is the normal case.
+  //
+  // Its failures do NOT feed totalErrors, for the same reason the reconciliation sweep's
+  // do not: this is housekeeping alongside the poll, and letting it redden the poll's
+  // heartbeat would conflate "the poll failed" with "a retention sweep failed". It logs
+  // and Sentry carries it.
+  const retention = await applyQuarantineRetention(supabase)
+
   const reconciliation = await reconcileReplies(supabase, apiKey, baseUrl, isActive)
 
   const { error: reconcileWriteError } = await supabase
@@ -574,5 +588,6 @@ export async function POST(request: NextRequest) {
     campaign_stats: campaignStatsResult,
     sending_health: sendingHealthResult,
     suppression_carry: carryVerdict,
+    quarantine_retention: retention,
   })
 }

@@ -161,7 +161,10 @@ export async function sendOperatorReplyNotification(
       html: operatorReplyTemplate(templateParams),
       text: operatorReplyTemplateText(templateParams),
       // Internal alert. Exempt from the customer-facing style rules, never from the
-      // rendering checks. See EmailAudience in src/lib/email/send.ts.
+      // rendering checks. It also asserts the recipient is not a client address: the
+      // address here comes from a role lookup rather than an env var, so it is already
+      // the safer path, but a client user row carrying role='operator' is not otherwise
+      // caught. See EmailAudience in src/lib/email/send.ts.
       audience: 'operator',
     })
 

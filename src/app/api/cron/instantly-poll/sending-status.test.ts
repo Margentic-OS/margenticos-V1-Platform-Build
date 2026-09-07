@@ -130,6 +130,20 @@ vi.mock('@supabase/supabase-js', () => ({
         // drives the real sweep against a fake that honours its filters.
         return { upsert: async () => ({ error: null }) }
       }
+      if (table === 'unattributed_replies') {
+        // Retention sweep rides this route. Nothing to retain in these scenarios, so this
+        // is a faithful empty: both operations run and both find zero rows.
+        const q: any = {
+          delete: () => q,
+          update: () => q,
+          select: async () => ({ data: [], error: null }),
+          lt: () => q,
+          is: () => q,
+          eq: () => q,
+        }
+        return q
+      }
+
       throw new Error(`fake supabase: unexpected table ${table}`)
     },
   }),

@@ -1,6 +1,6 @@
 // agent-failure: sent to the operator when a strategy document agent fails.
 // Fires from each agent route's catch path.
-// Operator-facing only — not seen by clients.
+// Operator-facing only. Not seen by clients.
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   icp:         'ICP',
@@ -36,7 +36,7 @@ export function agentFailureTemplate({ orgName, orgId, docType, error }: AgentFa
         <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
           <tr>
             <td style="background:#7a2020;padding:24px 32px;">
-              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS — Operator Alert</p>
+              <p style="margin:0;color:#f5f0e8;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">MargenticOS Operator Alert</p>
             </td>
           </tr>
           <tr>

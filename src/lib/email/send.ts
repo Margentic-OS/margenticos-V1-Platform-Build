@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
 import { resendClient } from './client'
 import { recordEmailDeliveryFailure, type EmailDeliveryFailure } from './record-delivery-failure'
+import { assertOperatorRecipient } from './recipient-audience'
 
 const isDev = process.env.NODE_ENV === 'development'
 
@@ -160,9 +161,39 @@ export async function sendTransactionalEmail(params: SendEmailParams): Promise<S
     return { success: false, error: message }
   }
 
-  // Test override: if TEST_EMAIL_RECIPIENT is set, redirect all emails to it
-  // Used during staging/testing to avoid sending real emails to real addresses
+  // ── Test override: NEVER honoured in production ─────────────────────────────
+  //
+  // TEST_EMAIL_RECIPIENT redirects EVERY email in the system to one address. It is meant
+  // for staging, and until 2026-09-07 it was read unconditionally, production included,
+  // with no guard of any kind. Set to a client's address in production it would have
+  // delivered that client every agent failure with its raw error text, every other
+  // client's alerts, and every reply notification. It was unset, which is the only reason
+  // this was never an incident.
+  //
+  // It REFUSES TO SEND rather than quietly falling back to the real recipient. Falling
+  // back would be the safe delivery and the unsafe signal: mail would keep flowing while
+  // a production environment carried a staging override primed to misfire, and nothing
+  // would ever reveal it. A hard stop cannot be mistaken for normal operation.
   const testRecipient = process.env.TEST_EMAIL_RECIPIENT
+
+  if (testRecipient && process.env.NODE_ENV === 'production') {
+    const message =
+      'TEST_EMAIL_RECIPIENT is set in production. Every email would be redirected to it, ' +
+      'so this send was refused. Remove the variable from the production environment.'
+    logger.error('sendTransactionalEmail: refusing to send, test override set in production', {
+      intended_to: params.to,
+      subject: params.subject,
+    })
+    await recordFailureQuietly({
+      to: params.to,
+      subject: params.subject,
+      stage: 'recipient_refused',
+      error: message,
+      audience,
+    })
+    return { success: false, error: message }
+  }
+
   const finalTo = testRecipient || params.to
 
   if (testRecipient) {
@@ -171,6 +202,37 @@ export async function sendTransactionalEmail(params: SendEmailParams): Promise<S
       test_to: testRecipient,
       subject: params.subject,
     })
+  }
+
+  // ── An operator-only email may never reach a client address ─────────────────
+  //
+  // This rides the SAME audience flag the style rules use, deliberately. That flag already
+  // means "this is internal", and it should carry both consequences: relaxed content rules
+  // AND a stricter recipient. One label, so the two cannot drift apart.
+  //
+  // Checked against finalTo, not params.to, so the override path above is covered too.
+  // That is the case where the two faults combine.
+  //
+  // Resolved from the database, never a domain literal. `endsWith('@margenticos.com')` is
+  // a Rule Zero violation and breaks for real: a client on the operator's own domain would
+  // pass a domain check while being exactly the wrong recipient.
+  if (audience === 'operator') {
+    const verdict = await assertOperatorRecipient(finalTo)
+    if (!verdict.ok) {
+      const message = `Operator email blocked: ${verdict.reason}`
+      logger.error('sendTransactionalEmail: operator recipient rejected', {
+        subject: params.subject,
+        reason: verdict.reason,
+      })
+      await recordFailureQuietly({
+        to: finalTo,
+        subject: params.subject,
+        stage: 'recipient_refused',
+        error: message,
+        audience,
+      })
+      return { success: false, error: message }
+    }
   }
 
   const { data, error } = await resendClient.emails.send({

@@ -55,6 +55,7 @@ import * as Sentry from '@sentry/nextjs'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database, Json } from '@/types/database'
 import { logger } from '@/lib/logger'
+import { quarantineReply } from '@/lib/reply-handling/quarantine'
 import { resolveInstantlyBaseUrl, shouldUseMockDispatch } from '@/lib/integrations/handlers/instantly/constants'
 import { getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 import { mockEmailsList, mockEmailGet, mockLeadsList } from '@/lib/integrations/handlers/instantly/mock-dispatch'
@@ -833,7 +834,32 @@ export async function pollInstantlyReplies(
         const emailId = e.id as string | undefined
         const instantlyCampaignId = (e.campaign_id ?? e.campaign) as string | undefined
 
+        // ── The three deterministic drops below now RECORD, and here is why ──────
+        //
+        // Each of these discards a reply permanently: the cursor advances past it and
+        // nothing re-reads it. They already incremented result.errors, which reddens the
+        // poll heartbeat for one 15-minute cycle. None of them called recordPollFailure.
+        //
+        // That omission was worse than silence. writePollState writes
+        //   error_count: state.failures > 0 ? prior + state.failures : 0
+        //   last_error:  state.failures > 0 ? state.firstError : null
+        // so a run that dropped a reply left state.failures at 0 and ACTIVELY RESET
+        // error_count to 0 and last_error to NULL, destroying the record of any earlier
+        // run's real failures. MON-027 reads error_count, saw 0, and reported OK. The run
+        // that lost the reply was the run that cleared the evidence.
+        //
+        // These deliberately do NOT hold the cursor. They are deterministic: the same
+        // payload fails identically on every re-fetch, so blocking would be a stall no
+        // operator action can clear. Recorded and skipped is the right shape here; the
+        // database-write path below is the one that correctly stalls.
+        //
+        // SCOPE. These two malformed-payload cases genuinely have nowhere to go: without an
+        // id there is no idempotency key to quarantine under, and both fail identically on
+        // every re-fetch. The third case, an unresolvable campaign, is NO LONGER one of
+        // these: it is quarantined below and MON-031 owns its alerting.
         if (!emailId) {
+          const reason = 'reply email missing id field, dropped permanently'
+          recordPollFailure(state, reason)
           logger.warn('Instantly poll: reply email missing id field', { raw: e })
           result.errors++
           continue
@@ -842,6 +868,11 @@ export async function pollInstantlyReplies(
         const eaccount = e.eaccount as string | undefined
         if (!eaccount) {
           // Without eaccount the signal is permanently stuck at dispatch ("raw_data missing id or eaccount").
+          recordPollFailure(
+            state,
+            `reply ${emailId} has no eaccount, dropped permanently` +
+              (instantlyCampaignId ? ` (provider campaign ${instantlyCampaignId})` : '')
+          )
           logger.warn('Instantly poll: reply email missing eaccount — skipping to prevent stuck signal', {
             email_id: emailId,
             from_email: (e.from_address_email ?? null) as string | null,
@@ -857,8 +888,39 @@ export async function pollInstantlyReplies(
         }
 
         if (!campaignRow) {
-          // Cannot write signal without organisation_id. Event is logged above in resolveCampaign.
-          result.errors++
+          // ── QUARANTINE, not discard ─────────────────────────────────────────
+          //
+          // No organisation_id can be resolved, so no signal can be written: that column
+          // is NOT NULL and making it nullable would feed a context-free reply straight
+          // into the classifier on the next run. The reply is parked instead, with the
+          // provider's campaign id and email id, and registering that campaign replays it.
+          //
+          // This is the branch the interim recordPollFailure note above described, now
+          // superseded. It no longer records a poll failure: a quarantined reply is a
+          // HANDLED outcome, and reddening MON-002 on every run that holds one would pin
+          // the poll heartbeat permanently. MON-031 owns the alerting for this class.
+          //
+          // A FAILED quarantine write is still a poll failure, because then the reply
+          // really is gone.
+          const outboundForQuarantine = await fetchOutboundEmailBody(e, apiKey, baseUrl, isActive)
+          const outcome = await quarantineReply(supabase, {
+            providerEmailId: emailId,
+            providerCampaignId: instantlyCampaignId ?? null,
+            eaccount,
+            rawData: e as Json,
+            originalOutboundBody: outboundForQuarantine.body,
+          })
+
+          if (outcome === 'failed') {
+            recordPollFailure(
+              state,
+              `reply ${emailId} for unregistered provider campaign ` +
+                `${instantlyCampaignId ?? 'unknown'} could not be quarantined, so it is lost`
+            )
+            result.errors++
+          } else {
+            result.skipped++
+          }
           continue
         }
 

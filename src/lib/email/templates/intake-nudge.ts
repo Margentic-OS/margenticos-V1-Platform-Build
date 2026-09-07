@@ -1,6 +1,6 @@
 // intake-nudge: periodic reminder sent to client when intake is <80% complete
 // Event: cron job triggered if intake_progress < 0.8 AND 48h since last activity
-// Plain text, signed "Doug" — relationship email
+// Plain text, signed "Doug". Relationship email.
 
 export interface IntakeNudgeParams {
   clientFirstName: string | null

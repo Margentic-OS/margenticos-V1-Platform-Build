@@ -28,6 +28,19 @@ vi.mock('../record-delivery-failure', () => ({
   recordEmailDeliveryFailure: vi.fn().mockResolvedValue(undefined),
 }))
 
+// An operator-audience send now checks its recipient against the client list in the
+// database. Stubbed for the same reason recordEmailDeliveryFailure above is: this file
+// tests the RECORDING contract, not the recipient guard, and both reach outside the
+// process.
+//
+// It has to be stubbed rather than left alone. vitest.setup.ts deliberately poisons the
+// Supabase variables with an unroutable .invalid host instead of deleting them, so the
+// guard sees credentials, tries to connect, and spends five seconds failing DNS before
+// refusing the send. The recipient guard has its own tests in recipient-guard.test.ts.
+vi.mock('../recipient-audience', () => ({
+  assertOperatorRecipient: vi.fn().mockResolvedValue({ ok: true }),
+}))
+
 import { sendTransactionalEmail } from '../send'
 import { resendClient } from '@/lib/email/client'
 import { recordEmailDeliveryFailure } from '../record-delivery-failure'

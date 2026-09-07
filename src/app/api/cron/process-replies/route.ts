@@ -88,7 +88,30 @@ export async function POST(request: NextRequest) {
     })
     .throwOnError()
 
-  Sentry.captureCheckIn({ monitorSlug: MONITOR_SLUG, status: 'ok', checkInId })
+  // The check-in and the response carry the REAL outcome.
+  //
+  // Both were hardcoded to success while the database heartbeat above correctly carried
+  // heartbeatOk, so a run that failed to process every reply still stamped Sentry 'ok'
+  // and returned ok: true. No Sentry alert could ever fire for this cron. instantly-poll
+  // had the identical defect and fixed it; its comment reads "Previously the heartbeat
+  // used it and the other two were hardcoded to success, so a run that failed every call
+  // still read green." The same fix was never applied here.
+  //
+  // This matters more than the duplicated heartbeat suggests: MON-003 reads only the
+  // latest heartbeat row, so a failing run reddens the board for one cycle and the next
+  // clean run clears it. Sentry is the instrument that persists, and it was the one being
+  // told a comfortable lie.
+  Sentry.captureCheckIn({
+    monitorSlug: MONITOR_SLUG,
+    status: heartbeatOk ? 'ok' : 'error',
+    checkInId,
+  })
+  if (!heartbeatOk) {
+    Sentry.captureException(
+      new Error(`process-replies run failed: ${result?.errors ?? 0} error(s) processing replies`),
+      { level: 'error', extra: { result } }
+    )
+  }
   try { await Sentry.flush(2000) } catch {}
-  return NextResponse.json({ ok: true, result })
+  return NextResponse.json({ ok: heartbeatOk, result })
 }

@@ -1,6 +1,6 @@
 // warmup-halfway: sent to client ~17 days after email warmup starts
 // Event: cron job triggered by organisations.warmup_started_at
-// Plain text, signed "Doug" — relationship email
+// Plain text, signed "Doug". Relationship email.
 
 export interface WarmupHalfwayParams {
   sendDate: string  // formatted date e.g. "August 10"
