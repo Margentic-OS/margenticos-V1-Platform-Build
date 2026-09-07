@@ -22,6 +22,10 @@ import type { Database, Json } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { substituteBookingLink } from './substitute-booking-link'
 import { insertSignoff } from './insert-signoff'
+// The SAME converter campaign outbound uses. Reused rather than reimplemented: the reply
+// path is the only send path that was not going through it, which is why replies lost
+// their line breaks while campaign email did not.
+import { plainTextToHtml } from '@/lib/composition/custom-variables'
 import { sendThreadReply } from '@/lib/integrations/handlers/instantly/reply-actions'
 import { getInstantlyApiKey, getInstantlyApiActive } from '@/lib/integrations/handlers/instantly/auth'
 import { resolveInstantlyBaseUrl } from '@/lib/integrations/handlers/instantly/constants'
@@ -199,8 +203,12 @@ export async function sendApprovedDraft(
   const isActive = await getInstantlyApiActive()
   const baseUrl = resolveInstantlyBaseUrl(isActive)
 
+  // Rendered here, in the composing layer, not inside the API boundary: reply-actions.ts
+  // states it composes nothing and must not template. It forwards this.
+  const assembledHtml = plainTextToHtml(assembledBody)
+
   const replyResult = await sendThreadReply(
-    { replyToUuid, eaccount, subject, bodyText: assembledBody },
+    { replyToUuid, eaccount, subject, bodyText: assembledBody, bodyHtml: assembledHtml },
     instantlyApiKey,
     baseUrl,
     isActive,
