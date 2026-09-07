@@ -33,7 +33,13 @@
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 
-export type EmailFailureStage = 'content_validation' | 'provider_send'
+// 'recipient_refused' added 2026-09-07 alongside the two recipient guards in send.ts: a
+// staging override found in production, and an operator-only email addressed to a client
+// user. Neither is a content fault and neither reached the provider, so folding them into
+// content_validation would misreport both. MON-030 counts every unresolved row for its
+// verdict, so a new stage is counted; only its n_validation breakdown excludes it, which
+// is correct.
+export type EmailFailureStage = 'content_validation' | 'provider_send' | 'recipient_refused'
 
 export interface EmailDeliveryFailure {
   to: string
