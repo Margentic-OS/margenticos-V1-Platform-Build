@@ -34,6 +34,7 @@ import { mergeIntakeWithQuestions, TYPED_VOICE_SAMPLES_FIELD_KEY } from '@/lib/i
 import { logger } from '@/lib/logger'
 import { assertNoUnsourcedVendorNames } from '@/lib/agents/vendor-name-gate'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
+import { parseModelJsonOrThrow, type ModelResponse } from '@/lib/agents/parse-model-json'
 import { fetchWebsiteContext, formatWebsiteContextForPrompt, type WebsitePageContext } from '@/lib/agents/website-context'
 import { scrubAITellsDeepExcluding, assertNoDashesExcluding } from '@/lib/style/customer-facing-style-rules'
 import { buildRegenerationNotesBlock, buildRegenerationNotesReason, noteForVersionHistory, type RegenerationNotes } from '@/lib/agents/regeneration-notes'
@@ -246,15 +247,36 @@ export async function runTovGenerationAgent(
   const generatedContent = await callClaude(userMessage)
 
   // Step 8: Validate the response is parseable JSON before writing anything.
-  let parsedDocument: Record<string, unknown>
-  try {
-    parsedDocument = JSON.parse(generatedContent)
-  } catch {
-    throw new Error(
-      'TOV agent: Claude returned content that is not valid JSON. ' +
-      'Raw response has been logged. Do not write to the database.'
-    )
-  }
+  //
+  // ─── THIS BLOCK USED TO THROW AWAY THE ONE THING THAT DIAGNOSES IT ──────────
+  //
+  // It was `catch {` with no binding, and the message said "Raw response has been logged".
+  // Nothing logged it. `generatedContent` was never passed to the logger, and stop_reason
+  // and usage were never read anywhere in this agent.
+  //
+  // On 2026-09-05 a regeneration for a live organisation failed here after 100 seconds and
+  // the complete production log for the run was four lines: starting, found website pages,
+  // calling Claude, failed. What the model returned is unrecoverable, so the failure could
+  // not be diagnosed at all. The false message was worse than no message, because it sent
+  // the next reader looking for a log that was never written.
+  //
+  // What gets logged now is chosen to answer the three questions that were actually asked
+  // that day and could not be:
+  //   stop_reason      was it truncated at max_tokens, or did it stop on its own
+  //   output_tokens    how close to MAX_TOKENS it got, which is the same question measured
+  //   the head and tail of the raw text, and its length
+  //
+  // Head AND tail, because they fail differently and one without the other is ambiguous.
+  // Prose or a preamble shows at the head; a truncation shows as a tail that stops
+  // mid-token with no closing brace. Truncated to keep a whole strategy document out of
+  // the log line, which is why the length is reported separately: a caller can tell a
+  // short malformed response from a long truncated one without the whole body.
+  const parsedDocument = parseModelJsonOrThrow(
+    'TOV agent',
+    organisation_id,
+    generatedContent,
+    MAX_TOKENS,
+  )
 
   // Gate: field-aware scrub. Verbatim founder writing fields (TOV_VERBATIM_FIELDS) pass
   // through completely unchanged. All other fields — including before_after_examples —
@@ -610,7 +632,7 @@ Return raw JSON only. No preamble, no explanation, no markdown fencing.`
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
 
-async function callClaude(userMessage: string): Promise<string> {
+async function callClaude(userMessage: string): Promise<ModelResponse> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     throw new Error(
@@ -640,7 +662,11 @@ async function callClaude(userMessage: string): Promise<string> {
     throw new Error('TOV agent: Claude returned no text content in response.')
   }
 
-  return stripMarkdownFences(content.text.trim())
+  return {
+    raw: stripMarkdownFences(content.text.trim()),
+    stopReason: message.stop_reason ?? null,
+    outputTokens: message.usage?.output_tokens ?? null,
+  }
 }
 
 function stripMarkdownFences(text: string): string {

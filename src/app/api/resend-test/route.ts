@@ -8,9 +8,15 @@ export async function GET() {
 
   const result = await sendTransactionalEmail({
     to: 'doug@margenticos.com',
+    // This subject has carried an em dash since the route was written, so the endpoint
+    // whose entire job is to verify email wiring could never itself send. It reported the
+    // validator's rejection as a 500 and read as "Resend is broken".
     subject: 'MargenticOS — Resend wiring verified',
     html: '<p>Resend is wired and working. Transactional email is live for MargenticOS.</p>',
     text: 'Resend is wired and working. Transactional email is live for MargenticOS.',
+    // Internal alert. Exempt from the customer-facing style rules, never from the
+    // rendering checks. See EmailAudience in src/lib/email/send.ts.
+    audience: 'operator',
   })
 
   if (!result.success) {

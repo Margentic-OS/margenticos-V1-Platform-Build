@@ -160,6 +160,9 @@ export async function sendOperatorReplyNotification(
       subject: operatorReplySubject(templateParams),
       html: operatorReplyTemplate(templateParams),
       text: operatorReplyTemplateText(templateParams),
+      // Internal alert. Exempt from the customer-facing style rules, never from the
+      // rendering checks. See EmailAudience in src/lib/email/send.ts.
+      audience: 'operator',
     })
 
     return { sent: result.sent }

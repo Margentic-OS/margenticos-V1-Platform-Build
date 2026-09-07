@@ -16,6 +16,7 @@ import { mergeIntakeWithQuestions } from '@/lib/intake/questions'
 import { logger } from '@/lib/logger'
 import { assertNoUnsourcedVendorNames } from '@/lib/agents/vendor-name-gate'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
+import { parseModelJsonOrThrow, type ModelResponse } from '@/lib/agents/parse-model-json'
 import { runResearchQueries, formatResearchForPrompt, type ResearchBundle } from '@/lib/agents/tools/webSearch'
 import { fetchWebsiteContext, formatWebsiteContextForPrompt, countTruncatedPages, type WebsitePageContext } from '@/lib/agents/website-context'
 import { scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
@@ -219,15 +220,12 @@ export async function runIcpGenerationAgent(
   const generatedContent = await callClaude(userMessage)
 
   // Step 8: Validate the response is parseable JSON before writing anything.
-  let parsedDocument: Record<string, unknown>
-  try {
-    parsedDocument = JSON.parse(generatedContent)
-  } catch {
-    throw new Error(
-      'ICP agent: Claude returned content that is not valid JSON. ' +
-      'Raw response has been logged. Do not write to the database.'
-    )
-  }
+  const parsedDocument = parseModelJsonOrThrow(
+    'ICP agent',
+    organisation_id,
+    generatedContent,
+    MAX_TOKENS,
+  )
 
   // Gate: scrub em-dashes and AI tells from all prose string values in the document.
   // Operates on string values only — never changes JSON structure.
@@ -637,7 +635,7 @@ Return raw JSON only. No preamble, no explanation, no markdown fencing.`
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
 
-async function callClaude(userMessage: string): Promise<string> {
+async function callClaude(userMessage: string): Promise<ModelResponse> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     throw new Error(
@@ -672,7 +670,11 @@ async function callClaude(userMessage: string): Promise<string> {
 
   // Strip markdown code fences if present. Claude sometimes wraps JSON in ```json ... ```
   // despite explicit instructions not to. Strip defensively so parsing never fails on fences.
-  return stripMarkdownFences(content.text.trim())
+  return {
+    raw: stripMarkdownFences(content.text.trim()),
+    stopReason: message.stop_reason ?? null,
+    outputTokens: message.usage?.output_tokens ?? null,
+  }
 }
 
 function stripMarkdownFences(text: string): string {

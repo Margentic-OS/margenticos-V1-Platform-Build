@@ -151,6 +151,9 @@ export async function POST(request: NextRequest) {
       try {
         await sendTransactionalEmail({
           to: operatorEmail,
+          // Internal alert. Exempt from the customer-facing style rules, never from the
+          // rendering checks. See EmailAudience in src/lib/email/send.ts.
+          audience: 'operator',
           subject: suggestionReadySubject(org.name, 'tov'),
           html: suggestionReadyTemplate({ orgName: org.name, orgId: organisation_id, docType: 'tov' }),
         })
@@ -177,6 +180,9 @@ export async function POST(request: NextRequest) {
       try {
         await sendTransactionalEmail({
           to: operatorEmail,
+          // Internal alert. Exempt from the customer-facing style rules, never from the
+          // rendering checks. See EmailAudience in src/lib/email/send.ts.
+          audience: 'operator',
           subject: agentFailureSubject(org.name, 'tov'),
           html: agentFailureTemplate({ orgName: org.name, orgId: organisation_id, docType: 'tov', error: message }),
         })

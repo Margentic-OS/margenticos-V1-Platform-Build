@@ -286,6 +286,9 @@ export async function POST(request: NextRequest) {
     try {
       await sendTransactionalEmail({
         to: operatorEmail,
+        // Internal alert. Exempt from the customer-facing style rules, never from the
+        // rendering checks. See EmailAudience in src/lib/email/send.ts.
+        audience: 'operator',
         subject: kind === 'ready'
           ? suggestionReadySubject(orgName, document_type)
           : agentFailureSubject(orgName, document_type),

@@ -31,7 +31,7 @@ Doug`
 }
 
 export function warmingCompleteTemplateText(params: WarmingCompleteParams): string {
-  return `Your domains have finished warming and passed their placement checks. That means we can send at full volume without landing in spam. First emails go out ${params.sendDate}. From then on you'll see everything live in your dashboard — who's been contacted, who's opened, who's replied. One thing worth setting expectations on: replies build over the first few weeks rather than arriving on day one, because most sequences run several touches before someone responds. The quiet stretch you've just been through was the setup. This next bit is where it starts working.
+  return `Your domains have finished warming and passed their placement checks. That means we can send at full volume without landing in spam. First emails go out ${params.sendDate}. From then on you'll see everything live in your dashboard: who's been contacted, who's opened, who's replied. One thing worth setting expectations on: replies build over the first few weeks rather than arriving on day one, because most sequences run several touches before someone responds. The quiet stretch you've just been through was the setup. This next bit is where it starts working.
 
 Doug`
 }

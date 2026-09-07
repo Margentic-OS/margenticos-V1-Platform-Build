@@ -1,21 +1,52 @@
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
 import { resendClient } from './client'
+import { recordEmailDeliveryFailure, type EmailDeliveryFailure } from './record-delivery-failure'
 
 const isDev = process.env.NODE_ENV === 'development'
 
-// Word-boundary pattern for undefined/null/NaN detection.
-// Matches literal instances only (not substrings in URLs or object IDs).
-const UNDEFINED_PATTERN = /\bundefined\b/gi
-const NULL_PATTERN = /\bnull\b/gi
-const NAN_PATTERN = /\bNaN\b/gi
-const EM_DASH_PATTERN = /—/g
-const EN_DASH_PATTERN = /–/g
+// ─── WHO THE EMAIL IS FOR, AND WHY IT DECIDES WHICH RULES APPLY ──────────────
+//
+// 'customer'  reaches a client or a prospect. The full rule set applies, dashes included.
+// 'operator'  reaches doug@margenticos.com and nobody else. Rendering checks apply;
+//             the AI-tell style rules do not.
+//
+// The dash ban exists because MargenticOS's ICP is founder-led consulting firms burned by
+// AI email, and an em dash is the most recognisable tell (CLAUDE.md, "Style rules for all
+// generated content", which scopes itself to output that "reaches a client or prospect").
+// An internal alert reaches neither. Applying a prospect-facing style rule to an internal
+// alert was a category error, and it cost every operator notification this system has ever
+// tried to send.
+//
+// DEFAULT IS 'customer', so an unlabelled email gets the strict rules. Forgetting the
+// label can only ever make an email stricter, never laxer, and with the failure now
+// recorded a wrongly-blocked email announces itself instead of vanishing.
+export type EmailAudience = 'operator' | 'customer'
 
-function validateEmailContent(subject: string, html: string, text?: string): string | null {
+// NO `g` FLAG. These are used with .test(), and a global regex carries lastIndex between
+// calls, so the same pattern against the same string returns true, then false, then true.
+// Measured on 2026-09-07: /—/g .test('MargenticOS — Operator Alert') returns true, then
+// false, then true. The patterns are module-level, so that state persisted ACROSS EMAILS.
+// The validator was therefore not merely too strict, it was NON-DETERMINISTIC: it blocked
+// roughly every other offending email and let the ones in between through. Any attempt to
+// reason about which emails were rejected before this commit has to account for that.
+const UNDEFINED_PATTERN = /\bundefined\b/i
+const NULL_PATTERN = /\bnull\b/i
+const NAN_PATTERN = /\bNaN\b/i
+const EM_DASH_PATTERN = /—/
+const EN_DASH_PATTERN = /–/
+
+export function validateEmailContent(
+  subject: string,
+  html: string,
+  text?: string,
+  audience: EmailAudience = 'customer',
+): string | null {
   const toCheck = [subject, html, ...(text ? [text] : [])]
 
   for (const content of toCheck) {
+    // Rendering checks. These catch a template that was handed a missing variable, which
+    // is a bug in any email whoever reads it, so they apply to both audiences.
     if (UNDEFINED_PATTERN.test(content)) {
       return `Email contains literal "undefined" string`
     }
@@ -25,15 +56,31 @@ function validateEmailContent(subject: string, html: string, text?: string): str
     if (NAN_PATTERN.test(content)) {
       return `Email contains literal "NaN" string`
     }
-    if (EM_DASH_PATTERN.test(content)) {
-      return `Email contains em dash (—) — use colon or comma instead`
-    }
-    if (EN_DASH_PATTERN.test(content)) {
-      return `Email contains en dash (–) — use colon or comma instead`
+
+    // Style checks. Customer-facing only, per the block comment above.
+    if (audience === 'customer') {
+      if (EM_DASH_PATTERN.test(content)) {
+        return `Email contains em dash (—) — use colon or comma instead`
+      }
+      if (EN_DASH_PATTERN.test(content)) {
+        return `Email contains en dash (–) — use colon or comma instead`
+      }
     }
   }
 
   return null
+}
+
+// recordEmailDeliveryFailure guards itself, but the "sendTransactionalEmail never throws"
+// contract is load-bearing and must not depend on a promise made in another module. If a
+// future edit moves a line outside that module's try block, this keeps the contract.
+async function recordFailureQuietly(failure: EmailDeliveryFailure): Promise<void> {
+  try {
+    await recordEmailDeliveryFailure(failure)
+  } catch {
+    // Deliberately empty. There is nowhere left to report to: the email channel is the
+    // thing that just failed, and the durable channel is what threw.
+  }
 }
 
 function getFromAddress(): string {
@@ -58,6 +105,8 @@ interface SendEmailParams {
   subject: string
   html: string
   text?: string
+  /** Defaults to 'customer', the strict choice. See EmailAudience above. */
+  audience?: EmailAudience
 }
 
 type SendResult =
@@ -67,21 +116,25 @@ type SendResult =
 export async function sendTransactionalEmail(params: SendEmailParams): Promise<SendResult> {
   const from = getFromAddress()
   const replyTo = getReplyTo()
+  const audience = params.audience ?? 'customer'
 
   // Validate email content for undefined/null/NaN strings before sending.
   // This catches template rendering failures where variables were not provided.
-  const validationError = validateEmailContent(params.subject, params.html, params.text)
+  // Style rules apply to customer-facing mail only, per EmailAudience above.
+  const validationError = validateEmailContent(params.subject, params.html, params.text, audience)
   if (validationError) {
     const message = `Email content validation failed: ${validationError}`
     logger.error('sendTransactionalEmail: content validation failed', {
       to: params.to,
       subject: params.subject,
+      audience,
       error: validationError,
     })
     Sentry.captureException(new Error(message), {
       extra: {
         to: params.to,
         subject: params.subject,
+        audience,
         validation_error: validationError,
         html_length: params.html.length,
         text_length: params.text?.length ?? 0,
@@ -90,6 +143,16 @@ export async function sendTransactionalEmail(params: SendEmailParams): Promise<S
         component: 'sendTransactionalEmail',
         error_type: 'content_validation',
       },
+    })
+    // The durable half. The log line and the Sentry event above both fired on 2026-09-05
+    // and the failure still went unnoticed for two days, because both need somebody to go
+    // and look. This row is read by MON-030 on every sweep.
+    await recordFailureQuietly({
+      to: params.to,
+      subject: params.subject,
+      stage: 'content_validation',
+      error: validationError,
+      audience,
     })
     try {
       await Sentry.flush(2000)
@@ -123,7 +186,16 @@ export async function sendTransactionalEmail(params: SendEmailParams): Promise<S
     const message = error?.message ?? 'Unknown Resend error'
     logger.error('sendTransactionalEmail failed', { to: params.to, subject: params.subject, error: message })
     Sentry.captureException(new Error(`Resend send failed: ${message}`), {
-      extra: { to: params.to, subject: params.subject },
+      extra: { to: params.to, subject: params.subject, audience },
+    })
+    // Recorded for the same reason as the validation failure above. A provider outage and
+    // a rejected template are the same thing to the operator waiting on the alert.
+    await recordFailureQuietly({
+      to: params.to,
+      subject: params.subject,
+      stage: 'provider_send',
+      error: message,
+      audience,
     })
     // Flush before returning — serverless containers freeze on return, dropping buffered events.
     try { await Sentry.flush(2000) } catch {}

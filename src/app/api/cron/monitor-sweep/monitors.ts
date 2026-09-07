@@ -114,4 +114,14 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   // run overwrites. MON-023's stored-verdict shape, because the comparison needs an HTTP
   // call and a view cannot make one.
   ['MON-029', 'mon_029'],
+  // Emails that did not send, added 2026-09-07. Every other monitor here watches work the
+  // platform does. This one watches the platform's ability to TELL SOMEBODY, which is the
+  // capability every other monitor quietly depends on.
+  //
+  // It exists because on 2026-09-05 an operator alert about a failed agent was rejected by
+  // the content validator over an em dash in the template's own branding line, and had been
+  // for the life of that code. A log line and a Sentry event both fired and neither was
+  // read for two days. Those are channels somebody has to go and look at. This one is read
+  // on every sweep.
+  ['MON-030', 'mon_030'],
 ] as const

@@ -21,6 +21,14 @@ vi.mock('@/lib/document-labels', () => ({
   },
 }))
 
+// The component calls router.refresh() on a successful run. The parent is a server
+// component that will not re-render on its own, so without that call a finished document
+// does not appear until a manual reload.
+const mockRefresh = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: mockRefresh }),
+}))
+
 describe('NotYetGeneratedState', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -310,7 +318,11 @@ describe('NotYetGeneratedState', () => {
     it('reconnects to real state on mount if generation is already in progress', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ isGenerating: true }),
+        json: async () => ({
+          isGenerating: true,
+          outcome: 'generating',
+          latestRun: { started_at: new Date().toISOString(), status: 'running' },
+        }),
       })
 
       render(

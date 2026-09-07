@@ -4589,3 +4589,102 @@ precisely because that route refused them.
 partial index, one registry row, one singleton table, one view, one cron job. Reverting the
 code without the migrations leaves unread columns and a cron calling a 404 route, which shows
 up as MON-026 going stale rather than as silence. Drop the cron first if reverting.
+
+---
+
+## ADR-050
+
+**An operator alert is internal mail, and a customer-copy style rule must never be able to
+suppress one. A notification that fails is recorded where nothing has to remember to look.**
+
+Date: 2026-09-07
+Status: Accepted
+
+### Context
+
+`validateEmailContent` in `src/lib/email/send.ts` rejects any email containing an em or en
+dash. The rule comes from the style guide for GENERATED CUSTOMER-FACING CONTENT: our ICP is
+founder-led consulting firms burned by AI email, and an em dash is the most recognisable
+tell. CLAUDE.md scopes that rule to output that "reaches a client or prospect".
+
+It was applied to every email the platform sends, including operator alerts. Five operator
+templates carry `MargenticOS — Operator Alert` or `MargenticOS — Operator` in their own
+hardcoded branding line, so every one of them was rejected before reaching Resend.
+
+Measured in production on 2026-09-05, one millisecond after a tov-generation run failed for
+a live organisation:
+
+    sendTransactionalEmail: content validation failed
+    to: doug@margenticos.com
+    subject: "Tone of voice agent failed: MargenticOS"
+    error: Email contains em dash
+
+Nothing noticed, for three compounding reasons. `sendTransactionalEmail` RETURNS
+`{ success: false }` rather than throwing, and the calling route wraps it in try/catch, so a
+returned value never enters the catch. A log line and a Sentry event both fired and both are
+channels somebody has to go and look at. And the dashboard went on saying "New suggestion is
+being prepared, check back shortly".
+
+The comment above that route's notifier records the 2026-08-28 incident, where two messaging
+regenerations failed and produced "no signal anywhere except a row in agent_runs". The fix
+written then has never delivered an email. This was the third time the same lesson was paid
+for.
+
+The validator was also NON-DETERMINISTIC. Its patterns were declared with the `g` flag and
+used with `.test()`. A global regex carries `lastIndex` between calls and the patterns are
+module-level, so the same pattern against the same string returned true, then false, then
+true, across emails. It blocked roughly every other offending email and passed the ones in
+between. Any account of which emails were rejected before this change has to allow for that.
+
+### Decision
+
+**Emails declare an audience. `operator` is exempt from the style rules and from nothing
+else.**
+
+  - Rendering checks (literal `undefined` / `null` / `NaN`) apply to BOTH audiences. Those
+    catch a template handed a missing variable, which is a bug in any email whoever reads it.
+  - Style checks apply to `customer` only.
+  - The default is `customer`, so forgetting the label can only make an email stricter,
+    never laxer.
+
+**A failed send is recorded by the function itself, in `email_delivery_failures`, and read by
+MON-030 on every monitor sweep.** `sendTransactionalEmail` still returns rather than throws,
+because a notification must never fail the run it reports on. That contract is exactly why no
+caller noticed, so the recording is done where no caller can forget it.
+
+### Alternatives rejected
+
+**Strip the dashes from the seven templates.** Fixes seven instances and leaves the class:
+the eighth operator template written with a dash in its branding fails the same silent way.
+It also leaves the real defect in place, that a cosmetic rule can suppress a production
+alert. And it degrades correct English in internal copy to satisfy a rule about prospect-
+facing AI tells.
+
+**Throw instead of returning false.** Would make callers notice, and would let a failed
+notification fail the agent run it was reporting on. That is worse than the problem.
+
+**Rely on Sentry.** It already fired on 2026-09-05 and the failure went unnoticed for two
+days. A channel that needs somebody to go and look is not a control.
+
+### Consequences
+
+Two client-facing templates were found by the new test to be genuinely broken and were fixed
+rather than exempted, because the rule correctly applies to them: `warming-complete.ts` had a
+real em dash in body copy, so that email had been failing to reach clients. `/api/resend-test`
+had one in its own subject, so the endpoint whose only job is verifying email wiring could
+never send and reported the rejection as a 500 reading "Resend is broken".
+
+`clientRevisionNotifyTemplate` and `messagingRevisionStagedTemplate` have no callers at all.
+Left in place and classified as operator-facing, so they are correct if ever wired up.
+
+Proved by delivery, not by mock: the real agent-failure alert carrying the real 2026-09-05
+error string was sent to doug@margenticos.com and arrived (Resend id
+7296ce22-6031-447b-a3a7-dec405c103fd), a deliberately broken email was still rejected, and
+MON-030 turned PROBLEM and back to OK.
+
+### Rollback
+
+`git revert` restores the code. The migration is additive (one table, one partial index, one
+view, one registry row). Reverting the code without it leaves an unread table and MON-030
+permanently OK, which is silent rather than noisy. Drop MON-030 from `MONITORS` first if
+reverting, or the pair-list test fails.
