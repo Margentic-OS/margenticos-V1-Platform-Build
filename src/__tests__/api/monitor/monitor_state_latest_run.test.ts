@@ -45,12 +45,24 @@ let serviceClient: SupabaseClient<Database>
  * drift survived its own fix.
  */
 const COVERED = [
-  ['mon_001', 'auto-approve'],
-  ['mon_002', 'instantly-poll'],
-  ['mon_003', 'process-replies'],
-  ['mon_004', 'reap-agent-runs'],
-  ['mon_005', 'monitor-sweep'],
-  ['mon_010', 'resolve-auto-held'],
+  ['mon_001', 'auto-approve', ''],
+  ['mon_002', 'instantly-poll', ''],
+  ['mon_003', 'process-replies', ''],
+  ['mon_004', 'reap-agent-runs', ''],
+  ['mon_005', 'monitor-sweep', ''],
+  // mon_010 gained a FORMAT CONTRACT on 2026-09-07. It parses the organisation count
+  // out of the detail and cross-checks it against the organisations that existed at
+  // run time, and it reports UNKNOWN rather than OK when it cannot parse.
+  //
+  // So this file must hand it a well-formed detail, or every mon_010 case here would
+  // read UNKNOWN and this test would be measuring the parser instead of the thing it
+  // is for. The prefix keeps `ok` the ONLY variable across the three runs below, which
+  // is the same reason the timestamps sit well inside every staleness threshold.
+  //
+  // The count is deliberately larger than any plausible organisation count, so the
+  // cross-check cannot fire here either. The cross-check has its own coverage in
+  // the migration's BEGIN..ROLLBACK verification and in resolve-auto-held/route.test.ts.
+  ['mon_010', 'resolve-auto-held', 'Examined 999999 organisations, resolved 0 meetings. '],
 ] as const
 
 /** Heartbeat rows this file inserted, deleted by id in afterAll. */
@@ -97,7 +109,7 @@ describe('liveness monitor state reads whether the LATEST run succeeded', () => 
     expect(error, 'heartbeat cleanup failed, rows may be stranded').toBeNull()
   })
 
-  for (const [viewName, jobName] of COVERED) {
+  for (const [viewName, jobName, detailPrefix] of COVERED) {
     describe(`${viewName} (${jobName})`, () => {
       // Three runs, seconds apart and all well inside every staleness threshold
       // (the tightest is 10 minutes), so staleness can never be what moves the
@@ -108,7 +120,7 @@ describe('liveness monitor state reads whether the LATEST run succeeded', () => 
       const ranThird = new Date(base - 1000)
 
       it('reports OK after a run that was on time and succeeded', async () => {
-        await writeHeartbeat(jobName, true, ranFirst, 'first run, succeeded')
+        await writeHeartbeat(jobName, true, ranFirst, detailPrefix + 'first run, succeeded')
 
         const { state } = await readMonitor(viewName)
         expect(state, `${viewName} should be OK after an on-time successful run`).toBe('OK')
@@ -117,7 +129,7 @@ describe('liveness monitor state reads whether the LATEST run succeeded', () => 
       it('reports PROBLEM when the latest run was ON TIME but FAILED', async () => {
         // THE TEST. Deleting "WHEN latest.ok = false THEN 'PROBLEM'" from the view
         // makes this line go red, and nothing else in the suite notices.
-        await writeHeartbeat(jobName, false, ranSecond, 'second run, failed')
+        await writeHeartbeat(jobName, false, ranSecond, detailPrefix + 'second run, failed')
 
         const { state, detail } = await readMonitor(viewName)
         expect(
@@ -138,7 +150,7 @@ describe('liveness monitor state reads whether the LATEST run succeeded', () => 
         // ALL history with no time bound, so one bad run poisoned the detail line
         // for ever. MON-005 was live proof, showing OK beside a failure message
         // from the previous day.
-        await writeHeartbeat(jobName, true, ranThird, 'third run, succeeded')
+        await writeHeartbeat(jobName, true, ranThird, detailPrefix + 'third run, succeeded')
 
         const { state, detail } = await readMonitor(viewName)
         expect(state, `${viewName} should recover once a later run succeeds`).toBe('OK')
@@ -159,10 +171,99 @@ describe('liveness monitor state reads whether the LATEST run succeeded', () => 
     // mon_021 deliberately keep the window shape and are out of scope here.
     expect(COVERED.length, 'COVERED no longer lists six views').toBe(6)
     const views = COVERED.map(([v]) => v)
+    // A view with a format contract must be handed a detail that satisfies it, or its
+    // cases here silently measure the parser rather than the ok-follows-latest rule.
+    const mon010 = COVERED.find(([v]) => v === 'mon_010')
+    expect(mon010?.[2], 'mon_010 needs a well-formed detail prefix').toMatch(
+      /^Examined \d+ organisations/,
+    )
     expect(new Set(views).size, 'duplicate view in COVERED').toBe(views.length)
     for (const [view, job] of COVERED) {
       expect(view, `${view} is not a mon_NNN view name`).toMatch(/^mon_\d{3}$/)
       expect(job, `${view} has no job name`).toBeTruthy()
     }
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MON-010 CROSS-CHECKS THE WORLD, NOT ONLY THE JOB'S SELF-REPORT
+  //
+  // These live in THIS file, not a file of their own, deliberately. Both would write
+  // resolve-auto-held heartbeats and both read "the latest one", so as separate files
+  // running in parallel they would race and flake. Vitest runs tests within a file
+  // sequentially, which is the property being relied on.
+  //
+  // WHY THE CHECK EXISTS. resolve-auto-held ran as `anon` from 2026-08-09 to
+  // 2026-09-07 and reported ok=true on every one of 31 runs while three live
+  // organisations existed. MON-010 read only freshness and `ok`, both written by the
+  // path that had already swallowed the denied read, so it could not have caught it
+  // once. Reading the organisation count independently is what makes that visible.
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe('mon_010 organisation cross-check', () => {
+    /** Live organisations in this database, which is what the view compares against. */
+    async function liveOrgCount(): Promise<number> {
+      const { count, error } = await serviceClient
+        .from('organisations')
+        .select('id', { count: 'exact', head: true })
+        .is('archived_at', null)
+      expect(error, 'could not count organisations').toBeNull()
+      return count ?? 0
+    }
+
+    it('PROBLEM when the run reports ok but examined FEWER organisations than exist', async () => {
+      const orgs = await liveOrgCount()
+      // The guard is meaningless against an empty table, so prove there is something
+      // to under-count before asserting that under-counting is caught.
+      expect(orgs, 'no organisations in this database, the cross-check cannot be tested').toBeGreaterThan(0)
+
+      await writeHeartbeat(
+        'resolve-auto-held',
+        true,
+        new Date(),
+        'Examined 0 organisations, resolved 0 meetings',
+      )
+
+      const { state, detail } = await readMonitor('mon_010')
+
+      // THE TEST. Deleting "WHEN p.examined < p.org_count THEN 'PROBLEM'" from the
+      // view makes this line go red, and nothing else in the suite notices.
+      expect(
+        state,
+        'the run claimed success over zero organisations while organisations exist, ' +
+          'and MON-010 still reported ' + state + '. This is the defect the check exists for.',
+      ).toBe('PROBLEM')
+      expect(detail, 'the detail should name both counts').toContain('examined only 0 organisation(s)')
+    })
+
+    it('OK when the run examined at least as many organisations as exist', async () => {
+      await writeHeartbeat(
+        'resolve-auto-held',
+        true,
+        new Date(),
+        'Examined 999999 organisations, resolved 0 meetings',
+      )
+
+      const { state, detail } = await readMonitor('mon_010')
+      expect(state, 'a run that examined everything should be OK').toBe('OK')
+      expect(detail, 'the OK detail should say it cross-checked').toContain('cross-checked against')
+    })
+
+    it('UNKNOWN, never OK, when the detail cannot be parsed', async () => {
+      // The exact wording the job wrote for all 31 runs of the outage. It must not be
+      // silently parsed, and it must not read as healthy.
+      await writeHeartbeat(
+        'resolve-auto-held',
+        true,
+        new Date(),
+        'Processed 0 organisations, resolved 0 meetings',
+      )
+
+      const { state, detail } = await readMonitor('mon_010')
+      expect(
+        state,
+        'a check that could not perform its comparison must not report the colour ' +
+          'that means "I compared and it was fine"',
+      ).toBe('UNKNOWN')
+      expect(detail).toContain('does not match the expected')
+    })
   })
 })
