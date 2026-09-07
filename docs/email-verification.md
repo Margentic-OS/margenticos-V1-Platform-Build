@@ -70,9 +70,22 @@ justifies mailing the address. A tidied version cannot express that.
 
 ### One rule decides eligibility
 
-`email_send_eligible` is written by exactly one function,
-`resolveSendEligibility` in `src/lib/sourcing/send-eligibility-resolver.ts`. Both passes call
-it. Neither knows the rule.
+`email_send_eligible` is written by **two** functions, not one, and it is worth knowing which
+is which because the difference has already cost something.
+
+- `resolveSendEligibility` in `src/lib/sourcing/send-eligibility-resolver.ts` — the **second
+  pass**. It applies the full disagreement rule below.
+- `firstPassSendEligibility` in `src/lib/sourcing/send-eligibility-rules.ts` — the **first
+  pass**, called from `recordVerificationResult` in `verification-trigger.ts`.
+
+**Corrected 2026-09-07.** This page, and the resolver's own header comment, both used to say
+the column was "written by exactly one function". That was never true. The first pass wrote it
+from an expression spelled out inline, and the first pass is the one that actually runs on a
+re-verification. Believing the single-writer claim is how three hand-held prospects came
+within one verification run of being silently marked send-eligible again. The inline
+expression is now a named function so it can at least be tested; unifying the two is a
+separate change, because the resolver's two-pass rule would change the verdict for rows that
+are not held.
 
 This matters because that column is **materialised**: it is worked out once, at verification
 time, and simply read later. With two passes writing it, the obvious mistake is for its value
@@ -88,6 +101,35 @@ The rule, in plain English:
   entire point of the build.
 - Pass one could not confirm, pass two also could not → not eligible. Nothing was gained.
 - **Country exclusion sits on top of all of it and can only ever remove eligibility.**
+- **An operator hold sits on top of even that.** `prospects.send_hold_at` is checked before
+  the country rule and before either verdict. A held prospect is never send-eligible, no
+  matter what any verifier says, and a re-verification cannot clear it. Only an operator
+  can.
+
+### An operator hold, and why it is not the ineligible-reason column
+
+Added 2026-09-07. Three prospects were sitting at `email_send_eligible = false` with no reason
+recorded, no override and **no code path holding them**: someone had run an `UPDATE` by hand.
+Because the column is recomputed from scratch at every verification, the next re-verification
+of any of them would have worked out "deliverable, country not excluded, therefore eligible"
+and written exactly that, with nothing logging a reversal.
+
+Three columns record a hold: `send_hold_at`, `send_hold_by`, `send_hold_reason`. A CHECK
+constraint refuses a timestamp without a reason, because **a row held for no stated reason is
+indistinguishable from a bug** — which is precisely what those three rows looked like.
+
+`send_hold_by` is allowed to be null, and on the three backfilled rows it is. The hold was
+real, the operator was not recorded, and a guess would be worse than an admission.
+
+The reason could not go in `email_send_ineligible_reason` without a change, because two
+readers treated *any* non-null value there as meaning "excluded country":
+`send-eligibility-policy.ts` (the research spend gate) and `prospect-status.ts` (the operator
+screen). Both now match on the value. A hold reports as a hold; anything else still fails
+closed exactly as before.
+
+**The hold names no country and takes no legal position.** Whether Canada and Australia belong
+on an exclusion list is an open decision in the Notion Backlog, and it was deliberately not
+answered by making a manual edit durable.
 
 ### Why the score is ignored
 
