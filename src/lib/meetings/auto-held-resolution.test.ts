@@ -208,25 +208,4 @@ describe('Auto-held Resolution', () => {
       expect(result).toHaveLength(0)
     })
   })
-
-  it('GET/HEAD does NOT change state; only POST records decision; duplicate POST is idempotent', async () => {
-    // This test is for the confirm endpoint, not auto-held resolution
-    // Placeholder to organize test structure
-    expect(true).toBe(true)
-  })
-
-  it('email-link path and logged-in path write the SAME record', async () => {
-    // This test is for the confirm endpoint
-    expect(true).toBe(true)
-  })
-
-  it('Invitee Canceled sets is_billable=false and is NOT auto-held', async () => {
-    // This test is for the Calendly webhook handler
-    expect(true).toBe(true)
-  })
-
-  it('held decision sets is_billable=true', async () => {
-    // This test is for the confirm endpoint
-    expect(true).toBe(true)
-  })
 })
