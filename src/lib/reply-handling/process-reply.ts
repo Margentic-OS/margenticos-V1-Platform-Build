@@ -52,6 +52,12 @@ import { plainTextToHtml } from '@/lib/composition/custom-variables'
 type SupabaseServiceClient = ServiceRoleClient
 
 const CLASSIFIER_RETRY_LIMIT = 3
+// The intents that reach a terminal outcome with no operator involvement, and therefore
+// the only ones that must NOT raise an operator notification. An intent belongs here only
+// if it creates no triage card. Everything else notifies, including intents that are
+// auto-actioned but still worth knowing about, such as a booked meeting.
+const INTENTS_HANDLED_WITHOUT_A_PERSON: readonly string[] = ['opt_out', 'out_of_office']
+
 const POSITIVE_BOOKING_CONFIDENCE_THRESHOLD = 0.90
 const BATCH_SIZE = 20
 
@@ -188,6 +194,63 @@ interface ActionRowBase {
   action_succeeded?: boolean | null
   instantly_response?: Json | null
   attempt_number: number
+}
+
+// Writes the triage card for a reply that never reached the classifier.
+//
+// WHY A DRAFT ROW AND NOT JUST A LOG LINE. The triage queue, MON-028 and the sidebar badge
+// all read reply_drafts and nothing else. A reply with no row in that table is invisible to
+// every one of them at once, and each of them is CORRECTLY green about a set that does not
+// contain it. Writing the row is what makes the reply exist to the instruments that already
+// work, rather than adding a fourth instrument that would also have to be remembered.
+//
+// status manual_required is reused deliberately rather than adding a new status. Adding a
+// value to TRIAGE_STATUSES is by design the single act that grants queue placement, both
+// operator buttons, the sort and the MON-028 count (see triage-statuses.ts), so reusing an
+// existing member inherits all of it with no second list to keep in step.
+//
+// tier 3, not 2. The DB CHECK allows only 2 or 3, and 3 is the honest one: nothing was
+// drafted and the operator writes from scratch. Note this is a different axis from the
+// action row's tier_assigned, which is a coarse "not auto-handled" flag rather than the
+// fine tier.
+//
+// ai_draft_body MUST be null: reply_drafts_body_required CHECKs that manual_required and
+// draft_failed rows carry no body.
+async function insertUnreadableReplyDraft(
+  supabase: SupabaseServiceClient,
+  row: {
+    organisation_id: string
+    signal_id: string
+    prospect_id: string | null
+    intent: string
+    reason: string
+  },
+): Promise<string | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any)
+    .from('reply_drafts')
+    .insert({
+      organisation_id: row.organisation_id,
+      signal_id: row.signal_id,
+      prospect_id: row.prospect_id,
+      intent: row.intent,
+      tier: 3,
+      status: 'manual_required',
+      ai_draft_body: null,
+      draft_metadata: { reason: row.reason } as Json,
+    })
+    .select('id')
+    .maybeSingle()
+
+  if (error) {
+    logger.error('process-reply: failed to insert unreadable-reply draft row', {
+      signal_id: row.signal_id,
+      reason: row.reason,
+      error: error.message,
+    })
+    return null
+  }
+  return (data as { id: string } | null)?.id ?? null
 }
 
 async function insertActionRow(
@@ -448,7 +511,44 @@ async function processOneSignal(
       : typeof bodyRaw === 'string' ? bodyRaw : undefined) ?? ''
 
   if (!emailBody.trim()) {
+    // A REPLY WE COULD NOT READ IS EXACTLY WHEN A PERSON SHOULD LOOK.
+    //
+    // This branch used to write the action row, mark the signal processed and return, and
+    // that return sat ABOVE the operator-notification block below. So the reply reached no
+    // queue (no reply_drafts row was ever written) and no notification (the code that sends
+    // one was never reached). Two independent reasons for the same silence, and closing
+    // either one alone would have left it invisible through the other.
+    //
+    // The body extraction above reads raw.body.text. Any payload shape that does not match
+    // lands here: an HTML-only reply, a nested structure, a provider format change. None of
+    // those mean the prospect said nothing.
     logger.warn('process-reply: empty reply body — skipping classifier', { signal_id: signalId })
+
+    // ORDER MATTERS, and it is the orchestrator path's order for the same reason.
+    //
+    // The draft row is written FIRST. The action row is the idempotency guard: once a
+    // terminal log_only row exists, the next cron run treats this signal as handled and
+    // skips it before ever reaching this branch. So writing the action row first and then
+    // failing to write the draft would lose the reply permanently, with the guard itself
+    // being what hides it. Failing before the action row exists leaves the signal to retry.
+    //
+    // reply_drafts has UNIQUE (signal_id), so a retry that already got this far cannot
+    // duplicate the card.
+    const unreadableDraftId = await insertUnreadableReplyDraft(supabase, {
+      organisation_id: signal.organisation_id,
+      signal_id: signalId,
+      prospect_id: prospectId,
+      intent: 'unclear',
+      reason: 'classifier_skipped_empty_body',
+    })
+
+    if (!unreadableDraftId) {
+      // No card means no queue, no MON-028, no badge. Leave the signal unprocessed and
+      // write no action row, so the next run retries cleanly rather than recording a
+      // success nobody can see.
+      return 'error'
+    }
+
     await insertActionRow(supabase, {
       organisation_id: signal.organisation_id,
       signal_id: signalId,
@@ -459,10 +559,28 @@ async function processOneSignal(
       classification_reasoning: 'empty body, classifier skipped',
       tier_assigned: 2,
       action_taken: 'log_only',
-      action_payload: { reason: 'empty body, classifier skipped' } as Json,
+      action_payload: {
+        reason: 'empty body, classifier skipped',
+        reply_draft_id: unreadableDraftId,
+      } as Json,
       action_succeeded: null,
       attempt_number: attemptNumber,
     })
+
+    // Called directly rather than by falling through to the shared block below, because
+    // this path never classified anything and has no intent to test against that block's
+    // list. Calling it here also keeps the two fixes independent: reinstating 'unclear' in
+    // the exclusion list below cannot re-break this path, and restoring the early return
+    // cannot re-break that one.
+    await sendOperatorReplyNotification({
+      supabase,
+      organisationId: signal.organisation_id,
+      signalId: signalId,
+      prospectId: prospectId,
+      classifiedIntent: 'unclear',
+      signalCreatedAt: signal.created_at,
+    })
+
     await markSignalProcessed(supabase, signalId)
     return 'processed'
   }
@@ -514,15 +632,22 @@ async function processOneSignal(
 
   // ── Tell the OPERATOR a reply needs actioning, on every qualifying reply ───────
   //
-  // Excludes: opt_out, out_of_office, unclear. Those three are handled without a person:
-  // an opt-out suppresses, an out-of-office pauses, and unclear is logged. Nothing waits
-  // on the operator, so notifying would train them to ignore the alert.
-  // Includes: positive_direct_booking, positive_passive, information_request_*, objection_mild
+  // Excludes opt_out and out_of_office ONLY. Both are genuinely handled without a person:
+  // an opt-out suppresses and an out-of-office pauses. Nothing waits on the operator, so
+  // notifying would train them to ignore the alert.
+  //
+  // 'unclear' USED TO BE ON THIS LIST AND THAT WAS WRONG. The comment here claimed unclear
+  // "is logged" and that nothing waits on the operator. It does not and something does:
+  // routeIntent sends unclear to tier_3 (route-intent.ts), the orchestrator drafts it, and
+  // the result is a card sitting in the triage queue waiting for a person to write the
+  // reply. So the one intent meaning "we could not tell what they said" produced work for
+  // the operator and was the only such intent that never told them. A reply we cannot read
+  // is exactly when a person should look.
   //
   // This replaces a CLIENT email that fired once per organisation for ever. The client's
   // dashboard is the right surface for their replies and it already exists; the operator
   // is the one who has to act and was receiving nothing at all.
-  if (!['opt_out', 'out_of_office', 'unclear'].includes(intent)) {
+  if (!INTENTS_HANDLED_WITHOUT_A_PERSON.includes(intent)) {
     await sendOperatorReplyNotification({
       supabase,
       organisationId: signal.organisation_id,
