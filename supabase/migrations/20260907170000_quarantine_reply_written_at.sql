@@ -1,3 +1,8 @@
+-- Status: APPLIED (verified live 2026-09-07). Proved on the real row the acceptance
+-- probe recovered: reply_written_at backfilled to 2026-09-05 16:16:45 from the payload,
+-- and MON-031 changed from "Oldest waiting 0.0 hours" to "Longest anyone has been
+-- waiting: 51.0 hours since they wrote." Applied to the TEST project too, where the
+-- live view test and its mutation proof run.
 -- MON-031 was reporting how long WE had held a reply, not how long the person had waited.
 --
 -- ─────────────────────────────────────────────────────────────────────────────
