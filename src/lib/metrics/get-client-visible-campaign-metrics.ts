@@ -53,6 +53,8 @@ import { asServiceRoleClient, type ServiceRoleClient } from '@/lib/supabase/serv
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 import { CLIENT_VISIBLE_INTENTS } from '@/lib/reply-handling/get-client-visible-replies'
+import { fetchWithTimeout, SERVICE_READ_TIMEOUT_MS } from '@/lib/supabase/read-timeout'
+import { recordDashboardFailure } from '@/lib/dashboard/record-dashboard-failure'
 
 type SupabaseServiceClient = ServiceRoleClient
 
@@ -114,7 +116,16 @@ function serviceRoleClient(): SupabaseServiceClient {
     createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY,
-      { auth: { autoRefreshToken: false, persistSession: false } }
+      {
+        auth: { autoRefreshToken: false, persistSession: false },
+        // BOUNDED. This client is built here rather than obtained from
+        // createServiceRoleClient precisely so the timeout can live on it without
+        // reaching the job queue and the agents, which use service-role clients for work
+        // that is legitimately slow. service_role carries no statement_timeout in the
+        // database (read back from pg_roles 2026-09-07), so without this these four reads
+        // had no ceiling on either side of the connection.
+        global: { fetch: fetchWithTimeout(SERVICE_READ_TIMEOUT_MS) },
+      }
     )
   )
 }
@@ -174,6 +185,31 @@ export async function getClientVisibleCampaignMetrics(
       .eq('signal_type', 'reply_received')
       .not('prospect_id', 'is', null),
   ])
+
+  // EVERY ONE OF THESE FOUR READS USED TO DEGRADE TO ZERO IN SILENCE.
+  //
+  // postgrest-js converts a refusal, a network failure and a timeout alike into
+  // { data: null, error }. It never throws. So `?? []` and `?? 0` below turn all three
+  // into the same confident zero, and a client whose campaign is running is shown a
+  // dashboard saying nothing has happened. The numbers still degrade, because a page that
+  // renders beats a page that does not, but the failure now writes a row that MON-032
+  // reads. A wrong number nobody knows is wrong is the worst of the three outcomes.
+  for (const [label, result] of [
+    ['campaigns', campaignsResult] as const,
+    ['positive-replies', positiveRepliesResult] as const,
+    ['meetings', meetingsResult] as const,
+    ['reply-signals', replySignalsResult] as const,
+  ]) {
+    if (result.error) {
+      await recordDashboardFailure({
+        kind: 'read',
+        source: `client-visible-campaign-metrics:${label}`,
+        route: '/dashboard',
+        organisationId: clientOrgId,
+        detail: result.error.message,
+      })
+    }
+  }
 
   const campaigns = campaignsResult.data ?? []
   const contactedCount = campaigns.reduce((sum, c) => sum + (c.contacted_count ?? 0), 0)

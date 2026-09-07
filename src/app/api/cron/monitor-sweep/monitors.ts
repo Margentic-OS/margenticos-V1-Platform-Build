@@ -132,4 +132,17 @@ export const MONITORS: ReadonlyArray<readonly [checkCode: string, viewName: stri
   // Born dark by nature: an empty table and a broken quarantine write read identically, so
   // the view says so in its own OK detail rather than implying proof it does not have.
   ['MON-031', 'mon_031'],
+  // A client dashboard that failed to load, added 2026-09-07. THE FIRST CHECK ON THIS
+  // BOARD THAT WATCHES THE PRODUCT RATHER THAN THE DATABASE, and it only manages it
+  // because the failure was taught to write a row first.
+  //
+  // The other 31 checks here are SQL views over database state. Not one makes an HTTP
+  // call. So when a real client's dashboard rendered blank on 2026-09-07 and recovered on
+  // its own, no monitor could have seen it: a failed render writes nothing, the platform
+  // logs a dead stream as the HTTP 200 it already sent, and the runtime log lines expire
+  // after an hour. The client was the only thing that noticed.
+  //
+  // This closes one hole, not the class. Everything else the product does in a browser is
+  // still unobserved.
+  ['MON-032', 'mon_032'],
 ] as const

@@ -91,6 +91,38 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // ── Bare /dashboard is not a client route for an operator ──────────────────
+  //
+  // resolveViewingOrg falls back to the caller's OWN organisation_id when there is no
+  // ?client= parameter. For an operator that is doug@margenticos.com's own row, which
+  // points at "ARCHIVE 2026-04 do not use", archived 2026-08-05. So bare /dashboard
+  // rendered an archived organisation's data dressed as a client dashboard, and was
+  // useless as a check of the real client path because the data was never a client's.
+  //
+  // ONE BEHAVIOUR, NOT A HEURISTIC. An operator asking for /dashboard with no client
+  // named is asking for their own home, and their home is /dashboard/operator. The
+  // alternative considered and rejected was resolving to the most recently active
+  // non-archived organisation: that guesses, and a guess about whose data an operator is
+  // looking at is exactly the wrong thing to be clever about.
+  //
+  // Nothing legitimate breaks. "View as client" always carries ?client=, so every real
+  // operator view of a client keeps working; this only catches the bare URL, which had no
+  // correct meaning before.
+  //
+  // Here rather than in the page because the page is (client)/page.tsx, and a redirect in
+  // the middleware happens before any of that page's reads are issued.
+  if (user && request.nextUrl.pathname === '/dashboard' && !request.nextUrl.searchParams.has('client')) {
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (userRow?.role === 'operator') {
+      return NextResponse.redirect(new URL('/dashboard/operator', request.url))
+    }
+  }
+
   // Handle unauthenticated requests. Only pages reach here: /api returned above.
   if (!user) {
     // For pages under /dashboard: redirect to login with returnTo
