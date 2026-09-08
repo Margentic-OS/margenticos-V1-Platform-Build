@@ -22,7 +22,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { myemailverifierHandler, type VerificationResult } from '@/lib/sourcing/handlers/adapter-myemailverifier'
-import { checkSendEligibility } from '@/lib/sourcing/send-eligibility-rules'
+import { checkSendEligibility, firstPassSendEligibility } from '@/lib/sourcing/send-eligibility-rules'
 import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
 import { getDailyVerificationLimit } from '@/lib/sourcing/verification-limits'
 
@@ -537,7 +537,7 @@ async function recordVerificationResult(
   // Increment attempt count if this is a retry
   const { data: currentProspect } = await supabase
     .from('prospects')
-    .select('verification_attempt_count')
+    .select('verification_attempt_count, send_hold_at')
     .eq('id', prospectId)
     .eq('organisation_id', organisationId)
     .maybeSingle()
@@ -547,12 +547,34 @@ async function recordVerificationResult(
   // Check send eligibility rules (country exclusions, etc.)
   const eligibilityCheck = checkSendEligibility(country, email)
 
+  // ── AN OPERATOR HOLD SURVIVES RE-VERIFICATION ──
+  //
+  // THIS PATH IS WHY THE HOLD COLUMNS EXIST. The two lines below overwrite
+  // email_send_eligible and email_send_ineligible_reason unconditionally, from the verdict
+  // and the country rule alone. Three prospects (one AU, two CA) sat behind a hand-edited
+  // `false` on a column this function rewrites from scratch, and the next re-verification of
+  // any of them would have computed ELIGIBLE and written it, with nothing logging a
+  // reversal, because from here it is simply the right answer from the evidence.
+  //
+  // NOTE FOR THE NEXT READER OF send-eligibility-resolver.ts, WHOSE HEADER IS WRONG ON THIS
+  // POINT: it states that email_send_eligible "is only ever written from this one function".
+  // It is not. This is a second writer, using the longhand the resolver was built to
+  // replace, and it is the one the first pass actually runs. Routing this path through
+  // resolveSendEligibility is the right fix and is deliberately NOT done here, because the
+  // resolver applies the full two-pass disagreement rule and would change the verdict for
+  // rows that are not held. That is a larger change than making a hold durable.
+  const sendEligibility = firstPassSendEligibility({
+    heldAt: (currentProspect?.send_hold_at as string | null) ?? null,
+    country: eligibilityCheck,
+    vendorSendEligible: result.send_eligible,
+  })
+
   const { error } = await supabase
     .from('prospects')
     .update({
       independent_email_status: result.status,
-      email_send_eligible: eligibilityCheck.is_eligible && result.send_eligible,
-      email_send_ineligible_reason: eligibilityCheck.reason,
+      email_send_eligible: sendEligibility.email_send_eligible,
+      email_send_ineligible_reason: sendEligibility.email_send_ineligible_reason,
       independent_verified_at: result.verified_at,
       verification_attempt_count: newAttemptCount,
       verification_provider: 'myemailverifier',

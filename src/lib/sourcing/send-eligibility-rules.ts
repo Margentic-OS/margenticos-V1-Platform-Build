@@ -2,7 +2,7 @@
 
 import { aliasesForIso2, toIso2CountryCode } from '@/lib/sourcing/country-code'
 
-interface SendEligibilityCheck {
+export interface SendEligibilityCheck {
   is_eligible: boolean
   reason: string | null
 }
@@ -15,6 +15,76 @@ interface SendEligibilityCheck {
 // last line for prospects already in the database, which a derivation-time subtraction
 // cannot reach. See src/lib/sourcing/geography-exclusion.ts.
 export const EXCLUDED_COUNTRIES = ['DE'] as const
+
+/**
+ * The value written to prospects.email_send_ineligible_reason when an OPERATOR has placed a
+ * durable hold on a prospect, as opposed to a rule having excluded it.
+ *
+ * WHY THIS STRING EXISTS AT ALL. Until 2026-09-07 that column carried exactly one shape of
+ * value, `country_excluded_<code>`, and two readers took the shortcut of treating ANY
+ * non-null value as a country exclusion:
+ *
+ *   send-eligibility-policy.ts   the research spend gate
+ *   prospect-status.ts           the operator display
+ *
+ * So the column could not record a second kind of block without both of them misreporting
+ * it. That is the whole reason three hand-held prospects had a NULL reason: there was
+ * nowhere truthful to put one. Both readers now match on the VALUE rather than on
+ * non-nullness, and this constant is the value they match.
+ */
+export const OPERATOR_HOLD_REASON = 'operator_hold'
+
+/**
+ * Is this reason one of the country-exclusion codes produced by checkSendEligibility?
+ *
+ * Exported so the readers do not each re-derive the prefix. Note the deliberate asymmetry
+ * with OPERATOR_HOLD_REASON above: a hold is ONE exact value and is matched by equality, a
+ * country exclusion is a FAMILY of values (one per country) and is matched by prefix.
+ */
+export function isCountryExclusionReason(reason: string | null): boolean {
+  return reason !== null && reason.startsWith('country_excluded_')
+}
+
+/** What the first pass writes to the two materialised send-eligibility columns. */
+export interface FirstPassSendEligibility {
+  email_send_eligible: boolean
+  email_send_ineligible_reason: string | null
+}
+
+/**
+ * The first pass's send-eligibility policy, as a pure function.
+ *
+ * WHY THIS IS A FUNCTION AND NOT TWO LINES INSIDE recordVerificationResult, WHERE IT LIVED.
+ *
+ * It was an inline expression in verification-trigger.ts, assembled from a country check and
+ * a vendor boolean. Inline, it could not be tested without a database, so the guard that
+ * matters most here (an operator hold must survive re-verification) would have been provable
+ * only through a live-database test. Extracted, it is provable by deleting one term and
+ * watching a unit test go red.
+ *
+ * THE HOLD IS ANDed IN, so it can only ever REMOVE eligibility and never grant it, and it
+ * reports its OWN reason so the row does not claim to be a country exclusion.
+ *
+ * This is deliberately NOT resolveSendEligibility. That function applies the full two-pass
+ * disagreement rule and would change the verdict for rows that are not held, which is a
+ * larger change than making a hold durable. Unifying the two is tracked separately.
+ */
+export function firstPassSendEligibility(args: {
+  /** prospects.send_hold_at. Non-null means an operator has held this prospect. */
+  heldAt: string | null
+  /** The country rule's verdict for this prospect. */
+  country: SendEligibilityCheck
+  /** The vendor handler's own send_eligible boolean for this verification result. */
+  vendorSendEligible: boolean
+}): FirstPassSendEligibility {
+  if (args.heldAt !== null) {
+    return { email_send_eligible: false, email_send_ineligible_reason: OPERATOR_HOLD_REASON }
+  }
+  return {
+    email_send_eligible: args.country.is_eligible && args.vendorSendEligible,
+    email_send_ineligible_reason: args.country.reason,
+  }
+}
 
 /**
  * Every spelling of every excluded country, precomputed.
