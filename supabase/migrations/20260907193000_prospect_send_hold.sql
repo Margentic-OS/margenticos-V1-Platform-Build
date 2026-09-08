@@ -1,6 +1,20 @@
--- Status: APPLIED (verified live 2026-09-07)
--- Read-back: 3 columns present, CHECK prospects_send_hold_complete present, partial index
--- prospects_send_hold_at_idx present. Constraint proved to REJECT a hold with a null reason.
+-- Status: APPLIED to BOTH projects.
+--   production  hjpvnvjryxdjcfdsfhzy  (verified live 2026-09-07)
+--   test        tidqheqjzvwmrrrebzir  (verified live 2026-09-08)
+-- Read-back, both: 3 columns present, CHECK prospects_send_hold_complete present, partial
+-- index prospects_send_hold_at_idx present. Constraint proved to REJECT a hold with a null
+-- reason, inside a transaction that was then rolled back so nothing was kept.
+--
+-- THE TEST PROJECT WAS MISSED FOR A DAY, and that is worth recording rather than quietly
+-- fixing. This migration went to production only on 2026-09-07. The suite runs against the
+-- TEST project, so from 2026-09-07 until 2026-09-08 any live-database test touching these
+-- columns would have failed on a missing column.
+--
+-- Measured before assuming the worst: none did. The two baseline runs on 2026-09-08 at
+-- 8bc5941 reported 3,401 tests across 245 files with 6 and 8 failures respectively, and
+-- NEITHER failure set mentions send_hold. The only tests reading the column used a fake, so
+-- the gap was real and latent rather than red. It stopped being latent the moment a live
+-- test was written for the operator stop, which is what surfaced it.
 -- A DURABLE, OPERATOR-SET HOLD ON SENDING TO ONE PROSPECT.
 --
 -- ═════════════════════════════════════════════════════════════════════════════

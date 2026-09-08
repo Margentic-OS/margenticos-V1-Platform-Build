@@ -139,6 +139,76 @@ Read the detail line first. It names the prospects.
 **Never make it green by editing `suppression_reconciliation_snapshot`.** The next sweep
 overwrites it within half an hour with the provider's own answer.
 
+## Stopping one prospect on purpose — the operator's button
+
+Everything above is triggered by something happening **to** us: they replied "stop", their
+address bounced, the research agent disqualified them. Until 2026-09-08 there was no way for
+a person to simply decide it. Stopping somebody mid-sequence meant opening the sending
+vendor's own screen and clicking there, which worked and left no record here of who did it or
+why.
+
+**Where:** the operator's sourcing review screen, one "Stop contacting" control per prospect.
+A reason is required. There is no way to submit a blank one, because a hold with no reason is
+indistinguishable from a bug, and three such rows already exist.
+
+**What one click writes**, in a single statement so the two halves cannot half-land:
+
+| column | why |
+|---|---|
+| `suppressed`, `suppressed_at`, `suppression_reason` | puts the person inside `findBlockedProspects`, which is **what makes MON-026 able to see them** |
+| `send_hold_at`, `send_hold_by`, `send_hold_reason` | makes the decision survive the next re-verification |
+
+Then, and only then, the sending tool is told, through the same capability everything else
+uses.
+
+### Why it writes `suppressed` and not just the hold
+
+This is the part worth understanding, because the tidier implementation is wrong.
+
+`send_hold_at` is the purpose-built operator field. It is durable, it survives
+re-verification, and on its own it would block the next upload. Nothing obvious breaks.
+
+What it would silently do is leave the prospect **outside** `findBlockedProspects`, and that
+predicate is how MON-026 chooses whose provider lead to read back. A hold-only stop would
+never be reconciled against the provider, and the monitor would report OK for ever about a
+person it could no longer select. The stop would work and the check on it would be blind.
+
+So the `suppressed` write is load-bearing, and there is a live test whose only job is to fail
+if somebody removes it.
+
+### Database first, provider second
+
+Always, and the reason is which way it breaks when half of it fails.
+
+| what fails | result |
+|---|---|
+| the provider call, after the row is written | the row is blocked, MON-026 reads the lead back, sees it still sending, goes **red**. Loud. |
+| the database write, after the provider call | the provider is stopped while our record says mailable. Nothing is wrong today and **nothing says anything**. |
+
+Both are failures. Only one of them tells anybody.
+
+### What a failed provider call looks like to the operator
+
+The person is shown as **Stopped**, with a note that the sending tool has not confirmed yet
+and that the reconciliation check is watching. That is the truth: the stop is recorded, the
+person is blocked, and the sequence may still be running for up to the settle window.
+
+It is deliberately not shown as an error, because an operator told "that failed" retries a
+stop that is already correctly recorded.
+
+### Measured: this does not change the client's reply rate
+
+Writing the interest status does **not** perturb the provider's `reply_count`, so
+`replyRate` on the client dashboard is unaffected by stopping somebody. Measured 2026-09-08
+by reads only: four leads in the live campaign carried the suppression value, only two had
+ever replied, and the campaign reported `reply_count` 2, not 4.
+
+The contacted count is likewise untouched: it comes from the provider's
+`new_leads_contacted_count`, and stopping somebody does not un-send the emails they already
+received. **A stop does not rewrite history**, which is also why it never writes
+`client_review_status` — that would remove a contacted person from the client's own record of
+who was contacted.
+
 ## What this does NOT cover
 
 - **`prospects.email_send_eligible` is untouched.** That verdict is frozen at verification
@@ -146,6 +216,11 @@ overwrites it within half an hour with the provider's own answer.
 - **Suppression is still not retroactive across the board.** Adding a country to
   `EXCLUDED_COUNTRIES` still does not re-evaluate prospects already verified.
 - **Addresses with no lead yet** are handled by the send gate at upload, not here.
+- **There is no batch stop and no whole-client stop.** One prospect per click, deliberately:
+  those cases need a decision about what triggers them before they need code.
+- **Archiving a client does not stop their campaign.** The archive route makes no provider
+  call at all, and because archived prospects are not blocked, MON-026 does not read them
+  back either. Tracked as its own Backlog row, gated Live risk.
 
 ## Files
 
@@ -158,5 +233,9 @@ overwrites it within half an hour with the provider's own answer.
 | the cron route | `src/app/api/cron/suppression-reconcile/route.ts` |
 | the send gate (who must not be mailed) | `src/lib/suppression/send-gate.ts` |
 | the global list | `src/lib/suppression/suppression-list.ts` |
+| the operator stop | `src/lib/suppression/stop-prospect.ts` |
+| its route | `src/app/api/operator/prospects/stop/route.ts` |
+| its control | `src/app/dashboard/operator/sourcing-review/components/StopProspectControl.tsx` |
+| the hold columns | `supabase/migrations/20260907193000_prospect_send_hold.sql` |
 | columns and capability row | `supabase/migrations/20260904100000_provider_suppression_columns.sql` |
 | MON-026 and its cron | `supabase/migrations/20260904110000_mon_026_suppression_reconciliation.sql` |

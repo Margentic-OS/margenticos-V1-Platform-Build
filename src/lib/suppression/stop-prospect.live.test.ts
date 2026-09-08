@@ -35,18 +35,27 @@ import type { Database } from '@/types/database'
 import { createTestServiceClient } from '@/test-utils/test-database'
 import { deleteTestOrganisation } from '@/test-utils/delete-test-organisations'
 import { asServiceRoleClient } from '@/lib/supabase/service-role'
+import type {
+  StopLeadOutcome,
+  FindLeadsOutcome,
+  ReadLeadOutcome,
+} from '@/lib/integrations/capabilities/suppress-contact'
 
 // The provider is stubbed at the CAPABILITY boundary, so no network call can happen and the
 // test cannot depend on what integrations_registry happens to hold in the test database.
 // Stubbed to SUCCEED, deliberately: a passing carry is the case in which a missing
 // `suppressed` write is hardest to notice, because every other signal reads healthy.
-const stopLead = vi.fn(async (leadId: string) => ({
-  ok: true as const,
+// Return types are stated EXPLICITLY rather than inferred from the happy-path body.
+// Inferred, each mock narrows to `ok: true` and a failure cannot be expressed, so the test
+// that proves a failed carry does not undo the stop would not compile. The suite would still
+// have gone green, because vitest does not typecheck: the error surfaces only under tsc.
+const stopLead = vi.fn(async (leadId: string): Promise<StopLeadOutcome> => ({
+  ok: true,
   state: { leadId, status: 3, interestStatus: -1 },
 }))
-const findLeadIds = vi.fn(async () => ({ ok: true as const, leadIds: [] as string[] }))
-const readLead = vi.fn(async (leadId: string) => ({
-  ok: true as const,
+const findLeadIds = vi.fn(async (): Promise<FindLeadsOutcome> => ({ ok: true, leadIds: [] }))
+const readLead = vi.fn(async (leadId: string): Promise<ReadLeadOutcome> => ({
+  ok: true,
   state: { leadId, status: 3, interestStatus: -1 },
 }))
 
@@ -189,6 +198,67 @@ describe('stopProspect, against the real database', () => {
       .eq('id', prospectId)
       .single()
     expect(data?.outbound_suppression_status).toBe('confirmed')
+  }, 30_000)
+
+  it('a FAILED provider carry does not undo the stop, and leaves it blocked', async () => {
+    // The failure direction, asserted rather than described.
+    //
+    // If a failed carry rolled the stop back, the person would leave findBlockedProspects,
+    // MON-026 would stop selecting them, and the one instrument that would have caught the
+    // provider still sending would go quiet at exactly the moment it was needed. So the
+    // database half stands on its own and the carry failure is recorded beside it.
+    stopLead.mockResolvedValueOnce({ ok: false, error: 'provider 503', state: null })
+
+    const result = await stopTheProspect()
+
+    // ok:true means THE STOP IS RECORDED. It has never meant the provider confirmed.
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.carry.status).toBe('failed')
+
+    const after = await findBlockedProspects(asServiceRoleClient(supabase), orgId, [
+      { id: prospectId, email: 'stop-target@example.com' },
+    ])
+    if (!after.ok) throw new Error('gate read failed')
+    expect(after.blocked.get(prospectId)).toBe('prospect_suppressed')
+
+    // And the failure is on the row, not only in a log line, so MON-026 and an operator
+    // both have something to read.
+    const { data } = await supabase
+      .from('prospects')
+      .select('outbound_suppression_status, outbound_suppression_error')
+      .eq('id', prospectId)
+      .single()
+    expect(data?.outbound_suppression_status).toBe('failed')
+    expect(data?.outbound_suppression_error).toContain('provider 503')
+  }, 30_000)
+
+  it('refuses a stop with no reason, and writes nothing at all', async () => {
+    // A hold with no reason is indistinguishable from a bug. Three such rows already exist
+    // and this is the path that must never add a fourth.
+    const { data: row } = await supabase
+      .from('prospects')
+      .select('id, organisation_id, email, outbound_lead_id')
+      .eq('id', prospectId)
+      .single()
+
+    const result = await stopProspect(asServiceRoleClient(supabase), {
+      subject: row!,
+      operatorId: OPERATOR_ID,
+      reason: '   ',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(stopLead).not.toHaveBeenCalled()
+
+    const { data } = await supabase
+      .from('prospects')
+      .select('suppressed, send_hold_at, suppressed_at')
+      .eq('id', prospectId)
+      .single()
+    expect(data?.suppressed).toBe(false)
+    expect(data?.send_hold_at).toBeNull()
+    expect(data?.suppressed_at).toBeNull()
   }, 30_000)
 
   it('a prospect in another organisation is never stopped by this call', async () => {
