@@ -18,6 +18,7 @@ import {
   anExcludedCode,
   aGeography,
 } from '@/test-utils/geography-fixture'
+import { seniorityFixture } from '@/test-utils/seniority-fixture'
 
 const doc: IcpDocument = {
   summary: 's',
@@ -47,25 +48,25 @@ const doc: IcpDocument = {
 
 describe('geography is required and has no substitute', () => {
   it('throws when no geography is supplied at all', () => {
-    expect(() => deriveFilterSpec(doc, null, undefined as unknown as SpecGeography))
+    expect(() => deriveFilterSpec(doc, null, undefined as unknown as SpecGeography, seniorityFixture()))
       .toThrow(/no geography was supplied/i)
   })
 
   it('throws when the country list is empty rather than emitting a default', () => {
-    expect(() => deriveFilterSpec(doc, null, { ...aGeography(), countries: [] }))
+    expect(() => deriveFilterSpec(doc, null, { ...aGeography(), countries: [] }, seniorityFixture()))
       .toThrow(/no geography was supplied/i)
   })
 
   it('throws when the country list is not an array', () => {
     const malformed = { ...aGeography(), countries: 'a string' } as unknown as SpecGeography
-    expect(() => deriveFilterSpec(doc, null, malformed)).toThrow(/no geography was supplied/i)
+    expect(() => deriveFilterSpec(doc, null, malformed, seniorityFixture())).toThrow(/no geography was supplied/i)
   })
 
   // POSITIVE CONTROL for all three above. The same document must derive successfully once
   // geography is supplied, or a function that threw unconditionally would satisfy them.
   it('derives successfully when geography is supplied', () => {
     const code = aTargetableCode()
-    const spec = deriveFilterSpec(doc, null, aGeography([code]))
+    const spec = deriveFilterSpec(doc, null, aGeography([code]), seniorityFixture())
     expect(spec.person_countries).toEqual([code])
   })
 })
@@ -73,7 +74,7 @@ describe('geography is required and has no substitute', () => {
 describe('both country lists come from the client, and from the same list', () => {
   it('puts the derived countries on both fields', () => {
     const [a, b] = twoTargetableCodes()
-    const spec = deriveFilterSpec(doc, null, aGeography([a, b]))
+    const spec = deriveFilterSpec(doc, null, aGeography([a, b]), seniorityFixture())
 
     expect(spec.person_countries).toEqual([a, b])
     expect(spec.company_countries).toEqual([a, b])
@@ -82,20 +83,20 @@ describe('both country lists come from the client, and from the same list', () =
   // The handler refuses a spec that constrains only one of the two. This is why it never
   // has to: they cannot differ, because they are built from one value.
   it('never constrains one side without the other', () => {
-    const spec = deriveFilterSpec(doc, null, aGeography(twoTargetableCodes()))
+    const spec = deriveFilterSpec(doc, null, aGeography(twoTargetableCodes()), seniorityFixture())
     expect(spec.person_countries).toEqual(spec.company_countries)
   })
 
   // Two fields sharing one array instance means a caller mutating either changes both,
   // across clients, with no error. Cheap to prevent, invisible if it regresses.
   it('gives each field its own array instance', () => {
-    const spec = deriveFilterSpec(doc, null, aGeography())
+    const spec = deriveFilterSpec(doc, null, aGeography(), seniorityFixture())
     expect(spec.person_countries).not.toBe(spec.company_countries)
   })
 
   it('does not alias the caller\'s array either', () => {
     const geography = aGeography()
-    const spec = deriveFilterSpec(doc, null, geography)
+    const spec = deriveFilterSpec(doc, null, geography, seniorityFixture())
     expect(spec.person_countries).not.toBe(geography.countries)
   })
 })
@@ -103,7 +104,7 @@ describe('both country lists come from the client, and from the same list', () =
 describe('what the spec notes record about geography', () => {
   it('states the countries the spec targets and where they came from', () => {
     const code = aTargetableCode()
-    const spec = deriveFilterSpec(doc, null, aGeography([code]))
+    const spec = deriveFilterSpec(doc, null, aGeography([code]), seniorityFixture())
 
     expect(spec.notes).toContain(code)
     expect(spec.notes).toMatch(/derived from this ICP's own tier 1 and tier 2 geography/i)
@@ -117,7 +118,7 @@ describe('what the spec notes record about geography', () => {
       countries: [aTargetableCode()],
       removed_by_exclusion: [excluded],
       unresolved_phrases: [],
-    })
+    }, seniorityFixture())
 
     expect(spec.notes).toContain(excluded)
     expect(spec.notes).toMatch(/excluded from targeting on legal grounds/i)
@@ -129,7 +130,7 @@ describe('what the spec notes record about geography', () => {
       countries: [aTargetableCode()],
       removed_by_exclusion: [],
       unresolved_phrases: ['the first skipped phrase', 'the second skipped phrase'],
-    })
+    }, seniorityFixture())
 
     expect(spec.notes).toContain('the first skipped phrase')
     expect(spec.notes).toContain('the second skipped phrase')
@@ -139,7 +140,7 @@ describe('what the spec notes record about geography', () => {
   // POSITIVE CONTROL for the two above: silence when there is nothing to report, so the
   // notes are not simply carrying both sentences unconditionally.
   it('says nothing about exclusions or skips when there were none', () => {
-    const spec = deriveFilterSpec(doc, null, aGeography())
+    const spec = deriveFilterSpec(doc, null, aGeography(), seniorityFixture())
     expect(spec.notes).not.toMatch(/excluded from targeting on legal grounds/i)
     expect(spec.notes).not.toMatch(/named no country and was skipped/i)
   })

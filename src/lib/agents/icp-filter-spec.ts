@@ -1,4 +1,5 @@
 import type { BuyerCriterion } from '@/lib/sourcing/buyer-criterion'
+import type { ProviderSeniorityBand } from '@/lib/sourcing/handlers/provider-seniority'
 
 // ICP Filter Spec derivation.
 // Deterministic extraction from an approved ICP document JSON into the
@@ -128,7 +129,12 @@ export function validateCanonicalIndustry(name: string): asserts name is Canonic
 export interface ICPFilterSpec {
   job_titles: string[]
   job_titles_excluded: string[]
-  seniority_levels: ('founder' | 'owner' | 'c_suite' | 'vp' | 'director' | 'manager' | 'senior' | 'entry')[]
+  /**
+   * The provider-side seniority prefilter, DERIVED PER CLIENT from that client's own
+   * documents. The band names are the provider's vocabulary and are typed from the
+   * handler layer that owns it, so this module names none of them.
+   */
+  seniority_levels: ProviderSeniorityBand[]
   person_countries: string[]          // ISO-3166 alpha-2 codes
   company_countries: string[]         // ISO-3166 alpha-2 codes
   company_headcount_min: number
@@ -238,6 +244,30 @@ export interface SpecGeography {
   removed_by_exclusion: string[]
   /** Phrases from the document that named no country, verbatim. */
   unresolved_phrases: string[]
+}
+
+// ─── The buyer level this spec is built from ─────────────────────────────────
+//
+// The CONSUMER'S view, exactly like SpecGeography above and for the same reason: this
+// module must not reach the handler layer at run time, so it declares the shape it reads
+// and the producer satisfies it structurally.
+//
+// The band strings are the provider's own vocabulary and their type comes from the handler
+// layer that owns it, so this module names none of them. What arrives here is one client's
+// answer, derived from that client's documents, and this module's only job is to refuse if
+// there is no answer.
+export interface SpecSeniority {
+  /** Bands this client's documents establish. Never empty; deriveFilterSpec refuses. */
+  bands: ProviderSeniorityBand[]
+  /**
+   * Values the derivation produced that the provider would not honour, dropped before
+   * they got here. Non-empty means the model invented vocabulary, which is worth an
+   * operator seeing: a value the provider does not recognise is dropped silently by the
+   * provider, and a silently dropped filter looks exactly like one that worked.
+   */
+  discarded: string[]
+  /** What in the client's documents established the bands. Operator-facing. */
+  evidence: string
 }
 
 // ─── ICP document types (mirrors icp-generation-agent.ts output schema) ───────
@@ -351,14 +381,19 @@ export function deriveKeywords(industries: readonly string[]): string[] {
  * ─── WHY THE CRITERION IS A PARAMETER ────────────────────────────────────────
  *
  * `job_titles` and `job_titles_excluded` used to be sixteen literals naming one
- * market's roles, handed to every client. 360 Bia Og sells into schools and its stored
- * spec asked for "Principal Consultant" and "Managing Partner" and excluded "SDR".
+ * market's roles, handed to every client. One live client sells into a market that shares
+ * no vocabulary with that list at all, and its stored spec asked for roles that do not
+ * exist there and excluded one that does not either.
  *
  * The right answer already existed and was being computed a few lines later:
  * `buyer_criterion.accept` and `.reject`, derived per client from that client's own
- * documents by the buyer criterion agent. It produced "principal", "deputy principal"
- * and "board of management" for that school. Re-deriving titles here would be a second
- * copy of a judgement that is already made well, and a second copy is what drifts.
+ * documents by the buyer criterion agent. For that client it produced the roles its own
+ * market actually uses. Re-deriving titles here would be a second copy of a judgement that
+ * is already made well, and a second copy is what drifts.
+ *
+ * THE ROLES ARE NOT QUOTED HERE, and that is the point rather than squeamishness. A worked
+ * example naming real titles is how the deleted list got written in the first place: it
+ * starts as an illustration of the defect and becomes the next default.
  *
  * So the criterion is passed IN rather than duplicated. Its fragments are lowercase
  * title substrings, which is exactly what a provider's title filter wants, so the
@@ -373,9 +408,54 @@ export function deriveFilterSpec(
   doc: IcpDocument,
   buyerCriterion: BuyerCriterion | null,
   geography: SpecGeography,
+  seniority: SpecSeniority,
 ): ICPFilterSpec {
   const t1 = doc.tier_1
   const t2 = doc.tier_2
+
+  // ── Seniority is required and has no substitute ───────────────────────────
+  //
+  // ─── WHAT WAS HERE, AND WHY IT IS DELETED RATHER THAN ADJUSTED ────────────
+  //
+  // This field used to be computed here, by lowercasing two sentences of the client's
+  // document, asking whether either contained one of two particular words, and returning
+  // one of two lists written into this file. There was no third outcome and nothing else
+  // was read. That is a buyer-type assumption applied to every client, and it is the same
+  // shape as the twelve hardcoded title fragments that were deleted before it.
+  //
+  // MEASURED against the live provider on 2026-09-08, on all three live clients:
+  //
+  //   it removed 103 of the 104 people one client's own job titles reach
+  //   it removed 35,585 of 46,772 for another
+  //   it removed 6,403 for the third
+  //
+  // and for ALL THREE, sending every band the provider accepts returned exactly the same
+  // count as omitting the parameter entirely. So this axis has never added anybody. It
+  // only ever subtracts, and what it subtracted was decided by a word search.
+  //
+  // It had also silently reversed a deliberate decision: one client's document states a
+  // buyer that the provider has a band for, and neither fixed list could express it, so
+  // that band could not be produced for any client under any input.
+  //
+  // ─── WHY A REFUSAL AND NOT A DEFAULT ──────────────────────────────────────
+  //
+  // The same reason geography refuses below. A default here is not a smaller version of
+  // the right answer, it is a different client's answer applied to this one, and it
+  // arrives silently. A refusal costs a run and is recoverable by re-approving an ICP.
+  if (
+    !seniority ||
+    !Array.isArray(seniority.bands) ||
+    seniority.bands.length === 0
+  ) {
+    throw new Error(
+      'ICP filter spec: no seniority bands were supplied, so there is no buyer level to ' +
+      'target. These are derived per client from that client\'s own documents, on the same ' +
+      'call that derives the buyer criterion. There is deliberately no default: the two ' +
+      'fixed lists that used to sit here were chosen by searching a client\'s document for ' +
+      'two particular words, and they removed almost everyone that one live client\'s own ' +
+      'job titles reached.',
+    )
+  }
 
   // ── Geography is required and has no substitute ───────────────────────────
   //
@@ -465,17 +545,7 @@ export function deriveFilterSpec(
   return {
     job_titles: [...new Set(acceptFragments)],
     job_titles_excluded: [...new Set(rejectFragments)],
-    seniority_levels: (() => {
-      const t1Seniority = (t1.buyer_profile?.seniority ?? '').toLowerCase()
-      const t2Seniority = (t2.buyer_profile?.seniority ?? '').toLowerCase()
-      const isFounderLed = t1Seniority.includes('founder') || t1Seniority.includes('owner') ||
-                           t2Seniority.includes('founder') || t2Seniority.includes('owner')
-
-      if (isFounderLed) {
-        return ['founder', 'owner', 'c_suite', 'vp', 'director'] as const
-      }
-      return ['c_suite', 'vp', 'director'] as const
-    })() as ICPFilterSpec['seniority_levels'],
+    seniority_levels: [...seniority.bands],
     // BOTH FROM THE SAME RESOLVED LIST, and they must stay that way. A document states
     // one geography, so a person list and a company list that could differ would be two
     // values derived from one sentence with nothing keeping them in step. Constraining

@@ -69,10 +69,15 @@ async function main() {
     let derived: ICPFilterSpec | null = null
     if (geography) {
       try {
+        // Seniority read from the STORED spec, for the same reason the criterion is:
+        // re-deriving it costs the model call this script exists to avoid. A stored spec
+        // that predates the derivation carries the old fixed list, which is exactly what
+        // this script is for comparing against.
         derived = deriveFilterSpec(
           r.content as unknown as IcpDocument,
           stored?.buyer_criterion ?? null,
           geography,
+          { bands: stored?.seniority_levels ?? [], discarded: [], evidence: 'read from the stored spec' },
         )
       } catch (e) {
         console.log(`  DERIVATION REFUSES: ${(e as Error).message}`)

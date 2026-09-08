@@ -17,6 +17,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { tierEnrichedBatch } from '@/lib/sourcing/tiering-trigger'
 import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
+import { seniorityFixture } from '@/test-utils/seniority-fixture'
 import { clearIndustryMappingCache } from '@/lib/sourcing/industry-mapping'
 import { logger } from '@/lib/logger'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
@@ -41,10 +42,34 @@ vi.mock('@sentry/nextjs', () => ({
 // throw on a fake database with no integrations_registry, and all five tests would fail
 // for a reason that has nothing to do with re-queueing.
 //
-// The buyer criterion in the same function is deliberately NOT mocked, because it fails
-// OPEN: it throws on the fake, is caught, and the spec is written without job titles.
-// That asymmetry is the actual policy difference between the two, and leaving it visible
-// here is more useful than mocking both.
+// THE BUYER CRITERION IS NOW MOCKED, AND THE REASON IT STOPPED BEING OPTIONAL MATTERS.
+//
+// It used to be deliberately unmocked, because it failed OPEN: it threw on the fake, was
+// caught, and the spec was written anyway, without job titles. That asymmetry was the
+// point of leaving it visible.
+//
+// It no longer fails open, because the SAME CALL now also derives the seniority bands, and
+// deriveFilterSpec refuses a spec with none. So a derivation that throws no longer produces
+// a partial spec; it produces no spec at all, and therefore no re-queue either.
+//
+// That is a deliberate policy change. It is asserted directly in
+// spec-seniority-required.test.ts, which pins the refusal itself; mocking it back to a
+// failure here would re-test the same branch through five layers of fake. What this file
+// keeps is the re-queue behaviour on the path where the derivation SUCCEEDS, which is the
+// path it was written for.
+vi.mock('@/agents/buyer-criterion-agent', () => ({
+  deriveBuyerCriterionWithVocabulary: async () => ({
+    criterion: {
+      status: 'derived', accept: [{ fragment: 'a-fragment', rank: 'primary' }], reject: [],
+      statement: 's', evidence: [], unsettled_reason: null, sanity: null,
+      derived_at: new Date(0).toISOString(), model: 'test',
+    },
+    vocabulary: { sells: 's', usedFor: 'u', nameWords: [] },
+    // Bands taken from the provider's own list rather than written out. See the fixture.
+    seniority: seniorityFixture(),
+  }),
+}))
+
 vi.mock('@/lib/sourcing/resolve-icp-geography', () => ({
   resolveIcpGeography: async () => ({
     countries: [aTargetableCode()],
