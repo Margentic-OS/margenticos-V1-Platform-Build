@@ -4,6 +4,7 @@ import { useState, useMemo, useTransition } from 'react'
 import Link from 'next/link'
 import type { Database } from '@/types/database'
 import { normalizeUrl } from '@/lib/url/normalize'
+import { StopProspectControl } from './StopProspectControl'
 import {
   parseTieringReason,
   whyNotSendable,
@@ -185,6 +186,13 @@ function ProspectRow({ prospect }: { prospect: Prospect }) {
       <td className="px-4 py-3">
         <SendabilityCell prospect={prospect} />
       </td>
+
+      {/* STOP CONTACTING. The control that did not exist: every mechanism for stopping
+          somebody was already built and none of them could be reached by an operator
+          deciding to use one, so it meant clicking in the vendor's own UI. */}
+      <td className="px-4 py-3">
+        <StopProspectControl prospectId={prospect.id} alreadyStopped={prospect.suppressed} />
+      </td>
     </tr>
   )
 }
@@ -245,6 +253,7 @@ function TierSection({
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Website</th>
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Why this tier</th>
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Can be emailed</th>
+                  <th className="px-4 py-3 text-left font-medium text-text-primary">Stop</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E8E2D8]">
