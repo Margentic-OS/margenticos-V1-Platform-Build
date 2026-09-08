@@ -106,3 +106,89 @@ export function describeInFlight(run: InFlightRun): string {
     'it if it has died.'
   )
 }
+
+// ─── Registering, which is the other half and was missing ────────────────────
+//
+// CHECKING IS NOT REGISTERING, and having one without the other is worse than having
+// neither, because it reads as a working guard. A tuner that checks `agent_runs` and never
+// writes a row can see sourcing, and sourcing cannot see it: the guard is one-directional
+// while looking symmetric, and the direction it fails in is the one that spends money —
+// sourcing is the path that paginates hard against the shared rate limit.
+//
+// It uses the CALLER'S client rather than constructing a service client of its own, so the
+// whole module is driven by one injected client and a test does not have to reach the
+// network to exercise the loop.
+
+export interface TunerRunHandle {
+  /** Null when the row could not be written. The run still proceeds; see below. */
+  runId: string | null
+  complete: (summary: string) => Promise<void>
+  fail: (reason: string) => Promise<void>
+}
+
+/**
+ * Announce this run, so a concurrent sourcing run refuses.
+ *
+ * FAILS SOFT. A run that could not write its announcement still does its work: this guard
+ * protects a shared rate limit rather than data integrity, and refusing to tune because a
+ * logging insert failed would be a worse outage than the collision it prevents. The failure
+ * is logged and the handle becomes a no-op, which is the same shape startAgentRun uses.
+ */
+export async function registerTunerRun(
+  supabase: SupabaseClient,
+  organisationId: string,
+): Promise<TunerRunHandle> {
+  const noop: TunerRunHandle = { runId: null, complete: async () => {}, fail: async () => {} }
+
+  try {
+    const { data, error } = await supabase
+      .from('agent_runs')
+      .insert({
+        organisation_id: organisationId,
+        agent_name: TUNER_AGENT_NAME,
+        status: 'running',
+        started_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single()
+
+    if (error || !data) {
+      logger.warn('tuner: could not announce this run; sourcing will not see it', {
+        organisation_id: organisationId,
+        error: error?.message,
+      })
+      return noop
+    }
+
+    const id = data.id as string
+    const close = async (status: 'completed' | 'failed', text: string) => {
+      const { error: closeError } = await supabase
+        .from('agent_runs')
+        .update({
+          status,
+          completed_at: new Date().toISOString(),
+          ...(status === 'completed' ? { output_summary: text } : { error_message: text }),
+        })
+        .eq('id', id)
+      if (closeError) {
+        // A row left 'running' blocks this organisation until the reaper clears it, which is
+        // ten minutes. Loud, because the symptom is a tuner that refuses for no visible reason.
+        logger.error('tuner: could not close the run row; it will block until reaped', {
+          run_id: id, error: closeError.message,
+        })
+      }
+    }
+
+    return {
+      runId: id,
+      complete: (summary: string) => close('completed', summary),
+      fail: (reason: string) => close('failed', reason),
+    }
+  } catch (err) {
+    logger.warn('tuner: announcing this run threw; sourcing will not see it', {
+      organisation_id: organisationId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return noop
+  }
+}

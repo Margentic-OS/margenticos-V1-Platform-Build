@@ -43,7 +43,7 @@ import {
 import { LookupBudget, lookUpCompany, lookupIsUsable } from '@/lib/tuner/lookup'
 import { resolveInstruction, type ResolvedInstruction } from '@/lib/tuner/instruction'
 import { checkForbidden, boundsFromSpec } from '@/lib/tuner/forbidden'
-import { findInFlight, describeInFlight } from '@/lib/tuner/in-flight'
+import { findInFlight, describeInFlight, registerTunerRun, type TunerRunHandle } from '@/lib/tuner/in-flight'
 import { ALL_TARGETABLE_NAICS_CODES } from '@/lib/sourcing/handlers/adapter-apollo'
 import type {
   DocumentMarker, JudgedRow, ProposedChange, RoundRecord, TerminalState,
@@ -186,6 +186,21 @@ export async function runTuner(input: TunerInput): Promise<TunerResult> {
     })
   }
 
+  // ── Announce this run, so a concurrent sourcing run refuses ──
+  //
+  // AFTER the check and BEFORE any provider call. Checking without announcing is a guard that
+  // reads as symmetric and is not: the tuner would see sourcing and sourcing would not see the
+  // tuner, and sourcing is the path that paginates hard against the shared rate limit.
+  const announced: TunerRunHandle = await registerTunerRun(supabase, organisationId)
+
+  // Every return after this point goes through here, so the announcement is always closed.
+  // A row left 'running' blocks this organisation for ten minutes until the reaper clears it.
+  const close = async <T extends TunerResult>(result: T): Promise<T> => {
+    if (result.terminalState === 'failed') await announced.fail(result.terminalReason)
+    else await announced.complete(`${result.terminalState}: ${result.rounds.length} round(s)`)
+    return result
+  }
+
   // ── The document, and the marker that says which version this run saw ──
   const { data: doc, error: docError } = await supabase
     .from('strategy_documents')
@@ -196,12 +211,12 @@ export async function runTuner(input: TunerInput): Promise<TunerResult> {
     .single()
 
   if (docError || !doc) {
-    return finish('failed', `No active ICP document for this organisation: ${docError?.message ?? 'not found'}`)
+    return close(finish('failed', `No active ICP document for this organisation: ${docError?.message ?? 'not found'}`))
   }
   if (!doc.icp_filter_spec) {
-    return finish('failed',
+    return close(finish('failed',
       'The active ICP carries no filter spec, so there is no search to tune. Re-approving the ' +
-      'ICP derives one.')
+      'ICP derives one.'))
   }
 
   const marker: DocumentMarker = {
@@ -213,13 +228,13 @@ export async function runTuner(input: TunerInput): Promise<TunerResult> {
   const icpContent = (doc.content ?? {}) as Record<string, unknown>
 
   const withMarker = (state: TerminalState, reason: string, extra: Partial<TunerResult> = {}) =>
-    finish(state, reason, {
+    close(finish(state, reason, {
       documentMarker: marker,
       instruction: input.instruction !== undefined && resolved
         ? { text: input.instruction, resolution: resolved.resolution }
         : null,
       ...extra,
-    })
+    }))
 
   // ── ROUND ZERO. Free. ──
   let zero

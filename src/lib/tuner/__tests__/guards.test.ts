@@ -259,6 +259,57 @@ describe('the tuner and sourcing can see each other', () => {
     expect(filtered).toEqual([...BLOCKING_AGENT_NAMES])
   })
 
+  it('ANNOUNCES itself, so sourcing can see it, not only the other way round', async () => {
+    // THE TEST THAT WAS MISSING. The first version of this module checked agent_runs and never
+    // wrote to it, so the tuner could see a sourcing run and sourcing could not see the tuner.
+    // A one-directional guard reads as a working one, and the direction it failed in is the
+    // one that spends money.
+    provider = installFakeProvider({ populationFor: () => 1 })
+
+    const inserted: Record<string, unknown>[] = []
+    const updated: Record<string, unknown>[] = []
+    const chain: Record<string, unknown> = {}
+    Object.assign(chain, {
+      select: () => chain, eq: () => chain, in: () => chain, gte: () => chain, order: () => chain,
+      limit: async () => ({ data: [], error: null }),
+      insert: (row: Record<string, unknown>) => { inserted.push(row); return chain },
+      update: (row: Record<string, unknown>) => { updated.push(row); return chain },
+      single: async () => ({
+        data: inserted.length && !('icp_filter_spec' in (inserted[0] ?? {}))
+          ? { id: 'agent-run-1' }
+          : {
+              id: 'doc-1', version: '4', updated_at: '2026-09-02T23:10:26.721Z',
+              content: {
+                tier_1: { company_profile: { industries: ['Higher Education'], headcount: '5-20' } },
+                tier_2: { company_profile: { industries: ['Higher Education'], headcount: '5-20' } },
+              },
+              icp_filter_spec: {
+                job_titles: ['t-a'], job_titles_excluded: [], seniority_levels: ['founder'],
+                person_countries: ['GB'], company_countries: ['GB'],
+                company_headcount_min: 5, company_headcount_max: 20,
+                industries: ['Higher Education'], industries_excluded: [],
+                keywords: ['w-a'], keywords_excluded: [],
+              },
+            },
+        error: null,
+      }),
+    })
+
+    await runTuner({
+      supabase: { from: () => chain } as never,
+      organisationId: 'org', judge: forbiddenJudge, throttleMs: 0,
+    })
+
+    // It wrote a row under a name sourcing's own guard already looks for.
+    const announcement = inserted.find(r => r.agent_name === TUNER_AGENT_NAME)
+    expect(announcement).toBeDefined()
+    expect(announcement!.status).toBe('running')
+    expect(BLOCKING_AGENT_NAMES).toContain(announcement!.agent_name)
+
+    // And it closed the row. One left 'running' blocks the organisation for ten minutes.
+    expect(updated.some(u => u.status === 'completed' || u.status === 'failed')).toBe(true)
+  })
+
   it('proceeds when the check itself fails, and says so rather than blocking', async () => {
     // The trade is deliberate: this guard protects a shared rate limit rather than data
     // integrity, so a database blip disabling it is a smaller harm than refusing every run.
