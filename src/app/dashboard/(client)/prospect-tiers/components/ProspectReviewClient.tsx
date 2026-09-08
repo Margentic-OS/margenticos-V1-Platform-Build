@@ -21,6 +21,11 @@ interface ProspectReviewClientProps {
   rosterCount: number
   autoSanctionDate: string | null
   organisationId: string
+  /**
+   * True when an operator is viewing this client-facing screen, including under
+   * "View as client". It HIDES approve and remove. See canAct below.
+   */
+  viewerIsOperator: boolean
 }
 
 export function ProspectReviewClient({
@@ -28,6 +33,7 @@ export function ProspectReviewClient({
   pendingCount,
   rosterCount,
   autoSanctionDate,
+  viewerIsOperator,
 }: ProspectReviewClientProps) {
   const router = useRouter()
   const [removals, setRemovals] = useState<Record<string, { reason: string; collapsed: boolean }>>({})
@@ -41,6 +47,19 @@ export function ProspectReviewClient({
   // pending-only total, so removing an already-decided row drove the button below the
   // true count and could disable approval while prospects were still pending.
   const remainingCount = pendingCount - Object.keys(removals).length
+
+  // AN OPERATOR MAY NOT APPROVE OR REJECT ON A CLIENT'S BEHALF. Decided 2026-09-08.
+  // This screen is a client-facing handshake by design. An operator acting through a URL
+  // parameter is a different capability, and it would need its own decision, its own audit
+  // trail and its own attribution. It must not arrive as a side effect of a view mode.
+  //
+  // Hiding is the whole control at this layer, not a cosmetic one. The two write routes
+  // still resolve the ACTOR's organisation rather than the one being viewed, so an operator
+  // pressing these would have got a 404 from reject and a wrongly scoped approve-all. That
+  // resolver defect is deliberately left in place and tracked; hiding the buttons is what
+  // removes the live consequence. Do not "fix" those routes to honour ?client= without
+  // reopening the decision above.
+  const canAct = !viewerIsOperator
 
   const selectedGroup = groups.find(g => g.key === selectedKey) ?? groups[0]
 
@@ -142,7 +161,7 @@ export function ProspectReviewClient({
 
     // Remove is offered only where it means something: a prospect still awaiting this
     // client's decision, inside a group that is still a task. Everything else is a record.
-    const canRemove = groupIsTask && isPending(prospect)
+    const canRemove = canAct && groupIsTask && isPending(prospect)
 
     return (
       <div key={prospect.id} className="border-b border-gray-200 hover:bg-gray-50">
@@ -219,9 +238,11 @@ export function ProspectReviewClient({
                 : `${rosterCount} ${rosterCount === 1 ? 'person' : 'people'} in your campaign`}
             </h2>
             <p className="text-sm text-gray-600 mt-2">
-              {hasPending
-                ? 'Remove anyone you would rather we not contact. We proceed with the rest.'
-                : 'Everyone we are contacting on your behalf, grouped by when they joined the campaign.'}
+              {!canAct
+                ? 'Operator view. This is the client\u2019s screen exactly as they see it, without their decisions attached to your account.'
+                : hasPending
+                  ? 'Remove anyone you would rather we not contact. We proceed with the rest.'
+                  : 'Everyone we are contacting on your behalf, grouped by when they joined the campaign.'}
             </p>
           </div>
 
@@ -272,7 +293,16 @@ export function ProspectReviewClient({
 
       {/* Approval only exists while something is pending. Once approved this whole
           section is gone rather than disabled: the page is a record, not a dead task. */}
-      {hasPending && (
+      {hasPending && !canAct && (
+        <div className="bg-[#FEF7E6] rounded-[10px] border border-[#F0D080] p-4 text-center">
+          <p className="text-sm text-[#7A4800]">
+            {pendingCount} {pendingCount === 1 ? 'person is' : 'people are'} awaiting the
+            client&rsquo;s approval. Only they can approve or remove.
+          </p>
+        </div>
+      )}
+
+      {hasPending && canAct && (
         approvalState === 'done' ? (
           <div className="bg-green-50 rounded-lg border border-green-200 p-8 text-center">
             <p className="text-lg font-semibold text-green-900">Done. We will take it from here.</p>

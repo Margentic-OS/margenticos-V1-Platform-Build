@@ -37,7 +37,7 @@ export default async function ProspectTiersPage({
   // resolveViewingOrg still pins a real client to their own organisation whatever the URL
   // says, so honouring the param widens nothing.
   const { client: clientParam } = await searchParams
-  const { organisationId } = await resolveViewingOrg(supabase, user, clientParam)
+  const { organisationId, role } = await resolveViewingOrg(supabase, user, clientParam)
 
   if (!organisationId) {
     redirect('/login')
@@ -122,6 +122,11 @@ export default async function ProspectTiersPage({
               rosterCount={rosterCount}
               autoSanctionDate={autoSanctionDate}
               organisationId={organisationId}
+              // An operator may not approve or reject on a client's behalf, so the
+              // controls are not rendered for one. Decided 2026-09-08. This covers an
+              // operator viewing their OWN organisation too, not just ?client=: the
+              // question is who is acting, not which organisation is on screen.
+              viewerIsOperator={role === 'operator'}
             />
           )}
         </div>

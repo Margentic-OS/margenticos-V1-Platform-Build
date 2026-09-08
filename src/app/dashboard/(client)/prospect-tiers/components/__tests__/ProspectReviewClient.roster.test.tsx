@@ -41,7 +41,7 @@ function prospect(overrides: Partial<RosterProspect> & { id: string }): RosterPr
   }
 }
 
-function renderRoster(prospects: RosterProspect[]) {
+function renderRoster(prospects: RosterProspect[], viewerIsOperator = false) {
   const groups = buildRosterGroups(prospects)
   return render(
     <ProspectReviewClient
@@ -50,6 +50,7 @@ function renderRoster(prospects: RosterProspect[]) {
       rosterCount={countRoster(groups)}
       autoSanctionDate="2026-09-11T00:00:00Z"
       organisationId="org-1"
+      viewerIsOperator={viewerIsOperator}
     />
   )
 }
@@ -178,5 +179,55 @@ describe('empty group handling', () => {
     ])
     const rows = screen.getAllByText('Sam Reed')
     expect(within(rows[0].closest('div')!).getByText('Northwind')).toBeInTheDocument()
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// 4. An operator may not approve or reject on a client's behalf. Decided 2026-09-08.
+//
+// This screen is a client-facing handshake by design. An operator acting through a URL
+// parameter is a different capability needing its own decision, audit trail and
+// attribution, so it must not arrive as a side effect of a view mode.
+//
+// These tests are the live control. The two write routes still resolve the ACTOR's
+// organisation rather than the one being viewed, which is tracked and deliberately left
+// unfixed: hiding the controls is what removes the consequence. If someone re-renders
+// these buttons for an operator, the 404 comes back with them.
+// ---------------------------------------------------------------------------
+describe('operator view offers no client decisions', () => {
+  const pendingRoster = [
+    prospect({ id: 'p1', client_review_status: 'pending_review' }),
+    prospect({ id: 'p2', client_review_status: 'pending_review' }),
+  ]
+
+  it('offers no approve control to an operator while prospects are pending', () => {
+    renderRoster(pendingRoster, true)
+    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument()
+  })
+
+  it('offers no remove control to an operator on any pending row', () => {
+    renderRoster(pendingRoster, true)
+    expect(screen.queryByRole('button', { name: /^remove$/i })).not.toBeInTheDocument()
+  })
+
+  // The control must not be silently absent. An operator who cannot see why the buttons
+  // are gone will reasonably conclude the page is broken, which is how the original defect
+  // was reported in the first place.
+  it('says why the decisions are absent, and whose they are', () => {
+    renderRoster(pendingRoster, true)
+    expect(screen.getByText(/only they can approve or remove/i)).toBeInTheDocument()
+  })
+
+  // The guard is the VIEWER, not the state. Same roster, client viewer, controls present.
+  it('still offers both controls to the client on the same roster', () => {
+    renderRoster(pendingRoster, false)
+    expect(screen.getByRole('button', { name: /approve/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /^remove$/i }).length).toBe(2)
+  })
+
+  it('shows the client no operator-view wording', () => {
+    renderRoster(pendingRoster, false)
+    expect(screen.queryByText(/operator view/i)).not.toBeInTheDocument()
   })
 })
