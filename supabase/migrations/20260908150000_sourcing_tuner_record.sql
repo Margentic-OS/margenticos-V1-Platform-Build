@@ -1,4 +1,13 @@
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-09-08). Privileges read back in BOTH directions:
+--   tuning_runs and tuning_rounds: RLS enabled true, 0 policies.
+--   service_role SELECT/INSERT/UPDATE true on both.
+--   anon SELECT/INSERT/UPDATE/DELETE false on both.
+--   authenticated SELECT/INSERT/UPDATE/DELETE false on both.
+-- Checking only the role that must have it proves nothing about who else does, which is the
+-- shape of the 2026-08-24 incident, so all four privileges were read for both other roles.
+-- MON-024 re-read after the change: still OK, 80 relations scanned (was 78).
+-- Also applied to the test project tidqheqjzvwmrrrebzir.
+-- NOTHING READS THESE TABLES. See the header.
 -- The record a sourcing tuning run writes. NOTHING READS IT YET, deliberately.
 --
 -- ─────────────────────────────────────────────────────────────────────────────

@@ -109,6 +109,12 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   'src/lib/agents/faq-seed-agent.ts:buildSystemPrompt': 0,
   'src/lib/composition/personalization.ts:systemPrompt': 0,
   'src/lib/agents/revision/run-revision.ts:buildRevisionPrompt': 0,
+  // The sourcing tuner's judge, added to the registry 2026-09-08. ZERO, and measured rather
+  // than assumed: the entry was added and this scan re-run, and neither BASELINE_TOTAL nor
+  // any other per-source figure moved. It is the second scan over the same registry, so a
+  // source added for one is automatically covered by both, which is the point of the
+  // registry being shared.
+  'src/lib/tuner/judge.ts:buildJudgePrompt': 0,
 }
 
 describe('prompt examples name nothing real', () => {
