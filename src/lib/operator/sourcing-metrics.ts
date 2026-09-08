@@ -208,17 +208,32 @@ export const APPROVAL_PAGE_SIZE = 50
  * last_verification_error already gets for the same kind of reason: read it server-side,
  * reduce it to the fact you need, never put the value in the payload.
  */
-const STATUS_COLUMNS =
+/**
+ * EXPORTED FOR ITS TEST, and the test is the point.
+ *
+ * A select list is a string, so nothing type-checks it against the fields countRow reads.
+ * status-columns.test.ts closes that by walking countRow with a recording Proxy and
+ * asserting every column it touched appears here, which cannot drift as fields are added.
+ */
+export const STATUS_COLUMNS =
   'sourcing_run_id, sourcing_review_status, ' +
+  // `suppressed` IS LOAD-BEARING, not descriptive. whyNotSendable reads it, and a select
+  // list that stops naming it does not fail: the field arrives undefined, the guard never
+  // fires, and every suppressed prospect silently counts as sendable again. That is the
+  // exact shape CLAUDE.md records for a fake that swallows .select() and a monitor bounded
+  // by the shorter of two arrays: the check runs and cannot reach what it is checking.
+  // status-columns.test.ts asserts this string against the interface so the two cannot drift.
+  'suppressed, ' +
   'sourced_tier, tiering_reason, enrichment_status, email_send_eligible, ' +
   'email_send_ineligible_reason, independent_verified_at, independent_email_status, ' +
   'verification_provider, second_pass_status, second_pass_provider, ' +
   'last_verification_error, verification_attempt_count, ' +
   'research_ran_at, personalisation_trigger'
 
-interface StatusRow {
+export interface StatusRow {
   sourcing_run_id: string | null
   sourcing_review_status: string | null
+  suppressed: boolean | null
   research_ran_at: string | null
   personalisation_trigger: string | null
   sourced_tier: string | null
@@ -243,7 +258,7 @@ const TIER_KEYS = ['tier_1', 'tier_2', 'tier_3'] as const
 type TierKey = (typeof TIER_KEYS)[number]
 
 /** An empty funnel, with no run attached. Run detail is filled in by the caller. */
-function emptyFunnel(sourcing_run_id: string | null): BatchFunnel {
+export function emptyFunnel(sourcing_run_id: string | null): BatchFunnel {
   return {
     sourcing_run_id,
     started_at: null,
@@ -282,7 +297,13 @@ function emptyFunnel(sourcing_run_id: string | null): BatchFunnel {
  * end, one level down: the counts stopped being computed in four places and the BATCH
  * counts were about to reintroduce it.
  */
-function countRow(f: BatchFunnel, row: StatusRow): void {
+/**
+ * EXPORTED FOR ITS TESTS. It is the single definition of every number on the pipeline
+ * screen, including two separate renderings of the words "can be emailed", so it is worth
+ * testing directly rather than through a fake database client that could silently swallow
+ * the very select list it depends on.
+ */
+export function countRow(f: BatchFunnel, row: StatusRow): void {
   f.sourced += 1
 
   if (row.sourcing_review_status === 'pending_review') f.pending_review += 1
@@ -325,7 +346,15 @@ function countRow(f: BatchFunnel, row: StatusRow): void {
   }
 
   if (row.independent_verified_at !== null) f.verified += 1
-  if (row.email_send_eligible === true) f.eligible += 1
+  // THE THIRD CALL SITE, and the one that does not look like a call site.
+  //
+  // This is rendered as the funnel stage literally labelled "Can be emailed"
+  // (SourcingRunList.tsx:146). It used to read `row.email_send_eligible === true` directly,
+  // so it answered a different question from the two tier counts above it while wearing the
+  // same words, and fixing whyNotSendable alone would have left it wrong. It goes through
+  // the shared predicate for the same reason every other count here does: there must be one
+  // definition of "can be emailed" in this codebase, not one per screen.
+  if (whyNotSendable(row) === null) f.eligible += 1
   if (row.research_ran_at !== null) f.researched += 1
   // The VALUE never leaves this function; only whether there is one. See STATUS_COLUMNS.
   if (row.personalisation_trigger !== null) f.personalised += 1

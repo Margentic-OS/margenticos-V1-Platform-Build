@@ -53,13 +53,44 @@ export type NotSendableReason =
   | 'excluded_country'
   /** An operator placed a durable hold on this specific prospect. Not a rule. */
   | 'operator_hold'
+  /**
+   * This person must not be contacted at all: they opted out, or somebody stopped them.
+   *
+   * SEPARATE FROM 'operator_hold' AND FROM EVERY VERIFICATION REASON, deliberately. Those
+   * say something about the ADDRESS. This says something about the PERSON, it is the only
+   * one of the six that can be true while the address is perfectly deliverable, and it is
+   * the only one that can mean "they asked us to stop". Folding it into a neighbour would
+   * repeat exactly the mistake OPERATOR_HOLD_REASON was created to undo.
+   */
+  | 'suppressed'
   | 'not_verified'
   | 'undeliverable'
   | 'unconfirmable'
   | 'no_reason_recorded'
 
-/** The columns this module reads. Named so a caller cannot pass the wrong shape by accident. */
+/**
+ * The columns this module reads. Named so a caller cannot pass the wrong shape by accident.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════
+ * WHY `suppressed` IS IN THIS INTERFACE AND WHY IT IS NOT OPTIONAL
+ *
+ * It was absent until 2026-09-08, and its absence WAS the defect rather than a symptom of
+ * one. A caller cannot answer "will this person be emailed" from the verification columns
+ * alone, so an interface that offered only those columns was asking a question it did not
+ * supply the answer to, and every caller got the same wrong answer independently.
+ *
+ * MEASURED ON PRODUCTION 2026-09-08: three prospects read "Can be emailed: Yes" while
+ * suppressed. Two had replied `stop` in August. The third had been stopped by an operator
+ * that morning, and their row rendered "Yes" beside a "Stopped" badge in the next column.
+ *
+ * REQUIRED, NOT OPTIONAL, AND NOT DEFAULTED. Optional would compile at every existing call
+ * site and change nothing, which is the failure it is meant to prevent. Required makes an
+ * incomplete caller a COMPILE ERROR, so a new screen cannot ask this question without
+ * fetching the column, and a query that stops selecting it cannot go quietly.
+ */
 export interface SendabilityFacts {
+  /** prospects.suppressed. The send gate reads it; so must anything claiming to predict it. */
+  suppressed: boolean | null
   email_send_eligible: boolean | null
   email_send_ineligible_reason: string | null
   independent_verified_at: string | null
@@ -74,15 +105,40 @@ export interface SendabilityFacts {
  *
  * READS THE MATERIALISED VERDICT, DELIBERATELY, unlike checkResearchEligibility next door.
  * The two answer different questions. That one asks "is this worth spending research money
- * on", which is a policy applied fresh to raw evidence. This one asks "will the send path
- * actually send to this address", and the send path reads email_send_eligible and nothing
- * else (actions.ts:288, actions.ts:329). Reporting anything other than the column the send
- * gate reads would be reporting a number that no longer describes what will happen.
+ * on", which is a policy applied fresh to raw evidence. This one asks "will this person
+ * actually be emailed", so it must mirror applySendGate, and reporting anything the gate
+ * does not agree with is reporting a number that does not describe what will happen.
  *
- * ADR-034 is the caveat and it is not this function's to fix: the column is frozen at
- * verification time, so it can be stale with respect to a rule changed afterwards.
+ * MIRRORS THE GATE ON TWO COLUMNS, NOT ONE. This comment previously said the send path
+ * "reads email_send_eligible and nothing else". THAT WAS WRONG, and being wrong here is
+ * what produced the defect: applySendGate has always also required `suppressed = false`
+ * (send-gate.ts). The gate's third condition, `client_review_status = 'approved'`, is
+ * deliberately NOT mirrored: this screen exists to be read BEFORE that approval, so folding
+ * it in would report every unreviewed prospect as unsendable and hide the actual answer.
+ *
+ * ADR-034 is the caveat and it is not this function's to fix: the eligibility column is
+ * frozen at verification time, so it can be stale with respect to a rule changed
+ * afterwards. The suppression column has no such lag; it is true the moment it is written.
  */
 export function whyNotSendable(facts: SendabilityFacts): NotSendableReason | null {
+  // FIRST, AND BEFORE THE ELIGIBILITY COLUMN. This ordering is the whole fix.
+  //
+  // applySendGate requires `suppressed = false` AND `email_send_eligible = true`. Reading
+  // the second without the first is not a smaller version of the gate, it is a DIFFERENT
+  // predicate that says yes to people the gate says no to. Checking eligibility first would
+  // return null on exactly the rows this exists to catch, because a suppressed prospect
+  // very often still holds `email_send_eligible = true`.
+  //
+  // It stays true for as long as the row does. stopProspect deliberately does not write
+  // email_send_eligible (durability comes from send_hold_at, honoured at the NEXT
+  // verification), and an opt-out never touches that column at all. So this is not a
+  // backfill gap that drains away: without this line every future stop on a sendable
+  // prospect leaves the screen reading "Yes" for good.
+  //
+  // Wins over operator_hold when both are set. Both are true; this one is the more current,
+  // and it is the one the gate acts on today rather than after a re-verification.
+  if (facts.suppressed === true) return 'suppressed'
+
   if (facts.email_send_eligible === true) return null
 
   // TWO reasons the column records, since 2026-09-07, and they are told apart by VALUE.
@@ -211,6 +267,10 @@ export const VERIFICATION_MAX_ATTEMPTS = 3
 
 export const NOT_SENDABLE_LABELS: Record<NotSendableReason, string> = {
   excluded_country:   'Excluded country',
+  // Covers both an opt-out and an operator's stop, because the operator-facing consequence
+  // is identical and prospects.suppression_reason is where the difference is recorded. It
+  // names neither the person's words nor the vendor that carried the stop.
+  suppressed:         'Stopped, not to be contacted',
   operator_hold:      'Held by an operator',
   not_verified:       'Not verified yet',
   undeliverable:      'Address does not exist',

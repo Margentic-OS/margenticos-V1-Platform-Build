@@ -19,6 +19,7 @@ import {
 import { REMOVAL_REASONS } from '@/lib/sourcing/tier-classification'
 
 const VERIFIED: SendabilityFacts = {
+  suppressed: false,
   email_send_eligible: true,
   email_send_ineligible_reason: null,
   independent_verified_at: '2026-09-01T00:00:00Z',
@@ -31,6 +32,68 @@ const VERIFIED: SendabilityFacts = {
 describe('whyNotSendable', () => {
   it('says nothing is wrong when the send gate would send', () => {
     expect(whyNotSendable(VERIFIED)).toBeNull()
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SUPPRESSION. Three of these are the production rows from 2026-09-08.
+
+  it('reports a suppressed prospect as unsendable EVEN THOUGH the eligibility column says yes', () => {
+    // THE DEFECT, EXACTLY AS IT SHIPPED. Two prospects who replied `stop` in August and one
+    // stopped by an operator on the morning of 2026-09-08 all read "Can be emailed: Yes",
+    // and all three sat inside the tier counts an operator plans campaign volume from.
+    //
+    // This is the combination that matters and it is not a corner case: it is the NORMAL
+    // state after any stop, because nothing writes email_send_eligible at stop time.
+    expect(whyNotSendable({ ...VERIFIED, suppressed: true, email_send_eligible: true }))
+      .toBe('suppressed')
+  })
+
+  it('mirrors applySendGate: a row the gate refuses is never reported as sendable', () => {
+    // The gate requires suppressed = false AND email_send_eligible = true. Reading only the
+    // second is a DIFFERENT predicate, not a weaker one, and it says yes where the gate
+    // says no. If this ever passes again with the suppression guard removed, the screen has
+    // gone back to answering a question nobody asked.
+    const gateWouldRefuse = { ...VERIFIED, suppressed: true }
+    expect(whyNotSendable(gateWouldRefuse)).not.toBeNull()
+  })
+
+  it('reports suppression as ITS OWN reason, not folded into a verification verdict', () => {
+    // OPERATOR_HOLD_REASON exists because two readers once treated any non-null ineligible
+    // reason as a country exclusion, and the column could not then record a second kind of
+    // block without both misreporting it. Folding "they asked us to stop" into "the address
+    // does not exist" would repeat that, and an operator cannot act on the difference if the
+    // screen has already thrown it away.
+    const reason = whyNotSendable({ ...VERIFIED, suppressed: true })
+    expect(reason).toBe('suppressed')
+    expect(reason).not.toBe('undeliverable')
+    expect(reason).not.toBe('unconfirmable')
+    expect(reason).not.toBe('no_reason_recorded')
+    expect(reason).not.toBe('operator_hold')
+  })
+
+  it('prefers suppression over an operator hold when the row carries both', () => {
+    // Reachable: a stop writes send_hold_at, and the NEXT verification materialises
+    // operator_hold into the ineligible-reason column. Both are true. Suppression is the one
+    // the gate acts on today rather than after a re-verification, so it is the honest answer.
+    expect(whyNotSendable({
+      ...VERIFIED,
+      suppressed: true,
+      email_send_eligible: false,
+      email_send_ineligible_reason: 'operator_hold',
+    })).toBe('suppressed')
+  })
+
+  it('does not treat a null suppression flag as suppressed', () => {
+    // The column is NOT NULL in the schema, but the type admits null and a null must not
+    // silently remove someone from a campaign count.
+    expect(whyNotSendable({ ...VERIFIED, suppressed: null })).toBeNull()
+  })
+
+  it('has operator-facing wording for suppression that names no vendor, country or client', () => {
+    expect(NOT_SENDABLE_LABELS.suppressed).toBe('Stopped, not to be contacted')
+    expect(NOT_SENDABLE_LABELS.suppressed).not.toMatch(
+      /\b(AU|CA|DE|Germany|Instantly|Apollo|Lemlist|Taplio|Bouncer|MyEmailVerifier)\b/i,
+    )
   })
 
   it('reports an operator hold as a HOLD, not as an excluded country', () => {
