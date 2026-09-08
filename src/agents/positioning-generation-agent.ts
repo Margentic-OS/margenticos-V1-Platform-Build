@@ -50,8 +50,6 @@ export interface PositioningAgentInput {
   organisation_id: string
   /** Supabase client authenticated as the operator. Passed in from the API route. */
   supabase: SupabaseClient
-  /** Optional: if true, includes existing positioning document content for refresh context. */
-  is_refresh?: boolean
   /** Optional: notes on the rejected suggestion this run replaces. See ADR-038. */
   regeneration_notes?: RegenerationNotes
 }
@@ -100,10 +98,10 @@ interface PatternRow {
 export async function runPositioningGenerationAgent(
   input: PositioningAgentInput
 ): Promise<PositioningAgentResult> {
-  const { organisation_id, supabase, is_refresh = false } = input
+  const { organisation_id, supabase } = input
   const regeneration_notes = input.regeneration_notes
 
-  logger.info('Positioning agent: starting', { organisation_id, is_refresh })
+  logger.info('Positioning agent: starting', { organisation_id })
 
   const agentRun = await startAgentRun({ organisation_id, agent_name: 'positioning-generation' })
 
@@ -150,11 +148,16 @@ export async function runPositioningGenerationAgent(
   // fetchIcpDocument throws with a plain-English message if the document is missing or not approved.
   const icpDocument = await fetchIcpDocument(supabase, organisation_id)
 
-  // Step 4: Fetch existing positioning document if this is a refresh.
-  let existingDocument: ExistingPositioningDocument | null = null
-  if (is_refresh) {
-    existingDocument = await fetchExistingPositioningDocument(supabase, organisation_id)
-  }
+  // Step 4: Fetch the active positioning document, if this organisation has one.
+  //
+  // FETCHED ON DOCUMENT EXISTENCE, NEVER ON A CALLER'S FLAG. This was gated on
+  // is_refresh, which meant "a pending suggestion is being replaced" and not "a prior
+  // document exists". The operator's Regenerate control sends no suggestion_id, exactly
+  // because nothing is pending, which is the case where an ACTIVE document DOES exist.
+  // So the one path where the current version matters most was the one that never read
+  // it: the run rebuilt from intake while its own reasoning header said no prior
+  // document existed. Measured against a live v2 on 2026-09-08.
+  const existingDocument: ExistingPositioningDocument | null = await fetchExistingPositioningDocument(supabase, organisation_id)
 
   // Step 5: Read patterns table (cross-client, read-only, may be empty in phase one).
   const patterns = await fetchPatterns(supabase)
@@ -242,7 +245,6 @@ export async function runPositioningGenerationAgent(
     parsedDocument: scrubbedDocument,
     intake,
     completeness,
-    is_refresh,
     researchLimitedNote: researchPlan.skipReason || research.limitedNote,
     regeneration_notes,
   })
@@ -532,9 +534,10 @@ function buildUserMessage(params: {
 
   // Refresh context: include the existing positioning document if this is a refresh.
   const refreshContext = existingDocument
-    ? `\n\n---\n\n## EXISTING POSITIONING DOCUMENT (version ${existingDocument.version})\n\n` +
-      'This is a refresh. The existing document is provided for context. ' +
-      'Produce an improved version that incorporates new intake data and any updated ICP context.\n\n' +
+    ? `\n\n---\n\n## VERSION ${existingDocument.version}, THE POSITIONING DOCUMENT NOW LIVE\n\n` +
+      'This organisation already has a live positioning document, reproduced in full below. ' +
+      'What you produce REPLACES it. Keep what still holds. Change what new intake data, ' +
+      'updated ICP context, or a note further down, requires.\n\n' +
       (existingDocument.plain_text ?? JSON.stringify(existingDocument.content, null, 2))
     : ''
 
@@ -578,7 +581,7 @@ ${completenessNote}
 
 ## INTAKE QUESTIONNAIRE RESPONSES
 
-${intakeSections}${websiteBlock}${researchBlock}${icpBlock}${refreshContext}${patternContext}${buildRegenerationNotesBlock(params.regeneration_notes)}
+${intakeSections}${websiteBlock}${researchBlock}${icpBlock}${refreshContext}${patternContext}${buildRegenerationNotesBlock(params.regeneration_notes, params.existingDocument)}
 
 ---
 
@@ -669,7 +672,6 @@ async function writeDocumentSuggestion(
     parsedDocument: Record<string, unknown>
     intake: IntakeRow[]
     completeness: number
-    is_refresh: boolean
     researchLimitedNote: string
     regeneration_notes: RegenerationNotes | undefined
   }
@@ -680,7 +682,6 @@ async function writeDocumentSuggestion(
     existingDocument,
     generatedContent,
     completeness,
-    is_refresh,
     researchLimitedNote,
   } = params
 
@@ -689,9 +690,11 @@ async function writeDocumentSuggestion(
   ).length
   const totalCount = params.intake.filter(r => r.is_critical).length
 
-  const refreshNote = is_refresh
-    ? ` This is a refresh — the existing v${existingDocument?.version ?? '?'} document was used as context.`
-    : ' This is the initial generation — no prior Positioning document existed.'
+  // Derived from what was actually READ, never from a caller's flag. The old line branched
+  // on is_refresh, so it asserted "no prior document existed" about runs that never looked.
+  const refreshNote = existingDocument
+    ? ` This is a refresh. Version ${existingDocument.version} was supplied to the agent as context.`
+    : ' This is the initial generation. No prior Positioning document exists.'
 
   const completenessNote =
     completeness < 80
@@ -703,7 +706,7 @@ async function writeDocumentSuggestion(
     `Positioning document generated by positioning-generation-agent using ${POSITIONING_MODEL}. ` +
     `ICP document v${icpDocument.version} used as primary anchor.` +
     refreshNote +
-    buildRegenerationNotesReason(params.regeneration_notes) +
+    buildRegenerationNotesReason(params.regeneration_notes, params.existingDocument) +
     completenessNote +
     researchLimitedNote
 

@@ -68,8 +68,6 @@ export interface TovAgentInput {
   organisation_id: string
   /** Supabase client authenticated as the operator. Passed in from the API route. */
   supabase: SupabaseClient
-  /** Optional: if true, includes existing TOV document content for refresh context. */
-  is_refresh?: boolean
   /** Optional: notes on the rejected suggestion this run replaces. See ADR-038. */
   regeneration_notes?: RegenerationNotes
 }
@@ -135,10 +133,10 @@ interface VoiceInputs {
 export async function runTovGenerationAgent(
   input: TovAgentInput
 ): Promise<TovAgentResult> {
-  const { organisation_id, supabase, is_refresh = false } = input
+  const { organisation_id, supabase } = input
   const regeneration_notes = input.regeneration_notes
 
-  logger.info('TOV agent: starting', { organisation_id, is_refresh })
+  logger.info('TOV agent: starting', { organisation_id })
 
   const agentRun = await startAgentRun({ organisation_id, agent_name: 'tov-generation' })
 
@@ -214,11 +212,16 @@ export async function runTovGenerationAgent(
     )
   }
 
-  // Step 4: Fetch existing TOV document if this is a refresh.
-  let existingDocument: ExistingTovDocument | null = null
-  if (is_refresh) {
-    existingDocument = await fetchExistingTovDocument(supabase, organisation_id)
-  }
+  // Step 4: Fetch the active TOV document, if this organisation has one.
+  //
+  // FETCHED ON DOCUMENT EXISTENCE, NEVER ON A CALLER'S FLAG. This was gated on
+  // is_refresh, which meant "a pending suggestion is being replaced" and not "a prior
+  // document exists". The operator's Regenerate control sends no suggestion_id, exactly
+  // because nothing is pending, which is the case where an ACTIVE document DOES exist.
+  // So the one path where the current version matters most was the one that never read
+  // it: the run rebuilt from intake while its own reasoning header said no prior
+  // document existed. Measured against a live v2 on 2026-09-08.
+  const existingDocument: ExistingTovDocument | null = await fetchExistingTovDocument(supabase, organisation_id)
 
   // Step 5: Read patterns table (cross-client, read-only, may be empty in phase one).
   const patterns = await fetchPatterns(supabase)
@@ -304,7 +307,6 @@ export async function runTovGenerationAgent(
     intake,
     voiceInputs,
     completeness,
-    is_refresh,
     regeneration_notes,
   })
 
@@ -582,9 +584,10 @@ function buildUserMessage(params: {
 
   // Refresh context.
   const refreshContext = existingDocument
-    ? `\n\n---\n\n## EXISTING TOV DOCUMENT (version ${existingDocument.version})\n\n` +
-      'This is a refresh. The existing document is provided for context. ' +
-      'Produce an improved version that incorporates any new samples or updated preferences.\n\n' +
+    ? `\n\n---\n\n## VERSION ${existingDocument.version}, THE VOICE GUIDE NOW LIVE\n\n` +
+      'This organisation already has a live voice guide, reproduced in full below. What you ' +
+      'produce REPLACES it. Keep what still holds. Change what new writing samples, updated ' +
+      'preferences, or a note further down, require.\n\n' +
       (existingDocument.plain_text ?? JSON.stringify(existingDocument.content, null, 2))
     : ''
 
@@ -614,7 +617,7 @@ ${completenessNote}
 
 ## INTAKE QUESTIONNAIRE RESPONSES (excluding voice fields — those are below)
 
-${intakeSections}${voiceSamplesBlock}${voiceStyleBlock}${websiteBlock}${refreshContext}${patternContext}${buildRegenerationNotesBlock(params.regeneration_notes)}
+${intakeSections}${voiceSamplesBlock}${voiceStyleBlock}${websiteBlock}${refreshContext}${patternContext}${buildRegenerationNotesBlock(params.regeneration_notes, params.existingDocument)}
 
 ---
 
@@ -709,7 +712,6 @@ async function writeDocumentSuggestion(
     intake: IntakeRow[]
     voiceInputs: VoiceInputs
     completeness: number
-    is_refresh: boolean
     regeneration_notes: RegenerationNotes | undefined
   }
 ): Promise<string> {
@@ -719,7 +721,6 @@ async function writeDocumentSuggestion(
     generatedContent,
     voiceInputs,
     completeness,
-    is_refresh,
   } = params
 
   const answeredCount = params.intake.filter(
@@ -727,9 +728,11 @@ async function writeDocumentSuggestion(
   ).length
   const totalCount = params.intake.filter(r => r.is_critical).length
 
-  const refreshNote = is_refresh
-    ? ` This is a refresh — the existing v${existingDocument?.version ?? '?'} document was used as context.`
-    : ' This is the initial generation — no prior TOV document existed.'
+  // Derived from what was actually READ, never from a caller's flag. The old line branched
+  // on is_refresh, so it asserted "no prior document existed" about runs that never looked.
+  const refreshNote = existingDocument
+    ? ` This is a refresh. Version ${existingDocument.version} was supplied to the agent as context.`
+    : ' This is the initial generation. No prior TOV document exists.'
 
   const completenessNote =
     completeness < 80
@@ -756,7 +759,7 @@ async function writeDocumentSuggestion(
   const suggestionReason =
     `TOV guide generated by tov-generation-agent using ${TOV_MODEL}.` +
     refreshNote +
-    buildRegenerationNotesReason(params.regeneration_notes) +
+    buildRegenerationNotesReason(params.regeneration_notes, params.existingDocument) +
     completenessNote +
     sampleNote +
     contradictionNote

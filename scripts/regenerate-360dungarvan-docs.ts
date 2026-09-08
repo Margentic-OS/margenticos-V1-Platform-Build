@@ -43,8 +43,7 @@ async function main() {
     console.log('=== Regenerating ICP ===')
     const icpResult = await runIcpGenerationAgent({
       organisation_id: orgId,
-      supabase,
-      is_refresh: true
+      supabase
     })
     console.log('ICP generated:', icpResult.suggestion_id)
     console.log('')
@@ -52,8 +51,7 @@ async function main() {
     console.log('=== Regenerating Positioning ===')
     const posResult = await runPositioningGenerationAgent({
       organisation_id: orgId,
-      supabase,
-      is_refresh: true
+      supabase
     })
     console.log('Positioning generated:', posResult.suggestion_id)
     console.log('')
@@ -61,8 +59,7 @@ async function main() {
     console.log('=== Regenerating TOV ===')
     const tovResult = await runTovGenerationAgent({
       organisation_id: orgId,
-      supabase,
-      is_refresh: true
+      supabase
     })
     console.log('TOV generated:', tovResult.suggestion_id)
     console.log('')
@@ -70,8 +67,7 @@ async function main() {
     console.log('=== Regenerating Messaging ===')
     const msgResult = await runMessagingGenerationAgent({
       organisation_id: orgId,
-      supabase,
-      is_refresh: true
+      supabase
     })
     console.log('Messaging generated:', msgResult.suggestion_id)
     console.log('')

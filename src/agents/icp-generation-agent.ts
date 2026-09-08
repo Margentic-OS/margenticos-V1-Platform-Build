@@ -47,8 +47,6 @@ export interface IcpAgentInput {
   supabase: SupabaseClient
   /** Segment this generation run is scoped to. NULL = org-level (should not occur for ICP). */
   segment_id?: string | null
-  /** Optional: if true, includes existing ICP document content for refresh context. */
-  is_refresh?: boolean
   /** Optional: notes on the rejected suggestion this run replaces. See ADR-038. */
   regeneration_notes?: RegenerationNotes
 }
@@ -89,10 +87,10 @@ interface ExistingDocument {
 export async function runIcpGenerationAgent(
   input: IcpAgentInput
 ): Promise<IcpAgentResult> {
-  const { organisation_id, supabase, segment_id = null, is_refresh = false } = input
+  const { organisation_id, supabase, segment_id = null } = input
   const regeneration_notes = input.regeneration_notes
 
-  logger.info('ICP agent: starting', { organisation_id, segment_id, is_refresh })
+  logger.info('ICP agent: starting', { organisation_id, segment_id })
 
   const agentRun = await startAgentRun({ organisation_id, agent_name: 'icp-generation' })
 
@@ -136,11 +134,16 @@ export async function runIcpGenerationAgent(
     )
   }
 
-  // Step 3: Fetch existing ICP document if this is a refresh.
-  let existingDocument: ExistingDocument | null = null
-  if (is_refresh) {
-    existingDocument = await fetchExistingIcpDocument(supabase, organisation_id)
-  }
+  // Step 3: Fetch the active ICP document, if this organisation has one.
+  //
+  // FETCHED ON DOCUMENT EXISTENCE, NEVER ON A CALLER'S FLAG. This was gated on
+  // is_refresh, which meant "a pending suggestion is being replaced" and not "a prior
+  // document exists". The operator's Regenerate control sends no suggestion_id, exactly
+  // because nothing is pending, which is the case where an ACTIVE document DOES exist.
+  // So the one path where the current version matters most was the one that never read
+  // it: the run rebuilt from intake while its own reasoning header said no prior
+  // document existed. Measured against a live v2 on 2026-09-08.
+  const existingDocument: ExistingDocument | null = await fetchExistingIcpDocument(supabase, organisation_id)
 
   // Step 4: Read patterns table (cross-client, read-only, may be empty in phase one).
   const patterns = await fetchPatterns(supabase)
@@ -252,7 +255,6 @@ export async function runIcpGenerationAgent(
     parsedDocument: scrubbedDocument,
     intake,
     completeness,
-    is_refresh,
     researchLimitedNote:
       researchPlan.skipReason || researchPlan.descriptorNote + research.limitedNote,
     truncatedPageCount,
@@ -586,8 +588,11 @@ function buildUserMessage(params: {
 
   // Refresh context: include the existing document so the agent can version correctly.
   const refreshContext = existingDocument
-    ? `\n\n---\n\n## EXISTING ICP DOCUMENT (version ${existingDocument.version})\n\nThis is a refresh. The existing document is provided for context. ` +
-      `Produce an improved version that incorporates any new intake data.\n\n${existingDocument.plain_text ?? JSON.stringify(existingDocument.content, null, 2)}`
+    ? `\n\n---\n\n## VERSION ${existingDocument.version}, THE ICP DOCUMENT NOW LIVE\n\n` +
+      'This organisation already has a live ICP document, reproduced in full below. What you ' +
+      'produce REPLACES it. Keep what still holds. Change what new intake data, or a note ' +
+      'further down, requires.\n\n' +
+      (existingDocument.plain_text ?? JSON.stringify(existingDocument.content, null, 2))
     : ''
 
   // Pattern context: if patterns exist, include relevant ones.
@@ -625,7 +630,7 @@ ${intakeSections}${refDocs.length > 0
       refDocs.map(d =>
         `### ${d.filename} (${d.purpose === 'icp_doc' ? 'Existing ICP document' : 'Case study'})\n\n${d.text}`
       ).join('\n\n---\n\n')
-    : ''}${websiteBlock}${researchBlock}${refreshContext}${patternContext}${buildRegenerationNotesBlock(params.regeneration_notes)}
+    : ''}${websiteBlock}${researchBlock}${refreshContext}${patternContext}${buildRegenerationNotesBlock(params.regeneration_notes, params.existingDocument)}
 
 ---
 
@@ -721,7 +726,6 @@ async function writeDocumentSuggestion(
     parsedDocument: Record<string, unknown>
     intake: IntakeRow[]
     completeness: number
-    is_refresh: boolean
     researchLimitedNote: string
     truncatedPageCount: number
     regeneration_notes: RegenerationNotes | undefined
@@ -733,7 +737,6 @@ async function writeDocumentSuggestion(
     existingDocument,
     generatedContent,
     completeness,
-    is_refresh,
     researchLimitedNote,
     truncatedPageCount,
   } = params
@@ -743,9 +746,11 @@ async function writeDocumentSuggestion(
     r => r.response_value && r.response_value.trim().length > 0 && r.is_critical
   ).length
   const totalCount = params.intake.filter(r => r.is_critical).length
-  const refreshNote = is_refresh
-    ? ` This is a refresh — the existing v${existingDocument?.version ?? '?'} document was used as context.`
-    : ' This is the initial generation — no prior ICP document existed.'
+  // Derived from what was actually READ, never from a caller's flag. The old line branched
+  // on is_refresh, so it asserted "no prior document existed" about runs that never looked.
+  const refreshNote = existingDocument
+    ? ` This is a refresh. Version ${existingDocument.version} was supplied to the agent as context.`
+    : ' This is the initial generation. No prior ICP document exists.'
 
   const completenessNote =
     completeness < 80
@@ -768,7 +773,7 @@ async function writeDocumentSuggestion(
   const suggestionReason =
     `ICP document generated by icp-generation-agent using ${ICP_MODEL}.` +
     refreshNote +
-    buildRegenerationNotesReason(params.regeneration_notes) +
+    buildRegenerationNotesReason(params.regeneration_notes, params.existingDocument) +
     completenessNote +
     researchLimitedNote +
     truncationNote

@@ -39,7 +39,7 @@ function getAdminClient() {
 
 export async function POST(request: NextRequest) {
   // ── 1. Parse request body ──────────────────────────────────────────────────
-  let body: { organisation_id?: string; is_refresh?: boolean }
+  let body: { organisation_id?: string }
   try {
     body = await request.json()
   } catch {
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { organisation_id, is_refresh = false } = body
+  const { organisation_id } = body
 
   if (!organisation_id || typeof organisation_id !== 'string') {
     return NextResponse.json(
@@ -137,14 +137,13 @@ export async function POST(request: NextRequest) {
   // ── 5. Run the agent ───────────────────────────────────────────────────────
   logger.info(
     'Positioning route: starting agent run',
-    { operator_id: operatorId, organisation_id, org_name: org.name, is_refresh }
+    { operator_id: operatorId, organisation_id, org_name: org.name }
   )
 
   try {
     const result = await runPositioningGenerationAgent({
       organisation_id,
       supabase,
-      is_refresh,
     })
 
     const operatorEmail = process.env.RESEND_OPERATOR_EMAIL

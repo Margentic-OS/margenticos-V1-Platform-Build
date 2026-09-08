@@ -126,8 +126,6 @@ export interface MessagingAgentInput {
   supabase: SupabaseClient
   /** Segment this generation run is scoped to. NULL = org-level (should not occur for Messaging). */
   segment_id?: string | null
-  /** Optional: if true, includes existing Messaging document content for refresh context. */
-  is_refresh?: boolean
   /** Optional: notes on the rejected suggestion this run replaces. See ADR-038. */
   regeneration_notes?: RegenerationNotes
 }
@@ -311,10 +309,10 @@ function summariseRunStats(stats: RunStats, startedAt: number): string {
 export async function runMessagingGenerationAgent(
   input: MessagingAgentInput
 ): Promise<MessagingAgentResult> {
-  const { organisation_id, supabase, segment_id = null, is_refresh = false } = input
+  const { organisation_id, supabase, segment_id = null } = input
   const regeneration_notes = input.regeneration_notes
 
-  logger.info('Messaging agent: starting', { organisation_id, segment_id, is_refresh })
+  logger.info('Messaging agent: starting', { organisation_id, segment_id })
 
   // Start agent run logging — every run is recorded to agent_runs table.
   const agentRun = await startAgentRun({
@@ -398,11 +396,16 @@ export async function runMessagingGenerationAgent(
       )
     }
 
-    // Step 5: Fetch existing messaging document if this is a refresh.
-    let existingDocument: ExistingMessagingDocument | null = null
-    if (is_refresh) {
-      existingDocument = await fetchExistingMessagingDocument(supabase, organisation_id)
-    }
+    // Step 5: Fetch the active messaging document, if this organisation has one.
+    //
+    // FETCHED ON DOCUMENT EXISTENCE, NEVER ON A CALLER'S FLAG. This was gated on
+    // is_refresh, which meant "a pending suggestion is being replaced" and not "a prior
+    // document exists". The operator's Regenerate control sends no suggestion_id, exactly
+    // because nothing is pending, which is the case where an ACTIVE document DOES exist.
+    // So the one path where the current version matters most was the one that never read
+    // it: the run rebuilt from intake while its own reasoning header said no prior
+    // document existed. Measured against a live v2 on 2026-09-08.
+    const existingDocument: ExistingMessagingDocument | null = await fetchExistingMessagingDocument(supabase, organisation_id)
 
     // Step 6: Read patterns table (cross-client, read-only, may be empty in phase one).
     const patterns = await fetchPatterns(supabase)
@@ -552,7 +555,6 @@ export async function runMessagingGenerationAgent(
       variantFailures,
       intake,
       completeness,
-      is_refresh,
       runStats,
       regeneration_notes,
     })
@@ -898,9 +900,10 @@ function buildBaseContext(params: VariantGenerationContext): {
   )
 
   const refreshContext = existingDocument
-    ? `\n\n---\n\n## EXISTING MESSAGING PLAYBOOK (version ${existingDocument.version})\n\n` +
-      'This is a refresh. Review the existing playbook and produce an improved version. ' +
-      'Preserve what works. Update what has been superseded by new strategy documents.\n\n' +
+    ? `\n\n---\n\n## VERSION ${existingDocument.version}, THE MESSAGING PLAYBOOK NOW LIVE\n\n` +
+      'This organisation already has a live playbook, reproduced in full below. What you ' +
+      'produce REPLACES it. Preserve what works. Update what has been superseded by new ' +
+      'strategy documents, or by a note further down.\n\n' +
       (existingDocument.plain_text ?? JSON.stringify(existingDocument.content, null, 2))
     : ''
 
@@ -940,7 +943,7 @@ function buildBaseContext(params: VariantGenerationContext): {
   const contextBlocks =
     `## INTAKE QUESTIONNAIRE RESPONSES\n\n${intakeSections}` +
     icpBlock + positioningBlock + tovBlock + senderContext + upstreamAssumptionsContext + refreshContext + patternContext +
-    buildRegenerationNotesBlock(params.regeneration_notes)
+    buildRegenerationNotesBlock(params.regeneration_notes, params.existingDocument)
 
   return { completenessNote, contextBlocks }
 }
@@ -2460,7 +2463,6 @@ async function writeDocumentSuggestion(
     variantFailures: VariantFailure[]
     intake: IntakeRow[]
     completeness: number
-    is_refresh: boolean
     runStats?: RunStats
     regeneration_notes: RegenerationNotes | undefined
   }
@@ -2472,7 +2474,6 @@ async function writeDocumentSuggestion(
     existingDocument,
     variants,
     completeness,
-    is_refresh,
     runStats,
   } = params
 
@@ -2481,9 +2482,11 @@ async function writeDocumentSuggestion(
   ).length
   const totalCount = params.intake.filter(r => r.is_critical).length
 
-  const refreshNote = is_refresh
-    ? ` Refresh — existing v${existingDocument?.version ?? '?'} document used as context.`
-    : ' Initial generation.'
+  // Derived from what was actually READ, never from a caller's flag. The old line branched
+  // on is_refresh, so it said "Initial generation" about runs that never looked.
+  const refreshNote = existingDocument
+    ? ` Refresh. Version ${existingDocument.version} supplied to the agent as context.`
+    : ' Initial generation. No prior messaging document exists.'
 
   const completenessNote = completeness < 80
     ? ` ⚠️ Intake completeness: ${completeness}% (${answeredCount}/${totalCount} required fields).`
@@ -2515,7 +2518,7 @@ async function writeDocumentSuggestion(
   const suggestionReason =
     `Four-variant Messaging Playbook generated by messaging-generation-agent using ${MESSAGING_MODEL}.` +
     refreshNote +
-    buildRegenerationNotesReason(params.regeneration_notes) +
+    buildRegenerationNotesReason(params.regeneration_notes, params.existingDocument) +
     completenessNote +
     variantNote +
     retryNote +

@@ -42,7 +42,6 @@ type ServiceClient = ReturnType<typeof makeServiceClient>
 const AGENT_MAP: Record<string, (input: {
   organisation_id: string
   supabase: ServiceClient
-  is_refresh: boolean
   regeneration_notes?: RegenerationNotes
 }) => Promise<unknown>> = {
   icp:        (i) => runIcpGenerationAgent(i),
@@ -256,8 +255,13 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 6. Fire new agent run via waitUntil (survives response) ────────────────────
-  // is_refresh: true for regenerate (context from existing doc), false for generate-from-nothing
-  const isRefresh = !!suggestion_id
+  // WHAT THIS FLAG IS, AND WHAT IT IS NOT. It says a PENDING SUGGESTION was replaced.
+  // It does NOT say whether a prior document exists, and it no longer reaches the agent.
+  // Until 2026-09-08 it did both jobs: the agents gated their fetch of the existing
+  // document on it, so the Regenerate control on the document page, which sends no
+  // suggestion_id precisely because nothing is pending, rebuilt live documents from
+  // intake. The agents now decide by reading. This is only wording on the response.
+  const replacedPendingSuggestion = !!suggestion_id
 
   // Notes on the version being replaced. Persisting rejection_reason above is an
   // audit record; this is what makes the agent act on it. See ADR-038.
@@ -328,7 +332,6 @@ export async function POST(request: NextRequest) {
       await AGENT_MAP[document_type]({
         organisation_id: client_id,
         supabase,
-        is_refresh: isRefresh,
         regeneration_notes: regenerationNotes,
       })
       await notifyOperator('ready', orgName)
@@ -350,7 +353,7 @@ export async function POST(request: NextRequest) {
     document_type,
     caller_role: isOperator ? 'operator' : 'client',
     caller_id: user.id,
-    mode: isRefresh ? 'regenerate' : 'generate_fresh',
+    mode: replacedPendingSuggestion ? 'regenerate' : 'generate_fresh',
     has_operator_note: !!operatorNote,
     has_client_note: !!clientNote,
   })
@@ -359,7 +362,7 @@ export async function POST(request: NextRequest) {
     {
       success: true,
       started: true,
-      message: isRefresh
+      message: replacedPendingSuggestion
         ? 'Regeneration started. Check the dashboard for the updated suggestion.'
         : `${document_type} document is generating. Check the dashboard for the result.`,
     },
