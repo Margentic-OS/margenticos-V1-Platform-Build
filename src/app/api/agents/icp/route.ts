@@ -38,7 +38,7 @@ function getAdminClient() {
 
 export async function POST(request: NextRequest) {
   // ── 1. Parse request body ──────────────────────────────────────────────────
-  let body: { organisation_id?: string; segment_id?: string | null; is_refresh?: boolean }
+  let body: { organisation_id?: string; segment_id?: string | null }
   try {
     body = await request.json()
   } catch {
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { organisation_id, segment_id: bodySegmentId, is_refresh = false } = body
+  const { organisation_id, segment_id: bodySegmentId } = body
 
   if (!organisation_id || typeof organisation_id !== 'string') {
     return NextResponse.json(
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
   // ── 6. Run the agent ───────────────────────────────────────────────────────
   logger.info(
     'ICP route: starting agent run',
-    { operator_id: operatorId, organisation_id, org_name: org.name, segment_id: resolvedSegmentId, is_refresh }
+    { operator_id: operatorId, organisation_id, org_name: org.name, segment_id: resolvedSegmentId }
   )
 
   try {
@@ -170,7 +170,6 @@ export async function POST(request: NextRequest) {
       organisation_id,
       segment_id: resolvedSegmentId,
       supabase,
-      is_refresh,
     })
 
     const operatorEmail = process.env.RESEND_OPERATOR_EMAIL

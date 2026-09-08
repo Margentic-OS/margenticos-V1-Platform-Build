@@ -1,8 +1,8 @@
 // One-off generation harness for the Messaging Playbook.
 //
-// Mirrors what POST /api/suggestions/regenerate does when NO pending suggestion exists:
-// that route sets is_refresh = !!suggestion_id, so with nothing to reject it generates
-// fresh. This script does the same, minus the cookie-session auth the route requires.
+// Mirrors what POST /api/suggestions/regenerate does when NO pending suggestion exists,
+// minus the cookie-session auth the route requires. Whether the run is a refresh is not
+// this script's to decide: the agent reads the active document and decides by finding it.
 //
 // GENERATE ONLY. Writes a pending document_suggestions row. It does not approve, promote,
 // compose, or upload.
@@ -51,7 +51,6 @@ async function main() {
   const result = await runMessagingGenerationAgent({
     organisation_id: ORG_ID,
     supabase,
-    is_refresh: false,
   })
 
   console.log('\n=== AGENT RESULT ===')
