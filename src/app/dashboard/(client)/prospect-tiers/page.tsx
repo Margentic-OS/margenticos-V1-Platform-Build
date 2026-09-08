@@ -21,13 +21,23 @@ interface ProspectWithTier extends Prospect {
   tier: 'tier_1' | 'tier_2' | 'tier_3'
 }
 
-export default async function ProspectTiersPage() {
+export default async function ProspectTiersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ client?: string }>
+}) {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login?next=/dashboard/prospect-tiers')
 
-  const { organisationId } = await resolveViewingOrg(supabase, user, undefined)
+  // ?client= MUST reach resolveViewingOrg. This page passed `undefined` here and did not
+  // declare searchParams at all, so an operator's "View as client" fell back to their own
+  // organisation while the sidebar, fixed in c9b04f2, resolved the one in the URL.
+  // resolveViewingOrg still pins a real client to their own organisation whatever the URL
+  // says, so honouring the param widens nothing.
+  const { client: clientParam } = await searchParams
+  const { organisationId } = await resolveViewingOrg(supabase, user, clientParam)
 
   if (!organisationId) {
     redirect('/login')
@@ -46,7 +56,7 @@ export default async function ProspectTiersPage() {
   let tierData: TierData[] = []
   let fetchError: string | null = null
   try {
-    tierData = await getClientProspectTiers(supabase)
+    tierData = await getClientProspectTiers(organisationId)
   } catch (err) {
     fetchError = err instanceof Error ? err.message : String(err)
     logger.error('prospect-tiers page: failed to fetch tier data', {

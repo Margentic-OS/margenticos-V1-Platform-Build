@@ -4,7 +4,6 @@
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
-import type { SupabaseClient } from '@supabase/supabase-js'
 
 const TIER_ORDER = ['tier_1', 'tier_2', 'tier_3'] as const
 const AUTO_SANCTION_DAYS = 4
@@ -218,29 +217,27 @@ async function getTierData(
   }
 }
 
-// Main entry point: fetch prospect tiers for a user's organisation
+/**
+ * Main entry point: fetch the prospect tiers for ONE organisation.
+ *
+ * The caller is responsible for having resolved clientOrgId through the session client
+ * (resolveViewingOrg). This function trusts that id and scopes every query to it.
+ *
+ * IT MUST NOT RESOLVE THE ORGANISATION ITSELF. It used to read users.organisation_id here,
+ * which made it a SECOND resolver that disagreed with the one the page header uses. Under
+ * an operator's "View as client" the header named the organisation from ?client= while
+ * this function read the operator's OWN organisation_id, and because every query below
+ * runs through a service-role client, RLS never caught the mismatch.
+ *
+ * Measured 2026-09-08: doug@margenticos.com is pinned to "ARCHIVE 2026-04 do not use",
+ * which holds 12 prospects and none tiered, so the live organisation's roster of 103
+ * rendered as "No prospects yet" on a URL that named the live organisation.
+ *
+ * Same class as the sidebar fix in c9b04f2, which fixed one resolver and left this one.
+ */
 export async function getClientProspectTiers(
-  supabase: SupabaseClient<Database>,
+  clientOrgId: string,
 ): Promise<TierData[]> {
-  // Get authenticated user
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    throw new Error('Unauthorized: no user found')
-  }
-
-  // Resolve user's organisation_id
-  const { data: userRow, error: userError } = await supabase
-    .from('users')
-    .select('organisation_id')
-    .eq('id', user.id)
-    .single()
-
-  if (userError || !userRow?.organisation_id) {
-    throw new Error('Organisation not found for user')
-  }
-
-  const organisationId = userRow.organisation_id
-
   // Create admin client to bypass RLS
   const adminClient = createServiceClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -250,7 +247,7 @@ export async function getClientProspectTiers(
 
   // Fetch tier data in parallel
   const tierDataArray = await Promise.all(
-    TIER_ORDER.map(tier => getTierData(adminClient, organisationId, tier))
+    TIER_ORDER.map(tier => getTierData(adminClient, clientOrgId, tier))
   )
 
   return tierDataArray

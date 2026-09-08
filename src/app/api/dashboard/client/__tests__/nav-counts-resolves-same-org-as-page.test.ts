@@ -2,9 +2,18 @@
 //
 // THE DEFECT THIS EXISTS FOR. (client)/layout.tsx read users.organisation_id directly and
 // never called resolveViewingOrg, because a Next.js App Router layout receives `params`
-// but never `searchParams` and so cannot see `?client=`. The prospect-tiers page calls
-// resolveViewingOrg twice. So under an operator's "View as client" the sidebar counted one
-// organisation while the page rendered another.
+// but never `searchParams` and so cannot see `?client=`. So under an operator's
+// "View as client" the sidebar counted one organisation while the page rendered another.
+//
+// THE 2026-09-08 CORRECTION. This header used to assert that "the prospect-tiers page calls
+// resolveViewingOrg twice", and the c9b04f2 commit message said the same. IT WAS NEVER TRUE.
+// The page called it ONCE, passing a literal `undefined` where the client param belongs, and
+// did not declare searchParams at all. Traced through every commit that touched the file:
+// the `undefined` was there from 2026-08-10, including at c9b04f2 itself. The sidebar was
+// fixed against an assumption that the page was already correct, which is why fixing one
+// resolver left the bug alive on the route the fix was written for.
+//
+// So this file now pins BOTH routes. The scope is wider than the filename.
 //
 // Measured on the live workspace: doug@margenticos.com has organisation_id pointing at
 // "MargenticOS (archived April 2026)", whose roster count is 0, while the page rendered
@@ -143,5 +152,93 @@ describe('the layout no longer queries prospects itself', () => {
 
     expect(source).toContain('getProspectNavCounts')
     expect(source).not.toContain(".from('prospects')")
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// The prospect-tiers route and page, added 2026-09-08.
+//
+// There were THREE resolvers on that one page, not two: resolveViewingOrg with a literal
+// `undefined`, getClientProspectTiers resolving users.organisation_id for itself, and the
+// sidebar. The second is the one that mattered, because it queries through a SERVICE-ROLE
+// client, so RLS could never catch the disagreement.
+// ---------------------------------------------------------------------------
+
+/** Every organisation id getClientProspectTiers was asked to read. */
+const tierOrgIdsRequested: string[] = []
+
+vi.mock('@/lib/prospect-tiers-data', () => ({
+  getClientProspectTiers: vi.fn(async (clientOrgId: string) => {
+    tierOrgIdsRequested.push(clientOrgId)
+    return []
+  }),
+}))
+
+async function callTiersRoute(clientParam?: string) {
+  const { GET } = await import('../prospect-tiers/route')
+  const { NextRequest } = await import('next/server')
+  const url = clientParam
+    ? `http://localhost/api/dashboard/client/prospect-tiers?client=${clientParam}`
+    : 'http://localhost/api/dashboard/client/prospect-tiers'
+  return GET(new NextRequest(url))
+}
+
+describe('prospect tiers resolve the organisation being viewed', () => {
+  beforeEach(() => {
+    tierOrgIdsRequested.length = 0
+    currentUserRole = 'operator'
+  })
+
+  it('reads the VIEWED organisation for an operator, not the operator own organisation', async () => {
+    await callTiersRoute(VIEWED_ORG)
+
+    expect(tierOrgIdsRequested).toEqual([VIEWED_ORG])
+    expect(tierOrgIdsRequested).not.toContain(OPERATOR_OWN_ORG)
+  })
+
+  it('falls back to the operator own organisation when no client param is present', async () => {
+    await callTiersRoute()
+    expect(tierOrgIdsRequested).toEqual([OPERATOR_OWN_ORG])
+  })
+
+  // The whole reason honouring ?client= here is safe. resolveViewingOrg is still the only
+  // place the question is decided, so the route widens nothing for a client.
+  it('IGNORES the client param for a client, so it cannot read another organisation', async () => {
+    currentUserRole = 'client'
+    await callTiersRoute(VIEWED_ORG)
+
+    expect(tierOrgIdsRequested).toEqual([OPERATOR_OWN_ORG])
+    expect(tierOrgIdsRequested).not.toContain(VIEWED_ORG)
+  })
+})
+
+describe('nothing downstream resolves the organisation a second time', () => {
+  // Structural, and stated as a limit: this proves the second resolver is GONE, not that
+  // the remaining one is right. The behavioural tests above cover that. It is here because
+  // a data module that resolves its own organisation cannot be caught by any assertion
+  // about the caller, and it queries through service_role, so RLS will not catch it either.
+  it('getClientProspectTiers takes an org id and does not read users.organisation_id', async () => {
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync('src/lib/prospect-tiers-data.ts', 'utf8')
+
+    expect(source).toContain('clientOrgId: string')
+    expect(
+      source,
+      'getClientProspectTiers resolved the organisation itself again. That is a SECOND ' +
+      'resolver, and it reads through a service-role client so RLS cannot catch it.',
+    ).not.toContain(".from('users')")
+  })
+
+  it('the prospect-tiers page passes the client param through to resolveViewingOrg', async () => {
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync('src/app/dashboard/(client)/prospect-tiers/page.tsx', 'utf8')
+
+    expect(source).toContain('resolveViewingOrg(supabase, user, clientParam)')
+    expect(
+      source,
+      'the page passed a literal `undefined` where ?client= belongs, which is the ' +
+      'original defect. It must read searchParams.',
+    ).not.toContain('user, undefined')
   })
 })
