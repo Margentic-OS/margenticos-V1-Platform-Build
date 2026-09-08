@@ -59,6 +59,15 @@ export const PROMPT_SOURCES: PromptSource[] = [
   { kind: 'template-literal', path: 'src/lib/agents/faq-seed-agent.ts',                    symbol: 'buildSystemPrompt',    note: 'FAQ seeding' },
   { kind: 'template-literal', path: 'src/lib/composition/personalization.ts',              symbol: 'systemPrompt',         note: 'the bridge; dormant behind BRIDGE_ENABLED=false but still shipped code' },
   { kind: 'template-literal', path: 'src/lib/agents/revision/run-revision.ts',             symbol: 'buildRevisionPrompt',  note: 'document revision' },
+
+  // ── The sourcing tuner's judge ──
+  //
+  // ADDED 2026-09-08 with the tuner. It is the only prompt in this repository whose whole
+  // subject is deciding what an organisation is from its name, which is the shortest
+  // possible distance to writing a sector down, so it is scanned from the day it exists
+  // rather than the day someone notices. It carries ZERO against the deny list, measured
+  // before and after the entry was added, and the total stays at 29.
+  { kind: 'template-literal', path: 'src/lib/tuner/judge.ts',                              symbol: 'buildJudgePrompt',     note: 'the sourcing tuner judge' },
 ]
 
 // The markdown prompt files a loadSystemPrompt() is allowed to resolve to. Derived

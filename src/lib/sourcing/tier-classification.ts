@@ -114,15 +114,35 @@ function hasTargetKeywordEvidence(
   prospect: EnrichedProspect,
   icpFilterSpec: ICPFilterSpec,
 ): boolean {
-  const keywords = icpFilterSpec.keywords
+  return matchesTargetKeywords(
+    prospect.company_name,
+    prospect.job_title,
+    icpFilterSpec.keywords,
+  )
+}
+
+/**
+ * The rescue test itself, as a pure function of the three things it actually reads.
+ *
+ * EXTRACTED SO THE SOURCING TUNER CAN CALL THE REAL ONE. The tuner has to answer "would
+ * changing the word list change how any existing prospect is graded", and the only honest
+ * way to answer it is to run the function that does the grading. A replica in the tuner
+ * would be a second implementation of a rule, and the failure mode of a replica is that it
+ * agrees with the original right up until the original changes.
+ *
+ * Behaviour is unchanged: lowercase substring over company name and job title joined by a
+ * space, empty or absent list returns false. That last part matters and is not a detail —
+ * false is the honest answer when no words were supplied, because no evidence was asked for
+ * and so none was found. It must never fall back to a default list.
+ */
+export function matchesTargetKeywords(
+  companyName: string | null | undefined,
+  jobTitle: string | null | undefined,
+  keywords: readonly string[] | null | undefined,
+): boolean {
   if (!keywords || keywords.length === 0) return false
 
-  const signals = [
-    prospect.company_name || '',
-    prospect.job_title || '',
-  ]
-    .join(' ')
-    .toLowerCase()
+  const signals = [companyName || '', jobTitle || ''].join(' ').toLowerCase()
 
   return keywords.some(keyword => {
     const needle = keyword.toLowerCase().trim()

@@ -73,10 +73,20 @@ export interface CountResult {
   rows: SampleRow[]
 }
 
-/** Counts provider calls across a whole run, so the record and the rate limit agree. */
+/**
+ * Counts provider calls across a whole run, so the record and the rate limit agree.
+ *
+ * IT ALSO OWNS THE THROTTLE, rather than the throttle being a module constant. Round zero
+ * makes tens of calls and a test that exercises it would otherwise spend ten seconds asleep,
+ * which is how a suite gets a raised timeout instead of a fix. The default is the production
+ * interval and only a test passes anything else.
+ */
 export class ProviderBudget {
   private used = 0
-  constructor(private readonly limit: number) {}
+  constructor(
+    private readonly limit: number,
+    readonly throttleMs: number = THROTTLE_MS,
+  ) {}
   get calls(): number { return this.used }
   get remaining(): number { return Math.max(0, this.limit - this.used) }
   spend(): void { this.used += 1 }
@@ -113,7 +123,7 @@ export async function countAndSample(
 
   if (budget.exhausted) throw new ProviderRateLimited(null)
 
-  if (budget.calls > 0) await new Promise(r => setTimeout(r, THROTTLE_MS))
+  if (budget.calls > 0 && budget.throttleMs > 0) await new Promise(r => setTimeout(r, budget.throttleMs))
   budget.spend()
 
   const controller = new AbortController()

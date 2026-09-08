@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS public.tuning_runs (
     'no_round_improved',
     'judge_unreliable',
     'name_signal_too_low',
-    'budget_exhausted',
+    'wall_clock_exhausted',
     'lookup_budget_exhausted',
     'provider_ignored_a_parameter',
     'rate_limit_reached',
