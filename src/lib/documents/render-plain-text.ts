@@ -94,9 +94,15 @@ function renderValue(value: Json, depth: number): string[] {
 
     // A list of objects becomes numbered blocks, so the reader can tell where one ends and
     // the next begins. Numbering is positional and adds no words.
+    //
+    // The item renders at depth + 2, not depth + 1, so its fields sit one level BELOW the
+    // block number rather than beside it. At depth + 1 the number and the first field were
+    // both "#####" and the fields read as siblings of the block rather than as its contents,
+    // which for a messaging document put every email body at the same level as the marker
+    // introducing it.
     value.forEach((item, i) => {
       if (isEmpty(item)) return
-      const inner = renderValue(item, depth + 1)
+      const inner = renderValue(item, depth + 2)
       if (inner.length === 0) return
       out.push(`${'#'.repeat(Math.min(depth + 1, 6))} ${i + 1}.`)
       out.push('')
