@@ -100,13 +100,29 @@ export const COST_WEB_SEARCH_PER_SEARCH = 0.01
 export const WEB_SEARCH_QUERIES_PER_PROSPECT = 1
 
 /**
- * Searches per prospect.
+ * Searches per prospect. MEASURED 1.67, NOT THE 1 THIS CONSTANT USED TO CLAIM.
  *
- * Now EXACTLY 1, because the per-prospect caller passes { maxUses: 1 } and one query
- * cannot exceed its own cap. This is the first figure here that is a hard bound rather
- * than an average. The old shape MEASURED 4.15 (54 searches over 13 prospects).
+ * ─── THE CLAIM THAT WAS WRONG, AND WHY IT READ AS SAFE ───────────────────────
+ *
+ * This constant read 1 and its comment said "the first figure here that is a hard bound
+ * rather than an average", on the reasoning that the per-prospect caller passes
+ * { maxUses: 1 } and one query cannot exceed its own cap.
+ *
+ * THE CAP IS NOT HONOURED AS A BILLABLE BOUND. Measured 2026-09-08 across two runs on
+ * production credentials: nine lookups with maxUses set to 1 returned FIFTEEN billable
+ * searches, and individual lookups returned two and three. The parameter is passed
+ * correctly into the tool definition and the counting is correct — searchCount counts
+ * web_search_tool_result blocks, and one block is one charged search. The provider simply
+ * runs more searches than the cap and bills for them.
+ *
+ * So the reasoning was sound and its premise was false, which is the worst combination:
+ * nothing about the code looked wrong, and the figure was 67% low.
+ *
+ * 1.67 is 15 billable searches over 9 capped lookups. It is an AVERAGE, like every other
+ * figure in this file and unlike what the old comment claimed. Treat it as one.
  */
-export const WEB_SEARCH_SEARCHES_PER_PROSPECT = 1
+export const WEB_SEARCH_SEARCHES_PER_PROSPECT = 1.67
+/** The measured average under the OLD 2-query shape, before the cap was introduced at all. */
 /** The measured average under the OLD 2-query shape. Kept as the baseline to beat. */
 export const WEB_SEARCH_SEARCHES_PER_PROSPECT_OLD_MEASURED = 4.15
 
