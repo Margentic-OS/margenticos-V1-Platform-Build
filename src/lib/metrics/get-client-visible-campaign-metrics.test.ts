@@ -89,6 +89,11 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
       replied_count: 5,
       bounced_count: 2,
       contacted_count: 60,
+      // THE PROVIDER'S TALLY, SET DELIBERATELY WRONG. Nothing reads this column any more.
+      // It is 7 rather than 0 so that a regression to campaigns.unsubscribed_count is
+      // caught by a number that cannot coincide with the 2 our own records hold, instead
+      // of by a zero that could mean either "reads the provider" or "found nobody".
+      unsubscribed_count: 7,
     })
 
     // Create campaigns with bounce data for org B
@@ -126,6 +131,60 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
         attempt_number: 1,
       })
     }
+
+    // ── OPT-OUT FIXTURE ──────────────────────────────────────────────────────
+    //
+    // Built so every filter in the opt-out query has something to exclude. A fixture with
+    // only the rows that should count cannot tell a working filter from a missing one.
+    //
+    //   P1  TWO opt_out rows      -> proves the count is DISTINCT PEOPLE, not rows
+    //   P2  one opt_out row       -> the second person
+    //   P3  one objection_mild    -> proves the intent filter; a soft no is not an opt-out
+    //   --  one opt_out, no prospect -> excluded; the rate is denominated in people
+    //   P4  one opt_out in ORG B  -> proves org-scoping
+    //
+    // Org A therefore expects 2, from 4 opt_out rows across 3 organisation-A people.
+    async function seedAction(orgId: string, intent: string, prospectId: string | null) {
+      const signal = await supabase
+        .from('signals')
+        .insert({ organisation_id: orgId, signal_type: 'reply_received', source: 'test' })
+        .select('id')
+        .single()
+      if (!signal.data?.id) throw new Error(`Failed to seed signal: ${signal.error?.message}`)
+
+      const action = await supabase.from('reply_handling_actions').insert({
+        organisation_id: orgId,
+        signal_id: signal.data.id,
+        prospect_id: prospectId,
+        classified_intent: intent,
+        classification_confidence: 0.99,
+        action_taken: intent === 'opt_out' ? 'suppress' : 'log_only',
+        attempt_number: 1,
+      })
+      if (action.error) throw new Error(`Failed to seed action: ${action.error.message}`)
+    }
+
+    async function seedProspect(orgId: string, tag: string): Promise<string> {
+      const row = await supabase
+        .from('prospects')
+        .insert({ organisation_id: orgId, email: `${tag}-${Date.now()}-${Math.random()}@example.com` })
+        .select('id')
+        .single()
+      if (!row.data?.id) throw new Error(`Failed to seed prospect: ${row.error?.message}`)
+      return row.data.id
+    }
+
+    const optOutP1 = await seedProspect(testOrgA, 'optout-a1')
+    const optOutP2 = await seedProspect(testOrgA, 'optout-a2')
+    const objectionP3 = await seedProspect(testOrgA, 'objection-a3')
+    const optOutP4 = await seedProspect(testOrgB, 'optout-b1')
+
+    await seedAction(testOrgA, 'opt_out', optOutP1)
+    await seedAction(testOrgA, 'opt_out', optOutP1)   // same person, second message
+    await seedAction(testOrgA, 'opt_out', optOutP2)
+    await seedAction(testOrgA, 'objection_mild', objectionP3)
+    await seedAction(testOrgA, 'opt_out', null)
+    await seedAction(testOrgB, 'opt_out', optOutP4)
 
     // Insert meeting for org A
     const prospect = await supabase
@@ -173,7 +232,6 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
       'sentCount',
       'deliveredCount',
       'bouncedCount',
-      'unsubscribedCount',
       'repliedCount',
       // A TOTAL, not per-address. Added 2026-09-07: distinct people who replied, counted
       // from our own signals, because the client-facing Replies card was rendering the
@@ -181,6 +239,12 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
       // ADR-030 boundary because it is a count with no address, no mailbox and no
       // per-recipient detail attached.
       'peopleRepliedCount',
+      // Added 2026-09-08, and unsubscribedCount REMOVED in the same change. The provider
+      // counts unsubscribe link clicks; our footer asks for a reply, so the provider's
+      // number is blind to our opt-outs by construction. It read 0 live while two people
+      // had written to say stop. Also a total with no address attached, so it passes the
+      // ADR-030 boundary for the same reason peopleRepliedCount does.
+      'peopleOptedOutCount',
       'replyRate',
       'positiveReplyCount',
       'meetingsBooked',
@@ -366,6 +430,83 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
     expect(peopleFromDb).toBeLessThan(emailsFromDb)
   })
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // THE OPT-OUT COUNT, PROVED AGAINST A REAL DATABASE AND AGAINST ITS MUTATIONS
+  //
+  // The card read 0 for a client who had two people write in to say stop, because it
+  // divided campaigns.unsubscribed_count by emails sent. That column counts unsubscribe
+  // LINK CLICKS, and our footer says "Not for you? Just reply stop." There is no link, so
+  // the provider's number is blind to our opt-outs by construction and always will be.
+  //
+  // Every test below names the mutation it catches. If one fails, the question is not
+  // "why is this strict", it is "where is the count coming from now".
+
+  it('counts DISTINCT PEOPLE, so one person writing twice is one opt-out', async () => {
+    const result = await getClientVisibleCampaignMetrics(testOrgA)
+
+    // MUTATION: drop the de-duplication (return rows.length instead of the Set size) and
+    // this reads 3, because P1 has two opt_out rows.
+    expect(result.peopleOptedOutCount).toBe(2)
+  })
+
+  it('reads our own classification, never the provider tally', async () => {
+    const result = await getClientVisibleCampaignMetrics(testOrgA)
+
+    // MUTATION: put campaigns.unsubscribed_count back and this reads 7, which is what the
+    // fixture sets it to precisely so the two can never coincide. The old defect would
+    // have read 0 here, which is also not 2.
+    expect(result.peopleOptedOutCount).toBe(2)
+    expect(result.peopleOptedOutCount).not.toBe(7)
+    // And the provider's field does not leave this function at all.
+    expect(result).not.toHaveProperty('unsubscribedCount')
+  })
+
+  it('excludes a soft objection, which is a reply and not a request to stop', async () => {
+    const result = await getClientVisibleCampaignMetrics(testOrgA)
+
+    // MUTATION: widen the intent filter, or drop it, and P3's objection_mild joins the
+    // count at 3. "Come back next quarter" is a soft no; nobody is suppressed for it.
+    expect(result.peopleOptedOutCount).toBe(2)
+
+    // The same person IS counted as having replied, which is the distinction the two
+    // numbers exist to hold apart. Three people replied; two of them asked us to stop.
+    expect(result.peopleRepliedCount).toBe(3)
+    expect(result.peopleOptedOutCount).toBeLessThan(result.peopleRepliedCount)
+  })
+
+  it('is org-scoped: org B\'s opt-out never reaches org A', async () => {
+    // MUTATION: drop .eq('organisation_id', clientOrgId) from the opt-out query and org A
+    // reads 3 while org B reads 3, instead of 2 and 1.
+    const resultOrgA = await getClientVisibleCampaignMetrics(testOrgA)
+    const resultOrgB = await getClientVisibleCampaignMetrics(testOrgB)
+
+    expect(resultOrgA.peopleOptedOutCount).toBe(2)
+    expect(resultOrgB.peopleOptedOutCount).toBe(1)
+  })
+
+  it('agrees with a direct query of the same table', async () => {
+    // The chokepoint's answer beside the database's own, rather than beside a constant
+    // typed into this file. Same standard the meeting rate is held to above.
+    const result = await getClientVisibleCampaignMetrics(testOrgA)
+
+    const { data: rows } = await supabase
+      .from('reply_handling_actions')
+      .select('prospect_id')
+      .eq('organisation_id', testOrgA)
+      .eq('classified_intent', 'opt_out')
+
+    const rowCount = (rows ?? []).length
+    const peopleFromDb = new Set(
+      (rows ?? []).map(r => r.prospect_id).filter((id): id is string => id !== null),
+    ).size
+
+    expect(result.peopleOptedOutCount).toBe(peopleFromDb)
+    // And the two really are different numbers here, which is what makes the assertion
+    // above discriminating rather than a tautology: 4 rows, 2 people, 1 of them unattributed.
+    expect(rowCount).toBe(4)
+    expect(rowCount).toBeGreaterThan(peopleFromDb)
+  })
+
   it('is null rather than zero when nobody has been contacted', async () => {
     // Null, not 0. A rate of zero is a claim that outreach produced no meetings; "we have
     // not contacted anyone yet" is a different statement, and a client reading 0.0% on
@@ -392,6 +533,10 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
       expect(result.contactedCount).toBe(0)
       expect(result.meetingRate).toBeNull()
       expect(result.replyRate).toBeNull()
+      // ZERO, not null. "Nobody has opted out" is a fact and the card can say it: the
+      // counts line reads "0 opted out from 0 people contacted". Only the RATE has to
+      // wait, and readRate is what withholds it.
+      expect(result.peopleOptedOutCount).toBe(0)
       // And hasData is false, which is the flag every caller is told to check before
       // rendering any rate at all.
       expect(result.hasData).toBe(false)

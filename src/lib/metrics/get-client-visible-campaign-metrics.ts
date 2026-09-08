@@ -37,14 +37,18 @@ import { asServiceRoleClient, type ServiceRoleClient } from '@/lib/supabase/serv
 // Health metrics only. Diagnostic fields — complaint rate, mailbox health, per-mailbox
 // anything — are never selected and never returned.
 //
-// bounced_count and unsubscribed_count are BOTH selected and BOTH returned, and that is a
-// deliberate reversal of the earlier rule in this file, which said bounced_count must
-// never be fetched or returned.
-//
-// The reversal is a product decision, not a drift: bounce rate and opt-out rate are on
-// the list of aggregates a client is always shown. Hiding a client's own bounce rate from
+// bounced_count IS selected and returned, and that is a deliberate reversal of the
+// earlier rule in this file, which said it must never be fetched. Bounce rate is on the
+// list of aggregates a client is always shown. Hiding a client's own bounce rate from
 // them does not protect anything, and it leaves them unable to tell a list-quality
 // problem from a copy problem in their own campaign.
+//
+// campaigns.unsubscribed_count IS NOT SELECTED, AND THAT IS THE POINT. See
+// peopleOptedOutCount below: the provider counts unsubscribe LINK CLICKS, and everyone
+// who has opted out of this client's campaign did it in words. The column is not
+// returned at all rather than returned with a warning, because a client-facing metrics
+// type carrying a field that is known to read 0 while people are opting out is an
+// invitation to render it again.
 //
 // What stays diagnostic and is still never fetched here: per-mailbox attribution,
 // complaint rate, mailbox health, and anything that identifies WHICH addresses bounced.
@@ -52,7 +56,7 @@ import { asServiceRoleClient, type ServiceRoleClient } from '@/lib/supabase/serv
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
-import { NON_REPLY_INTENTS, POSITIVE_REPLY_INTENTS } from '@/lib/reply-handling/get-client-visible-replies'
+import { NON_REPLY_INTENTS, OPT_OUT_INTENT, POSITIVE_REPLY_INTENTS } from '@/lib/reply-handling/get-client-visible-replies'
 import { fetchWithTimeout, SERVICE_READ_TIMEOUT_MS } from '@/lib/supabase/read-timeout'
 import { recordDashboardFailure } from '@/lib/dashboard/record-dashboard-failure'
 
@@ -65,10 +69,9 @@ export interface ClientVisibleCampaignMetrics {
   sentCount: number
   // sentCount minus bounces. What actually landed.
   deliveredCount: number
-  // Totals, never per-address. A client may see how many bounced or opted out; they may
-  // never see which addresses did.
+  // A total, never per-address. A client may see how many bounced; they may never see
+  // which addresses did.
   bouncedCount: number
-  unsubscribedCount: number
   // THE PROVIDER'S REPLY COUNT. Mirrored from the sending tool by the poller. Kept
   // because replyRate is denominated against it and the published benchmark ranges use
   // the same definition. NOT what a client-facing "Replies" card should show: see
@@ -86,6 +89,22 @@ export interface ClientVisibleCampaignMetrics {
   // all COUNT: a refusal is still a person engaging, and every published reply-rate figure
   // we compare against counts it. Defined by NON_REPLY_INTENTS at the reply chokepoint.
   peopleRepliedCount: number
+  // PEOPLE WHO ASKED US TO STOP, counted from our own classification rather than from the
+  // provider's unsubscribe tally. Distinct prospects, so one person is one opt-out.
+  //
+  // THE PROVIDER'S NUMBER IS STRUCTURALLY BLIND TO MOST OF THESE AND ALWAYS WILL BE.
+  // campaigns.unsubscribed_count counts people who clicked an unsubscribe LINK. Our
+  // opt-out footer says "Not for you? Just reply stop." — it asks for a reply, on purpose,
+  // and there is no link to click. So a client running our copy as designed produces
+  // opt-outs the provider cannot see by construction. This is not a lag or a sync gap
+  // that will close.
+  //
+  // Live 2026-09-08, MargenticOS org: the provider said 0 while two people had written to
+  // say stop, both classified opt_out, both suppressed. The card read 0 opted out.
+  //
+  // Same table, same helper and same shape as peopleRepliedCount, so the opt-out count on
+  // the benchmarks page and the reply count on the overview cannot drift apart.
+  peopleOptedOutCount: number
   // REPLIES PER PERSON CONTACTED, not per email. See the note by its computation below.
   replyRate: number | null
   // Replies whose classified intent is in the client-visible positive set. Counted from
@@ -150,10 +169,16 @@ export async function getClientVisibleCampaignMetrics(
 ): Promise<ClientVisibleCampaignMetrics> {
   const supabase = serviceRoleClient()
 
-  const [campaignsResult, positiveRepliesResult, meetingsResult, replySignalsResult] = await Promise.all([
+  const [
+    campaignsResult,
+    positiveRepliesResult,
+    meetingsResult,
+    replySignalsResult,
+    optOutsResult,
+  ] = await Promise.all([
     supabase
       .from('campaigns')
-      .select('contacted_count, sent_count, replied_count, bounced_count, unsubscribed_count')
+      .select('contacted_count, sent_count, replied_count, bounced_count')
       .eq('organisation_id', clientOrgId),
 
     // THE PREVIOUS QUERY HERE COULD NEVER HAVE RETURNED ANYTHING.
@@ -193,9 +218,32 @@ export async function getClientVisibleCampaignMetrics(
       .eq('organisation_id', clientOrgId)
       .not('prospect_id', 'is', null)
       .not('classified_intent', 'in', `(${NON_REPLY_INTENTS.join(',')})`),
+
+    // Distinct PEOPLE who asked us to stop. Read from the classification, not from
+    // prospects.suppressed and not from prospects.suppression_reason.
+    //
+    // WHY NOT THE SUPPRESSION COLUMNS, since they look like the more natural source. They
+    // answer a different question. `suppressed` is true for operator stops and for
+    // research disqualifications as well as for opt-outs, so counting it would have read
+    // 7 against 2 on this organisation on 2026-09-08. `suppression_reason =
+    // 'explicit_opt_out'` narrows that correctly, but it is a materialised verdict written
+    // only where a prospect row was resolved and the update succeeded. The action row is
+    // written FIRST, before dispatch (see process-reply.ts), and a person whose suppression
+    // write failed still told us to stop and still belongs in this number.
+    //
+    // prospect_id is de-duplicated in JS for the same reason as the query above: PostgREST
+    // has no COUNT(DISTINCT). A null prospect_id is an opt-out from an address with no
+    // prospect row, and it is excluded because this rate is denominated in people
+    // contacted and an unattributed opt-out was not one of them.
+    supabase
+      .from('reply_handling_actions')
+      .select('prospect_id')
+      .eq('organisation_id', clientOrgId)
+      .not('prospect_id', 'is', null)
+      .eq('classified_intent', OPT_OUT_INTENT),
   ])
 
-  // EVERY ONE OF THESE FOUR READS USED TO DEGRADE TO ZERO IN SILENCE.
+  // EVERY ONE OF THESE FIVE READS USED TO DEGRADE TO ZERO IN SILENCE.
   //
   // postgrest-js converts a refusal, a network failure and a timeout alike into
   // { data: null, error }. It never throws. So `?? []` and `?? 0` below turn all three
@@ -208,6 +256,7 @@ export async function getClientVisibleCampaignMetrics(
     ['positive-replies', positiveRepliesResult] as const,
     ['meetings', meetingsResult] as const,
     ['reply-signals', replySignalsResult] as const,
+    ['opt-outs', optOutsResult] as const,
   ]) {
     if (result.error) {
       await recordDashboardFailure({
@@ -225,7 +274,6 @@ export async function getClientVisibleCampaignMetrics(
   const sentCount      = campaigns.reduce((sum, c) => sum + (c.sent_count      ?? 0), 0)
   const repliedCount   = campaigns.reduce((sum, c) => sum + (c.replied_count   ?? 0), 0)
   const bouncedCount   = campaigns.reduce((sum, c) => sum + (c.bounced_count   ?? 0), 0)
-  const unsubscribedCount = campaigns.reduce((sum, c) => sum + (c.unsubscribed_count ?? 0), 0)
 
   // Clamped at zero. Bounces and sends are refreshed in the same statement so they should
   // never cross, but a negative "delivered" on a client's dashboard is not a number worth
@@ -241,9 +289,9 @@ export async function getClientVisibleCampaignMetrics(
     sentCount,
     deliveredCount,
     bouncedCount,
-    unsubscribedCount,
     repliedCount,
     peopleRepliedCount,
+    peopleOptedOutCount: countDistinctPeople(optOutsResult.data),
     // ─── DENOMINATED IN PEOPLE, NOT EMAILS ────────────────────────────────────
     //
     // A four-step sequence sends up to four emails to one person, so sentCount counts the
