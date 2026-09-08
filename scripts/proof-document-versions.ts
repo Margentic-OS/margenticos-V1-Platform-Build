@@ -127,7 +127,6 @@ async function main() {
     await runTovGenerationAgent({
       organisation_id: ORG_ID,
       supabase,
-      is_refresh: true,
       regeneration_notes: { operator_note: note },
     })
     const elapsed = Math.round((Date.now() - started) / 1000)
