@@ -7,8 +7,9 @@ import {
   type ICPFilterSpec,
 } from '@/lib/agents/icp-filter-spec'
 import { inspectFilterSpec } from '@/lib/sourcing/inspect-filter-spec'
-import { deriveBuyerCriterion } from '@/agents/buyer-criterion-agent'
+import { deriveBuyerCriterionWithVocabulary } from '@/agents/buyer-criterion-agent'
 import type { BuyerCriterion } from '@/lib/sourcing/buyer-criterion'
+import type { SpecSeniority } from '@/lib/agents/icp-filter-spec'
 import {
   resolveIcpGeography,
   type ResolvedGeography,
@@ -97,11 +98,34 @@ export async function persistIcpFilterSpec(
     // "pays to enrich every approved prospect"; that is still true of the enrichment
     // gate, which still fails open, and sourcing now stops before reaching it.
     let buyerCriterion: BuyerCriterion | null = null
+    // No default and no fallback. deriveFilterSpec refuses on an empty set, which is the
+    // point: the two fixed lists that used to stand in for this are what removed almost
+    // everyone one live client's own job titles reached.
+    let seniority: SpecSeniority = { bands: [], discarded: [], evidence: '' }
     try {
-      buyerCriterion = await deriveBuyerCriterion({
+      // ONE CALL, TWO ANSWERS. The seniority bands come off the same request that derives
+      // the criterion: it already carries every approved document and the whole intake,
+      // which is the material the buyer's level is stated in. A second call would re-send
+      // the same context to ask a question this one can answer.
+      const derived = await deriveBuyerCriterionWithVocabulary({
         supabase,
         organisation_id: doc.organisation_id,
       })
+      buyerCriterion = derived.criterion
+      seniority = derived.seniority
+
+      if (seniority.discarded.length > 0) {
+        logger.warn('persistIcpFilterSpec: seniority values the provider would not honour', {
+          operation_id: operationId,
+          organisation_id: doc.organisation_id,
+          discarded_count: seniority.discarded.length,
+          kept_count: seniority.bands.length,
+          consequence:
+            'The derivation returned values outside the provider\'s vocabulary. They were ' +
+            'dropped here rather than sent, because the provider drops an unrecognised ' +
+            'value silently and a silently dropped filter looks exactly like one that worked.',
+        })
+      }
 
       if (buyerCriterion.status !== 'derived') {
         logger.warn('persistIcpFilterSpec: buyer criterion will not gate', {
@@ -192,7 +216,7 @@ export async function persistIcpFilterSpec(
     // Catch that explicitly and report the invalid names.
     let spec: ICPFilterSpec
     try {
-      spec = deriveFilterSpec(doc.content as IcpDocument, buyerCriterion, geography)
+      spec = deriveFilterSpec(doc.content as IcpDocument, buyerCriterion, geography, seniority)
     } catch (specError) {
       const msg = specError instanceof Error ? specError.message : String(specError)
       logger.error('persistIcpFilterSpec: deriveFilterSpec failed (non-canonical industries)', {

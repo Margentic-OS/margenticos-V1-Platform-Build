@@ -38,6 +38,10 @@ import { logger } from '@/lib/logger'
 import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 import type { BuyerCriterion, BuyerTitleFragment } from '@/lib/sourcing/buyer-criterion'
 import { checkSanityBand } from '@/lib/sourcing/buyer-criterion'
+import {
+  PROVIDER_SENIORITY_BANDS, keepHonourableBands,
+} from '@/lib/sourcing/handlers/provider-seniority'
+import type { SpecSeniority } from '@/lib/agents/icp-filter-spec'
 
 const BUYER_CRITERION_MODEL = 'claude-opus-4-6'
 const MAX_TOKENS = 2048
@@ -135,6 +139,16 @@ Write "statement" as plain English to be read aloud to this client on a call. Tw
 
 Fill "evidence" with short quotations or close paraphrases from the documents that support the statement. If you cannot evidence a conclusion from the documents, that conclusion is unsettled.
 
+THE BUYER'S LEVEL IN THEIR OWN ORGANISATION
+
+The sourcing tool has a coarse filter for how senior somebody is. It accepts only the exact values listed at the end of this message under AVAILABLE LEVELS, in that spelling. Return every one of those values that the buyer you identified above could hold, in this business's market, according to this business's own documents.
+
+BE GENEROUS, AND UNDERSTAND WHY. This filter can only ever REMOVE people. A value you omit silently discards everybody at that level, including people whose job title matches perfectly. A value you include that turns out not to apply costs nothing, because the people it would add are already excluded by the job titles. So include every level the buyer could plausibly hold, and leave out only the ones that plainly could not be them.
+
+Read the documents for what they actually say about where this person sits. Different markets put the same responsibility at very different levels, and the words a market uses for its own leadership may not resemble the tool's words at all. Match on what the role IS, not on whether the spelling looks similar.
+
+Return an empty list if the documents do not establish where this person sits. An empty list is a correct answer and it stops the run, which is what should happen: there is no default and nothing will be assumed on this business's behalf.
+
 WHAT THE BUSINESS SELLS
 
 Separately from the question above, describe what this business sells and what it is used for, in the words its own documents use. Two short pieces of prose, not a category label and not a list.
@@ -156,7 +170,9 @@ Return only JSON, no prose around it:
   "evidence": ["short quotation or close paraphrase"],
   "sells": "what this business sells, in its own documents' words",
   "used_for": "what it is used for and by whom, in its own documents' words",
-  "name_words": ["lowercase word or short phrase"]
+  "name_words": ["lowercase word or short phrase"],
+  "seniority_bands": ["exact value copied from AVAILABLE LEVELS"],
+  "seniority_evidence": "one sentence on what in the documents established the level"
 }`
 
 // ─── Input assembly ──────────────────────────────────────────────────────────
@@ -218,6 +234,25 @@ async function loadClientContext(
   }
 }
 
+/**
+ * The provider's accepted seniority values, appended to the user message at run time.
+ *
+ * ─── WHY IT IS INJECTED AND NOT WRITTEN INTO THE PROMPT ──────────────────────
+ *
+ * The model has to be told which values the provider will accept, or it invents spellings
+ * the provider drops silently. But writing them into BUYER_CRITERION_PROMPT would put
+ * seniority vocabulary into a prompt file, which is the thing findBannedContent exists to
+ * stop, and the static prompt is what that guard scans.
+ *
+ * So the vocabulary stays in the handler layer that owns it, and arrives here as DATA. The
+ * prompt asks the model to choose from a list it is handed; it does not contain the list.
+ * That is the same separation the industry-code and country tables already have, and it is
+ * why this file names no band either.
+ */
+function renderAvailableLevels(): string {
+  return `AVAILABLE LEVELS\n\nThese are the only values the sourcing tool accepts. Copy them exactly.\n${PROVIDER_SENIORITY_BANDS.join('\n')}`
+}
+
 /** Render the client's own material. Nothing here is a template value. */
 function buildUserMessage(documents: DocumentRow[], intake: IntakeRow[]): string {
   const docBlocks = documents.map(doc => {
@@ -240,6 +275,8 @@ function buildUserMessage(documents: DocumentRow[], intake: IntakeRow[]): string
     '',
     'THE BUSINESS\'S INTAKE ANSWERS',
     intakeBlock,
+    '',
+    renderAvailableLevels(),
   ].join('\n')
 }
 
@@ -279,6 +316,7 @@ interface ModelResponse {
   statement: string
   evidence: string[]
   vocabulary: ClientVocabulary
+  seniority: SpecSeniority
 }
 
 /**
@@ -359,6 +397,26 @@ function parseModelResponse(raw: string): ModelResponse {
       : [],
   }
 
+  // ── The seniority bands ──
+  //
+  // FILTERED AGAINST THE PROVIDER'S OWN LIST, not trusted. A value the model invents is a
+  // value the provider drops silently, and a silently dropped filter is indistinguishable
+  // from one that worked. What it invented is KEPT SEPARATELY rather than discarded, so an
+  // operator can see that it happened.
+  const rawBands = Array.isArray(vocab.seniority_bands)
+    ? (vocab.seniority_bands as unknown[])
+    : []
+  const bands = keepHonourableBands(rawBands)
+  const bandSet = new Set<string>(bands)
+  const seniority: SpecSeniority = {
+    bands,
+    discarded: rawBands
+      .filter((v): v is string => typeof v === 'string')
+      .map(v => v.trim())
+      .filter(v => v.length > 0 && !bandSet.has(v)),
+    evidence: typeof vocab.seniority_evidence === 'string' ? vocab.seniority_evidence.trim() : '',
+  }
+
   return {
     unsettled: parsed.unsettled === true,
     unsettled_reason:
@@ -370,6 +428,7 @@ function parseModelResponse(raw: string): ModelResponse {
       ? parsed.evidence.filter((e): e is string => typeof e === 'string')
       : [],
     vocabulary,
+    seniority,
   }
 }
 
@@ -395,7 +454,7 @@ export async function deriveBuyerCriterion(
  */
 export async function deriveBuyerCriterionWithVocabulary(
   input: BuyerCriterionInput,
-): Promise<{ criterion: BuyerCriterion; vocabulary: ClientVocabulary }> {
+): Promise<{ criterion: BuyerCriterion; vocabulary: ClientVocabulary; seniority: SpecSeniority }> {
   const { supabase, organisation_id } = input
 
   const { documents, intake } = await loadClientContext(supabase, organisation_id)
@@ -459,7 +518,9 @@ export async function deriveBuyerCriterionWithVocabulary(
     sanity_checked: sanity.checked,
     sanity_sample_size: sanity.sample_size,
     sanity_accept_rate: sanity.accept_rate,
+    seniority_bands_derived: parsed.seniority.bands.length,
+    seniority_values_discarded: parsed.seniority.discarded.length,
   })
 
-  return { criterion, vocabulary: parsed.vocabulary }
+  return { criterion, vocabulary: parsed.vocabulary, seniority: parsed.seniority }
 }
