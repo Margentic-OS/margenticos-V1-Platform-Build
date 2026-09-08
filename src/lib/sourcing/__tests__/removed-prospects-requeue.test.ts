@@ -18,6 +18,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { tierEnrichedBatch } from '@/lib/sourcing/tiering-trigger'
 import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
 import { seniorityFixture } from '@/test-utils/seniority-fixture'
+import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 import { clearIndustryMappingCache } from '@/lib/sourcing/industry-mapping'
 import { logger } from '@/lib/logger'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
@@ -196,26 +197,32 @@ function makeSupabase(tables: Record<string, Row[]>) {
 // directly, so a loose fixture throws inside persistIcpFilterSpec's catch-all and
 // the function returns BEFORE the re-queue, which looks exactly like the re-queue
 // not working.
+// THE BUYER FIELDS ARE DELIBERATELY CONTENTLESS. They used to name a buyer type and a
+// seniority band, because the deleted rule READ buyer_profile.seniority and branched on the
+// words in it. Nothing reads that field now, so these values were inert, but a fixture is
+// where vocabulary comes back: it is the least-read file in a change and the first one
+// copied into the next test. The industries stay real because validateCanonicalIndustry
+// rejects anything else, and they are taken from the canonical list rather than typed out.
 function icpContent() {
   return {
     jtbd_statement: 'Grow pipeline without hiring.',
-    summary: 'Founder-led B2B consulting firms.',
+    summary: 'A description of this client, in their own words.',
     tier_1: {
       company_profile: {
         revenue_range: 'GBP 500K to 5M',
         headcount: '5-20 people',
-        industries: ['Management Consulting'],
+        industries: [CANONICAL_INDUSTRIES[0]],
       },
-      buyer_profile: { title: 'Founder', seniority: 'owner' },
+      buyer_profile: { title: 'a role this market uses', seniority: 'as the document states it' },
       disqualifiers: [],
     },
     tier_2: {
       company_profile: {
         revenue_range: 'GBP 500K to 5M',
         headcount: '21-50 people',
-        industries: ['Strategy Consulting'],
+        industries: [CANONICAL_INDUSTRIES[1]],
       },
-      buyer_profile: { title: 'Founder', seniority: 'owner' },
+      buyer_profile: { title: 'a role this market uses', seniority: 'as the document states it' },
       disqualifiers: [],
     },
     tier_3: {

@@ -42,6 +42,11 @@ const SCANNED = [
   ['src/lib/sourcing/persist-icp-filter-spec.ts', 'obtains the bands and passes them in'],
   ['src/test-utils/seniority-fixture.ts', 'supplies bands to every test that needs one'],
   ['src/lib/agents/__tests__/spec-seniority-required.test.ts', 'the refusal tests'],
+  // ADDED 2026-09-08 during the merge. It carries the ICP document fixture the deleted rule
+  // used to read, and it still named a buyer type and a band in it. Nothing reads that field
+  // any more, so the values were inert, but a fixture is exactly where vocabulary comes back:
+  // it is the least-read file in a change and the first one copied into the next test.
+  ['src/lib/sourcing/__tests__/removed-prospects-requeue.test.ts', 'carries the ICP document fixture'],
 ] as const
 
 /**
@@ -93,7 +98,10 @@ export function findTitleWords(text: string, words: readonly string[]): string[]
   const hits: string[] = []
   for (const word of words) {
     const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    if (new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(quoted)) hits.push(word)
+    // UNDERSCORE IS PART OF A WORD HERE, unlike in findBannedContent. Identifiers such as
+    // an agent name ending in one of these words would otherwise read as the word itself,
+    // which is a false positive on ordinary code and the fastest way to get a scan disabled.
+    if (new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`).test(quoted)) hits.push(word)
   }
   return hits
 }
@@ -166,6 +174,10 @@ describe('the seniority derivation names no buyer type and no band', () => {
       expect(findTitleWords(`return ['${band}'] as const`, PROVIDER_SENIORITY_BANDS)).toContain(band)
     }
     expect(findTitleWords('an ordinary sentence about nothing', PROVIDER_SENIORITY_BANDS)).toEqual([])
+    // An identifier that merely ENDS in a band word is not a band. Measured on the real
+    // tree: an agent name and a database column both read as a band before this narrowing.
+    expect(findTitleWords("const NAMES = ['sourcing_entry']", PROVIDER_SENIORITY_BANDS)).toEqual([])
+    expect(findTitleWords("'faq_entry_id'", PROVIDER_SENIORITY_BANDS)).toEqual([])
     // The two false positives that made the first version of this useless. Both are band
     // names in ordinary English, unquoted, and neither asserts anything about a buyer.
     expect(findTitleWords('// the head noun is the category word', PROVIDER_SENIORITY_BANDS)).toEqual([])
