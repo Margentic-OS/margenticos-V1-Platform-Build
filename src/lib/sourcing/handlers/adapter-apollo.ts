@@ -433,6 +433,21 @@ function asNumber(value: unknown): number | null {
 export const APOLLO_TARGETED_INDUSTRIES: readonly CanonicalIndustry[] =
   Object.keys(CANONICAL_TO_NAICS) as CanonicalIndustry[]
 
+// Every distinct classification code this handler can express, DERIVED from the same table
+// for the same reason as the list above.
+//
+// READ BY the sourcing tuner, to build a deliberately-wrong search as a negative control on
+// its judge: it picks codes this table holds and the client's own spec does not name. It is
+// exported as CODES rather than as names so that nothing outside this file has to hold, or
+// write down, a sector's vocabulary in order to construct that control.
+//
+// Note what the deduplication makes visible: many canonical names share a code, so this list
+// is materially shorter than APOLLO_TARGETED_INDUSTRIES. A client naming seventeen industries
+// can resolve to four codes, which is why per-NAME differencing is not possible at the
+// provider and the tuner differences codes instead.
+export const ALL_TARGETABLE_NAICS_CODES: readonly string[] =
+  [...new Set(Object.values(CANONICAL_TO_NAICS))]
+
 // The fields this handler advertises. Hoisted out of the handler object so the
 // divergence report below can be DERIVED from it instead of hand-listed beside it.
 // Two lists that have to be kept in step by hand is the parallel-array shape

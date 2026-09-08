@@ -135,6 +135,14 @@ Write "statement" as plain English to be read aloud to this client on a call. Tw
 
 Fill "evidence" with short quotations or close paraphrases from the documents that support the statement. If you cannot evidence a conclusion from the documents, that conclusion is unsettled.
 
+WHAT THE BUSINESS SELLS
+
+Separately from the question above, describe what this business sells and what it is used for, in the words its own documents use. Two short pieces of prose, not a category label and not a list.
+
+Then give candidate words that would appear in the NAME of an organisation that buys this. A candidate is a single word or a short phrase in ordinary use. Prefer the word that names the kind of work the buyer does over a word that names a whole sector, because a sector word matches organisations of every description and tells a search nothing. Return the ones you would expect to find inside a real organisation's name, not the ones that describe the market from outside it. Ten at most, fewer if fewer are honest. Return an empty list rather than filling it out.
+
+Nothing checks these words before you return them. They are measured afterwards against how many organisations each one actually finds, and the ones that find nobody are dropped. So a word you are unsure about costs nothing to include and a word you invent to reach ten costs a measurement.
+
 OUTPUT
 
 Return only JSON, no prose around it:
@@ -145,7 +153,10 @@ Return only JSON, no prose around it:
   "accept": [{ "fragment": "lowercase substring", "rank": "primary" or "secondary" }],
   "reject": ["lowercase substring"],
   "statement": "plain English, two to three sentences",
-  "evidence": ["short quotation or close paraphrase"]
+  "evidence": ["short quotation or close paraphrase"],
+  "sells": "what this business sells, in its own documents' words",
+  "used_for": "what it is used for and by whom, in its own documents' words",
+  "name_words": ["lowercase word or short phrase"]
 }`
 
 // ─── Input assembly ──────────────────────────────────────────────────────────
@@ -267,6 +278,34 @@ interface ModelResponse {
   reject: string[]
   statement: string
   evidence: string[]
+  vocabulary: ClientVocabulary
+}
+
+/**
+ * What the client sells, in the client's own words, and candidate words for a buyer's name.
+ *
+ * ─── WHY THIS RIDES ON THE EXISTING CALL RATHER THAN ITS OWN ─────────────────
+ *
+ * This agent already loads every approved document and the whole intake, roughly 16,000
+ * input tokens, and the answer to "what does this business sell" is in that material. A
+ * second call would re-send the same context to ask a question the first call could have
+ * answered, and it would double the run's only expensive step.
+ *
+ * MEASURED 2026-09-08, three identical calls to this agent returned accept lists of 11, 11
+ * and 8 fragments and reject lists of 7, 4 and 3. So this derivation is non-deterministic at
+ * roughly a quarter of its output, and the consequence for any caller that reads it more than
+ * once is that the difference between two readings is the model, not the world. The tuner
+ * therefore calls this ONCE per run and reuses the answer across every round.
+ *
+ * NOTHING VALIDATES `name_words` HERE, on purpose. A word list checked by the model that
+ * produced it is checked by nothing. The tuner measures each candidate against the provider,
+ * alone, and drops the ones that find nobody. That measurement is the validation, and it is
+ * free.
+ */
+export interface ClientVocabulary {
+  sells: string
+  usedFor: string
+  nameWords: string[]
 }
 
 function parseModelResponse(raw: string): ModelResponse {
@@ -300,6 +339,26 @@ function parseModelResponse(raw: string): ModelResponse {
     throw new Error('Buyer criterion agent: model returned no statement')
   }
 
+  // The vocabulary is OPTIONAL and its absence is not an error. Every criterion stored
+  // before this block existed was produced by a prompt that did not ask for it, and a model
+  // may legitimately return an empty word list rather than inventing one. An absent or empty
+  // vocabulary reaches the tuner as "no candidate words", which it reports and works around
+  // by falling back to numbers. Throwing here would make a tuning feature able to break the
+  // spec derivation, which is a live path this must never affect.
+  const vocab = parsed as unknown as Record<string, unknown>
+  const vocabulary: ClientVocabulary = {
+    sells: typeof vocab.sells === 'string' ? vocab.sells.trim() : '',
+    usedFor: typeof vocab.used_for === 'string' ? vocab.used_for.trim() : '',
+    nameWords: Array.isArray(vocab.name_words)
+      ? [...new Set(
+          (vocab.name_words as unknown[])
+            .filter((w): w is string => typeof w === 'string')
+            .map(w => w.toLowerCase().trim())
+            .filter(w => w.length > 0),
+        )]
+      : [],
+  }
+
   return {
     unsettled: parsed.unsettled === true,
     unsettled_reason:
@@ -310,6 +369,7 @@ function parseModelResponse(raw: string): ModelResponse {
     evidence: Array.isArray(parsed.evidence)
       ? parsed.evidence.filter((e): e is string => typeof e === 'string')
       : [],
+    vocabulary,
   }
 }
 
@@ -322,6 +382,20 @@ function parseModelResponse(raw: string): ModelResponse {
 export async function deriveBuyerCriterion(
   input: BuyerCriterionInput,
 ): Promise<BuyerCriterion> {
+  return (await deriveBuyerCriterionWithVocabulary(input)).criterion
+}
+
+/**
+ * The same single call, returning the client's vocabulary alongside the criterion.
+ *
+ * TWO ENTRY POINTS, ONE CALL, and the split exists so the spec derivation's type does not
+ * change. persistIcpFilterSpec wants a BuyerCriterion and storing a vocabulary inside it
+ * would put two new keys into every client's stored spec to serve a feature that does not
+ * write specs at all.
+ */
+export async function deriveBuyerCriterionWithVocabulary(
+  input: BuyerCriterionInput,
+): Promise<{ criterion: BuyerCriterion; vocabulary: ClientVocabulary }> {
   const { supabase, organisation_id } = input
 
   const { documents, intake } = await loadClientContext(supabase, organisation_id)
@@ -387,5 +461,5 @@ export async function deriveBuyerCriterion(
     sanity_accept_rate: sanity.accept_rate,
   })
 
-  return criterion
+  return { criterion, vocabulary: parsed.vocabulary }
 }
