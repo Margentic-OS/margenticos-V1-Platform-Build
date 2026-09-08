@@ -165,6 +165,9 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   'src/lib/agents/faq-seed-agent.ts:buildSystemPrompt': 0,
   'src/lib/composition/personalization.ts:systemPrompt': 0,
   'src/lib/agents/revision/run-revision.ts:buildRevisionPrompt': 1,
+  // The tuner's judge, added 2026-09-08. Zero, measured rather than assumed: the entry was
+  // added and the scan re-run, and neither the total nor any other source moved.
+  'src/lib/tuner/judge.ts:buildJudgePrompt': 0,
 }
 
 describe('prompt text carries no client-specific content', () => {
