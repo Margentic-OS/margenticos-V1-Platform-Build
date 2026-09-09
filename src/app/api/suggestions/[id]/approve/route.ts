@@ -114,40 +114,15 @@ export async function POST(
     )
   }
 
-  // ── 4. Pre-approval gate: validate ICP filter spec (if this is an ICP suggestion) ────
-  // ICPs must have a valid filter spec before they can be approved, otherwise sourcing
-  // downstream will fail. Block approval with a clear message if validation fails.
+  // ── 4. Pre-approval gate: NOT A GATE, and deliberately so ───────────────────
+  // validateIcpFilterSpec allows every approval. The filter spec is derived AFTER promotion
+  // by persistIcpFilterSpec (called below in after()), so it cannot exist at this point and
+  // refusing on its absence would refuse every ICP. Measured on production 2026-09-08:
+  // 0 of 25 ICP suggestions carry a spec in suggested_value, and 0 of 24 ICP documents carry
+  // one in content. The call is kept for the log line it emits, which records per approval
+  // that nothing was checked. See the module header and the Backlog row.
   if (suggestion.document_type === 'icp') {
-    const validation = await validateIcpFilterSpec(supabase, suggestion.id)
-    if (!validation.valid) {
-      // Two states, two different actions. The distinction is the whole reason the gate
-      // returns a reason rather than a boolean, and neither message has ever been shown to
-      // anyone: the gate selected a column that does not exist and failed open on every
-      // call since it was written. See validate-icp-filter-spec.ts.
-      //
-      // WAIT vs ACT. "Still generating" must not tell the operator to regenerate, because
-      // regenerating mid-run is how you get two concurrent ICP runs for one organisation.
-      // "Missing" must not tell them to wait, because nothing is coming.
-      const clientMessage =
-        validation.reason === 'still_generating'
-          ? 'This ICP is still being written. The filter specification appears when it finishes, ' +
-            'usually within a few minutes. Wait and approve again. Do not regenerate: that would ' +
-            'start a second run alongside the one already going.'
-          : 'This ICP has no filter specification, so sourcing would have nothing to search on. ' +
-            'Regenerate the ICP, then approve the new version. Approving this one would leave the ' +
-            'client with a live document that cannot produce prospects.'
-
-      logger.warn('Approve route: ICP validation failed', {
-        suggestion_id: id,
-        organisation_id: suggestion.organisation_id,
-        reason: validation.reason,
-      })
-
-      return NextResponse.json(
-        { error: clientMessage },
-        { status: 400 }
-      )
-    }
+    await validateIcpFilterSpec(supabase, suggestion.id)
   }
 
   // ── 5. Atomic transaction via Postgres function ─────────────────────────────

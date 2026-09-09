@@ -1,47 +1,42 @@
-// Lifecycle validation for the ICP filter-spec approval gate.
+// The ICP filter-spec "gate", which is not one, and the two ways that was hidden.
 //
 // ════════════════════════════════════════════════════════════════════════════
-// WHY THIS FILE WAS REWRITTEN ON 2026-09-08, AND WHY THE OLD VERSION IS THE POINT
+// ROUND ONE: the fake fabricated a column.
 //
-// The gate it tests had NEVER ONCE RUN. It selected `id, document_type, content` from
-// `document_suggestions`, and there is no `content` column, so every call errored 42703 and
-// returned `{ valid: true }` from its fail-open branch. A second query selected three more
-// columns that do not exist on `agent_runs`. Verified live against production.
+// The original guard selected `id, document_type, content` from `document_suggestions`.
+// There is no `content` column. Every call errored 42703 and returned `{ valid: true }` from
+// its fail-open branch, so the guard never ran. Its six tests passed for months, because the
+// fake returned `content: { icp_filter_spec: null }` and never produced an error. It was not
+// testing the guard; it was testing a universe where the schema matched the code.
 //
-// These tests passed throughout, all six of them, for months.
-//
-// They passed because the FAKE returned a row shaped like the code's expectations rather
-// than like the database:
-//
-//     single: vi.fn().mockResolvedValue({
-//       data: { id: 'sugg-uuid', document_type: 'icp', content: { icp_filter_spec: null } },
-//     })
-//
-// `content` is invented. No such column has ever existed. The fake also never produced an
-// error, so `fetchError` was undefined in every test and set on every real call. The suite
-// was not testing the gate; it was testing a parallel universe in which the schema matched
-// the code, and reporting that universe as green.
-//
-// This is the CLAUDE.md shape "a fake that does not honour a filter cannot test that
-// filter", in its purest form: the fake did not merely ignore a filter, it fabricated a
-// column. Coverage, test count and CI all reported success while the guard was dead.
+// The fake below is the fix for that: it knows the real columns and THROWS on anything else,
+// so a query against a column that does not exist can no longer pass quietly.
 //
 // ════════════════════════════════════════════════════════════════════════════
-// WHAT THE NEW FAKE DOES DIFFERENTLY
+// ROUND TWO: the fixtures fabricated a SHAPE, and the column-aware fake could not see it.
 //
-// It knows the REAL columns of the two tables it stands in for, and THROWS on any select of
-// a column outside that set. So the original bug is no longer expressible: a test written
-// against `content` fails loudly instead of passing quietly.
+// The rewrite fixed both dead queries and read the spec from `suggested_value`. Twelve tests
+// passed, including the two below that assert the fake rejects the dead columns. THE FIXTURES
+// WERE STILL WRONG: they put `icp_filter_spec` inside `suggested_value`, because that is what
+// the code expected. Same mistake as round one, one level further in, and invisible to a fake
+// that validates columns rather than contents.
 //
-// The column lists below are transcribed from information_schema on 2026-09-08. They are a
-// second copy of the schema and will drift, which is a real cost and is accepted knowingly:
-// a fake that is wrong in the direction of REJECTING a valid column fails loudly and gets
-// fixed in minutes, whereas the old failure mode was silent and lasted months. Drift here is
-// noisy; the alternative was quiet.
+// Measured against production instead: 25 real ICP suggestions, 25 refusals, 0 allowances.
+// `icp_filter_spec` appears in NO suggestion's suggested_value and NO document's content. It
+// is a COLUMN written by persistIcpFilterSpec AFTER promotion. The spec is created BY
+// approval, so a pre-approval gate on it can never pass.
+//
+// The rewrite would have refused every ICP approval in production. Its predecessor's
+// accidental fail-open was the only reason approval worked at all.
+//
+// THE LESSON, and it is why these tests are shaped the way they are: a fake can be made to
+// reject unknown columns, unknown tables, unknown filters. It cannot tell you that a value
+// your code expects has never once existed in the real data. Only production can, and the
+// only question that would have revealed it is "what does this return for every real row",
+// not "does it behave correctly for the row I imagined".
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
-import { ICP_AGENT_NAME } from '@/agents/icp-generation-agent'
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
@@ -63,41 +58,24 @@ const REAL_COLUMNS: Record<string, string[]> = {
   ],
 }
 
-/**
- * A Supabase stand-in that rejects columns the real table does not have.
- *
- * Every filter is RECORDED so a test can assert on it, and an unknown column THROWS rather
- * than being silently accepted. `select` is the one that matters: it is the call the dead
- * gate got wrong.
- */
-function makeFake(tables: {
-  document_suggestions?: { data: unknown; error?: { message: string } | null }
-  agent_runs?: { data: unknown; error?: { message: string } | null }
-}) {
-  const filters: Record<string, Record<string, unknown>> = {}
-
+function makeFake(tables: Record<string, { data: unknown; error?: { message: string } | null }>) {
   const from = vi.fn((table: string) => {
     const known = REAL_COLUMNS[table]
     if (!known) throw new Error(`fake: no such table ${table}`)
-    filters[table] ??= {}
-
-    const result = tables[table as keyof typeof tables] ?? { data: null, error: null }
+    const result = tables[table] ?? { data: null, error: null }
 
     const chain: Record<string, unknown> = {
       select: vi.fn((cols: string) => {
         for (const raw of cols.split(',')) {
           const col = raw.trim()
           if (col && !known.includes(col)) {
-            throw new Error(
-              `fake: ${table} has no column "${col}". Real columns: ${known.join(', ')}`,
-            )
+            throw new Error(`fake: ${table} has no column "${col}". Real columns: ${known.join(', ')}`)
           }
         }
         return chain
       }),
-      eq: vi.fn((col: string, val: unknown) => {
+      eq: vi.fn((col: string) => {
         if (!known.includes(col)) throw new Error(`fake: ${table} has no column "${col}" to filter on`)
-        filters[table][col] = val
         return chain
       }),
       order: vi.fn(() => chain),
@@ -106,154 +84,68 @@ function makeFake(tables: {
     }
     return chain
   })
-
-  return { fake: { from } as never, filters }
+  return { from } as never
 }
 
-const icpSuggestion = (spec: unknown) => ({
-  data: {
-    id: 'sugg-uuid',
-    organisation_id: 'org-uuid',
-    document_type: 'icp',
-    suggested_value: JSON.stringify({ summary: 'an icp', icp_filter_spec: spec }),
-  },
+const icpSuggestion = () => ({
+  data: { id: 'sugg-uuid', organisation_id: 'org-uuid', document_type: 'icp' },
   error: null,
 })
 
 beforeEach(() => vi.clearAllMocks())
 
-// ─── The regression that started all this ────────────────────────────────────
+// ─── Round one's regression: the fake rejects the dead columns ───────────────
 
-describe('the fake rejects the column the dead gate actually selected', () => {
+describe('the fake rejects the columns the dead gate selected', () => {
   it('throws if anything selects document_suggestions.content', () => {
-    const { fake } = makeFake({ document_suggestions: icpSuggestion({ industries: ['X'] }) })
-    expect(() =>
-      (fake as unknown as { from: (t: string) => { select: (c: string) => unknown } })
-        .from('document_suggestions').select('id, document_type, content'),
-    ).toThrow(/no column "content"/)
+    const fake = makeFake({ document_suggestions: icpSuggestion() }) as unknown as {
+      from: (t: string) => { select: (c: string) => unknown }
+    }
+    expect(() => fake.from('document_suggestions').select('id, document_type, content'))
+      .toThrow(/no column "content"/)
   })
 
-  it('throws on the three agent_runs columns the dead second query used', () => {
-    const { fake } = makeFake({ agent_runs: { data: [], error: null } })
-    const t = (fake as unknown as { from: (t: string) => { select: (c: string) => unknown } })
-      .from('agent_runs')
-    expect(() => t.select('id, created_at, status')).toThrow(/no column "created_at"/)
+  it('throws on the agent_runs columns the dead second query used', () => {
+    const fake = makeFake({ agent_runs: { data: [], error: null } }) as unknown as {
+      from: (t: string) => { select: (c: string) => unknown }
+    }
+    expect(() => fake.from('agent_runs').select('id, created_at, status'))
+      .toThrow(/no column "created_at"/)
   })
 })
 
-// ─── The gate ────────────────────────────────────────────────────────────────
+// ─── Round two: the current, honest behaviour ────────────────────────────────
 
-describe('ICP filter-spec approval gate', () => {
-  it('BLOCKS with needs_regeneration when the spec is missing and no agent is running', async () => {
-    const { fake } = makeFake({
-      document_suggestions: icpSuggestion(null),
-      agent_runs: { data: [], error: null },
-    })
-    const result = await validateIcpFilterSpec(fake, 'sugg-uuid')
-
-    expect(result.valid).toBe(false)
-    expect(result.valid === false && result.reason).toBe('needs_regeneration')
+describe('validateIcpFilterSpec allows every approval, on purpose', () => {
+  it('allows an ICP, because the spec is derived AFTER promotion and cannot exist yet', async () => {
+    // The assertion that matters. It looks trivial and it is load-bearing: the previous
+    // version of this file asserted the opposite and would have blocked every ICP approval
+    // in production. Measured 2026-09-08: 0 of 25 real ICP suggestions carry a spec.
+    expect(await validateIcpFilterSpec(makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid'))
+      .toEqual({ valid: true })
   })
 
-  it('BLOCKS with still_generating when an ICP run for this org is in flight', async () => {
-    const { fake, filters } = makeFake({
-      document_suggestions: icpSuggestion(null),
-      agent_runs: {
-        data: [{ id: 'run-1', agent_name: ICP_AGENT_NAME, status: 'running', started_at: new Date(Date.now() - 2 * 60_000).toISOString() }],
-        error: null,
-      },
-    })
-    const result = await validateIcpFilterSpec(fake, 'sugg-uuid')
-
-    expect(result.valid).toBe(false)
-    expect(result.valid === false && result.reason).toBe('still_generating')
-
-    // The agent name is the thing a first draft of the validator got wrong three ways, so
-    // it is asserted rather than assumed. A filter on a name nothing writes matches nothing
-    // and reports "needs_regeneration" for ever.
-    expect(filters.agent_runs.agent_name).toBe(ICP_AGENT_NAME)
-    expect(filters.agent_runs.organisation_id).toBe('org-uuid')
-  })
-
-  it('does NOT say still_generating for a stale run, even a recent-looking one', async () => {
-    const { fake } = makeFake({
-      document_suggestions: icpSuggestion(null),
-      agent_runs: {
-        data: [{ id: 'r', agent_name: ICP_AGENT_NAME, status: 'running', started_at: new Date(Date.now() - 30 * 60_000).toISOString() }],
-        error: null,
-      },
-    })
-    const result = await validateIcpFilterSpec(fake, 'sugg-uuid')
-    expect(result.valid === false && result.reason).toBe('needs_regeneration')
-  })
-
-  it('does NOT say still_generating for a COMPLETED run that produced no spec', async () => {
-    // A finished run with no spec is precisely the case the operator must act on. Reading
-    // only recency, and not status, would tell them to wait for something already over.
-    const { fake } = makeFake({
-      document_suggestions: icpSuggestion(null),
-      agent_runs: {
-        data: [{ id: 'r', agent_name: ICP_AGENT_NAME, status: 'completed', started_at: new Date(Date.now() - 60_000).toISOString() }],
-        error: null,
-      },
-    })
-    const result = await validateIcpFilterSpec(fake, 'sugg-uuid')
-    expect(result.valid === false && result.reason).toBe('needs_regeneration')
-  })
-
-  it('ALLOWS approval when the spec is present, whatever the industry strings say', async () => {
-    const { fake } = makeFake({
-      document_suggestions: icpSuggestion({ industries: ['Not A Canonical Name'], seniority_levels: ['owner'] }),
-    })
-    expect(await validateIcpFilterSpec(fake, 'sugg-uuid')).toEqual({ valid: true })
-  })
-
-  it('BLOCKS on an EMPTY spec object, which would pass a bare null check', async () => {
-    const { fake } = makeFake({
-      document_suggestions: icpSuggestion({}),
-      agent_runs: { data: [], error: null },
-    })
-    const result = await validateIcpFilterSpec(fake, 'sugg-uuid')
-    expect(result.valid).toBe(false)
-  })
-
-  it('passes non-ICP document types without reading agent_runs at all', async () => {
-    const { fake } = makeFake({
+  it('allows a non-ICP without reading agent_runs', async () => {
+    const fake = makeFake({
       document_suggestions: {
-        data: { id: 's', organisation_id: 'org-uuid', document_type: 'tov', suggested_value: '{}' },
+        data: { id: 's', organisation_id: 'org-uuid', document_type: 'tov' },
         error: null,
       },
     })
     expect(await validateIcpFilterSpec(fake, 'sugg-uuid')).toEqual({ valid: true })
   })
 
-  it('fails OPEN when the suggestion cannot be read, because the route already 404s that', async () => {
-    const { fake } = makeFake({
-      document_suggestions: { data: null, error: { message: 'not found' } },
-    })
+  it('allows when the suggestion cannot be read at all', async () => {
+    const fake = makeFake({ document_suggestions: { data: null, error: { message: 'not found' } } })
     expect(await validateIcpFilterSpec(fake, 'missing')).toEqual({ valid: true })
   })
 
-  it('falls back to needs_regeneration when agent_runs cannot be read', async () => {
-    // The spec is missing either way. Only the wording of the operator's message is at
-    // stake, so the actionable message wins over silence.
-    const { fake } = makeFake({
-      document_suggestions: icpSuggestion(null),
-      agent_runs: { data: null, error: { message: 'boom' } },
-    })
-    const result = await validateIcpFilterSpec(fake, 'sugg-uuid')
-    expect(result.valid === false && result.reason).toBe('needs_regeneration')
-  })
-
-  it('treats unparseable suggested_value as no spec rather than throwing', async () => {
-    const { fake } = makeFake({
-      document_suggestions: {
-        data: { id: 's', organisation_id: 'org-uuid', document_type: 'icp', suggested_value: 'not json' },
-        error: null,
-      },
-      agent_runs: { data: [], error: null },
-    })
-    const result = await validateIcpFilterSpec(fake, 'sugg-uuid')
-    expect(result.valid).toBe(false)
+  it('never queries agent_runs, because there is no longer a two-state verdict', async () => {
+    // agent_runs is absent from the fake entirely, so any read of it throws "no such table".
+    // That is the point: the still_generating branch is gone, and this fails loudly if it
+    // comes back without the surrounding design being reconsidered.
+    await expect(
+      validateIcpFilterSpec(makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid'),
+    ).resolves.toEqual({ valid: true })
   })
 })

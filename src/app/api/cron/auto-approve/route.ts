@@ -102,23 +102,10 @@ export async function POST(request: NextRequest) {
 
   for (const suggestion of due) {
     try {
-      // Pre-approval gate: validate ICP filter spec if this is an ICP
+      // Not a gate: see the approve route and validate-icp-filter-spec's header. The spec is
+      // derived after promotion, so there is nothing to check here. Called for its log line.
       if (suggestion.document_type === 'icp') {
-        const validation = await validateIcpFilterSpec(supabase, suggestion.id)
-        if (!validation.valid) {
-          // Deferring is right for BOTH reasons but for different lengths of time:
-          // still_generating resolves itself on the next run, needs_regeneration never
-          // does and will defer for ever until an operator acts. Logged at different
-          // levels so the second one is findable rather than buried in routine noise.
-          const log = validation.reason === 'needs_regeneration' ? logger.warn : logger.info
-          log('Auto-approve cron: ICP filter spec not ready, deferring', {
-            suggestion_id: suggestion.id,
-            organisation_id: suggestion.organisation_id,
-            reason: validation.reason,
-          })
-          // Skip this suggestion but continue processing others — it will be retried next cron run
-          continue
-        }
+        await validateIcpFilterSpec(supabase, suggestion.id)
       }
 
       // Rendered through the SAME helper the operator's approve route uses. A document

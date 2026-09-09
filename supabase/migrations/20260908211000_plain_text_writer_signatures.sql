@@ -1,7 +1,9 @@
 -- Gives promote_strategy_doc_version a plain_text parameter, and carries the recording
 -- model through the two functions that call it.
 --
--- Status: PENDING (apply via Supabase MCP apply_migration, then mark APPLIED)
+-- Status: APPLIED (verified live 2026-09-08, BOTH projects: production hjpvnvjryxdjcfdsfhzy and
+-- test tidqheqjzvwmrrrebzir). Exactly one overload of each function afterwards, and privileges
+-- read back in both directions: service_role EXECUTE true, anon and authenticated false.
 --
 -- SPLIT FROM 20260908210000_document_model_columns.sql DELIBERATELY. That migration is
 -- purely additive (two nullable columns) and was applied on its own. This one CHANGES TWO
