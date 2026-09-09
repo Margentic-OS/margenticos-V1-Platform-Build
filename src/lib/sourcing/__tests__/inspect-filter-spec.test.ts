@@ -19,6 +19,12 @@ function goodSpec(overrides: Record<string, unknown> = {}) {
     industries_excluded: [],
     keywords: ['consulting'],
     keywords_excluded: [],
+    // NULL IS A VALUE HERE, not an absence: a document that states no revenue band leaves
+    // these null and the handler omits the parameter. Deleting them, as the loop below
+    // does field by field, is what a spec written before the field existed looks like, and
+    // that must still report exactly one finding.
+    company_revenue_min: null,
+    company_revenue_max: null,
     notes: 'x',
     ...overrides,
   }

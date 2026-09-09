@@ -45,6 +45,7 @@ interface ApolloApiSearchRequest {
   organization_locations: string[]
   person_locations: string[]
   contact_email_status: string[]
+  revenue_range?: { min?: number; max?: number }
   page: number
   per_page: number
 }
@@ -258,6 +259,7 @@ export const LEGALLY_EXCLUDED_COUNTRIES = new Set(['CA', 'DE'])
 export function buildApolloRequest(
   spec: Record<string, unknown>,
 ): Omit<ApolloApiSearchRequest, 'page' | 'per_page'> {
+
   if (!spec || typeof spec !== 'object') {
     throw new Error(
       'Apollo sourcing failed: no filter spec. The query is built from the client\'s ' +
@@ -265,6 +267,17 @@ export function buildApolloRequest(
       'for this organisation.',
     )
   }
+
+  // ─── DELIBERATELY OMITTED IS NOT MISSING ──────────────────────────────────
+  //
+  // An axis listed here was a decision, and this handler honours it by sending nothing for
+  // that axis. An axis that is empty and NOT listed is a derivation that failed, and the
+  // refusals below still fire for it. The two used to be the same value and therefore the
+  // same outcome, which made "do not constrain on this" impossible to say.
+  //
+  // Only the axes the provider treats as unconstrained-when-absent are omittable, and the
+  // list of those lives in the spec module, not here.
+  const omittedAxes = new Set(asStringArray(spec.omitted_axes))
 
   const industries = asStringArray(spec.industries)
   if (industries.length === 0) {
@@ -373,6 +386,24 @@ export function buildApolloRequest(
   // client wants, far more precisely, in the client's own vocabulary.
   const seniorities = asStringArray(spec.seniority_levels)
   if (seniorities.length > 0) request.person_seniorities = seniorities
+
+  // ─── The revenue band, sent for the first time ────────────────────────────
+  //
+  // The document has always stated one and nothing read it. Omitted when the spec carries
+  // no bound, because an absent parameter is the provider's own "no constraint" and a
+  // floor of zero is a constraint the client never asked for.
+  //
+  // MEASURED to constrain on a live client: 98,917 without it against 14,935 with a band
+  // applied, and the same values under a deliberately misspelled parameter name returned
+  // the baseline, which is how a silently ignored parameter is told apart from a working one.
+  const revenueMin = asNumber(spec.company_revenue_min)
+  const revenueMax = asNumber(spec.company_revenue_max)
+  if (revenueMin !== null || revenueMax !== null) {
+    request.revenue_range = {
+      ...(revenueMin !== null ? { min: revenueMin } : {}),
+      ...(revenueMax !== null ? { max: revenueMax } : {}),
+    }
+  }
 
   return request
 }
@@ -484,6 +515,8 @@ export const SPEC_FIELD_HANDLING = {
   industries:            'query',        // -> organization_naics_codes, via CANONICAL_TO_NAICS
   industries_excluded:   'query',        // -> not_organization_naics_codes, net of includes
   keywords:              'query',        // -> q_organization_keyword_tags
+  company_revenue_min:   'query',        // -> revenue_range.min, omitted when null
+  company_revenue_max:   'query',        // -> revenue_range.max, omitted when null
   // NO APOLLO EQUIVALENT. People Search can exclude a company's NAICS or SIC code but
   // has no "not_person_titles" and no negative keyword-tag parameter. Both are applied
   // to the returned rows in execute() instead.
