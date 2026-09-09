@@ -1,5 +1,8 @@
 'use client'
 
+import { EnrichmentSpendNotice } from '@/components/operator/enrichment-spend-notice'
+import type { EnrichmentMode } from '@/lib/sourcing/enrichment-mode'
+
 // The approval screen.
 //
 // ═════════════════════════════════════════════════════════════════════════════
@@ -27,6 +30,8 @@ import type { Database } from '@/types/database'
 type Prospect = Database['public']['Tables']['prospects']['Row']
 
 interface Gate1ApproveBatchProps {
+  /** Resolved server-side from the same flag shouldUseMockEnrichment reads. */
+  enrichmentMode: EnrichmentMode
   /** ONE PAGE of pending prospects. Not the batch. */
   prospects: Prospect[]
   /** Every pending prospect for this client, from a count rather than from an array length. */
@@ -52,6 +57,7 @@ export function Gate1ApproveBatch({
   organisationId,
   organisationName,
   icpSummary,
+  enrichmentMode,
 }: Gate1ApproveBatchProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isApproving, setIsApproving] = useState(false)
@@ -315,15 +321,10 @@ export function Gate1ApproveBatch({
         )}
       </div>
 
-      {/* Warning */}
-      <div className="bg-[#FEF7E6] rounded-[10px] border border-[#F0D080] p-4">
-        <p className="text-sm font-medium text-[#7A4800] mb-1">
-          Enrichment spends enrichment credits
-        </p>
-        <p className="text-xs text-[#7A4800] mb-3">
-          Currently in test mode. No live API calls will be made. Activation of live enrichment requires a separate step.
-        </p>
-      </div>
+      {/* Spend notice, driven by the real flag. The string this replaced said
+          "Currently in test mode. No live API calls will be made." unconditionally, while
+          enrichment_live was true in production. See EnrichmentSpendNotice. */}
+      <EnrichmentSpendNotice mode={enrichmentMode} action="Enrichment" />
 
       {/* Error */}
       {error && (

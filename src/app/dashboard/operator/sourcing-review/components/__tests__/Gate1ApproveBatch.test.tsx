@@ -83,6 +83,7 @@ function stubApprovalEndpoint(): { calls: Captured[] } {
 function renderPage(overrides: Partial<Parameters<typeof Gate1ApproveBatch>[0]> = {}) {
   return render(
     <Gate1ApproveBatch
+      enrichmentMode="test"
       prospects={PAGE_ONE}
       totalPending={TOTAL_PENDING}
       page={1}

@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { resolveEnrichmentMode } from '@/lib/sourcing/enrichment-mode'
 import { redirect } from 'next/navigation'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { PipelineOverview } from './components/PipelineOverview'
@@ -27,6 +28,12 @@ export default async function SourcingReviewPage({
     .single()
 
   if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  // Resolved from the SAME row and key that shouldUseMockEnrichment reads, so the spend
+  // notice beside the button cannot disagree with what the button does. Read with the
+  // operator session client, after the gate above: integrations_registry is operator-only,
+  // and reading it as anon is the bug that made this banner lie in the first place.
+  const enrichmentMode = await resolveEnrichmentMode(supabase)
 
   // ── Service client, for the two tables the session cannot read ─────────────
   //
@@ -78,6 +85,7 @@ export default async function SourcingReviewPage({
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 max-w-[1040px]">
           <PipelineOverview
+            enrichmentMode={enrichmentMode}
             metrics={metrics}
             selectedClientId={clientParam}
             sourcingMaxBatchSize={SOURCING_MAX_BATCH_SIZE}

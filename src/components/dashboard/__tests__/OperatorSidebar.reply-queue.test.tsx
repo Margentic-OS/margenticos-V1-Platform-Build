@@ -29,7 +29,7 @@ import { OperatorSidebar } from '../OperatorSidebar'
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/dashboard/operator',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => searchParamsValue,
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }))
 
@@ -57,6 +57,12 @@ function stubFetch(replyDraftCount: number) {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// Set per test. Was implicitly empty, which used to still select a client because the
+// sidebar fell back to clients[0] alphabetically. That fallback is gone (a wrong guess is
+// indistinguishable from a deliberate choice), so a test that needs a SELECTED client must
+// now say so. See OperatorSidebar.client-memory.test.tsx.
+let searchParamsValue = new URLSearchParams()
+
 function renderSidebar() {
   return render(<OperatorSidebar clients={CLIENTS as any} />)
 }
@@ -64,6 +70,7 @@ function renderSidebar() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  searchParamsValue = new URLSearchParams()
   stubFetch(0)
 })
 
@@ -85,6 +92,10 @@ describe('the operator can reach the only screen that can action a reply', () =>
   })
 
   it('keeps the per-client Replies entry as a SEPARATE link', () => {
+    // A client must be SELECTED for a per-client entry to exist. This used to pass with no
+    // ?client= because the sidebar defaulted to the alphabetically-first organisation; that
+    // default was the defect fixed on 2026-09-09, so the selection is explicit now.
+    searchParamsValue = new URLSearchParams('client=org-1')
     renderSidebar()
 
     const hrefs = Array.from(document.querySelectorAll('a')).map(a => a.getAttribute('href'))

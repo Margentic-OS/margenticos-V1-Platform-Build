@@ -51,9 +51,30 @@ export default async function OperatorLayout({
         <OperatorSidebar clients={clients ?? []} />
       </Suspense>
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="p-4 border-b bg-white">
-          <EnrichmentModeBanner mode={enrichmentMode} />
-        </div>
+        {/*
+          ONLY 'unknown' IS GLOBAL NOW, and that is the whole change.
+
+          This used to render every state on every operator screen. `enrichment_live` is
+          true in production, so it was a permanent red banner warning about the normal
+          working state of the system. A red banner that is always there, that nobody can
+          act on, and that is correct every single time, teaches an operator to stop
+          reading red. It spends the alarm on the state that needs no alarm.
+
+          'live' and 'test' moved to the point where credits are about to be spent, where
+          they are a fact about the button being pressed rather than wallpaper. See
+          EnrichmentSpendNotice.
+
+          'unknown' STAYS GLOBAL and stays loud, because it is the opposite kind of thing:
+          it means the flag could not be read at all, so nobody knows whether enrichment is
+          spending. It is rare rather than permanent, which is exactly what keeps it worth
+          reading, and it is the state the banner was rewritten for after it once failed
+          into a false "Test Mode Active" while the flag was live.
+        */}
+        {enrichmentMode === 'unknown' && (
+          <div className="p-4 border-b bg-white">
+            <EnrichmentModeBanner mode={enrichmentMode} />
+          </div>
+        )}
         {children}
       </div>
     </div>
