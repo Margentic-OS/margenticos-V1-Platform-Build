@@ -91,10 +91,34 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 49
 //                     file has ever contained this line.
 // Recorded rather than fixed, because editing rule text is a different change from adding a
 // source to the registry, and mixing them makes both harder to review.
-const BASELINE_TOTAL = 39
+// WIDENED 2026-09-08, 39 -> 40, by the six src/agents user-message sources joining the shared
+// registry, and one stale figure ratcheted down in the same pass.
+//
+// THE SIX NEW SOURCES CARRY TWO HITS BETWEEN THEM, and four of the six are clean:
+//
+//   icp / positioning / tov / buyer-criterion buildUserMessage   0 each
+//   messaging buildUserMessage                                   1   «Restore»
+//   messaging buildSingleVariantUserMessage                      1   «Qualify»
+//
+// BOTH ARE FALSE POSITIVES and both are RECORDED RATHER THAN ALLOWLISTED. They are ordinary
+// capitalised sentence-openers inside quoted rule prose ("Restore the noun and the sentence
+// survives any P2", "Qualify the population by role"), not names of anything. Adding them to
+// the allowlist is precisely the move the guard below exists to prevent, and it would also
+// blind the scan to a real name that happened to be spelled Restore. Two visible false
+// positives cost less than a widened allowlist.
+//
+// AND shared-voice-spec.md GOES 2 -> 1, which is NOT caused by this commit: the file is
+// byte-identical to origin/main. The per-source assertion is `<=`, so a stale high baseline
+// passes silently, which is how it survived unnoticed. Recording the measured figure is the
+// point of the table.
+//
+// WHAT TELLS THIS APART FROM A BASELINE RAISED TO HIDE A FAILURE: every other pre-existing
+// source re-measured identical, the allowlist did not grow, the introduction figure is
+// untouched at 49, and 40 is still under it.
+const BASELINE_TOTAL = 40
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
-  'docs/prompts/shared-voice-spec.md': 2,
+  'docs/prompts/shared-voice-spec.md': 1,
   'docs/prompts/icp-agent.md': 0,
   'docs/prompts/positioning-agent.md': 1,
   'docs/prompts/tov-agent.md': 0,
@@ -118,6 +142,14 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   // The fit judge, added 2026-09-09. Zero against both scans, measured rather than assumed:
   // the entry was added, both scans re-run, and neither total nor any other source moved.
   'src/lib/tuner/fit-judge.ts:buildFitJudgePrompt': 0,
+  // The document agents' user messages, added 2026-09-08. Four clean; two false positives
+  // recorded rather than allowlisted. See the note above BASELINE_TOTAL.
+  'src/agents/icp-generation-agent.ts:buildUserMessage': 0,
+  'src/agents/positioning-generation-agent.ts:buildUserMessage': 0,
+  'src/agents/tov-generation-agent.ts:buildUserMessage': 0,
+  'src/agents/buyer-criterion-agent.ts:buildUserMessage': 0,
+  'src/agents/messaging-generation-agent.ts:buildUserMessage': 1,
+  'src/agents/messaging-generation-agent.ts:buildSingleVariantUserMessage': 1,
 }
 
 describe('prompt examples name nothing real', () => {

@@ -4,6 +4,7 @@ import {
   BuyerCriterionSection,
   BuyerCriterionOperatorPanel,
 } from '@/components/dashboard/strategy/BuyerCriterionSection'
+import { DocumentPlainTextFallback } from '@/components/dashboard/strategy/DocumentPlainTextFallback'
 
 // ─── Render-boundary coercion ────────────────────────────────────────────────
 //
@@ -200,7 +201,7 @@ export function IcpDocumentView({
   if (!hasStructured) {
     return (
       <div className="space-y-5 max-w-[960px]">
-        <PlainTextView text={plainText} />
+        <DocumentPlainTextFallback text={plainText} docType="icp" />
         {criterionBlocks}
       </div>
     )
@@ -244,19 +245,3 @@ export function IcpDocumentView({
   )
 }
 
-function PlainTextView({ text }: { text: string | null }) {
-  if (!text) {
-    return (
-      <div className="bg-surface-card border border-border-card rounded-[10px] p-6 max-w-[640px]">
-        <p className="text-[12px] text-text-secondary">
-          Document content is being processed. Check back shortly.
-        </p>
-      </div>
-    )
-  }
-  return (
-    <div className="bg-surface-card border border-border-card rounded-[10px] p-6 max-w-[640px]">
-      <p className="text-[13px] text-text-primary leading-[1.7] whitespace-pre-line">{text}</p>
-    </div>
-  )
-}

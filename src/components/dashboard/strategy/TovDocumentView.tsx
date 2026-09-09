@@ -1,4 +1,5 @@
 import type { Json } from '@/types/database'
+import { DocumentPlainTextFallback } from '@/components/dashboard/strategy/DocumentPlainTextFallback'
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -65,7 +66,7 @@ export function TovDocumentView({ content, plainText }: TovDocumentViewProps) {
       doc.writing_rules?.length)
 
   if (!hasStructured) {
-    return <PlainTextView text={plainText} />
+    return <DocumentPlainTextFallback text={plainText} docType="tov" />
   }
 
   return (
@@ -278,19 +279,3 @@ export function TovDocumentView({ content, plainText }: TovDocumentViewProps) {
   )
 }
 
-function PlainTextView({ text }: { text: string | null }) {
-  if (!text) {
-    return (
-      <div className="bg-surface-card border border-border-card rounded-[10px] p-6 max-w-[640px]">
-        <p className="text-[12px] text-text-secondary">
-          Document content is being processed. Check back shortly.
-        </p>
-      </div>
-    )
-  }
-  return (
-    <div className="bg-surface-card border border-border-card rounded-[10px] p-6 max-w-[640px]">
-      <p className="text-[13px] text-text-primary leading-[1.7] whitespace-pre-line">{text}</p>
-    </div>
-  )
-}

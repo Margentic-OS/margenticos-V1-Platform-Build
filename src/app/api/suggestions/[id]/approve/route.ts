@@ -31,7 +31,8 @@ import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
 // platform default; 300 is what every other route on this path already declares.
 export const maxDuration = 300
 
-import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
+import { plainTextForSuggestedValue } from '@/lib/documents/plain-text-for-suggestion'
+import { logUngatedIcpApproval } from '@/lib/sourcing/log-ungated-icp-approval'
 
 export async function POST(
   _request: NextRequest,
@@ -98,7 +99,7 @@ export async function POST(
   // Pre-check returns a clear 404/400 rather than an opaque error from the RPC function.
   const { data: suggestion, error: suggestionError } = await supabase
     .from('document_suggestions')
-    .select('id, organisation_id, document_type, status, update_trigger')
+    .select('id, organisation_id, document_type, status, update_trigger, suggested_value')
     .eq('id', id)
     .single()
 
@@ -113,36 +114,32 @@ export async function POST(
     )
   }
 
-  // ── 4. Pre-approval gate: validate ICP filter spec (if this is an ICP suggestion) ────
-  // ICPs must have a valid filter spec before they can be approved, otherwise sourcing
-  // downstream will fail. Block approval with a clear message if validation fails.
+  // ── 4. No pre-approval check on the filter spec, and that is deliberate ─────
+  // Nothing is checked here. The filter spec is derived AFTER promotion
+  // by persistIcpFilterSpec (called below in after()), so it cannot exist at this point and
+  // refusing on its absence would refuse every ICP. Measured on production 2026-09-08:
+  // 0 of 25 ICP suggestions carry a spec in suggested_value, and 0 of 24 ICP documents carry
+  // one in content. The call is kept for the log line it emits, which records per approval
+  // that nothing was checked. See the module header and the Backlog row.
   if (suggestion.document_type === 'icp') {
-    const validation = await validateIcpFilterSpec(supabase, suggestion.id)
-    if (!validation.valid) {
-      const clientMessage =
-        validation.reason === 'still_generating'
-          ? 'The ICP filter specification is still being generated. Please wait a moment and try again.'
-          : 'The ICP filter specification is missing. Please regenerate the ICP and try again.'
-
-      logger.warn('Approve route: ICP validation failed', {
-        suggestion_id: id,
-        organisation_id: suggestion.organisation_id,
-        reason: validation.reason,
-      })
-
-      return NextResponse.json(
-        { error: clientMessage },
-        { status: 400 }
-      )
-    }
+    await logUngatedIcpApproval(supabase, suggestion.id)
   }
 
   // ── 5. Atomic transaction via Postgres function ─────────────────────────────
   // archive active doc → insert new active doc → mark suggestion approved
   // Full rollback if any step fails — suggestion will remain 'pending'.
+  // plain_text is rendered HERE, from the same suggested_value the RPC is about to cast to
+  // jsonb, so the stored prose and the stored content cannot describe different documents.
+  // The renderer stays in TypeScript and there is exactly one of it; see
+  // supabase/migrations/20260908210000 for why the RPC takes this as a parameter.
+  const plainText = plainTextForSuggestedValue(suggestion.suggested_value, {
+    suggestion_id: id,
+    document_type: suggestion.document_type,
+  })
+
   const { data: newDoc, error: rpcError } = await supabase.rpc(
     'approve_document_suggestion',
-    { p_suggestion_id: id, p_reviewer_id: user.id }
+    { p_suggestion_id: id, p_reviewer_id: user.id, p_plain_text: plainText }
   )
 
   if (rpcError) {

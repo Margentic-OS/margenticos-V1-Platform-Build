@@ -1,250 +1,169 @@
-// Task 3: Comprehensive lifecycle validation for FIX 1-4
-// Tests agent timeout resilience, client-side generation, soft-delete, and ICP filter-spec guards
+// The ICP filter-spec "gate", which is not one, and the two ways that was hidden.
+//
+// ════════════════════════════════════════════════════════════════════════════
+// ROUND ONE: the fake fabricated a column.
+//
+// The original guard selected `id, document_type, content` from `document_suggestions`.
+// There is no `content` column. Every call errored 42703 and returned `{ valid: true }` from
+// its fail-open branch, so the guard never ran. Its six tests passed for months, because the
+// fake returned `content: { icp_filter_spec: null }` and never produced an error. It was not
+// testing the guard; it was testing a universe where the schema matched the code.
+//
+// The fake below is the fix for that: it knows the real columns and THROWS on anything else,
+// so a query against a column that does not exist can no longer pass quietly.
+//
+// ════════════════════════════════════════════════════════════════════════════
+// ROUND TWO: the fixtures fabricated a SHAPE, and the column-aware fake could not see it.
+//
+// The rewrite fixed both dead queries and read the spec from `suggested_value`. Twelve tests
+// passed, including the two below that assert the fake rejects the dead columns. THE FIXTURES
+// WERE STILL WRONG: they put `icp_filter_spec` inside `suggested_value`, because that is what
+// the code expected. Same mistake as round one, one level further in, and invisible to a fake
+// that validates columns rather than contents.
+//
+// Measured against production instead: 25 real ICP suggestions, 25 refusals, 0 allowances.
+// `icp_filter_spec` appears in NO suggestion's suggested_value and NO document's content. It
+// is a COLUMN written by persistIcpFilterSpec AFTER promotion. The spec is created BY
+// approval, so a pre-approval gate on it can never pass.
+//
+// The rewrite would have refused every ICP approval in production. Its predecessor's
+// accidental fail-open was the only reason approval worked at all.
+//
+// THE LESSON, and it is why these tests are shaped the way they are: a fake can be made to
+// reject unknown columns, unknown tables, unknown filters. It cannot tell you that a value
+// your code expects has never once existed in the real data. Only production can, and the
+// only question that would have revealed it is "what does this return for every real row",
+// not "does it behave correctly for the row I imagined".
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
-
-// ─── Mocks ────────────────────────────────────────────────────────────────────
+import { logUngatedIcpApproval } from '@/lib/sourcing/log-ungated-icp-approval'
 
 vi.mock('@/lib/logger', () => ({
-  logger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-    error: vi.fn(),
-  },
+  logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }))
 
-// ─── Test Suite ──────────────────────────────────────────────────────────────
+import { logger } from '@/lib/logger'
 
-describe('Task 3: Lifecycle Validation', () => {
-  let mockSupabase: Record<string, unknown>
+// ─── The real schema, read from information_schema on 2026-09-08 ─────────────
 
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockSupabase = {}
+const REAL_COLUMNS: Record<string, string[]> = {
+  document_suggestions: [
+    'id', 'organisation_id', 'document_id', 'document_type', 'field_path', 'current_value',
+    'suggested_value', 'suggestion_reason', 'confidence_level', 'signal_count', 'ab_variant',
+    'conflicting_suggestion_id', 'status', 'created_at', 'reviewed_at', 'reviewed_by',
+    'sequence_position', 'rejection_reason', 'segment_id', 'revision_note', 'update_trigger',
+    'generated_by_model',
+  ],
+  agent_runs: [
+    'id', 'organisation_id', 'agent_name', 'status', 'started_at', 'completed_at',
+    'duration_ms', 'output_summary', 'error_message',
+  ],
+}
+
+function makeFake(tables: Record<string, { data: unknown; error?: { message: string } | null }>) {
+  const from = vi.fn((table: string) => {
+    const known = REAL_COLUMNS[table]
+    if (!known) throw new Error(`fake: no such table ${table}`)
+    const result = tables[table] ?? { data: null, error: null }
+
+    const chain: Record<string, unknown> = {
+      select: vi.fn((cols: string) => {
+        for (const raw of cols.split(',')) {
+          const col = raw.trim()
+          if (col && !known.includes(col)) {
+            throw new Error(`fake: ${table} has no column "${col}". Real columns: ${known.join(', ')}`)
+          }
+        }
+        return chain
+      }),
+      eq: vi.fn((col: string) => {
+        if (!known.includes(col)) throw new Error(`fake: ${table} has no column "${col}" to filter on`)
+        return chain
+      }),
+      order: vi.fn(() => chain),
+      limit: vi.fn(() => Promise.resolve(result)),
+      single: vi.fn(() => Promise.resolve(result)),
+    }
+    return chain
+  })
+  return { from } as never
+}
+
+const icpSuggestion = () => ({
+  data: { id: 'sugg-uuid', organisation_id: 'org-uuid', document_type: 'icp' },
+  error: null,
+})
+
+beforeEach(() => vi.clearAllMocks())
+
+// ─── Round one's regression: the fake rejects the dead columns ───────────────
+
+describe('the fake rejects the columns the dead gate selected', () => {
+  it('throws if anything selects document_suggestions.content', () => {
+    const fake = makeFake({ document_suggestions: icpSuggestion() }) as unknown as {
+      from: (t: string) => { select: (c: string) => unknown }
+    }
+    expect(() => fake.from('document_suggestions').select('id, document_type, content'))
+      .toThrow(/no column "content"/)
   })
 
-  describe('FIX 4: ICP Filter-Spec Guard — Approval Blocking', () => {
-    it('blocks ICP approval when filter_spec is null with no recent agent_run', async () => {
-      const mockSupabaseInstance = {
-        from: vi.fn((table: string) => {
-          if (table === 'document_suggestions') {
-            return {
-              select: vi.fn().mockReturnThis(),
-              eq: vi.fn().mockReturnThis(),
-              single: vi.fn().mockResolvedValue({
-                data: {
-                  id: 'sugg-uuid',
-                  document_type: 'icp',
-                  content: { icp_filter_spec: null },
-                },
-              }),
-            }
-          }
-          if (table === 'agent_runs') {
-            return {
-              select: vi.fn().mockReturnThis(),
-              eq: vi.fn().mockReturnThis(),
-              in: vi.fn().mockReturnThis(),
-              order: vi.fn().mockReturnThis(),
-              limit: vi.fn().mockResolvedValue({ data: [] }),
-            }
-          }
-          return {}
-        }),
-      }
+  it('throws on the agent_runs columns the dead second query used', () => {
+    const fake = makeFake({ agent_runs: { data: [], error: null } }) as unknown as {
+      from: (t: string) => { select: (c: string) => unknown }
+    }
+    expect(() => fake.from('agent_runs').select('id, created_at, status'))
+      .toThrow(/no column "created_at"/)
+  })
+})
 
-      const result = await validateIcpFilterSpec(
-        mockSupabaseInstance as any,
-        'sugg-uuid'
-      )
+// ─── Round two: the current, honest behaviour ────────────────────────────────
 
-      expect(result.valid).toBe(false)
-      expect(result.reason).toBe('needs_regeneration')
-    })
-
-    it('blocks ICP approval with "still_generating" reason when agent_run is recent', async () => {
-      const now = Date.now()
-      const recentTime = new Date(now - 2 * 60 * 1000).toISOString() // 2 min ago
-
-      const mockSupabaseInstance = {
-        from: vi.fn((table: string) => {
-          if (table === 'document_suggestions') {
-            return {
-              select: vi.fn().mockReturnThis(),
-              eq: vi.fn().mockReturnThis(),
-              single: vi.fn().mockResolvedValue({
-                data: {
-                  id: 'sugg-uuid',
-                  document_type: 'icp',
-                  content: { icp_filter_spec: null },
-                },
-              }),
-            }
-          }
-          if (table === 'agent_runs') {
-            return {
-              select: vi.fn().mockReturnThis(),
-              eq: vi.fn().mockReturnThis(),
-              in: vi.fn().mockReturnThis(),
-              order: vi.fn().mockReturnThis(),
-              limit: vi.fn().mockResolvedValue({
-                data: [
-                  {
-                    id: 'run-uuid',
-                    created_at: recentTime,
-                    status: 'running',
-                  },
-                ],
-              }),
-            }
-          }
-          return {}
-        }),
-      }
-
-      const result = await validateIcpFilterSpec(
-        mockSupabaseInstance as any,
-        'sugg-uuid'
-      )
-
-      expect(result.valid).toBe(false)
-      expect(result.reason).toBe('still_generating')
-    })
-
-    it('allows ICP approval when filter_spec is present, regardless of industry strings', async () => {
-      const mockSupabaseInstance = {
-        from: vi.fn((table: string) => {
-          if (table === 'document_suggestions') {
-            return {
-              select: vi.fn().mockReturnThis(),
-              eq: vi.fn().mockReturnThis(),
-              single: vi.fn().mockResolvedValue({
-                data: {
-                  id: 'sugg-uuid',
-                  document_type: 'icp',
-                  content: {
-                    icp_filter_spec: {
-                      industries: ['Revenue Operations Consulting', 'Non-canonical Industry'],
-                      target_size: 'mid-market',
-                    },
-                  },
-                },
-              }),
-            }
-          }
-          return {}
-        }),
-      }
-
-      const result = await validateIcpFilterSpec(
-        mockSupabaseInstance as any,
-        'sugg-uuid'
-      )
-
-      expect(result.valid).toBe(true)
-      expect(result.reason).toBeUndefined()
-    })
-
-    it('passes non-ICP document types without checking filter_spec', async () => {
-      const mockSupabaseInstance = {
-        from: vi.fn((table: string) => {
-          if (table === 'document_suggestions') {
-            return {
-              select: vi.fn().mockReturnThis(),
-              eq: vi.fn().mockReturnThis(),
-              single: vi.fn().mockResolvedValue({
-                data: {
-                  id: 'sugg-uuid',
-                  document_type: 'positioning',
-                  content: { positioning_text: 'Some positioning' },
-                },
-              }),
-            }
-          }
-          return {}
-        }),
-      }
-
-      const result = await validateIcpFilterSpec(
-        mockSupabaseInstance as any,
-        'sugg-uuid'
-      )
-
-      expect(result.valid).toBe(true)
-    })
-
-    it('passes when suggestion not found (allows downstream error handling)', async () => {
-      const mockSupabaseInstance = {
-        from: vi.fn((table: string) => {
-          if (table === 'document_suggestions') {
-            return {
-              select: vi.fn().mockReturnThis(),
-              eq: vi.fn().mockReturnThis(),
-              single: vi.fn().mockResolvedValue({
-                data: null,
-                error: new Error('not found'),
-              }),
-            }
-          }
-          return {}
-        }),
-      }
-
-      const result = await validateIcpFilterSpec(
-        mockSupabaseInstance as any,
-        'missing-uuid'
-      )
-
-      expect(result.valid).toBe(true)
-    })
+describe('logUngatedIcpApproval blocks nothing, and cannot', () => {
+  it('RETURNS NOTHING, so no caller can mistake it for a verdict', async () => {
+    // The assertion that matters, and it is load-bearing precisely because it looks trivial.
+    // The previous version of this file asserted a REFUSAL and would have blocked every ICP
+    // approval in production. Measured 2026-09-08: 0 of 25 real ICP suggestions carry a spec,
+    // because the spec is derived AFTER promotion. A void return is what stops a future
+    // caller reintroducing a branch on a decision this function is not entitled to make.
+    const result = await logUngatedIcpApproval(
+      makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid')
+    expect(result).toBeUndefined()
   })
 
-  describe('Explicit Test Case: Non-Canonical Industry with Valid Filter Spec', () => {
-    it('ICP with non-canonical industry string and non-null filter_spec IS approvable', async () => {
-      // This test directly verifies the locked design:
-      // FIX 4 must NOT validate industry names at the approval layer.
-      // Industry validation is a sourcing-time concern (deriveFilterSpec), not an approval gate.
-      //
-      // An ICP document with invented industry names like "Revenue Operations Consulting"
-      // should be approvable as long as icp_filter_spec is non-null.
-      //
-      // This allows client-zero and other edge cases to function.
+  it('says so in the log, so the absence of a gate is visible at runtime', async () => {
+    await logUngatedIcpApproval(makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid')
 
-      const mockSupabaseInstance = {
-        from: vi.fn((table: string) => {
-          if (table === 'document_suggestions') {
-            return {
-              select: vi.fn().mockReturnThis(),
-              eq: vi.fn().mockReturnThis(),
-              single: vi.fn().mockResolvedValue({
-                data: {
-                  id: 'sugg-c0-icp',
-                  document_type: 'icp',
-                  content: {
-                    icp_filter_spec: {
-                      industries: ['Revenue Operations Consulting', 'Founder-Led Consulting'],
-                      target_size: 'founder-led',
-                      revenue_range: ['$300k-$1M', '$1M-$3M'],
-                    },
-                  },
-                },
-              }),
-            }
-          }
-          return {}
-        }),
-      }
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('derived AFTER promotion'),
+      expect.objectContaining({ organisation_id: 'org-uuid' }),
+    )
+  })
 
-      const result = await validateIcpFilterSpec(
-        mockSupabaseInstance as any,
-        'sugg-c0-icp'
-      )
+  it('stays silent for a non-ICP, which is not the case it describes', async () => {
+    await logUngatedIcpApproval(makeFake({
+      document_suggestions: {
+        data: { id: 's', organisation_id: 'org-uuid', document_type: 'tov' },
+        error: null,
+      },
+    }), 'sugg-uuid')
 
-      // PASS: Non-canonical industries do NOT block approval when filter_spec is present
-      expect(result.valid).toBe(true)
-      expect(result.reason).toBeUndefined()
-    })
+    expect(logger.info).not.toHaveBeenCalled()
+  })
+
+  it('never throws when the suggestion cannot be read: a log line must not fail an approval', async () => {
+    await expect(
+      logUngatedIcpApproval(
+        makeFake({ document_suggestions: { data: null, error: { message: 'not found' } } }),
+        'missing'),
+    ).resolves.toBeUndefined()
+  })
+
+  it('never touches agent_runs, so the impossible still-generating branch cannot return', async () => {
+    // agent_runs is absent from the fake, so any read of it throws "fake: no such table".
+    // This fails loudly if a two-state verdict is reintroduced without the ordering problem
+    // in the module header being solved first.
+    await expect(
+      logUngatedIcpApproval(makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid'),
+    ).resolves.toBeUndefined()
   })
 })

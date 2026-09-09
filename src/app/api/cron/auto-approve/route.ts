@@ -16,7 +16,8 @@ import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 import { notifyAfterPromotion } from '@/lib/notifications/notify-after-promotion'
 import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
-import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
+import { plainTextForSuggestedValue } from '@/lib/documents/plain-text-for-suggestion'
+import { logUngatedIcpApproval } from '@/lib/sourcing/log-ungated-icp-approval'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import {
   approvalReminderTemplate,
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
   // Monitor check MON-006 surfaces client revisions waiting too long.
   const { data: pending, error: fetchError } = await supabase
     .from('document_suggestions')
-    .select('id, organisation_id, document_type, created_at, update_trigger, organisations(auto_approve_window_hours)')
+    .select('id, organisation_id, document_type, created_at, update_trigger, suggested_value, organisations(auto_approve_window_hours)')
     .eq('status', 'pending')
     .neq('update_trigger', 'client_revision')
 
@@ -101,23 +102,25 @@ export async function POST(request: NextRequest) {
 
   for (const suggestion of due) {
     try {
-      // Pre-approval gate: validate ICP filter spec if this is an ICP
+      // Not a gate: see log-ungated-icp-approval's header. The spec is
+      // derived after promotion, so there is nothing to check here. Called for its log line.
       if (suggestion.document_type === 'icp') {
-        const validation = await validateIcpFilterSpec(supabase, suggestion.id)
-        if (!validation.valid) {
-          logger.info('Auto-approve cron: ICP filter spec not ready, deferring', {
-            suggestion_id: suggestion.id,
-            organisation_id: suggestion.organisation_id,
-            reason: validation.reason,
-          })
-          // Skip this suggestion but continue processing others — it will be retried next cron run
-          continue
-        }
+        await logUngatedIcpApproval(supabase, suggestion.id)
       }
+
+      // Rendered through the SAME helper the operator's approve route uses. A document
+      // auto-approved by this cron and the same document approved by a click must carry
+      // byte-identical prose, or two versions would differ in formatting for no reason
+      // anyone could see.
+      const plainText = plainTextForSuggestedValue(suggestion.suggested_value, {
+        suggestion_id: suggestion.id,
+        document_type: suggestion.document_type,
+      })
 
       const { data: newDoc, error: rpcError } = await supabase.rpc('approve_document_suggestion', {
         p_suggestion_id: suggestion.id,
         p_reviewer_id: SYSTEM_AUTO_APPROVE_ID,
+        p_plain_text: plainText,
       })
 
       if (rpcError) {

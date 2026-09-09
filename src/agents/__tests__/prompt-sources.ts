@@ -75,6 +75,35 @@ export const PROMPT_SOURCES: PromptSource[] = [
   // customer, an acceptable one, or neither, which makes it the prompt most likely to reach
   // for a sector noun. Scanned from the day it exists rather than the day someone notices.
   { kind: 'template-literal', path: 'src/lib/tuner/fit-judge.ts',                           symbol: 'buildFitJudgePrompt',  note: 'the tuner fit judge, four verdicts' },
+  // ── The document agents' USER MESSAGES ──
+  //
+  // ADDED 2026-09-08, and this registry was WRONG WITHOUT THEM in the most specific way
+  // possible: these are the exact files the industry-hardcoding incident happened in, and
+  // they were the only prompt text in the repository that nothing scanned.
+  //
+  // On 2026-06-10 `buildUserMessage` in icp-generation-agent.ts opened, unconditionally:
+  //
+  //     You are generating an ICP document for a founder-led B2B consulting firm.
+  //
+  // with all four of its research queries naming the same industry and two naming a country.
+  // A medical-device manufacturer was given a consulting ICP, and a sourcing run bought 20
+  // healthcare consultancies against it. Positioning and TOV carried the same sentence.
+  //
+  // The Backlog row that recorded it proposed, as the durable fix, "a test that asserts no
+  // agent prompt template contains a literal industry or country name". That test was
+  // written. It scanned the six markdown SYSTEM prompts and nine template literals under
+  // src/lib, and it did not scan src/agents at all. So the guard existed, passed, and could
+  // not see the file the incident happened in. The prompt was fixed by hand on main in
+  // PR #62 and the hole in the scan stayed open for four more days.
+  //
+  // A system prompt and a user message are both prompt text. Only one of them was ever
+  // treated that way here.
+  { kind: 'template-literal', path: 'src/agents/icp-generation-agent.ts',         symbol: 'buildUserMessage', note: 'the ICP user message, where the hardcoded industry lived' },
+  { kind: 'template-literal', path: 'src/agents/positioning-generation-agent.ts', symbol: 'buildUserMessage', note: 'the positioning user message, same sentence' },
+  { kind: 'template-literal', path: 'src/agents/tov-generation-agent.ts',         symbol: 'buildUserMessage', note: 'the TOV user message, same sentence' },
+  { kind: 'template-literal', path: 'src/agents/messaging-generation-agent.ts',   symbol: 'buildUserMessage', note: 'the messaging user message' },
+  { kind: 'template-literal', path: 'src/agents/messaging-generation-agent.ts',   symbol: 'buildSingleVariantUserMessage', note: 'the messaging single-variant retry, a SECOND prompt in the same file' },
+  { kind: 'template-literal', path: 'src/agents/buyer-criterion-agent.ts',        symbol: 'buildUserMessage', note: 'the buyer criterion user message; its own docs say an example job title here reaches every client' },
 ]
 
 // The markdown prompt files a loadSystemPrompt() is allowed to resolve to. Derived
@@ -114,18 +143,76 @@ export interface SourceText { label: string; lines: { n: number; text: string }[
  * has to be loud: returning [] would let a renamed prompt drop out of coverage
  * while the suite stayed green, which is the failure this file exists to prevent.
  */
+/**
+ * The index to begin scanning a declaration's body from.
+ *
+ * For a `function name(...)` declaration this is the matching `)` of the parameter list, so
+ * an inline object type in the parameters cannot be mistaken for the function body. For a
+ * `const name = ...` declaration there is no parameter list to skip, so the declaration index
+ * is returned unchanged and the existing `;`/literal termination applies.
+ */
+function bodyStart(src: string, declIdx: number): number {
+  const open = src.indexOf('(', declIdx)
+  if (open === -1) return declIdx
+
+  // Anything that arrives BEFORE the paren means this is not a function signature, and the
+  // paren belongs to something else entirely, quite possibly inside the literal we are
+  // looking for. `const SYSTEM_PROMPT = \`... (like this) ...\`` is the live case: skipping
+  // to that paren jumped past the whole prompt and reported it missing.
+  //
+  // Checked in the order they can legally appear:
+  //   =  an assignment, so a const/let/var rather than a function declaration
+  //   `  the literal itself has already started
+  //   {  a body or an object has already opened
+  for (const stop of ['=', '`', '{']) {
+    const at = src.indexOf(stop, declIdx)
+    if (at !== -1 && at < open) return declIdx
+  }
+
+  let depth = 0
+  for (let i = open; i < src.length; i++) {
+    const c = src[i]
+    if (c === '(') depth++
+    else if (c === ')') {
+      depth--
+      if (depth === 0) return i
+    }
+  }
+  return declIdx
+}
+
 export function extractTemplateLiteral(abs: string, symbol: string): SourceText['lines'] {
   const src = readFileSync(abs, 'utf-8')
   const declaration = new RegExp(`(?:function|const|let|var)\\s+${symbol}\\b`)
   const declIdx = src.search(declaration)
   if (declIdx === -1) throw new Error(`prompt-sources: symbol "${symbol}" not found in ${abs}`)
 
+  // START AFTER THE PARAMETER LIST, not at the declaration.
+  //
+  // A function whose parameter is an inline object TYPE, which is how all six agent prompt
+  // builders are written:
+  //
+  //     function buildUserMessage(params: { intake: IntakeRow[]; ... }): string {
+  //
+  // opens and closes a brace before the body begins. The scan below counts braces to find
+  // the end of the body, so starting at the declaration made it treat the parameter type as
+  // the body: `entered` went true on the type's `{`, depth returned to 0 on its `}`, and the
+  // loop broke before reaching a single line of prompt text. It then threw "no template
+  // literal found", which reads like the prompt is missing rather than like the reader
+  // stopped early.
+  //
+  // Skipping to the matching `)` of the parameter list removes the whole class: parameter
+  // types can contain braces, generics, defaults and nested objects, and none of it is body.
+  // Parentheses are matched rather than searched for, because a default value or a nested
+  // signature can contain `)`.
+  const scanFrom = bodyStart(src, declIdx)
+
   const lineOf = (idx: number) => src.slice(0, idx).split('\n').length
   const out: SourceText['lines'] = []
   let depth = 0
   let entered = false
 
-  for (let i = declIdx; i < src.length; i++) {
+  for (let i = scanFrom; i < src.length; i++) {
     const c = src[i]
 
     // Comments: skip wholesale, so a backtick in prose cannot open a literal.

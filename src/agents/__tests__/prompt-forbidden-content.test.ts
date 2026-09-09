@@ -147,11 +147,55 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 44
 // swaps in the same commit moved nothing: the markdown examples sit on labelled Wrong/Right
 // lines whose quoted spans are redacted before scanning, so the scan never saw them either
 // before or after. A flat figure there is the scan's reach, not the absence of a change.
-const BASELINE_TOTAL = 29
+// THE NET WIDENED AGAIN 2026-09-08, 29 -> 33, AND ONE STALE FIGURE WAS RATCHETED DOWN.
+// Read both halves before treating this as a ratchet being walked back.
+//
+// SIX SOURCES WERE ADDED: the USER MESSAGES of the four document agents, the messaging
+// single-variant retry prompt, and the buyer criterion agent. Until this commit NOTHING in
+// this repository scanned src/agents at all, which is precisely where the industry-hardcoding
+// incident happened: buildUserMessage in icp-generation-agent.ts opened "You are generating an
+// ICP document for a founder-led B2B consulting firm" for every client, and the Backlog row
+// recording it proposed exactly this test as the durable fix. The test was written, it scanned
+// the markdown system prompts and nine literals under src/lib, and it could not see the file
+// the incident happened in.
+//
+// WHAT THE SIX NEW SOURCES CARRY, measured rather than assumed:
+//
+//   icp / positioning / tov / buyer-criterion buildUserMessage   0 each
+//   messaging buildUserMessage                                   4
+//   messaging buildSingleVariantUserMessage                      1
+//
+// The four zeros are the real result and they are load-bearing: the three document agents that
+// carried the hardcoded sentence are now scanned and score clean, so the PR #62 fix is pinned
+// by a test rather than by a commit message.
+//
+// THE FIVE HITS ARE ALL NEGATIVE EXEMPLARS, and none is fixed here. They are the banned
+// firmographic specimens CLAUDE.md itself quotes as copy that shipped and must not:
+// "Most B2B consulting firms at the £500K to £5M mark", "For most consulting founders billing
+// north of £500K", and the verdict lines under them. They exist to teach the model what to
+// avoid, and the deny list cannot tell a specimen from an assertion inside a template literal
+// because the markdown exemption machinery (labelled Wrong/Right lines, redacted quoted spans)
+// does not reach template literals. That limitation is already recorded above for
+// buildSynthesisPrompt and buildWriterPrompt. Editing a nine-iteration teaching example inside
+// a scan-closing commit is how such an example gets damaged by a drive-by, so they are recorded
+// as visible hits rather than quietly exempted.
+//
+// AND SEPARATELY, icp-agent.md GOES 9 -> 8. This is NOT caused by anything in this commit:
+// the file is byte-identical to origin/main. The drop predates the change and was never
+// re-measured after f65261c rewrote the primary signal hierarchy and deleted the
+// currency-as-geographic-evidence instruction. The per-source assertion is `<=`, so a stale
+// high baseline passes silently for ever, which is how it survived. Recording the true figure
+// is the point of the table.
+//
+// WHAT TELLS THIS APART FROM A BASELINE RAISED TO HIDE A FAILURE: every pre-existing source
+// re-measured identical except the one that went DOWN, no pattern was narrowed, no exemption
+// was added, the introduction figure below is untouched at 44, 33 is still under it, and the
+// GOAL test above is still red because 33 is not zero.
+const BASELINE_TOTAL = 33
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/shared-voice-spec.md': 0,
-  'docs/prompts/icp-agent.md': 9,
+  'docs/prompts/icp-agent.md': 8,
   'docs/prompts/positioning-agent.md': 0,
   'docs/prompts/tov-agent.md': 0,
   'docs/prompts/messaging-agent.md': 11,
@@ -171,6 +215,15 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   // The fit judge, added 2026-09-09. Zero against both scans, measured rather than assumed:
   // the entry was added, both scans re-run, and neither total nor any other source moved.
   'src/lib/tuner/fit-judge.ts:buildFitJudgePrompt': 0,
+  // The document agents' user messages, added 2026-09-08. See the note above BASELINE_TOTAL.
+  // The four zeros are the fix to the hardcoded-industry incident, now pinned by a test.
+  'src/agents/icp-generation-agent.ts:buildUserMessage': 0,
+  'src/agents/positioning-generation-agent.ts:buildUserMessage': 0,
+  'src/agents/tov-generation-agent.ts:buildUserMessage': 0,
+  'src/agents/buyer-criterion-agent.ts:buildUserMessage': 0,
+  // Negative exemplars only: the banned firmographic specimens, quoted to teach avoidance.
+  'src/agents/messaging-generation-agent.ts:buildUserMessage': 4,
+  'src/agents/messaging-generation-agent.ts:buildSingleVariantUserMessage': 1,
 }
 
 describe('prompt text carries no client-specific content', () => {
@@ -217,7 +270,7 @@ describe('prompt text carries no client-specific content', () => {
     expect(Object.values(BASELINE_BY_SOURCE).reduce((a, b) => a + b, 0)).toBe(BASELINE_TOTAL)
     expect(BASELINE_TOTAL).toBeLessThanOrEqual(BASELINE_TOTAL_AT_INTRODUCTION)
     expect(BASELINE_TOTAL_AT_INTRODUCTION).toBe(44)
-    expect(BASELINE_TOTAL).toBe(29)
+    expect(BASELINE_TOTAL).toBe(33)
     expect(Object.keys(BASELINE_BY_SOURCE)).toHaveLength(PROMPT_SOURCES.length)
   })
 

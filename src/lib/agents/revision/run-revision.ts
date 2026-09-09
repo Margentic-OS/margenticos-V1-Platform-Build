@@ -37,7 +37,7 @@ import {
   type ValidationViolation,
 } from '@/agents/messaging-generation-agent'
 
-const REVISION_MODEL = 'claude-sonnet-4-6'
+export const REVISION_MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS = 8192
 
 // ─── Public error class ───────────────────────────────────────────────────────
@@ -63,6 +63,29 @@ export interface DocumentRevisionInput {
 }
 
 export interface DocumentRevisionResult {
+  revised_content: Json
+  change_summary: string
+  /**
+   * The model that produced `revised_content`, reported by the agent rather than looked up
+   * by the caller.
+   *
+   * A caller that reads the module constant itself records whichever model the code names
+   * at the moment it asks, which is not necessarily the model that ran: the two diverge the
+   * instant anyone edits the constant, and they diverge silently, producing a stored
+   * attribution that looks measured and is not. The run knows what it called. Nothing else
+   * does.
+   */
+  model_used: string
+}
+
+/**
+ * What the MODEL returns, before the run stamps on what it knows.
+ *
+ * Deliberately narrower than DocumentRevisionResult: the parser reads a JSON response and
+ * cannot know which model produced it, and a parser forced to supply `model_used` would have
+ * to invent one. Keeping the two types separate is what makes that impossible to express.
+ */
+type ParsedRevision = {
   revised_content: Json
   change_summary: string
 }
@@ -114,7 +137,9 @@ export async function runDocumentRevisionAgent(
       change_summary_length: result.change_summary.length,
     })
 
-    return result
+    // The model is stamped HERE, by the function that made the call, rather than inside the
+    // parser or the retry loop. One place, and it is the place that cannot be wrong about it.
+    return { ...result, model_used: REVISION_MODEL }
   } catch (err) {
     if (err instanceof RevisionGateError) {
       // already called run.fail above
@@ -138,7 +163,7 @@ async function runOnce(
   input: DocumentRevisionInput,
   orgContext: OrgContext,
   failureContext: string[] | null,
-): Promise<DocumentRevisionResult | RevisionGateError> {
+): Promise<ParsedRevision | RevisionGateError> {
   const { organisation_id, document_type, current_content, revision_note } = input
 
   const prompt = buildRevisionPrompt(
@@ -164,7 +189,7 @@ async function runOnce(
     )
   }
 
-  let parsed: DocumentRevisionResult
+  let parsed: ParsedRevision
   try {
     parsed = parseRevisionResponse(raw)
   } catch (err) {
@@ -395,7 +420,7 @@ Return ONLY valid JSON with no surrounding text and no code fences:
 
 // ─── Response parsing ─────────────────────────────────────────────────────────
 
-function parseRevisionResponse(raw: string): DocumentRevisionResult {
+function parseRevisionResponse(raw: string): ParsedRevision {
   let text = raw.trim()
   const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
   if (fenceMatch) {
