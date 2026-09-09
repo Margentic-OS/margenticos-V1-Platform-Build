@@ -43,6 +43,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { runDocumentRevisionAgent, RevisionGateError } from '@/lib/agents/revision/run-revision'
 import type { Json } from '@/types/database'
+import { renderDocumentPlainText } from '@/lib/documents/render-plain-text'
 import { logger } from '@/lib/logger'
 import { LIVE_DOCUMENT_STATUSES } from '@/lib/documents/live-document-statuses'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
@@ -195,6 +196,7 @@ export async function POST(request: NextRequest) {
   // ── 6. Run revision agent ──────────────────────────────────────────────────
   let revised_content: unknown
   let change_summary: string
+  let model_used: string
 
   try {
     const result = await runDocumentRevisionAgent({
@@ -206,6 +208,7 @@ export async function POST(request: NextRequest) {
     })
     revised_content = result.revised_content
     change_summary = result.change_summary
+    model_used = result.model_used
   } catch (err) {
     if (err instanceof RevisionGateError) {
       logger.warn('POST /api/documents/revise: gate failure after retry', {
@@ -276,6 +279,10 @@ export async function POST(request: NextRequest) {
         suggested_value: JSON.stringify(revised_content),
         segment_id:      doc.segment_id,
         document_id:     doc.id,
+        // Recorded on the suggestion, not at approval. A staged messaging revision can sit
+        // pending for days and be auto-approved later, so reading a model constant at
+        // approval time would attribute this copy to whatever the code names then.
+        generated_by_model: model_used,
       })
       .select('id')
       .single()
@@ -317,6 +324,13 @@ export async function POST(request: NextRequest) {
     p_update_trigger: 'client_revision',
     p_revision_note:  trimmedNote,
     p_change_summary: change_summary,
+    // Rendered from the content being promoted, by the one renderer. Without this the
+    // revision path would keep writing plain_text NULL and quietly rebuild the hole the
+    // backfill just closed, on the one path a CLIENT triggers.
+    p_plain_text:     renderDocumentPlainText(revised_content),
+    // Reported by the revision agent rather than read from its module constant here, so the
+    // stored attribution is what actually ran.
+    p_generated_by_model: model_used,
   })
 
   if (rpcError) {

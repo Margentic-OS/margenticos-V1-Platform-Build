@@ -31,6 +31,7 @@ import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
 // platform default; 300 is what every other route on this path already declares.
 export const maxDuration = 300
 
+import { plainTextForSuggestedValue } from '@/lib/documents/plain-text-for-suggestion'
 import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
 
 export async function POST(
@@ -98,7 +99,7 @@ export async function POST(
   // Pre-check returns a clear 404/400 rather than an opaque error from the RPC function.
   const { data: suggestion, error: suggestionError } = await supabase
     .from('document_suggestions')
-    .select('id, organisation_id, document_type, status, update_trigger')
+    .select('id, organisation_id, document_type, status, update_trigger, suggested_value')
     .eq('id', id)
     .single()
 
@@ -140,9 +141,18 @@ export async function POST(
   // ── 5. Atomic transaction via Postgres function ─────────────────────────────
   // archive active doc → insert new active doc → mark suggestion approved
   // Full rollback if any step fails — suggestion will remain 'pending'.
+  // plain_text is rendered HERE, from the same suggested_value the RPC is about to cast to
+  // jsonb, so the stored prose and the stored content cannot describe different documents.
+  // The renderer stays in TypeScript and there is exactly one of it; see
+  // supabase/migrations/20260908210000 for why the RPC takes this as a parameter.
+  const plainText = plainTextForSuggestedValue(suggestion.suggested_value, {
+    suggestion_id: id,
+    document_type: suggestion.document_type,
+  })
+
   const { data: newDoc, error: rpcError } = await supabase.rpc(
     'approve_document_suggestion',
-    { p_suggestion_id: id, p_reviewer_id: user.id }
+    { p_suggestion_id: id, p_reviewer_id: user.id, p_plain_text: plainText }
   )
 
   if (rpcError) {

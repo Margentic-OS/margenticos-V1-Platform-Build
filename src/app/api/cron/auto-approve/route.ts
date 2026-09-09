@@ -16,6 +16,7 @@ import { logger } from '@/lib/logger'
 import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 import { notifyAfterPromotion } from '@/lib/notifications/notify-after-promotion'
 import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
+import { plainTextForSuggestedValue } from '@/lib/documents/plain-text-for-suggestion'
 import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import {
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
   // Monitor check MON-006 surfaces client revisions waiting too long.
   const { data: pending, error: fetchError } = await supabase
     .from('document_suggestions')
-    .select('id, organisation_id, document_type, created_at, update_trigger, organisations(auto_approve_window_hours)')
+    .select('id, organisation_id, document_type, created_at, update_trigger, suggested_value, organisations(auto_approve_window_hours)')
     .eq('status', 'pending')
     .neq('update_trigger', 'client_revision')
 
@@ -115,9 +116,19 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Rendered through the SAME helper the operator's approve route uses. A document
+      // auto-approved by this cron and the same document approved by a click must carry
+      // byte-identical prose, or two versions would differ in formatting for no reason
+      // anyone could see.
+      const plainText = plainTextForSuggestedValue(suggestion.suggested_value, {
+        suggestion_id: suggestion.id,
+        document_type: suggestion.document_type,
+      })
+
       const { data: newDoc, error: rpcError } = await supabase.rpc('approve_document_suggestion', {
         p_suggestion_id: suggestion.id,
         p_reviewer_id: SYSTEM_AUTO_APPROVE_ID,
+        p_plain_text: plainText,
       })
 
       if (rpcError) {
