@@ -164,3 +164,43 @@ export function lookupIsUsable(result: LookupResult | null): boolean {
   if (result.limited) return false
   return result.text.trim().length >= MIN_USEFUL_LOOKUP_CHARS
 }
+
+
+/**
+ * Research many companies at once, bounded.
+ *
+ * ─── WHY CONCURRENCY IS SAFE HERE AND NOT ON THE SEARCH PROVIDER ─────────────
+ *
+ * These are two different providers with two different limits. The sourcing provider allows
+ * 600 requests an hour and is SHARED WITH SOURCING, which is why every call to it is
+ * throttled and counted. The web lookup is a separate service on a separate account, and
+ * nothing else in this system competes for it.
+ *
+ * Sequentially, eighty lookups at the measured 6.8 seconds each is nine minutes, which put a
+ * single round past the wall clock. Ten at a time brings it under a minute.
+ *
+ * ─── THE CAP IS STILL COUNTED OUR SIDE ───────────────────────────────────────
+ *
+ * Each worker takes the next index and calls lookUpCompany, which checks the cache and the
+ * budget before spending. Concurrency changes the order, never the total: the provider's own
+ * limit parameter is not a billable bound and is not relied on here either.
+ */
+export async function lookUpMany(
+  names: (string | null)[],
+  budget: LookupBudget,
+  concurrency = 10,
+): Promise<(LookupResult | null)[]> {
+  const out: (LookupResult | null)[] = new Array(names.length).fill(null)
+  let next = 0
+  await Promise.all(
+    Array.from({ length: Math.max(1, Math.min(concurrency, names.length)) }, async () => {
+      for (;;) {
+        const i = next++
+        if (i >= names.length) return
+        const name = names[i]
+        out[i] = name ? await lookUpCompany(name, budget) : null
+      }
+    }),
+  )
+  return out
+}

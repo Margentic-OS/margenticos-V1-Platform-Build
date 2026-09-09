@@ -30,7 +30,7 @@ import { ProviderBudget, ProviderRateLimited, countAndSample } from '@/lib/tuner
 import { differenceSearch } from '@/lib/tuner/differencing'
 import { measureCeiling } from '@/lib/tuner/relaxation-ceiling'
 import { drawSpreadSample, DEFAULT_SAMPLE_SIZE } from '@/lib/tuner/spread-sample'
-import { lookUpCompany, lookupIsUsable, LookupBudget } from '@/lib/tuner/lookup'
+import { lookUpMany, lookupIsUsable, LookupBudget } from '@/lib/tuner/lookup'
 import {
   anthropicFitJudge, assessFit, compareFit, logFitRound, MIN_FIT_IMPROVEMENT,
   type FitContext, type FitJudgeFn, type FitOutcome, type JudgedCompany,
@@ -356,18 +356,13 @@ async function runOneRound(ctx: {
   const sample = await drawSpreadSample(ctx.request, ctx.provider, ctx.sampleSize, ctx.random)
 
   // Research every sampled company. This is the only part that costs money.
-  const researched: (typeof sample.rows[number] & { researchText: string | null; billable: number })[] = []
-  for (const row of sample.rows) {
-    if (!row.companyName) { researched.push({ ...row, researchText: null, billable: 0 }); continue }
-    const result = await lookUpCompany(row.companyName, ctx.lookups)
+  const results = await lookUpMany(sample.rows.map(r => r.companyName), ctx.lookups)
+  const researched = sample.rows.map((row, i) => {
+    const result = results[i]
     const billable = result?.billableSearches ?? 0
     ctx.spend.record(billable)
-    researched.push({
-      ...row,
-      researchText: lookupIsUsable(result) ? result!.text : null,
-      billable,
-    })
-  }
+    return { ...row, researchText: lookupIsUsable(result) ? result!.text : null, billable }
+  })
 
   const { verdicts, modelCalls } = await ctx.fitJudge(researched, ctx.context)
   const byId = new Map(verdicts.map(v => [v.sourceId, v]))
