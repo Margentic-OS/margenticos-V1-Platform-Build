@@ -68,6 +68,13 @@ export const PROMPT_SOURCES: PromptSource[] = [
   // rather than the day someone notices. It carries ZERO against the deny list, measured
   // before and after the entry was added, and the total stays at 29.
   { kind: 'template-literal', path: 'src/lib/tuner/judge.ts',                              symbol: 'buildJudgePrompt',     note: 'the sourcing tuner judge' },
+
+  // ── The tuner's fit judge ──
+  //
+  // ADDED 2026-09-09. It decides whether a researched organisation is the best kind of
+  // customer, an acceptable one, or neither, which makes it the prompt most likely to reach
+  // for a sector noun. Scanned from the day it exists rather than the day someone notices.
+  { kind: 'template-literal', path: 'src/lib/tuner/fit-judge.ts',                           symbol: 'buildFitJudgePrompt',  note: 'the tuner fit judge, four verdicts' },
 ]
 
 // The markdown prompt files a loadSystemPrompt() is allowed to resolve to. Derived

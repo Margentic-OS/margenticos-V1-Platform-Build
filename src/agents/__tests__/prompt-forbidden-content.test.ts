@@ -168,6 +168,9 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   // The tuner's judge, added 2026-09-08. Zero, measured rather than assumed: the entry was
   // added and the scan re-run, and neither the total nor any other source moved.
   'src/lib/tuner/judge.ts:buildJudgePrompt': 0,
+  // The fit judge, added 2026-09-09. Zero against both scans, measured rather than assumed:
+  // the entry was added, both scans re-run, and neither total nor any other source moved.
+  'src/lib/tuner/fit-judge.ts:buildFitJudgePrompt': 0,
 }
 
 describe('prompt text carries no client-specific content', () => {

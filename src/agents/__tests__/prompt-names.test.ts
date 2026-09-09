@@ -115,6 +115,9 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   // source added for one is automatically covered by both, which is the point of the
   // registry being shared.
   'src/lib/tuner/judge.ts:buildJudgePrompt': 0,
+  // The fit judge, added 2026-09-09. Zero against both scans, measured rather than assumed:
+  // the entry was added, both scans re-run, and neither total nor any other source moved.
+  'src/lib/tuner/fit-judge.ts:buildFitJudgePrompt': 0,
 }
 
 describe('prompt examples name nothing real', () => {

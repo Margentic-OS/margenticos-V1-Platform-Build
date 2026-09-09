@@ -42,6 +42,8 @@ import {
   PROVIDER_SENIORITY_BANDS, keepHonourableBands,
 } from '@/lib/sourcing/handlers/provider-seniority'
 import type { SpecSeniority } from '@/lib/agents/icp-filter-spec'
+import { parseProposedSearch, type ProposedSearch } from '@/lib/tuner/proposed-search'
+import { OMITTABLE_AXES } from '@/lib/agents/icp-filter-spec'
 
 const BUYER_CRITERION_MODEL = 'claude-opus-4-6'
 const MAX_TOKENS = 2048
@@ -139,6 +141,27 @@ Write "statement" as plain English to be read aloud to this client on a call. Tw
 
 Fill "evidence" with short quotations or close paraphrases from the documents that support the statement. If you cannot evidence a conclusion from the documents, that conclusion is unsettled.
 
+THE WHOLE SEARCH
+
+Everything above concerns who to contact. This section concerns WHERE TO LOOK, and you must reason from the ENTIRE document, not from the fields that happen to be labelled for it.
+
+Most of what a document says is currently thrown away when a search is built. Only the categories, the size and the place are read. Everything else — what triggers a purchase, what the buyer does day to day, what would make them switch, what disqualifies them, how they describe themselves, and the whole third tier — is discarded. That material is usually where the distinguishing information is, and it is why searches built from the labelled fields alone reach organisations that could never buy.
+
+Propose a complete search. For each part, give the value AND a short reason, and mark whether the document STATES it or you INFERRED it.
+
+  categories        the kinds of organisation to look in, in the document's own words
+  words             words that would appear in the NAME of a buying organisation
+  size              the smallest and largest number of people, if the document settles it
+  revenue           the smallest and largest revenue, if the document settles it
+  places            where the buyers are, in the document's own words
+  omit              parts of the search that should NOT constrain at all
+
+TRACEABILITY IS THE HARD RULE. Every element you propose must be traceable to something the document actually states. If you cannot point at what supports it, do not propose it. An element proposed on no evidence is worse than a missing one, because it looks like a finding. A misread sentence has already turned one client's strongest market into a rejection rule.
+
+NEVER CONTRADICT AN EXPLICIT STATEMENT. Where the document says something plainly, your proposal agrees with it. Where the document is silent you may infer, and you mark it inferred so a reader can tell the two apart.
+
+OMITTING A FILTER IS A REAL PROPOSAL. A filter that would not narrow anything, or that would cut out people the document says are buyers, should be omitted rather than set narrowly. Measured on real clients, one of these filters has never once added a person to a search: it only ever removes. Only the parts named in the OMITTABLE list at the end of this message may be omitted.
+
 THE BUYER'S LEVEL IN THEIR OWN ORGANISATION
 
 The sourcing tool has a coarse filter for how senior somebody is. It accepts only the exact values listed at the end of this message under AVAILABLE LEVELS, in that spelling. Return every one of those values that the buyer you identified above could hold, in this business's market, according to this business's own documents.
@@ -172,7 +195,15 @@ Return only JSON, no prose around it:
   "used_for": "what it is used for and by whom, in its own documents' words",
   "name_words": ["lowercase word or short phrase"],
   "seniority_bands": ["exact value copied from AVAILABLE LEVELS"],
-  "seniority_evidence": "one sentence on what in the documents established the level"
+  "seniority_evidence": "one sentence on what in the documents established the level",
+  "search": {
+    "categories": [{ "value": "in the document's own words", "reason": "what supports it", "basis": "stated" or "inferred" }],
+    "words": [{ "value": "lowercase word or short phrase", "reason": "...", "basis": "stated" or "inferred" }],
+    "size": { "min": number or null, "max": number or null, "reason": "...", "basis": "stated" or "inferred" },
+    "revenue": { "min": number or null, "max": number or null, "reason": "...", "basis": "stated" or "inferred" },
+    "places": [{ "value": "in the document's own words", "reason": "...", "basis": "stated" or "inferred" }],
+    "omit": [{ "value": "exact value copied from OMITTABLE", "reason": "why constraining on it would hurt" }]
+  }
 }`
 
 // ─── Input assembly ──────────────────────────────────────────────────────────
@@ -253,6 +284,15 @@ function renderAvailableLevels(): string {
   return `AVAILABLE LEVELS\n\nThese are the only values the sourcing tool accepts. Copy them exactly.\n${PROVIDER_SENIORITY_BANDS.join('\n')}`
 }
 
+/**
+ * The axes that may be deliberately omitted, appended at run time for the same reason the
+ * levels are: the list is a property of the system, not a sentence in a prompt, and the
+ * banned-content scan reads the prompt.
+ */
+function renderOmittable(): string {
+  return `OMITTABLE\n\nOnly these parts of a search may be omitted. Copy them exactly.\n${OMITTABLE_AXES.join('\n')}`
+}
+
 /** Render the client's own material. Nothing here is a template value. */
 function buildUserMessage(documents: DocumentRow[], intake: IntakeRow[]): string {
   const docBlocks = documents.map(doc => {
@@ -277,6 +317,8 @@ function buildUserMessage(documents: DocumentRow[], intake: IntakeRow[]): string
     intakeBlock,
     '',
     renderAvailableLevels(),
+    '',
+    renderOmittable(),
   ].join('\n')
 }
 
@@ -317,6 +359,7 @@ interface ModelResponse {
   evidence: string[]
   vocabulary: ClientVocabulary
   seniority: SpecSeniority
+  search: ProposedSearch
 }
 
 /**
@@ -415,7 +458,10 @@ function parseModelResponse(raw: string): ModelResponse {
       .map(v => v.trim())
       .filter(v => v.length > 0 && !bandSet.has(v)),
     evidence: typeof vocab.seniority_evidence === 'string' ? vocab.seniority_evidence.trim() : '',
+    omitted: parseProposedSearch(vocab.search).omit.map(o => o.axis),
   }
+
+  const search = parseProposedSearch(vocab.search)
 
   return {
     unsettled: parsed.unsettled === true,
@@ -429,6 +475,7 @@ function parseModelResponse(raw: string): ModelResponse {
       : [],
     vocabulary,
     seniority,
+    search,
   }
 }
 
@@ -454,7 +501,7 @@ export async function deriveBuyerCriterion(
  */
 export async function deriveBuyerCriterionWithVocabulary(
   input: BuyerCriterionInput,
-): Promise<{ criterion: BuyerCriterion; vocabulary: ClientVocabulary; seniority: SpecSeniority }> {
+): Promise<{ criterion: BuyerCriterion; vocabulary: ClientVocabulary; seniority: SpecSeniority; search: ProposedSearch }> {
   const { supabase, organisation_id } = input
 
   const { documents, intake } = await loadClientContext(supabase, organisation_id)
@@ -520,7 +567,14 @@ export async function deriveBuyerCriterionWithVocabulary(
     sanity_accept_rate: sanity.accept_rate,
     seniority_bands_derived: parsed.seniority.bands.length,
     seniority_values_discarded: parsed.seniority.discarded.length,
+    search_categories: parsed.search.categories.length,
+    search_words: parsed.search.words.length,
+    search_places: parsed.search.places.length,
+    search_omissions: parsed.search.omit.map(o => o.axis),
+    // Loud, because an element dropped for having no traceable reason is the model
+    // proposing something it could not support, and that is worth an operator seeing.
+    search_dropped_untraceable: parsed.search.droppedUntraceable,
   })
 
-  return { criterion, vocabulary: parsed.vocabulary, seniority: parsed.seniority }
+  return { criterion, vocabulary: parsed.vocabulary, seniority: parsed.seniority, search: parsed.search }
 }
