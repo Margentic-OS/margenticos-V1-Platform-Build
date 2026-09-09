@@ -20,6 +20,7 @@
 // with the rounds it completed rather than adding a half-measured one.
 
 import { logger } from '@/lib/logger'
+import { PRICE_PER_BILLABLE_SEARCH, tokenCost, isPricedModel, usd } from '@/lib/tuner/pricing'
 
 /**
  * Billable searches one run may spend.
@@ -32,31 +33,102 @@ export const DEFAULT_SPEND_CAP_SEARCHES = 400
 /** Estimated billable searches per researched company. Measured 1.50 to 1.75; rounded up. */
 export const BILLABLE_PER_LOOKUP = 1.75
 
+/**
+ * Estimated DOLLARS per researched company, all three billed lines together.
+ *
+ * MEASURED 2026-09-09 over six lookups at $0.02633. Rounded up to leave headroom, for the
+ * same reason BILLABLE_PER_LOOKUP is: this figure decides whether a round is STARTED, so
+ * understating it is what produces a run that stops halfway through a sample.
+ */
+export const MEASURED_USD_PER_LOOKUP = 0.03
+
+/**
+ * The money ceiling for one run.
+ *
+ * ─── WHY A SEARCH COUNT WAS NEVER A SPEND CAP ────────────────────────────────
+ *
+ * A cap counted in searches only bounds 57% of the bill. MEASURED 2026-09-09 over six
+ * lookups: the fee was $0.01500 per lookup and the tokens another $0.01133, because the
+ * server-side search tool injects the fetched page text into the model's context and that
+ * text is charged as input. A run could therefore sit comfortably inside a 400-search cap
+ * and spend nearly twice what the cap implied, and nothing in the system would notice,
+ * because nothing in the system was counting tokens at all.
+ *
+ * So the cap is now in dollars, and searches are one of the three things that consume it.
+ */
+export const DEFAULT_SPEND_CAP_USD = 5.00
+
 export class SpendBudget {
   private searches = 0
   private lookups = 0
+  private inTokens = 0
+  private outTokens = 0
+  private model: string | null = null
+  private unpriced = false
 
-  constructor(readonly capSearches: number = DEFAULT_SPEND_CAP_SEARCHES) {}
+  constructor(
+    readonly capSearches: number = DEFAULT_SPEND_CAP_SEARCHES,
+    readonly capUsd: number = DEFAULT_SPEND_CAP_USD,
+  ) {}
 
   get billableSearches(): number { return this.searches }
   get lookupsMade(): number { return this.lookups }
+  get inputTokens(): number { return this.inTokens }
+  get outputTokens(): number { return this.outTokens }
   get remaining(): number { return Math.max(0, this.capSearches - this.searches) }
 
-  record(billable: number): void {
+  /** Spent so far at list prices. See pricing.ts: an estimate, allowed to overstate. */
+  get spentUsd(): number {
+    return this.searches * PRICE_PER_BILLABLE_SEARCH
+      + tokenCost(this.model, this.inTokens, this.outTokens)
+  }
+
+  get remainingUsd(): number { return Math.max(0, this.capUsd - this.spentUsd) }
+
+  /** True if anything was priced at the fallback rate, so a figure can be flagged as soft. */
+  get pricedOnAnUnknownModel(): boolean { return this.unpriced }
+
+  record(billable: number, inputTokens = 0, outputTokens = 0, model: string | null = null): void {
     this.lookups += 1
     this.searches += billable
+    this.inTokens += inputTokens
+    this.outTokens += outputTokens
+    if (model) {
+      this.model = model
+      if (!isPricedModel(model)) this.unpriced = true
+    }
   }
 
-  /** True when a whole round of this size can still be paid for. */
+  /**
+   * True when a whole round of this size can still be paid for, on BOTH limits.
+   *
+   * The dollar estimate uses the measured per-lookup figure rather than the search fee alone,
+   * for the reason in the class header: a round costs roughly twice its fee. Checking before
+   * the round rather than during it is what makes the stop clean; see the module header.
+   */
   canAffordRound(sampleSize: number): boolean {
-    return this.remaining >= Math.ceil(sampleSize * BILLABLE_PER_LOOKUP)
+    const searchesOk = this.remaining >= Math.ceil(sampleSize * BILLABLE_PER_LOOKUP)
+    const moneyOk = this.remainingUsd >= sampleSize * MEASURED_USD_PER_LOOKUP
+    return searchesOk && moneyOk
   }
 
-  /** True when the cap is reached. A round already under way is not interrupted by this. */
-  get exhausted(): boolean { return this.searches >= this.capSearches }
+  /** True when either cap is reached. A round already under way is not interrupted by this. */
+  get exhausted(): boolean {
+    return this.searches >= this.capSearches || this.spentUsd >= this.capUsd
+  }
+
+  /** Which limit stopped it, so a short run says why rather than just being short. */
+  get stopReason(): 'search_cap' | 'money_cap' | null {
+    if (this.spentUsd >= this.capUsd) return 'money_cap'
+    if (this.searches >= this.capSearches) return 'search_cap'
+    return null
+  }
 
   describe(): string {
-    return `${this.searches} billable searches across ${this.lookups} lookups, cap ${this.capSearches}`
+    return `${this.searches} billable searches across ${this.lookups} lookups (cap ${this.capSearches}), ` +
+      `${this.inTokens} in / ${this.outTokens} out tokens, ` +
+      `${usd(this.spentUsd)} of ${usd(this.capUsd)}` +
+      `${this.unpriced ? ' (priced at the fallback rate: unknown model)' : ''}`
   }
 }
 
@@ -127,6 +199,10 @@ export function logSpend(budget: SpendBudget, modelCalls: number): void {
     lookups: budget.lookupsMade,
     cap: budget.capSearches,
     remaining: budget.remaining,
+    input_tokens: budget.inputTokens,
+    output_tokens: budget.outputTokens,
+    spent_usd: budget.spentUsd,
+    cap_usd: budget.capUsd,
     model_calls: modelCalls,
   })
 }

@@ -15,11 +15,19 @@ import {
 
 afterEach(() => { webSearch.mockReset() })
 
-const good = (searches = 2) => ({
+// Carries the COST fields as well as the content ones. A fake that omits a field the code
+// under test reads does not fail: it hands back undefined, which flows into the budget and
+// makes every spend figure NaN or zero while every assertion here still passes. The tokens
+// are the majority of the bill, so a fake that silently drops them is a fake that cannot
+// test the ceiling that stops a run.
+const good = (searches = 2, inputTokens = 9000, outputTokens = 300) => ({
   synthesis: 'A description long enough to be usable, running past the minimum length the ' +
     'module requires before it will treat a lookup as having resolved anything at all.',
   limited: false,
   searchCount: searches,
+  inputTokens,
+  outputTokens,
+  model: 'claude-haiku-4-5-20251001',
 })
 
 describe('the cap counts our own calls, never the provider\'s promise', () => {
@@ -50,10 +58,12 @@ describe('the cap counts our own calls, never the provider\'s promise', () => {
     expect(budget.billableSearches).not.toBe(budget.lookups)
   })
 
-  it('asks the provider for one search, while not relying on getting one', async () => {
+  it('asks the provider for one search AND for the brief read, while not relying on either', async () => {
     webSearch.mockResolvedValue(good(3))
     await lookUpCompany('Alpha-1', new LookupBudget(5))
-    expect(webSearch).toHaveBeenCalledWith(expect.any(String), { maxUses: 1 })
+    // brief is the half of this that actually worked. maxUses is advisory and measured 1.48
+    // searches per lookup against a cap of 1; the brief framing took it to 1.00.
+    expect(webSearch).toHaveBeenCalledWith(expect.any(String), { maxUses: 1, brief: true })
   })
 
   it('counts a failed lookup against the cap, and bills nothing for it', async () => {
@@ -95,11 +105,11 @@ describe('a name already resolved is never looked up again', () => {
 
 describe('a page with nothing useful on it does not become a verdict', () => {
   it('treats a limited result as no result', () => {
-    expect(lookupIsUsable({ text: 'x'.repeat(500), limited: true, billableSearches: 1 })).toBe(false)
+    expect(lookupIsUsable({ text: 'x'.repeat(500), limited: true, billableSearches: 1, inputTokens: 0, outputTokens: 0, model: null })).toBe(false)
   })
 
   it('treats a too-short result as no result', () => {
-    expect(lookupIsUsable({ text: 'Nothing here.', limited: false, billableSearches: 1 })).toBe(false)
+    expect(lookupIsUsable({ text: 'Nothing here.', limited: false, billableSearches: 1, inputTokens: 0, outputTokens: 0, model: null })).toBe(false)
     expect('Nothing here.'.length).toBeLessThan(MIN_USEFUL_LOOKUP_CHARS)
   })
 
@@ -107,7 +117,7 @@ describe('a page with nothing useful on it does not become a verdict', () => {
     // Shaped as a LookupResult, which is what this predicate reads. `good()` above is the
     // WEB SEARCH's shape and carries `synthesis`; they are different types on purpose and
     // passing one where the other belongs is what this line would otherwise hide.
-    expect(lookupIsUsable({ text: good().synthesis, limited: false, billableSearches: 2 })).toBe(true)
+    expect(lookupIsUsable({ text: good().synthesis, limited: false, billableSearches: 2, inputTokens: 0, outputTokens: 0, model: null })).toBe(true)
   })
 
   it('treats a refused lookup as no result', () => {

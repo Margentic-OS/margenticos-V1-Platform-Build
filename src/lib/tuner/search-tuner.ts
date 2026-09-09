@@ -9,8 +9,26 @@
 //   ONE CALL     the whole-document derivation, once, reused by every round. It is the same
 //                call that already owned job titles and seniority bands.
 //
-//   ROUNDS       draw a spread sample, research every company in it, judge each against the
+//   ROUNDS       draw a spread sample, research the companies in it, judge each against the
 //                client's own document, compare on fit AND reach, adjust, repeat.
+//
+// ─── WHAT A ROUND COSTS, MEASURED RATHER THAN ASSUMED ────────────────────────
+//
+// Every lookup is billed three ways and until 2026-09-09 this project counted one of them.
+// Measured that day over 40 paired lookups on a live client, per batch of 80: search fee
+// $1.18, lookup tokens $0.92, judge $0.12. The fee was 57% of a lookup, so a cap counted in
+// searches bounded just over half the bill.
+//
+// The reading was then narrowed to one question with an explicit instruction to answer from
+// the first result set. Billable searches fell from 1.48 per lookup to 1.00, every lookup
+// answered in one search, and a batch of 80 fell from $2.22 to $1.77. THE VERDICTS HELD: 33
+// of 40 unchanged, against a judge that moves 6 of 40 on IDENTICAL input, so the difference
+// is inside the judge's own noise and not attributable to reading less.
+//
+// WHAT COULD NOT BE CUT: the page text itself, 9,619 input tokens per lookup and essentially
+// unchanged by the narrower question. The server-side search tool has no max_content_tokens
+// field in any version the SDK exposes, so how much page arrives is the provider's decision
+// and there is no parameter at any price that changes it.
 //
 // ─── WHAT IT OPTIMISES, AND THE TRAP IT AVOIDS ───────────────────────────────
 //
@@ -31,6 +49,7 @@ import { differenceSearch } from '@/lib/tuner/differencing'
 import { measureCeiling } from '@/lib/tuner/relaxation-ceiling'
 import { drawSpreadSample, DEFAULT_SAMPLE_SIZE } from '@/lib/tuner/spread-sample'
 import { lookUpMany, lookupIsUsable, LookupBudget } from '@/lib/tuner/lookup'
+import { PRICE_PER_BILLABLE_SEARCH, tokenCost } from '@/lib/tuner/pricing'
 import {
   anthropicFitJudge, assessFit, compareFit, logFitRound, MIN_FIT_IMPROVEMENT,
   type FitContext, type FitJudgeFn, type FitOutcome, type JudgedCompany,
@@ -70,6 +89,12 @@ export interface SearchTunerInput {
   wallClockMs?: number
   providerCallBudget?: number
   fitJudge?: FitJudgeFn
+  /**
+   * Ask the judge from the employer name alone first, and pay only for the rows it cannot
+   * settle. OFF BY DEFAULT: measured 2026-09-09 it settled 0 of 40, because the judge prompt
+   * forbids deciding from anything but the researched description. See runOneRound.
+   */
+  skipNamesTheJudgeCanSettle?: boolean
   now?: () => number
   random?: () => number
 }
@@ -87,6 +112,25 @@ export interface RoundReport {
   billableSearches: number
   modelCalls: number
   providerCalls: number
+  /** How the round spent, so the saving is visible per round and not only per run. */
+  cost: RoundCost | null
+}
+
+/**
+ * What a round bought and what it declined to buy.
+ *
+ * `lookupsSkipped` is the whole point of the two-pass shape: rows the judge settled from the
+ * name alone, which under the previous shape were researched anyway at full price.
+ */
+export interface RoundCost {
+  sampled: number
+  lookupsSkipped: number
+  lookupsMade: number
+  /** Of the lookups made, how many the provider answered in a single billable search. */
+  answeredInOneSearch: number
+  inputTokens: number
+  outputTokens: number
+  usd: number
 }
 
 export interface SearchTunerResult {
@@ -124,6 +168,7 @@ export async function runSearchTuner(input: SearchTunerInput): Promise<SearchTun
     wallClockMs = 900_000,
     providerCallBudget = 600,
     fitJudge = anthropicFitJudge,
+    skipNamesTheJudgeCanSettle = false,
     now = () => Date.now(),
     random = Math.random,
   } = input
@@ -202,6 +247,9 @@ export async function runSearchTuner(input: SearchTunerInput): Promise<SearchTun
     audienceNote: null,
     // ASSERTED, not assumed. Round zero is free by construction.
     billableSearches: 0, modelCalls: 0, providerCalls: provider.calls,
+    // Null rather than a row of zeros: this round did not decline to buy anything, it had
+    // nothing to buy. A zeroed cost row would read as a round that skipped every lookup.
+    cost: null,
   })
   const populations = { baselineReachable: reachable, ceilingReachable: zero.ceiling.ceiling }
 
@@ -299,6 +347,7 @@ export async function runSearchTuner(input: SearchTunerInput): Promise<SearchTun
     try {
       round = await runOneRound({
         index, request, provider, spend, lookups, sampleSize, context, fitJudge, random,
+        skipNamesTheJudgeCanSettle,
       })
     } catch (e) {
       if (e instanceof ProviderRateLimited) {
@@ -349,30 +398,138 @@ async function runOneRound(ctx: {
   context: FitContext
   fitJudge: FitJudgeFn
   random: () => number
+  skipNamesTheJudgeCanSettle: boolean
 }): Promise<RoundReport> {
   const callsBefore = ctx.provider.calls
   const searchesBefore = ctx.spend.billableSearches
 
   const sample = await drawSpreadSample(ctx.request, ctx.provider, ctx.sampleSize, ctx.random)
 
-  // Research every sampled company. This is the only part that costs money.
-  const results = await lookUpMany(sample.rows.map(r => r.companyName), ctx.lookups)
-  const researched = sample.rows.map((row, i) => {
+  // ─── PASS ONE. ASK BEFORE PAYING. ──────────────────────────────────────────
+  //
+  // The judge is asked from the job title and employer name alone, with no research at all.
+  // This costs one model call and no search fees, and it settles most of the sample: plenty
+  // of employer names say plainly enough what the organisation is for a verdict to be
+  // reached without reading anything.
+  //
+  // THE PREVIOUS SHAPE RESEARCHED ALL EIGHTY UNCONDITIONALLY, and its own comment said so:
+  // "Research every sampled company. This is the only part that costs money." That is where
+  // the bill came from. The older run-tuner.ts had this gate from the start and only this
+  // path dropped it, so this is a restoration rather than a new idea.
+  //
+  // NOTHING ABOUT THE JUDGING CHANGES. Same judge, same prompt, same four verdicts. The
+  // prompt already renders a row with no research as "(nothing usable was found)", so a
+  // name-only row is a shape it was always able to answer. The only change is the ORDER:
+  // ask first, then pay for the ones it could not settle.
+  // ─── AND WHY IT IS OFF UNLESS ASKED FOR ──────────────────────────────────
+  //
+  // MEASURED 2026-09-09 on 40 rows from a live client: the name-only pass settled ZERO of
+  // them. That is not the judge failing, it is the judge prompt working exactly as written.
+  // The prompt says to decide "from the researched description and the two customer
+  // descriptions above, and from nothing else", and it defines cannot_establish as covering
+  // the case where there was no description. Under those instructions a row with no research
+  // has exactly one correct answer, and the judge gives it every time.
+  //
+  // So on today's prompt this pass costs one extra model call and saves nothing, which is why
+  // it defaults to off. Turning it on requires changing what evidence the judge may use, and
+  // that is a change to how judging works rather than a change to how much is read. It is
+  // named here rather than made quietly.
+  const firstPass = ctx.skipNamesTheJudgeCanSettle
+    ? await ctx.fitJudge(sample.rows.map(r => ({ ...r, researchText: null })), ctx.context)
+    : { verdicts: [], modelCalls: 0, usage: undefined }
+  let modelCalls = firstPass.modelCalls
+  const firstById = new Map(firstPass.verdicts.map(v => [v.sourceId, v]))
+  const firstVerdict = (id: string) => firstById.get(id)?.verdict ?? 'cannot_establish'
+
+  // ─── PASS TWO. PAY ONLY FOR WHAT PASS ONE COULD NOT SETTLE. ────────────────
+  const unclear = sample.rows.filter(r => firstVerdict(r.sourceId) === 'cannot_establish')
+  const results = await lookUpMany(unclear.map(r => r.companyName), ctx.lookups)
+
+  let answeredInOneSearch = 0
+  const researched = unclear.map((row, i) => {
     const result = results[i]
     const billable = result?.billableSearches ?? 0
-    ctx.spend.record(billable)
+    // A lookup the provider answered without going back for more. This is the measure of
+    // whether "stop once the leading text answers it" is actually happening, and it is
+    // counted rather than assumed because the cap on searches is advisory and never held.
+    if (result && billable === 1 && !result.limited) answeredInOneSearch += 1
+    ctx.spend.record(billable, result?.inputTokens ?? 0, result?.outputTokens ?? 0, result?.model ?? null)
     return { ...row, researchText: lookupIsUsable(result) ? result!.text : null, billable }
   })
 
-  const { verdicts, modelCalls } = await ctx.fitJudge(researched, ctx.context)
-  const byId = new Map(verdicts.map(v => [v.sourceId, v]))
-  const judged: JudgedCompany[] = researched.map(r => ({
-    sourceId: r.sourceId, jobTitle: r.jobTitle, companyName: r.companyName,
-    verdict: byId.get(r.sourceId)?.verdict ?? 'cannot_establish',
-    reason: byId.get(r.sourceId)?.reason ?? 'No answer returned for this row.',
-    researchText: r.researchText,
-    billableSearches: r.billable,
-  }))
+  const secondPass = researched.length
+    ? await ctx.fitJudge(researched, ctx.context)
+    : { verdicts: [], modelCalls: 0 }
+  modelCalls += secondPass.modelCalls
+  const secondById = new Map(secondPass.verdicts.map(v => [v.sourceId, v]))
+  const researchById = new Map(researched.map(r => [r.sourceId, r]))
+
+  const judged: JudgedCompany[] = sample.rows.map(row => {
+    const settledFirst = firstById.get(row.sourceId)
+    if (settledFirst && settledFirst.verdict !== 'cannot_establish') {
+      return {
+        sourceId: row.sourceId, jobTitle: row.jobTitle, companyName: row.companyName,
+        verdict: settledFirst.verdict, reason: settledFirst.reason,
+        // Null because nothing was read, which is a different fact from "we read and found
+        // nothing". A reader disagreeing with this verdict is disagreeing with a reading of
+        // the name, and the empty field is what tells them so.
+        researchText: null,
+        billableSearches: 0,
+      }
+    }
+    const r = researchById.get(row.sourceId)
+    const second = secondById.get(row.sourceId)
+    return {
+      sourceId: row.sourceId, jobTitle: row.jobTitle, companyName: row.companyName,
+      verdict: second?.verdict ?? 'cannot_establish',
+      reason: second?.reason
+        ?? (r ? 'No answer returned for this row.' : 'The spend ceiling stopped this lookup.'),
+      researchText: r?.researchText ?? null,
+      billableSearches: r?.billable ?? 0,
+    }
+  })
+
+  // Summed from `results`, which is the array the provider actually filled, rather than from
+  // anything reconstructed by index afterwards. A null entry is a lookup the ceiling refused
+  // and costs nothing.
+  const roundTokens = results.reduce(
+    (a, r) => ({ in: a.in + (r?.inputTokens ?? 0), out: a.out + (r?.outputTokens ?? 0) }),
+    { in: 0, out: 0 },
+  )
+  const roundSearches = results.reduce((a, r) => a + (r?.billableSearches ?? 0), 0)
+  const roundModel = results.find(r => r?.model)?.model ?? null
+
+  // The judge's own tokens, both passes. It runs on the most capable of the three models the
+  // tuner uses, so leaving it out would understate a round by more than the fee it has no
+  // part in. Counted separately from the lookups because the two are billed at different
+  // rates and summing them before pricing would quietly apply one rate to both.
+  const judgeUsd = [firstPass.usage, secondPass.usage].reduce(
+    (a, u) => a + (u ? tokenCost(u.model, u.inputTokens, u.outputTokens) : 0), 0,
+  )
+
+  const roundCost: RoundCost = {
+    sampled: sample.rows.length,
+    lookupsSkipped: sample.rows.length - unclear.length,
+    lookupsMade: unclear.length,
+    answeredInOneSearch,
+    inputTokens: roundTokens.in,
+    outputTokens: roundTokens.out,
+    usd: roundSearches * PRICE_PER_BILLABLE_SEARCH
+      + tokenCost(roundModel, roundTokens.in, roundTokens.out)
+      + judgeUsd,
+  }
+
+  // SPEND AS IT GOES, not only at the end. A round is the smallest unit that can be reported
+  // without the number moving while it is being read.
+  logger.info('tuner: round spend', {
+    round: ctx.index,
+    sampled: roundCost.sampled,
+    lookups_skipped: roundCost.lookupsSkipped,
+    lookups_made: roundCost.lookupsMade,
+    answered_in_one_search: roundCost.answeredInOneSearch,
+    round_usd: roundCost.usd,
+    run_so_far: ctx.lookups.describe(),
+  })
 
   const fit = assessFit(judged)
   logFitRound(fit)
@@ -383,6 +540,7 @@ async function runOneRound(ctx: {
     billableSearches: ctx.spend.billableSearches - searchesBefore,
     modelCalls,
     providerCalls: ctx.provider.calls - callsBefore,
+    cost: roundCost,
   }
 }
 

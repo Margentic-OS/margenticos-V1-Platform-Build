@@ -71,10 +71,11 @@ describe('both proportions, never collapsed into one', () => {
 describe('a change inside the measured noise floor is no change', () => {
   const before = assessFit(rows({ best: 20, acceptable: 10, neither: 20, cannot_establish: 30 })) // 60%
   it('is set from measurement at the sample size actually used', () => {
-    // Three draws of 80 from ONE unchanged search gave 61.8, 45.8 and 59.3 percent resolved
-    // fit: sd 7.0 points, so a difference between two draws carries about 9.9. Fifteen is
-    // roughly one and a half of those.
-    expect(MIN_FIT_IMPROVEMENT).toBeCloseTo(0.15)
+    // RE-MEASURED with the four-verdict judge actually in use: four draws of 80 from ONE
+    // unchanged search gave 50.0, 43.5, 48.6 and 27.6 percent resolved fit, sd 8.9 points,
+    // so a difference between two draws carries 12.6. Nineteen is one and a half of those.
+    // The threshold went UP, because the extra verdict cost precision.
+    expect(MIN_FIT_IMPROVEMENT).toBeCloseTo(0.19)
     expect(DEFAULT_SAMPLE_SIZE).toBe(80)
   })
 
@@ -82,7 +83,7 @@ describe('a change inside the measured noise floor is no change', () => {
     const after = assessFit(rows({ best: 23, acceptable: 10, neither: 17, cannot_establish: 30 })) // 66%
     const cmp = compareFit(before, after)
     expect(cmp.isRealChange).toBe(false)
-    expect(cmp.note).toMatch(/inside the 15-point measured noise floor/)
+    expect(cmp.note).toMatch(/inside the 19-point measured noise floor/)
     expect(cmp.note).toMatch(/unchanged search varied by this much/)
   })
 
@@ -161,8 +162,12 @@ describe('the spend cap counts our own calls', () => {
   })
 
   it('reports spend in a form a person can check', () => {
-    const b = new SpendBudget(400); b.record(2)
-    expect(b.describe()).toMatch(/2 billable searches across 1 lookups, cap 400/)
+    const b = new SpendBudget(400); b.record(2, 9600, 150, 'claude-haiku-4-5-20251001')
+    expect(b.describe()).toMatch(/2 billable searches across 1 lookups \(cap 400\)/)
+    // The tokens have to be in the line a person reads, or the same blind spot returns:
+    // a spend report that shows only searches is a report of just over half the bill.
+    expect(b.describe()).toContain('9600 in / 150 out tokens')
+    expect(b.describe()).toMatch(/\$\d+\.\d{4} of \$\d+\.\d{4}/)
   })
 })
 

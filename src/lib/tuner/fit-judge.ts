@@ -101,10 +101,29 @@ Return only JSON:
 {"verdicts":[{"id":"the id given","verdict":"best" | "acceptable" | "neither" | "cannot_establish","reason":"one short sentence naming what decided it"}]}`
 }
 
+/**
+ * What one judging pass cost.
+ *
+ * REPORTED, NEVER ACTED ON. The judge runs on the most capable model of the three the tuner
+ * uses and is the second-largest line after the lookups; a cost report that omitted it would
+ * be the same mistake as the one that omitted tokens. Nothing here changes what the judge
+ * does or how it decides: these are the numbers the API already returned and this file
+ * previously discarded.
+ */
+export interface JudgeUsage {
+  inputTokens: number
+  outputTokens: number
+  model: string | null
+}
+
 export type FitJudgeFn = (
   rows: (SampleRow & { researchText: string | null })[],
   context: FitContext,
-) => Promise<{ verdicts: { sourceId: string; verdict: FitVerdict; reason: string }[]; modelCalls: number }>
+) => Promise<{
+  verdicts: { sourceId: string; verdict: FitVerdict; reason: string }[]
+  modelCalls: number
+  usage?: JudgeUsage
+}>
 
 function renderRows(rows: (SampleRow & { researchText: string | null })[]): string {
   return rows.map(r =>
@@ -115,7 +134,9 @@ function renderRows(rows: (SampleRow & { researchText: string | null })[]): stri
 const VERDICTS: readonly FitVerdict[] = ['best', 'acceptable', 'neither', 'cannot_establish']
 
 export const anthropicFitJudge: FitJudgeFn = async (rows, context) => {
-  if (rows.length === 0) return { verdicts: [], modelCalls: 0 }
+  if (rows.length === 0) {
+    return { verdicts: [], modelCalls: 0, usage: { inputTokens: 0, outputTokens: 0, model: null } }
+  }
 
   const client = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY,
@@ -125,6 +146,8 @@ export const anthropicFitJudge: FitJudgeFn = async (rows, context) => {
 
   const byId = new Map<string, { sourceId: string; verdict: FitVerdict; reason: string }>()
   let modelCalls = 0
+  let inputTokens = 0
+  let outputTokens = 0
 
   for (let i = 0; i < rows.length; i += JUDGE_BATCH) {
     const batch = rows.slice(i, i + JUDGE_BATCH)
@@ -135,6 +158,8 @@ export const anthropicFitJudge: FitJudgeFn = async (rows, context) => {
       messages: [{ role: 'user', content: renderRows(batch) }],
     })
     modelCalls += 1
+    inputTokens += response.usage?.input_tokens ?? 0
+    outputTokens += response.usage?.output_tokens ?? 0
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map(b => b.text).join('')
@@ -150,6 +175,7 @@ export const anthropicFitJudge: FitJudgeFn = async (rows, context) => {
       reason: 'The judge returned no answer for this row.',
     }),
     modelCalls,
+    usage: { inputTokens, outputTokens, model: FIT_JUDGE_MODEL },
   }
 }
 
@@ -236,28 +262,33 @@ export function assessFit(judged: JudgedCompany[]): FitOutcome {
 /**
  * The smallest fit difference that is a difference.
  *
- * ─── DERIVED FROM MEASUREMENT AT THE SAMPLE SIZE ACTUALLY USED ───────────────
+ * ─── RE-MEASURED 2026-09-09 WITH THE JUDGE ACTUALLY IN USE ───────────────────
  *
- * Three draws of 80 rows from ONE UNCHANGED search, every company researched and judged:
+ * The previous figure was taken with a THREE-verdict judge and a simpler context. This loop
+ * uses a four-verdict one, and the two are not measuring the same thing: their baselines on
+ * the same client differed by more than twenty points. The old figure is not carried forward.
  *
- *   fit of all sampled     52.5%, 27.5%, 43.8%   mean 41.3%   sd 10.4 points
- *   fit of those resolved  61.8%, 45.8%, 59.3%   mean 55.6%   sd  7.0 points
+ * Four draws of 80 rows from ONE UNCHANGED search on the largest live client, every company
+ * researched, judged by the four-verdict judge as it now stands:
  *
- * The resolved figure is markedly steadier, because the all-rows figure carries the research
- * success rate as well as the search quality, and that rate swung from 15% to 40% unresolved
- * between identical draws.
+ *   fit of all sampled      43.8%, 37.5%, 45.0%, 26.3%   mean 38.1%   sd 7.4 points
+ *   fit of those resolved   50.0%, 43.5%, 48.6%, 27.6%   mean 42.4%   sd 8.9 points
  *
- * So comparisons are made on the resolved figure. Its standard error between two independent
- * draws is about sqrt(2) x 7.0 = 9.9 points, and the theoretical binomial figure at 68
- * resolved rows and p = 0.556 is 8.5 points, which agree. Fifteen points is roughly one and a
- * half of those, which is the point at which a difference is worth acting on rather than
- * worth noticing.
+ * Comparisons are made on the resolved figure. Its standard error between two independent
+ * draws is sqrt(2) x 8.9 = 12.6 points, and one and a half of those is 18.9.
  *
- * THE LIMITATION, stated rather than buried: three draws is a thin basis for a standard
- * deviation, and this figure should be re-measured once real rounds have accumulated. The
- * measured floor is stored on every run so that can be done from the record.
+ * SO THE THRESHOLD WENT UP, NOT DOWN. The four-verdict judge wobbles MORE than the
+ * three-verdict one did (sd 8.9 against 7.0), because it has one more boundary to place: the
+ * split between the best kind of customer and the merely acceptable kind moved from 19/16 to
+ * 22/8 to 13/23 to 10/11 across four draws of an unchanged search. Adding a verdict bought
+ * a distinction that matters and cost precision, and the honest response is a wider floor
+ * rather than the old number.
+ *
+ * THE LIMITATION, stated rather than buried: four draws is a thin basis for a standard
+ * deviation, and one of them (27.6%) sits well below the other three. The measured floor is
+ * stored on every run so it can be re-derived from real rounds rather than from this.
  */
-export const MIN_FIT_IMPROVEMENT = 0.15
+export const MIN_FIT_IMPROVEMENT = 0.19
 
 export interface FitComparison {
   before: number | null

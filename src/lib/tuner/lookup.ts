@@ -21,6 +21,7 @@
 
 import { webSearch } from '@/lib/agents/tools/webSearch'
 import { logger } from '@/lib/logger'
+import { PRICE_PER_BILLABLE_SEARCH, tokenCost, isPricedModel, usd } from '@/lib/tuner/pricing'
 
 /**
  * How long one lookup may take.
@@ -43,6 +44,11 @@ export interface LookupResult {
   limited: boolean
   /** BILLABLE searches the provider actually ran. Not the number of lookups. */
   billableSearches: number
+  /** The other two thirds of the bill. See webSearch's WebSearchResult for why. */
+  inputTokens: number
+  outputTokens: number
+  /** The model billed, so the tokens can be priced against the right rate. */
+  model: string | null
 }
 
 /**
@@ -54,13 +60,56 @@ export interface LookupResult {
 export class LookupBudget {
   private lookupsUsed = 0
   private searchesBilled = 0
+  private inTokens = 0
+  private outTokens = 0
+  private unpricedModel = false
   private readonly resolved = new Map<string, LookupResult>()
 
-  constructor(readonly maxLookups: number) {}
+  /**
+   * @param maxLookups  how many lookups this run may make.
+   * @param maxUsd      the money ceiling. Infinity means "counted and reported, never enforced",
+   *                    which is the right default for a caller that has its own ceiling, and the
+   *                    wrong one for anything unattended.
+   */
+  constructor(readonly maxLookups: number, readonly maxUsd: number = Infinity) {}
 
   get lookups(): number { return this.lookupsUsed }
   get billableSearches(): number { return this.searchesBilled }
-  get exhausted(): boolean { return this.lookupsUsed >= this.maxLookups }
+  get inputTokens(): number { return this.inTokens }
+  get outputTokens(): number { return this.outTokens }
+
+  /**
+   * What has been spent, at list prices. See pricing.ts: an estimate, deliberately allowed
+   * to overstate, and never an invoice.
+   */
+  get spentUsd(): number {
+    return this.searchesBilled * PRICE_PER_BILLABLE_SEARCH
+      + tokenCost(this.pricingModel, this.inTokens, this.outTokens)
+  }
+
+  /** Null once any lookup came back on a model with no published price. See tokenCost. */
+  private pricingModel: string | null = null
+
+  /** True if any lookup was priced at the fallback rate rather than a known one. */
+  get pricedOnAnUnknownModel(): boolean { return this.unpricedModel }
+
+  /**
+   * Exhausted on EITHER limit.
+   *
+   * Both are counted our side and both are checked before a call, never during one, so the
+   * ceiling can only ever stop the NEXT lookup. There is no way to stop a call already in
+   * flight, and pretending otherwise would make the ceiling a lie by roughly one lookup.
+   */
+  get exhausted(): boolean {
+    return this.lookupsUsed >= this.maxLookups || this.spentUsd >= this.maxUsd
+  }
+
+  /** Which limit stopped it, so a truncated run says why rather than just being short. */
+  get stopReason(): 'lookup_cap' | 'money_cap' | null {
+    if (this.spentUsd >= this.maxUsd) return 'money_cap'
+    if (this.lookupsUsed >= this.maxLookups) return 'lookup_cap'
+    return null
+  }
 
   /** A name already looked up this run, if there is one. */
   cached(name: string): LookupResult | undefined {
@@ -70,7 +119,21 @@ export class LookupBudget {
   record(name: string, result: LookupResult): void {
     this.lookupsUsed += 1
     this.searchesBilled += result.billableSearches
+    this.inTokens += result.inputTokens
+    this.outTokens += result.outputTokens
+    if (result.model) {
+      this.pricingModel = result.model
+      if (!isPricedModel(result.model)) this.unpricedModel = true
+    }
     this.resolved.set(normaliseName(name), result)
+  }
+
+  /** One line, for reporting spend AS IT GOES rather than only at the end. */
+  describe(): string {
+    return `${this.lookupsUsed} lookups, ${this.searchesBilled} billable searches, ` +
+      `${this.inTokens} in / ${this.outTokens} out tokens, ` +
+      `${usd(this.spentUsd)}${Number.isFinite(this.maxUsd) ? ` of ${usd(this.maxUsd)}` : ''}` +
+      `${this.unpricedModel ? ' (priced at the fallback rate: unknown model)' : ''}`
   }
 }
 
@@ -88,7 +151,7 @@ function normaliseName(name: string): string {
 
 /** The question put to the search. Category-level; the employer name arrives at run time. */
 export function buildLookupQuery(companyName: string): string {
-  return `What does the organisation "${companyName}" do, what does it sell, and who are its customers?`
+  return `What does the organisation "${companyName}" sell, and who buys it?`
 }
 
 /**
@@ -107,8 +170,11 @@ export async function lookUpCompany(
 
   if (budget.exhausted) {
     logger.info('tuner: lookup cap reached, name left unresolved', {
+      stopped_by: budget.stopReason,
       lookups_used: budget.lookups,
       cap: budget.maxLookups,
+      spent_usd: budget.spentUsd,
+      cap_usd: budget.maxUsd,
     })
     return null
   }
@@ -116,7 +182,7 @@ export async function lookUpCompany(
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const result = await Promise.race([
-      webSearch(buildLookupQuery(companyName), { maxUses: REQUESTED_MAX_USES }),
+      webSearch(buildLookupQuery(companyName), { maxUses: REQUESTED_MAX_USES, brief: true }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('tuner: lookup timed out')), LOOKUP_TIMEOUT_MS)
       }),
@@ -126,6 +192,9 @@ export async function lookUpCompany(
       text: result.synthesis,
       limited: result.limited,
       billableSearches: result.searchCount,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      model: result.model,
     }
     budget.record(companyName, out)
     return out
@@ -137,6 +206,12 @@ export async function lookUpCompany(
       text: '',
       limited: true,
       billableSearches: 0,
+      // Same reasoning as billableSearches: a call that threw carries no response body, so
+      // the tokens it burned before failing are not knowable from here. Zero is a FLOOR on
+      // what was spent, never a claim that nothing was.
+      inputTokens: 0,
+      outputTokens: 0,
+      model: null,
     }
     budget.record(companyName, failed)
     logger.warn('tuner: lookup failed', { error: err instanceof Error ? err.message : String(err) })
