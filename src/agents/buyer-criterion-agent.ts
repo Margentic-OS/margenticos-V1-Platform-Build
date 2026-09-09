@@ -46,7 +46,15 @@ import { parseProposedSearch, type ProposedSearch } from '@/lib/tuner/proposed-s
 import { OMITTABLE_AXES } from '@/lib/agents/icp-filter-spec'
 
 const BUYER_CRITERION_MODEL = 'claude-opus-4-6'
-const MAX_TOKENS = 2048
+// RAISED FROM 2048 WITH THE WHOLE-DOCUMENT DERIVATION, and the reason is a defect this
+// caused rather than a precaution. The contract went from six keys to eleven, the last of
+// which is a complete proposed search with a reason on every element. Two of three live
+// clients failed with truncated JSON at roughly 7,300 characters, which is where 2048
+// tokens runs out. The parse error named a column number and nothing named the cause.
+//
+// A response cap and an output contract are two things that have to be kept in step by
+// hand, and nothing checks them. Adding a key to the contract means checking this number.
+const MAX_TOKENS = 8192
 
 // ─── The Rule Zero guard ─────────────────────────────────────────────────────
 //
