@@ -142,6 +142,9 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   // The fit judge, added 2026-09-09. Zero against both scans, measured rather than assumed:
   // the entry was added, both scans re-run, and neither total nor any other source moved.
   'src/lib/tuner/fit-judge.ts:buildFitJudgePrompt': 0,
+  // ADDED 2026-09-09 with the cheaper read. MEASURED, not assumed: the entry was added and
+  // the scan re-run, and neither total moved.
+  'src/lib/agents/tools/webSearch.ts:searchViaNativeAnthropic': 0,
   // The document agents' user messages, added 2026-09-08. Four clean; two false positives
   // recorded rather than allowlisted. See the note above BASELINE_TOTAL.
   'src/agents/icp-generation-agent.ts:buildUserMessage': 0,

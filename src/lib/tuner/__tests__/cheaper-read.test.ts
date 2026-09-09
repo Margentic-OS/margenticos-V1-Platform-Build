@@ -48,7 +48,11 @@ const searchResponse = (synthesis: string, searches = 1) => ({
   ],
 })
 
-const USABLE = 'It sells a scheduling product to independent practices, who use it to fill gaps.'
+// A PLACEHOLDER, deliberately naming no sector, product or buyer. This file is about how
+// much is read, not about what is read, so the content only has to be long enough to clear
+// the usability floor.
+const USABLE = 'Placeholder Org sells a placeholder offering to placeholder buyers, who use it '
+  + 'for a placeholder purpose, and this sentence exists only to clear the length floor.'
 
 describe('the brief read asks for one search and one answer', () => {
   it('sends a different instruction, and it is the one that forbids a second search', async () => {
