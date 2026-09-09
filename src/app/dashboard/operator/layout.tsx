@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { OperatorSidebar } from '@/components/dashboard/OperatorSidebar'
-import { EnrichmentModeBanner } from '@/components/operator/enrichment-mode-banner'
+import { EnrichmentModeBanner, shouldShowGlobalEnrichmentBanner } from '@/components/operator/enrichment-mode-banner'
 import { resolveEnrichmentMode } from '@/lib/sourcing/enrichment-mode'
 
 export default async function OperatorLayout({
@@ -70,7 +70,7 @@ export default async function OperatorLayout({
           reading, and it is the state the banner was rewritten for after it once failed
           into a false "Test Mode Active" while the flag was live.
         */}
-        {enrichmentMode === 'unknown' && (
+        {shouldShowGlobalEnrichmentBanner(enrichmentMode) && (
           <div className="p-4 border-b bg-white">
             <EnrichmentModeBanner mode={enrichmentMode} />
           </div>

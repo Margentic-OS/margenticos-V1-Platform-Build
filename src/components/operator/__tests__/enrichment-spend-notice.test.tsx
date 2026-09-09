@@ -88,3 +88,38 @@ describe('EnrichmentSpendNotice', () => {
     expect(new Set(texts).size).toBe(3)
   })
 })
+
+// ─── The global banner fires ONLY when the setting cannot be determined ──────
+//
+// The rule lives in shouldShowGlobalEnrichmentBanner rather than as a condition inside the
+// operator layout, because the layout is an async server component that does auth and two
+// database reads before it renders anything. Testing the rule where it is decided means
+// this can be asserted directly instead of through a mock of the whole page.
+
+import { shouldShowGlobalEnrichmentBanner } from '../enrichment-mode-banner'
+
+describe('when the enrichment banner is allowed to take the whole screen', () => {
+  it('does NOT render when the setting is known and live', () => {
+    // The defect: enrichment_live is true in production, so this rendered a red banner on
+    // every operator screen, permanently, about the system working normally.
+    expect(shouldShowGlobalEnrichmentBanner('live')).toBe(false)
+  })
+
+  it('does NOT render when the setting is known and off', () => {
+    expect(shouldShowGlobalEnrichmentBanner('test')).toBe(false)
+  })
+
+  it('DOES render when the setting cannot be determined', () => {
+    // Not a description of the system, but the absence of one: nobody can say whether
+    // enrichment is spending, so the correct action is to stop.
+    expect(shouldShowGlobalEnrichmentBanner('unknown')).toBe(true)
+  })
+
+  it('is loud for exactly one of the three states, and it is not a known one', () => {
+    // Guards the whole rule rather than three cases separately. If a future edit makes two
+    // states loud, or moves loudness onto a known state, this fails even if the individual
+    // assertions above were updated to match.
+    const loud = (['live', 'test', 'unknown'] as const).filter(shouldShowGlobalEnrichmentBanner)
+    expect(loud).toEqual(['unknown'])
+  })
+})
