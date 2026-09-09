@@ -106,7 +106,12 @@ export async function POST(request: NextRequest) {
       if (suggestion.document_type === 'icp') {
         const validation = await validateIcpFilterSpec(supabase, suggestion.id)
         if (!validation.valid) {
-          logger.info('Auto-approve cron: ICP filter spec not ready, deferring', {
+          // Deferring is right for BOTH reasons but for different lengths of time:
+          // still_generating resolves itself on the next run, needs_regeneration never
+          // does and will defer for ever until an operator acts. Logged at different
+          // levels so the second one is findable rather than buried in routine noise.
+          const log = validation.reason === 'needs_regeneration' ? logger.warn : logger.info
+          log('Auto-approve cron: ICP filter spec not ready, deferring', {
             suggestion_id: suggestion.id,
             organisation_id: suggestion.organisation_id,
             reason: validation.reason,

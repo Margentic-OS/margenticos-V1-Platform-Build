@@ -35,6 +35,17 @@ import { buildRegenerationNotesBlock, buildRegenerationNotesReason, noteForVersi
 // The model specified in the PRD for document generation agents.
 const ICP_MODEL = 'claude-opus-4-6'
 
+/**
+ * The agent_runs.agent_name this agent writes.
+ *
+ * Exported because validate-icp-filter-spec has to ask "is an ICP agent running for this
+ * organisation right now", and a second copy of the string there would be a list kept in
+ * step with this one by hand. The first version of that check guessed three plausible names
+ * and every one of them was wrong: the live table says 'icp-generation'. A guessed literal
+ * in a guard means the guard silently never fires.
+ */
+export const ICP_AGENT_NAME = 'icp-generation'
+
 // Maximum tokens for the ICP response. 8192 needed — three full tiers with all fields
 // can exceed 4096 tokens, causing truncated JSON that fails to parse.
 const MAX_TOKENS = 8192
@@ -92,7 +103,7 @@ export async function runIcpGenerationAgent(
 
   logger.info('ICP agent: starting', { organisation_id, segment_id })
 
-  const agentRun = await startAgentRun({ organisation_id, agent_name: 'icp-generation' })
+  const agentRun = await startAgentRun({ organisation_id, agent_name: ICP_AGENT_NAME })
 
   // Overall agent guard: fail gracefully at 240s (60s before Vercel's 300s ceiling)
   // to ensure agentRun.fail() can complete before the platform kills the function.

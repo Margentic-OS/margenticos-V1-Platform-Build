@@ -120,10 +120,22 @@ export async function POST(
   if (suggestion.document_type === 'icp') {
     const validation = await validateIcpFilterSpec(supabase, suggestion.id)
     if (!validation.valid) {
+      // Two states, two different actions. The distinction is the whole reason the gate
+      // returns a reason rather than a boolean, and neither message has ever been shown to
+      // anyone: the gate selected a column that does not exist and failed open on every
+      // call since it was written. See validate-icp-filter-spec.ts.
+      //
+      // WAIT vs ACT. "Still generating" must not tell the operator to regenerate, because
+      // regenerating mid-run is how you get two concurrent ICP runs for one organisation.
+      // "Missing" must not tell them to wait, because nothing is coming.
       const clientMessage =
         validation.reason === 'still_generating'
-          ? 'The ICP filter specification is still being generated. Please wait a moment and try again.'
-          : 'The ICP filter specification is missing. Please regenerate the ICP and try again.'
+          ? 'This ICP is still being written. The filter specification appears when it finishes, ' +
+            'usually within a few minutes. Wait and approve again. Do not regenerate: that would ' +
+            'start a second run alongside the one already going.'
+          : 'This ICP has no filter specification, so sourcing would have nothing to search on. ' +
+            'Regenerate the ICP, then approve the new version. Approving this one would leave the ' +
+            'client with a live document that cannot produce prospects.'
 
       logger.warn('Approve route: ICP validation failed', {
         suggestion_id: id,
