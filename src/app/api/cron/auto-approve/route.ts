@@ -17,7 +17,7 @@ import { triggerCascadeIfEligible } from '@/lib/agents/cascade/trigger-cascade'
 import { notifyAfterPromotion } from '@/lib/notifications/notify-after-promotion'
 import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
 import { plainTextForSuggestedValue } from '@/lib/documents/plain-text-for-suggestion'
-import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
+import { logUngatedIcpApproval } from '@/lib/sourcing/log-ungated-icp-approval'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import {
   approvalReminderTemplate,
@@ -102,10 +102,10 @@ export async function POST(request: NextRequest) {
 
   for (const suggestion of due) {
     try {
-      // Not a gate: see the approve route and validate-icp-filter-spec's header. The spec is
+      // Not a gate: see log-ungated-icp-approval's header. The spec is
       // derived after promotion, so there is nothing to check here. Called for its log line.
       if (suggestion.document_type === 'icp') {
-        await validateIcpFilterSpec(supabase, suggestion.id)
+        await logUngatedIcpApproval(supabase, suggestion.id)
       }
 
       // Rendered through the SAME helper the operator's approve route uses. A document

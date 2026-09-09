@@ -36,11 +36,13 @@
 // not "does it behave correctly for the row I imagined".
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
+import { logUngatedIcpApproval } from '@/lib/sourcing/log-ungated-icp-approval'
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }))
+
+import { logger } from '@/lib/logger'
 
 // ─── The real schema, read from information_schema on 2026-09-08 ─────────────
 
@@ -116,36 +118,52 @@ describe('the fake rejects the columns the dead gate selected', () => {
 
 // ─── Round two: the current, honest behaviour ────────────────────────────────
 
-describe('validateIcpFilterSpec allows every approval, on purpose', () => {
-  it('allows an ICP, because the spec is derived AFTER promotion and cannot exist yet', async () => {
-    // The assertion that matters. It looks trivial and it is load-bearing: the previous
-    // version of this file asserted the opposite and would have blocked every ICP approval
-    // in production. Measured 2026-09-08: 0 of 25 real ICP suggestions carry a spec.
-    expect(await validateIcpFilterSpec(makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid'))
-      .toEqual({ valid: true })
+describe('logUngatedIcpApproval blocks nothing, and cannot', () => {
+  it('RETURNS NOTHING, so no caller can mistake it for a verdict', async () => {
+    // The assertion that matters, and it is load-bearing precisely because it looks trivial.
+    // The previous version of this file asserted a REFUSAL and would have blocked every ICP
+    // approval in production. Measured 2026-09-08: 0 of 25 real ICP suggestions carry a spec,
+    // because the spec is derived AFTER promotion. A void return is what stops a future
+    // caller reintroducing a branch on a decision this function is not entitled to make.
+    const result = await logUngatedIcpApproval(
+      makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid')
+    expect(result).toBeUndefined()
   })
 
-  it('allows a non-ICP without reading agent_runs', async () => {
-    const fake = makeFake({
+  it('says so in the log, so the absence of a gate is visible at runtime', async () => {
+    await logUngatedIcpApproval(makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid')
+
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('derived AFTER promotion'),
+      expect.objectContaining({ organisation_id: 'org-uuid' }),
+    )
+  })
+
+  it('stays silent for a non-ICP, which is not the case it describes', async () => {
+    await logUngatedIcpApproval(makeFake({
       document_suggestions: {
         data: { id: 's', organisation_id: 'org-uuid', document_type: 'tov' },
         error: null,
       },
-    })
-    expect(await validateIcpFilterSpec(fake, 'sugg-uuid')).toEqual({ valid: true })
+    }), 'sugg-uuid')
+
+    expect(logger.info).not.toHaveBeenCalled()
   })
 
-  it('allows when the suggestion cannot be read at all', async () => {
-    const fake = makeFake({ document_suggestions: { data: null, error: { message: 'not found' } } })
-    expect(await validateIcpFilterSpec(fake, 'missing')).toEqual({ valid: true })
-  })
-
-  it('never queries agent_runs, because there is no longer a two-state verdict', async () => {
-    // agent_runs is absent from the fake entirely, so any read of it throws "no such table".
-    // That is the point: the still_generating branch is gone, and this fails loudly if it
-    // comes back without the surrounding design being reconsidered.
+  it('never throws when the suggestion cannot be read: a log line must not fail an approval', async () => {
     await expect(
-      validateIcpFilterSpec(makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid'),
-    ).resolves.toEqual({ valid: true })
+      logUngatedIcpApproval(
+        makeFake({ document_suggestions: { data: null, error: { message: 'not found' } } }),
+        'missing'),
+    ).resolves.toBeUndefined()
+  })
+
+  it('never touches agent_runs, so the impossible still-generating branch cannot return', async () => {
+    // agent_runs is absent from the fake, so any read of it throws "fake: no such table".
+    // This fails loudly if a two-state verdict is reintroduced without the ordering problem
+    // in the module header being solved first.
+    await expect(
+      logUngatedIcpApproval(makeFake({ document_suggestions: icpSuggestion() }), 'sugg-uuid'),
+    ).resolves.toBeUndefined()
   })
 })

@@ -32,7 +32,7 @@ import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
 export const maxDuration = 300
 
 import { plainTextForSuggestedValue } from '@/lib/documents/plain-text-for-suggestion'
-import { validateIcpFilterSpec } from '@/lib/sourcing/validate-icp-filter-spec'
+import { logUngatedIcpApproval } from '@/lib/sourcing/log-ungated-icp-approval'
 
 export async function POST(
   _request: NextRequest,
@@ -114,15 +114,15 @@ export async function POST(
     )
   }
 
-  // ── 4. Pre-approval gate: NOT A GATE, and deliberately so ───────────────────
-  // validateIcpFilterSpec allows every approval. The filter spec is derived AFTER promotion
+  // ── 4. No pre-approval check on the filter spec, and that is deliberate ─────
+  // Nothing is checked here. The filter spec is derived AFTER promotion
   // by persistIcpFilterSpec (called below in after()), so it cannot exist at this point and
   // refusing on its absence would refuse every ICP. Measured on production 2026-09-08:
   // 0 of 25 ICP suggestions carry a spec in suggested_value, and 0 of 24 ICP documents carry
   // one in content. The call is kept for the log line it emits, which records per approval
   // that nothing was checked. See the module header and the Backlog row.
   if (suggestion.document_type === 'icp') {
-    await validateIcpFilterSpec(supabase, suggestion.id)
+    await logUngatedIcpApproval(supabase, suggestion.id)
   }
 
   // ── 5. Atomic transaction via Postgres function ─────────────────────────────

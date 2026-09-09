@@ -38,11 +38,13 @@ const ICP_MODEL = 'claude-opus-4-6'
 /**
  * The agent_runs.agent_name this agent writes.
  *
- * Exported because validate-icp-filter-spec has to ask "is an ICP agent running for this
- * organisation right now", and a second copy of the string there would be a list kept in
- * step with this one by hand. The first version of that check guessed three plausible names
- * and every one of them was wrong: the live table says 'icp-generation'. A guessed literal
- * in a guard means the guard silently never fires.
+ * Exported so no other module has to write the string out again. Its first consumer, a
+ * still-generating check in the ICP approval gate, is gone: that gate could not work and was
+ * replaced by logUngatedIcpApproval. The export is kept because the lesson that produced it
+ * outlives the caller. A first draft of that check guessed three plausible names,
+ * 'icp-generation-agent', 'icp_generation_agent' and 'icp-agent', and EVERY ONE WAS WRONG;
+ * the live table says 'icp-generation'. A guard filtering on a name nothing writes matches
+ * zero rows and returns the reassuring answer for ever.
  */
 export const ICP_AGENT_NAME = 'icp-generation'
 
