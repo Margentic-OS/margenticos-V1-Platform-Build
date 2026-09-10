@@ -212,6 +212,16 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   // The tuner's judge, added 2026-09-08. Zero, measured rather than assumed: the entry was
   // added and the scan re-run, and neither the total nor any other source moved.
   'src/lib/tuner/judge.ts:buildJudgePrompt': 0,
+  // The fit judge, added 2026-09-09. Zero against both scans, measured rather than assumed:
+  // the entry was added, both scans re-run, and neither total nor any other source moved.
+  'src/lib/tuner/fit-judge.ts:buildFitJudgePrompt': 0,
+  // ADDED 2026-09-09. MEASURED, not assumed. Zero is the only acceptable value here: this is
+  // the prompt whose whole subject is what a name means, so any entry above zero is a rule
+  // about names that would apply to every client at once.
+  'src/lib/tuner/name-signal.ts:buildNameSignalPrompt': 0,
+  // ADDED 2026-09-09 with the cheaper read. MEASURED, not assumed: the entry was added and
+  // the scan re-run, and neither total moved.
+  'src/lib/agents/tools/webSearch.ts:searchViaNativeAnthropic': 0,
   // The document agents' user messages, added 2026-09-08. See the note above BASELINE_TOTAL.
   // The four zeros are the fix to the hardcoded-industry incident, now pinned by a test.
   'src/agents/icp-generation-agent.ts:buildUserMessage': 0,

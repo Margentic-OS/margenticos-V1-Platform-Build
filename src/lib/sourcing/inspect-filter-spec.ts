@@ -50,7 +50,7 @@ export interface SpecFinding {
 // Typed as Record<FilterSpecField, ...> WITHOUT a cast, so omitting a field is a compile
 // error rather than an untested field. CLAUDE.md's rule on `as` over an object literal:
 // the cast would switch off exactly the check that makes this correct.
-const FIELD_KINDS: Record<FilterSpecField, 'string[]' | 'number'> = {
+const FIELD_KINDS: Record<FilterSpecField, 'string[]' | 'number' | 'number_or_null'> = {
   job_titles: 'string[]',
   job_titles_excluded: 'string[]',
   seniority_levels: 'string[]',
@@ -62,6 +62,12 @@ const FIELD_KINDS: Record<FilterSpecField, 'string[]' | 'number'> = {
   industries_excluded: 'string[]',
   keywords: 'string[]',
   keywords_excluded: 'string[]',
+  // NULLABLE ON PURPOSE. A document that states no revenue band leaves these null, and null
+  // is the value the handler reads as "send no bound". Typing them as plain numbers would
+  // make every client without a stated band report a wrong-type finding for behaving
+  // correctly, which is how a report gets ignored.
+  company_revenue_min: 'number_or_null',
+  company_revenue_max: 'number_or_null',
 }
 
 function isStringArray(v: unknown): boolean {
@@ -98,6 +104,9 @@ export function inspectFilterSpec(
   // missing `notes` is cosmetic rather than a rule that stopped being applied.
   for (const field of FILTER_SPEC_FIELDS) {
     const value = s[field]
+    // A NULL IS A VALUE for a nullable field, and reporting it missing would tell an
+    // operator to fix a spec that is correct.
+    if (value === null && FIELD_KINDS[field] === 'number_or_null') continue
     if (value === undefined || value === null) {
       findings.push({
         code: 'field_missing',
@@ -111,7 +120,9 @@ export function inspectFilterSpec(
     const kind = FIELD_KINDS[field]
     const ok = kind === 'number'
       ? typeof value === 'number' && Number.isFinite(value)
-      : isStringArray(value)
+      : kind === 'number_or_null'
+        ? value === null || (typeof value === 'number' && Number.isFinite(value))
+        : isStringArray(value)
     if (!ok) {
       findings.push({
         code: 'field_wrong_type',
