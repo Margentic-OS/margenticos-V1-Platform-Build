@@ -1,4 +1,14 @@
 -- Status: APPLIED (verified live 2026-09-10)
+--
+-- CORRECTION, SAME DAY. The herd hypothesis in the header below was overturned by a
+-- different session before the 48-hour window closed. Failures cluster by JOB, not by
+-- minute, and the jobs that fail most happen to run at :00, so the by-minute table below is
+-- a composition artefact. queue-worker, the one job that runs at every minute, had 0
+-- failures in 19 runs at :00 and 3 in 1,091 elsewhere. The stagger stays applied: it is
+-- harmless and peak concurrency really is lower. It is no longer a test of anything, and the
+-- WORKED / DID NOT WORK bands below are void. Everything below is kept unedited as the
+-- record of what was believed and why. See the Notion Backlog row "Ten crons fire in the
+-- same second at :00 against a 60-connection instance, and nothing retries".
 -- Stagger the pg_cron minute offsets so the jobs stop colliding.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
