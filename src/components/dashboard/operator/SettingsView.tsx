@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { updateBookingUrl } from '@/app/dashboard/operator/settings/actions'
+import { updateBookingUrl, updateRevenueFilterEnabled } from '@/app/dashboard/operator/settings/actions'
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // THIS COMPONENT RENDERS ONLY WHAT IT IS GIVEN. IT HAS NO DEFAULTS AND NO SAMPLES.
@@ -34,6 +34,7 @@ export interface OrganisationSettings {
   currency: string
   client_review_enabled: boolean
   linkedin_channel_enabled: boolean
+  sourcing_revenue_filter_enabled: boolean
   founder_first_name: string | null
   archived_at: string | null
 }
@@ -118,6 +119,50 @@ function Divider() {
 // decision requiring it to differ per client, something already reading it live
 // (process-reply.ts puts it in the reply a prospect receives), and no way to set it
 // outside SQL. Every other value stays read-only until it has all four.
+// The revenue band as a sourcing filter, per client. EDITABLE because it has all four: the
+// column, a write path (updateRevenueFilterEnabled), validation, and a test. Off by default,
+// because the provider's filter drops every company it holds no revenue figure for.
+function RevenueFilterToggle({ orgId, initial }: { orgId: string; initial: boolean }) {
+  const [enabled, setEnabled] = useState(initial)
+  const [error, setError] = useState<string | null>(null)
+  const [pending, startTransition] = useTransition()
+
+  function handleToggle() {
+    const next = !enabled
+    setError(null)
+    startTransition(async () => {
+      const result = await updateRevenueFilterEnabled(orgId, next)
+      if (result.error) {
+        setError(result.error)
+        return
+      }
+      // Show what the server stored, not what was clicked.
+      setEnabled(result.value ?? next)
+    })
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label="Revenue filter"
+        onClick={handleToggle}
+        disabled={pending}
+        className={`px-3 py-1 rounded-[6px] text-[12px] font-medium transition-colors disabled:opacity-60 ${
+          enabled
+            ? 'bg-brand-green text-[#F5F0E8]'
+            : 'bg-surface-content text-text-secondary border border-border-card'
+        }`}
+      >
+        {pending ? 'Saving' : enabled ? 'On' : 'Off'}
+      </button>
+      {error && <p className="text-[11px] text-[#8A2B2B] leading-relaxed">{error}</p>}
+    </div>
+  )
+}
+
 function BookingLinkField({ orgId, initial }: { orgId: string; initial: string | null }) {
   const [saved, setSaved] = useState<string | null>(initial)
   const [draft, setDraft] = useState(initial ?? '')
@@ -278,6 +323,16 @@ export function SettingsView({ organisation, integrations, clientRequested }: Se
                 <Divider />
                 <ValueRow label="LinkedIn channel">
                   {organisation.linkedin_channel_enabled ? 'On' : 'Off'}
+                </ValueRow>
+                <Divider />
+                <ValueRow
+                  label="Revenue filter"
+                  hint="When on, sourcing excludes companies outside the revenue band in this client's ICP, and every company the provider holds no revenue figure for. Takes effect at the next ICP approval."
+                >
+                  <RevenueFilterToggle
+                    orgId={organisation.id}
+                    initial={organisation.sourcing_revenue_filter_enabled}
+                  />
                 </ValueRow>
               </div>
             </Section>

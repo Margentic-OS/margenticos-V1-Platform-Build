@@ -1265,6 +1265,7 @@ export type Database = {
           calendly_url: string | null
           calendly_webhook_secret: string | null
           client_review_enabled: boolean
+          sourcing_revenue_filter_enabled: boolean
           contract_end_date: string | null
           contract_start_date: string | null
           contract_status: string | null
@@ -1301,6 +1302,7 @@ export type Database = {
           calendly_url?: string | null
           calendly_webhook_secret?: string | null
           client_review_enabled?: boolean
+          sourcing_revenue_filter_enabled?: boolean
           contract_end_date?: string | null
           contract_start_date?: string | null
           contract_status?: string | null
@@ -1337,6 +1339,7 @@ export type Database = {
           calendly_url?: string | null
           calendly_webhook_secret?: string | null
           client_review_enabled?: boolean
+          sourcing_revenue_filter_enabled?: boolean
           contract_end_date?: string | null
           contract_start_date?: string | null
           contract_status?: string | null

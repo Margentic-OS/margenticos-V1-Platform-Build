@@ -459,6 +459,7 @@ function parseModelResponse(raw: string): ModelResponse {
     : []
   const bands = keepHonourableBands(rawBands)
   const bandSet = new Set<string>(bands)
+  const omissions = parseProposedSearch(vocab.search).omit
   const seniority: SpecSeniority = {
     bands,
     discarded: rawBands
@@ -466,7 +467,10 @@ function parseModelResponse(raw: string): ModelResponse {
       .map(v => v.trim())
       .filter(v => v.length > 0 && !bandSet.has(v)),
     evidence: typeof vocab.seniority_evidence === 'string' ? vocab.seniority_evidence.trim() : '',
-    omitted: parseProposedSearch(vocab.search).omit.map(o => o.axis),
+    omitted: omissions.map(o => o.axis),
+    // The derivation's own reason for each switch-off, carried so the spec can say WHY a
+    // filter is off and not only that it is. It used to be parsed and then thrown away.
+    omittedReasons: Object.fromEntries(omissions.map(o => [o.axis, o.reason])),
   }
 
   const search = parseProposedSearch(vocab.search)

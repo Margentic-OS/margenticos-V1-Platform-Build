@@ -35,6 +35,7 @@ const ORG: OrganisationSettings = {
   currency: 'EUR',
   client_review_enabled: true,
   linkedin_channel_enabled: false,
+  sourcing_revenue_filter_enabled: false,
   founder_first_name: null,
   archived_at: null,
 }
@@ -85,8 +86,12 @@ describe('the placeholder is gone', () => {
     // literal while organisations.linkedin_channel_enabled was false on every row.
     expect(screen.queryByText(/LinkedIn post auto-approve/i)).toBeNull()
     expect(screen.queryByText(/Holding message/i)).toBeNull()
-    // And no switch survives under any label.
-    expect(screen.queryAllByRole('switch')).toHaveLength(0)
+    // And no switch survives under any label except the one that IS implemented: the
+    // revenue filter has a column, a write path, validation and a test (2026-09-10). Exactly
+    // one, and it must be that one, so a new unimplemented switch still fails here.
+    const switches = screen.queryAllByRole('switch')
+    expect(switches).toHaveLength(1)
+    expect(switches[0]).toHaveAccessibleName(/revenue filter/i)
   })
 
   it('does not describe the auto-approve window as fixed for all clients', () => {
@@ -182,5 +187,32 @@ describe('an archived organisation', () => {
     expect(screen.getByText(/archived/i)).toBeInTheDocument()
     // Still rendered, so the values can be read. The warning is the point, not a block.
     expect(screen.getByText("This client's settings")).toBeInTheDocument()
+  })
+})
+
+describe('the revenue filter shows the stored value, and is off unless opted in', () => {
+  it('renders Off for a client who has not been opted in', () => {
+    render(<SettingsView organisation={ORG} integrations={REGISTRY} clientRequested />)
+    const control = screen.getByRole('switch', { name: /revenue filter/i })
+    expect(control).toHaveAttribute('aria-checked', 'false')
+    expect(control).toHaveTextContent('Off')
+  })
+
+  it('renders On for a client who has', () => {
+    render(
+      <SettingsView
+        organisation={{ ...ORG, sourcing_revenue_filter_enabled: true }}
+        integrations={REGISTRY}
+        clientRequested
+      />,
+    )
+    const control = screen.getByRole('switch', { name: /revenue filter/i })
+    expect(control).toHaveAttribute('aria-checked', 'true')
+    expect(control).toHaveTextContent('On')
+  })
+
+  it('says when a change takes effect, beside the control', () => {
+    render(<SettingsView organisation={ORG} integrations={REGISTRY} clientRequested />)
+    expect(screen.getByText(/takes effect at the next ICP approval/i)).toBeInTheDocument()
   })
 })
