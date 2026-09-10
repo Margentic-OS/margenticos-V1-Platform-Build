@@ -2,7 +2,61 @@
 -- Stagger the pg_cron minute offsets so the jobs stop colliding.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
--- WHY
+-- CORRECTION, added 2026-09-10 after this was applied. READ THIS BEFORE "WHY".
+--
+-- The 32x in the WHY section below is a composition artefact, not evidence that
+-- jobs starting together caused the failures. The offsets are KEPT AS HARMLESS
+-- HYGIENE. They are not a fix. The real cause is slow reads inside specific jobs.
+--
+-- Why the ratio proves nothing. Each job runs only at its own minutes, so a job that
+-- fails often for its own reasons can only ever fail at those minutes. Comparing
+-- failure rates by minute cannot separate the crowd from the job. Re-measured over
+-- this file's own 18-hour window, the 7 failures at :00 were:
+--
+--   suppression-reconcile   4    ran ONLY at :00 and :30
+--   monitor-sweep           2    ran ONLY at :00, :15, :30, :45
+--   instantly-poll          1    ran ONLY at :00, :15, :30, :45
+--
+-- None of those jobs could have failed at a quiet minute, because none ran at one.
+-- In the 7 days before this migration their own failure rates were 1.75% (5 of 286)
+-- and 1.19% (8 of 672), against 0.04% for queue-worker.
+--
+-- The one unconfounded test. queue-worker was the only job running every minute, so it
+-- saw busy minutes and quiet ones alike. If ten jobs starting together caused the
+-- timeouts, it would fail MORE at :00. It failed less:
+--
+--   same 18-hour window    :00   18 runs, 0 failures    other minutes  1,062 runs, 3
+--   7 days before          :00  168 runs, 0 failures    quiet minutes  8,070 runs, 2
+--
+-- The WHY section's own diagnosis already pointed away from start-time contention:
+-- the timeouts reached "a route that was already running". A query that is slow once
+-- running is not helped by changing the minute it starts. The reads named in
+-- cron_heartbeats.detail are suppression-reconcile's "could not read uploaded
+-- prospects", "capability registry read failed" and "global suppression check
+-- failed", plus queue-worker's queue_next_organisations and reclaim_expired_jobs.
+-- monitor-sweep's heartbeat names no query ("Checked N monitors, 1 error(s)"), so
+-- where its time goes is not established by this data.
+--
+-- suppression-reconcile is the job behind MON-026, the only instrument that checks
+-- whether someone who asked to be removed is still being emailed. Its timeouts are
+-- not ordinary job noise.
+--
+-- Why the offsets stay: no job's frequency changed, all ten HTTP jobs fired healthy
+-- afterwards, and reverting would be a second production change for no benefit.
+--
+-- THE 48-HOUR TEST UNDER "WHAT TO EXPECT" CANNOT FALSIFY ANYTHING. Do not use it.
+-- Its primary criterion is the by-minute ratio collapsing, and these offsets guarantee
+-- that: every failure-prone job was moved off :00, which is now empty. It reports
+-- WORKED whether or not contention was ever the cause. The honest before/after is PER
+-- JOB: if suppression-reconcile stays near 1.75% and monitor-sweep near 1.19%, the
+-- stagger changed nothing, which is what this correction predicts.
+--
+-- DATABASE-EVIDENCED: cron_heartbeats on production, read 2026-09-10. Do not use
+-- cron.job_run_details for this. It recorded all 18,950 runs in the prior 7 days as
+-- succeeded, because it records the SQL that queued the HTTP call, not the call.
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHY  (SUPERSEDED: see CORRECTION above)
 --
 -- Measured on production over the 18 hours to 2026-09-10 13:00 UTC: 13 failures
 -- across four jobs, every one of them a Gateway Timeout returned by PostgREST to a
@@ -27,7 +81,7 @@
 -- reversible, so it is tried and MEASURED before anything is upgraded.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
--- WHAT TO EXPECT, SO THE RE-MEASURE CAN FALSIFY THIS RATHER THAN CONFIRM IT
+-- WHAT TO EXPECT  (DO NOT USE: see CORRECTION above. This test cannot falsify.)
 --
 -- Re-measure after 48 hours (~5,400 runs). At the observed 0.64% overall rate an
 -- unchanged system predicts ~35 failures.
