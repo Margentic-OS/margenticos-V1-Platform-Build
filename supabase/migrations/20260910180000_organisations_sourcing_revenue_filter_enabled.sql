@@ -1,6 +1,15 @@
 -- organisations.sourcing_revenue_filter_enabled: the per-client opt-in for the revenue band.
 --
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-09-10)
+--   Production hjpvnvjryxdjcfdsfhzy: recorded as version 20260910233902 (the MCP records its
+--     own timestamp, not this filename's). Read back: boolean, NOT NULL, default false,
+--     comment present, 5 organisations, 0 opted in.
+--   Test tidqheqjzvwmrrrebzir: applied the same day. Read back identically, 570
+--     organisations, 0 opted in.
+--   Both: organisations policies unchanged, operators_full_access_organisations (ALL) and
+--     clients_read_own_organisation (SELECT). No client write path.
+--   Applied before the branch is merged. Additive and defaulted, so the deployed code, which
+--     does not read the column, is unaffected until merge.
 --
 -- ─── WHY THIS EXISTS ─────────────────────────────────────────────────────────
 --
