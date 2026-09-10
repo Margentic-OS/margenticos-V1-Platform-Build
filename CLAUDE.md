@@ -903,6 +903,9 @@ Phase one — schema only:
   Do not build it speculatively.
 
 Auto-approve: phase four only. Do not build in phase one.
+The hourly auto-approve job that was built anyway is PAUSED, not fixed. See ADR-052: its
+broken reviewer foreign key is the only thing that ever stopped it, so fixing that key
+while the job runs switches auto-approval on.
 
 ---
 
@@ -1786,6 +1789,9 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-039  A client-facing view runs as the CALLER, and the GRANT is the control;
            the predicate constrains which rows, only the grant constrains what
            operations, so a read-only view gets SELECT and nothing else
+  ADR-052  The hourly auto-approve job on document_suggestions is paused, not fixed. It
+           was never authorised (phase four) and never approved anything, and fixing its
+           reviewer foreign key while it runs would switch auto-approval on
 
 ---
 

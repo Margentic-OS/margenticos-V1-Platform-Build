@@ -1,4 +1,6 @@
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-09-10). Recorded remotely as version 20260910211319.
+-- Verified by row comparison: only auto-approve changed, active true -> false; its schedule
+-- and command fingerprint unchanged; the other eleven jobs identical in all three.
 -- Pause the hourly auto-approve job. See ADR-052.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
