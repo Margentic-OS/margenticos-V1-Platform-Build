@@ -1,0 +1,57 @@
+-- Status: NOT YET APPLIED
+-- Pause the hourly auto-approve job. See ADR-052.
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHAT
+--
+-- Sets pg_cron job 'auto-approve' to active = false. The row, its schedule and its
+-- command are left exactly as they are. Nothing is deleted, and the bearer token the
+-- command carries never passes through this file.
+--
+-- PAUSED, NOT UNSCHEDULED. cron.unschedule() DELETES the job row, and with it the only
+-- stored copy of the command. Re-creating it would mean writing the token into a
+-- migration, which the pre-commit gate blocks, and correctly. alter_job(active => false)
+-- stops the schedule and keeps everything needed to resume.
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHY
+--
+-- The job promotes pending document_suggestions to live strategy documents once
+-- organisations.auto_approve_window_hours has elapsed. ADR-002, CLAUDE.md and PRD 07 all
+-- put auto-approve in phase four and say not to build it. It was built anyway on
+-- 2026-04-23 (679d40a) and moved onto pg_cron on 2026-06-05 (2880866).
+--
+-- It has never approved anything. It writes reviewed_by = 00000000-0000-0000-0000-000000000001,
+-- that id is in neither public.users nor auth.users, and document_suggestions.reviewed_by
+-- has a foreign key to users. Every approval it attempts rolls back. Measured 2026-09-10:
+-- 0 of 92 suggestions carry that id.
+--
+-- THAT FOREIGN KEY IS THE ONLY THING THAT EVER STOPPED IT. With this job active, fixing
+-- the key switches on automatic approval of agent-written client copy. Do not re-enable
+-- this job, and do not fix that key, without first superseding ADR-052.
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHAT STOPS WITH IT
+--
+--   1. Auto-approval, which never worked.
+--   2. The 12-hour approval reminder email to the operator. It would have announced an
+--      approval that could not happen.
+--   3. The 'auto-approve' row in cron_heartbeats. MON-001 reads it, so while this job is
+--      paused MON-001 reports PROBLEM ("over 75 minutes ago"), and MON-025 adds
+--      "Declared and switched off: auto-approve". Both are true statements about a
+--      paused job.
+--
+-- WHAT DOES NOT STOP. Manual approval and everything after it. The approve route
+-- (src/app/api/suggestions/[id]/approve/route.ts) calls persistIcpFilterSpec,
+-- notifyAfterPromotion and triggerCascadeIfEligible itself, and revise and revert call
+-- the first and third. None of them lives only inside this job.
+--
+-- ═════════════════════════════════════════════════════════════════════════════
+-- TO RESUME, one line:
+--
+--   SELECT cron.alter_job((SELECT jobid FROM cron.job WHERE jobname = 'auto-approve'), active => true);
+--
+-- Looked up by name, not by jobid, the same way 20260910140000_stagger_cron_offsets.sql
+-- does. Production only: the test project has no pg_cron job to pause.
+
+SELECT cron.alter_job((SELECT jobid FROM cron.job WHERE jobname = 'auto-approve'), active => false);
