@@ -847,9 +847,11 @@ function buildBaseContext(params: VariantGenerationContext): {
   // claims) that must not reach copy. Positioning and TOV have no such keys today; when
   // either gains one, it needs a projection here too.
   //
-  // Note which branch runs: plain_text is NULL on every row in production, so the fallback
-  // is the real path and projecting only the fallback would be projecting nothing. Both
-  // branches go through `project`.
+  // Note which branch runs. With a projection, `content` is projected and plain_text is
+  // never read: a projection removes keys, and plain_text is prose with no keys to remove.
+  // Without one, plain_text IS the real path. It is populated on every row since the
+  // backfill (69 of 69, none NULL, measured 2026-09-10), and `content` is only the
+  // fallback for a row that lacks it.
   // `project` is REQUIRED, and deliberately not optional. An optional parameter is one a
   // caller can forget, and forgetting it here silently puts operator-facing keys back into
   // a prompt that writes copy. Required means every call site states its decision and
