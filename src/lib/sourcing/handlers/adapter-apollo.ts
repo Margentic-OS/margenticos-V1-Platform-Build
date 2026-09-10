@@ -439,9 +439,16 @@ export function buildApolloRequest(
   // no bound, because an absent parameter is the provider's own "no constraint" and a
   // floor of zero is a constraint the client never asked for.
   //
-  // MEASURED to constrain on a live client: 98,917 without it against 14,935 with a band
-  // applied, and the same values under a deliberately misspelled parameter name returned
-  // the baseline, which is how a silently ignored parameter is told apart from a working one.
+  // WHAT IT COSTS, measured 2026-09-10 against the provider. The band EXCLUDES every company
+  // the provider holds no revenue figure for, and no request shape keeps them (19 tried). On
+  // one live client's search a band kept 3,873 of 98,831 people, and 81% of those it removed
+  // had no figure at all. So a stated band is sent only for a client opted in through
+  // organisations.sourcing_revenue_filter_enabled; otherwise the spec records company_revenue
+  // as switched off, with the reason, and the loop at the end of this function removes it.
+  //
+  // An earlier comment here claimed "98,917 -> 14,935". That figure recorded neither the band
+  // nor the search that produced it, and does not reproduce. It proved only that the
+  // parameter is read.
   const revenueMin = asNumber(spec.company_revenue_min)
   const revenueMax = asNumber(spec.company_revenue_max)
   if (revenueMin !== null || revenueMax !== null) {
