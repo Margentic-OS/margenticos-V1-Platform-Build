@@ -65,6 +65,20 @@ const NAV_OPERATOR: { label: string; href: string; perClient?: boolean }[] = [
   // why operator-page-reachability.test.tsx now checks the whole directory rather than
   // one more page at a time.
   { label: 'FAQs', href: '/dashboard/operator/faqs', perClient: true },
+  // RE-LINKED 2026-09-09, after establishing why they were unlinked. Both were added on
+  // 2026-04-19 with their pages, and both were removed from this list on 2026-06-05 by
+  // commit 1afeb94, whose message records: "remove four stub nav items (Reply queue, FAQ
+  // curation, Agent activity, Signals log) — all four were 404ing."
+  //
+  // ALL FOUR PAGE FILES EXISTED AT THAT COMMIT, verified against the tree at 1afeb94. They
+  // were not stubs and they were not missing. Four working pages were unlinked on a stated
+  // reason that was not true, and the other two of the four were each reported as a fresh
+  // defect months later. See the Knowledge Base entry.
+  //
+  // Both are cross-organisation: each reads its table across all clients and takes no client
+  // param, so neither carries perClient.
+  { label: 'Agent activity', href: '/dashboard/operator/activity' },
+  { label: 'Signals log', href: '/dashboard/operator/signals' },
   { label: 'Settings', href: '/dashboard/operator/settings' },
 ]
 

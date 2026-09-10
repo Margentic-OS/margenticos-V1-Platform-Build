@@ -13,9 +13,13 @@
 // the question the other two could not — **is there ANY page here with no way in** — by
 // reading the filesystem rather than a list someone maintains.
 //
-// It found two more the moment it was written: /dashboard/operator/activity and
+// IT FOUND TWO MORE THE MOMENT IT WAS WRITTEN: /dashboard/operator/activity and
 // /dashboard/operator/signals, neither referenced anywhere in the codebase, neither known
-// to be missing. They are declared below rather than silently ignored.
+// to be missing. Both have since been re-linked, and the reason they were missing is the
+// reason this file exists: commit 1afeb94 on 2026-06-05 unlinked FOUR working operator
+// pages, recording that "all four were 404ing", and all four page files existed at that
+// commit. Two of the four were reported as separate defects three months later. See the
+// Knowledge Base entry on that failure shape.
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 // WHAT "REACHABLE" MEANS HERE
@@ -99,20 +103,19 @@ function isLinkedFromElsewhere(route: string, files: string[]): boolean {
 // A route here is one we have LOOKED AT and decided not to link, with the reason. It is not
 // a suppression list: adding an entry is a decision someone has to write down, which is the
 // only difference between this and the silence that produced three defects.
-//
-// BOTH ENTRIES ARE OPEN QUESTIONS, NOT SETTLED DESIGN. They were found by this test on the
-// day it was written and neither has an owner. The honest state is "unreachable, and nobody
-// has decided whether that is right", so they are recorded as that rather than as intent.
 const DECLARED_UNREACHABLE: Record<string, string> = {
-  '/dashboard/operator/activity':
-    'Found unreachable 2026-09-09 by this test. Zero references anywhere in src/. Renders ' +
-    'OperatorTopbar + WarningsRail like the other operator screens, so it is a real page, ' +
-    'not a stub. UNDECIDED whether it should be linked or deleted — see the Backlog row. ' +
-    'Do not add a nav entry without deciding what it is for.',
-  '/dashboard/operator/signals':
-    'Found unreachable 2026-09-09 by this test. Zero references anywhere in src/. Same ' +
-    'shape as activity. UNDECIDED. Note the signals TABLE has 7 rows, so this page would ' +
-    'render something; being unreachable is not the same as being empty.',
+  // EMPTY, and that is the current true state: every operator page is reachable.
+  //
+  // It held /dashboard/operator/activity and /dashboard/operator/signals for a few hours on
+  // 2026-09-09, recorded as UNDECIDED because nobody knew what they were for. The commit
+  // history then answered it: both were built deliberately on 2026-04-19 with nav entries,
+  // and both were unlinked on 2026-06-05 by 1afeb94 on the stated ground that they were
+  // "404ing" — which the tree at that commit contradicts, since both page files existed.
+  // They were re-linked rather than left here, because "undecided" was never true either.
+  //
+  // KEEP THIS MECHANISM EVEN WHILE EMPTY. An empty exception list is the strongest state
+  // the test can be in, and the list is what lets a future deliberate exception be recorded
+  // as a decision with a reason rather than as silence.
 }
 
 describe('every operator page is reachable', () => {
