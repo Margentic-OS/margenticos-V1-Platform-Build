@@ -16,6 +16,15 @@ import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
 
 const drawSpreadSample = vi.hoisted(() => vi.fn())
 const lookUpMany = vi.hoisted(() => vi.fn())
+const create = vi.hoisted(() => vi.fn())
+
+// Only the CLIENT is replaced. The module also exports error classes other code does
+// instanceof checks against, and a mock that drops them turns a failure path into a
+// TypeError from inside the error handler rather than the behaviour under test.
+vi.mock('@anthropic-ai/sdk', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  default: class { messages = { create } },
+}))
 
 vi.mock('@/lib/tuner/spread-sample', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -27,8 +36,8 @@ vi.mock('@/lib/tuner/lookup', async (importOriginal) => ({
 }))
 
 import {
-  buildNameSignalPrompt, parseNameSignal, checkNameSignal, isDecided, oneVerdictWorth,
-  type NameSignalFn,
+  anthropicNameSignal, buildNameSignalPrompt, parseNameSignal, checkNameSignal, isDecided,
+  oneVerdictWorth, type NameSignalFn,
 } from '@/lib/tuner/name-signal'
 import { runOneRound } from '@/lib/tuner/search-tuner'
 import { assessFit, MIN_FIT_IMPROVEMENT, type FitContext, type FitJudgeFn } from '@/lib/tuner/fit-judge'
@@ -357,5 +366,41 @@ describe('the same name may be decided oppositely for two clients', () => {
     expect(a.judged![0].verdict).toBe('best')
     expect(b.judged![0].verdict).toBe('neither')
     expect(a.judged![0].companyName).toBe(b.judged![0].companyName)
+  })
+})
+
+
+describe('a row the model never answered for is researched, not decided', () => {
+  it('defaults a missing row to unclear even when every other row was decided', async () => {
+    // The model is given three names and answers for two of them. The third must come back
+    // as something that costs a lookup. Anything else means a company was placed against a
+    // client's document on the strength of the model having forgotten it.
+    create.mockResolvedValue({
+      model: 'claude-haiku-4-5-20251001',
+      usage: { input_tokens: 100, output_tokens: 20 },
+      content: [{ type: 'text', text: JSON.stringify({ decisions: [
+        { id: 'id-0', answer: 'best', reason: 'placeholder reason' },
+        { id: 'id-1', answer: 'neither', reason: 'placeholder reason' },
+      ] }) }],
+    })
+
+    const { decisions } = await anthropicNameSignal(rows(3), CLIENT_A)
+    const missing = decisions.find(d => d.sourceId === 'id-2')!
+
+    expect(missing.answer).toBe('unclear')
+    expect(isDecided(missing.answer)).toBe(false)
+    expect(missing.reason).toContain('researched as normal')
+  })
+
+  it('researches every row when the model answers for none of them', async () => {
+    create.mockResolvedValue({
+      model: 'claude-haiku-4-5-20251001',
+      usage: { input_tokens: 100, output_tokens: 20 },
+      content: [{ type: 'text', text: 'the model said something that is not JSON at all' }],
+    })
+
+    const { decisions } = await anthropicNameSignal(rows(5), CLIENT_A)
+    expect(decisions).toHaveLength(5)
+    expect(decisions.every(d => d.answer === 'unclear')).toBe(true)
   })
 })
