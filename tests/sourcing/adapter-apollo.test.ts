@@ -54,6 +54,8 @@ function baseSpec(over: Record<string, unknown> = {}): Record<string, unknown> {
     industries_excluded: [],
     keywords: [],
     keywords_excluded: [],
+    company_revenue_min: null,
+    company_revenue_max: null,
     notes: '',
     ...over,
   }
@@ -224,6 +226,8 @@ describe('apolloHandler.execute - post-filtering', () => {
       industries_excluded: [],
       keywords: [],
       keywords_excluded: [],
+      company_revenue_min: null,
+      company_revenue_max: null,
       notes: '',
     }
 
@@ -256,6 +260,8 @@ describe('apolloHandler.execute - post-filtering', () => {
       industries_excluded: [],
       keywords: [],
       keywords_excluded: ['staffing', 'recruitment'], // Must drop apollo-005
+      company_revenue_min: null,
+      company_revenue_max: null,
       notes: '',
     }
 
@@ -288,6 +294,8 @@ describe('apolloHandler.execute - post-filtering', () => {
       industries_excluded: [],
       keywords: [],
       keywords_excluded: [],
+      company_revenue_min: null,
+      company_revenue_max: null,
       notes: '',
     }
 
@@ -324,6 +332,8 @@ describe('apolloHandler.execute - ProspectCandidate format', () => {
       industries_excluded: [],
       keywords: [],
       keywords_excluded: [],
+      company_revenue_min: null,
+      company_revenue_max: null,
       notes: '',
     }
 
@@ -356,6 +366,8 @@ describe('apolloHandler.execute - ProspectCandidate format', () => {
       industries_excluded: [],
       keywords: [],
       keywords_excluded: [],
+      company_revenue_min: null,
+      company_revenue_max: null,
       notes: '',
     }
 
@@ -463,6 +475,11 @@ describe('apolloHandler.supported_fields agrees with the query', () => {
     person_countries: ['GB'],
     company_countries: ['IE'],
     company_headcount_min: 5,
+    // A REAL BAND, because this spec is what proves every field marked `query` reaches a
+    // populated provider parameter. Nulls here would let the manifest claim a field is sent
+    // while the test never saw it sent.
+    company_revenue_min: 1_000_000,
+    company_revenue_max: 20_000_000,
     company_headcount_max: 20,
     industries: ['Management Consulting'],
     industries_excluded: ['Legal Services'],
@@ -484,6 +501,9 @@ describe('apolloHandler.supported_fields agrees with the query', () => {
     industries: 'organization_naics_codes',
     industries_excluded: 'not_organization_naics_codes',
     keywords: 'q_organization_keyword_tags',
+    // Both bounds reach ONE parameter, exactly as the headcount pair does above.
+    company_revenue_min: 'revenue_range',
+    company_revenue_max: 'revenue_range',
   }
 
   it('classifies every filter spec field, and invents none', () => {

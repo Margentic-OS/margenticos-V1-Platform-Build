@@ -87,6 +87,7 @@ function spec(industries: string[]): ICPFilterSpec {
     job_titles: [], job_titles_excluded: [], seniority_levels: [],
     person_countries: [], company_countries: [],
     company_headcount_min: 0, company_headcount_max: 0,
+    company_revenue_min: null, company_revenue_max: null,
     industries: industries as ICPFilterSpec['industries'],
     industries_excluded: [], keywords: [], keywords_excluded: [], notes: '',
     // Rule Zero: the fragments here are abstract tokens, not job titles. This test is

@@ -38,6 +38,8 @@ function spec(industries: string[]): ICPFilterSpec {
     industries_excluded: [],
     keywords: [],
     keywords_excluded: [],
+    company_revenue_min: null,
+    company_revenue_max: null,
     notes: '',
     // Rule Zero: the fragments here are abstract tokens, not job titles. This test is
     // about disqualifier plumbing, and a real title in a fixture is one copy-paste away

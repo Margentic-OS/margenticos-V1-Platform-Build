@@ -117,6 +117,16 @@ export async function countAndSample(
   request: Record<string, unknown>,
   budget: ProviderBudget,
   sampleSize = 0,
+  /**
+   * Which page to read. Defaults to the first.
+   *
+   * EXISTS SO A SAMPLE CAN BE DRAWN FROM SOMEWHERE ELSE. With sampleSize 1 the page number
+   * IS a record position, which is how spread sampling addresses individual records across
+   * the whole result set. Page one alone is not a sample: measured, re-fetching it returns
+   * only half its rows in the same position, and it is one neighbourhood of a set the
+   * provider will not sort.
+   */
+  page = 1,
 ): Promise<CountResult> {
   const apiKey = process.env.APOLLO_API_KEY
   if (!apiKey) throw new Error('Sourcing tuner: APOLLO_API_KEY is not set')
@@ -134,7 +144,7 @@ export async function countAndSample(
     response = await fetch(ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-      body: JSON.stringify({ ...request, page: 1, per_page: Math.max(1, sampleSize) }),
+      body: JSON.stringify({ ...request, page, per_page: Math.max(1, sampleSize) }),
       signal: controller.signal,
     })
   } finally {
