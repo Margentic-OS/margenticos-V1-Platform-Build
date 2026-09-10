@@ -95,3 +95,89 @@ Turning this on means changing what evidence the judge may use, which is a chang
   and never did.
 - A spend report showing searches but no tokens is the original blind spot
   returning.
+
+---
+
+# The name signal, and why it is not saving money today
+
+Added 2026-09-09, measured live on both larger clients, 80 real employer names each.
+
+## What it is
+
+Before paying for a lookup, an employer name is shown to the cheapest model along
+with four descriptions taken from that client's own document. It may decide the row
+in either direction, or answer "unclear", which means research it. Unclear is the
+expected answer and it is free.
+
+**Nothing anywhere says what a name means.** The whole of the model's view comes
+from the four injected descriptions, so the same name can come back one way for one
+client and the opposite way for another. There is a test that does exactly that.
+
+## What the names actually said
+
+| | names decided | researched | share decided |
+|---|---|---|---|
+| client 1 | 23 of 80 | 57 | 29% |
+| client 2 | 40 of 80 | 40 | 50% |
+
+## The two figures, which are never added together
+
+| | researched rows only | including name-decided rows |
+|---|---|---|
+| client 1 | **10.9%** | **20.5%** |
+| client 2 | **17.9%** | **34.2%** |
+
+**The names are roughly twice as generous as the research on both clients.** That is
+the whole reason the two figures are kept apart. A single combined number would have
+reported client 2's search as a 34% fit when the researched evidence says 18%.
+
+## The floor was wrong, and it was hiding this
+
+The first version compared those figures against `MIN_FIT_IMPROVEMENT`, 19 points.
+**Both clients passed. Both should have failed.**
+
+19 points is a **draw-to-draw** figure, measured across four different samples of 80
+from one unchanged search. Most of it is sampling noise. This comparison does no
+sampling at all: it is one sample, split into name-decided and researched rows. The
+only variation that belongs in the floor is the judge's own, on identical input.
+
+Measured by judging the same 80 rows twice:
+
+| | judge moved | judge variation | names shifted the figure |
+|---|---|---|---|
+| client 1 | 1 of 80 | **0.2 points** | 9.6 points |
+| client 2 | 4 of 80 | **3.3 points** | 16.2 points |
+
+Against the right floor both fail by a wide margin. The check had been a formality.
+
+The floor is now measured inside the round that uses it, and only when a name
+decided something. It never falls to zero: one verdict's worth of the denominator is
+its own floor, or a re-run that happened to agree exactly would fail every honest
+round.
+
+## So what does it cost
+
+Because both clients fail the check, every round **falls back to researching
+everything**, and the gate costs more than not having it:
+
+| | batch of 80 |
+|---|---|
+| no gate at all | $1.77 (£1.35) |
+| gate on, names trusted (did not happen) | ~$1.30 (£0.99) |
+| **gate on, fallback fired (what happens today)** | **~$1.85 (£1.41)** |
+
+About 5% more, for a measurement worth having. Pounds converted at 0.763.
+
+**This is the correct outcome, not a failure.** The gate was asked to find out
+whether names are trustworthy for a given client. It found out that they are not,
+for these two, and it now refuses to spend the saving it cannot justify. It will
+take the saving on a client whose names do carry signal, without anyone having to
+decide in advance which clients those are.
+
+## What to check if it looks wrong
+
+- A round reporting one fit figure instead of two is the defect this design exists
+  to prevent.
+- A floor near 19 points in the logs means the measured floor is not being used.
+- A round that decides rows from names and never re-judges has skipped the
+  measurement, so its reliability verdict means nothing.
