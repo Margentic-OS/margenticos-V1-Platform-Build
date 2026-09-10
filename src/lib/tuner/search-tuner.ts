@@ -42,6 +42,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { FatalApiError } from '@/lib/agents/fatal-api-error'
 import { buildApolloRequest } from '@/lib/sourcing/handlers/adapter-apollo'
 import { deriveBuyerCriterionWithVocabulary } from '@/agents/buyer-criterion-agent'
 import { ProviderBudget, ProviderRateLimited, countAndSample } from '@/lib/tuner/count-and-sample'
@@ -386,6 +387,18 @@ export async function runSearchTuner(input: SearchTunerInput): Promise<SearchTun
     } catch (e) {
       if (e instanceof ProviderRateLimited) {
         return withMarker('rate_limit_reached', rateLimitReason(e, provider.calls), { ...populations, proposal })
+      }
+      // A FAILURE OF THE ACCOUNT, NOT OF THE SEARCH. Until 2026-09-10 a spent credit balance
+      // never reached here, because the lookup step swallowed it and recorded the company as
+      // unresearched. Now that it is rethrown it must end the run as a named outcome and CLOSE
+      // the run's record: rethrown raw, it would leave that record open, and the in-flight
+      // guard would refuse the next run for the length of its window.
+      if (e instanceof FatalApiError) {
+        return withMarker('failed',
+          `The run stopped at round ${index} because the model provider refused the account: ` +
+          `${e.reason}. Nothing from the unfinished round was recorded, because a round measured ` +
+          `on an account that cannot pay is not a measurement. ${spend.describe()}.`,
+          { ...populations, proposal })
       }
       throw e
     }
