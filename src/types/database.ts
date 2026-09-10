@@ -276,6 +276,7 @@ export type Database = {
           document_id: string | null
           document_type: string
           field_path: string
+          generated_by_model: string | null
           id: string
           organisation_id: string
           rejection_reason: string | null
@@ -299,6 +300,7 @@ export type Database = {
           document_id?: string | null
           document_type: string
           field_path: string
+          generated_by_model?: string | null
           id?: string
           organisation_id: string
           rejection_reason?: string | null
@@ -322,6 +324,7 @@ export type Database = {
           document_id?: string | null
           document_type?: string
           field_path?: string
+          generated_by_model?: string | null
           id?: string
           organisation_id?: string
           rejection_reason?: string | null
@@ -2504,6 +2507,7 @@ export type Database = {
           created_at: string
           document_type: string
           generated_at: string | null
+          generated_by_model: string | null
           icp_filter_spec: Json | null
           id: string
           is_stale: boolean
@@ -2528,6 +2532,7 @@ export type Database = {
           created_at?: string
           document_type: string
           generated_at?: string | null
+          generated_by_model?: string | null
           icp_filter_spec?: Json | null
           id?: string
           is_stale?: boolean
@@ -2552,6 +2557,7 @@ export type Database = {
           created_at?: string
           document_type?: string
           generated_at?: string | null
+          generated_by_model?: string | null
           icp_filter_spec?: Json | null
           id?: string
           is_stale?: boolean
@@ -3546,7 +3552,7 @@ export type Database = {
         Returns: undefined
       }
       approve_document_suggestion: {
-        Args: { p_reviewer_id: string; p_suggestion_id: string }
+        Args: { p_plain_text?: string; p_reviewer_id: string; p_suggestion_id: string }
         Returns: Json
       }
       claim_jobs: {
@@ -3726,7 +3732,9 @@ export type Database = {
           p_change_summary?: string
           p_content: Json
           p_doc_type: string
+          p_generated_by_model?: string
           p_org_id: string
+          p_plain_text?: string
           p_revision_note?: string
           p_segment_id: string
           p_update_trigger: string

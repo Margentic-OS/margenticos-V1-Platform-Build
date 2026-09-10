@@ -1,5 +1,8 @@
 'use client'
 
+import { EnrichmentSpendNotice } from '@/components/operator/enrichment-spend-notice'
+import type { EnrichmentMode } from '@/lib/sourcing/enrichment-mode'
+
 // The pipeline review cards.
 //
 // ═════════════════════════════════════════════════════════════════════════════
@@ -47,6 +50,8 @@ import {
 const POLL_INTERVAL_MS = 30_000
 
 interface PipelineOverviewProps {
+  /** Resolved server-side from the same flag shouldUseMockEnrichment reads. */
+  enrichmentMode: EnrichmentMode
   /** The server render's numbers. Seeds the first paint, then the poll takes over. */
   metrics: PipelineMetrics[]
   selectedClientId?: string | null
@@ -116,6 +121,7 @@ export function PipelineOverview({
   metrics: seedMetrics,
   selectedClientId,
   sourcingMaxBatchSize,
+  enrichmentMode,
 }: PipelineOverviewProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -419,10 +425,7 @@ export function PipelineOverview({
 
               {/* Spend & dormant warning */}
               {org.approved_unenriched_count > 0 && (
-                <div className="text-xs text-[#7A4800] bg-[#FEF7E6] px-3 py-2 rounded-[6px] border border-[#F0D080]">
-                  <p className="font-medium mb-0.5">Enrich and tier spends enrichment credits</p>
-                  <p>Currently in test mode. No live API calls will be made yet.</p>
-                </div>
+                <EnrichmentSpendNotice mode={enrichmentMode} action="Enrich and tier" />
               )}
             </div>
           </div>

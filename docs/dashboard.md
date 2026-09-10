@@ -460,6 +460,70 @@ suggest which spelling is right. That is a question for the client.
 fails preflight without one and that failure would land days after the click that caused
 it. A name over 120 characters is refused as a paste accident.
 
+### Operator settings — /dashboard/operator/settings (rewritten 2026-09-10)
+
+**What it shows.** One client's settings, read from the organisation record, plus the
+platform's integration registry. It needs `?client=`, which the sidebar carries because the
+Settings nav entry is marked `perClient`.
+
+**What it showed before, and why that mattered.** Every value came from a hardcoded
+`PLACEHOLDER_SETTINGS` literal. Measured against production on 2026-09-10 it claimed an
+organisation name matching no record, a booking link belonging to nobody, four integrations
+"Connected" when the registry had two rows reading connected and all four of those named
+read disconnected, and a "last verified" date for each — against a table that **has no
+`last_verified` column at all**, so that field had nowhere to have come from.
+
+There was an amber banner saying the page was not wired to live data. It was true. It did
+not help: a screen of invented values is read by whoever opens it, and a caveat is read
+once. The lesson worth keeping is that **a warning is not a substitute for not lying**, and
+an empty state naming what is missing is smaller and more useful than a plausible sample.
+
+**No client selected is a state, not a gap.** This page deliberately does not use
+`resolveViewingOrg`. That helper falls back to the caller's own `organisation_id`, and for
+the operator account that points at an archived organisation, so falling back would render
+one organisation's real settings under another organisation's heading. A client that was
+requested but not found says so separately from one that was never picked, because a stale
+bookmark and an empty selection need different fixes.
+
+**The booking link is the only editable field, and that is a rule rather than a stage.** It
+is the one value with all four of: a real typed column (`organisations.calendly_url`), a
+locked decision requiring it to differ per client (2026-07-28), something already reading it
+live (`process-reply.ts` puts it in the reply a prospect receives), and no way to set it
+outside SQL. Anything else earns an edit control by having all four.
+
+Validated as an https URL and never as a vendor. The 2026-07-28 decision makes booking
+*detection* Calendly-specific but the link itself tool-agnostic, so a hostname check here
+would be Rule Zero and would refuse the case that decision anticipates. Clearing the field
+writes NULL, not an empty string: an empty string passes a truthiness check downstream and
+would put a blank link into a prospect's reply.
+
+**The integration pill reads `is_active`, not `connection_status`.** `is_active` is what
+every registry lookup in the codebase actually filters on. `connection_status` is read in
+exactly one place, `executeCapability`, which has an empty handler map and zero callers, so
+it describes nothing that currently runs. It is therefore printed verbatim as a stored value
+rather than translated into a verdict.
+
+**Integrations are labelled platform-wide, because they are.** `integrations_registry` has
+no organisation column, and presenting those rows under a "Per-client configuration"
+heading was part of what this page got wrong. A per-client registry was considered and
+refused on 2026-09-10: `getCapabilityRow` is a `rows.find()` over an unordered select,
+cached process-globally for five minutes, so a second row per capability would serve one
+client's configuration to another. Tracked in the Notion Backlog, gated Before scale.
+
+**Both toggles were removed, not disabled.** Neither "LinkedIn post auto-approve" nor the
+holding message had any implementation anywhere. The LinkedIn one was the worse of the two:
+it displayed on from a literal while `organisations.linkedin_channel_enabled` is false on
+every row. The holding message also described the 15h/48h/72h chain that ADR-019 explicitly
+superseded.
+
+**What to check if it breaks.** An empty per-client section means no `?client=` reached the
+page — check the sidebar's `perClient` flag on the Settings entry. "That client could not be
+found" against a real client means the row is not readable, which is an RLS question:
+`operators_full_access_organisations` is what lets an operator read another organisation.
+
+**What it still does not do.** Every other per-client value on the organisation record is
+read-only here, and changing it is a database change. That gap is a Notion Backlog row.
+
 ## View inventory (to be built)
 - Empty state view (months 1–2 default)
 - Client pipeline view (post-unlock)

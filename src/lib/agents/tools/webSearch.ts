@@ -48,6 +48,22 @@ export interface WebSearchResult {
   searchCount: number
   /** How many individual hits those searches returned in total. Quality, not cost. */
   resultCount: number
+  /**
+   * THE OTHER TWO THIRDS OF THE BILL, AND THE REASON THIS FIELD EXISTS.
+   *
+   * The server-side search tool does not hand back a summary. It injects the FETCHED PAGE
+   * TEXT into the model's context as tool result blocks, and the model then loops: every
+   * additional search re-sends everything read so far. So the input token count is a
+   * function of how much page was read, and it is not visible from searchCount at all.
+   *
+   * This was computed by the API on every call and thrown away here, which is why the
+   * project's cost model carried the search fee only and understated a lookup by roughly
+   * three times. Measured 2026-09-09; see docs/tuner-cost.md.
+   */
+  inputTokens: number
+  outputTokens: number
+  /** Which model was billed. Named so a cost figure can never be read against the wrong one. */
+  model: string | null
 }
 
 export interface ResearchBundle {
@@ -96,6 +112,7 @@ export const WEB_SEARCH_MAX_USES = 3
 async function searchViaNativeAnthropic(
   query: string,
   maxUses: number = WEB_SEARCH_MAX_USES,
+  brief = false,
 ): Promise<WebSearchResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set')
@@ -109,18 +126,24 @@ async function searchViaNativeAnthropic(
     max_uses: maxUses,
   }
 
-  const messages: MessageParam[] = [
-    {
-      role: 'user',
-      content:
-        `Research this topic and return only factual findings as 4–6 concise bullet points. ` +
-        `Focus on what is verifiable and specific. Do not editorialize.\n\nTopic: ${query}`,
-    },
-  ]
+  // Two framings, and the difference between them is the whole of the saving. The default
+  // asks for 4-6 bullets of verifiable findings, which is an invitation to keep searching
+  // until there are six of them. Brief asks one question, allows one search, and offers an
+  // explicit way to give up, so that "the first page did not say" ends the call instead of
+  // starting another one.
+  const content = brief
+    ? `Use ONE search. Answer only from that first set of results, and do not search again.\n\n` +
+      `${query}\n\n` +
+      `Reply with at most two sentences. If the first results do not answer it, reply with ` +
+      `exactly: UNKNOWN`
+    : `Research this topic and return only factual findings as 4–6 concise bullet points. ` +
+      `Focus on what is verifiable and specific. Do not editorialize.\n\nTopic: ${query}`
+
+  const messages: MessageParam[] = [{ role: 'user', content }]
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 512,
+    max_tokens: brief ? BRIEF_MAX_TOKENS : 512,
     tools: [webSearchTool],
     messages,
   })
@@ -162,7 +185,13 @@ async function searchViaNativeAnthropic(
     if (Array.isArray(content)) resultCount += content.length
   }
 
-  const limited = resultCount === 0 || !isSubstantive(synthesis)
+  // Brief mode offers an explicit way to give up, and a lookup that took it is a lookup that
+  // learned nothing. It has to be marked limited HERE rather than left to isSubstantive,
+  // which measures length and negativity and would read a bare "UNKNOWN" as too short to
+  // judge rather than as a stated non-answer. Same destination, but only by luck, and luck
+  // stops working the moment the model pads the word into a sentence.
+  const gaveUp = brief && /^\s*unknown\b/i.test(synthesis)
+  const limited = gaveUp || resultCount === 0 || !isSubstantive(synthesis)
 
   return {
     query,
@@ -170,12 +199,17 @@ async function searchViaNativeAnthropic(
     source: 'anthropic_native',
     limited,
     limitedReason: limited
-      ? (resultCount === 0
-          ? 'Search executed but returned zero results'
-          : 'Search returned results but no substantive findings')
+      ? (gaveUp
+          ? 'Brief lookup read the leading results and they did not answer the question'
+          : resultCount === 0
+            ? 'Search executed but returned zero results'
+            : 'Search returned results but no substantive findings')
       : undefined,
     searchCount,
     resultCount,
+    inputTokens: response.usage?.input_tokens ?? 0,
+    outputTokens: response.usage?.output_tokens ?? 0,
+    model: response.model ?? null,
   }
 }
 
@@ -318,6 +352,9 @@ async function searchViaBrave(query: string): Promise<WebSearchResult> {
       // counts; Brave's free tier is metered on calls, not on useful calls.
       searchCount: 1,
       resultCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      model: null,
     }
   }
 
@@ -336,6 +373,9 @@ async function searchViaBrave(query: string): Promise<WebSearchResult> {
       results.length < 3 ? `Only ${results.length} result(s) found` : undefined,
     searchCount: 1,
     resultCount: results.length,
+    inputTokens: 0,
+    outputTokens: 0,
+    model: null,
   }
 }
 
@@ -363,7 +403,39 @@ export interface WebSearchOptions {
    * degraded the document agents to buy a saving that has nothing to do with them.
    */
   maxUses?: number
+  /**
+   * READ THE LEADING ANSWER, NOT THE WHOLE SITE.
+   *
+   * MEASURED 2026-09-09 over six lookups: the default framing pulls 9,487 input tokens to
+   * produce a 930-character answer, and runs 1.50 billable searches against a max_uses of 1.
+   * Input tokens were 36% of the bill and the fee 57%, so the page reading is not a rounding
+   * error on top of the fee, it is most of the other half.
+   *
+   * THE API GIVES NO LEVER ON THE INJECTED PAGE TEXT. WebSearchTool20250305 has no
+   * max_content_tokens field. Neither does WebSearchTool20260209. Only the web_fetch tools
+   * have one, and those need a URL we do not have. So the size of a tool result block is the
+   * provider's decision and cannot be capped from here at any price. What CAN be cut is how
+   * many of those blocks arrive, and every extra one costs more than the last: the model
+   * loops internally and re-sends everything read so far, so a second search is charged on
+   * top of a context that already contains the first.
+   *
+   * Brief mode therefore aims at the search COUNT, which is the multiplier, using the only
+   * instruments available: one question instead of three, an explicit instruction to answer
+   * from the first result set, and a short output ceiling. It cannot make one search cheaper.
+   * It can stop the second one happening.
+   */
+  brief?: boolean
 }
+
+/**
+ * Output ceiling for a brief lookup.
+ *
+ * 200 rather than 512. Measured output was 368 tokens for an answer whose useful content was
+ * one or two sentences, and output is the smallest of the three lines at 7%, so this is worth
+ * little on its own. It is here because it also shortens the model's own reasoning about
+ * whether to search again, which is worth considerably more than the tokens it saves.
+ */
+const BRIEF_MAX_TOKENS = 200
 
 export async function webSearch(
   query: string,
@@ -373,7 +445,7 @@ export async function webSearch(
 
   // Try Anthropic native search first.
   try {
-    const result = await searchViaNativeAnthropic(query, maxUses)
+    const result = await searchViaNativeAnthropic(query, maxUses, options.brief ?? false)
     logger.debug('Web search: Anthropic native succeeded', { query, source: result.source })
     return result
   } catch (err) {
@@ -410,6 +482,9 @@ export async function webSearch(
     // spend, not a claim that nothing was charged.
     searchCount: 0,
     resultCount: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    model: null,
   }
 }
 
@@ -464,6 +539,9 @@ async function webSearchWithTimeout(query: string, timeoutMs: number): Promise<W
       // ran and billed. Same floor-not-truth caveat as the both-paths-failed return above.
       searchCount: 0,
       resultCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      model: null,
     }
   })
 }

@@ -779,6 +779,11 @@ async function writeDocumentSuggestion(
       document_type: 'tov',
       field_path: 'full_document',
       current_value: existingDocument?.plain_text ?? null,
+      // The model that wrote suggested_value, recorded on the SUGGESTION so that
+      // approval carries it forward. Nothing recorded this before 2026-09-08, so
+      // which model produced any existing document is unrecoverable rather than
+      // merely unrecorded. Read from the constant this run actually called.
+      generated_by_model: TOV_MODEL,
       suggested_value: generatedContent,
       suggestion_reason: suggestionReason,
       confidence_level: confidenceLevel,

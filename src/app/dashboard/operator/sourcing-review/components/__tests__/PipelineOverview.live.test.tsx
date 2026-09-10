@@ -258,7 +258,7 @@ describe('PipelineOverview follows the database while the page is open', () => {
 
     const { calls } = stubFetchWithRealDatabaseReads()
     render(
-      <PipelineOverview metrics={seed} selectedClientId={null} sourcingMaxBatchSize={500} />,
+      <PipelineOverview enrichmentMode="test" metrics={seed} selectedClientId={null} sourcingMaxBatchSize={500} />,
     )
 
     // The seeded first paint.
@@ -303,7 +303,7 @@ describe('PipelineOverview follows the database while the page is open', () => {
     const seed = await metricsForOrg()
     stubFetchWithRealDatabaseReads()
     render(
-      <PipelineOverview metrics={seed} selectedClientId={null} sourcingMaxBatchSize={500} />,
+      <PipelineOverview enrichmentMode="test" metrics={seed} selectedClientId={null} sourcingMaxBatchSize={500} />,
     )
 
     await supabase
@@ -334,7 +334,7 @@ describe('PipelineOverview follows the database while the page is open', () => {
     stubFetchFailing(500)
 
     render(
-      <PipelineOverview metrics={seed} selectedClientId={null} sourcingMaxBatchSize={500} />,
+      <PipelineOverview enrichmentMode="test" metrics={seed} selectedClientId={null} sourcingMaxBatchSize={500} />,
     )
     await pollNow()
 
@@ -354,7 +354,7 @@ describe('PipelineOverview follows the database while the page is open', () => {
     const setInterval = vi.spyOn(globalThis, 'setInterval')
 
     render(
-      <PipelineOverview metrics={seed} selectedClientId={null} sourcingMaxBatchSize={500} />,
+      <PipelineOverview enrichmentMode="test" metrics={seed} selectedClientId={null} sourcingMaxBatchSize={500} />,
     )
 
     expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 30_000)
@@ -366,7 +366,7 @@ describe('PipelineOverview follows the database while the page is open', () => {
     const { calls } = stubFetchWithRealDatabaseReads()
 
     render(
-      <PipelineOverview metrics={seed} selectedClientId={null} sourcingMaxBatchSize={500} />,
+      <PipelineOverview enrichmentMode="test" metrics={seed} selectedClientId={null} sourcingMaxBatchSize={500} />,
     )
     await act(async () => {})
 

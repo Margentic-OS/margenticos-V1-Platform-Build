@@ -1,4 +1,5 @@
 import type { Json } from '@/types/database'
+import { DocumentPlainTextFallback } from '@/components/dashboard/strategy/DocumentPlainTextFallback'
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -102,7 +103,7 @@ export function PositioningDocumentView({ content, plainText }: PositioningDocum
       doc.key_messages)
 
   if (!hasStructured) {
-    return <PlainTextView text={plainText} />
+    return <DocumentPlainTextFallback text={plainText} docType="positioning" />
   }
 
   const summary = doc.positioning_summary ?? doc.core_message
@@ -344,19 +345,3 @@ export function PositioningDocumentView({ content, plainText }: PositioningDocum
   )
 }
 
-function PlainTextView({ text }: { text: string | null }) {
-  if (!text) {
-    return (
-      <div className="bg-surface-card border border-border-card rounded-[10px] p-6 max-w-[640px]">
-        <p className="text-[12px] text-text-secondary">
-          Document content is being processed. Check back shortly.
-        </p>
-      </div>
-    )
-  }
-  return (
-    <div className="bg-surface-card border border-border-card rounded-[10px] p-6 max-w-[640px]">
-      <p className="text-[13px] text-text-primary leading-[1.7] whitespace-pre-line">{text}</p>
-    </div>
-  )
-}

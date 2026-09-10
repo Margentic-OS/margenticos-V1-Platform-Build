@@ -5,6 +5,11 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { appendClientParam } from '@/lib/dashboard/client-param'
 
+// Where the last viewed client is remembered. Per-browser, not per-account: this is a
+// convenience about where the operator was, not a permission or a preference, so it does
+// not belong in the database and must never be treated as authoritative about access.
+const LAST_CLIENT_KEY = 'margenticos.operator.lastClientId'
+
 export interface ClientOrg {
   id: string
   name: string
@@ -39,13 +44,46 @@ const NAV_STRATEGY = [
 // only screen in the product with an approve button. Merging them would lose one or the
 // other. The label matches the page's own <OperatorTopbar title>, so the nav and the page
 // agree on what the thing is called.
-const NAV_OPERATOR = [
+//
+// `perClient: true` marks an entry whose page reads ?client= and shows one organisation.
+// Those carry the selected client through the link; the rest are cross-organisation and
+// deliberately do not. Before this flag existed the distinction was implicit, and 'FAQs'
+// is exactly the entry that would have got it wrong: its page header says
+// "searchParams.client is the selected org ID — set by the sidebar client picker", and
+// the sidebar had no such link, so a bare href would have silently shown whichever
+// organisation the page defaults to.
+const NAV_OPERATOR: { label: string; href: string; perClient?: boolean }[] = [
   { label: 'All clients', href: '/dashboard/operator' },
   { label: 'Monitor', href: '/dashboard/operator/monitor' },
   { label: 'Reply queue', href: '/dashboard/operator/triage' },
   { label: 'Sourcing review', href: '/dashboard/operator/sourcing-review' },
   { label: 'Approvals', href: '/dashboard/operator/approvals' },
-  { label: 'Settings', href: '/dashboard/operator/settings' },
+  // ADDED 2026-09-09. The page has existed and been reachable only by typing the URL.
+  // It is the ONLY surface for curating FAQs, and the FAQ store is empty across every live
+  // organisation, so the screen that would fix that could not be found. Third instance of
+  // this defect in one week after the triage queue and the client prospect list, which is
+  // why operator-page-reachability.test.tsx now checks the whole directory rather than
+  // one more page at a time.
+  { label: 'FAQs', href: '/dashboard/operator/faqs', perClient: true },
+  // RE-LINKED 2026-09-09, after establishing why they were unlinked. Both were added on
+  // 2026-04-19 with their pages, and both were removed from this list on 2026-06-05 by
+  // commit 1afeb94, whose message records: "remove four stub nav items (Reply queue, FAQ
+  // curation, Agent activity, Signals log) — all four were 404ing."
+  //
+  // ALL FOUR PAGE FILES EXISTED AT THAT COMMIT, verified against the tree at 1afeb94. They
+  // were not stubs and they were not missing. Four working pages were unlinked on a stated
+  // reason that was not true, and the other two of the four were each reported as a fresh
+  // defect months later. See the Knowledge Base entry.
+  //
+  // Both are cross-organisation: each reads its table across all clients and takes no client
+  // param, so neither carries perClient.
+  { label: 'Agent activity', href: '/dashboard/operator/activity' },
+  { label: 'Signals log', href: '/dashboard/operator/signals' },
+  // perClient ADDED 2026-09-10, with the rewrite that made this page read real records.
+  // The page shows one organisation's settings and renders an explicit "No client
+  // selected" state without ?client=, so without this flag the only way to reach a
+  // populated Settings page was to hand-edit the URL.
+  { label: 'Settings', href: '/dashboard/operator/settings', perClient: true },
 ]
 
 function clientStatus(client: ClientOrg): 'active' | 'setup' {
@@ -59,6 +97,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [badgeCount, setBadgeCount] = useState(0)
   const [replyQueueCount, setReplyQueueCount] = useState(0)
+  const [rememberedClientId, setRememberedClientId] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchBadgeCount = async () => {
@@ -97,8 +136,31 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
     return () => clearInterval(interval)
   }, [])
 
-  const selectedId = searchParams.get('client') ?? clients[0]?.id ?? null
-  const selectedClient = clients.find(c => c.id === selectedId) ?? clients[0] ?? null
+  // ── Which client is selected ────────────────────────────────────────────────
+  //
+  // WHAT THIS REPLACED. `searchParams.get('client') ?? clients[0]?.id`. `clients[0]` is
+  // whichever organisation sorts first, so arriving anywhere without ?client= landed the
+  // operator on an alphabetical accident rather than where they were. With one live client
+  // that is invisible; with three it means the sidebar routinely claims a client the
+  // operator was not looking at, and every per-client nav link then points at that one.
+  //
+  // NOTHING CLIENT-SPECIFIC IN THE FALLBACK. When there is no ?client= and no history, the
+  // selection is NULL, not "the first one". The picker already renders `'All clients'` for
+  // null, so the neutral state was always representable; it was simply never reachable.
+  // Guessing a client is worse than showing none, because a wrong guess looks like a
+  // choice the operator made.
+  //
+  // THE REMEMBERED ID IS VALIDATED against the loaded list on every render rather than
+  // trusted. An organisation can be archived or deleted between visits, and a stale id in
+  // localStorage would otherwise select a client that no longer exists and render as if
+  // nothing were selected while every per-client link carried the dead id.
+  const rememberedIfStillValid =
+    rememberedClientId && clients.some(c => c.id === rememberedClientId)
+      ? rememberedClientId
+      : null
+
+  const selectedId = searchParams.get('client') ?? rememberedIfStillValid
+  const selectedClient = clients.find(c => c.id === selectedId) ?? null
 
   // Replies had no nav entry anywhere. The route existed, the operator read behind it
   // existed, and nothing linked to it, so it was reachable only by typing a URL with an
@@ -109,7 +171,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
   const navOperator = selectedId
     ? [
         NAV_OPERATOR[0],
-        { label: 'Replies', href: `/dashboard/operator/clients/${selectedId}/replies` },
+        { label: 'Replies', href: `/dashboard/operator/clients/${selectedId}/replies` },  // id in the path, not the query
         ...NAV_OPERATOR.slice(1),
       ]
     : NAV_OPERATOR
@@ -119,8 +181,41 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
     return pathname.startsWith(href)
   }
 
+  // Read the remembered client AFTER mount. Reading localStorage during render would
+  // differ between the server pass and the client pass and produce a hydration mismatch;
+  // this way the first paint is the neutral state and the remembered client arrives with
+  // the first effect.
+  useEffect(() => {
+    try {
+      setRememberedClientId(window.localStorage.getItem(LAST_CLIENT_KEY))
+    } catch {
+      // Private browsing or a blocked storage partition. The neutral state is a correct
+      // fallback, so this failing costs a convenience and never a correctness.
+    }
+  }, [])
+
+  // Remember whatever the URL says, not only what the picker sets. An operator who arrives
+  // by a link carrying ?client= has just as clearly chosen that client, and without this
+  // the memory would only ever record picker clicks.
+  useEffect(() => {
+    const fromUrl = searchParams.get('client')
+    if (!fromUrl) return
+    setRememberedClientId(fromUrl)
+    try {
+      window.localStorage.setItem(LAST_CLIENT_KEY, fromUrl)
+    } catch {
+      // See above.
+    }
+  }, [searchParams])
+
   function selectClient(id: string) {
     setDropdownOpen(false)
+    setRememberedClientId(id)
+    try {
+      window.localStorage.setItem(LAST_CLIENT_KEY, id)
+    } catch {
+      // See above.
+    }
     const params = new URLSearchParams(searchParams.toString())
     params.set('client', id)
 
@@ -158,6 +253,10 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
         </p>
         <button
           onClick={() => setDropdownOpen(!dropdownOpen)}
+          // The nav also contains an entry labelled 'All clients', so the picker's own
+          // label is ambiguous by text alone. This names the control that reports WHICH
+          // CLIENT IS SELECTED, which is the thing worth asserting on.
+          data-testid="client-picker"
           className="w-full flex items-center justify-between text-left bg-[rgba(245,240,232,0.06)] hover:bg-[rgba(245,240,232,0.09)] border border-[rgba(245,240,232,0.10)] rounded-[6px] px-2.5 py-1.5 transition-colors"
         >
           <div className="flex items-center gap-2 min-w-0">
@@ -262,7 +361,7 @@ export function OperatorSidebar({ clients }: OperatorSidebarProps) {
           {navOperator.map((item) => (
             <li key={item.href}>
               <Link
-                href={item.href}
+                href={item.perClient ? appendClientParam(item.href, selectedId) : item.href}
                 className={[
                   'flex items-center justify-between px-2 py-[6px] rounded-[6px] text-[13px] transition-colors',
                   isActive(item.href)

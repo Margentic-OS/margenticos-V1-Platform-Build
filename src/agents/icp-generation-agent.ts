@@ -35,6 +35,19 @@ import { buildRegenerationNotesBlock, buildRegenerationNotesReason, noteForVersi
 // The model specified in the PRD for document generation agents.
 const ICP_MODEL = 'claude-opus-4-6'
 
+/**
+ * The agent_runs.agent_name this agent writes.
+ *
+ * Exported so no other module has to write the string out again. Its first consumer, a
+ * still-generating check in the ICP approval gate, is gone: that gate could not work and was
+ * replaced by logUngatedIcpApproval. The export is kept because the lesson that produced it
+ * outlives the caller. A first draft of that check guessed three plausible names,
+ * 'icp-generation-agent', 'icp_generation_agent' and 'icp-agent', and EVERY ONE WAS WRONG;
+ * the live table says 'icp-generation'. A guard filtering on a name nothing writes matches
+ * zero rows and returns the reassuring answer for ever.
+ */
+export const ICP_AGENT_NAME = 'icp-generation'
+
 // Maximum tokens for the ICP response. 8192 needed — three full tiers with all fields
 // can exceed 4096 tokens, causing truncated JSON that fails to parse.
 const MAX_TOKENS = 8192
@@ -92,7 +105,7 @@ export async function runIcpGenerationAgent(
 
   logger.info('ICP agent: starting', { organisation_id, segment_id })
 
-  const agentRun = await startAgentRun({ organisation_id, agent_name: 'icp-generation' })
+  const agentRun = await startAgentRun({ organisation_id, agent_name: ICP_AGENT_NAME })
 
   // Overall agent guard: fail gracefully at 240s (60s before Vercel's 300s ceiling)
   // to ensure agentRun.fail() can complete before the platform kills the function.
@@ -787,6 +800,11 @@ async function writeDocumentSuggestion(
       document_type: 'icp',
       field_path: 'full_document',
       current_value: existingDocument?.plain_text ?? null,
+      // The model that wrote suggested_value, recorded on the SUGGESTION so that
+      // approval carries it forward. Nothing recorded this before 2026-09-08, so
+      // which model produced any existing document is unrecoverable rather than
+      // merely unrecorded. Read from the constant this run actually called.
+      generated_by_model: ICP_MODEL,
       suggested_value: generatedContent,
       suggestion_reason: suggestionReason,
       confidence_level: completeness >= 80 ? 'high' : 'low',

@@ -1,4 +1,5 @@
 import type { BuyerCriterion } from '@/lib/sourcing/buyer-criterion'
+import type { ProviderSeniorityBand } from '@/lib/sourcing/handlers/provider-seniority'
 
 // ICP Filter Spec derivation.
 // Deterministic extraction from an approved ICP document JSON into the
@@ -128,7 +129,12 @@ export function validateCanonicalIndustry(name: string): asserts name is Canonic
 export interface ICPFilterSpec {
   job_titles: string[]
   job_titles_excluded: string[]
-  seniority_levels: ('founder' | 'owner' | 'c_suite' | 'vp' | 'director' | 'manager' | 'senior' | 'entry')[]
+  /**
+   * The provider-side seniority prefilter, DERIVED PER CLIENT from that client's own
+   * documents. The band names are the provider's vocabulary and are typed from the
+   * handler layer that owns it, so this module names none of them.
+   */
+  seniority_levels: ProviderSeniorityBand[]
   person_countries: string[]          // ISO-3166 alpha-2 codes
   company_countries: string[]         // ISO-3166 alpha-2 codes
   company_headcount_min: number
@@ -137,6 +143,22 @@ export interface ICPFilterSpec {
   industries_excluded: CanonicalIndustry[]
   keywords: string[]
   keywords_excluded: string[]
+  /**
+   * The revenue band this client's own document states, as a provider-comparable number.
+   *
+   * Null means the document did not state one, which is different from stating zero. The
+   * handler omits the parameter on null rather than sending a floor of nothing.
+   */
+  company_revenue_min: number | null
+  company_revenue_max: number | null
+  /**
+   * Axes the derivation deliberately chose not to constrain on.
+   *
+   * READ BY deriveFilterSpec, which refuses an empty axis ONLY when it is absent from this
+   * list, and by the handler, which omits the parameter for a listed axis and still refuses
+   * for an unlisted empty one. Absent or empty means nothing was deliberately omitted.
+   */
+  omitted_axes?: OmittableAxis[]
   notes: string
   unmatched_industries?: string[]     // Non-canonical industries flagged for operator review
   /**
@@ -187,6 +209,13 @@ export const FILTER_SPEC_FIELDS = [
   'industries_excluded',
   'keywords',
   'keywords_excluded',
+  // ADDED with the whole-document derivation. The document states a revenue band on both
+  // tiers and NOTHING read it: it reached `notes`, which no handler consumes. The provider
+  // has a parameter for it, proven to constrain on a live client (98,917 -> 14,935) with a
+  // misspelled-name control returning the baseline. A field listed here MUST be honoured by
+  // the handler, which is what makes this a real constraint rather than a stored opinion.
+  'company_revenue_min',
+  'company_revenue_max',
 ] as const
 
 // buyer_criterion is METADATA rather than a FILTER field, and the distinction is
@@ -198,6 +227,25 @@ export const FILTER_SPEC_METADATA_FIELDS = [
   'notes',
   'unmatched_industries',
   'buyer_criterion',
+  // ─── THE THIRD STATE ───────────────────────────────────────────────────────
+  //
+  // An axis can be in one of three conditions, and two of them used to be indistinguishable:
+  //
+  //   PRESENT             the derivation produced values. The handler sends them.
+  //   DELIBERATELY OMITTED the derivation decided this axis should not constrain at all.
+  //                       The handler sends nothing. This is a CHOICE and it is recorded.
+  //   FAILED TO DERIVE    the derivation could not establish it. The spec is refused.
+  //
+  // Before this, an empty axis meant only the third, and refusing was correct for it and
+  // wrong for the second. MEASURED across all three live clients: sending every seniority
+  // band the provider accepts returns EXACTLY the population of not sending the parameter
+  // at all. That axis has never added a person to any search, so "omit it" is a legitimate
+  // and sometimes correct proposal, and it must not read as a failure.
+  //
+  // METADATA rather than a filter field, deliberately. The manifest check iterates
+  // FILTER_SPEC_FIELDS and demands handler support for each; listing this would make it
+  // demand support for a field that is a statement ABOUT the other fields.
+  'omitted_axes',
 ] as const
 
 export type FilterSpecField = typeof FILTER_SPEC_FIELDS[number]
@@ -231,6 +279,23 @@ void _specFieldsAllExist
 // So this is the CONSUMER'S view of the value: the fields deriveFilterSpec actually reads,
 // and nothing about how they were obtained. The producer satisfies it structurally, and
 // TypeScript checks that at the call site.
+/**
+ * Axes that may be deliberately omitted.
+ *
+ * NOT every field. An axis is omittable only where the provider treats an absent parameter
+ * as "no constraint" AND where omitting it is a defensible targeting choice. Geography is
+ * absent on purpose: omitting it would mean sourcing everywhere, including the countries the
+ * legal subtraction removes, so it is never a choice this system may make.
+ */
+export const OMITTABLE_AXES = [
+  'seniority_levels',
+  'keywords',
+  'industries_excluded',
+  'keywords_excluded',
+  'company_revenue',
+] as const
+export type OmittableAxis = (typeof OMITTABLE_AXES)[number]
+
 export interface SpecGeography {
   /** ISO-2 codes this client's document named, after exclusions. Never empty. */
   countries: string[]
@@ -238,6 +303,38 @@ export interface SpecGeography {
   removed_by_exclusion: string[]
   /** Phrases from the document that named no country, verbatim. */
   unresolved_phrases: string[]
+}
+
+// ─── The buyer level this spec is built from ─────────────────────────────────
+//
+// The CONSUMER'S view, exactly like SpecGeography above and for the same reason: this
+// module must not reach the handler layer at run time, so it declares the shape it reads
+// and the producer satisfies it structurally.
+//
+// The band strings are the provider's own vocabulary and their type comes from the handler
+// layer that owns it, so this module names none of them. What arrives here is one client's
+// answer, derived from that client's documents, and this module's only job is to refuse if
+// there is no answer.
+export interface SpecSeniority {
+  /** Bands this client's documents establish. Never empty; deriveFilterSpec refuses. */
+  bands: ProviderSeniorityBand[]
+  /**
+   * Values the derivation produced that the provider would not honour, dropped before
+   * they got here. Non-empty means the model invented vocabulary, which is worth an
+   * operator seeing: a value the provider does not recognise is dropped silently by the
+   * provider, and a silently dropped filter looks exactly like one that worked.
+   */
+  discarded: string[]
+  /** What in the client's documents established the bands. Operator-facing. */
+  evidence: string
+  /**
+   * Axes the derivation deliberately chose not to constrain on.
+   *
+   * Rides on this parameter rather than getting its own because it arrives from the same
+   * single call, and a second parameter would be a second thing every caller has to
+   * remember to pass. deriveFilterSpec stores it on the spec as metadata.
+   */
+  omitted?: OmittableAxis[]
 }
 
 // ─── ICP document types (mirrors icp-generation-agent.ts output schema) ───────
@@ -327,6 +424,45 @@ export interface IcpDocument {
 // tiering rescue to near-uselessness. They are ordinary English, not a sector list.
 const GENERIC_HEAD_NOUNS = new Set(['services', 'and', 'the', 'of'])
 
+/**
+ * Read a revenue band out of the phrases a document states, as plain numbers.
+ *
+ * ─── WHY IT RETURNS NULLS RATHER THAN GUESSING ────────────────────────────────
+ *
+ * A document may state a band, one bound, or nothing. Null means "not stated", and the
+ * handler omits the parameter on null. Defaulting a floor of zero would send a constraint
+ * the client never asked for, and a bound of zero is indistinguishable from no bound in the
+ * stored spec, which is the class of defect this whole change is about.
+ *
+ * Magnitude suffixes are read because documents write them: a bare number and the same
+ * number followed by a magnitude letter differ by three orders of magnitude, and reading
+ * only the digits would send a band a thousand times too small without erroring.
+ *
+ * Currency symbols are IGNORED rather than converted. The provider compares a number; this
+ * module has no exchange rate and inventing one would be worse than the ambiguity. Where a
+ * document states a band in a currency the provider does not assume, the number is still
+ * the right order of magnitude, which is what a band is for.
+ */
+export function parseRevenueBand(phrases: (string | undefined)[]): { min: number | null; max: number | null } {
+  const values: number[] = []
+  for (const phrase of phrases) {
+    if (!phrase) continue
+    const matches = phrase.matchAll(/([0-9][0-9.,]*)\s*([kmb])?/gi)
+    for (const m of matches) {
+      const raw = Number(m[1].replace(/,/g, ''))
+      if (!Number.isFinite(raw)) continue
+      const suffix = (m[2] ?? '').toLowerCase()
+      const scale = suffix === 'k' ? 1_000 : suffix === 'm' ? 1_000_000 : suffix === 'b' ? 1_000_000_000 : 1
+      const value = raw * scale
+      // A bare small number in a revenue phrase is a year or a count, not a revenue.
+      if (scale === 1 && value < 10_000) continue
+      values.push(value)
+    }
+  }
+  if (values.length === 0) return { min: null, max: null }
+  return { min: Math.min(...values), max: Math.max(...values) }
+}
+
 export function deriveKeywords(industries: readonly string[]): string[] {
   const out: string[] = []
   for (const name of industries) {
@@ -351,14 +487,19 @@ export function deriveKeywords(industries: readonly string[]): string[] {
  * ─── WHY THE CRITERION IS A PARAMETER ────────────────────────────────────────
  *
  * `job_titles` and `job_titles_excluded` used to be sixteen literals naming one
- * market's roles, handed to every client. 360 Bia Og sells into schools and its stored
- * spec asked for "Principal Consultant" and "Managing Partner" and excluded "SDR".
+ * market's roles, handed to every client. One live client sells into a market that shares
+ * no vocabulary with that list at all, and its stored spec asked for roles that do not
+ * exist there and excluded one that does not either.
  *
  * The right answer already existed and was being computed a few lines later:
  * `buyer_criterion.accept` and `.reject`, derived per client from that client's own
- * documents by the buyer criterion agent. It produced "principal", "deputy principal"
- * and "board of management" for that school. Re-deriving titles here would be a second
- * copy of a judgement that is already made well, and a second copy is what drifts.
+ * documents by the buyer criterion agent. For that client it produced the roles its own
+ * market actually uses. Re-deriving titles here would be a second copy of a judgement that
+ * is already made well, and a second copy is what drifts.
+ *
+ * THE ROLES ARE NOT QUOTED HERE, and that is the point rather than squeamishness. A worked
+ * example naming real titles is how the deleted list got written in the first place: it
+ * starts as an illustration of the defect and becomes the next default.
  *
  * So the criterion is passed IN rather than duplicated. Its fragments are lowercase
  * title substrings, which is exactly what a provider's title filter wants, so the
@@ -373,9 +514,62 @@ export function deriveFilterSpec(
   doc: IcpDocument,
   buyerCriterion: BuyerCriterion | null,
   geography: SpecGeography,
+  seniority: SpecSeniority,
 ): ICPFilterSpec {
   const t1 = doc.tier_1
   const t2 = doc.tier_2
+
+  // ── Seniority is required and has no substitute ───────────────────────────
+  //
+  // ─── WHAT WAS HERE, AND WHY IT IS DELETED RATHER THAN ADJUSTED ────────────
+  //
+  // This field used to be computed here, by lowercasing two sentences of the client's
+  // document, asking whether either contained one of two particular words, and returning
+  // one of two lists written into this file. There was no third outcome and nothing else
+  // was read. That is a buyer-type assumption applied to every client, and it is the same
+  // shape as the twelve hardcoded title fragments that were deleted before it.
+  //
+  // MEASURED against the live provider on 2026-09-08, on all three live clients:
+  //
+  //   it removed 103 of the 104 people one client's own job titles reach
+  //   it removed 35,585 of 46,772 for another
+  //   it removed 6,403 for the third
+  //
+  // and for ALL THREE, sending every band the provider accepts returned exactly the same
+  // count as omitting the parameter entirely. So this axis has never added anybody. It
+  // only ever subtracts, and what it subtracted was decided by a word search.
+  //
+  // It had also silently reversed a deliberate decision: one client's document states a
+  // buyer that the provider has a band for, and neither fixed list could express it, so
+  // that band could not be produced for any client under any input.
+  //
+  // ─── WHY A REFUSAL AND NOT A DEFAULT ──────────────────────────────────────
+  //
+  // The same reason geography refuses below. A default here is not a smaller version of
+  // the right answer, it is a different client's answer applied to this one, and it
+  // arrives silently. A refusal costs a run and is recoverable by re-approving an ICP.
+  // DELIBERATELY OMITTED IS NOT FAILED TO DERIVE. An axis on `omitted` is a decision the
+  // derivation made and recorded; an empty axis that is NOT on it is a derivation that could
+  // not establish something, and that still refuses. Collapsing the two is what made "omit
+  // this filter" impossible to express, on an axis measured never to add anybody.
+  const omitted = new Set<OmittableAxis>(seniority?.omitted ?? [])
+
+  if (
+    !omitted.has('seniority_levels') && (
+      !seniority ||
+      !Array.isArray(seniority.bands) ||
+      seniority.bands.length === 0
+    )
+  ) {
+    throw new Error(
+      'ICP filter spec: no seniority bands were supplied, so there is no buyer level to ' +
+      'target. These are derived per client from that client\'s own documents, on the same ' +
+      'call that derives the buyer criterion. There is deliberately no default: the two ' +
+      'fixed lists that used to sit here were chosen by searching a client\'s document for ' +
+      'two particular words, and they removed almost everyone that one live client\'s own ' +
+      'job titles reached.',
+    )
+  }
 
   // ── Geography is required and has no substitute ───────────────────────────
   //
@@ -420,6 +614,16 @@ export function deriveFilterSpec(
   // could tell apart from a parsed one, and 20 is a hard ceiling: resolveHeadcountCeiling
   // removes every prospect above it. A default that silently decides who a client is allowed
   // to reach is worse than a run that stops and says the document is unusable.
+  // ─── The revenue band, read for the first time ────────────────────────────
+  //
+  // Both tiers state one and NOTHING has ever read it into a constraint: it reached the
+  // notes string, which no handler consumes. The provider has a parameter for it, proven to
+  // constrain. Union across both tiers, like headcount, because both tiers are sourced.
+  const revenueBand = parseRevenueBand([
+    t1.company_profile.revenue_range,
+    t2.company_profile.revenue_range,
+  ])
+
   const t1Range = parseHeadcountRange(t1.company_profile.headcount)
   const t2Range = parseHeadcountRange(t2.company_profile.headcount)
 
@@ -465,17 +669,7 @@ export function deriveFilterSpec(
   return {
     job_titles: [...new Set(acceptFragments)],
     job_titles_excluded: [...new Set(rejectFragments)],
-    seniority_levels: (() => {
-      const t1Seniority = (t1.buyer_profile?.seniority ?? '').toLowerCase()
-      const t2Seniority = (t2.buyer_profile?.seniority ?? '').toLowerCase()
-      const isFounderLed = t1Seniority.includes('founder') || t1Seniority.includes('owner') ||
-                           t2Seniority.includes('founder') || t2Seniority.includes('owner')
-
-      if (isFounderLed) {
-        return ['founder', 'owner', 'c_suite', 'vp', 'director'] as const
-      }
-      return ['c_suite', 'vp', 'director'] as const
-    })() as ICPFilterSpec['seniority_levels'],
+    seniority_levels: [...(seniority?.bands ?? [])],
     // BOTH FROM THE SAME RESOLVED LIST, and they must stay that way. A document states
     // one geography, so a person list and a company list that could differ would be two
     // values derived from one sentence with nothing keeping them in step. Constraining
@@ -492,6 +686,14 @@ export function deriveFilterSpec(
     industries,
     industries_excluded: [],
     keywords: deriveKeywords(industries),
+
+    // The revenue band the document states, parsed to numbers the provider can compare.
+    // Null when the document does not state one: the handler omits the parameter rather
+    // than sending a bound that was never asked for.
+    company_revenue_min: revenueBand.min,
+    company_revenue_max: revenueBand.max,
+
+    omitted_axes: [...omitted],
 
     // NOTHING IS EXCLUDED BY DEFAULT. The four literals that used to sit here named one
     // market's adjacent categories. A client who genuinely needs an exclusion has one in

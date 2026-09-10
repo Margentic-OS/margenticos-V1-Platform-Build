@@ -1,6 +1,52 @@
 import type { EnrichmentMode } from '@/lib/sourcing/enrichment-mode'
 
 /**
+ * Whether the enrichment banner belongs on EVERY operator screen.
+ *
+ * Exactly one state qualifies: `unknown`. This is the rule the operator layout applies, and
+ * it lives here as a function rather than as a condition in the layout so that "when is this
+ * loud" is one named, testable thing instead of a JSX guard nobody reads.
+ *
+ * ─── Why 'live' and 'test' are NOT global ────────────────────────────────────
+ *
+ * Both are the setting working correctly. `enrichment_live` is true in production, so
+ * rendering 'live' globally put a red banner on every operator screen, permanently,
+ * describing the normal state of the system. An alarm that is always on is not an alarm; it
+ * is a background colour, and its real cost is that it spends the operator's attention on
+ * the one state that needs none. The next genuinely red thing arrives on a screen where red
+ * has already been taught to mean nothing.
+ *
+ * Neither is silently dropped. Both moved to EnrichmentSpendNotice, beside the control that
+ * spends, where the same fact is a property of the button being pressed rather than
+ * wallpaper. That is also where it was previously WRONG: those two surfaces hardcoded
+ * "Currently in test mode. No live API calls will be made." while the flag was live.
+ *
+ * ─── Why 'unknown' IS loud, everywhere ───────────────────────────────────────
+ *
+ * It is a different kind of statement. 'live' and 'test' are answers. 'unknown' means the
+ * flag could not be read at all, so NOBODY CAN SAY whether enrichment is spending money
+ * right now, including the code that would otherwise decide. It is not a description of the
+ * system, it is the absence of one.
+ *
+ * It earns the whole screen for three reasons:
+ *   1. It is RARE. It fires only when the registry read fails, so it cannot become
+ *      wallpaper. Rarity is exactly what a global banner spends and what keeps it readable.
+ *   2. It is ACTIONABLE, and the action is "stop": do not start an enrichment run until
+ *      someone has established which mode you are in.
+ *   3. It is the state this banner was rewritten for. It once failed into a false
+ *      "Test Mode Active" because the error branch and the safe branch were the same
+ *      branch, and the flag was live throughout. A banner that cannot read anything must
+ *      never be mistakable for a banner reporting good news.
+ *
+ * So the rule is not "show less". It is: a global banner is for the case where nobody knows,
+ * and a local notice is for the case where somebody does.
+ */
+export function shouldShowGlobalEnrichmentBanner(mode: EnrichmentMode): boolean {
+  return mode === 'unknown'
+}
+
+
+/**
  * Enrichment Mode Banner
  *
  * Renders the enrichment mode resolved server-side by resolveEnrichmentMode(), which

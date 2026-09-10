@@ -1,5 +1,6 @@
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import { createClient } from '@/lib/supabase/server'
+import { resolveEnrichmentMode } from '@/lib/sourcing/enrichment-mode'
 import { redirect, notFound } from 'next/navigation'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { Gate1ApproveBatch } from '../components/Gate1ApproveBatch'
@@ -26,6 +27,12 @@ export default async function ApprovePage({
     .single()
 
   if (!userRow || userRow.role !== 'operator') notFound()
+
+  // Resolved from the SAME row and key that shouldUseMockEnrichment reads, so the spend
+  // notice beside the button cannot disagree with what the button does. Read with the
+  // operator session client, after the gate above: integrations_registry is operator-only,
+  // and reading it as anon is the bug that made this banner lie in the first place.
+  const enrichmentMode = await resolveEnrichmentMode(supabase)
 
   // ── 3. Resolve viewing org ─────────────────────────────────────────────────
   const { organisationId } = await resolveViewingOrg(supabase, user, clientParam)
@@ -92,6 +99,7 @@ export default async function ApprovePage({
       <div className="flex-1 overflow-y-auto bg-surface-content">
         <div className="px-7 py-6 max-w-[1040px]">
           <Gate1ApproveBatch
+            enrichmentMode={enrichmentMode}
             prospects={prospects || []}
             totalPending={totalPending ?? 0}
             page={requestedPage}

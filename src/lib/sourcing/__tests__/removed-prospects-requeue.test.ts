@@ -17,6 +17,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { tierEnrichedBatch } from '@/lib/sourcing/tiering-trigger'
 import { persistIcpFilterSpec } from '@/lib/sourcing/persist-icp-filter-spec'
+import { seniorityFixture } from '@/test-utils/seniority-fixture'
+import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 import { clearIndustryMappingCache } from '@/lib/sourcing/industry-mapping'
 import { logger } from '@/lib/logger'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
@@ -41,10 +43,34 @@ vi.mock('@sentry/nextjs', () => ({
 // throw on a fake database with no integrations_registry, and all five tests would fail
 // for a reason that has nothing to do with re-queueing.
 //
-// The buyer criterion in the same function is deliberately NOT mocked, because it fails
-// OPEN: it throws on the fake, is caught, and the spec is written without job titles.
-// That asymmetry is the actual policy difference between the two, and leaving it visible
-// here is more useful than mocking both.
+// THE BUYER CRITERION IS NOW MOCKED, AND THE REASON IT STOPPED BEING OPTIONAL MATTERS.
+//
+// It used to be deliberately unmocked, because it failed OPEN: it threw on the fake, was
+// caught, and the spec was written anyway, without job titles. That asymmetry was the
+// point of leaving it visible.
+//
+// It no longer fails open, because the SAME CALL now also derives the seniority bands, and
+// deriveFilterSpec refuses a spec with none. So a derivation that throws no longer produces
+// a partial spec; it produces no spec at all, and therefore no re-queue either.
+//
+// That is a deliberate policy change. It is asserted directly in
+// spec-seniority-required.test.ts, which pins the refusal itself; mocking it back to a
+// failure here would re-test the same branch through five layers of fake. What this file
+// keeps is the re-queue behaviour on the path where the derivation SUCCEEDS, which is the
+// path it was written for.
+vi.mock('@/agents/buyer-criterion-agent', () => ({
+  deriveBuyerCriterionWithVocabulary: async () => ({
+    criterion: {
+      status: 'derived', accept: [{ fragment: 'a-fragment', rank: 'primary' }], reject: [],
+      statement: 's', evidence: [], unsettled_reason: null, sanity: null,
+      derived_at: new Date(0).toISOString(), model: 'test',
+    },
+    vocabulary: { sells: 's', usedFor: 'u', nameWords: [] },
+    // Bands taken from the provider's own list rather than written out. See the fixture.
+    seniority: seniorityFixture(),
+  }),
+}))
+
 vi.mock('@/lib/sourcing/resolve-icp-geography', () => ({
   resolveIcpGeography: async () => ({
     countries: [aTargetableCode()],
@@ -61,6 +87,7 @@ function spec(industries: string[]): ICPFilterSpec {
     job_titles: [], job_titles_excluded: [], seniority_levels: [],
     person_countries: [], company_countries: [],
     company_headcount_min: 0, company_headcount_max: 0,
+    company_revenue_min: null, company_revenue_max: null,
     industries: industries as ICPFilterSpec['industries'],
     industries_excluded: [], keywords: [], keywords_excluded: [], notes: '',
     // Rule Zero: the fragments here are abstract tokens, not job titles. This test is
@@ -171,26 +198,32 @@ function makeSupabase(tables: Record<string, Row[]>) {
 // directly, so a loose fixture throws inside persistIcpFilterSpec's catch-all and
 // the function returns BEFORE the re-queue, which looks exactly like the re-queue
 // not working.
+// THE BUYER FIELDS ARE DELIBERATELY CONTENTLESS. They used to name a buyer type and a
+// seniority band, because the deleted rule READ buyer_profile.seniority and branched on the
+// words in it. Nothing reads that field now, so these values were inert, but a fixture is
+// where vocabulary comes back: it is the least-read file in a change and the first one
+// copied into the next test. The industries stay real because validateCanonicalIndustry
+// rejects anything else, and they are taken from the canonical list rather than typed out.
 function icpContent() {
   return {
     jtbd_statement: 'Grow pipeline without hiring.',
-    summary: 'Founder-led B2B consulting firms.',
+    summary: 'A description of this client, in their own words.',
     tier_1: {
       company_profile: {
         revenue_range: 'GBP 500K to 5M',
         headcount: '5-20 people',
-        industries: ['Management Consulting'],
+        industries: [CANONICAL_INDUSTRIES[0]],
       },
-      buyer_profile: { title: 'Founder', seniority: 'owner' },
+      buyer_profile: { title: 'a role this market uses', seniority: 'as the document states it' },
       disqualifiers: [],
     },
     tier_2: {
       company_profile: {
         revenue_range: 'GBP 500K to 5M',
         headcount: '21-50 people',
-        industries: ['Strategy Consulting'],
+        industries: [CANONICAL_INDUSTRIES[1]],
       },
-      buyer_profile: { title: 'Founder', seniority: 'owner' },
+      buyer_profile: { title: 'a role this market uses', seniority: 'as the document states it' },
       disqualifiers: [],
     },
     tier_3: {
