@@ -79,7 +79,11 @@ const NAV_OPERATOR: { label: string; href: string; perClient?: boolean }[] = [
   // param, so neither carries perClient.
   { label: 'Agent activity', href: '/dashboard/operator/activity' },
   { label: 'Signals log', href: '/dashboard/operator/signals' },
-  { label: 'Settings', href: '/dashboard/operator/settings' },
+  // perClient ADDED 2026-09-10, with the rewrite that made this page read real records.
+  // The page shows one organisation's settings and renders an explicit "No client
+  // selected" state without ?client=, so without this flag the only way to reach a
+  // populated Settings page was to hand-edit the URL.
+  { label: 'Settings', href: '/dashboard/operator/settings', perClient: true },
 ]
 
 function clientStatus(client: ClientOrg): 'active' | 'setup' {
