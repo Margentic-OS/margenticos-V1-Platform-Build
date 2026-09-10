@@ -51,8 +51,13 @@ import { drawSpreadSample, DEFAULT_SAMPLE_SIZE } from '@/lib/tuner/spread-sample
 import { lookUpMany, lookupIsUsable, LookupBudget } from '@/lib/tuner/lookup'
 import { PRICE_PER_BILLABLE_SEARCH, tokenCost } from '@/lib/tuner/pricing'
 import {
+  anthropicNameSignal, checkNameSignal, isDecided, logNameSignal,
+  type NameSignalDecision, type NameSignalFn, type NameSignalVerdict,
+} from '@/lib/tuner/name-signal'
+import {
   anthropicFitJudge, assessFit, compareFit, logFitRound, MIN_FIT_IMPROVEMENT,
-  type FitContext, type FitJudgeFn, type FitOutcome, type JudgedCompany,
+  type FitContext, type FitJudgeFn, type FitOutcome, type FitVerdict,
+  type JudgedCompany, type JudgeUsage,
 } from '@/lib/tuner/fit-judge'
 import { SpendBudget, checkAudience, DEFAULT_SPEND_CAP_SEARCHES, type AudienceFloor } from '@/lib/tuner/run-budget'
 import { findInFlight, describeInFlight, registerTunerRun, type TunerRunHandle } from '@/lib/tuner/in-flight'
@@ -90,11 +95,15 @@ export interface SearchTunerInput {
   providerCallBudget?: number
   fitJudge?: FitJudgeFn
   /**
-   * Ask the judge from the employer name alone first, and pay only for the rows it cannot
-   * settle. OFF BY DEFAULT: measured 2026-09-09 it settled 0 of 40, because the judge prompt
-   * forbids deciding from anything but the researched description. See runOneRound.
+   * Let an employer name decide a row, in either direction, without paying for a lookup.
+   * ON by default. A name with no clear signal is always researched.
+   *
+   * The name-decided rows are NEVER mixed into the researched figure: both are reported and
+   * the round falls back to researching everything when they disagree by more than the
+   * judge's own variation. See name-signal.ts.
    */
-  skipNamesTheJudgeCanSettle?: boolean
+  useNameSignal?: boolean
+  nameSignal?: NameSignalFn
   now?: () => number
   random?: () => number
 }
@@ -104,7 +113,17 @@ export interface RoundReport {
   kind: 'zero' | 'adjust'
   reachable: number
   ceiling: number | null
+  /**
+   * AMONG RESEARCHED ROWS ONLY. This is what the loop compares between rounds, because it is
+   * the only figure measured the same way whether or not names were trusted.
+   */
   fit: FitOutcome | null
+  /**
+   * INCLUDING NAME-DECIDED ROWS. Reported beside `fit`, never instead of it, and never the
+   * basis of a decision. Equal to `fit` when the round fell back to researching everything.
+   */
+  fitIncludingNameDecided: FitOutcome | null
+  nameSignal: RoundNameSignal | null
   judged: JudgedCompany[] | null
   changeDescription: string | null
   comparisonNote: string | null
@@ -122,9 +141,22 @@ export interface RoundReport {
  * `lookupsSkipped` is the whole point of the two-pass shape: rows the judge settled from the
  * name alone, which under the previous shape were researched anyway at full price.
  */
+/** What the employer names did this round, and whether they were believed. */
+export interface RoundNameSignal {
+  /** Rows whose verdict came from the name. Zero when the round fell back. */
+  decided: number
+  /** What the names decided BEFORE the reliability check, so a fallback is legible. */
+  decidedBeforeFallback: number
+  researched: number
+  fellBackToResearchingEverything: boolean
+  verdict: NameSignalVerdict
+}
+
 export interface RoundCost {
   sampled: number
   lookupsSkipped: number
+  /** Of those skipped, how many an employer NAME decided, in either direction. */
+  nameDecided: number
   lookupsMade: number
   /** Of the lookups made, how many the provider answered in a single billable search. */
   answeredInOneSearch: number
@@ -168,7 +200,8 @@ export async function runSearchTuner(input: SearchTunerInput): Promise<SearchTun
     wallClockMs = 900_000,
     providerCallBudget = 600,
     fitJudge = anthropicFitJudge,
-    skipNamesTheJudgeCanSettle = false,
+    useNameSignal = true,
+    nameSignal = anthropicNameSignal,
     now = () => Date.now(),
     random = Math.random,
   } = input
@@ -243,7 +276,8 @@ export async function runSearchTuner(input: SearchTunerInput): Promise<SearchTun
   const reachable = zero.differencing.population
   rounds.push({
     index: 0, kind: 'zero', reachable, ceiling: zero.ceiling.ceiling,
-    fit: null, judged: null, changeDescription: null, comparisonNote: null,
+    fit: null, fitIncludingNameDecided: null, nameSignal: null,
+    judged: null, changeDescription: null, comparisonNote: null,
     audienceNote: null,
     // ASSERTED, not assumed. Round zero is free by construction.
     billableSearches: 0, modelCalls: 0, providerCalls: provider.calls,
@@ -347,7 +381,7 @@ export async function runSearchTuner(input: SearchTunerInput): Promise<SearchTun
     try {
       round = await runOneRound({
         index, request, provider, spend, lookups, sampleSize, context, fitJudge, random,
-        skipNamesTheJudgeCanSettle,
+        useNameSignal, nameSignal,
       })
     } catch (e) {
       if (e instanceof ProviderRateLimited) {
@@ -388,7 +422,15 @@ export async function runSearchTuner(input: SearchTunerInput): Promise<SearchTun
     { ...populations, proposal })
 }
 
-async function runOneRound(ctx: {
+/**
+ * EXPORTED AS A TEST SEAM, and for one specific proof.
+ *
+ * The reliability fallback has to be shown FIRING, not merely shown to be computable: a
+ * predicate that returns false proves nothing about whether the round acts on it. Driving a
+ * whole run to reach it would need a database, a provider and three models, so the round
+ * itself is the seam. Nothing outside this module calls it in production.
+ */
+export async function runOneRound(ctx: {
   index: number
   request: Record<string, unknown>
   provider: ProviderBudget
@@ -398,100 +440,140 @@ async function runOneRound(ctx: {
   context: FitContext
   fitJudge: FitJudgeFn
   random: () => number
-  skipNamesTheJudgeCanSettle: boolean
+  useNameSignal: boolean
+  nameSignal: NameSignalFn
 }): Promise<RoundReport> {
   const callsBefore = ctx.provider.calls
   const searchesBefore = ctx.spend.billableSearches
 
   const sample = await drawSpreadSample(ctx.request, ctx.provider, ctx.sampleSize, ctx.random)
 
-  // ─── PASS ONE. ASK BEFORE PAYING. ──────────────────────────────────────────
+  // ─── PASS ONE. WHAT THE NAME SAYS, IF ANYTHING. ────────────────────────────
   //
-  // The judge is asked from the job title and employer name alone, with no research at all.
-  // This costs one model call and no search fees, and it settles most of the sample: plenty
-  // of employer names say plainly enough what the organisation is for a verdict to be
-  // reached without reading anything.
+  // Names decide in EITHER direction. A name with no clear signal is researched, and that is
+  // expected to be most of them.
   //
-  // THE PREVIOUS SHAPE RESEARCHED ALL EIGHTY UNCONDITIONALLY, and its own comment said so:
-  // "Research every sampled company. This is the only part that costs money." That is where
-  // the bill came from. The older run-tuner.ts had this gate from the start and only this
-  // path dropped it, so this is a restoration rather than a new idea.
+  // THE TWO FIGURES ARE NEVER ADDED TOGETHER. The moment a name-derived verdict is counted
+  // alongside a researched one, the number coming out measures our assumptions about names
+  // rather than the search. So the round computes both separately and reports both, and when
+  // they disagree by more than the judge's own variation it says the names cannot be trusted
+  // for this client and researches everything. See name-signal.ts.
   //
-  // NOTHING ABOUT THE JUDGING CHANGES. Same judge, same prompt, same four verdicts. The
-  // prompt already renders a row with no research as "(nothing usable was found)", so a
-  // name-only row is a shape it was always able to answer. The only change is the ORDER:
-  // ask first, then pay for the ones it could not settle.
-  // ─── AND WHY IT IS OFF UNLESS ASKED FOR ──────────────────────────────────
-  //
-  // MEASURED 2026-09-09 on 40 rows from a live client: the name-only pass settled ZERO of
-  // them. That is not the judge failing, it is the judge prompt working exactly as written.
-  // The prompt says to decide "from the researched description and the two customer
-  // descriptions above, and from nothing else", and it defines cannot_establish as covering
-  // the case where there was no description. Under those instructions a row with no research
-  // has exactly one correct answer, and the judge gives it every time.
-  //
-  // So on today's prompt this pass costs one extra model call and saves nothing, which is why
-  // it defaults to off. Turning it on requires changing what evidence the judge may use, and
-  // that is a change to how judging works rather than a change to how much is read. It is
-  // named here rather than made quietly.
-  const firstPass = ctx.skipNamesTheJudgeCanSettle
-    ? await ctx.fitJudge(sample.rows.map(r => ({ ...r, researchText: null })), ctx.context)
-    : { verdicts: [], modelCalls: 0, usage: undefined }
-  let modelCalls = firstPass.modelCalls
-  const firstById = new Map(firstPass.verdicts.map(v => [v.sourceId, v]))
-  const firstVerdict = (id: string) => firstById.get(id)?.verdict ?? 'cannot_establish'
+  // THE JUDGE IS UNTOUCHED. This runs before it and changes which rows reach it. Its prompt,
+  // its four verdicts and how it decides are exactly as they were.
+  const signal: { decisions: NameSignalDecision[]; modelCalls: number; usage?: JudgeUsage } =
+    ctx.useNameSignal
+      ? await ctx.nameSignal(sample.rows, ctx.context)
+      : { decisions: [], modelCalls: 0, usage: undefined }
+  let modelCalls = signal.modelCalls
+  const decidedById = new Map(
+    signal.decisions.filter(d => isDecided(d.answer)).map(d => [d.sourceId, d]),
+  )
 
-  // ─── PASS TWO. PAY ONLY FOR WHAT PASS ONE COULD NOT SETTLE. ────────────────
-  const unclear = sample.rows.filter(r => firstVerdict(r.sourceId) === 'cannot_establish')
-  const results = await lookUpMany(unclear.map(r => r.companyName), ctx.lookups)
+  // ─── PASS TWO. RESEARCH EVERYTHING THE NAME DID NOT SETTLE. ────────────────
+  const research = async (rows: typeof sample.rows) => {
+    const results = await lookUpMany(rows.map(r => r.companyName), ctx.lookups)
+    let answeredInOne = 0
+    const out = rows.map((row, i) => {
+      const result = results[i]
+      const billable = result?.billableSearches ?? 0
+      if (result && billable === 1 && !result.limited) answeredInOne += 1
+      ctx.spend.record(billable, result?.inputTokens ?? 0, result?.outputTokens ?? 0, result?.model ?? null)
+      return { ...row, researchText: lookupIsUsable(result) ? result!.text : null, billable }
+    })
+    return { out, results, answeredInOne }
+  }
 
-  let answeredInOneSearch = 0
-  const researched = unclear.map((row, i) => {
-    const result = results[i]
-    const billable = result?.billableSearches ?? 0
-    // A lookup the provider answered without going back for more. This is the measure of
-    // whether "stop once the leading text answers it" is actually happening, and it is
-    // counted rather than assumed because the cap on searches is advisory and never held.
-    if (result && billable === 1 && !result.limited) answeredInOneSearch += 1
-    ctx.spend.record(billable, result?.inputTokens ?? 0, result?.outputTokens ?? 0, result?.model ?? null)
-    return { ...row, researchText: lookupIsUsable(result) ? result!.text : null, billable }
+  const unclear = sample.rows.filter(r => !decidedById.has(r.sourceId))
+  let pass = await research(unclear)
+  let researched = pass.out
+  let allResults = pass.results
+  let answeredInOneSearch = pass.answeredInOne
+
+  const judgeRows = async (rows: typeof researched) => {
+    if (!rows.length) return { verdicts: [], modelCalls: 0, usage: undefined as JudgeUsage | undefined }
+    const r = await ctx.fitJudge(rows, ctx.context)
+    return { verdicts: r.verdicts, modelCalls: r.modelCalls, usage: r.usage }
+  }
+
+  let judgePass = await judgeRows(researched)
+  modelCalls += judgePass.modelCalls
+  const judgeUsages: (JudgeUsage | undefined)[] = [signal.usage, judgePass.usage]
+
+  const asJudged = (rows: typeof researched, verdicts: { sourceId: string; verdict: FitVerdict; reason: string }[]): JudgedCompany[] => {
+    const byId = new Map(verdicts.map(v => [v.sourceId, v]))
+    return rows.map(r => ({
+      sourceId: r.sourceId, jobTitle: r.jobTitle, companyName: r.companyName,
+      verdict: byId.get(r.sourceId)?.verdict ?? 'cannot_establish',
+      reason: byId.get(r.sourceId)?.reason ?? 'No answer returned for this row.',
+      researchText: r.researchText,
+      billableSearches: r.billable,
+    }))
+  }
+
+  const fromName = (d: NameSignalDecision, row: { sourceId: string; jobTitle: string | null; companyName: string | null }): JudgedCompany => ({
+    sourceId: row.sourceId, jobTitle: row.jobTitle, companyName: row.companyName,
+    // The name's own answer, and it is only ever one of the three deciding values: the map
+    // this came from was filtered on isDecided, so 'unclear' cannot reach here.
+    verdict: d.answer as FitVerdict,
+    reason: `Decided from the employer name, without research: ${d.reason}`,
+    // Null because nothing was read. A reader disagreeing with this row is disagreeing with
+    // a reading of the name, and the empty field is what tells them so.
+    researchText: null,
+    billableSearches: 0,
   })
 
-  const secondPass = researched.length
-    ? await ctx.fitJudge(researched, ctx.context)
-    : { verdicts: [], modelCalls: 0 }
-  modelCalls += secondPass.modelCalls
-  const secondById = new Map(secondPass.verdicts.map(v => [v.sourceId, v]))
-  const researchById = new Map(researched.map(r => [r.sourceId, r]))
+  // ─── THE TWO FIGURES. SEPARATE, ALWAYS, AND NEITHER IS THE ROUND ON ITS OWN. ──
+  let researchedJudged = asJudged(researched, judgePass.verdicts)
+  const nameJudged = sample.rows
+    .filter(r => decidedById.has(r.sourceId))
+    .map(r => fromName(decidedById.get(r.sourceId)!, r))
 
-  const judged: JudgedCompany[] = sample.rows.map(row => {
-    const settledFirst = firstById.get(row.sourceId)
-    if (settledFirst && settledFirst.verdict !== 'cannot_establish') {
-      return {
-        sourceId: row.sourceId, jobTitle: row.jobTitle, companyName: row.companyName,
-        verdict: settledFirst.verdict, reason: settledFirst.reason,
-        // Null because nothing was read, which is a different fact from "we read and found
-        // nothing". A reader disagreeing with this verdict is disagreeing with a reading of
-        // the name, and the empty field is what tells them so.
-        researchText: null,
-        billableSearches: 0,
-      }
-    }
-    const r = researchById.get(row.sourceId)
-    const second = secondById.get(row.sourceId)
-    return {
-      sourceId: row.sourceId, jobTitle: row.jobTitle, companyName: row.companyName,
-      verdict: second?.verdict ?? 'cannot_establish',
-      reason: second?.reason
-        ?? (r ? 'No answer returned for this row.' : 'The spend ceiling stopped this lookup.'),
-      researchText: r?.researchText ?? null,
-      billableSearches: r?.billable ?? 0,
-    }
-  })
+  let fitResearched = assessFit(researchedJudged)
+  let fitIncludingNames = assessFit([...researchedJudged, ...nameJudged])
 
-  // Summed from `results`, which is the array the provider actually filled, rather than from
-  // anything reconstructed by index afterwards. A null entry is a lookup the ceiling refused
-  // and costs nothing.
+  let nameVerdict = checkNameSignal(
+    fitResearched, fitIncludingNames, nameJudged.length, MIN_FIT_IMPROVEMENT,
+  )
+  logNameSignal(sample.rows.length, nameJudged.length, nameVerdict)
+
+  // ─── THE FALLBACK. WHEN THE NAMES DISAGREE, PAY FOR ALL OF THEM. ───────────
+  //
+  // This costs MORE than never gating, because the name call has already been made and now
+  // every lookup is bought anyway. That is the correct trade: the alternative is a cheaper
+  // number that is quietly wrong, and this module exists to measure rather than to save.
+  let fellBack = false
+  if (!nameVerdict.reliable && nameJudged.length > 0) {
+    fellBack = true
+    const late = await research(sample.rows.filter(r => decidedById.has(r.sourceId)))
+    answeredInOneSearch += late.answeredInOne
+    allResults = [...allResults, ...late.results]
+    researched = [...researched, ...late.out]
+    const lateJudge = await judgeRows(late.out)
+    modelCalls += lateJudge.modelCalls
+    judgeUsages.push(lateJudge.usage)
+    researchedJudged = [...researchedJudged, ...asJudged(late.out, lateJudge.verdicts)]
+    // Both figures are recomputed and both now cover every row, so they are equal by
+    // construction. They are still reported as two, because a reader must be able to see
+    // that the fallback happened rather than infer it from them matching.
+    fitResearched = assessFit(researchedJudged)
+    fitIncludingNames = fitResearched
+  }
+
+  const judged: JudgedCompany[] = fellBack
+    ? researchedJudged
+    : [...researchedJudged, ...nameJudged]
+
+  const results = allResults
+  // WHAT THE LOOP COMPARES ON IS THE RESEARCHED FIGURE, always, whether or not the names
+  // were trusted. It is the only one measured the same way in every round, so it is the only
+  // one two rounds can be compared with. The combined figure is reported beside it and is
+  // never the basis of a decision to accept or reject a candidate search.
+  const fit = fitResearched
+  logFitRound(fit)
+
+  // Summed from the results the provider actually filled, rather than reconstructed by index
+  // afterwards. A null entry is a lookup the ceiling refused and costs nothing.
   const roundTokens = results.reduce(
     (a, r) => ({ in: a.in + (r?.inputTokens ?? 0), out: a.out + (r?.outputTokens ?? 0) }),
     { in: 0, out: 0 },
@@ -499,18 +581,17 @@ async function runOneRound(ctx: {
   const roundSearches = results.reduce((a, r) => a + (r?.billableSearches ?? 0), 0)
   const roundModel = results.find(r => r?.model)?.model ?? null
 
-  // The judge's own tokens, both passes. It runs on the most capable of the three models the
-  // tuner uses, so leaving it out would understate a round by more than the fee it has no
-  // part in. Counted separately from the lookups because the two are billed at different
-  // rates and summing them before pricing would quietly apply one rate to both.
-  const judgeUsd = [firstPass.usage, secondPass.usage].reduce(
+  // The name call and every judging pass. Counted separately from the lookups because they
+  // are billed at different rates, and summing before pricing would apply one rate to both.
+  const judgeUsd = judgeUsages.reduce(
     (a, u) => a + (u ? tokenCost(u.model, u.inputTokens, u.outputTokens) : 0), 0,
   )
 
   const roundCost: RoundCost = {
     sampled: sample.rows.length,
-    lookupsSkipped: sample.rows.length - unclear.length,
-    lookupsMade: unclear.length,
+    lookupsSkipped: sample.rows.length - researched.length,
+    nameDecided: fellBack ? 0 : nameJudged.length,
+    lookupsMade: researched.length,
     answeredInOneSearch,
     inputTokens: roundTokens.in,
     outputTokens: roundTokens.out,
@@ -524,19 +605,27 @@ async function runOneRound(ctx: {
   logger.info('tuner: round spend', {
     round: ctx.index,
     sampled: roundCost.sampled,
-    lookups_skipped: roundCost.lookupsSkipped,
+    name_decided: roundCost.nameDecided,
     lookups_made: roundCost.lookupsMade,
     answered_in_one_search: roundCost.answeredInOneSearch,
+    fell_back_to_researching_everything: fellBack,
     round_usd: roundCost.usd,
     run_so_far: ctx.lookups.describe(),
   })
 
-  const fit = assessFit(judged)
-  logFitRound(fit)
-
   return {
     index: ctx.index, kind: 'adjust', reachable: sample.total, ceiling: null,
     fit, judged, changeDescription: null, comparisonNote: null, audienceNote: null,
+    // TWO FIGURES, ALWAYS. Never one number: see name-signal.ts for why adding them would
+    // mean measuring our assumptions about names instead of measuring the search.
+    fitIncludingNameDecided: fitIncludingNames,
+    nameSignal: {
+      decided: fellBack ? 0 : nameJudged.length,
+      decidedBeforeFallback: nameJudged.length,
+      researched: researched.length,
+      fellBackToResearchingEverything: fellBack,
+      verdict: nameVerdict,
+    },
     billableSearches: ctx.spend.billableSearches - searchesBefore,
     modelCalls,
     providerCalls: ctx.provider.calls - callsBefore,

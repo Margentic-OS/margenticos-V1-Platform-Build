@@ -76,6 +76,19 @@ export const PROMPT_SOURCES: PromptSource[] = [
   // for a sector noun. Scanned from the day it exists rather than the day someone notices.
   { kind: 'template-literal', path: 'src/lib/tuner/fit-judge.ts',                           symbol: 'buildFitJudgePrompt',  note: 'the tuner fit judge, four verdicts' },
 
+  // ── The name signal ──
+  //
+  // ADDED 2026-09-09. THIS IS THE HIGHEST-RISK PROMPT IN THE REPOSITORY for this scan, and it
+  // is the reason the scan exists. Its entire job is deciding what an organisation is from
+  // its name and nothing else, so a single concrete noun written into it would become a rule
+  // about names that outlives every client and applies to all of them.
+  //
+  // The design test, which the scan cannot check but a reader can: the same employer name
+  // must be able to come back one way for one client and the opposite way for another,
+  // decided only by the four descriptions injected at run time. Any rule in this prompt that
+  // survives changing the client is the violation.
+  { kind: 'template-literal', path: 'src/lib/tuner/name-signal.ts',                        symbol: 'buildNameSignalPrompt', note: 'the name signal, four answers, highest Rule Zero risk' },
+
   // ── The web lookup's own instruction ──
   //
   // ADDED 2026-09-09 with the cheaper read. It had been sending model-facing text since long
