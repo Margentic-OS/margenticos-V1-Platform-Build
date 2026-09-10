@@ -28,8 +28,8 @@
 
 import { keepHonourableBands } from '@/lib/sourcing/handlers/provider-seniority'
 import { ALL_EXCLUDED_COUNTRIES } from '@/lib/sourcing/geography-exclusion'
+import { OMITTED_AXIS_TARGET } from '@/lib/sourcing/handlers/adapter-apollo'
 import type { ProposedSearch } from '@/lib/tuner/proposed-search'
-import type { OmittableAxis } from '@/lib/agents/icp-filter-spec'
 
 /** One change the candidate makes to the client's current search. */
 export interface AppliedChange {
@@ -143,12 +143,13 @@ export function proposalToRequest(
   // three live clients, sending every seniority band returns exactly the population of
   // sending none, so omitting that axis is a real and sometimes correct proposal.
   for (const o of proposal.omit) {
-    const key = OMITTABLE_TO_REQUEST_KEY[o.axis]
-    if (!key) {
+    // The handler's own map, not a copy: see OMITTED_AXIS_TARGET in adapter-apollo.ts.
+    const target = OMITTED_AXIS_TARGET[o.axis]
+    if (target === 'post_filter') {
       untranslated.push({ axis: 'omit', value: o.axis, why: 'Not an axis this handler sends.' })
       continue
     }
-    change(o.axis, key, undefined, o.reason)
+    change(o.axis, target, undefined, o.reason)
   }
 
   // ── The seniority bands the same call derived ──
@@ -201,21 +202,6 @@ export function proposalToRequest(
   const collapsed = applied.filter(c => !contradictory.includes(c.axis))
 
   return { request, applied: collapsed, untranslated }
-}
-
-/**
- * Which request parameter each omittable axis controls.
- *
- * ONE MAP, so an axis cannot be declared omittable in the spec module and then silently do
- * nothing here. An axis missing from this map is reported as untranslatable rather than
- * quietly ignored.
- */
-const OMITTABLE_TO_REQUEST_KEY: Record<OmittableAxis, string | undefined> = {
-  seniority_levels: 'person_seniorities',
-  keywords: 'q_organization_keyword_tags',
-  industries_excluded: 'not_organization_naics_codes',
-  keywords_excluded: undefined,   // post-filtered on results; never a request parameter
-  company_revenue: 'revenue_range',
 }
 
 /** A one-line description of the candidate, for the run report. */

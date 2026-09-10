@@ -29,7 +29,7 @@
 import { logger } from '@/lib/logger'
 import { normaliseLinkedInUrl } from '@/lib/sourcing/normalise-linkedin'
 import type { ProspectCandidate } from '@/lib/sourcing/dedupe'
-import { FILTER_SPEC_FIELDS, type FilterSpecField } from '@/lib/agents/icp-filter-spec'
+import { FILTER_SPEC_FIELDS, OMITTABLE_AXES, type FilterSpecField, type OmittableAxis } from '@/lib/agents/icp-filter-spec'
 import type { CanonicalIndustry } from '@/lib/agents/icp-filter-spec'
 
 // The Apollo People Search parameters this handler sends. OPTIONAL means "sent only
@@ -48,6 +48,52 @@ interface ApolloApiSearchRequest {
   revenue_range?: { min?: number; max?: number }
   page: number
   per_page: number
+}
+
+// ─── What "switched off" removes ─────────────────────────────────────────────
+//
+// A spec may mark an axis as DELIBERATELY switched off (`omitted_axes`). This is the one
+// place that says which request parameter each such axis controls.
+//
+// UNTIL 2026-09-10 NOTHING READ THAT LIST. buildApolloRequest built it into a set and never
+// consulted the set, so every switched-off filter was sent anyway. Measured on a live
+// client: the derivation proposed switching the revenue band off, quoting that client's own
+// intake, and a re-approval would have recorded the band as off and then sent it, taking
+// the search from 98,831 people to 3,873. The stored settings would have said one thing and
+// the search would have done another.
+//
+// ONE MAP, owned by the handler because provider vocabulary lives here. `satisfies` makes
+// an axis added to OMITTABLE_AXES without an entry a COMPILE ERROR, so a new switch-off
+// cannot silently do nothing. The tuner's proposal layer reads this map rather than keeping
+// a copy, because two maps of one fact is how the first one went unread.
+export const OMITTED_AXIS_TARGET = {
+  seniority_levels: 'person_seniorities',
+  keywords: 'q_organization_keyword_tags',
+  industries_excluded: 'not_organization_naics_codes',
+  // Applied to returned rows in execute(), never sent. Switching it off skips that filter.
+  keywords_excluded: 'post_filter',
+  company_revenue: 'revenue_range',
+} as const satisfies Record<OmittableAxis, keyof ApolloApiSearchRequest | 'post_filter'>
+
+/**
+ * The axes this spec deliberately switches off, checked against the list that may be.
+ *
+ * A name that may NOT be switched off is REFUSED rather than skipped. Skipping it would let
+ * a spec claim to have switched off something essential, such as the countries, while the
+ * parameter was still sent, which is the same false record in the opposite direction.
+ */
+export function readOmittedAxes(spec: Record<string, unknown>): Set<OmittableAxis> {
+  const named = asStringArray(spec.omitted_axes)
+  const allowed = new Set<string>(OMITTABLE_AXES)
+  const refused = named.filter(axis => !allowed.has(axis))
+  if (refused.length > 0) {
+    throw new Error(
+      `Apollo sourcing failed: the filter spec switches off ${refused.map(a => `"${a}"`).join(', ')}, ` +
+      `which cannot be switched off. Only ${OMITTABLE_AXES.join(', ')} may be. Sending the ` +
+      'search anyway would record a switch-off that did not happen.',
+    )
+  }
+  return new Set(named as OmittableAxis[])
 }
 
 interface ApolloApiSearchResponse {
@@ -277,7 +323,7 @@ export function buildApolloRequest(
   //
   // Only the axes the provider treats as unconstrained-when-absent are omittable, and the
   // list of those lives in the spec module, not here.
-  const omittedAxes = new Set(asStringArray(spec.omitted_axes))
+  const omittedAxes = readOmittedAxes(spec)
 
   const industries = asStringArray(spec.industries)
   if (industries.length === 0) {
@@ -403,6 +449,15 @@ export function buildApolloRequest(
       ...(revenueMin !== null ? { min: revenueMin } : {}),
       ...(revenueMax !== null ? { max: revenueMax } : {}),
     }
+  }
+
+  // ─── SWITCHED OFF MEANS NOT SENT ──────────────────────────────────────────
+  //
+  // Applied LAST, after every branch above has had its say, so no branch can put back a
+  // parameter the spec switched off. See OMITTED_AXIS_TARGET for why this exists.
+  for (const axis of omittedAxes) {
+    const target = OMITTED_AXIS_TARGET[axis]
+    if (target !== 'post_filter') delete request[target]
   }
 
   return request
@@ -636,6 +691,10 @@ export const apolloHandler = {
     // Once per run, before the first request. See reportSpecDivergence above.
     reportSpecDivergence(spec)
 
+    // Read once per run, like the divergence report. The request side is handled inside
+    // buildApolloRequest; this is for the one switchable axis applied to returned rows.
+    const switchedOff = readOmittedAxes(spec)
+
     const candidates: ProspectCandidate[] = []
 
     // Aggregate counts for the two post-filters below. The per-candidate lines are
@@ -716,7 +775,9 @@ export const apolloHandler = {
 
         // Post-filter criteria from spec
         const jobTitlesExcluded = spec.job_titles_excluded as string[] | undefined
-        const keywordsExcluded = spec.keywords_excluded as string[] | undefined
+        const keywordsExcluded = switchedOff.has('keywords_excluded')
+          ? undefined
+          : spec.keywords_excluded as string[] | undefined
 
         // Convert Apollo people to ProspectCandidate, apply post-filters
         for (const person of data.people) {
