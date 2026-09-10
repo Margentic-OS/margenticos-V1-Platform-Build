@@ -237,7 +237,8 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
 
       {/* Attribution. Every range names the unit it was measured in, on its own card,
           because a range and a rate are only comparable when both counted the same thing.
-          The meeting card carries no range at all: see tier1-benchmarks.ts. */}
+          The meeting and opt-out cards carry no range at all, and each says so in its
+          own note: see tier1-benchmarks.ts for the sources checked and rejected. */}
       <div className="px-1 pt-3 pb-2 space-y-1">
         <p className="text-[11px] text-text-secondary leading-relaxed max-w-[70ch]">
           Industry ranges are context, not targets. Each card states what its range was

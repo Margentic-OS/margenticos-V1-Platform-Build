@@ -4688,3 +4688,133 @@ MON-030 turned PROBLEM and back to OK.
 view, one registry row). Reverting the code without it leaves an unread table and MON-030
 permanently OK, which is silent rather than noisy. Drop MON-030 from `MONITORS` first if
 reverting, or the pair-list test fails.
+
+---
+
+## ADR-053 — A client-facing count is read from our own records when the provider counts a different event, and a range whose numerator differs is removed as readily as one whose denominator does
+
+**Date:** 2026-09-08
+**Status:** Accepted
+**Extends ADR-048.** ADR-048 made the DENOMINATOR declare itself and drive the arithmetic.
+This extends the same discipline to the NUMERATOR, which ADR-048 did not cover and which
+is where the next defect landed.
+
+### Context
+
+The client benchmarks page showed an opt-out rate of 0. Two people had written in and asked
+to stop. Both were classified `opt_out`, both were suppressed, both had
+`reply_handling_actions` rows. Measured on the live database 2026-09-08:
+
+    campaigns.unsubscribed_count                                   0
+    reply_handling_actions where classified_intent = 'opt_out'     2 rows, 2 people
+    prospects where suppression_reason = 'explicit_opt_out'        2
+
+The card's numerator was `campaigns.unsubscribed_count`, mirrored from the sending tool by
+the poller.
+
+**The provider's number is blind to our opt-outs by construction.** It counts unsubscribe
+LINK CLICKS. Our opt-out footer is "Not for you? Just reply stop." (see
+`src/lib/composition/opt-out-footer.ts`). There is no link to click, deliberately, because
+a reply is a lower-friction refusal and because the footer avoids putting a URL in the
+body. So a client running our copy as designed produces opt-outs the sending tool cannot
+see. This is not a sync lag that closes. The two systems count different events.
+
+This is the same shape as the Replies card fixed on 2026-09-07, where the provider said 2
+and five people had replied. That fix was applied to one card. This is the second instance
+of the same class, which is what makes it worth an ADR rather than a second one-card fix.
+
+### Decision
+
+**1. The opt-out numerator is `peopleOptedOutCount`**: distinct prospects with
+`classified_intent = 'opt_out'`, read from `reply_handling_actions` at
+`getClientVisibleCampaignMetrics`, using the same `countDistinctPeople` helper as
+`peopleRepliedCount`. The intent string is exported once from the reply chokepoint as
+`OPT_OUT_INTENT`, so there is no second private copy to drift.
+
+Not `prospects.suppressed`, which is also true for operator stops and research
+disqualifications: it read 7 against 2 on the live org. Not
+`prospects.suppression_reason = 'explicit_opt_out'` either, which narrows correctly but is
+a materialised verdict written only where a prospect row resolved and the update succeeded.
+The action row is written FIRST, before dispatch, and a person whose suppression write
+failed still told us to stop.
+
+**2. `campaigns.unsubscribed_count` is no longer selected or returned.** Not returned with
+a warning comment: removed from the type. A client-facing metrics type carrying a field
+known to read 0 while people are opting out is an invitation to render it again. Its
+absence from the campaigns `select` string is asserted by
+`campaign-metrics-failure.test.ts`, so putting it back turns a test red.
+
+**3. The unit moved with the numerator.** A person opts out once and is suppressed from
+every remaining step, so the count is de-duplicated people and the denominator is people
+contacted. Dividing people by emails would be exactly the mixed unit ADR-048 exists to
+prevent. Gated on `MIN_PEOPLE_FOR_RATE`, not `MIN_SENDS_FOR_RATE`: the same 400 in a
+different unit, and the card prints its unit in its own too-early line.
+
+**4. The 0 to 1% industry range is REMOVED, not relabelled.** Every published opt-out
+figure checked on 2026-09-08 counts link clicks per email sent (Omnisend, Listclean and
+Smartlead all state 0.1 to 0.5% or "under 2%" per send). ReplyLead's August 2026 dataset
+holds 103 unsubscribes across 242,669 unique leads, which is 0.04% per contacted lead if
+computed from their raw counts, but they do not publish it as a benchmark and it is link
+clicks too. **No published figure counts what we count: both halves differ.** The old
+citation also read "Aggregated B2B research", which names no study, the same failure that
+removed the meeting range under ADR-048.
+
+**5. The generalisation, which is the part to carry.** ADR-048 said a rate and a range are
+only comparable when both count the same thing, and treated that as a question about the
+denominator. It is equally a question about the numerator. **Before comparing our number
+to a published one, check what EVENT each side counts, not only what it divides by.** A
+range survives a numerator mismatch no better than a denominator mismatch, and the opt-out
+card had both at once.
+
+### What this makes visible
+
+The client's own opt-out rate is 2 from 69 people contacted, about 2.9%, well above the
+0 to 1% that used to be printed. Stated here because it is uncomfortable and should not be
+discovered later. The range coming off is not what hides it: the count is on the card
+either way, and the old 0 was the thing hiding it. The sample gate still withholds the RATE
+at 69 people, so what renders today is "2 opted out from 69 people contacted" and "too
+early to report a rate".
+
+### What was deliberately NOT changed
+
+The benchmarks **reply** card still uses the provider's `repliedCount` while the client
+overview uses `peopleRepliedCount`, so one dashboard can print two reply counts. That is
+the same class of defect and it is real. It was left alone because swapping that numerator
+changes `replyRate` at the chokepoint and the operator panel with it, and needs its range
+re-checked on the numerator as well. Filed in the Notion Backlog 2026-09-08, gate "Before
+first paying client". The stale comment in `BenchmarksView` claiming distinct repliers were
+unavailable from this database was corrected in place, because it would have misled the
+next reader into thinking the swap was impossible rather than undecided.
+
+`positiveReplyRate` is now the only range on the page still cited to "Aggregated B2B
+research", which names no study. Also filed rather than fixed silently.
+
+### A second, smaller decision made in the same change
+
+**No copy on a client screen explains our own past decisions.** The attribution notes
+carried "The figure previously shown here cited a report that does not measure meetings",
+and the meeting card's own absent-range note opened with the same sentence. Both are
+deleted. A client never saw the old figure, so the sentence reads as an apology for
+something that never happened to them.
+
+The forward-looking half of each note stays: it explains what is on screen now rather than
+what changed. The reasoning lives in `sourceCitation`, which is a field on every benchmark
+and is never rendered (`BenchmarkCard` reads `sourceLabel` only), and in the source
+comments. Audited across the client surface on 2026-09-08: two instances existed, both on
+this page, both now gone.
+
+### Mutation proofs run at e28b8ee
+
+Each turned tests red and each was reverted:
+
+| Mutation | Result |
+|---|---|
+| opt-out numerator back to a provider zero | 5 tests red |
+| `optOutRate.unit` back to `'emails sent'` | 8 tests red |
+| `unsubscribed_count` back in the campaigns select | 8 tests red |
+| the deleted changelog paragraph put back | 1 test red |
+| rows instead of distinct people at the chokepoint | 3 tests red. Guard `counts DISTINCT PEOPLE` read 3 against 2 (`get-client-visible-campaign-metrics.test.ts:449`) |
+| intent filter dropped | 5 tests red. Guard `excludes a soft objection` read 3 against 2 (`:469`) |
+| org scoping dropped from the opt-out read | 5 tests red. Guard `is org-scoped` read 13 against 2 (`:483`): every other organisation's opt-outs in the shared test database reached org A |
+
+The last three rows were run on 2026-09-10 at 415bfaf, where the chokepoint file and its test file are byte-identical to e28b8ee's, against the shared test database, and each was reverted. Counts are assertion failures only. Each run also had one hook timeout and one test-cleanup error from that shared database, not caused by the mutation and not counted. The org-scoping mutation is the one that had been left in place in a working tree on 2026-09-08; it was applied from the patch recovered from that tree, so the proof is of that exact change.
