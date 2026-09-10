@@ -238,6 +238,32 @@ export const anthropicNameSignal: NameSignalFn = async (rows, context) => {
  *
  * BOTH FIGURES ARE STILL REPORTED IN FULL, both proportions of each. This function chooses
  * what to ACT on; it does not choose what to show.
+ *
+ * ─── AND WHY THE FLOOR IS MEASURED PER ROUND, NOT TAKEN FROM MIN_FIT_IMPROVEMENT ──
+ *
+ * The first version of this check used MIN_FIT_IMPROVEMENT, the tuner's 19-point noise floor.
+ * THAT WAS THE WRONG INSTRUMENT and it passed both live clients when it should have failed
+ * both.
+ *
+ * 19 points is a DRAW-TO-DRAW figure: it was measured by drawing four different samples of
+ * eighty from one unchanged search, so it contains sampling noise, which is most of it. This
+ * comparison involves no sampling at all. It is the same rows, split into those a name
+ * decided and those research decided. The only variation that belongs in the floor is the
+ * judge's own, on identical input.
+ *
+ * MEASURED 2026-09-09, re-judging the same eighty rows a second time:
+ *
+ *   client 1   judge moved 1 of 80 verdicts,  0.2 points   names shifted the figure  9.6 points
+ *   client 2   judge moved 4 of 80 verdicts,  3.3 points   names shifted the figure 16.2 points
+ *
+ * Against 19 both passed. Against the judge's actual variation both fail by a wide margin,
+ * and in the same direction on both clients: the names are roughly twice as generous as the
+ * research, 20.5% against 10.9% and 34.2% against 17.9%. That is exactly the failure the
+ * separation exists to catch, and the loose floor was hiding it.
+ *
+ * So the floor is now measured in the round that uses it, by judging the researched rows
+ * twice. That costs one extra call on the judging model per round, which is a few percent of
+ * a round, and it is the difference between a check and a formality.
  */
 export interface NameSignalVerdict {
   /** False when the two figures disagree by more than the judge's own variation. */
@@ -246,6 +272,17 @@ export interface NameSignalVerdict {
   differenceOnResolved: number | null
   noiseFloor: number
   reason: string
+}
+
+/**
+ * The smallest difference worth calling a difference, whatever the judge did.
+ *
+ * A re-run that happens to return identical verdicts gives a measured variation of exactly
+ * zero, and a floor of zero fails every round including the honest ones. One verdict flipping
+ * is the finest change the figure can express, so that is the floor's own floor.
+ */
+export function oneVerdictWorth(resolved: number): number {
+  return resolved > 0 ? 1 / resolved : 1
 }
 
 export function checkNameSignal(
@@ -282,7 +319,7 @@ export function checkNameSignal(
         `NAME SIGNAL IS UNRELIABLE FOR THIS CLIENT. Among researched rows the fit rate is ` +
         `${(a * 100).toFixed(1)}%; including the ${decidedCount} name-decided rows it is ` +
         `${(b * 100).toFixed(1)}%. That is ${(difference * 100).toFixed(1)} points, against a ` +
-        `judge that moves ${(noiseFloor * 100).toFixed(0)} points on identical input. The ` +
+        `judge that moves ${(noiseFloor * 100).toFixed(1)} points on identical input. The ` +
         'names are saying something the research does not support, so this round falls back ' +
         'to researching everything and the saving is given up.',
     }
@@ -292,7 +329,7 @@ export function checkNameSignal(
     reason:
       `Among researched rows the fit rate is ${(a * 100).toFixed(1)}%; including the ` +
       `${decidedCount} name-decided rows it is ${(b * 100).toFixed(1)}%. That is ` +
-      `${(difference * 100).toFixed(1)} points, inside the ${(noiseFloor * 100).toFixed(0)} ` +
+      `${(difference * 100).toFixed(1)} points, inside the ${(noiseFloor * 100).toFixed(1)} ` +
       'points the judge moves on identical input, so the names did not shift the picture.',
   }
 }

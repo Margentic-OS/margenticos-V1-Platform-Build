@@ -51,7 +51,7 @@ import { drawSpreadSample, DEFAULT_SAMPLE_SIZE } from '@/lib/tuner/spread-sample
 import { lookUpMany, lookupIsUsable, LookupBudget } from '@/lib/tuner/lookup'
 import { PRICE_PER_BILLABLE_SEARCH, tokenCost } from '@/lib/tuner/pricing'
 import {
-  anthropicNameSignal, checkNameSignal, isDecided, logNameSignal,
+  anthropicNameSignal, checkNameSignal, isDecided, logNameSignal, oneVerdictWorth,
   type NameSignalDecision, type NameSignalFn, type NameSignalVerdict,
 } from '@/lib/tuner/name-signal'
 import {
@@ -532,8 +532,32 @@ export async function runOneRound(ctx: {
   let fitResearched = assessFit(researchedJudged)
   let fitIncludingNames = assessFit([...researchedJudged, ...nameJudged])
 
+  // ─── THE FLOOR IS MEASURED HERE, NOT BORROWED ─────────────────────────────
+  //
+  // By judging the SAME researched rows a second time. MIN_FIT_IMPROVEMENT is a draw-to-draw
+  // figure and is mostly sampling noise; this comparison does no sampling, so the only
+  // variation that belongs in it is the judge's own. Using the wrong one passed both live
+  // clients on 2026-09-09 when both should have failed. See name-signal.ts.
+  //
+  // The extra call is only made when there is something to validate: no name decided
+  // anything means there is nothing to compare and nothing to measure a floor for.
+  let judgeNoise = MIN_FIT_IMPROVEMENT
+  if (nameJudged.length > 0) {
+    const again = await judgeRows(researched)
+    modelCalls += again.modelCalls
+    judgeUsages.push(again.usage)
+    const rerun = assessFit(asJudged(researched, again.verdicts))
+    const a = fitResearched.fitOfResolved
+    const b = rerun.fitOfResolved
+    judgeNoise = a !== null && b !== null
+      ? Math.max(Math.abs(a - b), oneVerdictWorth(fitResearched.resolved))
+      // No rate on one side, so the variation could not be measured. checkNameSignal will
+      // refuse the comparison for the same reason a moment later; this value is not used.
+      : MIN_FIT_IMPROVEMENT
+  }
+
   let nameVerdict = checkNameSignal(
-    fitResearched, fitIncludingNames, nameJudged.length, MIN_FIT_IMPROVEMENT,
+    fitResearched, fitIncludingNames, nameJudged.length, judgeNoise,
   )
   logNameSignal(sample.rows.length, nameJudged.length, nameVerdict)
 

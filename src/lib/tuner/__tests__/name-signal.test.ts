@@ -27,7 +27,7 @@ vi.mock('@/lib/tuner/lookup', async (importOriginal) => ({
 }))
 
 import {
-  buildNameSignalPrompt, parseNameSignal, checkNameSignal, isDecided,
+  buildNameSignalPrompt, parseNameSignal, checkNameSignal, isDecided, oneVerdictWorth,
   type NameSignalFn,
 } from '@/lib/tuner/name-signal'
 import { runOneRound } from '@/lib/tuner/search-tuner'
@@ -67,6 +67,13 @@ const lookupResult = () => ({
 /** Everything researched comes back with one verdict, so the researched rate is controllable. */
 const judgeAlways = (verdict: 'best' | 'neither'): FitJudgeFn => async (rs) => ({
   verdicts: rs.map(r => ({ sourceId: r.sourceId, verdict, reason: 'placeholder reason' })),
+  modelCalls: 1,
+  usage: { inputTokens: 100, outputTokens: 10, model: 'claude-sonnet-4-6' },
+})
+
+/** Deterministic by index, so re-judging the same rows measures a variation of exactly zero. */
+const judgeAlternating: FitJudgeFn = async (rs) => ({
+  verdicts: rs.map((r, i) => ({ sourceId: r.sourceId, verdict: i % 2 === 0 ? 'best' as const : 'neither' as const, reason: 'placeholder reason' })),
   modelCalls: 1,
   usage: { inputTokens: 100, outputTokens: 10, model: 'claude-sonnet-4-6' },
 })
@@ -168,19 +175,20 @@ describe('a name with no clear signal is always researched', () => {
 
 describe('the two figures are kept apart, and neither is the round on its own', () => {
   it('reports both, and they are genuinely different numbers', async () => {
-    // Names decide 40 rows: 35 one way and 5 the other. Everything researched comes back the
-    // first way. So the researched rate is 100% and the combined rate is 75/80. That is 6.25
-    // points, INSIDE the floor, which is the state where two separate figures actually
-    // survive to be reported: a disagreement past the floor collapses them by falling back.
+    // Two rows are decided from a name, both one way. The other forty are researched and come
+    // back half and half, so the researched rate is 50.0% and the combined rate is 22/42, or
+    // 52.4%. That is 2.4 points against a floor of one verdict in forty, 2.5 points, so it is
+    // INSIDE the floor. That is the only state in which two separate figures survive to be
+    // reported: past the floor the round falls back and they collapse into one.
     const r = await round({
-      n: 80,
-      nameSignal: nameSaysFor(i => (i < 35 ? 'best' : i < 40 ? 'neither' : 'unclear')),
-      fitJudge: judgeAlways('best'),
+      n: 42,
+      nameSignal: nameSaysFor(i => (i < 2 ? 'best' : 'unclear')),
+      fitJudge: judgeAlternating,
     })
 
     expect(r.nameSignal!.fellBackToResearchingEverything).toBe(false)
-    expect(r.fit!.fitOfResolved).toBe(1)
-    expect(r.fitIncludingNameDecided!.fitOfResolved).toBeCloseTo(0.9375, 5)
+    expect(r.fit!.fitOfResolved).toBeCloseTo(0.5, 5)
+    expect(r.fitIncludingNameDecided!.fitOfResolved).toBeCloseTo(22 / 42, 5)
     // Two figures, not one number, and not the same object either.
     expect(r.fit).not.toBe(r.fitIncludingNameDecided)
   })
@@ -265,6 +273,45 @@ describe('the fallback fires, and researches everything', () => {
     expect(r.nameSignal!.verdict.reliable).toBe(true)
     expect(r.cost!.lookupsMade).toBe(40)
     expect(r.cost!.nameDecided).toBe(40)
+  })
+})
+
+describe('the floor is the judge\'s own variation, measured, not a borrowed constant', () => {
+  it('fails a difference that a stable judge makes significant', async () => {
+    // The judge here is perfectly stable: every row comes back the same verdict every time,
+    // so its measured variation is zero and the floor drops to one verdict's worth. A modest
+    // name-driven shift that would sail past the 19-point draw-to-draw floor must now fail.
+    //
+    // This is the case that was passing on live data when it should not have been.
+    const r = await round({
+      n: 80,
+      nameSignal: nameSaysFor(i => (i < 40 ? 'best' : 'unclear')),
+      fitJudge: judgeAlways('neither'),
+    })
+
+    expect(r.nameSignal!.verdict.reliable).toBe(false)
+    expect(r.nameSignal!.verdict.noiseFloor).toBeLessThan(MIN_FIT_IMPROVEMENT)
+    expect(r.nameSignal!.fellBackToResearchingEverything).toBe(true)
+  })
+
+  it('does not spend a call measuring a floor it has nothing to use on', async () => {
+    // Nothing was decided from a name, so there is nothing to validate. The extra judging
+    // pass must not happen: an instrument that runs when there is nothing to measure is just
+    // a cost.
+    const withNames = await round({
+      n: 80, nameSignal: nameSaysFor(i => (i < 40 ? 'best' : 'unclear')), fitJudge: judgeAlways('best'),
+    })
+    const withoutNames = await round({
+      n: 80, nameSignal: nameSaysFor(() => 'unclear'), fitJudge: judgeAlways('best'),
+    })
+    expect(withoutNames.modelCalls).toBeLessThan(withNames.modelCalls)
+  })
+
+  it('never lets the floor fall to zero', () => {
+    // A re-run that happens to agree exactly gives a measured variation of zero, and a zero
+    // floor fails every round including the honest ones.
+    expect(oneVerdictWorth(40)).toBeCloseTo(0.025, 6)
+    expect(oneVerdictWorth(0)).toBe(1)
   })
 })
 
