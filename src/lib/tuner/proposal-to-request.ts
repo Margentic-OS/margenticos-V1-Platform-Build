@@ -69,12 +69,22 @@ export function proposalToRequest(
   const applied: AppliedChange[] = []
   const untranslated: { axis: string; value: string; why: string }[] = []
 
+  // Which request parameters each axis touched, so a contradictory axis can be put back
+  // exactly as it was. Tracked rather than inferred: an axis is free to move more than one
+  // key, and guessing the mapping afterwards is how a revert leaves half a change behind.
+  const keysTouchedByAxis = new Map<string, Set<string>>()
+
   const change = (axis: string, key: string, next: unknown, reason: string) => {
     const before = render(request[key])
     if (next === undefined) delete request[key]
     else request[key] = next
     const after = render(request[key])
-    if (before !== after) applied.push({ axis, before, after, reason })
+    if (before !== after) {
+      applied.push({ axis, before, after, reason })
+      const keys = keysTouchedByAxis.get(axis) ?? new Set<string>()
+      keys.add(key)
+      keysTouchedByAxis.set(axis, keys)
+    }
   }
 
   // ── Words. The one axis that translates cleanly ──
@@ -152,7 +162,45 @@ export function proposalToRequest(
       'Values outside the provider vocabulary were dropped before being sent.')
   }
 
-  return { request, applied, untranslated }
+  // ── A CONTRADICTORY AXIS IS COLLAPSED, NEVER APPLIED IN ORDER ──────────────
+  //
+  // A proposal may name the same axis twice and say two different things about it. MEASURED
+  // 2026-09-09 on a live client: it asked for a revenue band AND asked for revenue to be
+  // omitted, in one proposal. Both were applied, in the order this file happens to run them,
+  // so the omission won and the band was silently discarded.
+  //
+  // THE PROBLEM IS NOT WHICH ONE WON. It is that the ORDER OF THE CODE decided, and the code
+  // order carries no meaning at all: reordering two blocks here would have changed a client's
+  // candidate search without a word of the proposal changing. Nothing in the applied list
+  // said a contradiction had happened either, so the plan read as two ordinary changes.
+  //
+  // So a repeated axis is put back exactly as the client's stored search had it, and the
+  // contradiction is reported. That is the same direction categories and places already take:
+  // where this layer cannot know what was meant, it changes nothing and says so. Picking a
+  // winner here would be this module resolving a disagreement it has no information about.
+  const timesPerAxis = new Map<string, number>()
+  for (const c of applied) timesPerAxis.set(c.axis, (timesPerAxis.get(c.axis) ?? 0) + 1)
+
+  const contradictory = [...timesPerAxis.entries()].filter(([, n]) => n > 1).map(([axis]) => axis)
+  for (const axis of contradictory) {
+    for (const key of keysTouchedByAxis.get(axis) ?? []) {
+      // Restored from `current`, not from the first recorded `before`: `before` is a rendered
+      // string for display and cannot be turned back into the value it described.
+      if (key in current) request[key] = current[key]
+      else delete request[key]
+    }
+    const said = applied.filter(c => c.axis === axis)
+    untranslated.push({
+      axis, value: said.map(c => c.after).join(' AND ALSO '),
+      why:
+        `The proposal named this axis ${said.length} times and asked for different things ` +
+        'each time. Applying them in sequence would let the order of this file decide, which ' +
+        "means nothing, so the axis is left as the client's stored search has it.",
+    })
+  }
+  const collapsed = applied.filter(c => !contradictory.includes(c.axis))
+
+  return { request, applied: collapsed, untranslated }
 }
 
 /**

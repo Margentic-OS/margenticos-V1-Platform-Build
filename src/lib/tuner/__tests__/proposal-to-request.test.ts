@@ -26,6 +26,58 @@ const current = (): Record<string, unknown> => ({
 
 const el = (value: string) => ({ value, reason: 'the document states it', basis: 'stated' })
 
+describe('an axis named twice is collapsed, not applied in order', () => {
+  // MEASURED 2026-09-09 on a live client: one proposal asked for a revenue band AND asked for
+  // revenue to be omitted. Both were applied in the order this file runs them, so the omission
+  // won and the band vanished silently. The problem was never which one won; it was that the
+  // ORDER OF THE CODE decided, and reordering two blocks would have changed a client's
+  // candidate search with no word of the proposal changing.
+  const contradictory = () => parseProposedSearch({
+    revenue: { min: 1_000_000, max: 4_000_000, reason: 'the document states it', basis: 'stated' },
+    omit: [{ value: 'company_revenue', reason: 'the document does not constrain it' }],
+  })
+
+  it('leaves the axis exactly as the stored search had it', () => {
+    const before = current()
+    const { request } = proposalToRequest(before, contradictory())
+    // Neither thing the proposal asked for. The stored value, untouched.
+    expect(request.revenue_range).toEqual(before.revenue_range)
+    expect('revenue_range' in request).toBe('revenue_range' in before)
+  })
+
+  it('reports the contradiction instead of hiding it in the applied list', () => {
+    const { applied, untranslated } = proposalToRequest(current(), contradictory())
+    expect(applied.some(a => a.axis === 'company_revenue')).toBe(false)
+    const said = untranslated.find(u => u.axis === 'company_revenue')
+    expect(said).toBeDefined()
+    expect(said!.why).toContain('named this axis 2 times')
+  })
+
+  it('does not punish an axis named once', () => {
+    // The collapse must key on repetition, not on the axis. A single revenue proposal is an
+    // ordinary change and has to survive.
+    const p = parseProposedSearch({
+      revenue: { min: 1_000_000, max: 4_000_000, reason: 'the document states it', basis: 'stated' },
+    })
+    const { request, applied, untranslated } = proposalToRequest(current(), p)
+    expect(request.revenue_range).toEqual({ min: 1_000_000, max: 4_000_000 })
+    expect(applied.some(a => a.axis === 'company_revenue')).toBe(true)
+    expect(untranslated.some(u => u.axis === 'company_revenue')).toBe(false)
+  })
+
+  it('collapses only the contradicted axis and leaves the others applied', () => {
+    const p = parseProposedSearch({
+      words: [el('alpha')],
+      revenue: { min: 1_000_000, max: 4_000_000, reason: 'r', basis: 'stated' },
+      omit: [{ value: 'company_revenue', reason: 'r' }],
+    })
+    const { request, applied } = proposalToRequest(current(), p)
+    expect(applied.map(a => a.axis)).toContain('search_word')
+    expect(applied.map(a => a.axis)).not.toContain('company_revenue')
+    expect(request.q_organization_keyword_tags).toEqual(['alpha'])
+  })
+})
+
 describe('a proposal becomes a request, and only where it named something', () => {
   it('replaces the word layer with the proposed words', () => {
     const p = parseProposedSearch({ words: [el('alpha'), el('beta')] })
