@@ -5,7 +5,7 @@
 // THE DEFECT
 //
 // A high-confidence booking reply took the automatic send path whatever the organisation
-// had configured. With organisations.calendly_url empty it failed the link check, wrote a
+// had configured. With organisations.booking_url empty it failed the link check, wrote a
 // failed action row and returned. The next cron run saw that row, marked the signal
 // processed, and never retried. No reply_drafts row was ever written, so the triage queue,
 // MON-028 and the sidebar badge could not see it either. The prospect received nothing.
@@ -81,7 +81,7 @@ vi.mock('../load-org-context', () => ({
 // placeholder, filled in at send from the organisation's booking link.
 const draftReply = vi.fn(async (_args: Record<string, unknown>) => ({
   tier: 2 as const,
-  draft_body: 'Great to hear from you. Happy to find a time that works: {calendly_link}',
+  draft_body: 'Great to hear from you. Happy to find a time that works: {booking_link}',
   faq_ids_used: [],
   confidence_at_draft: 0.95,
   prompt_version: 'test',
@@ -119,7 +119,7 @@ interface Recorded {
  * Serves only the tables this path touches and THROWS on any other, so a write to a table
  * no assertion is watching cannot pass unnoticed.
  */
-function createFakeDb(opts: { calendlyUrl: string | null }) {
+function createFakeDb(opts: { bookingUrl: string | null }) {
   const rec: Recorded = { draftInserts: [], actionInserts: [], signalUpdates: [] }
 
   const client: any = {
@@ -205,7 +205,7 @@ function createFakeDb(opts: { calendlyUrl: string | null }) {
           eq: () => b,
           single: async () => ({ data: { id: 'org-1', archived_at: null }, error: null }),
           maybeSingle: async () => ({
-            data: { name: 'Org', calendly_url: opts.calendlyUrl, founder_first_name: 'Sam' },
+            data: { name: 'Org', booking_url: opts.bookingUrl, founder_first_name: 'Sam' },
             error: null,
           }),
         }
@@ -230,7 +230,7 @@ beforeEach(() => {
 
 describe('a booking reply at an organisation with no booking link', () => {
   it('writes a draft to the triage queue and attempts no send', async () => {
-    const db = createFakeDb({ calendlyUrl: null })
+    const db = createFakeDb({ bookingUrl: null })
 
     const result = await processReplies(db, 'key')
 
@@ -249,7 +249,7 @@ describe('a booking reply at an organisation with no booking link', () => {
     })
     // The placeholder survives into the draft, so the link is filled in at send once the
     // operator has set one.
-    expect(db.rec.draftInserts[0].ai_draft_body).toContain('{calendly_link}')
+    expect(db.rec.draftInserts[0].ai_draft_body).toContain('{booking_link}')
     expect(draftReply).toHaveBeenCalledTimes(1)
     expect(draftReply.mock.calls[0][0]).toMatchObject({ tierHint: 2 })
 
@@ -264,7 +264,7 @@ describe('a booking reply at an organisation with no booking link', () => {
   })
 
   it('treats a whitespace-only link as no link, rather than sending a blank one', async () => {
-    const db = createFakeDb({ calendlyUrl: '   ' })
+    const db = createFakeDb({ bookingUrl: '   ' })
 
     await processReplies(db, 'key')
 
@@ -276,7 +276,7 @@ describe('a booking reply at an organisation with no booking link', () => {
 
 describe('POSITIVE CONTROL: the same reply at an organisation WITH a booking link', () => {
   it('is sent automatically with the link, and writes no draft', async () => {
-    const db = createFakeDb({ calendlyUrl: 'https://booking.test/alex' })
+    const db = createFakeDb({ bookingUrl: 'https://booking.test/alex' })
 
     const result = await processReplies(db, 'key')
 

@@ -263,8 +263,8 @@ export async function orchestrateDraft(input: OrchestratorInput): Promise<Orches
     }
   }
 
-  // ── 8. Calendly hint ──────────────────────────────────────────────────────
-  const includeCalendlyHint = intent !== 'unclear'
+  // ── 8. Booking hint ───────────────────────────────────────────────────────
+  const includeBookingHint = intent !== 'unclear'
 
   // ── 9. Map FAQ matches to drafter format ──────────────────────────────────
   // Drafter uses only approved FAQs (non-null faq_id).
@@ -292,7 +292,7 @@ export async function orchestrateDraft(input: OrchestratorInput): Promise<Orches
       positioningDocument: orgContext.positioningDocument,
     },
     faqMatches: drafterFaqMatches,
-    includeCalendlyHint,
+    includeBookingHint,
     signalId: signal.id,
     prospectId,
     supabase,

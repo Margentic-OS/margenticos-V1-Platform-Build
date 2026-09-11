@@ -122,7 +122,7 @@ Goal: A working system that can run MargenticOS as client zero and onboard 3 fou
   - [ ] Apollo: TAM count queries via People API Search (new, no credit cost)
   - [ ] Apollo: handler built against ICPFilterSpec (new, ADR-015)
   - [ ] GoHighLevel: meeting outcome webhook
-  - [x] Calendly: booking URL stored per client, used in positive reply emails
+  - [x] Booking link: stored per client (organisations.booking_url), used in positive reply emails; detection via Cal.com webhook (ADR-056)
   - [ ] Resend: approval notifications, 90-day refresh email, escalation reminders
 
 ### Sending infrastructure (covered by runbook, not a build item)
@@ -254,6 +254,6 @@ Regardless of phase:
   - LinkedIn DM tooling (Lemlist)
   - CRM (GoHighLevel)
   - Prospect database (Apollo primarily, with swappable alternatives)
-  - Booking system (Calendly or client's existing tool)
+  - Booking system (Cal.com, ADR-056, or manual recording for any other tool)
   - Email signatures (configured in Instantly per client)
   - LinkedIn scraping (see ADR-005)

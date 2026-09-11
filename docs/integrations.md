@@ -370,3 +370,42 @@ Today both are enforced globally, which is the strict reading. `reason` and
 `source_org_id` are stored on every row so that judgement can change as a WHERE clause
 rather than a migration. The global assumption is hardcoded in exactly one place, the
 query in `lookupSuppressedEmails()`. Nothing else in the codebase may assume it.
+
+## Booking detection — Cal.com (`can_book_meeting`)
+
+Added 2026-09-11. Full reasoning in ADR-056. Replaces the Calendly route, which never recorded a meeting.
+
+**What it does.** When someone books through a booking link we sent, Cal.com notifies
+`POST /api/webhooks/cal-com`. The route checks the signature, works out which client the booking
+belongs to and which prospect booked, and records a meeting.
+
+**Where the pieces are.**
+- Registry row: `can_book_meeting` / `cal_com`, handler `src/lib/integrations/handlers/cal-com`.
+  The old `calendly` row stays until the post-merge migration removes it. Nothing reads this
+  capability through the registry today.
+- Route: `src/app/api/webhooks/cal-com/route.ts`
+- Cal.com-specific code: `src/lib/integrations/handlers/cal-com/webhook.ts` (signature, payload)
+- Vendor-neutral recording: `src/lib/meetings/record-booking-event.ts`
+- The link we send: `src/lib/meetings/booking-link.ts` adds `prospect_ref`
+
+**Setup it depends on, none of which code can do:**
+- `CALCOM_WEBHOOK_SECRET` set in Vercel, identical to the secret typed into Cal.com's webhook settings
+- the webhook subscribed to Booking Created, Booking Cancelled and Booking Rescheduled only
+- a HIDDEN booking question on the event type, identifier exactly `prospect_ref`
+- `organisations.booking_host_ref` set to the email of the Cal.com account that hosts the booking
+
+**What to check if it breaks.**
+- Every refusal names its reason, in the response (`reason`) and in a Sentry issue titled
+  `cal-com webhook refused: <reason>`, which describes our secret by presence and length only:
+  - `secret_not_configured` (500): `CALCOM_WEBHOOK_SECRET` is not set on the deployment that
+    answered. Set it for that environment in Vercel and redeploy.
+  - `signature_missing` or `signature_malformed` (401): Cal.com sent no real signature. Its
+    webhook almost certainly has no secret set.
+  - `signature_mismatch` (401): both sides have a secret and they differ. If `secret_length` and
+    `secret_trimmed_length` differ, the Vercel value has a stray space or newline.
+- Bookings land in `unattributed_bookings` and the operator gets "a calendar that belongs to no
+  client": `booking_host_ref` is not set, or is not the address Cal.com reports as the organiser.
+- Meetings arrive with `prospect_match = 'none'` for real prospects: the hidden question is
+  missing, or is not named exactly `prospect_ref`, and the prospect booked with a different email.
+- Nothing arrives at all: check the webhook's delivery log in Cal.com's settings first. The free
+  tier's webhook support for a solo account was unverified when this was built.

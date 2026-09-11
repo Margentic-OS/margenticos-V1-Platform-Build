@@ -119,21 +119,21 @@ check(
   shouldSkipExtraction({
     prospectQuestion: 'can we jump on a call?',
     // Answer is >20 words total (passes Rule 1) but non-link content is <30 words (Rule 4 fires).
-    operatorAnswer: 'Sounds great. Looking forward to walking you through everything and showing you exactly how things would work for your specific situation. Pick a time that suits: {calendly_link}',
+    operatorAnswer: 'Sounds great. Looking forward to walking you through everything and showing you exactly how things would work for your specific situation. Pick a time that suits: {booking_link}',
     aiDraftBody: 'a very different draft body with lots of different words not matching the above',
   }),
   { skip: true, reason: 'booking_link_only_minimal_context' },
 )
 
 check(
-  'Calendly link with substantive context (30+ stripped words) → no skip on rule 4',
+  'Booking link with substantive context (30+ stripped words) → no skip on rule 4',
   // NOTE: This may still skip on Rule 1 (word count) — we check the skip reason
   shouldSkipExtraction({
     prospectQuestion: 'can we jump on a call?',
-    operatorAnswer: 'Absolutely, a call would be the best way to cover this. I want to walk you through exactly how the onboarding process works, show you the dashboard, and explain the qualification criteria we use to source your prospects. Book a slot here: {calendly_link}',
+    operatorAnswer: 'Absolutely, a call would be the best way to cover this. I want to walk you through exactly how the onboarding process works, show you the dashboard, and explain the qualification criteria we use to source your prospects. Book a slot here: {booking_link}',
     aiDraftBody: 'a very different draft body with lots of words not matching the above text at all in any way shape or form whatsoever',
   }).reason,
-  // If any skip fires, it should NOT be 'calendly_only_minimal_context'
+  // If any skip fires, it should NOT be 'booking_link_only_minimal_context'
   undefined,  // pass-through: no rule fires for a substantive answer
 )
 

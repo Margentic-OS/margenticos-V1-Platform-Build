@@ -58,7 +58,7 @@ import { logger } from '@/lib/logger'
 // A new vendor goes here in the same commit that introduces its handler. That rule is the
 // one MyEmailVerifier was missing from when it reached a column default.
 const VENDOR_NAMES = [
-  'Instantly', 'Apollo', 'Taplio', 'Lemlist', 'GoHighLevel', 'Calendly',
+  'Instantly', 'Apollo', 'Taplio', 'Lemlist', 'GoHighLevel', 'Calendly', 'Cal.com',
   'Hunter.io', 'MyEmailVerifier', 'Bouncer', 'Apify', 'Brave', 'Smartlead',
 ] as const
 

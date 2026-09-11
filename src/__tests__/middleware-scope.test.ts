@@ -53,7 +53,7 @@ describe('middleware scope: machine-authenticated routes must never be matched',
   })
 
   it('does not match webhook routes, which authenticate by signature', () => {
-    for (const p of ['/api/webhooks/calendly', '/api/webhooks/users-pending-review-notify']) {
+    for (const p of ['/api/webhooks/cal-com', '/api/webhooks/users-pending-review-notify']) {
       expect(matches(p), `${p} would 401`).toBe(false)
     }
   })

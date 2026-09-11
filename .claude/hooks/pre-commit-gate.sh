@@ -96,7 +96,7 @@ fi
 # MyEmailVerifier is on this list because its absence is exactly why the literal string
 # reached a database column default. Any new vendor goes on this list in the same commit
 # that introduces its handler.
-VENDORS='Instantly|Taplio|Lemlist|Apollo|GoHighLevel|Calendly|HunterIO|MyEmailVerifier|Bouncer|Apify|Brave'
+VENDORS='Instantly|Taplio|Lemlist|Apollo|GoHighLevel|Calendly|Cal\.com|HunterIO|MyEmailVerifier|Bouncer|Apify|Brave'
 
 VENDOR_HITS=""
 while IFS= read -r file; do
@@ -104,6 +104,7 @@ while IFS= read -r file; do
   case "$file" in
     src/lib/integrations/*)  continue ;;   # the handler layer, where names belong
     src/lib/sourcing/handlers/*) continue ;;
+    src/lib/agents/vendor-name-gate.ts) continue ;;  # the ban list: it must name every vendor it bans
     *.md|*.sql|*.json|*.sh)  continue ;;   # docs, migrations, config, scripts
     *test*|*__tests__*)      continue ;;   # fixtures name the tool they fake
     src/*.ts|src/*.tsx|src/**/*.ts|src/**/*.tsx) ;;

@@ -266,7 +266,7 @@ Warm, personal, from Doug. Not a system notification.
 
 ### Signature convention for outbound email identity
 
-Plain-text signature block (no HTML, no images, no hyperlinks except Calendly in replies only):
+Plain-text signature block (no HTML, no images, no hyperlinks except the booking link in replies only):
 
   ${founderFirstName} ${founderLastName}, ${founderTitle}
   ${companyName}
@@ -277,7 +277,7 @@ Example:
   Margentic OS
   margenticos.com
 
-No hyperlinks in cold sequence steps. Calendly link permitted only in reply emails and book-meeting responses.
+No hyperlinks in cold sequence steps. Booking link permitted only in reply emails and book-meeting responses.
 
 Instantly account-level signatures are NOT configured. Signatures are composed into email bodies by the content pipeline at send time. This is a deliberate architectural decision: it ensures all signatures are identical across accounts and allows testing signature variants without reconfiguring Instantly accounts.
 

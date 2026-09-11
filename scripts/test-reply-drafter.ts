@@ -48,7 +48,7 @@ interface FixtureJson {
     answer: string
     score: number
   }>
-  includeCalendlyHint: boolean
+  includeBookingHint: boolean
   signalId: string
   prospectId: string | null
   expected_behaviour: string
@@ -99,7 +99,7 @@ async function main() {
       tierHint: fixture.tierHint,
       orgContext: SHARED_ORG_CONTEXT,
       faqMatches: fixture.faqMatches,
-      includeCalendlyHint: fixture.includeCalendlyHint,
+      includeBookingHint: fixture.includeBookingHint,
       signalId: fixture.signalId,
       prospectId: fixture.prospectId,
       supabase,
