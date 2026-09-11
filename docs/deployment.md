@@ -21,6 +21,23 @@ Separate environment variables in Vercel for each environment.
 [ ] Add NEXT_PUBLIC_SENTRY_DSN to environment variables
 [ ] Add SENTRY_AUTH_TOKEN to Vercel
 
+## Dependencies with a local patch (added 2026-09-11)
+
+`@supabase/postgrest-js` 2.103.2 carries `patches/@supabase+postgrest-js+2.103.2.patch`: one
+retry on a 504 for reads only. `npm install` applies it through the `postinstall` script, and
+Vercel runs that script on every install. `prebuild` runs `scripts/check-postgrest-patch.ts`,
+which fails the build if the patch is not in the installed files.
+
+**What to check if a build stops at `check-postgrest-patch: FAILED`.**
+- "does not carry the 504 retry patch": the install ran without scripts. Run `npm install`
+  normally, or `npx patch-package`.
+- "installed @supabase/postgrest-js is X": the library version changed. Read the retry code
+  in the new version first (CLAUDE.md, "Supabase client library"), then regenerate the patch.
+
+Why patch the library rather than wrap each client: about 90 files build their own client,
+and a wrapper missed at any one of them would silently have no retry. Every one of them goes
+through this single package.
+
 ## Environment variables added by feature
 
 **CALCOM_WEBHOOK_SECRET** (added 2026-09-11, ADR-056). Production and Preview. The secret that

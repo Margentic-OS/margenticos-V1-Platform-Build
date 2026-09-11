@@ -317,6 +317,33 @@ commit` are not. Confirmed 2026-08-24 while building the job queue.
 
 ---
 
+## Supabase client library — pinned exactly, and patched
+
+`@supabase/supabase-js` is pinned to an EXACT version in package.json (2.103.2), not a
+caret range. It pins `@supabase/postgrest-js` to the same version, and that package carries
+a local patch, `patches/@supabase+postgrest-js+2.103.2.patch`, applied by `patch-package`
+in `postinstall`.
+
+**What the patch does.** One retry on HTTP 504, for GET, HEAD and OPTIONS only, after a
+250 to 750 ms jittered wait. The library as shipped retries only 503, 520 and network
+errors. POST, PATCH and DELETE are never retried: a 504 means the gateway stopped waiting,
+not that the write failed. The reason: since September 2026 Supabase's gateway has cut
+about 1% of requests at five seconds, on reads that normally take 25 ms.
+
+**Before upgrading supabase-js, READ THE RETRY CODE in the new version.** Open
+`node_modules/@supabase/postgrest-js/dist/index.cjs` and find `RETRYABLE_STATUS_CODES`,
+`RETRYABLE_METHODS` and `executeWithRetry`. Do not rely on release notes or a vendor
+assistant: on 2026-09-11 a vendor assistant said versions from 2.102.0 retry 504 including
+POST, and the installed code retried neither. Then decide whether the patch is still
+needed, regenerate it with `npx patch-package @supabase/postgrest-js`, and run
+`src/lib/supabase/__tests__/read-retry-504.test.ts`.
+
+An upgrade that skips this fails loudly twice: patch-package refuses to apply a patch
+written for a different version, and `scripts/check-postgrest-patch.ts` in `prebuild`
+stops the build if the patch is missing from either build the package ships.
+
+---
+
 ## Documentation — update /docs every session, never skip
 
 All technical documentation lives in /docs at the project root.
