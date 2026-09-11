@@ -111,7 +111,7 @@ The system declares capabilities, not tool names:
    Never attempt programmatic API scheduling with Taplio.)
   can_send_linkedin_dm        → currently: Lemlist
   can_enrich_contact          → currently: Apollo
-  can_book_meeting            → currently: Calendly
+  can_book_meeting            → currently: Cal.com (ADR-056)
   can_validate_email          → currently: Hunter.io (phase two)
 
 Agents and components reference capabilities only. Never tool names.
@@ -936,7 +936,7 @@ Doug notified for all rejections and auto-approvals across all channels.
 ## Reply handling
 
 Positive reply:
-  Respond same business hour. Include Calendly link. Say "grab a slot."
+  Respond same business hour. Include the booking link. Say "grab a slot."
   Sign as "[Client Company Name] Team." Never use founder name, never mention AI.
 
 Information request:
@@ -1051,6 +1051,18 @@ matter as much as the BLOCKs. A gate that blocks everything is an outage, not a 
 Do not bypass a block with `--no-verify` or by rewording the command. If a match is a
 false positive, narrow the pattern in the hook, and say so in the commit message.
 
+**KNOWN HOLE, found 2026-09-11: this gate does not see a commit made from a worktree.** It runs
+in the session's working directory, which is the main checkout, and reads what is staged THERE,
+before the command runs. So a commit made from a worktree, or one whose files are staged in the
+same command as the commit, passes uninspected. Measured with a probe commit that should have
+been blocked and landed. Until the fix on the Notion Backlog is built (a real git pre-commit hook
+through core.hooksPath), run the gate by hand from the worktree before every commit:
+
+    printf '%s' '{"tool_input":{"command":"git commit -m x"}}' | bash .claude/hooks/pre-commit-gate.sh; echo $?
+
+Exit 2 means blocked. A retro scan of everything merged to main since the gate existed found no
+secret (one 64-character hash, a cohort fingerprint in docs/BACKLOG.md, not a credential).
+
 ### Pre-commit: secret check (NEW 2026-08-27)
 Blocks any staged addition containing a 64- or 32-character hex string, a JWT, an
 `sk-`/`sk-ant-`/`re_` key, an AWS or GitHub token, or a `Bearer` literal.
@@ -1073,7 +1085,7 @@ Never proceed with a commit if .env could be tracked by Git.
 
 ### Pre-commit: tool-name reference check
 Before committing any new or modified agent or component file, scan for hardcoded
-tool names: Instantly, Taplio, Lemlist, Apollo, GoHighLevel, Calendly, HunterIO,
+tool names: Instantly, Taplio, Lemlist, Apollo, GoHighLevel, Calendly, Cal.com, HunterIO,
 MyEmailVerifier, Bouncer, Apify, Brave.
 
 MyEmailVerifier was missing from this list until 2026-08-25, and its absence is exactly
@@ -1099,7 +1111,7 @@ Do not build:  LinkedIn DMs         → Lemlist
 Do not build:  CRM                  → GoHighLevel
 Do not build:  prospect database    → Apollo
 Do not build:  email signatures     → configure in Instantly per client
-Do not build:  booking system       → Calendly or client's existing tool
+Do not build:  booking system       → Cal.com (ADR-056), or manual recording for any other tool
 
 ---
 
@@ -1807,6 +1819,10 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-055  A monitor alert (Sentry, which emails the operator) goes out on the SECOND
            consecutive PROBLEM reading; the first is recorded and shown at once.
            monitor_events.alert_pending carries the owed alert
+  ADR-056  Booking detection moves to Cal.com through one signed webhook. The client is
+           found by the hosting seat, the prospect by a reference on our link and then by
+           email; an unmatched booking is recorded and never auto-billed; meeting-ended is
+           ignored. Calendly naming removed; the destructive database half waits for merge
 
 ---
 

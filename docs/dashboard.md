@@ -560,13 +560,13 @@ requested but not found says so separately from one that was never picked, becau
 bookmark and an empty selection need different fixes.
 
 **The booking link is the only editable field, and that is a rule rather than a stage.** It
-is the one value with all four of: a real typed column (`organisations.calendly_url`), a
+is the one value with all four of: a real typed column (`organisations.booking_url`), a
 locked decision requiring it to differ per client (2026-07-28), something already reading it
 live (`process-reply.ts` puts it in the reply a prospect receives), and no way to set it
 outside SQL. Anything else earns an edit control by having all four.
 
 Validated as an https URL and never as a vendor. The 2026-07-28 decision makes booking
-*detection* Calendly-specific but the link itself tool-agnostic, so a hostname check here
+*detection* tool-specific (Cal.com since 2026-09-11, ADR-056) but the link itself tool-agnostic, so a hostname check here
 would be Rule Zero and would refuse the case that decision anticipates. Clearing the field
 writes NULL, not an empty string: an empty string passes a truthiness check downstream and
 would put a blank link into a prospect's reply.

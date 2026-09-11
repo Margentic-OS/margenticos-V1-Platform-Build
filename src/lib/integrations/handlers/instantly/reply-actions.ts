@@ -2,7 +2,7 @@
 //
 // Instantly V2 REST interface for reply-handling actions.
 // This file is the API boundary only — it sends HTTP requests and returns results.
-// It does NOT compose email bodies, insert Calendly links, or apply sign-offs.
+// It does NOT compose email bodies, insert booking links, or apply sign-offs.
 // The processor (src/lib/reply-handling/process-reply.ts) owns all body templating:
 //   calendar link insertion, slot-filling, persona sign-off, and any copy decisions.
 // Do not add templating here. Callers must pass fully assembled bodyText.

@@ -167,14 +167,14 @@ function createFakeDb(opts: {
 
       if (table === 'organisations') {
         // Read TWICE on this path, with different terminators: the archived-org gate ends
-        // on .single(), and the name/calendly read ends on .maybeSingle(). Serving only one
+        // on .single(), and the name/booking-link read ends on .maybeSingle(). Serving only one
         // of them is how the first version of this fake made every test throw.
         const b: any = {
           select: () => b,
           eq: () => b,
           single: async () => ({ data: { id: 'org-1', archived_at: null }, error: null }),
           maybeSingle: async () => ({
-            data: { name: 'Org', calendly_url: null, founder_first_name: 'Sam' },
+            data: { name: 'Org', booking_url: null, founder_first_name: 'Sam' },
             error: null,
           }),
         }
@@ -384,7 +384,7 @@ describe('a send that failed on a previous run is reported with the cause it rec
 
   it('names a missing booking link rather than blaming the sending API', async () => {
     const db = createFakeDb({
-      priorActions: [{ action_taken: 'send_reply', action_succeeded: false, action_error: 'org calendly_url not set' }],
+      priorActions: [{ action_taken: 'send_reply', action_succeeded: false, action_error: 'org booking_url not set' }],
     })
     const result = await processReplies(db, 'key')
 
@@ -395,7 +395,7 @@ describe('a send that failed on a previous run is reported with the cause it rec
     expect(warning).toBeDefined()
 
     expect(String(warning![0])).not.toMatch(/API/)
-    expect(warning![1]).toMatchObject({ signal_id: 'sig-1', cause: 'org calendly_url not set' })
+    expect(warning![1]).toMatchObject({ signal_id: 'sig-1', cause: 'org booking_url not set' })
   })
 
   it('still reports a real sending failure, with its own cause', async () => {

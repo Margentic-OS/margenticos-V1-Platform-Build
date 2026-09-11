@@ -4,6 +4,7 @@
 // Returns { skip: true, reason } on first matching rule, { skip: false } if all pass.
 
 import { normaliseQuestion } from './normalise'
+import { BOOKING_LINK_PLACEHOLDER } from '@/lib/reply-handling/substitute-booking-link'
 
 export interface SkipResult {
   skip: boolean
@@ -72,15 +73,15 @@ export function shouldSkipExtraction({
   }
 
   // ── Rule 4: Booking-link-only (URL or placeholder with minimal surrounding context) ──
-  // Tool-agnostic: detects any https URL or the {calendly_link} template placeholder.
+  // Tool-agnostic: detects any https URL or the booking-link template placeholder.
   // Both patterns indicate a booking link regardless of which tool is in use.
   const hasBookingLink =
     /https?:\/\/\S+/.test(operatorAnswer) ||
-    operatorAnswer.includes('{calendly_link}')
+    operatorAnswer.includes(BOOKING_LINK_PLACEHOLDER)
   if (hasBookingLink) {
     const stripped = operatorAnswer
       .replace(/https?:\/\/\S+/g, '')      // strip all URLs
-      .replace(/\{calendly_link\}/gi, '')   // strip the placeholder
+      .split(BOOKING_LINK_PLACEHOLDER).join('')  // strip the placeholder
       .trim()
     const strippedWords = stripped.split(/\s+/).filter(Boolean)
     if (strippedWords.length < 30) {

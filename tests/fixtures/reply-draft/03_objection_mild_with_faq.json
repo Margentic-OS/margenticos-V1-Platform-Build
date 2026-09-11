@@ -18,8 +18,8 @@
       "score": 0.67
     }
   ],
-  "includeCalendlyHint": true,
+  "includeBookingHint": true,
   "signalId": "00000000-0000-0000-0000-000000000103",
   "prospectId": "00000000-0000-0000-0000-000000000203",
-  "expected_behaviour": "Acknowledge timing objection without pushing back with operational reasons (NOT 'setup takes 2-3 weeks'). Offer a no-pressure conversation now framed around the prospect's planning value (budget, scope, internal alignment) using CONDITIONAL phrasing ('if you want to plan ahead', 'if budgeting matters'). Include {calendly_link} with the soft offer. Explicitly defer back to their stated timeframe as the default path ('no pressure though, happy to circle back in Q3'). Structure: acknowledge → soft conditional offer → link → explicit out at their timeframe. No call duration specified."
+  "expected_behaviour": "Acknowledge timing objection without pushing back with operational reasons (NOT 'setup takes 2-3 weeks'). Offer a no-pressure conversation now framed around the prospect's planning value (budget, scope, internal alignment) using CONDITIONAL phrasing ('if you want to plan ahead', 'if budgeting matters'). Include {booking_link} with the soft offer. Explicitly defer back to their stated timeframe as the default path ('no pressure though, happy to circle back in Q3'). Structure: acknowledge → soft conditional offer → link → explicit out at their timeframe. No call duration specified."
 }

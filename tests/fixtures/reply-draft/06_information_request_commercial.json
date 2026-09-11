@@ -18,8 +18,8 @@
       "score": 0.81
     }
   ],
-  "includeCalendlyHint": true,
+  "includeBookingHint": true,
   "signalId": "00000000-0000-0000-0000-000000000106",
   "prospectId": "00000000-0000-0000-0000-000000000206",
-  "expected_behaviour": "Tier 3 starting-point draft. Acknowledges the pricing question, suggests a call to discuss specifics, does NOT quote €1,000/month or any specific figure from the FAQ. faq_ids_used contains the matched FAQ id (00000000-0000-0000-0000-000000000004) even though its figures are redacted from the body. ambiguity_note explains that pricing specifics require operator-led conversation. includeCalendlyHint is true so the draft should include a soft booking CTA with {calendly_link} placeholder."
+  "expected_behaviour": "Tier 3 starting-point draft. Acknowledges the pricing question, suggests a call to discuss specifics, does NOT quote €1,000/month or any specific figure from the FAQ. faq_ids_used contains the matched FAQ id (00000000-0000-0000-0000-000000000004) even though its figures are redacted from the body. ambiguity_note explains that pricing specifics require operator-led conversation. includeBookingHint is true so the draft should include a soft booking CTA with {booking_link} placeholder."
 }

@@ -39,8 +39,12 @@ function createMeetingsMockChain(
   // swallowed it and returned [], leaving this test green over a broken fake. That
   // is the "a fake that does not honour a filter cannot test that filter" shape in
   // CLAUDE.md, caught here only because the swallow was removed.
+  // .not is accepted and NOT applied here, like every filter in this fake. The prospect_id
+  // exclusion it now carries is proved in auto-held-excludes-unmatched.test.ts, against a
+  // strict fake that does apply it.
   const updateResult: any = {
     eq: vi.fn(function (this: any) { return this }),
+    not: vi.fn(function (this: any) { return this }),
     in: vi.fn(function (this: any) { return this }),
     then: (resolve: (v: unknown) => unknown) =>
       Promise.resolve({

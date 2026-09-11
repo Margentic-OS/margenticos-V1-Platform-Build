@@ -58,6 +58,7 @@ const OPERATOR_TEMPLATES = [
   'operator-reply.ts',
   'revision-gate-failure.ts',
   'suggestion-ready.ts',
+  'unmatched-booking.ts',
 ]
 
 function templateFiles(): string[] {

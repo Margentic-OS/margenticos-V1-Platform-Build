@@ -11,7 +11,7 @@
   },
   "tierHint": 3,
   "faqMatches": [],
-  "includeCalendlyHint": false,
+  "includeBookingHint": false,
   "signalId": "00000000-0000-0000-0000-000000000114",
   "prospectId": "00000000-0000-0000-0000-000000000214",
   "expected_behaviour": "Tier 3. Coherence guard rule 3 — reply contradicts itself. ambiguity_note must clearly identify the contradiction: interest expressed AND opt-out expressed. The operator needs to decide: honour the opt-out (suppression), or treat as interested. IMPORTANT: the agent should NOT assume resolution in either direction. Draft body should be a minimal acknowledgement. The operator must make the call — this is exactly the kind of signal that needs human judgment."

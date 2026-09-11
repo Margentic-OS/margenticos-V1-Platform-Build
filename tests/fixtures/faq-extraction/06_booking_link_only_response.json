@@ -4,7 +4,7 @@
   "replyDraftId": "00000000-0000-0000-0000-000000000306",
   "prospectQuestionContext": "Yeah, I'd love to jump on a call and hear more. When are you free?",
   "originalOutboundBody": "Hi Ben,\n\nPipeline shouldn't reset every quarter when a project wraps.\n\nWe fix that. Worth a quick call?\n\nDoug",
-  "operatorAnswer": "Happy to walk you through it. {calendly_link}",
+  "operatorAnswer": "Happy to walk you through it. {booking_link}",
   "aiDraftBody": "Brilliant, here's a link to book a time that works for you.",
   "orgPositioningDocument": "MargenticOS is a done-for-you outbound pipeline service built for solo and micro-team B2B consultants with a proven offer but no predictable way to fill their calendar.",
   "expected_behaviour": "Gate should skip with 'answer_too_short_7_words' reason (Rule 1). The operator answer is 7 words total — below the 20-word floor. Rule 4 is never reached. Fixture 13 tests Rule 4 in isolation with a 27-word answer where non-link content falls below the 30-word threshold. Returns []."

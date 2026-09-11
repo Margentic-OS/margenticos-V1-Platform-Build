@@ -27,7 +27,7 @@ export interface IntegrationRow {
 export interface OrganisationSettings {
   id: string
   name: string
-  calendly_url: string | null
+  booking_url: string | null
   auto_approve_window_hours: number
   auto_held_window_hours: number
   monthly_meetings_target: number
@@ -278,7 +278,7 @@ export function SettingsView({ organisation, integrations, clientRequested }: Se
               title="Booking link"
               subtitle="The only setting on this page that can be changed here."
             >
-              <BookingLinkField orgId={organisation.id} initial={organisation.calendly_url} />
+              <BookingLinkField orgId={organisation.id} initial={organisation.booking_url} />
             </Section>
 
             <Section

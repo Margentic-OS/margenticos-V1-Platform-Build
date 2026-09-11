@@ -41,6 +41,11 @@ Fields:
                                      regardless of the automatic unlock rules (2 months / 5 meetings).
                                      Default false. Never exposed to clients via client_organisation_view.
   meetings_count      — running count of qualified meetings booked
+  booking_url         — the booking link sent to prospects in reply emails (2026-09-11, ADR-056;
+                        successor to calendly_url, which is dropped after merge). Tool-agnostic.
+  booking_host_ref    — the email of the booking-tool seat that hosts this client's bookings.
+                        Lowercased, trimmed, unique. A booking notification finds its client by
+                        this. NULL: no seat, and a booking from an unknown seat is quarantined.
   sourcing_revenue_filter_enabled — boolean NOT NULL DEFAULT false (2026-09-10). Per-client
                                      opt-in for the ICP revenue band as a sourcing filter. Read
                                      when the spec is derived at ICP approval, so a change
@@ -522,11 +527,38 @@ Fields:
   qualification — qualified / unqualified / pending
   qualification_notes
   revenue_value — for pipeline value tracking (nullable)
+  meeting_status — booked / held / no_show / canceled / rescheduled. THE status column the
+                  code reads and writes. The older `status` column above is read by nothing
+                  (Backlog, 2026-09-11).
+  source        — manual / webhook (plus calendly until the post-merge migration)
+  booking_uid   — the booking tool's id for the booking. UNIQUE: a repeated notification
+                  cannot create a second meeting. Moves to the new id on a reschedule.
+  prospect_match — link / email / none: how the booking was tied to a prospect. A none row
+                  has prospect_id NULL, is still a real record, and is never auto-billed.
+  attendee_email / attendee_name — who booked, so an unmatched meeting names a person.
   created_at / updated_at
 
 RLS:
   Operator: full access
   Client:   read only, their own organisation (visible after pipeline unlock)
+
+---
+
+## Table: unattributed_bookings
+
+A booking whose hosting seat maps to no organisation (2026-09-11, ADR-056). meetings needs an
+organisation, so such a booking cannot be a meeting, and it is never discarded. The operator is
+emailed on every new row.
+
+Fields:
+  id, provider (no default, written by the handler), provider_booking_uid,
+  host_ref, attendee_email, attendee_name, scheduled_start_at, cancelled_at,
+  first_seen_at, resolved_at, resolved_meeting_id
+  UNIQUE (provider, provider_booking_uid): a repeated notification is a no-op.
+
+RLS and grants (read back live on both databases 2026-09-11): RLS on, no policies;
+anon and authenticated hold no privileges; service_role only. Holds personal data with no
+client attached; retention is an open Backlog decision.
 
 ---
 

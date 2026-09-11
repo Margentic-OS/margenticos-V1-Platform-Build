@@ -41,6 +41,7 @@ import { messagingRevisionStagedTemplate, messagingRevisionStagedSubject, messag
 import { multiUserSignupAttemptTemplate, multiUserSignupAttemptSubject } from '../templates/multi-user-signup-attempt'
 import { operatorReplyTemplate, operatorReplySubject, operatorReplyTemplateText } from '../templates/operator-reply'
 import { revisionGateFailureTemplate, revisionGateFailureSubject } from '../templates/revision-gate-failure'
+import { unmatchedBookingTemplate, unmatchedBookingSubject, type UnmatchedBookingNotice } from '../templates/unmatched-booking'
 
 import { clientWelcomeTemplate, clientWelcomeSubject, clientWelcomeTemplateText } from '../templates/client-welcome'
 import { docsReadyTemplate, docsReadySubject, docsReadyTemplateText } from '../templates/docs-ready'
@@ -67,6 +68,16 @@ interface RenderedTemplate {
 const ORG = 'Apex Consulting'
 const ORG_ID = '0ed34697-0fa9-4f08-ac15-d3504ac45caf'
 const NOTE = 'Please make the second paragraph less formal.'
+
+const UNMATCHED_BOOKING: UnmatchedBookingNotice = {
+  reason: 'no_prospect',
+  organisationName: ORG,
+  bookingUid: 'bFJeNb2uX8ANpT3JL5EfXw',
+  hostRef: null,
+  attendeeEmail: null,
+  attendeeName: null,
+  startTime: null,
+}
 
 // ─── OPERATOR-FACING ─────────────────────────────────────────────────────────
 // Verified by reading each call site's `to:` on 2026-09-07. Every one of these resolves to
@@ -147,6 +158,15 @@ const OPERATOR_TEMPLATES: RenderedTemplate[] = [
     audience: 'operator',
     subject: revisionGateFailureSubject(ORG, 'messaging'),
     html: revisionGateFailureTemplate({ orgName: ORG, orgId: ORG_ID, docType: 'messaging', revisionNote: NOTE }),
+  },
+  {
+    // Sent with audience 'operator' by send-unmatched-booking-notification.ts, to
+    // RESEND_OPERATOR_EMAIL only. Rendered with every optional field empty, so a missing
+    // value is proved to read as words rather than as a literal null.
+    file: 'unmatched-booking.ts',
+    audience: 'operator',
+    subject: unmatchedBookingSubject(UNMATCHED_BOOKING),
+    html: unmatchedBookingTemplate(UNMATCHED_BOOKING),
   },
 ]
 

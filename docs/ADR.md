@@ -5078,3 +5078,121 @@ CODE-EVIDENCED at `36f8063`, each mutation reverted and the file checked afterwa
 | a failed view read counted as an OK reading | 1 red, "treats a sweep that cannot read the view as no reading" |
 | claim guard removed | 1 red, "sends once when two sweeps overlap" |
 | `alert_pending` dropped from the select | 4 red, which is the fake honouring the column list |
+
+## ADR-056 — Booking detection moves to Cal.com through one signed webhook; an unmatched booking is recorded and never billed automatically; Calendly is removed
+
+**Date:** 2026-09-11
+**Status:** Accepted. Built on branch `calcom-booking`, not yet merged.
+**Supersedes** the 2026-07-28 decision "Clients book on their own connected Calendly" on the TOOL,
+and upholds its reasoning: a client's booking link must be wired to their real diary. The
+decision is in the Notion Decisions Log, "DECIDED — Cal.com replaces Calendly as the booking tool".
+
+### Context
+
+The Calendly route had five independent faults, each enough to stop detection on its own. Its
+secret was set in no environment. Its signature check did not match Calendly's format. It read
+the database through the login-based client, as an anonymous visitor with no permission to read
+clients or write meetings. It attached every booking to whichever organisation came back first.
+And it discarded any booking it could not match while answering 200. Its tests passed because
+they signed in the same wrong format. DATABASE-EVIDENCED on 2026-09-11: production `meetings`
+held 0 rows. It had never recorded a meeting.
+
+### Decision
+
+1. **One route, authenticated only by its signature.** `POST /api/webhooks/cal-com` reads the RAW
+   body before any parsing, verifies `x-cal-signature-256` (hex HMAC-SHA256 under
+   `CALCOM_WEBHOOK_SECRET`), and only then uses the service-role client. The route and the secret
+   are vendor-named on purpose: a second booking tool gets its own route and secret.
+2. **A vendor-neutral core.** `src/lib/integrations/handlers/cal-com/webhook.ts` is the only
+   Cal.com-aware code, and turns a payload into a `BookingEvent`. `src/lib/meetings/record-booking-event.ts`
+   knows no vendor. `meetings.source = 'webhook'` records how a row arrived; the registry
+   (`can_book_meeting`) records which tool serves it.
+3. **The client is found by the seat that hosted the booking.** `organisations.booking_host_ref`
+   holds the hosting seat's email, lowercased and unique. We own one Cal.com organisation; each
+   client will be a seat in it. TODAY THERE IS ONE SEAT, OURS. Client seats drop in by setting the
+   column on the client's organisation; no code changes. No client is covered yet.
+4. **The prospect is found by a reference carried on our link, then by email.**
+   `buildProspectBookingLink` adds `prospect_ref=<prospect id>` on both reply send paths. Cal.com
+   copies it into a hidden booking question named `prospect_ref` (a manual setup step) and returns
+   it. It is accepted only for a prospect of the hosting client, so it can never attach a meeting
+   across clients. The fallback is a case-insensitive email match with LIKE wildcards escaped and
+   an exact comparison; more than one match is treated as none rather than guessed.
+5. **Nothing answers success while discarding a booking.** No matching prospect: a meetings row with
+   `prospect_match = 'none'`, and an operator email. A seat that belongs to no client: a row in
+   `unattributed_bookings` (service-role only), and an operator email. A database failure answers
+   500 so the provider can retry.
+6. **A repeated delivery is a no-op**, enforced by the database's unique keys on
+   `meetings.booking_uid` and `unattributed_bookings (provider, provider_booking_uid)`.
+7. **Created, cancelled and rescheduled are distinct.** A cancellation changes only a meeting still
+   at 'booked'; a person's held or no-show decision is never overturned. A reschedule moves the row
+   onto the new booking uid instead of making a second meeting, and an undecided meeting that a
+   cancellation reached first goes back to 'booked'.
+8. **Meeting-ended is ignored.** It fires at the scheduled end time whether or not anyone attended.
+   Held stays an operator judgement. It must never be wired to held or billable.
+9. **Auto-held never bills a meeting with no prospect**, filtered on both its read and its update.
+10. **Calendly naming is gone from the product.** `booking_url`, the `{booking_link}` placeholder
+    (one constant, `BOOKING_LINK_PLACEHOLDER`), `include_booking_hint`, and
+    `booking_link_required_but_missing`. The column, the placeholder, the substitution and the
+    drafting prompt changed in one commit, with a test that reads the real prompt.
+11. **No template token reaches a prospect.** A final check on both reply send paths refuses any
+    body still carrying a braced or percent-encoded token. Built first, because the rename changes
+    the placeholder on both sides.
+12. **The migration is in two halves.** The additive half (`20260911160000_booking_detection_additive.sql`)
+    is applied to both databases. The destructive half runs only after merge, on Doug's explicit yes.
+
+### The destructive half: NOT APPLIED. After merge, on Doug's explicit yes only.
+
+Deliberately not a file in `supabase/migrations/`, where anything replaying the folder would run it.
+Pre-checks, all on BOTH databases:
+
+    SELECT count(*) FROM meetings WHERE source = 'calendly';                         -- expect 0
+    SELECT name, calendly_url, booking_url FROM organisations
+     WHERE calendly_url IS DISTINCT FROM booking_url;                                -- review every row
+
+Then:
+
+    UPDATE public.organisations SET booking_url = calendly_url
+     WHERE booking_url IS NULL AND calendly_url IS NOT NULL;
+    ALTER TABLE public.organisations DROP COLUMN calendly_url, DROP COLUMN calendly_webhook_secret;
+    ALTER TABLE public.meetings DROP COLUMN calendly_event_uuid, DROP COLUMN calendly_invitee_uuid;
+    ALTER TABLE public.meetings
+      DROP CONSTRAINT meetings_source_check,
+      ADD CONSTRAINT meetings_source_check CHECK (source IN ('manual', 'webhook'));
+    DELETE FROM public.integrations_registry WHERE capability = 'can_book_meeting' AND tool_name = 'calendly';
+
+Dropping the two meetings columns drops their unique constraints and `idx_meetings_calendly_uuids`
+with them. Afterwards: read back on both databases, remove the four columns from
+`src/types/database.ts`, and regenerate `supabase/baseline/schema.sql`.
+
+### What this cannot prove yet
+
+- That Cal.com copies a URL parameter into the hidden question and returns it in
+  `payload.responses`. Cal.com documents hidden questions filled from the URL, and metadata only
+  for embeds. It is proven only by a real booking through a real link. Until then, email is the
+  match that works.
+- That the free solo tier delivers webhooks at all. The decision page lists it as unverified, and
+  the 2026-09-11 manual proof showed a booking and confirmation emails, not a delivery to us.
+
+### Deliberately not changed
+
+- A person confirming held on an unmatched meeting, through the confirm route, can still make it
+  billable. Held is a human judgement, and only the automatic path is closed.
+- The client's own metrics count an unmatched booking as a booked meeting. Filed on the Backlog.
+- `unattributed_bookings` has no retention sweep. The retention decision is filed on the Backlog.
+
+### Mutation proofs, each reverted after the run
+
+| Commit | Mutation | Result |
+|---|---|---|
+| 56e34e3 | guard removed from the approved-draft send | 1 red |
+| 56e34e3 | guard removed from the automated booking reply | 1 red |
+| 3eeb585 | placeholder constant back to the old token | 9 red: drafts stopped receiving a link |
+| 3eeb585 | prompt teaches the old placeholder | 2 red |
+| 3eeb585 | agent sends the old hint key | 1 red |
+| 79fcd88 | signature check removed | 2 red |
+| 79fcd88 | signature over re-serialised JSON, not the raw bytes | 1 red |
+| 79fcd88 | unmatched booking returned early instead of recorded | 2 red |
+| 79fcd88 | repeated-delivery handling removed | 1 red |
+| 79fcd88 | meeting-ended mapped to a handled event | 2 red |
+| 79fcd88 | no-prospect exclusion removed from auto-held read AND update | 1 red |
+| 79fcd88 | removed from the read only, or the update only | green, by design: each is a full guard |
