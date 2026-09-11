@@ -394,6 +394,20 @@ describe('the batch path shows the judge the same company facts as the inline pa
     expect(company).toEqual(companyFactsFromRow(onFile))
     expect(company).toMatchObject({ staff_count: 12, industry: 'Placeholder Industry A', website: 'placeholder-company.example' })
   })
+
+  it('passes the sourced job title through the join, which the judge\'s header reads', async () => {
+    requestContexts.length = 0
+    const db = fakeDb({
+      entries: [entry({
+        prospects: { first_name: 'Placeholder', last_name: 'P', company_name: 'Placeholder Company', role: null, job_title: 'Placeholder Title', linkedin_url: null },
+      })],
+    })
+
+    await runSynthesisBatchSweep(db.client, fakeAnthropic().client, NOW)
+
+    expect(requestContexts).toHaveLength(1)
+    expect((requestContexts[0] as { job_title: unknown }).job_title).toBe('Placeholder Title')
+  })
 })
 
 describe('a submit whose receipt write fails is NOT resubmitted', () => {

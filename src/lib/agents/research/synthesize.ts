@@ -918,8 +918,15 @@ export function buildSynthesisParams(
   const companyFacts = formatCompanyFacts(prospect.company)
   const companySection = companyFacts ? `## Company on file\n\n${COMPANY_FACTS_PREAMBLE}\n\n${companyFacts}\n\n` : ''
 
+  // THE JOB TITLE, FROM THE COLUMN THAT HOLDS IT. This read prospects.role, which only the
+  // old research agent ever wrote: empty on all 111 researched prospects for the live client,
+  // while job_title was filled on all 111, so every request told the judge "Role: Unknown"
+  // (measured 2026-09-11 on 20 real requests). role stays as a fallback for the older rows
+  // that carry it and no job_title.
+  const roleLine = prospect.job_title ?? prospect.role ?? 'Unknown'
+
   const fullName = [prospect.first_name, prospect.last_name].filter(Boolean).join(' ') || 'Unknown'
-  const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${prospect.role ?? 'Unknown'}\nCompany: ${prospect.company_name ?? 'Unknown'}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n${companySection}## Recency check\n\n${buildSignalBlock(detectedSignal.signal_observation)}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
+  const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${roleLine}\nCompany: ${prospect.company_name ?? 'Unknown'}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n${companySection}## Recency check\n\n${buildSignalBlock(detectedSignal.signal_observation)}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
 
   return {
     model: SYNTHESIS_MODEL,

@@ -162,4 +162,15 @@ describe('the loader carries the facts from the row it read', () => {
     expect(ctx.company?.industry).toBe('Placeholder Industry A')
     expect(writes).toHaveLength(0)
   })
+
+  it('carries the sourced job title, which the judge\'s header reads', async () => {
+    const { client } = projectingClient({
+      id: 'p-1', organisation_id: 'org-1', segment_id: 'seg-1', variant_id: null,
+      first_name: 'Placeholder', last_name: 'Person', company_name: 'Placeholder Company',
+      role: null, job_title: 'Placeholder Title', email: null, linkedin_url: null,
+      ...ROW,
+    })
+    const { ctx } = await loadProspectContext(client, 'p-1', 'org-1')
+    expect(ctx.job_title).toBe('Placeholder Title')
+  })
 })

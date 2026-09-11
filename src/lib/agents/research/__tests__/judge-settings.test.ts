@@ -50,3 +50,27 @@ describe('the fit judge does not sample', () => {
     expect(buildSynthesisParams(prospect(), sources(), CLIENT_CTX, SIGNAL, '1h').temperature).toBe(0)
   })
 })
+
+// The header's Role line read prospects.role, empty on every sourced prospect, so every
+// request said "Role: Unknown" while prospects.job_title held the title.
+describe('the fit judge is told the job title', () => {
+  const header = (overrides: Partial<ProspectContext>) =>
+    (buildSynthesisParams(prospect(overrides), sources(), CLIENT_CTX, SIGNAL).messages[0].content as string)
+      .split('\n').find(line => line.startsWith('Role: '))
+
+  it('reads the sourced job title, which is the column that is filled', () => {
+    expect(header({ job_title: 'Placeholder Title', role: null })).toBe('Role: Placeholder Title')
+  })
+
+  it('prefers the job title when an older row carries both', () => {
+    expect(header({ job_title: 'Placeholder Title', role: 'Placeholder Old Role' })).toBe('Role: Placeholder Title')
+  })
+
+  it('falls back to role for an older row with no job title', () => {
+    expect(header({ job_title: null, role: 'Placeholder Old Role' })).toBe('Role: Placeholder Old Role')
+  })
+
+  it('says Unknown only when neither is on file', () => {
+    expect(header({ job_title: null, role: null })).toBe('Role: Unknown')
+  })
+})
