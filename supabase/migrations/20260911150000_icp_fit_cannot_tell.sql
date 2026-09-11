@@ -1,6 +1,7 @@
 -- Migration: 20260911150000_icp_fit_cannot_tell.sql
--- Status: NOT APPLIED. Awaiting Doug's approval, because it drops and re-adds a CHECK
--- constraint on two tables, and CLAUDE.md requires an explicit yes before any drop.
+-- Status: APPLIED (verified live 2026-09-11), on Doug's approval. Production recorded it as
+-- version 20260911192928 and the test project as 20260911192930. Both CHECKs read back from
+-- pg_constraint with all five values and convalidated = true, and no row's icp_fit changed.
 --
 -- The fit judge gains a fourth outcome, 'cannot_tell': no grade was reached, because the
 -- research did not show enough, the judge's answer failed, or it could not be read. Before
