@@ -53,6 +53,7 @@ import { bouncerHandler, BOUNCER_PROVIDER_KEY, type SecondPassResult } from '@/l
 import { resolveSendEligibility, type SendEligibilityDecision } from '@/lib/sourcing/send-eligibility-resolver'
 import { toCanonicalVerdict, SECOND_PASS_WORTH_PAYING_FOR } from '@/lib/sourcing/verification-verdict'
 import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
+import { describeQueryFailure } from '@/lib/supabase/describe-query-failure'
 
 const STALE_LOCK_THRESHOLD_MINUTES = 30
 const MAX_SECOND_PASS_ATTEMPTS = 2
@@ -142,7 +143,12 @@ export async function runSecondPassBatch(
     const startOfDayUTC = new Date()
     startOfDayUTC.setUTCHours(0, 0, 0, 0)
 
-    const { count: dailyCount, error: countError } = await supabase
+    const {
+      count: dailyCount,
+      error: countError,
+      status: countStatus,
+      statusText: countStatusText,
+    } = await supabase
       .from('verification_calls')
       .select('id', { count: 'exact', head: true })
       .eq('provider', BOUNCER_PROVIDER_KEY)
@@ -152,13 +158,14 @@ export async function runSecondPassBatch(
     // tell the run it had the entire day's budget free, which is the most expensive possible
     // guess. The work is resumable on the next sweep; an overspend is not.
     if (countError) {
+      const cause = describeQueryFailure({ error: countError, status: countStatus, statusText: countStatusText })
       logger.error('second-pass: could not read daily call count, failing closed', {
         operation_id: operationId,
-        error: countError.message,
+        error: cause,
       })
       run.status = 'failed'
       run.error_message =
-        `Could not read the daily paid-call count, so the budget is unknown: ${countError.message}`
+        `Could not read the daily paid-call count, so the budget is unknown: ${cause}`
       return run
     }
 

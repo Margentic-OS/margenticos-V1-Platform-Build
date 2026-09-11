@@ -44,6 +44,8 @@ import {
   selectPendingVerification,
   type VerificationThresholds,
 } from '@/lib/sourcing/pending-verification'
+import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
+import { describeQueryFailure } from '@/lib/supabase/describe-query-failure'
 
 const STALE_LOCK_THRESHOLD_MINUTES = 30
 const GREY_LISTED_RETRY_WINDOW_HOURS = 6
@@ -260,16 +262,25 @@ export async function verifyEnrichedBatch(
     startOfDayUTC.setUTCHours(0, 0, 0, 0)
     const todayISO = startOfDayUTC.toISOString()
 
-    const { count: dailyCount, error: countError } = await supabase
+    const {
+      count: dailyCount,
+      error: countError,
+      status: countStatus,
+      statusText: countStatusText,
+    } = await supabase
       .from('prospects')
       .select('id', { count: 'exact', head: true })
       .gte('independent_verified_at', todayISO)
       .not('independent_email_status', 'is', null)
 
+    const countCause = countError
+      ? describeQueryFailure({ error: countError, status: countStatus, statusText: countStatusText })
+      : null
+
     if (countError) {
       logger.warn('verification-trigger: failed to count daily usage', {
         operation_id: operationId,
-        error: countError.message,
+        error: countCause,
       })
     }
 
@@ -280,7 +291,7 @@ export async function verifyEnrichedBatch(
     if (countError) {
       verificationRun.status = 'failed'
       verificationRun.error_message =
-        `Could not read daily verification usage, so the free-tier budget is unknown: ${countError.message}`
+        `Could not read daily verification usage, so the free-tier budget is unknown: ${countCause}`
       return verificationRun
     }
 
