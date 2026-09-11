@@ -35,7 +35,7 @@ import { describe, it, expect } from 'vitest'
 import { PROMPT_SOURCES, readSource } from './prompt-sources'
 import { exampleSpans } from './prompt-scan'
 import { ALLOWLIST, MAX_ALLOWLIST_ENTRIES } from './prompt-name-allowlist.data'
-import { scanNames, isAllowedToken, type NameHit } from './prompt-name-scan'
+import { scanNames, isAllowedToken, unvouchedTokens, type NameHit } from './prompt-name-scan'
 
 const report = (v: NameHit[]) =>
   v.map(x => `  ${x.source}:${x.line} «${x.token}» in "${x.quote}"`).join('\n')
@@ -115,7 +115,24 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 49
 // WHAT TELLS THIS APART FROM A BASELINE RAISED TO HIDE A FAILURE: every other pre-existing
 // source re-measured identical, the allowlist did not grow, the introduction figure is
 // untouched at 49, and 40 is still under it.
-const BASELINE_TOTAL = 40
+//
+// RATCHETED DOWN 2026-09-10, 40 -> 21, by the writer-example rewrite. buildWriterPrompt goes
+// 33 -> 14. Nineteen tokens left, eighteen of them real organisations, a real prospect's
+// company or a real trade show, and one an ordinary word the scan misread:
+//
+//   DTCC x2, Treasury x2, SEC, SEC's                         the regulatory-commentary pair
+//   Taffet                                                   that pair's clean rewrite
+//   Hollywood x2, Coalition x2, Sovern x2, LA x2, SCG x2     the board-seat pair
+//   CAVE                                                     the third worked pair
+//   Peak                                                     "Peak season", a false positive
+//
+// THE SAME COMMIT ADDED A NARROW EXCEPTION TO THE SCAN, which is the first thing to suspect
+// when a baseline drops, so it was measured on its own: the NEW scan over the OLD prompt
+// reads 33, identical to the old scan. The exception moved nothing that already existed. It
+// only stops "Drivers", opening one of the new examples, from counting as a name.
+//
+// No other source moved, the allowlist did not grow, and the introduction figure is untouched.
+const BASELINE_TOTAL = 21
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/shared-voice-spec.md': 1,
@@ -125,7 +142,7 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/messaging-agent.md': 2,
   'docs/prompts/faq-extraction-agent.md': 0,
   'docs/prompts/reply-draft-agent.md': 0,
-  'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 33,
+  'src/lib/agents/research/write-opening.ts:buildWriterPrompt': 14,
   'src/lib/agents/research/write-opening.ts:buildFloorPrompt': 0,
   'src/lib/agents/research/write-opening.ts:buildJudgePrompt': 0,
   'src/lib/agents/research/prompts/synthesis-prompt.ts:buildSynthesisPrompt': 1,
@@ -281,5 +298,40 @@ describe('the inverted check tells a name from a word', () => {
     expect(spans[0].from).toBe(10)
     expect(spans[0].to).toBe(11)
     expect(spans[0].text).toContain('Sovern')
+  })
+})
+
+// ─── A plural opening a sentence ─────────────────────────────────────────────
+//
+// ADDED 2026-09-10. See isOrdinaryPlural. Tested in BOTH directions, because an exception is
+// only narrow if it is shown refusing the cases next to the one it lets through.
+
+describe('a plural at the start of a sentence is not a name when its singular is English', () => {
+  it('lets through the plural that forced a writer example out of its natural order', () => {
+    expect(unvouchedTokens('Drivers pass your orchard sign at fifty miles an hour.')).toEqual([])
+    expect(unvouchedTokens('The sign is on the main road. Drivers pass it at fifty miles an hour.')).toEqual([])
+  })
+
+  it('still catches a real name in the same position', () => {
+    // THE POSITIVE CONTROL. The exception is about position, and position is exactly where
+    // capitalisation stops meaning anything, so the check has to prove it still sees a
+    // name there.
+    expect(unvouchedTokens('Taffet publishes regulatory commentary regularly.')).toEqual(['Taffet'])
+    expect(unvouchedTokens('The report is out. Visteon led the round.')).toEqual(['Visteon'])
+  })
+
+  it('still catches an invented name that merely looks plural', () => {
+    expect(unvouchedTokens('Zentaras opened a second office. Quillions followed.')).toEqual(['Zentaras', 'Quillions'])
+  })
+
+  it('applies only at the start of a sentence', () => {
+    // Mid-sentence the capital means something, so the same word is still a candidate.
+    expect(unvouchedTokens('We spoke to Drivers about the contract.')).toEqual(['Drivers'])
+  })
+
+  it('stays narrow: a plural whose singular is not vouched for is still flagged', () => {
+    // "parent" is not in the ordinary list. That is a vocabulary gap, not a plural problem,
+    // and widening this rule to reach it would admit any capitalised word ending in s.
+    expect(unvouchedTokens('Parents hear the concert.')).toEqual(['Parents'])
   })
 })
