@@ -40,9 +40,13 @@ async function main() {
   const out = arg('out')
 
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
-  const real = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 240_000, maxRetries: 3 })
+  // 600s, the SDK default and what production's synthesis client runs with. An answer runs to
+  // 16,000 tokens and was measured taking six and a half minutes; the 240s this script first
+  // used timed out on the seventh of twelve. ONE retry, not three: a timed-out request may
+  // still have been billed, so every retry is possibly a second charge for the same prospect.
+  const real = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 600_000, maxRetries: 1 })
 
-  let spent = 0, largest = 0.25, calls = 0
+  let spent = 0, largest = 0.25, calls = 0, failed = 0
   // Wraps the client only to meter it. The grader sees an ordinary messages.create.
   const metered = {
     messages: {
@@ -57,20 +61,36 @@ async function main() {
     },
   }
 
-  const results: Array<EvidenceGrade | { prospect_id: string; skipped: string }> = []
+  const results: Array<EvidenceGrade | { prospect_id: string; skipped?: string; error?: string }> = []
+  // Saved after EVERY prospect. The first run saved only at the end, and when its seventh call
+  // timed out, the six grades already paid for survived only in the terminal.
+  const save = (partial: boolean) => {
+    if (out) writeFileSync(out, JSON.stringify({ partial, calls, failed, spent_usd: Number(spent.toFixed(4)), cap_usd: cap, results }, null, 1))
+  }
   for (const id of ids) {
-    if (spent + largest > cap) { results.push({ prospect_id: id, skipped: 'spend cap' }); continue }
-    const r = await gradeFromEvidence({ supabase, anthropic: metered as never, prospect_id: id, client_id: orgId })
-    results.push(r)
-    const s = r.synthesis
-    const checks = s ? Object.entries(s.fit_checks).map(([k, v]) => `${k}=${v.result}`).join(' ') : ''
-    console.log(`${id.slice(0, 8)}  ${s ? s.icp_fit.padEnd(11) : 'NO GRADE   '} from ${r.evidence_record_id?.slice(0, 8) ?? '-'} (${r.evidence_from?.slice(0, 16) ?? '-'})  ${checks}  ${r.reason ?? ''}`)
+    if (spent + largest > cap) { results.push({ prospect_id: id, skipped: 'spend cap' }); save(true); continue }
+    try {
+      const r = await gradeFromEvidence({ supabase, anthropic: metered as never, prospect_id: id, client_id: orgId })
+      results.push(r)
+      const s = r.synthesis
+      const checks = s ? Object.entries(s.fit_checks).map(([k, v]) => `${k}=${v.result}`).join(' ') : ''
+      console.log(`${id.slice(0, 8)}  ${s ? s.icp_fit.padEnd(11) : 'NO GRADE   '} from ${r.evidence_record_id?.slice(0, 8) ?? '-'} (${r.evidence_from?.slice(0, 16) ?? '-'})  ${checks}  ${s?.icp_fit_missing ?? r.reason ?? ''}`)
+    } catch (e) {
+      // Recorded, not fatal. A failed call is NOT in the spend tally and may still have been
+      // billed, which the summary line says out loud.
+      failed++
+      const message = e instanceof Error ? e.message : String(e)
+      results.push({ prospect_id: id, error: message })
+      console.log(`${id.slice(0, 8)}  FAILED     ${message}`)
+    } finally {
+      save(true)
+    }
   }
 
   // A spend tally that saw no call when calls were expected is a broken tally, not a zero.
   if (calls === 0 && results.some(r => 'synthesis' in r && r.synthesis)) throw new Error('graded without the meter seeing a call')
-  console.log(`\n${calls} calls, $${spent.toFixed(4)} of $${cap} cap, ${results.filter(r => 'synthesis' in r && r.synthesis).length} graded`)
-  if (out) writeFileSync(out, JSON.stringify({ calls, spent_usd: Number(spent.toFixed(4)), cap_usd: cap, results }, null, 1))
+  save(false)
+  console.log(`\n${calls} calls, $${spent.toFixed(4)} of $${cap} cap, ${results.filter(r => 'synthesis' in r && r.synthesis).length} graded, ${failed} failed (a failed call is not in the tally and may have been billed)`)
 }
 
 main().then(() => process.exit(0)).catch(e => { console.error('FAILED: ' + (e instanceof Error ? e.message : e)); process.exit(1) })
