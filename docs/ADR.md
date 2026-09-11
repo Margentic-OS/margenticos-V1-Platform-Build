@@ -4897,3 +4897,20 @@ was written. But only if someone ran it before the MCP apply, and nothing requir
 - Resuming auto-approve now needs a migration with `active => true` as well as the one-line
   `alter_job`, or MON-025 goes red with "Running, but declared off". ADR-052 already requires
   superseding it first.
+
+### Verified
+
+DATABASE-EVIDENCED, production, 2026-09-11, immediately after applying: MON-025 OK, MON-001 OK
+("Switched off, as declared"), MON-024 OK, every `cron.job` row identical to a capture taken
+before (the conditional pause called nothing), grants unchanged in both directions. Nine live
+probes, two of them against mutated views, are recorded in the header of
+`20260911120000_cron_registry_declares_stagger_and_pause.sql`.
+
+CODE-EVIDENCED at `e8520af`, each mutation reverted and the file checked afterwards:
+
+| Mutation | Result |
+|---|---|
+| the registry migration removed | 2 red, naming all 11 stagger schedules and auto-approve not declared off. This is what the fixed test would have said about the stagger before it was applied |
+| parser back to `:=` only | 8 red |
+| MON-001 "off" keyed on the live flag alone | 2 red |
+| MON-001 staleness branch deleted | 2 red |

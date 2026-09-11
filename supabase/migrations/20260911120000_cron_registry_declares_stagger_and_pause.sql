@@ -1,4 +1,37 @@
--- Status: NOT YET APPLIED.
+-- Status: APPLIED (verified live 2026-09-11). Recorded remotely as 20260911141718 on
+-- production and 20260911141757 on the test project.
+--
+-- READ BACK, production, immediately after applying (DATABASE-EVIDENCED):
+--   MON-025   OK  "All 12 declared job(s) are scheduled, on the schedule their migration
+--                  declares, and on or off as declared. 12 job(s) live. Switched off, as
+--                  declared: auto-approve."
+--   MON-001   OK  "Switched off, as declared: the pg_cron job is inactive and
+--                  20260911120000_... declares it off, so no run is expected. Last run
+--                  2026-09-10 20:30:00 UTC."
+--   MON-024   OK, unchanged.
+--   cron.job  all 12 rows identical to a capture taken before applying: jobid, schedule,
+--             active and md5(command). The conditional pause called nothing.
+--   Grants    anon and authenticated hold no SELECT, INSERT, UPDATE or DELETE on mon_001,
+--             mon_025 or cron_schedule_registry; service_role holds all four. Unchanged.
+--   Test project: 12 registry rows, auto-approve declared off. MON-025 UNKNOWN (no pg_cron
+--             jobs there, which is not a pass). MON-001 PROBLEM: with no cron job there is
+--             nothing to be "off", so it falls through to its stale heartbeat, as intended.
+--
+-- PROVED TO GO RED, production. Each probe is a DO block ending in RAISE EXCEPTION, so
+-- nothing it changed could commit:
+--   P1  switched ON by hand, still declared off, heartbeat stale -> PROBLEM "over 75 minutes ago"
+--   P2  ON and declared ON, heartbeat stale                      -> PROBLEM "over 75 minutes ago"
+--   P2b ON and declared ON, fresh FAILED heartbeat               -> PROBLEM "Last run FAILED"
+--   P3  OFF, registry flipped to declare it ON                   -> MON-001 PROBLEM "nothing declares it off"
+--                                                                   MON-025 PROBLEM "Switched off, but declared on"
+--   P4  OFF and declared off, but a run reported just now        -> PROBLEM "yet it reported a run"
+--   P6  switched ON while declared off                           -> MON-025 PROBLEM "Running, but declared off"
+--   P7  process-replies moved back to */5 by hand                -> MON-025 PROBLEM "Schedule differs"
+--   P5  CONTROL: ON, declared ON, fresh OK heartbeat             -> OK "Last run OK"
+-- The probes detect what they are for: re-run against a MUTATED mon_001, created inside the
+-- same aborted transaction, they miss it exactly as they should not:
+--   PM1 "off" keyed on the live flag alone, scenario P3          -> OK  (real view: PROBLEM)
+--   PM2 staleness branch removed, scenario P2                    -> OK  (real view: PROBLEM)
 --
 -- The cron registry catches up with the 2026-09-10 stagger, learns that a job can be
 -- switched off ON PURPOSE, and MON-025 and MON-001 both read that declaration. See ADR-054.
