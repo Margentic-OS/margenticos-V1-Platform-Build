@@ -34,9 +34,10 @@
 //
 // ─── THE ALLOWLIST IS PHRASES, NOT SPECIMENS ─────────────────────────────────
 //
-// Three specimens still flag, and all three are the documented false-positive shapes:
-// a relative pronoun ("a firm that rely"), a degree modifier ("that fast"), and a deictic
-// ("a firm that size") that binds no earlier noun. They are allowlisted BY PHRASE, so a
+// Two specimens still flag, and both are documented false-positive shapes: a relative
+// pronoun ("a firm that rely") and a deictic ("a firm that size") that binds no earlier noun.
+// A third, the degree modifier "that fast", left with the EASY specimen it sat in on
+// 2026-09-10, and its two entries went with it. They are allowlisted BY PHRASE, so a
 // specimen that acquires a real pointer still fails even if it already held an allowlisted
 // one. Allowlisting the specimen instead would switch the check off for that line.
 
@@ -68,7 +69,7 @@ const NOUN_PHRASE_POINTER =
 const BARE_SUBJECT = /(?:^|(?<=[.!?])\s+)(That|This|These|Those|It|They)\s+(?:is|are|was|were|also|tends?|books?|means?|shows?|does|do|will|would|has|have|had|gets?|goes)\b/g
 
 /** Phrases measured as false positives by hand over all 73 specimens. */
-const ALLOWED_PHRASES = new Set(['that size', 'that rely', 'that follow', 'that moves', 'that fast'])
+const ALLOWED_PHRASES = new Set(['that size', 'that rely', 'that follow'])
 
 /**
  * TWO SPECIMENS WHERE THE POINTER IS THE FAULT BEING TAUGHT, listed by exact text.
@@ -168,10 +169,14 @@ describe('buildWriterPrompt worked examples do not model a backward reference', 
 // pass did.
 // ═════════════════════════════════════════════════════════════════════════════
 describe('the bare-pronoun rewrites stay rewritten', () => {
+  // Two of the three were replaced on 2026-09-10 by constructed camera-test pairs from other
+  // industries. Their successors are pinned in their place, so the list still fails if either
+  // pair is reverted, and the three "no longer reads" cases below still guard the pronoun
+  // forms themselves.
   const PINNED = [
     'The right buyers hear the talk on the day. Then the event ends, and most buyers do not follow up first.',
-    'Outreach gets whatever hours are left at the end of the day. Most weeks nobody makes the call.',
-    'The founders who hear the talk and are ready to buy tend to need a nudge before they become a conversation.',
+    'Drivers pass your orchard sign at fifty miles an hour. Hardly anyone turns into an unfamiliar farm gate.',
+    'The parents who hear the violins at a pupil concert tend to need a nudge before they become an order.',
   ]
   const flat = readFileSync(FILE, 'utf8').replace(/\s*\n\s*/g, ' ')
 

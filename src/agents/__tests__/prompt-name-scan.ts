@@ -38,15 +38,54 @@ export function isAllowedToken(raw: string): boolean {
   return false
 }
 
+// A sentence starts at the beginning of the span, optionally after an opening quote, or
+// after a full stop, question mark or exclamation mark and the space that follows it.
+const SENTENCE_START = /(?:^\s*|[.!?]["”’)]*\s+)["“]?$/
+
+/**
+ * True when a capitalised plural's singular is ordinary English: "Drivers" from "driver".
+ *
+ * WHY THIS EXISTS. Capitalisation proves nothing at the start of a sentence, and a plural
+ * there was read as a name whenever its singular reached the ordinary list only through a
+ * suffix rule. isOrdinaryWord does not chain two steps, so "driver" passes (via "drive")
+ * and "drivers" does not. Measured 2026-09-10: "Drivers" opening a writer worked example
+ * was reported as an unvouched name, and the example was reworded to dodge it.
+ *
+ * WHY IT IS NARROW. The singular must itself be ordinary English, so "Parents" is still
+ * flagged: "parent" is missing from the list, which is a vocabulary gap, and no plural rule
+ * can close it without admitting every capitalised word ending in s. And it applies ONLY at
+ * the start of a sentence. Mid-sentence the capital means something, so the same word is
+ * still a name candidate there.
+ */
+export function isOrdinaryPlural(raw: string): boolean {
+  const w = decontract(raw).toLowerCase()
+  if (letters(w).length < 4) return false
+  const stems: string[] = []
+  if (w.endsWith('ies')) stems.push(`${w.slice(0, -3)}y`)
+  if (w.endsWith('es')) stems.push(w.slice(0, -2))
+  if (w.endsWith('s') && !w.endsWith('ss')) stems.push(w.slice(0, -1))
+  return stems.some(s => isOrdinaryWord(s))
+}
+
+/** Every capitalised token in one span that nothing vouches for, in order. */
+export function unvouchedTokens(text: string): string[] {
+  const out: string[] = []
+  for (const m of text.matchAll(/\b[A-Za-z][A-Za-z'’-]*\b/g)) {
+    const token = m[0]
+    if (!/^[A-Z]/.test(token)) continue
+    if (isAllowedToken(token)) continue
+    if (SENTENCE_START.test(text.slice(0, m.index)) && isOrdinaryPlural(token)) continue
+    out.push(token)
+  }
+  return out
+}
+
 export function scanNames(): NameHit[] {
   const out: NameHit[] = []
   for (const s of PROMPT_SOURCES) {
     const { label, lines } = readSource(s)
     for (const span of exampleSpans(lines)) {
-      for (const m of span.text.matchAll(/\b[A-Za-z][A-Za-z'’-]*\b/g)) {
-        const token = m[0]
-        if (!/^[A-Z]/.test(token)) continue
-        if (isAllowedToken(token)) continue
+      for (const token of unvouchedTokens(span.text)) {
         out.push({ source: label, line: span.from, token, quote: span.text.replace(/\s+/g, ' ').slice(0, 90) })
       }
     }
