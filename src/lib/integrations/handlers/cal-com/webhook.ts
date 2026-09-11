@@ -20,16 +20,53 @@ export const CAL_COM_PROVIDER = 'cal_com'
 
 export const CAL_COM_SIGNATURE_HEADER = 'x-cal-signature-256'
 
+export type SignatureRefusal = 'signature_missing' | 'signature_malformed' | 'signature_mismatch'
+
 /**
- * True only when the header is the hex HMAC-SHA256 of rawBody under secret. Never throws:
- * a missing, malformed or wrong-length header is simply false.
+ * Checks the signature and, when it fails, says WHICH way. Never throws.
+ *
+ *   signature_missing    no x-cal-signature-256 header at all
+ *   signature_malformed  a header that is not a 64-character hex HMAC. Cal.com sends the literal
+ *                        "no-secret-provided" when its own webhook has no secret set.
+ *   signature_mismatch   a well-formed signature our secret does not reproduce: both sides have
+ *                        a secret, and they differ.
+ *
+ * WHY THE REASON MATTERS. From outside, every one of these is "rejected". Nobody can read the
+ * secret back out of Vercel or Cal.com to compare them, so the reason is the only way to tell
+ * "Cal.com has no secret" from "the two secrets differ". The caller checks OUR secret is set
+ * before calling this; an empty secret here is a mismatch, never a pass.
  */
-export function verifyCalComSignature(rawBody: string, header: string | null, secret: string): boolean {
-  if (!header || !secret) return false
+export function checkCalComSignature(
+  rawBody: string,
+  header: string | null,
+  secret: string,
+): { ok: true } | { ok: false; reason: SignatureRefusal } {
+  if (header === null || header.trim() === '') return { ok: false, reason: 'signature_missing' }
   const given = header.trim().toLowerCase()
-  if (!/^[0-9a-f]{64}$/.test(given)) return false
+  if (!/^[0-9a-f]{64}$/.test(given)) return { ok: false, reason: 'signature_malformed' }
+  if (!secret) return { ok: false, reason: 'signature_mismatch' }
   const expected = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex')
   return crypto.timingSafeEqual(Buffer.from(given, 'hex'), Buffer.from(expected, 'hex'))
+    ? { ok: true }
+    : { ok: false, reason: 'signature_mismatch' }
+}
+
+/** True only when the header is the hex HMAC-SHA256 of rawBody under secret. Never throws. */
+export function verifyCalComSignature(rawBody: string, header: string | null, secret: string): boolean {
+  return checkCalComSignature(rawBody, header, secret).ok
+}
+
+/**
+ * What each signature refusal means, in words an operator can act on. It names the vendor,
+ * so it lives here in the handler layer, not in the route (ADR-001).
+ */
+export const SIGNATURE_REFUSAL_EXPLANATION: Record<SignatureRefusal, string> = {
+  signature_missing:
+    'The delivery carried no signature. The Cal.com webhook most likely has no secret set.',
+  signature_malformed:
+    'The signature is not a valid one. Cal.com sends "no-secret-provided" when its webhook has no secret set.',
+  signature_mismatch:
+    'Both sides have a secret and they differ: the value in Vercel is not the value in the Cal.com webhook. Compare secret_length and secret_trimmed_length for a stray space or newline.',
 }
 
 // The only three notifications that change a meeting. Everything else Cal.com can send is

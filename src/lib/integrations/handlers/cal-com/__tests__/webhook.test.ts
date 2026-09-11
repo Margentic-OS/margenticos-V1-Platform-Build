@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest'
 import crypto from 'crypto'
-import { parseCalComEvent, verifyCalComSignature } from '../webhook'
+import { checkCalComSignature, parseCalComEvent, verifyCalComSignature } from '../webhook'
 
 const SECRET = 'test-secret-not-a-real-key'
 const sign = (body: string, secret = SECRET) =>
@@ -124,5 +124,31 @@ describe('parseCalComEvent', () => {
     expect(parseCalComEvent(bookingPayload({ uid: undefined }))).toMatchObject({ kind: 'malformed' })
     expect(parseCalComEvent('not an object')).toMatchObject({ kind: 'malformed' })
     expect(parseCalComEvent({ payload: {} })).toMatchObject({ kind: 'malformed' })
+  })
+})
+
+describe('checkCalComSignature says which way a signature failed', () => {
+  const body = JSON.stringify(bookingPayload())
+
+  it('passes a correct signature', () => {
+    expect(checkCalComSignature(body, sign(body), SECRET)).toEqual({ ok: true })
+  })
+
+  it('no header, or an empty one: signature_missing', () => {
+    expect(checkCalComSignature(body, null, SECRET)).toEqual({ ok: false, reason: 'signature_missing' })
+    expect(checkCalComSignature(body, '  ', SECRET)).toEqual({ ok: false, reason: 'signature_missing' })
+  })
+
+  it('not a 64-character hex HMAC, including Cal.com\'s "no-secret-provided": signature_malformed', () => {
+    expect(checkCalComSignature(body, 'no-secret-provided', SECRET)).toEqual({ ok: false, reason: 'signature_malformed' })
+    expect(checkCalComSignature(body, 'abc123', SECRET)).toEqual({ ok: false, reason: 'signature_malformed' })
+  })
+
+  it('well formed but made with another secret: signature_mismatch', () => {
+    expect(checkCalComSignature(body, sign(body, 'someone-elses-secret'), SECRET)).toEqual({ ok: false, reason: 'signature_mismatch' })
+  })
+
+  it('an empty secret is a mismatch, never a pass', () => {
+    expect(checkCalComSignature(body, sign(body, ''), '')).toEqual({ ok: false, reason: 'signature_mismatch' })
   })
 })

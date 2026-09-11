@@ -395,9 +395,14 @@ belongs to and which prospect booked, and records a meeting.
 - `organisations.booking_host_ref` set to the email of the Cal.com account that hosts the booking
 
 **What to check if it breaks.**
-- Every delivery answers 401: the secret in Vercel and the one in Cal.com differ, or the Vercel
-  one was never set for that environment.
-- Every delivery answers 500 with "Webhook secret not configured": `CALCOM_WEBHOOK_SECRET` is missing.
+- Every refusal names its reason, in the response (`reason`) and in a Sentry issue titled
+  `cal-com webhook refused: <reason>`, which describes our secret by presence and length only:
+  - `secret_not_configured` (500): `CALCOM_WEBHOOK_SECRET` is not set on the deployment that
+    answered. Set it for that environment in Vercel and redeploy.
+  - `signature_missing` or `signature_malformed` (401): Cal.com sent no real signature. Its
+    webhook almost certainly has no secret set.
+  - `signature_mismatch` (401): both sides have a secret and they differ. If `secret_length` and
+    `secret_trimmed_length` differ, the Vercel value has a stray space or newline.
 - Bookings land in `unattributed_bookings` and the operator gets "a calendar that belongs to no
   client": `booking_host_ref` is not set, or is not the address Cal.com reports as the organiser.
 - Meetings arrive with `prospect_match = 'none'` for real prospects: the hidden question is

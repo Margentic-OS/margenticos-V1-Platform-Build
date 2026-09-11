@@ -5196,3 +5196,19 @@ with them. Afterwards: read back on both databases, remove the four columns from
 | 79fcd88 | meeting-ended mapped to a handled event | 2 red |
 | 79fcd88 | no-prospect exclusion removed from auto-held read AND update | 1 red |
 | 79fcd88 | removed from the read only, or the update only | green, by design: each is a full guard |
+
+### Addendum, 2026-09-11 (after merge): every refusal says which one it was
+
+"Our secret is not configured", "Cal.com sent no signature", "the signature is not a real one"
+and "the two secrets differ" all look like "the booking never arrived" from outside, and nobody
+can read either secret back to compare. Before this change the last three were one answer:
+401 "Invalid signature", with one log line. So "Cal.com's webhook has no secret" could not be
+told from "the two secrets differ".
+
+Each refusal now carries a reason code (`secret_not_configured`, `signature_missing`,
+`signature_malformed`, `signature_mismatch`) in its response, and a Sentry record titled
+`cal-com webhook refused: <reason>` that explains it in plain words and describes our secret by
+presence, length and length-without-surrounding-whitespace only. The value is never logged,
+returned or sent. Sentry groups by title, so a flood of bad requests is one issue with a count.
+Proved in `route-refusals.test.ts`, including a search of every log line, record and response
+for the secret.
