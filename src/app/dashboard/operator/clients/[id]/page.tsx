@@ -29,6 +29,8 @@ import { CampaignRegistrationPanel } from './CampaignRegistrationPanel'
 import { LeadUploadPanel } from './LeadUploadPanel'
 import { MailboxOrderPanel } from './MailboxOrderPanel'
 import { WarmupControlPanel } from './WarmupControlPanel'
+import { WriterStoppedPanel } from './WriterStoppedPanel'
+import { listWriterStoppedProspects } from '@/lib/operator/writer-stopped'
 import { CampaignMetricsPanel } from '@/components/dashboard/operator/CampaignMetricsPanel'
 import { deriveCampaignsStatus } from '@/lib/dashboard/derive-setup-status'
 import { getAllCampaignMetricsForOrg } from '@/lib/metrics/get-client-visible-campaign-metrics'
@@ -172,6 +174,9 @@ export default async function ClientDetailPage({
     getAllCampaignMetricsForOrg(serviceRole, org.id),
   ])
 
+  // Prospects receiving the approved opening because the writer was stopped. Read-only.
+  const writerStopped = await listWriterStoppedProspects(serviceRole, org.id)
+
   const instantlyApiActive = flagResult.data?.is_active ?? false
   const pendingCount = pendingCountResult.count ?? 0
   const campaigns = (campaignsResult.data ?? [])
@@ -311,6 +316,11 @@ export default async function ClientDetailPage({
                 pendingCount={pendingCount}
                 primarySegmentId={primarySegmentId}
                 campaigns={campaigns}
+              />
+
+              <WriterStoppedPanel
+                prospects={writerStopped.ok ? writerStopped.prospects : []}
+                error={writerStopped.ok ? null : writerStopped.error}
               />
 
               <MailboxOrderPanel

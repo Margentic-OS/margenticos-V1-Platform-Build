@@ -50,6 +50,7 @@ import {
   type DetectedSignal,
 } from './research/synthesize'
 import { produceOpening, loadClientName, type MessagingContent } from './research/produce-opening'
+import { writerInputFromSynthesis } from './research/writer-input'
 import { storeResearchResult, updateProspect } from './prospect-research-agent-v2'
 import { checkResearchEligibility } from '@/lib/sourcing/send-eligibility-policy'
 import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nouns'
@@ -238,11 +239,9 @@ export async function runProspectResearchCollect({
       // Snapshotted, so the writer is briefed with the name it was briefed with in phase 1.
       clientName: entry.client_name || await loadClientName(supabase, client_id),
       ctx,
-      candidates: synthesis.candidates,
-      // From the SAME SynthesisOutput as the candidates, so phase 2 hands the writer the
-      // selection and the relevance reason that phase 1's synthesis call produced.
-      selectedCandidateId: synthesis.selected_candidate_id,
-      relevanceReason: synthesis.relevance_reason,
+      // From the SAME SynthesisOutput, through the ONE mapping every caller uses, so phase 2
+      // hands the writer the selection and relevance reason phase 1's synthesis produced.
+      ...writerInputFromSynthesis(synthesis),
       // THE SNAPSHOT, not a fresh fetch. See the header.
       messagingContent: entry.messaging_content,
       variantId: entry.variant_id,

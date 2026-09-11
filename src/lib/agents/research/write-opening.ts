@@ -87,6 +87,13 @@ export const OPENING_BUDGET = {
 export const OPENING_TARGET_WORDS =
   OPENING_BUDGET.observation + OPENING_BUDGET.bridge + OPENING_BUDGET.question
 
+/**
+ * Why the writer was NOT run, as a code. The only value today is the no-usable-candidate stop.
+ * A code rather than prose, so anything that lists these prospects does not depend on the
+ * wording of judge_reasoning.
+ */
+export type NotWrittenReason = 'no_usable_candidate'
+
 export interface OpeningResult {
   /**
    * Every Anthropic call this prospect made, summed: writer, floor and judge across all
@@ -136,6 +143,13 @@ export interface OpeningResult {
   judge_reasoning: string
   /** Deterministic gate failures on the attempt that was finally used, if any. */
   gate_failures: string[]
+  /**
+   * Set ONLY when the writer was not run, saying why. Absent on every opening the writer
+   * produced, including ones that lost to the template. Stored with the rest of this record in
+   * prospects.trigger_data.judge, which is what the operator's client page reads to list the
+   * prospects shipping the approved template because the writer was stopped.
+   */
+  not_written_reason?: NotWrittenReason
 }
 
 // ─── The writer prompt ───────────────────────────────────────────────────────

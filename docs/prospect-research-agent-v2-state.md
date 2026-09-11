@@ -296,3 +296,35 @@ visible output: extended thinking is not enabled on any of the four calls.
 from Anthropic's published ~$10/1,000 rate rather than measured from an invoice. The search
 COUNT is now measured; the price per search is not. Everything else above is derived from
 `usage` fields returned by the API.
+
+## No usable candidate means no writer (2026-09-11)
+
+**What changed.** When synthesis's own selection rule finds no candidate it would use (none
+passes all six tests and both gates, and none passes SPECIFIC + VERIFIABLE + RELEVANT), the
+writer is no longer run for that prospect. `produceOpening` returns a not-written result and
+the approved template ships, the same outcome as an opening the judge did not pick.
+
+**Why.** Before this, the writer ran regardless. On the pinned 41-prospect cohort, four of the
+five prospects carrying that verdict got a personalised opening anyway, written from material
+synthesis had rejected. Openings written that way are where sentences name things there is no
+fact for.
+
+**Where the verdict lives.** There is no single stored field for it. `selected_candidate_id`
+is null when nothing was usable, but the stored-findings path sets it to null on every run,
+so it cannot be the key. The check (`hasUsableCandidate` in `research/synthesize.ts`) runs
+the same selection rule over the candidates' stored scores, readability and inference
+direction, so it gives the same answer on fresh and reused runs.
+
+**Where it is enforced.** `research/produce-opening.ts`, the one function every research path
+calls: the inline agent, phase 2 of the batch path, and `scripts/export-writer-run.ts`.
+
+**What an operator sees.** Nothing new on screen. The prospect has no personalisation, like
+any prospect whose written opening lost. The reason is in `prospects.trigger_data.judge.
+judge_reasoning` and in the log line `research/produce-opening: not written, synthesis found
+no usable candidate`. Holding such prospects for review, or excluding them, has not been
+decided and is not built.
+
+**What to check if it breaks.** A research batch where most prospects come back without
+personalisation and the log shows that line for each: check that candidates are being
+generated and scored (the synthesis prompt's RELEVANT test and value-prop filter), not this
+check. The check only reads what synthesis produced.
