@@ -78,19 +78,41 @@ WEAK — Clear mismatch. Any one of these, and nothing else:
   • Their situation has no plausible connection to any of the push forces named above.
 
 CANNOT_TELL — The research does not establish enough about this prospect or their company to
-reach any of the three grades. Put what was missing in icp_fit_missing: name the dimension the
-research could not check (for example the size of the company, or the person's role) and say
-what evidence would settle it.
+reach any of the three grades, on a dimension the research could have shown. Put what was
+missing in icp_fit_missing: name the dimension (for example the size of the company, or the
+person's role) and say what evidence would settle it.
+
+WHAT THE RESEARCH CAN AND CANNOT ESTABLISH:
+  • Some facts a client's profile names cannot be established by any source this research
+    reads. The private financial figures and commercial terms of a private business are the
+    usual case. List each such fact in icp_fit_unestablished.
+  • An unestablished fact is left out of the outcome. It is never the reason for CANNOT_TELL
+    and never the reason for WEAK: grade on what the research can establish. If the research
+    does state the fact, it is established, and you use it.
+
+THREE CHECKS, FROM THE EVIDENCE ALREADY GATHERED:
+Establish each from the employment history and the website, and record it in fit_checks as
+yes, no or unknown, with one sentence of evidence. Each is a dimension of fit in its own
+right: a clear yes is a match, a clear no is a clear miss, and unknown is unknown.
+  • primary_occupation — Is this role the person's main occupation? A no is a concurrent
+    full-time position elsewhere, or a history that shows this role as secondary to another.
+  • runs_the_business — Does the person run this business day to day, rather than hold a
+    title in it? A no is a title in a business someone else runs, or no sign of operating
+    responsibility for it.
+  • reachable_by_channel — Who does the prospect's business sell to, and can those customers
+    be reached through the channel the client context describes? A no is a customer base
+    that channel cannot reach. Record not_applicable when the client context describes no
+    channel.
 
 HOW TO REACH THE OUTCOME:
-  • Take each dimension the client context names in turn and record what the research shows
-    about it. A dimension the research says nothing about is UNKNOWN. Unknown is not a
-    partial match, and it is not a match.
+  • Take each dimension the client context names, and each of the three checks, in turn and
+    record what the research shows. A dimension the research says nothing about is UNKNOWN.
+    Unknown is not a partial match, and it is not a match.
   • If what is known already decides the outcome, give that grade. One clear disqualifier
     decides WEAK however much else is unknown. A clear miss on one dimension alongside clear
     matches on the others decides MODERATE.
-  • If an unknown dimension could move the prospect from one grade to another, the outcome
-    is CANNOT_TELL.
+  • If an unknown dimension the research could have shown could move the prospect from one
+    grade to another, the outcome is CANNOT_TELL. An unestablished fact never makes it so.
   • Grade only on criteria the client context names. Nothing in this instruction names a
     market, a company type, a way of operating or a problem to be solved, because the client
     context above is the only place any of those are defined. A criterion that feels like
@@ -504,8 +526,9 @@ First, reason through the research in a <reasoning> block. Cover:
   2. The full candidate sweep: every candidate you generated and where it came from.
      Say explicitly what you found in employment history and what composites you considered.
   3. ICP fit assessment: for each dimension the client context names, what the research
-     shows about it, or that it shows nothing. Then the outcome, and why the other three
-     do not apply
+     shows about it, or that it shows nothing. Which of those facts no source here can
+     establish. The three checks, each with its evidence. Then the outcome, and why the
+     other three do not apply
   4. Seven-test scoring: for each candidate, which tests it passed and failed.
      For READABLE, say the longest sentence's word count and name any hedge you removed.
   5. Inference direction: for each candidate, the opposite reading and how you handled it
@@ -521,6 +544,12 @@ Then output this exact JSON with no markdown fences:
 {
   "icp_fit": "strong" or "moderate" or "weak" or "cannot_tell",
   "icp_fit_missing": null or "only when icp_fit is cannot_tell: the dimension the research could not check, and the evidence that would settle it",
+  "icp_fit_unestablished": ["each fact the client's profile names that no source here can establish"],
+  "fit_checks": {
+    "primary_occupation":   { "result": "yes" or "no" or "unknown", "evidence": "one sentence" },
+    "runs_the_business":    { "result": "yes" or "no" or "unknown", "evidence": "one sentence" },
+    "reachable_by_channel": { "result": "yes" or "no" or "unknown" or "not_applicable", "evidence": "one sentence" }
+  },
   "candidates": [
     {
       "id": "c1",

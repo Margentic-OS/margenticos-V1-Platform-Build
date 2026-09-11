@@ -43,7 +43,7 @@ import type {
   SynthesisConfidence,
   TokenUsage,
 } from './research/types'
-import { ZERO_TOKEN_USAGE, addTokenUsage } from './research/types'
+import { ZERO_TOKEN_USAGE, addTokenUsage, unknownFitChecks } from './research/types'
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
 
@@ -431,6 +431,9 @@ export async function synthesisFromStored(
     icp_fit_missing: stored.icp_fit && stored.icp_fit !== 'cannot_tell'
       ? null
       : `Carried from research result ${stored.result_id}, which reached no grade.`,
+    // Research rows do not record these, so a reuse run has nothing to carry: unknown, never a guess.
+    icp_fit_unestablished: [],
+    fit_checks: unknownFitChecks(`Carried from research result ${stored.result_id}, which did not record these checks.`),
     has_dateable_signal: stored.has_dateable_signal ?? stored.candidates.some(c => c.date !== null),
     signal_observation: stored.signal_observation ?? stored.candidates[0]?.observation ?? null,
     signal_relevance: 'no_signal',   // overwritten by the judge verdict downstream

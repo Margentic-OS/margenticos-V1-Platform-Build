@@ -20,6 +20,39 @@ export const ICP_FIT_GRADES = ['strong', 'moderate', 'weak'] as const
 export const ICP_FIT_OUTCOMES = [...ICP_FIT_GRADES, 'cannot_tell'] as const
 export type IcpFit = (typeof ICP_FIT_OUTCOMES)[number]
 
+/**
+ * Three checks the fit judge establishes from evidence research already gathers: the
+ * employment history and the website. Each defines the customer, and none had ever been
+ * measured. No new source is involved.
+ *
+ *   primary_occupation    the role is the person's main occupation, not one held alongside a
+ *                         full-time position elsewhere
+ *   runs_the_business     the person runs the business day to day, rather than holding a title
+ *   reachable_by_channel  the people or organisations the prospect's business sells to can be
+ *                         reached through the channel the client context describes
+ */
+export const FIT_CHECKS = ['primary_occupation', 'runs_the_business', 'reachable_by_channel'] as const
+export type FitCheckName = (typeof FIT_CHECKS)[number]
+
+/** not_applicable is for a check the client context gives no basis for, such as a channel it never describes. */
+export const FIT_CHECK_RESULTS = ['yes', 'no', 'unknown', 'not_applicable'] as const
+export type FitCheckResult = (typeof FIT_CHECK_RESULTS)[number]
+
+export interface FitCheck {
+  result:   FitCheckResult
+  /** One sentence of evidence, or why there is none. */
+  evidence: string | null
+}
+export type FitChecks = Record<FitCheckName, FitCheck>
+
+/**
+ * Every check recorded as unknown, for a synthesis that reached no answer at all. Built from
+ * FIT_CHECKS, so a check added there cannot be missing here.
+ */
+export function unknownFitChecks(evidence: string): FitChecks {
+  return Object.fromEntries(FIT_CHECKS.map(name => [name, { result: 'unknown', evidence }])) as FitChecks
+}
+
 // use_as_hook  — a candidate passed all six tests; safe to reference directly in the opener
 // mention_only — passed SPECIFIC + VERIFIABLE + RELEVANT but not all six; usable as context, not as a hook
 // no_signal    — nothing cleared the bar; the ICP pain trigger is used instead
@@ -184,6 +217,13 @@ export interface SynthesisOutput {
    * null for every grade.
    */
   icp_fit_missing:     string | null
+  /**
+   * Facts the client's profile names that no source this research reads can establish. The
+   * judge grades around them, never on them, and lists them here so the gap stays visible.
+   */
+  icp_fit_unestablished: string[]
+  /** The three checks in FIT_CHECKS, each with its evidence. Unknown when not answered. */
+  fit_checks:          FitChecks
   has_dateable_signal: boolean
   signal_observation:  string | null
   signal_relevance:    SignalRelevance

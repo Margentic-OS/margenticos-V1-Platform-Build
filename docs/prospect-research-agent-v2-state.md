@@ -450,3 +450,31 @@ So this is mostly not a wording problem. The judge cannot grade these prospects 
 evidence that would decide them, revenue above all, is not in what the pipeline gathers.
 
 Cost of this measurement: $3.71 of a $6 cap.
+
+## What the fit judge is asked to establish (2026-09-11)
+
+### Why
+
+A client's profile can name facts no research source can establish. The live client's names
+one as a hard disqualifier, and every cannot_tell in the run above named it. The decision
+recorded in August was to stop qualifying on that fact at the sourcing stage and settle it on
+the discovery call instead; the judge had never been told.
+
+### What changed
+
+- **Unestablished facts are listed, not graded on.** The prompt's "can and cannot establish"
+  block tells the judge that a fact no source reads (the usual case is a private business's
+  private financial figures and commercial terms) goes in `icp_fit_unestablished` and is left out
+  of the outcome. It is never the reason for CANNOT_TELL or WEAK. CANNOT_TELL is now only for a
+  dimension the research COULD have shown and did not.
+- **Three checks, from evidence already gathered.** `fit_checks` records, from the employment
+  history and the website, yes / no / unknown with one sentence of evidence for:
+  - `primary_occupation`: the role is the person's main occupation;
+  - `runs_the_business`: they run the business day to day rather than hold a title in it;
+  - `reachable_by_channel`: the people the business sells to can be reached through the channel
+    the client's own documents describe (`not_applicable` when they describe none).
+  Each is graded as a dimension of fit: a clear no is a clear miss. No new source and no new call.
+- Neither list is stored in its own column yet. Both are in the synthesis output and the stored
+  reasoning.
+
+Tests: `judge-checks.test.ts`. Each check was removed in turn and a test went red.

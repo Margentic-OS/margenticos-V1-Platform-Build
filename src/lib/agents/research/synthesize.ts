@@ -13,10 +13,13 @@ import { buildSynthesisPrompt, buildSignalBlock } from './prompts/synthesis-prom
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { readabilityScore, type ReadabilityScore } from '@/lib/style/readability'
-import { SIX_TESTS, INFERENCE_DIRECTIONS, ZERO_TOKEN_USAGE, ICP_FIT_OUTCOMES, readTokenUsage } from './types'
+import {
+  SIX_TESTS, INFERENCE_DIRECTIONS, ZERO_TOKEN_USAGE, ICP_FIT_OUTCOMES,
+  FIT_CHECKS, FIT_CHECK_RESULTS, unknownFitChecks, readTokenUsage,
+} from './types'
 import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
 import type {
-  IcpFit, ProspectContext, RawSourceData, SynthesisOutput,
+  IcpFit, FitChecks, ProspectContext, RawSourceData, SynthesisOutput,
   ObservationCandidate, CandidateScores, CandidateSource, SignalRelevance,
   CandidateReadability, InferenceDirection, TriggerSource,
 } from './types'
@@ -624,6 +627,25 @@ export function contentOverlap(a: string, b: string): number {
   return shared / Math.min(A.size, B.size)
 }
 
+/** How many unestablished facts are kept. A profile names a handful; more is noise. */
+const MAX_UNESTABLISHED = 10
+
+/**
+ * The judge's three checks, read strictly. A check it did not answer, or answered with a value
+ * outside FIT_CHECK_RESULTS, is unknown: never a yes or a no nobody gave. Built from
+ * FIT_CHECKS, so a check added there is read here without a second list to keep in step.
+ */
+function parseFitChecks(raw: unknown): FitChecks {
+  const given = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  return Object.fromEntries(FIT_CHECKS.map(name => {
+    const c = given[name] && typeof given[name] === 'object' ? given[name] as Record<string, unknown> : null
+    if (!c) return [name, { result: 'unknown', evidence: 'The judge did not answer this check.' }]
+    const result = FIT_CHECK_RESULTS.find(r => r === c.result) ?? 'unknown'
+    const evidence = typeof c.evidence === 'string' && c.evidence.trim() ? c.evidence.trim() : null
+    return [name, { result, evidence }]
+  })) as FitChecks
+}
+
 function parseSynthesisResponse(
   raw: string,
   prospect: ProspectContext,
@@ -652,6 +674,18 @@ function parseSynthesisResponse(
     : judged
       ? (missingText || 'The judge answered cannot_tell without naming what was missing.')
       : `No grade: the judge's icp_fit was not one of the four outcomes (${JSON.stringify(parsed.icp_fit ?? null)}).`
+
+  // FACTS NO SOURCE CAN ESTABLISH, recorded so the gap stays visible instead of turning into
+  // a grade or into cannot_tell. See the prompt's "can and cannot establish" block.
+  const icp_fit_unestablished = Array.isArray(parsed.icp_fit_unestablished)
+    ? parsed.icp_fit_unestablished
+        .filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+        .map(s => s.trim())
+        .slice(0, MAX_UNESTABLISHED)
+    : []
+
+  // THE THREE CHECKS. A missing or unrecognised answer is unknown, never a yes or a no.
+  const fit_checks = parseFitChecks(parsed.fit_checks)
 
   // Candidates + deterministic selection. signal_relevance is DERIVED here, never
   // read from the model output.
@@ -718,6 +752,8 @@ function parseSynthesisResponse(
     usage: ZERO_TOKEN_USAGE,
     icp_fit,
     icp_fit_missing,
+    icp_fit_unestablished,
+    fit_checks,
     has_dateable_signal: detectedSignal.has_dateable_signal,
     // The winning candidate is the observation of record. Fall back to the
     // deterministic recency check only when nothing was selected.
@@ -784,6 +820,8 @@ function buildFallbackSynthesis(
     // gave, which sat indistinguishably beside genuine partial fits.
     icp_fit: 'cannot_tell',
     icp_fit_missing: `No grade: ${errorNote}`,
+    icp_fit_unestablished: [],
+    fit_checks: unknownFitChecks(`No answer: ${errorNote}`),
     has_dateable_signal: detectedSignal.has_dateable_signal,
     signal_observation:  detectedSignal.signal_observation,
     signal_relevance: 'no_signal',

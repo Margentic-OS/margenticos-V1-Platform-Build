@@ -113,6 +113,9 @@ describe('synthesisFromStored: a source row with no grade carries cannot_tell', 
     const out = await synthesisFromStored(stored(null), ctx, 'org-1')
     expect(out.icp_fit).toBe('cannot_tell')
     expect(out.icp_fit_missing).toContain('row-1')
+    // Research rows do not record the three checks, so a reuse run carries none: unknown.
+    for (const check of Object.values(out.fit_checks)) expect(check.result).toBe('unknown')
+    expect(out.icp_fit_unestablished).toEqual([])
   })
 
   it('carries a grade the source row did reach, with nothing missing', async () => {
