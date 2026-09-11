@@ -903,6 +903,9 @@ Phase one — schema only:
   Do not build it speculatively.
 
 Auto-approve: phase four only. Do not build in phase one.
+The hourly auto-approve job that was built anyway is PAUSED, not fixed. See ADR-052: its
+broken reviewer foreign key is the only thing that ever stopped it, so fixing that key
+while the job runs switches auto-approval on.
 
 ---
 
@@ -1790,6 +1793,9 @@ For quick reference. Full text in /docs/ADR.md.
            range is removed rather than kept
   ADR-050  An operator alert is internal mail; a customer-copy style rule must never be
            able to suppress one
+  ADR-052  The hourly auto-approve job on document_suggestions is paused, not fixed. It
+           was never authorised (phase four) and never approved anything, and fixing its
+           reviewer foreign key while it runs would switch auto-approval on
   ADR-053  A client-facing count is read from OUR OWN records when the provider counts a
            different event, and a range whose NUMERATOR differs is removed as readily as
            one whose denominator does. Extends ADR-048 from the denominator to the

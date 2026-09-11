@@ -4691,6 +4691,88 @@ reverting, or the pair-list test fails.
 
 ---
 
+## ADR-052 — The hourly auto-approve job is paused, not fixed
+
+**Date:** 2026-09-10
+**Status:** Accepted
+
+### What the job is
+
+`POST /api/cron/auto-approve`, triggered by pg_cron job `auto-approve`. For every pending
+`document_suggestions` row that is not a client revision, once
+`organisations.auto_approve_window_hours` (default 72) has elapsed, it calls
+`approve_document_suggestion`, which makes an agent's suggestion the live strategy
+document. Twelve hours before that it emails the operator a reminder.
+
+### It was never authorised
+
+ADR-002: "Agents write to document_suggestions. Doug reviews and approves." and
+"Auto-approve (phase four) adds one field and one condition." CLAUDE.md: "Auto-approve:
+phase four only. Do not build in phase one." PRD 07: "Auto-approve (phase four — do not
+build)".
+
+It was built on 2026-04-23 (`679d40a`, on Vercel Cron) and moved to pg_cron on 2026-06-05
+(`2880866`), where it ran hourly from then on: 2,337 runs to 2026-09-10.
+
+ADR-047 says the job was "not touched". That records that ADR-047 did not decide it. It is
+not an authorisation.
+
+### It never approved anything
+
+It writes `reviewed_by = 00000000-0000-0000-0000-000000000001`. That id is in neither
+`public.users` nor `auth.users`, and `document_suggestions.reviewed_by` has a foreign key
+to `users`, so any approval it attempts rolls back.
+
+Measured 2026-09-10: 0 of 92 suggestions carry that id. Every heartbeat since heartbeats
+began on 2026-08-09 reads either "No pending suggestions" or "Processed 0 suggestions", so
+it never even reached a due suggestion and the foreign key never actually fired. The first
+would have been a messaging suggestion generated on 2026-09-10, due at 2026-09-13 19:50 UTC,
+preceded by a reminder email at 08:30 announcing an approval that could not happen.
+
+The 13 strategy documents with `approval_source = 'auto'` (approved 2026-08-09 to 08-11)
+were promoted by a different job, the daily `strategy-doc-auto-approve`, which ADR-047
+retired.
+
+### The decision
+
+Paused. Not fixed, and not deleted. Automatically approving agent-written client copy is
+phase four, and nobody has decided to bring phase four forward.
+
+Paused with `cron.alter_job(..., active => false)`. `cron.unschedule` would delete the row
+and the only stored copy of its command, which carries a bearer token that cannot be written
+into a migration. Migration: `supabase/migrations/20260910230000_pause_auto_approve_cron.sql`.
+
+### Warning to whoever touches this next
+
+**The broken reviewer reference is the only thing that ever stopped this job.** Fixing it is
+not a bug fix: with the job running, it switches on automatic approval. Do not fix that
+foreign key, and do not resume the job, without first superseding this decision. The open
+Backlog row that proposes the foreign-key fix carries the same warning.
+
+Two further defects wait for anyone who resumes it. It reads the organisation's window as an
+array when PostgREST returns an object, so it always uses 72 hours whatever the organisation
+has configured. And the operator Settings page shows that window as if something acts on it.
+
+### What still works
+
+Manual approval, unchanged. The approve route calls `persistIcpFilterSpec`,
+`notifyAfterPromotion` and `triggerCascadeIfEligible` itself, and revise and revert call the
+first and third. Nothing lives only inside the paused job except the reminder email and the
+job's own heartbeat.
+
+### What the monitors say
+
+MON-001 reads the job's heartbeat and reports PROBLEM, "over 75 minutes ago", for as long as
+the job is paused. The transition raises one Sentry error. MON-025 adds "Declared and switched
+off: auto-approve". Both statements are true. They are left reporting it rather than taught to
+ignore it, so the pause stays visible to anyone reading the monitors.
+
+### Resume
+
+    SELECT cron.alter_job((SELECT jobid FROM cron.job WHERE jobname = 'auto-approve'), active => true);
+
+---
+
 ## ADR-053 — A client-facing count is read from our own records when the provider counts a different event, and a range whose numerator differs is removed as readily as one whose denominator does
 
 **Date:** 2026-09-08

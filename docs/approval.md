@@ -31,8 +31,8 @@ a daily cron decided three days had gone by.
   The OPERATOR approval queue on `document_suggestions`. Agents still never write to
   `strategy_documents` directly; every agent output lands as a pending suggestion and an
   operator approves it. That is the mechanism described below from "Step 1" onward, and
-  it stays. Its hourly auto-approve cron also stays, though see BACKLOG: it has never
-  successfully approved anything, for a reason unrelated to this change.
+  it stays. Its hourly auto-approve cron was left in place by ADR-047 and is now PAUSED
+  (ADR-052, 2026-09-10). It never successfully approved anything.
 
   Prospect batch review. A separate mechanism and a separate decision that still stands.
 
@@ -86,6 +86,11 @@ If any step fails, the whole transaction rolls back. The suggestion remains `'pe
 
 **Step 3: Auto-approve escape**
 
+> **PAUSED 2026-09-10, ADR-052.** The pg_cron job is inactive. Nothing is auto-approved and
+> no reminder email is sent: a pending suggestion waits for an operator. What follows is
+> what the route does when the job runs. Do not resume it, and do not fix its reviewer
+> foreign key, without superseding ADR-052.
+
 If the operator does not act within the window defined by
 `organisations.auto_approve_window_hours` (default: 72 hours), the auto-approve cron
 promotes the suggestion automatically.
@@ -101,7 +106,7 @@ calls `approve_document_suggestion` with a sentinel reviewer ID
 If the suggestion was already handled (operator approved or rejected between the query
 and the RPC call), the cron logs it and moves on cleanly without counting it as an error.
 
-The cron route exists and works. It is currently scheduled via pg_cron (not Vercel Cron,
+The cron route exists. It has never approved anything, see ADR-052. It is scheduled via pg_cron (not Vercel Cron,
 which is blocked on Hobby for sub-daily schedules). See BACKLOG: "Build a scheduler for
 auto-approve timers (DONE 2026-04-23, updated 2026-04-29)" for the scheduling detail.
 
@@ -228,6 +233,9 @@ delivery, no programmatic scheduling API).
   if the corresponding GRANT is not included in the same migration.
 
 **Auto-approve cron is not running:**
+- It is paused on purpose (ADR-052). `SELECT jobname, active FROM cron.job WHERE jobname =
+  'auto-approve';` reads `active = false`, and MON-001 reports PROBLEM while it stays so.
+  That is expected. Do not resume it without superseding ADR-052.
 - Verify the pg_cron job exists in Supabase: `SELECT * FROM cron.job;`
 - Verify `CRON_SECRET` is hardcoded directly in the job command string (Supabase Hobby
   does not support `current_setting()` for config vars in pg_cron; the workaround is
