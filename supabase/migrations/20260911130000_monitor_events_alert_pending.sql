@@ -1,4 +1,11 @@
--- Status: NOT YET APPLIED.
+-- Status: APPLIED (verified live 2026-09-11). Recorded remotely as 20260911143130 on
+-- production and 20260911143133 on the test project.
+--
+-- READ BACK, production (DATABASE-EVIDENCED): alert_pending is boolean NOT NULL DEFAULT
+-- false; 0 of the 120 existing rows read true, so nothing is owed and nothing can re-send.
+-- The deployed sweep, which predates the code that uses this column, ran at 14:35:03 UTC
+-- against it: ok=true, 29 monitors checked. The new alert rule itself is not live until the
+-- branch carrying alert-policy.ts merges and deploys.
 --
 -- A monitor alert is sent on the SECOND consecutive failing sweep, not the first. The first
 -- failure is still recorded, and shown on the dashboard, at once; only the alert waits.
@@ -21,8 +28,11 @@
 -- deploys, no row written by the old one can send a second email. No backfill: every existing
 -- row already holds the right value.
 --
--- Grants unchanged. A new column inherits the table's: INSERT and UPDATE for service_role,
--- SELECT through the operator RLS policy, nothing for anon.
+-- Grants unchanged; a new column inherits the table's. Read back after applying, in both
+-- directions: service_role holds SELECT, INSERT, UPDATE and DELETE; anon and authenticated
+-- hold none of the four; RLS is on. (This comment first said authenticated reads through the
+-- operator RLS policy. It does not: authenticated holds no SELECT, so that policy is never
+-- reached, and the operator routes read monitor_events with the service client.)
 
 ALTER TABLE public.monitor_events
   ADD COLUMN IF NOT EXISTS alert_pending boolean NOT NULL DEFAULT false;

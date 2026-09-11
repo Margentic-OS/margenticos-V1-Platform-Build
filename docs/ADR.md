@@ -4963,3 +4963,22 @@ alert for a problem that was already emailed.
   failed run red for longer than a sweep by their own design (MON-026 reads a verdict written
   every 30 minutes; MON-021 counts failures over 60 minutes). Two consecutive sweeps is the
   wrong unit for those two; that is a per-check question, not a sweep question.
+
+### Verified
+
+DATABASE-EVIDENCED, 2026-09-11: `alert_pending` is live on production (recorded
+`20260911143130`) and the test project (`20260911143133`), `boolean NOT NULL DEFAULT false`.
+All 120 existing production rows read false. Grants on `monitor_events` unchanged in both
+directions. The deployed sweep, which predates this code, ran at 14:35:03 UTC against the new
+column with `ok=true`. The rule itself is not live until this branch merges and deploys.
+
+CODE-EVIDENCED at `36f8063`, each mutation reverted and the file checked afterwards:
+
+| Mutation | Result |
+|---|---|
+| alert on the first failure (the old line put back) | 6 red |
+| never alert | 5 red |
+| UNKNOWN recorded as OK | 1 red, "records a check that cannot read its input as UNKNOWN" |
+| a failed view read counted as an OK reading | 1 red, "treats a sweep that cannot read the view as no reading" |
+| claim guard removed | 1 red, "sends once when two sweeps overlap" |
+| `alert_pending` dropped from the select | 4 red, which is the fake honouring the column list |
