@@ -106,6 +106,32 @@ export const CANONICAL_INDUSTRIES = [
 
 export type CanonicalIndustry = typeof CANONICAL_INDUSTRIES[number]
 
+// ─── Why a spec was refused ──────────────────────────────────────────────────
+//
+// Every refusal in this module throws a FilterSpecRefusal naming WHICH rule refused, so a
+// caller can report the cause without matching on message text. persistIcpFilterSpec used
+// to label every refusal "non-canonical industries". The one that reached Sentry on
+// 2026-09-08 was a blank headcount, and the label sent the reader to the wrong field.
+export const FILTER_SPEC_REFUSAL_REASONS = [
+  'non_canonical_industry',
+  'no_seniority_bands',
+  'no_geography',
+  'no_headcount_bound',
+  'headcount_inverted',
+] as const
+
+export type FilterSpecRefusalReason = (typeof FILTER_SPEC_REFUSAL_REASONS)[number]
+
+export class FilterSpecRefusal extends Error {
+  readonly reason: FilterSpecRefusalReason
+
+  constructor(reason: FilterSpecRefusalReason, message: string) {
+    super(message)
+    this.name = 'FilterSpecRefusal'
+    this.reason = reason
+  }
+}
+
 // Validate a single industry name. Throws a descriptive error if it is not
 // in the canonical list — prevents non-canonical names from entering the
 // filter spec and then silently failing translation in a sourcing handler.
@@ -117,7 +143,8 @@ export function validateCanonicalIndustry(name: string): asserts name is Canonic
     const hint = closest.length > 0
       ? ` Closest canonical matches: ${closest.map(c => `"${c}"`).join(', ')}.`
       : ' No close match found — check the CANONICAL_INDUSTRIES list in icp-filter-spec.ts.'
-    throw new Error(
+    throw new FilterSpecRefusal(
+      'non_canonical_industry',
       `ICP filter spec: "${name}" is not a canonical industry name.${hint} ` +
       'Fix the ICP agent prompt to use canonical names, or add a new canonical name to this module.'
     )
@@ -612,7 +639,8 @@ export function deriveFilterSpec(
       seniority.bands.length === 0
     )
   ) {
-    throw new Error(
+    throw new FilterSpecRefusal(
+      'no_seniority_bands',
       'ICP filter spec: no seniority bands were supplied, so there is no buyer level to ' +
       'target. These are derived per client from that client\'s own documents, on the same ' +
       'call that derives the buyer criterion. There is deliberately no default: the two ' +
@@ -633,7 +661,8 @@ export function deriveFilterSpec(
     !Array.isArray(geography.countries) ||
     geography.countries.length === 0
   ) {
-    throw new Error(
+    throw new FilterSpecRefusal(
+      'no_geography',
       'ICP filter spec: no geography was supplied, so there is no country to target. ' +
       'Countries are derived per client from that client\'s own ICP document by ' +
       'resolveIcpGeography, and there is no default: the three hardcoded countries that ' +
@@ -708,7 +737,8 @@ export function deriveFilterSpec(
 
   if (mins.length === 0 || maxs.length === 0) {
     const side = mins.length === 0 ? 'lower' : 'upper'
-    throw new Error(
+    throw new FilterSpecRefusal(
+      'no_headcount_bound',
       `ICP filter spec: neither tier establishes a ${side} headcount bound. ` +
       `Tier 1 headcount reads ${JSON.stringify(t1.company_profile.headcount)}, ` +
       `tier 2 reads ${JSON.stringify(t2.company_profile.headcount)}. ` +
@@ -723,7 +753,8 @@ export function deriveFilterSpec(
   // later edit to the lines above cannot write an inverted pair to the database, which is
   // what happened before: nothing validated the pair and it was stored exactly as parsed.
   if (headcountMin > headcountMax) {
-    throw new Error(
+    throw new FilterSpecRefusal(
+      'headcount_inverted',
       `ICP filter spec: headcount range inverted (min ${headcountMin} > max ${headcountMax}) ` +
       `from tier 1 ${JSON.stringify(t1.company_profile.headcount)} and ` +
       `tier 2 ${JSON.stringify(t2.company_profile.headcount)}.`,
