@@ -23,6 +23,7 @@ import { logger } from '@/lib/logger'
 import { substituteBookingLink } from './substitute-booking-link'
 import { insertSignoff } from './insert-signoff'
 import { findUnfilledPlaceholder } from './unfilled-placeholder'
+import { buildProspectBookingLink } from '@/lib/meetings/booking-link'
 // The SAME converter campaign outbound uses. Reused rather than reimplemented: the reply
 // path is the only send path that was not going through it, which is why replies lost
 // their line breaks while campaign email did not.
@@ -147,7 +148,9 @@ export async function sendApprovedDraft(
 
   const { body: bodyAfterBookingLink, missing: bookingLinkMissing } = substituteBookingLink(
     rawBody,
-    org.booking_url,
+    // The link carries this draft's prospect reference, so a booking made through it can
+    // be tied back to the prospect. Without a prospect it goes out plain; email matches it.
+    org.booking_url ? buildProspectBookingLink(org.booking_url, draft.prospect_id) : null,
   )
 
   if (bookingLinkMissing) {

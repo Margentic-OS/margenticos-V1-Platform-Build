@@ -16,7 +16,11 @@
 // run on the final assembled bytes, after substitution and sign-off, and before the
 // provider call.
 
-const TEMPLATE_TOKEN = /\{\{?\s*[a-z][a-z0-9_]*\s*\}\}?/i
+// The second alternative is the same token PERCENT-ENCODED. A link passed through the URL
+// parser (buildProspectBookingLink does) comes out with { and } as %7B and %7D, so a token
+// inside a stored booking URL would otherwise slip past as "https://…/%7Busername%7D" and
+// reach the prospect as a broken link. Found by this file's own test on the automated path.
+const TEMPLATE_TOKEN = /\{\{?\s*[a-z][a-z0-9_]*\s*\}\}?|%7B(?:%7B)?[a-z][a-z0-9_]*%7D(?:%7D)?/i
 
 /**
  * Returns the first template token still present in the body, or null when there is

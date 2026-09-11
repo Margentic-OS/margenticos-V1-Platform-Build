@@ -93,7 +93,13 @@ export async function resolveAutoHeldMeetings(
     const windowHours = org.auto_held_window_hours
     const now = new Date()
 
-    // Find meetings eligible for auto-hold
+    // Find meetings eligible for auto-hold.
+    //
+    // A meeting with NO PROSPECT is never eligible. A booking that could not be tied to a
+    // prospect is still recorded (record-booking-event.ts), but billing is per qualified
+    // meeting, and qualification needs a prospect to judge. Auto-holding it would bill a
+    // stranger who found the booking link. The same filter is repeated on the update below,
+    // so either one alone still holds the line. auto-held-excludes-unmatched.test.ts proves it.
     const { data: eligibleMeetings, error: fetchError } = await client
       .from('meetings')
       .select('id, scheduled_start_at')
@@ -101,6 +107,7 @@ export async function resolveAutoHeldMeetings(
       .eq('meeting_status', 'booked')
       .eq('held_decision_locked', false)
       .not('scheduled_start_at', 'is', null)
+      .not('prospect_id', 'is', null)
 
     if (fetchError) {
       organisationsFailed++
@@ -142,6 +149,7 @@ export async function resolveAutoHeldMeetings(
       .eq('organisation_id', org.id)
       .eq('meeting_status', 'booked')
       .eq('held_decision_locked', false)
+      .not('prospect_id', 'is', null)   // never bill a meeting with no prospect; see the read above
       .in(
         'id',
         toAutoHold.map(m => m.id)

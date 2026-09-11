@@ -50,6 +50,7 @@ import { sendOperatorReplyNotification } from '@/lib/notifications/send-operator
 // single run-on line on delivery.
 import { plainTextToHtml } from '@/lib/composition/custom-variables'
 import { findUnfilledPlaceholder } from './unfilled-placeholder'
+import { buildProspectBookingLink } from '@/lib/meetings/booking-link'
 
 type SupabaseServiceClient = ServiceRoleClient
 
@@ -82,12 +83,17 @@ function buildBookingReplyBody(
   prospectFirstName: string | null,
   founderFirstName: string,
   bookingUrl: string,
+  prospectId: string | null,
 ): string | null {
   if (!founderFirstName.trim()) return null
 
   const firstName = prospectFirstName?.trim() || 'there'
-  const separator = bookingUrl.includes('?') ? '&' : '?'
-  const taggedUrl = `${bookingUrl}${separator}utm_source=reply&utm_medium=email`
+  // The prospect reference rides on the link so the booking can be tied back to them; the
+  // utm tags record where the click came from.
+  const taggedUrl = buildProspectBookingLink(bookingUrl, prospectId, {
+    utm_source: 'reply',
+    utm_medium: 'email',
+  })
 
   return [
     `Hi ${firstName},`,
@@ -854,7 +860,7 @@ async function processOneSignal(
       return 'error'
     }
 
-    const bodyText = buildBookingReplyBody(prospectFirstName, founderFirstName, bookingUrl)
+    const bodyText = buildBookingReplyBody(prospectFirstName, founderFirstName, bookingUrl, prospectId)
     if (!bodyText) {
       // buildBookingReplyBody returns null only if founderFirstName is empty — guarded above.
       logger.error('process-reply: buildBookingReplyBody returned null unexpectedly', { signal_id: signalId })

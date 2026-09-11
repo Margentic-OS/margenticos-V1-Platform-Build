@@ -16,6 +16,11 @@ describe('findUnfilledPlaceholder', () => {
     expect(findUnfilledPlaceholder('Hi {{ first_name }},')).toBe('{{ first_name }}')
   })
 
+  it('finds a token that a URL parser has percent-encoded inside a link', () => {
+    expect(findUnfilledPlaceholder('Book: https://booking.test/%7Busername%7D?ref=1')).toBe('%7Busername%7D')
+    expect(findUnfilledPlaceholder('Book: https://booking.test/%7b%7bslot%7d%7d')).toBe('%7b%7bslot%7d%7d')
+  })
+
   it('is case-insensitive, so a capitalised token cannot slip through', () => {
     expect(findUnfilledPlaceholder('Book: {Booking_Link}')).toBe('{Booking_Link}')
   })

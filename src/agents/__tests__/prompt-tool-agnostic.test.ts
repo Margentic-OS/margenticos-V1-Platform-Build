@@ -28,7 +28,7 @@ const abs = (p: string) => join(process.cwd(), p)
 // A new vendor goes here in the same commit that introduces its handler, which is the
 // rule that MyEmailVerifier was missing from when it reached a column default.
 const VENDORS: Pattern[] = [
-  { label: 'vendor name', re: /\b(Instantly|Apollo|Taplio|Lemlist|GoHighLevel|Calendly|Hunter\.io|MyEmailVerifier|Bouncer|Apify|Brave|Smartlead)\b/ },
+  { label: 'vendor name', re: /\b(Instantly|Apollo|Taplio|Lemlist|GoHighLevel|Calendly|Cal\.com|Hunter\.io|MyEmailVerifier|Bouncer|Apify|Brave|Smartlead)\b/ },
 ]
 
 // Measured 2026-08-28. These may only go DOWN.
