@@ -231,8 +231,9 @@ function BookingLinkField({ orgId, initial }: { orgId: string; initial: string |
       {!error && saved === null && (
         <p className="text-[11px] text-text-secondary mt-2 leading-relaxed">
           <NotSetUp />{' '}
-          — this client has no booking link. A positive reply is sent without one until it
-          is set here.
+          — this client has no booking link. A positive reply is held as a draft for the
+          operator instead of being sent automatically, and a draft that includes the link
+          cannot be sent until one is set here.
         </p>
       )}
 

@@ -136,6 +136,37 @@ describe('empty values', () => {
     expect(screen.getAllByText('Not set up').length).toBeGreaterThanOrEqual(2)
   })
 
+  // The no-link note used to say "A positive reply is sent without one until it is set
+  // here." Neither reply path did that: the automatic one failed and sent nothing, and a
+  // draft carrying the link placeholder fails at send. Since 2026-09-10 a booking reply
+  // with no link is held as a draft for the operator, and the note says so.
+  it('says a positive reply is held as a draft when there is no booking link', () => {
+    render(<SettingsView organisation={ORG} integrations={REGISTRY} clientRequested />)
+
+    // Positive control: the no-link note is rendering at all.
+    expect(screen.getAllByText('Not set up').length).toBeGreaterThanOrEqual(1)
+    expect(document.body.textContent).toMatch(
+      /held as a draft for the operator instead of being sent automatically/i,
+    )
+    // The old sentence promised a send that no path makes.
+    expect(document.body.textContent).not.toMatch(/sent without one/i)
+  })
+
+  it('does not show the held-as-draft note once a link is set', () => {
+    render(
+      <SettingsView
+        organisation={{ ...ORG, calendly_url: 'https://example.test/book/30min' }}
+        integrations={REGISTRY}
+        clientRequested
+      />,
+    )
+
+    // Positive control: the link is what the field shows.
+    const input = screen.getByLabelText(/client booking link/i) as HTMLInputElement
+    expect(input.value).toBe('https://example.test/book/30min')
+    expect(document.body.textContent).not.toMatch(/held as a draft/i)
+  })
+
   it('renders the real values when they are present', () => {
     const filled: OrganisationSettings = {
       ...ORG,
