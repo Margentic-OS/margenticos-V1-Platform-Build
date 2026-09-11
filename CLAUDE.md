@@ -1771,6 +1771,10 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-047  Client approval on strategy documents removed; a document is live because
            an operator produced it. Every version kept and restorable. An upstream
            change FLAGS downstream documents stale and never regenerates them
+  ADR-054  A cron job can be declared OFF in cron_schedule_registry.active; MON-001 reads
+           "off" only when that declaration AND the live pg_cron flag agree, mapped to OK
+           per ADR-035. The registry test reads `=>` as well as `:=`, and throws on an
+           alter_job it cannot attribute rather than skipping it
   ADR-046  Buyer criterion derived per client from their own documents, applied before
            enrichment through one shared selector; it is NOT the provider seniority filter
   ADR-035  A four-state sending-health verdict collapsed onto the sweep's three states;

@@ -4818,3 +4818,82 @@ Each turned tests red and each was reverted:
 | org scoping dropped from the opt-out read | 5 tests red. Guard `is org-scoped` read 13 against 2 (`:483`): every other organisation's opt-outs in the shared test database reached org A |
 
 The last three rows were run on 2026-09-10 at 415bfaf, where the chokepoint file and its test file are byte-identical to e28b8ee's, against the shared test database, and each was reverted. Counts are assertion failures only. Each run also had one hook timeout and one test-cleanup error from that shared database, not caused by the mutation and not counted. The org-scoping mutation is the one that had been left in place in a working tree on 2026-09-08; it was applied from the patch recovered from that tree, so the proof is of that exact change.
+
+
+## ADR-054 — A cron job can be declared off, and a monitor reads "off" only when the declaration and the live flag agree
+
+**Date:** 2026-09-11
+**Status:** Accepted. Built on branch `cron-registry-sync` at Doug's instruction.
+**Amends ADR-052's "What the monitors say".** ADR-052, on the unmerged `auto-approve-pause`
+branch, left MON-001 red for the pause on purpose so it stayed visible. On 2026-09-11 Doug
+asked for a deliberate pause to read as off rather than failing. This records how, and what
+stops it from hiding a real stall.
+
+### Context
+
+DATABASE-EVIDENCED, production, 2026-09-11. Two monitors red, zero faults between them:
+
+- **MON-025 PROBLEM**, naming eleven jobs. `20260910140000_stagger_cron_offsets.sql` moved
+  them with `cron.alter_job` and did not touch `cron_schedule_registry`, last updated
+  2026-09-04. It also said "Declared and switched off: auto-approve".
+- **MON-001 PROBLEM**, "over 75 minutes ago". auto-approve was paused on 2026-09-10
+  (ADR-052). Nothing anywhere declared the pause, so the monitor could not tell it from a
+  stall.
+
+### Why the stagger left the registry behind
+
+1. **The registry is a second list kept in step with the migrations by hand.** That is the
+   parallel-array shape CLAUDE.md warns about. The stagger changed the first list.
+2. **The test that exists to force the second list was blind to the statement.**
+   `cron-schedule-registry.test.ts` matched `schedule := '...'`; the stagger wrote
+   `schedule => '...'`, the standard named-argument notation. Measured: 0 of 11 read. The
+   files therefore still appeared to declare the old schedules, the old seed agreed with them,
+   and the test passed 8 of 8 on `e4c2161` while MON-025 was red over exactly that drift. Its
+   only guard on `alter_job` was `toBeGreaterThanOrEqual(0)`, which cannot fail.
+3. **Nothing makes the suite run before a migration is applied.** There is no CI
+   (no `.github/` workflows), and migrations reach production through the MCP straight from a
+   branch.
+
+**Could a test have caught it before it was applied?** Yes, the existing one, had it read
+`=>`: it reads files, needs no database, and so could have gone red the moment the stagger file
+was written. But only if someone ran it before the MCP apply, and nothing requires that.
+
+### Decision
+
+1. **`cron_schedule_registry.active`** holds the declared on/off state. It is held to the
+   migration files by the same test as `schedule`: `cron.alter_job(..., active => false)` in a
+   migration declares a job off. The registry cannot be flipped to off by hand without that
+   test refusing it.
+2. **MON-025** fails on a job switched off that is declared on, and on a job running that is
+   declared off. A job switched off AS DECLARED is not a finding and is named in the detail
+   line, so it is never hidden.
+3. **MON-001** reads OK, detail "Switched off, as declared", only when ALL of: the pg_cron job
+   is inactive, the registry declares it off, and it has not reported a run in 75 minutes.
+   `IS FALSE` rather than `= false`, so a missing job or a missing registry row is NULL and
+   never counts as off. Anything less falls through to the heartbeat branches, unchanged.
+   Switched off with no declaration is PROBLEM. Declared off but reporting runs is PROBLEM:
+   for auto-approve that means something is calling a job ADR-052 says must not run.
+4. **OK, not a fourth state.** `monitor_events.state` accepts OK, PROBLEM and UNKNOWN. ADR-035
+   settled the collapse: the light answers "should you act", the detail answers "what is
+   known". A deliberate pause needs no action. UNKNOWN would claim the monitor could not read
+   its inputs, which is false, and a resting UNKNOWN makes a check born dark.
+5. **auto-approve is declared off in a migration on this branch.** ADR-052's pause file is
+   applied in production but lives only on `auto-approve-pause`, so main's files declared the
+   job on and a rebuild from main would have re-enabled it. The statement is conditional on the
+   job being active; in production it is not, so it calls nothing.
+
+### Deliberately not done
+
+- **No grey OFF light.** The board shows a green OK with the detail saying off. A true fourth
+  state means changing the `monitor_events` CHECK constraint, the sweep's types,
+  `src/lib/monitor/check-state.ts` and the monitor page. Not in scope.
+- **Only MON-001 reads the declaration.** MON-002 to MON-005 and MON-010 watch jobs that are
+  all on today. The first time one of those is paused, give it the same two-sided test.
+
+### Consequences
+
+- Pausing a job now needs a migration with `active => false` for the monitors to accept it.
+  Pausing by hand leaves MON-025 and MON-001 both red. That is the point of the design.
+- Resuming auto-approve now needs a migration with `active => true` as well as the one-line
+  `alter_job`, or MON-025 goes red with "Running, but declared off". ADR-052 already requires
+  superseding it first.

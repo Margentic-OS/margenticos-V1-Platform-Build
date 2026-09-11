@@ -708,6 +708,7 @@ declares for it. Added 2026-09-03 alongside `mon_025`.
 |---|---|---|
 | `jobname` | text | primary key. Matches `cron.job.jobname`. |
 | `schedule` | text | The cron expression the migrations declare. Not necessarily what is live: the whole point is to detect when those differ. |
+| `active` | boolean | Whether the migrations declare the job ON. `false` means switched off on purpose. Added 2026-09-11, ADR-054. Default `true`. |
 | `declared_by` | text | The migration filename. Diagnostic, so a reader knows which file to open. |
 | `notes` | text | Plain English, for a row with a story. |
 | `updated_at` | timestamptz | |
@@ -732,10 +733,32 @@ table cannot be edited into agreement with a drifted database. Between the two h
 | Disagreement | Caught by | Where |
 |---|---|---|
 | live differs from the registry | MON-025 | production, continuously |
-| the registry differs from the files | the vitest scan | CI, before merge |
+| the registry differs from the files | the vitest scan | the test suite, before merge |
+
+There is no CI in this repository (no `.github/` workflows), so "before merge" means only
+when someone runs the suite. Nothing requires it to be green before a migration is applied
+through the MCP, which is how the stagger reached production with a stale registry.
 
 **Never edit this table on its own to turn MON-025 green.** If the live schedule is the
 correct one, add a migration declaring it, so a rebuild keeps it.
+
+**The scan was blind to the stagger (2026-09-10).** Its `cron.alter_job` parser read only
+`schedule := '...'` and the stagger wrote `schedule => '...'`, so it saw none of the eleven
+changes and passed while MON-025 was red. It now reads both notations and throws on any
+`alter_job` that changes a schedule or on/off state it cannot attribute to a job. ADR-054.
+
+**On and off (2026-09-11).** `active` is the declared on/off state, held to the files the same
+way as `schedule`: `cron.alter_job(..., active => false)` in a migration declares a job off.
+
+| Live | Declared | MON-025 | MON-001 (auto-approve) |
+|---|---|---|---|
+| on | on | fine | reads the heartbeat, as before |
+| off | off | fine, named in the detail | OK, "Switched off, as declared" |
+| off | on | PROBLEM, "Switched off, but declared on" | PROBLEM, "nothing declares it off" |
+| on | off | PROBLEM, "Running, but declared off" | reads the heartbeat |
+
+MON-001 reads "off" only when BOTH columns say off. A job paused by hand, with no migration
+declaring it, stays red on both monitors.
 
 RLS: enabled, no policies. Grants revoked from `anon` and `authenticated` by name and
 granted to `service_role`, because RLS with zero policies leaves the Supabase default grant
