@@ -61,6 +61,7 @@ function prospect(overrides: Partial<ProspectContext> = {}): ProspectContext {
     email: 'ada@example.com',
     linkedin_url: 'https://www.linkedin.com/in/example',
     website_url: 'https://example.com',
+    company: null,
     ...overrides,
   }
 }

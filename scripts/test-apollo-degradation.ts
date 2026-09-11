@@ -24,6 +24,7 @@ const TEST_PROSPECT = {
   email: 'jane@test.com',
   linkedin_url: null,
   website_url: null,
+  company: null,
 }
 
 // Set a dummy API key so the early-exit guard doesn't trigger

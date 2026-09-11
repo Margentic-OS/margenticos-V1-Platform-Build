@@ -81,6 +81,7 @@ import {
 import { produceOpening, type MessagingContent } from '@/lib/agents/research/produce-opening'
 import { fetchApprovedMessagingDoc, getVariantEmail1Frame, composeEmail1WithOpening } from '@/lib/composition/compose-sequence'
 import type { RawSourceData, SynthesisOutput } from '@/lib/agents/research/types'
+import { companyFactsFromRow } from '@/lib/agents/research/company-facts'
 
 function client() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -170,7 +171,7 @@ async function run(prospectId: string): Promise<void> {
   // touches. segment_id comes from the snapshot regardless, which is what phase 2 uses.
   const { data: p, error: pErr } = await supabase
     .from('prospects')
-    .select('id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, organisation_id')
+    .select('id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, organisation_id, company_headcount, company_industry, apollo_enrichment_data')
     .eq('id', prospectId)
     .eq('organisation_id', clientId)
     .single()
@@ -188,6 +189,9 @@ async function run(prospectId: string): Promise<void> {
     email:           p.email as string | null,
     linkedin_url:    p.linkedin_url as string | null,
     website_url:     p.website_url as string | null,
+    // The same mapping both research paths use, so the live request this script rebuilds
+    // shows the judge the company the batch request did.
+    company:         companyFactsFromRow(p),
   }
 
   // ── C1: SNAPSHOT vs LIVE INPUTS over the same stored Message ────────────────

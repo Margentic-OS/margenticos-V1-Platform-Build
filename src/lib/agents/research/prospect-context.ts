@@ -12,6 +12,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ProspectContext } from './types'
+import { companyFactsFromRow } from './company-facts'
 
 /** The prospect row columns a research run needs, beyond what ProspectContext carries. */
 export interface ProspectRowExtras {
@@ -48,9 +49,11 @@ export async function loadProspectContext(
   prospect_id: string,
   client_id: string,
 ): Promise<LoadedProspect> {
+  // company_headcount and company_industry are read for the fit judge (see company-facts.ts),
+  // together with website_url and apollo_enrichment_data, which this select already needed.
   const { data: prospect, error: fetchError } = await supabase
     .from('prospects')
-    .select('id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, organisation_id, segment_id, variant_id, apollo_enrichment_data')
+    .select('id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, organisation_id, segment_id, variant_id, apollo_enrichment_data, company_headcount, company_industry')
     .eq('id', prospect_id)
     .eq('organisation_id', client_id)
     .single()
@@ -93,6 +96,7 @@ export async function loadProspectContext(
       email:           prospect.email,
       linkedin_url:    prospect.linkedin_url,
       website_url:     prospect.website_url,
+      company:         companyFactsFromRow(prospect),
     },
     extras: {
       apollo_enrichment_data: prospect.apollo_enrichment_data as Record<string, unknown> | null,

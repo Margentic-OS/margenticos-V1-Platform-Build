@@ -104,6 +104,7 @@ import { loadClientContext } from '@/lib/agents/research/synthesize'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
 import type { ProspectContext, TokenUsage } from '@/lib/agents/research/types'
+import { companyFactsFromRow } from '@/lib/agents/research/company-facts'
 
 // ─── Pricing ─────────────────────────────────────────────────────────────────
 //
@@ -362,7 +363,7 @@ async function runOne(
   // that it writes nothing should not depend on a guard firing.
   const { data: p, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, segment_id, variant_id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, personalisation_trigger, personalisation_question, personalisation_subject')
+    .select('id, organisation_id, segment_id, variant_id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, personalisation_trigger, personalisation_question, personalisation_subject, company_headcount, company_industry, apollo_enrichment_data')
     .eq('id', prospectId)
     .single()
   if (error || !p) throw new Error(`prospect not found: ${prospectId}`)
@@ -380,6 +381,7 @@ async function runOne(
     email:           (p.email ?? null) as string | null,
     linkedin_url:    (p.linkedin_url ?? null) as string | null,
     website_url:     (p.website_url ?? null) as string | null,
+    company:         companyFactsFromRow(p),
   }
 
   // The same selection the agent uses, called rather than reimplemented. Its ordering is

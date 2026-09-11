@@ -229,6 +229,15 @@ export interface ProspectContext {
   email: string | null
   linkedin_url: string | null
   website_url: string | null
+  /**
+   * The company as already recorded, for the fit judge. null when nothing is on file.
+   *
+   * REQUIRED, not optional. The batch path builds its own context (contextFor in
+   * batch-sweep.ts), and an optional field would let one builder quietly leave the facts out
+   * while the other sent them, so the judge would see a different company depending on which
+   * path ran. Required means a builder that forgets it does not compile. See company-facts.ts.
+   */
+  company: import('./company-facts').CompanyFacts | null
 }
 
 /**

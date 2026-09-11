@@ -15,14 +15,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // vi.hoisted, because vi.mock is hoisted above every import and a plain const would be
 // in its temporal dead zone when the factory runs.
-const { enqueueResearchPhaseJob } = vi.hoisted(() => ({ enqueueResearchPhaseJob: vi.fn() }))
+const { enqueueResearchPhaseJob, requestContexts } = vi.hoisted(() => ({
+  enqueueResearchPhaseJob: vi.fn(),
+  requestContexts: [] as unknown[],
+}))
 vi.mock('@/lib/queue/job-queue', () => ({ enqueueResearchPhaseJob }))
 vi.mock('@/lib/agents/prospect-research-sources-agent', () => ({ BATCH_CACHE_TTL: '1h' }))
 vi.mock('../synthesize', () => ({
-  buildSynthesisParams: () => ({ model: 'claude-sonnet-4-6', max_tokens: 16000, system: [], messages: [] }),
+  // Records the ProspectContext each request was built from, so a test can see what the
+  // batch path hands the judge without depending on the prompt's wording.
+  buildSynthesisParams: (ctx: unknown) => {
+    requestContexts.push(ctx)
+    return { model: 'claude-sonnet-4-6', max_tokens: 16000, system: [], messages: [] }
+  },
 }))
 
 import { runSynthesisBatchSweep, BATCH_SLA_HOURS, MAX_ENTRIES_PER_BATCH } from '../batch-sweep'
+import { companyFactsFromRow } from '../company-facts'
 
 const NOW = new Date('2026-08-26T12:00:00Z')
 
@@ -113,7 +122,18 @@ function fakeDb(seed: {
           return
         }
         const hits = table(name).filter(matches)
-        const out = rowLimit === null ? hits : hits.slice(0, rowLimit)
+        const limited = rowLimit === null ? hits : hits.slice(0, rowLimit)
+        // The prospects join is HONOURED as well: only the columns the join names come back,
+        // so a column dropped from the join is missing here exactly as it would be from the
+        // database, instead of arriving anyway from the seeded row.
+        const join = selectCols.match(/prospects!inner\(([^)]*)\)/)
+        const joinCols = join ? join[1].split(',').map(c => c.trim()) : null
+        const out = joinCols
+          ? limited.map(row => {
+              const p = row.prospects as Row | undefined
+              return p ? { ...row, prospects: Object.fromEntries(joinCols.filter(c => c in p).map(c => [c, p[c]])) } : row
+            })
+          : limited
         // The concurrent-sweep hook fires AFTER this read has been served and BEFORE the
         // claim update runs, which is the only window the guard covers.
         // Keyed on the GATHER read specifically, the one that selects raw_sources, not
@@ -346,6 +366,33 @@ describe('submission writes the ledger BEFORE the paid call', () => {
     await runSynthesisBatchSweep(db.client, an.client, NOW)
 
     expect((an.calls.createdRequests[0] as { custom_id: string }).custom_id).toBe('entry-1')
+  })
+})
+
+describe('the batch path shows the judge the same company facts as the inline path', () => {
+  it('reads the facts through the prospects join and hands them to the request builder', async () => {
+    // The batch path builds its own ProspectContext (contextFor). If its join stopped
+    // selecting a column, or contextFor stopped passing the facts, the inline path would
+    // keep showing the judge the company and the batch path would quietly stop.
+    const onFile = {
+      company_headcount: 12,
+      company_industry: 'Placeholder Industry A',
+      website_url: 'placeholder-company.example',
+      apollo_enrichment_data: { organization: { founded_year: 2011, keywords: ['placeholder-keyword-01'] } },
+    }
+    requestContexts.length = 0
+    const db = fakeDb({
+      entries: [entry({
+        prospects: { first_name: 'Placeholder', last_name: 'P', company_name: 'Placeholder Company', role: null, job_title: 'Placeholder Title', linkedin_url: null, ...onFile },
+      })],
+    })
+
+    await runSynthesisBatchSweep(db.client, fakeAnthropic().client, NOW)
+
+    expect(requestContexts).toHaveLength(1)
+    const company = (requestContexts[0] as { company: unknown }).company
+    expect(company).toEqual(companyFactsFromRow(onFile))
+    expect(company).toMatchObject({ staff_count: 12, industry: 'Placeholder Industry A', website: 'placeholder-company.example' })
   })
 })
 

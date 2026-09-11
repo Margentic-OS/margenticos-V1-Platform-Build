@@ -13,6 +13,7 @@ import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { readabilityScore, type ReadabilityScore } from '@/lib/style/readability'
 import { SIX_TESTS, INFERENCE_DIRECTIONS, ZERO_TOKEN_USAGE, readTokenUsage } from './types'
+import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
 import type {
   ProspectContext, RawSourceData, SynthesisOutput,
   ObservationCandidate, CandidateScores, CandidateSource, SignalRelevance,
@@ -910,8 +911,15 @@ export function buildSynthesisParams(
   const systemPrompt = buildSynthesisPrompt(clientCtx)
   const researchSections = formatResearchSections(rawData)
 
+  // THE COMPANY, AS ALREADY RECORDED. The judge grades company fit and was shown a staff
+  // count for 17 of 111 prospects. See company-facts.ts for what is in here and what is
+  // deliberately not. Empty when nothing is on file, so that prospect gets the same bytes it
+  // got before this section existed.
+  const companyFacts = formatCompanyFacts(prospect.company)
+  const companySection = companyFacts ? `## Company on file\n\n${COMPANY_FACTS_PREAMBLE}\n\n${companyFacts}\n\n` : ''
+
   const fullName = [prospect.first_name, prospect.last_name].filter(Boolean).join(' ') || 'Unknown'
-  const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${prospect.role ?? 'Unknown'}\nCompany: ${prospect.company_name ?? 'Unknown'}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n## Recency check\n\n${buildSignalBlock(detectedSignal.signal_observation)}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
+  const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${prospect.role ?? 'Unknown'}\nCompany: ${prospect.company_name ?? 'Unknown'}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n${companySection}## Recency check\n\n${buildSignalBlock(detectedSignal.signal_observation)}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
 
   return {
     model: SYNTHESIS_MODEL,

@@ -296,3 +296,44 @@ visible output: extended thinking is not enabled on any of the four calls.
 from Anthropic's published ~$10/1,000 rate rather than measured from an invoice. The search
 COUNT is now measured; the price per search is not. Everything else above is derived from
 `usage` fields returned by the API.
+
+## The fit judge is shown the company (2026-09-11)
+
+### What was wrong
+
+The synthesis call grades `icp_fit`: does this prospect's COMPANY fit the client. Measured on
+one client's 111 researched prospects, the judge's material held a staff count for 17 and a
+company description for 15, while staff count and industry sat in their own columns on all 111.
+So company fit was being graded from a website excerpt and a web search.
+
+The cause was a seam. Enrichment writes staff count and industry to
+`prospects.company_headcount` and `prospects.company_industry`, and keeps an allow-listed
+organisation subset in `apollo_enrichment_data`. The judge's "Apollo Enrichment" section is
+formatted from that subset, which deliberately carries neither figure. The lines for them only
+ever appeared for prospects researched through the older live lookup.
+
+### What changed
+
+A `## Company on file` section now sits between `## Prospect` and `## Recency check` in the
+judge's message. It carries staff count, industry, the other industries the record lists, year
+founded, recorded revenue (when not zero), the first 25 keywords, and the website. It opens with
+a line telling the model these are for judging fit and are never email copy.
+
+Everything in it was already bought at enrichment. **No new lookup and no new call.**
+
+- `src/lib/agents/research/company-facts.ts` — the mapping from the prospect row and the
+  formatter. Its header lists what is deliberately left out and why: there is no description on
+  file (the allow-list keeps none), growth is already in the Apollo section, country is the
+  person's, codes duplicate the industries.
+- `ProspectContext.company` is REQUIRED, not optional. The batch path builds its own context
+  (`contextFor` in `batch-sweep.ts`), and an optional field would have let it silently omit the
+  facts while the inline path sent them. Required means the compiler stops any new builder.
+- The loader (`prospect-context.ts`) and the batch sweep's prospects join both select the four
+  columns the mapping reads.
+- A prospect with nothing on file gets the same request bytes as before the section existed.
+
+### If it breaks
+
+The test is `src/lib/agents/research/__tests__/judge-company-evidence.test.ts`: one case per
+fact, and a loader case whose fake returns only the columns the select named. If a fact stops
+reaching the judge, the case named after that fact fails.
