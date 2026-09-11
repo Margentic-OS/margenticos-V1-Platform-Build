@@ -8,6 +8,10 @@ This file documents implementation gotchas, dependencies, and what to check if i
 
 ## Reply types (summary)
 positive        → Automated same-hour response with booking link. Signed with founder name and title.
+                  Only when the organisation has a booking link set. Without one, a high-confidence
+                  booking reply is not sent: it becomes a Tier 2 draft in the operator triage queue.
+                  Before 2026-09-10 it was attempted, failed the link check, and the prospect
+                  received nothing. Set the link in operator Settings, "Client booking link".
 information     → No automation. Flag to client. Escalation: 15h → 48h → 72h holding msg.
 negative/opt-out → Immediate suppression. Push to Instantly API. No further contact.
 out-of-office   → Pause sequence. Extract return date. Resume day after (10 days default).

@@ -477,6 +477,9 @@ async function processOneSignal(
 
   const calendlyUrl = org?.calendly_url ?? null
   const founderFirstName = org?.founder_first_name?.trim() ?? ''
+  // One value for both the auto-send decision and what the orchestrator is told, so the
+  // two cannot disagree about whether this organisation has a link. Whitespace is no link.
+  const bookingLinkSet = Boolean(calendlyUrl?.trim())
 
   // ── Classify — always pass subject for OOO detection ─────────────────────
 
@@ -600,7 +603,20 @@ async function processOneSignal(
   } else if (intent === 'out_of_office') {
     actionTaken = 'ooo_log'
   } else if (intent === 'positive_direct_booking' && confidence >= POSITIVE_BOOKING_CONFIDENCE_THRESHOLD) {
-    actionTaken = 'send_reply'
+    // NO BOOKING LINK, NO AUTOMATIC REPLY. Until 2026-09-10 this took send_reply regardless,
+    // failed at the link check in the dispatch below, and the prospect who had just asked
+    // to book received nothing. It now goes to the orchestrator like any other reply and
+    // becomes a draft in the triage queue, so a person answers it with a link.
+    if (bookingLinkSet) {
+      actionTaken = 'send_reply'
+    } else {
+      logger.warn('process-reply: no booking link set — booking reply drafted for the operator instead of sent', {
+        signal_id: signalId,
+        organisation_id: signal.organisation_id,
+        fix: 'Set the client booking link in operator Settings',
+      })
+      actionTaken = 'log_only'
+    }
   } else {
     actionTaken = 'log_only'
   }
@@ -790,6 +806,9 @@ async function processOneSignal(
   }
 
   if (actionTaken === 'send_reply') {
+    // Unreachable since 2026-09-10: send_reply is chosen above only when a booking link is
+    // set. Kept because it narrows calendlyUrl for the reply builder, and because failing
+    // here is safer than sending a blank link if that decision ever changes.
     if (!calendlyUrl) {
       logger.error('process-reply: no calendly_url set for org — cannot send reply', {
         signal_id: signalId,
@@ -909,6 +928,7 @@ async function processOneSignal(
       classification: { intent, confidence, reasoning },
       prospectId,
       supabase,
+      bookingLinkSet,
     })
 
     let orchActionTaken: string
