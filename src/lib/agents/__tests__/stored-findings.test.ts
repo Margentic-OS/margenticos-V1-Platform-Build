@@ -172,6 +172,19 @@ describe('loadStoredFindings: which row it picks', () => {
     expect((await run())?.result_id).toBe('has')
   })
 
+  it('prefers a record that holds evidence over a newer reuse record carrying the same findings', async () => {
+    // A reuse row copies the findings forward and fetches nothing. Picking it made a reuse run
+    // carry forward from another reuse run, one step further from any evidence each time.
+    const { run } = load({
+      data: [
+        dbRow({ id: 'reuse', sources_successful: [],                  created_at: '2026-08-20T22:51:00Z' }),
+        dbRow({ id: 'full',  sources_successful: ['apollo', 'website'], created_at: '2026-08-20T15:24:00Z' }),
+      ],
+      error: null,
+    })
+    expect((await run())?.result_id).toBe('full')
+  })
+
   it('returns null when nothing usable is stored, so the caller fetches instead', async () => {
     expect(await load({ data: [orderRow('empty', true, 0, '2026-08-20T15:00:00Z')], error: null }).run())
       .toBeNull()

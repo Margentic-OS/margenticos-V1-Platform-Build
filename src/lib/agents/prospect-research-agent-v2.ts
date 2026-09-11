@@ -23,6 +23,7 @@ import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { produceOpening, resolveVariantId, loadClientName } from './research/produce-opening'
 import { loadProspectContext } from './research/prospect-context'
+import { holdsEvidence } from './research/evidence-record'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { suppressProspectAtProvider } from '@/lib/suppression/provider-suppression'
 import type { OpeningResult } from './research/write-opening'
@@ -306,6 +307,8 @@ const STORED_FINDINGS_SCAN_LIMIT = 50
 interface StoredFindings {
   result_id:            string
   candidates:           ObservationCandidate[]
+  /** The row fetched at least one source. A reuse row carries findings and fetched none. */
+  had_evidence:         boolean
   had_linkedin:         boolean
   created_at:           string
   synthesized_at:       string | null
@@ -367,6 +370,7 @@ export async function loadStoredFindings(
     .map(row => ({
       result_id: row.id as string,
       candidates: (row.candidates ?? []) as ObservationCandidate[],
+      had_evidence: holdsEvidence(row.sources_successful),
       had_linkedin: ((row.sources_successful ?? []) as string[]).includes('linkedin'),
       created_at: row.created_at as string,
       synthesized_at: (row.synthesized_at ?? null) as string | null,
@@ -382,8 +386,12 @@ export async function loadStoredFindings(
 
   if (scored.length === 0) return null
 
+  // Evidence first. A reuse row copies the findings forward and fetches nothing, so on
+  // every other key it ties with the row it copied and then wins on recency. That made a
+  // reuse run carry forward from the previous reuse run, never from the evidence.
   scored.sort((a, b) =>
-    (Number(b.had_linkedin) - Number(a.had_linkedin))
+    (Number(b.had_evidence) - Number(a.had_evidence))
+    || (Number(b.had_linkedin) - Number(a.had_linkedin))
     || (b.candidates.length - a.candidates.length)
     || b.created_at.localeCompare(a.created_at),
   )
