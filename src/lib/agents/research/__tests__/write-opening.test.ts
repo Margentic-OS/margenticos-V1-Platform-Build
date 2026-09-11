@@ -362,12 +362,14 @@ describe('prompt shape', () => {
     expect(flat).not.toContain('tends to be exactly where new client conversations')
   })
 
-  it('the writer prompt blocks generic patterns with the standalone test', () => {
+  it('the writer prompt blocks generic patterns, without the standalone test', () => {
+    // CHANGED 2026-09-11 on delete-pointback. The standalone test told the bridge to depend
+    // on the sentence above it, so it went with the rest of the backward-reference prose.
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('PATTERN FRAMING IS NOT PERMISSION TO GO GENERIC')
     expect(flat).toContain('Most firms at this stage find pipeline slips')
-    expect(flat).toContain('reads as a non-sequitur without its observation')
+    expect(flat).not.toContain('non-sequitur')
   })
 
   it('the writer prompt requires clarity on one reading, with the Stephen riddle', () => {
@@ -1565,10 +1567,10 @@ describe('the bridge states one true thing', () => {
     expect(flat).not.toContain('TWO SHORT SENTENCES BEAT ONE CONDITIONAL')
   })
 
-  it('forbids chaining back to the observation, and says why', () => {
+  it('no longer carries the causal-chain-back rule, deleted on delete-pointback', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('DO NOT BUILD A CAUSAL CHAIN BACK TO THE OBSERVATION')
-    expect(flat).toContain('the reader joins them without any help from you')
+    expect(flat).not.toContain('CAUSAL CHAIN BACK TO THE OBSERVATION')
+    expect(flat).not.toContain('the reader joins them')
   })
 
   it('requires the observation and bridge to be read together, with the real contradiction', () => {

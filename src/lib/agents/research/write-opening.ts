@@ -350,51 +350,8 @@ NO CAUSAL CONSTRUCTIONS. No "when X, that tends to be Y". No "because". No condi
 reader has to hold in their head while they resolve the consequence. Say the consequence
 flat, in a sentence of its own.
 
-ONE PLAIN SENTENCE BEATS ONE CONDITIONAL. The observation above has already stated the fact.
-The bridge does not state it again. The bridge states what follows, in ONE sentence, with no
-condition in front of it and no until, before, while or when clause trailing after it.
-
-DO NOT BUILD A CAUSAL CHAIN BACK TO THE OBSERVATION. The observation is sitting directly
-above the bridge, and the reader joins them without any help from you. Explaining the join
-is what produces the sentences nobody can parse.
-
-NEVER POINT BACK. NAME THE THING AGAIN.
-
-This is not the rule above wearing different words, and reading it as one is why the fault
-keeps shipping. The rule above is about sentence LENGTH and causal shape. This one is about
-REFERENCE, and a short sentence breaks it exactly as easily as a long one.
-
-NO SENTENCE MAY DEPEND ON THE READER CARRYING A REFERENCE BACK FROM A PREVIOUS SENTENCE. If
-the subject was named above, NAME IT AGAIN. Do not point at it.
-
-Pointing is any word standing in for something already named instead of naming it: a
-demonstrative binding a noun, a bare pronoun, and "one" or "ones" used in place of the thing
-itself. All three ask the reader to hold the earlier sentence in their head and resolve a
-pointer against it before your sentence means anything. At the speed this is read, they will
-not do it. They will skim the sentence, get nothing from it, and move on.
-
-A MISSING VERB IS A POINTER TOO. "does not", "is not", "never does", with the verb itself
-left out, sends the reader back to the previous sentence to fetch it. It is the same fault
-as a pronoun and it is harder to see, because nothing in the sentence looks like a pointer.
-Say the verb again.
-
-AND A NOUN PHRASE POINTS WITHOUT ANY DEMONSTRATIVE IN IT. "whichever one", "each one", "the
-next one", "the last one", "the opening", "the feed". Every one of them stands in for
-something named in an earlier sentence. If the reader has to work out WHICH one, or WHOSE
-feed, or WHAT opening, you have pointed at it rather than named it.
-
-The cost of naming it again is one or two words. The cost of pointing is the whole sentence.
-
-THIS APPLIES INSIDE THE OBSERVATION TOO, not only between the observation and the bridge. An
-observation sentence pointing back at the one before it is the same fault. The bridge is one
-sentence. The only thing it could point back at is the observation, and it must not.
-
-THE TEST, AND IT IS MECHANICAL. Cover every sentence above the one you are reading. Does
-that sentence still say who and what it is about? If a word in it now has nothing to attach
-to, that word is a pointer. Put the thing itself there instead.
-
-NO EXAMPLE IS GIVEN, AND THE ABSENCE IS DELIBERATE. The shapes are named above, naming them
-is the whole instruction, and a worked example here would be a ready-made sentence to copy.
+ONE PLAIN SENTENCE BEATS ONE CONDITIONAL. The bridge states what follows, in ONE sentence,
+with no condition in front of it and no until, before, while or when clause trailing after it.
 
 READ THE OBSERVATION AND THE BRIDGE TOGETHER BEFORE YOU RETURN THEM. THEY MUST NOT
 CONTRADICT EACH OTHER. This shipped:
@@ -608,10 +565,6 @@ harder half of the job.
   Generic, and therefore useless: "Most firms at this stage find pipeline slips."
 It is safe and it says nothing. The approved paragraph further
 down the email already makes that point, so you have added a line and no information.
-
-THE TEST: read your bridge on its own, without the observation above it. If it still makes
-sense as a standalone sentence, it is generic and it has failed. A good bridge reads as a
-non-sequitur without its observation, because it depends on it entirely.
 
 ONE FACT PER SENTENCE.
 
@@ -861,8 +814,7 @@ asks whether she wants MORE. She does not want more. She wants different.
 AIMED RIGHT is not shown as a sentence, deliberately. Keep the observation from AIMED WRONG.
 Aim the bridge at the gap the closing question asks about: a shortage of the right clients,
 rather than too many of the wrong clients. Say where the right clients come from, and take
-it from a finding. A bridge that only compares the right clients with the collaborators in
-the observation is pointing back, and NEVER POINT BACK rejects it.
+it from a finding.
 
 THE AIM TEST HAS A SECOND HALF, AND THE FIRST HALF CANNOT SEE IT.
 

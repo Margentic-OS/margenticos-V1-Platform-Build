@@ -24,27 +24,25 @@ import {
 
 const prompt = buildWriterPrompt()
 
-describe('RULE 1: never point back, name the thing again', () => {
-  it('states the rule as being about reference, not sentence length', () => {
-    expect(prompt).toContain(
-      'NO SENTENCE MAY DEPEND ON THE READER CARRYING A REFERENCE BACK FROM A PREVIOUS SENTENCE',
+describe('RULE 1 IS DELETED ON THIS BRANCH: the prompt says nothing about pointing back', () => {
+  // THE DELETION TEST, 2026-09-11, branch delete-pointback. Prose about a construction has
+  // induced that construction in this writer before, so every passage about backward
+  // reference was removed outright rather than softened. These hold the absence: a remnant,
+  // even one line, fails here.
+  const flat = prompt.replace(/\s+/g, ' ').toLowerCase()
+
+  it.each([
+    'NEVER POINT BACK', 'NAME THE THING AGAIN', 'NAME IT AGAIN', 'POINTER', 'DEMONSTRATIVE',
+    'BARE PRONOUN', 'INSIDE THE OBSERVATION TOO', 'COVER EVERY SENTENCE', 'NO EXAMPLE IS GIVEN',
+    'CAUSAL CHAIN BACK', 'DOES NOT STATE IT AGAIN', 'NON-SEQUITUR', 'DEPENDS ON IT ENTIRELY',
+  ])('does not contain "%s"', phrase => {
+    expect(flat).not.toContain(phrase.toLowerCase())
+  })
+
+  it('matches none of the backward-reference vocabulary', () => {
+    expect(flat).not.toMatch(
+      /point(s|ing|ed)? back|pointer|demonstrativ|pronoun|refer(s|ence|ring)? back|previous sentence|earlier sentence|already named/,
     )
-    expect(prompt).toContain('NAME IT AGAIN')
-  })
-
-  it('names all three pointing shapes, so "one" is not left out', () => {
-    // The measured fault was pronominal "one", which a rule about demonstratives alone
-    // does not cover. If this list loses a member the rule stops describing the fault.
-    const rule = prompt.slice(prompt.indexOf('NEVER POINT BACK'))
-    expect(rule).toContain('demonstrative')
-    expect(rule).toContain('bare pronoun')
-    expect(rule).toMatch(/"one" or "ones"/)
-  })
-
-  it('says the rule applies inside the observation, not only across the two parts', () => {
-    // CHANGED 2026-09-11. The bridge is one sentence, so the within-part half of this rule
-    // now lives in the observation.
-    expect(prompt).toContain('THIS APPLIES INSIDE THE OBSERVATION TOO')
   })
 })
 
@@ -101,9 +99,9 @@ describe('RULE ZERO: the surviving rules illustrate nothing', () => {
   // THE FAILURE THIS GUARDS. write-opening.ts has eight recorded instances of a worked
   // example being copied verbatim into a prospect's email. A quoted sentence inside a new
   // rule is a ready-made sentence to lift, so these carry none. RULE 3 was attribution
-  // honesty and is gone with the rest of the attribution prose, so three remain.
+  // honesty and is gone with the rest of the attribution prose. RULE 1 was deleted on
+  // delete-pointback (2026-09-11), so two remain.
   const RULES = [
-    'NEVER POINT BACK. NAME THE THING AGAIN.',
     'NEVER ASSERT WHAT THE FINDINGS DO NOT EVIDENCE.',
     'THE AIM TEST HAS A SECOND HALF, AND THE FIRST HALF CANNOT SEE IT.',
   ]
