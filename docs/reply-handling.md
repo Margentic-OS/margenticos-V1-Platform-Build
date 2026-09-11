@@ -19,7 +19,7 @@ out-of-office   → Pause sequence. Extract return date. Resume day after (10 da
 ## Identity rule (see ADR-020)
 Operator-reviewed replies: signed as founder first name, last name, and title (e.g. "Doug Pettit, Founder & Head of Pipeline").
 System-generated messages (not operator-reviewed): signed as "[Company] Team".
-Signature format: plain text, no links except Calendly in replies. See `design.md` for signature block spec.
+Signature format: plain text, no links except the booking link in replies. See `design.md` for signature block spec.
 
 ## What a client sees, and what they must never see
 
@@ -127,3 +127,18 @@ Those are the assertions that fail loudly if someone ever merges the two reads.
   intent this module has no label for. It is appended rather than dropped on purpose, so a
   new intent shows up looking odd instead of vanishing from the operator's count. Add it
   to `INTENT_ORDER` and `INTENT_LABELS`, and to `KNOWN_INTENTS` in `route-intent.ts`.
+
+## Booking links and booking detection
+
+The booking link in a reply comes from `organisations.booking_url`.
+Drafts carry the placeholder `{booking_link}`, defined once as `BOOKING_LINK_PLACEHOLDER` in
+`substitute-booking-link.ts` and taught by the drafting prompt. At send time the link is filled
+in with the prospect's reference (`prospect_ref`) attached, so a booking made through it can be
+tied back to that prospect.
+
+Both reply send paths run a final check on the finished email: if any template token is still in
+it, braced or percent-encoded, nothing is sent. The approved-draft path marks the draft
+`send_failed` with reason `unfilled_placeholder`.
+
+What happens after someone books is booking detection, not reply handling. See the Cal.com
+section of `integrations.md` and ADR-054.

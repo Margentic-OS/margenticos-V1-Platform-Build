@@ -164,7 +164,7 @@ What MargenticOS uses GHL for:
 
 What MargenticOS does NOT build:
   - A custom CRM — GoHighLevel is the CRM
-  - Meeting booking — Calendly or client's existing booking tool handles this
+  - Meeting booking — Cal.com (ADR-054) or manual recording for any other tool
 
 Integration approach:
   Meeting outcome signals flow from GHL to MargenticOS via webhook.
@@ -176,21 +176,26 @@ Webhook events:
 
 ---
 
-## Calendly (or client booking tool) — can_book_meeting
+## Cal.com — can_book_meeting (ADR-054, 2026-09-11)
 
-Purpose: Meeting booking links included in positive reply emails.
+Purpose: the booking link in positive reply emails, and detection of the meeting that
+results.
 Capability: can_book_meeting
 
 What MargenticOS builds:
-  - Store the client's Calendly booking URL in their integrations_registry config
-  - Include the booking URL in positive reply emails (pulled from config, not hardcoded)
+  - Store the client's booking link in organisations.booking_url, edited in operator Settings
+  - Put it in reply emails with the prospect's reference attached (prospect_ref)
+  - One signed webhook, /api/webhooks/cal-com, that records booked, cancelled and
+    rescheduled meetings, finding the client by the hosting seat and the prospect by the
+    reference, then by email. An unmatched booking is recorded, never discarded.
 
 What MargenticOS does NOT build:
-  - Custom booking system
-  - Calendly API integration for availability or booking management
+  - A booking system or calendar
+  - Held-meeting detection: Cal.com's meeting-ended event fires whether or not anyone
+    attended, so held stays an operator judgement
 
-Setup: Doug enters the client's booking URL in the operator settings for that client.
-       The URL is stored in integrations_registry config for can_book_meeting.
+Setup: one Cal.com organisation of ours; each client a seat with their own calendar
+       connected (client seats not yet built). Doug enters the booking link in Settings.
 
 ---
 

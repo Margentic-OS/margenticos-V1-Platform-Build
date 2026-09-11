@@ -56,7 +56,7 @@ The system always references capabilities, never tool names:
   can_schedule_linkedin_post  → currently: Taplio (content delivery model — see below)
   can_send_linkedin_dm        → currently: Lemlist
   can_enrich_contact          → currently: Apollo
-  can_book_meeting            → currently: Calendly
+  can_book_meeting            → currently: Cal.com
   can_validate_email          → currently: Hunter.io (phase two)
 
 ### Handler pattern
@@ -118,7 +118,7 @@ Never skip staging for any reason.
   Lemlist         LinkedIn DM outreach
   Apollo          Prospect enrichment and contact data
   GoHighLevel     CRM, meeting tracking, client communication
-  Calendly        Meeting booking (or client's existing booking tool)
+  Cal.com         Meeting booking and detection (ADR-054)
   Resend          Transactional email from MargenticOS (approval notifications, 90-day refresh)
   Sentry          Error monitoring
 

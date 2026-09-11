@@ -243,7 +243,7 @@ Purpose:
   Phase one: automates positive replies only.
 
 Reply types and handling:
-  Positive reply:   Respond same business hour. Include Calendly link. Say "grab a slot."
+  Positive reply:   Respond same business hour. Include the booking link. Say "grab a slot."
                     Sign as "[Client Company Name] Team." Never founder name. Never mention AI.
 
   Information request: No automated response. Flag to client immediately as high priority.
