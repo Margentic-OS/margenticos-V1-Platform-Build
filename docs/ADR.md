@@ -4767,9 +4767,18 @@ the job is paused. The transition raises one Sentry error. MON-025 adds "Declare
 off: auto-approve". Both statements are true. They are left reporting it rather than taught to
 ignore it, so the pause stays visible to anyone reading the monitors.
 
+**Amended by ADR-054, 2026-09-11.** The paragraph above describes the monitors when this was
+written. `cron_schedule_registry.active` now declares auto-approve off, so MON-001 reads OK
+with the detail "Switched off, as declared", and MON-025 names the job under "Switched off, as
+declared" instead of failing on it. The pause is still visible in both detail lines, and a
+pause that nothing declares still reads PROBLEM on both.
+
 ### Resume
 
     SELECT cron.alter_job((SELECT jobid FROM cron.job WHERE jobname = 'auto-approve'), active => true);
+
+Since ADR-054 a resume also needs a migration declaring the job on (`active => true`), or
+MON-025 reads "Running, but declared off". Supersede this decision first.
 
 ---
 
@@ -4900,3 +4909,172 @@ Each turned tests red and each was reverted:
 | org scoping dropped from the opt-out read | 5 tests red. Guard `is org-scoped` read 13 against 2 (`:483`): every other organisation's opt-outs in the shared test database reached org A |
 
 The last three rows were run on 2026-09-10 at 415bfaf, where the chokepoint file and its test file are byte-identical to e28b8ee's, against the shared test database, and each was reverted. Counts are assertion failures only. Each run also had one hook timeout and one test-cleanup error from that shared database, not caused by the mutation and not counted. The org-scoping mutation is the one that had been left in place in a working tree on 2026-09-08; it was applied from the patch recovered from that tree, so the proof is of that exact change.
+
+
+## ADR-054 — A cron job can be declared off, and a monitor reads "off" only when the declaration and the live flag agree
+
+**Date:** 2026-09-11
+**Status:** Accepted. Built on branch `cron-registry-sync` at Doug's instruction; merged to
+main on 2026-09-11, after `auto-approve-pause`.
+**Amends ADR-052's "What the monitors say"** (above). ADR-052 left MON-001 red for the pause
+on purpose so it stayed visible. On 2026-09-11 Doug asked for a deliberate pause to read as
+off rather than failing. This records how, and what
+stops it from hiding a real stall.
+
+### Context
+
+DATABASE-EVIDENCED, production, 2026-09-11. Two monitors red, zero faults between them:
+
+- **MON-025 PROBLEM**, naming eleven jobs. `20260910140000_stagger_cron_offsets.sql` moved
+  them with `cron.alter_job` and did not touch `cron_schedule_registry`, last updated
+  2026-09-04. It also said "Declared and switched off: auto-approve".
+- **MON-001 PROBLEM**, "over 75 minutes ago". auto-approve was paused on 2026-09-10
+  (ADR-052). Nothing anywhere declared the pause, so the monitor could not tell it from a
+  stall.
+
+### Why the stagger left the registry behind
+
+1. **The registry is a second list kept in step with the migrations by hand.** That is the
+   parallel-array shape CLAUDE.md warns about. The stagger changed the first list.
+2. **The test that exists to force the second list was blind to the statement.**
+   `cron-schedule-registry.test.ts` matched `schedule := '...'`; the stagger wrote
+   `schedule => '...'`, the standard named-argument notation. Measured: 0 of 11 read. The
+   files therefore still appeared to declare the old schedules, the old seed agreed with them,
+   and the test passed 8 of 8 on `e4c2161` while MON-025 was red over exactly that drift. Its
+   only guard on `alter_job` was `toBeGreaterThanOrEqual(0)`, which cannot fail.
+3. **Nothing makes the suite run before a migration is applied.** There is no CI
+   (no `.github/` workflows), and migrations reach production through the MCP straight from a
+   branch.
+
+**Could a test have caught it before it was applied?** Yes, the existing one, had it read
+`=>`: it reads files, needs no database, and so could have gone red the moment the stagger file
+was written. But only if someone ran it before the MCP apply, and nothing requires that.
+
+### Decision
+
+1. **`cron_schedule_registry.active`** holds the declared on/off state. It is held to the
+   migration files by the same test as `schedule`: `cron.alter_job(..., active => false)` in a
+   migration declares a job off. The registry cannot be flipped to off by hand without that
+   test refusing it.
+2. **MON-025** fails on a job switched off that is declared on, and on a job running that is
+   declared off. A job switched off AS DECLARED is not a finding and is named in the detail
+   line, so it is never hidden.
+3. **MON-001** reads OK, detail "Switched off, as declared", only when ALL of: the pg_cron job
+   is inactive, the registry declares it off, and it has not reported a run in 75 minutes.
+   `IS FALSE` rather than `= false`, so a missing job or a missing registry row is NULL and
+   never counts as off. Anything less falls through to the heartbeat branches, unchanged.
+   Switched off with no declaration is PROBLEM. Declared off but reporting runs is PROBLEM:
+   for auto-approve that means something is calling a job ADR-052 says must not run.
+4. **OK, not a fourth state.** `monitor_events.state` accepts OK, PROBLEM and UNKNOWN. ADR-035
+   settled the collapse: the light answers "should you act", the detail answers "what is
+   known". A deliberate pause needs no action. UNKNOWN would claim the monitor could not read
+   its inputs, which is false, and a resting UNKNOWN makes a check born dark.
+5. **auto-approve is declared off in this ADR's own migration too.** When this was written,
+   ADR-052's pause file was applied in production but lived only on the unmerged
+   `auto-approve-pause` branch, so main's files declared the job on and a rebuild from main
+   would have re-enabled it. Both are now on main, so the pause is declared twice, by
+   `20260910230000` and `20260911120000`. Both say off and the registry test takes the later,
+   so they cannot disagree. The second is conditional on the job being active; in production
+   it was not, so it called nothing.
+
+### Deliberately not done
+
+- **No grey OFF light.** The board shows a green OK with the detail saying off. A true fourth
+  state means changing the `monitor_events` CHECK constraint, the sweep's types,
+  `src/lib/monitor/check-state.ts` and the monitor page. Not in scope.
+- **Only MON-001 reads the declaration.** MON-002 to MON-005 and MON-010 watch jobs that are
+  all on today. The first time one of those is paused, give it the same two-sided test.
+
+### Consequences
+
+- Pausing a job now needs a migration with `active => false` for the monitors to accept it.
+  Pausing by hand leaves MON-025 and MON-001 both red. That is the point of the design.
+- Resuming auto-approve now needs a migration with `active => true` as well as the one-line
+  `alter_job`, or MON-025 goes red with "Running, but declared off". ADR-052 already requires
+  superseding it first.
+
+### Verified
+
+DATABASE-EVIDENCED, production, 2026-09-11, immediately after applying: MON-025 OK, MON-001 OK
+("Switched off, as declared"), MON-024 OK, every `cron.job` row identical to a capture taken
+before (the conditional pause called nothing), grants unchanged in both directions. Nine live
+probes, two of them against mutated views, are recorded in the header of
+`20260911120000_cron_registry_declares_stagger_and_pause.sql`.
+
+CODE-EVIDENCED at `e8520af`, each mutation reverted and the file checked afterwards:
+
+| Mutation | Result |
+|---|---|
+| the registry migration removed | 2 red, naming all 11 stagger schedules and auto-approve not declared off. This is what the fixed test would have said about the stagger before it was applied |
+| parser back to `:=` only | 8 red |
+| MON-001 "off" keyed on the live flag alone | 2 red |
+| MON-001 staleness branch deleted | 2 red |
+
+
+## ADR-055 — A monitor alert waits for a second consecutive failing sweep; the first failure is recorded at once
+
+**Date:** 2026-09-11
+**Status:** Accepted. Built on branch `cron-registry-sync` at Doug's instruction; merged to
+main on 2026-09-11.
+
+### Context
+
+DATABASE-EVIDENCED, production `monitor_events`, 2026-09-10 18:00 to 2026-09-11 14:05 UTC:
+19 PROBLEM transitions across six checks, each followed by OK.
+
+    MON-005 x8   MON-002 x4   MON-027 x2   MON-016 x2   MON-026 x2   MON-021 x1
+
+The sweep raised a Sentry error at every transition to PROBLEM, and Sentry is what emails the
+operator: about nineteen emails, zero standing faults. 16 of the 19 cleared on the very next
+sweep. The cause is the Supabase gateway cutting reads at five seconds inside the jobs being
+watched, which is recorded in the Backlog and is not addressed here.
+
+Nothing else alerts on monitor state. Checked: no trigger on `monitor_events` (live
+`pg_trigger`, with `cron.job`'s trigger as the positive control), and none of the files that
+send email reads `monitor_events`.
+
+### Decision
+
+- The first PROBLEM reading is **recorded at once**, exactly as before, with
+  `alert_pending = true`. The dashboard, the badge and the history show it immediately.
+- The alert goes out on the **second consecutive PROBLEM reading**. It is claimed with a
+  conditional update first, so two overlapping sweeps cannot both send it. A claim that errors
+  still sends, because a duplicate email is cheaper than a lost one.
+- A recovery to OK or UNKNOWN before that drops the owed alert and resolves the row as usual.
+- A failed view read is not a reading: nothing is recorded, resolved or sent, and the owed
+  alert stays owed. UNKNOWN is recorded as UNKNOWN and never alerted.
+
+### Why a column on the event row
+
+The decision needs one bit of memory per open PROBLEM: has its alert gone out. The open PROBLEM
+row is already where the sweep looks, so the bit lives there. Its default, `false`, is exactly
+true of every row the old sweep wrote, because the old sweep alerted on the spot. So the
+migration can be applied ahead of the code, with no backfill, and the deploy cannot re-send an
+alert for a problem that was already emailed.
+
+### Cost, stated so it is not discovered later
+
+- **A real fault emails up to one sweep later**, 15 minutes. The dashboard is not delayed.
+- **3 of the 19 would still have sent**: MON-026 twice and MON-021 once. Both hold a single
+  failed run red for longer than a sweep by their own design (MON-026 reads a verdict written
+  every 30 minutes; MON-021 counts failures over 60 minutes). Two consecutive sweeps is the
+  wrong unit for those two; that is a per-check question, not a sweep question.
+
+### Verified
+
+DATABASE-EVIDENCED, 2026-09-11: `alert_pending` is live on production (recorded
+`20260911143130`) and the test project (`20260911143133`), `boolean NOT NULL DEFAULT false`.
+All 120 existing production rows read false. Grants on `monitor_events` unchanged in both
+directions. The deployed sweep, which predates this code, ran at 14:35:03 UTC against the new
+column with `ok=true`. The rule itself is not live until this branch merges and deploys.
+
+CODE-EVIDENCED at `36f8063`, each mutation reverted and the file checked afterwards:
+
+| Mutation | Result |
+|---|---|
+| alert on the first failure (the old line put back) | 6 red |
+| never alert | 5 red |
+| UNKNOWN recorded as OK | 1 red, "records a check that cannot read its input as UNKNOWN" |
+| a failed view read counted as an OK reading | 1 red, "treats a sweep that cannot read the view as no reading" |
+| claim guard removed | 1 red, "sends once when two sweeps overlap" |
+| `alert_pending` dropped from the select | 4 red, which is the fake honouring the column list |

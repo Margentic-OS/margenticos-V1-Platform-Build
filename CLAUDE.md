@@ -1800,6 +1800,13 @@ For quick reference. Full text in /docs/ADR.md.
            different event, and a range whose NUMERATOR differs is removed as readily as
            one whose denominator does. Extends ADR-048 from the denominator to the
            numerator. Also: no copy on a client screen explains our own past decisions
+  ADR-054  A cron job can be declared OFF in cron_schedule_registry.active; MON-001 reads
+           "off" only when that declaration AND the live pg_cron flag agree, mapped to OK
+           per ADR-035. The registry test reads `=>` as well as `:=`, and throws on an
+           alter_job it cannot attribute rather than skipping it
+  ADR-055  A monitor alert (Sentry, which emails the operator) goes out on the SECOND
+           consecutive PROBLEM reading; the first is recorded and shown at once.
+           monitor_events.alert_pending carries the owed alert
 
 ---
 
