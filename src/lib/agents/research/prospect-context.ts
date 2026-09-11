@@ -35,6 +35,29 @@ export interface LoadedProspect {
 }
 
 /**
+ * The segment a prospect's research runs against: its own, or the organisation's default
+ * when it has none. READ-ONLY.
+ *
+ * ONE RULE, TWO CALLERS. loadProspectContext calls this and then stamps the result onto the
+ * prospect. scripts/export-writer-run.ts calls it and writes nothing, so a read-only run
+ * resolves the same segment, and therefore the same messaging document and ICP, as the agent.
+ */
+export async function resolveSegmentId(
+  supabase: SupabaseClient,
+  segmentId: string | null,
+  client_id: string,
+): Promise<string | null> {
+  if (segmentId) return segmentId
+  const { data: primarySeg } = await supabase
+    .from('segments')
+    .select('id')
+    .eq('organisation_id', client_id)
+    .eq('is_default', true)
+    .single()
+  return primarySeg?.id ?? null
+}
+
+/**
  * Load a prospect, resolve its segment, and stamp the segment when it was missing.
  *
  * Agent isolation, per CLAUDE.md: client_id is required and every query filters on it.
@@ -64,13 +87,7 @@ export async function loadProspectContext(
   // a segment before research and compose run.
   let segmentId: string | null = prospect.segment_id ?? null
   if (!segmentId) {
-    const { data: primarySeg } = await supabase
-      .from('segments')
-      .select('id')
-      .eq('organisation_id', client_id)
-      .eq('is_default', true)
-      .single()
-    segmentId = primarySeg?.id ?? null
+    segmentId = await resolveSegmentId(supabase, null, client_id)
     if (segmentId) {
       await supabase
         .from('prospects')
