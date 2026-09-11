@@ -28,6 +28,7 @@ import type { Database } from '@/types/database'
 import { cancelQueuedResearchJobs, RESEARCH_JOB_TYPES } from '@/lib/queue/job-queue'
 import { requireOperator } from '@/lib/supabase/require-operator'
 import { logger } from '@/lib/logger'
+import { describeQueryFailure } from '@/lib/supabase/describe-query-failure'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,7 +67,12 @@ export async function POST(
     // operator is actually left in rather than a reading taken before the write.
     const cancelled = await cancelQueuedResearchJobs(supabase, organisationId)
 
-    const { count: stillRunning, error: countError } = await supabase
+    const {
+      count: stillRunning,
+      error: countError,
+      status: countStatus,
+      statusText: countStatusText,
+    } = await supabase
       .from('job_queue')
       .select('id', { count: 'exact', head: true })
       .eq('organisation_id', organisationId)
@@ -74,7 +80,10 @@ export async function POST(
       .eq('state', 'claimed')
 
     if (countError) {
-      throw new Error(`Cancelled ${cancelled}, but could not read what is still running: ${countError.message}`)
+      throw new Error(
+        `Cancelled ${cancelled}, but could not read what is still running: ` +
+        describeQueryFailure({ error: countError, status: countStatus, statusText: countStatusText }),
+      )
     }
 
     logger.info('cancel-research: operator triggered', {

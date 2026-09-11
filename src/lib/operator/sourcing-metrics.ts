@@ -39,6 +39,7 @@
 // authenticated grant.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { describeQueryFailure } from '@/lib/supabase/describe-query-failure'
 import {
   getResearchVerdict,
   readResearchPath,
@@ -493,15 +494,15 @@ async function countProspects(
     .select('id', { count: 'exact', head: true })
     .eq('organisation_id', organisationId)
 
-  const { count, error } = await shape(base)
+  const result = await shape(base)
 
   // FAIL LOUD. A count that returns 0 on error is the exact failure this module exists to
   // remove: "Awaiting approval 0" beside 100 pending rows is indistinguishable from an
   // empty queue, and an operator reads it as work being finished.
-  if (error) {
-    throw new Error(`Could not count prospects for ${organisationId}: ${error.message}`)
+  if (result.error) {
+    throw new Error(`Could not count prospects for ${organisationId}: ${describeQueryFailure(result)}`)
   }
-  return count ?? 0
+  return result.count ?? 0
 }
 
 /** Every number the pipeline review screen renders, for every active organisation. */

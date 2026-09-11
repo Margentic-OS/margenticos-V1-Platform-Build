@@ -16,6 +16,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { describeQueryFailure } from '@/lib/supabase/describe-query-failure'
 import { QUEUE_CONFIG, RECLAIM_BATCH_SIZE } from './config'
 import type { ErrorClass, JobRow, JobType, OrganisationBacklog } from './types'
 
@@ -142,7 +143,7 @@ export async function countQueuedResearchJobs(
   supabase: SupabaseClient,
   organisationId: string,
 ): Promise<number> {
-  const { count, error } = await supabase
+  const { count, error, status, statusText } = await supabase
     .from('job_queue')
     .select('id', { count: 'exact', head: true })
     .eq('organisation_id', organisationId)
@@ -151,7 +152,9 @@ export async function countQueuedResearchJobs(
 
   // FAIL LOUD, matching prospectsWithLiveResearchJob. A zero returned on error reads as
   // "nothing to stop", which is the one answer that must never be guessed.
-  if (error) throw new Error(`Could not count queued research jobs: ${error.message}`)
+  if (error) {
+    throw new Error(`Could not count queued research jobs: ${describeQueryFailure({ error, status, statusText })}`)
+  }
   return count ?? 0
 }
 
@@ -427,14 +430,17 @@ export async function countInFlight(
   supabase: SupabaseClient,
   jobType: JobType,
 ): Promise<number> {
-  const { count, error } = await supabase
+  const result = await supabase
     .from('job_queue')
     .select('id', { count: 'exact', head: true })
     .eq('job_type', jobType)
     .eq('state', 'claimed')
 
-  if (error) throw new Error(`countInFlight failed: ${error.message}`)
-  return count ?? 0
+  // A HEAD request. When it fails there is no body, so error.message is empty and the
+  // status on the result is the only cause there is. It used to read only the message and
+  // threw "countInFlight failed: " with nothing after the colon. See describe-query-failure.ts.
+  if (result.error) throw new Error(`countInFlight failed: ${describeQueryFailure(result)}`)
+  return result.count ?? 0
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

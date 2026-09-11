@@ -59,6 +59,7 @@ import { Database } from '@/types/database'
 import { NON_REPLY_INTENTS, OPT_OUT_INTENT, POSITIVE_REPLY_INTENTS } from '@/lib/reply-handling/get-client-visible-replies'
 import { fetchWithTimeout, SERVICE_READ_TIMEOUT_MS } from '@/lib/supabase/read-timeout'
 import { recordDashboardFailure } from '@/lib/dashboard/record-dashboard-failure'
+import { describeQueryFailure } from '@/lib/supabase/describe-query-failure'
 
 type SupabaseServiceClient = ServiceRoleClient
 
@@ -264,7 +265,7 @@ export async function getClientVisibleCampaignMetrics(
         source: `client-visible-campaign-metrics:${label}`,
         route: '/dashboard',
         organisationId: clientOrgId,
-        detail: result.error.message,
+        detail: describeQueryFailure(result),
       })
     }
   }
