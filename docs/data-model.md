@@ -335,6 +335,13 @@ Fields:
                             subject has its own gate and it FAILS SOFT, so an opening can
                             ship with the authored subject above it.
   research_source         — apollo / web_search / website / pain_proxy
+  icp_fit                 — the fit judge's outcome. Three GRADES, each a judgement about
+                            the prospect: strong / moderate / weak. Or cannot_tell: no grade
+                            was reached, because the research did not show enough or the
+                            judge's answer failed or could not be read. cannot_tell is NEVER
+                            a fit. 'unassessed' is the column default for a prospect never
+                            graded. CHECK-constrained; the same values apply on
+                            prospect_research_results.icp_fit. See ICP_FIT_OUTCOMES.
   suppressed              — true means no further contact, ever
   suppressed_at / suppression_reason
   created_at / updated_at

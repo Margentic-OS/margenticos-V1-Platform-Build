@@ -4,7 +4,7 @@
 // Architecture: all four sources run in parallel → single synthesis step → store.
 // Sources: LinkedIn (Apify), Apollo, company website, web search.
 // Output: prospect_research_results row + updated prospects columns.
-// Classification: icp_fit (strong/moderate/weak) + has_dateable_signal (bool) + signal_relevance (use_as_hook/ignore).
+// Classification: icp_fit (strong/moderate/weak, or cannot_tell when no grade was reached) + has_dateable_signal (bool) + signal_relevance (use_as_hook/ignore).
 // v1 agent (prospect-research-agent.ts) remains in place until v2 is dogfooded end-to-end.
 
 import fs from 'fs'
@@ -401,9 +401,12 @@ export async function loadStoredFindings(
 // a strong prospect to moderate and re-qualified a disqualified one, silently, with no
 // analysis behind the change. A reuse run did no new analysis, so it has no verdict to
 // offer: it reports the one the source row reached. Where the source row has no value the
-// old placeholder still applies, so a row predating those columns degrades no worse than
-// it did before.
-async function synthesisFromStored(
+// old placeholders still apply for qualification and confidence. The fit grade does NOT get
+// one: a source row with no grade carries cannot_tell, because a placeholder grade is a
+// verdict nobody reached.
+//
+// Exported for its test. It is pure apart from one log line.
+export async function synthesisFromStored(
   stored: StoredFindings,
   ctx: ProspectContext,
   client_id: string,
@@ -422,7 +425,12 @@ async function synthesisFromStored(
     // A stored-findings run makes NO Anthropic call in synthesis. Zero is the measurement,
     // not a gap in it, and it is what makes reuse legible in the spend data.
     usage: ZERO_TOKEN_USAGE,
-    icp_fit: stored.icp_fit ?? 'moderate',
+    // A source row with no grade carries cannot_tell, never a grade: this used to write
+    // 'moderate' for a verdict no run ever reached.
+    icp_fit: stored.icp_fit ?? 'cannot_tell',
+    icp_fit_missing: stored.icp_fit && stored.icp_fit !== 'cannot_tell'
+      ? null
+      : `Carried from research result ${stored.result_id}, which reached no grade.`,
     has_dateable_signal: stored.has_dateable_signal ?? stored.candidates.some(c => c.date !== null),
     signal_observation: stored.signal_observation ?? stored.candidates[0]?.observation ?? null,
     signal_relevance: 'no_signal',   // overwritten by the judge verdict downstream

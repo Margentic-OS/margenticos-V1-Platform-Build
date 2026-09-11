@@ -29,6 +29,7 @@ import {
   runProspectResearchAgentV2,
   runProspectResearchAgentV2Batch,
   STORED_FINDINGS_MAX_AGE_DAYS,
+  synthesisFromStored,
 } from '../prospect-research-agent-v2'
 
 // ─── Stub client ──────────────────────────────────────────────────────────────
@@ -94,6 +95,32 @@ const load = (result: DbResult) => {
 }
 
 beforeEach(() => { vi.clearAllMocks() })
+
+// ─── Reuse invents no grade ───────────────────────────────────────────────────
+// A reuse run does no new analysis. Where the source row reached no grade, it used to write
+// 'moderate', a verdict nobody reached. It now carries cannot_tell, which is never a fit.
+
+describe('synthesisFromStored: a source row with no grade carries cannot_tell', () => {
+  const stored = (icp_fit: unknown) => ({
+    result_id: 'row-1', candidates: [{ observation: 'a thing that happened', date: null }],
+    had_linkedin: true, created_at: '2026-08-20T01:00:00Z', synthesized_at: null,
+    icp_fit, qualification_status: null, qualification_reason: null, confidence: null,
+    has_dateable_signal: null, signal_observation: null, relevance_reason: null,
+  }) as never
+  const ctx = { id: 'p-1', organisation_id: 'org-1' } as never
+
+  it('records cannot_tell, naming the source row, when that row has no grade', async () => {
+    const out = await synthesisFromStored(stored(null), ctx, 'org-1')
+    expect(out.icp_fit).toBe('cannot_tell')
+    expect(out.icp_fit_missing).toContain('row-1')
+  })
+
+  it('carries a grade the source row did reach, with nothing missing', async () => {
+    const out = await synthesisFromStored(stored('strong'), ctx, 'org-1')
+    expect(out.icp_fit).toBe('strong')
+    expect(out.icp_fit_missing).toBeNull()
+  })
+})
 
 // ─── Selection: best, not most recent ────────────────────────────────────────
 

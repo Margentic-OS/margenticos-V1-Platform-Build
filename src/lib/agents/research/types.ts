@@ -1,7 +1,24 @@
 // Types for prospect research agent v2.
 // All source handlers and the synthesizer use these interfaces.
 
-export type IcpFit = 'strong' | 'moderate' | 'weak'
+/** The three GRADES. Each is a judgement about the prospect, reached from the research. */
+export const ICP_FIT_GRADES = ['strong', 'moderate', 'weak'] as const
+
+/**
+ * Every outcome the fit judge records: the three grades, and cannot_tell.
+ *
+ * cannot_tell is NOT a grade and is NEVER a fit. It records that no grade was reached: the
+ * research did not show enough, the judge's answer failed, or the answer could not be read.
+ * Before 2026-09-11 all three were stored as 'moderate', which made "cannot tell"
+ * indistinguishable from a genuine partial fit, and 17 of 20 re-graded prospects sat there.
+ *
+ * The database also allows 'unassessed', the column default for a prospect never graded. The
+ * judge never records it. Adding an outcome here means widening the CHECK on
+ * prospects.icp_fit and prospect_research_results.icp_fit in the same change; a test compares
+ * this list with the newest migration that defines that CHECK.
+ */
+export const ICP_FIT_OUTCOMES = [...ICP_FIT_GRADES, 'cannot_tell'] as const
+export type IcpFit = (typeof ICP_FIT_OUTCOMES)[number]
 
 // use_as_hook  — a candidate passed all six tests; safe to reference directly in the opener
 // mention_only — passed SPECIFIC + VERIFIABLE + RELEVANT but not all six; usable as context, not as a hook
@@ -161,6 +178,12 @@ export interface SynthesisOutput {
    */
   usage:               TokenUsage
   icp_fit:             IcpFit
+  /**
+   * When icp_fit is cannot_tell: what was missing. The judge's own words when it chose
+   * cannot_tell, or why no grade was reached when the answer failed or could not be read.
+   * null for every grade.
+   */
+  icp_fit_missing:     string | null
   has_dateable_signal: boolean
   signal_observation:  string | null
   signal_relevance:    SignalRelevance

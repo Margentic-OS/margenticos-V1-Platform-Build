@@ -1,7 +1,8 @@
 // Synthesis step for prospect research agent v2.
 // Loads client ICP/Positioning/TOV documents, builds context, calls Sonnet 4.6.
 // Parses <reasoning> chain-of-thought then the JSON output.
-// On any parse failure: returns moderate icp_fit with low confidence rather than throwing.
+// On any parse failure: returns icp_fit cannot_tell with low confidence rather than throwing.
+// A failed or unreadable answer reaches no grade, so it records none.
 // Model: claude-sonnet-4-6 (per ADR-013).
 
 import Anthropic, { RateLimitError } from '@anthropic-ai/sdk'
@@ -12,10 +13,10 @@ import { buildSynthesisPrompt, buildSignalBlock } from './prompts/synthesis-prom
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { readabilityScore, type ReadabilityScore } from '@/lib/style/readability'
-import { SIX_TESTS, INFERENCE_DIRECTIONS, ZERO_TOKEN_USAGE, readTokenUsage } from './types'
+import { SIX_TESTS, INFERENCE_DIRECTIONS, ZERO_TOKEN_USAGE, ICP_FIT_OUTCOMES, readTokenUsage } from './types'
 import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
 import type {
-  ProspectContext, RawSourceData, SynthesisOutput,
+  IcpFit, ProspectContext, RawSourceData, SynthesisOutput,
   ObservationCandidate, CandidateScores, CandidateSource, SignalRelevance,
   CandidateReadability, InferenceDirection, TriggerSource,
 } from './types'
@@ -640,8 +641,17 @@ function parseSynthesisResponse(
     return buildFallbackSynthesis(prospect, icpSummary, reasoning, 'Claude returned non-JSON', detectedSignal)
   }
 
-  const icp_fit = (['strong', 'moderate', 'weak'] as const)
-    .find(f => f === parsed.icp_fit) ?? 'moderate'
+  // FOUR OUTCOMES, AND AN ANSWER OUTSIDE THEM IS NOT A GRADE. It records cannot_tell, never a
+  // grade nobody reached. This used to record 'moderate', which made an answer the code could
+  // not read indistinguishable from a genuine partial fit. See ICP_FIT_OUTCOMES.
+  const judged = ICP_FIT_OUTCOMES.find(f => f === parsed.icp_fit)
+  const icp_fit: IcpFit = judged ?? 'cannot_tell'
+  const missingText = typeof parsed.icp_fit_missing === 'string' ? parsed.icp_fit_missing.trim() : ''
+  const icp_fit_missing = icp_fit !== 'cannot_tell'
+    ? null
+    : judged
+      ? (missingText || 'The judge answered cannot_tell without naming what was missing.')
+      : `No grade: the judge's icp_fit was not one of the four outcomes (${JSON.stringify(parsed.icp_fit ?? null)}).`
 
   // Candidates + deterministic selection. signal_relevance is DERIVED here, never
   // read from the model output.
@@ -707,6 +717,7 @@ function parseSynthesisResponse(
     // Overwritten by synthesizeResearch, which is the only caller that saw the response.
     usage: ZERO_TOKEN_USAGE,
     icp_fit,
+    icp_fit_missing,
     has_dateable_signal: detectedSignal.has_dateable_signal,
     // The winning candidate is the observation of record. Fall back to the
     // deterministic recency check only when nothing was selected.
@@ -768,7 +779,11 @@ function buildFallbackSynthesis(
     // Overwritten by synthesizeResearch when a call was actually made. A fallback reached
     // WITHOUT a call, or after one that threw, correctly keeps zero.
     usage: ZERO_TOKEN_USAGE,
-    icp_fit: 'moderate',
+    // NO GRADE WAS REACHED, SO NONE IS RECORDED. The call failed, returned no text, or
+    // returned something that is not JSON. This used to record 'moderate', a grade nobody
+    // gave, which sat indistinguishably beside genuine partial fits.
+    icp_fit: 'cannot_tell',
+    icp_fit_missing: `No grade: ${errorNote}`,
     has_dateable_signal: detectedSignal.has_dateable_signal,
     signal_observation:  detectedSignal.signal_observation,
     signal_relevance: 'no_signal',

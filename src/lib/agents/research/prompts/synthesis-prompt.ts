@@ -53,15 +53,20 @@ ${ctx.tovRules}
 ICP FIT ASSESSMENT
 ─────────────────────────────────────────────────────────────────────
 
-Assess how well this prospect matches the buyer profile and company stage described above.
-Output one of three grades in the icp_fit field:
+Judge how well this prospect matches the buyer profile and company stage described above.
+Record exactly one of four outcomes in the icp_fit field. Three are grades, and each grade is
+a judgement about the PROSPECT, reached from what the research shows. The fourth records that
+the research does not show enough to reach a grade. That is a correct answer, not a failure,
+and it is never counted as a fit.
 
-STRONG — Clearly matches the buyer profile and company stage described in the client context
-above. The prospect's situation plausibly connects to one or more of the push forces named there.
+STRONG — The research shows the prospect matches the buyer profile and the company stage
+described above on every dimension the client context names, and their situation connects to
+at least one of the push forces named there. Nothing found contradicts the match.
 
-MODERATE — Partial fit. Matches some dimensions but not all: borderline on team size, adjacent
-industry with similar dynamics, role close but not exact, or evidence is too thin to grade
-STRONG without guessing.
+MODERATE — The research shows a real partial match: the prospect clearly meets some of the
+dimensions the client context names, and clearly misses or sits at the edge of at least one
+other. Name the dimension that falls short. MODERATE is a finding about the prospect. A
+prospect never lands here because the research was thin.
 
 WEAK — Clear mismatch. Any one of these, and nothing else:
   • The prospect or their company matches one of the disqualifying criteria named in the
@@ -72,14 +77,25 @@ WEAK — Clear mismatch. Any one of these, and nothing else:
     company to sell to, or they are visibly leaving the role.
   • Their situation has no plausible connection to any of the push forces named above.
 
-Nothing in this instruction names a market, a company type, a way of operating or a problem
-to be solved, because the client context above is the only place any of those are defined.
-A criterion that feels like common sense but appears nowhere above is your assumption about
-this client's market, and grading on it is how a prospect the client actively wants gets
-marked WEAK. If you find yourself reaching for one, grade MODERATE and say why.
+CANNOT_TELL — The research does not establish enough about this prospect or their company to
+reach any of the three grades. Put what was missing in icp_fit_missing: name the dimension the
+research could not check (for example the size of the company, or the person's role) and say
+what evidence would settle it.
 
-Grade cautiously when the profile is sparse: missing team size and no visible operational
-signals → MODERATE, not STRONG. Absence of evidence is not evidence of fit.
+HOW TO REACH THE OUTCOME:
+  • Take each dimension the client context names in turn and record what the research shows
+    about it. A dimension the research says nothing about is UNKNOWN. Unknown is not a
+    partial match, and it is not a match.
+  • If what is known already decides the outcome, give that grade. One clear disqualifier
+    decides WEAK however much else is unknown. A clear miss on one dimension alongside clear
+    matches on the others decides MODERATE.
+  • If an unknown dimension could move the prospect from one grade to another, the outcome
+    is CANNOT_TELL.
+  • Grade only on criteria the client context names. Nothing in this instruction names a
+    market, a company type, a way of operating or a problem to be solved, because the client
+    context above is the only place any of those are defined. A criterion that feels like
+    common sense but appears nowhere above is your assumption about this client's market:
+    leave it out of the outcome entirely. It counts neither for the prospect nor against them.
 
 ─────────────────────────────────────────────────────────────────────
 SIGNAL DIMENSION
@@ -487,7 +503,9 @@ First, reason through the research in a <reasoning> block. Cover:
   1. What each source returned (or didn't)
   2. The full candidate sweep: every candidate you generated and where it came from.
      Say explicitly what you found in employment history and what composites you considered.
-  3. ICP fit assessment: which dimensions match, which don't, and why
+  3. ICP fit assessment: for each dimension the client context names, what the research
+     shows about it, or that it shows nothing. Then the outcome, and why the other three
+     do not apply
   4. Seven-test scoring: for each candidate, which tests it passed and failed.
      For READABLE, say the longest sentence's word count and name any hedge you removed.
   5. Inference direction: for each candidate, the opposite reading and how you handled it
@@ -501,7 +519,8 @@ First, reason through the research in a <reasoning> block. Cover:
 Then output this exact JSON with no markdown fences:
 
 {
-  "icp_fit": "strong" or "moderate" or "weak",
+  "icp_fit": "strong" or "moderate" or "weak" or "cannot_tell",
+  "icp_fit_missing": null or "only when icp_fit is cannot_tell: the dimension the research could not check, and the evidence that would settle it",
   "candidates": [
     {
       "id": "c1",

@@ -156,7 +156,15 @@ describe('RULE ZERO: the WEAK grade names no market of its own', () => {
     valuePropContext: 'VALUE_PROP',
     tovRules: 'TOV_RULES',
   })
-  const weakBlock = rendered.slice(rendered.indexOf('WEAK — '), rendered.indexOf('Grade cautiously'))
+  // Ends at the next outcome's definition. It used to end at 'Grade cautiously', a sentence
+  // the 2026-09-11 definitions rewrite removed. A missing end anchor makes indexOf return -1,
+  // which slices to the end of the prompt and scans the worked examples as if they were the
+  // WEAK block. Both anchors are now required, so a moved heading fails here instead of
+  // silently widening what this guard reads.
+  const weakStart = rendered.indexOf('WEAK — ')
+  const weakEnd = rendered.indexOf('CANNOT_TELL — ')
+  if (weakStart < 0 || weakEnd <= weakStart) throw new Error('WEAK block anchors not found in the rendered prompt')
+  const weakBlock = rendered.slice(weakStart, weakEnd)
 
   it('no longer carries the removed way-of-operating example', () => {
     expect(weakBlock).not.toMatch(/sales-led/i)
