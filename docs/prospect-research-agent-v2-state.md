@@ -359,10 +359,44 @@ the evidence as it was, once with the company section. Nothing was written to an
   any verdict.
 - Most grades still sit on the middle value: 15 of 20 with the facts, 19 of 20 without.
 
-**The request sets no temperature**, so the judge samples at the API default of 1.0. Its
-verdict is a three-way classification read from sampled output, which is the likeliest source
-of a 4-in-7 self-disagreement. That is worth measuring before any change to the grade
-definitions, because a definition change graded by an unstable judge cannot be told apart from
-noise either.
+At the time the request set no temperature, so the judge sampled at the API default of 1.0,
+the likeliest source of the 4-in-7 self-disagreement. Fixed next; see below.
 
 Cost: $4.20 of a $5 cap, including $0.75 for the run that died.
+
+## The fit judge stops sampling and is told the job title (2026-09-11)
+
+Two fixes to the same synthesis request, both in `buildSynthesisParams`, so the live and batch
+paths get them together:
+
+- **`temperature: 0`**, for this call only. Its product is a verdict. The writer is untouched
+  and stays unpinned on purpose (see the comment above its `messages.create`).
+- **The Role line reads `job_title`**, falling back to `role`. It read `prospects.role`, which only
+  the old research agent wrote: empty on all 111 researched prospects, so every request said
+  "Role: Unknown". `buildIcpPainTrigger` still reads `role`; it builds fallback COPY, so it is
+  left for the copy work (Backlog row).
+
+Tests: `src/lib/agents/research/__tests__/judge-settings.test.ts`, plus the loader and batch-path
+cases. Each fix was removed in turn and a test went red (2 mutations and 7 mutations).
+
+### Does it settle? Measured 2026-09-11
+
+The same 20 prospects, graded twice with both fixes in. Every request sent temperature 0, none
+said "Role: Unknown", and the whole-request fingerprint matched between the two runs on all 20,
+so the input was identical.
+
+| | before (temperature 1.0) | after, run 1 | after, run 2 |
+|---|---|---|---|
+| disagrees with itself | 4 of 7 | 2 of 20, both runs | |
+| moderate / strong / weak | 15 / 3 / 2 | 17 / 1 / 2 | 17 / 1 / 2 |
+| differs from stored grade | 6 of 20 | 6 of 20 | 4 of 20 |
+
+- **Self-disagreement fell from 4 in 7 to 2 in 20, and did not reach zero.** Both remaining flips
+  are one prospect moving between strong and moderate on byte-identical input.
+- **The middle value got MORE crowded, not less:** 17 of 20.
+- So the settings are no longer the main problem. What is left sits on the line between strong
+  and moderate, and the definitions make moderate the default for anything uncertain ("evidence
+  too thin to grade STRONG", "grade cautiously when sparse", "if you find yourself reaching for a
+  criterion, grade MODERATE"). **The definitions are the next piece of work.**
+
+Cost of this measurement: $3.30 of a $5 cap.
