@@ -478,3 +478,55 @@ the discovery call instead; the judge had never been told.
   reasoning.
 
 Tests: `judge-checks.test.ts`. Each check was removed in turn and a test went red.
+
+### Measured on the same 20 prospects, twice
+
+Temperature 0, job title and company facts in every request, and the input byte-identical
+between the two runs on all 20.
+
+| | before this change | run 1 | run 2 |
+|---|---|---|---|
+| strong / moderate / weak / cannot_tell | 1 / 6 / 1 / 12 | 4 / 10 / 2 / 4 | 3 / 10 / 2 / 5 |
+| disagrees with itself | 4 of 20 | 8 of 20 | |
+
+- **cannot_tell fell from 12 to 4 and 5.** Of the 12 that were cannot_tell before, 7 are now
+  moderate, 1 strong, 1 weak and 3 still cannot_tell.
+- **The cannot_tells left are prospects with no evidence at all.** Five of the 20 sampled have a
+  current research row that is a reuse row which fetched no sources, so the judge saw only the
+  header and the company facts. That is the correct answer for them.
+- **Every prospect had at least one fact recorded as unestablished**: average deal size (13 of
+  20), revenue (7), and whether the client's buyer would approve each email personally (about 9).
+  All are criteria in the live client's own profile that no source this research reads can show.
+- **Self-disagreement doubled, to 8 of 20**, on byte-identical input at temperature 0: three flips
+  between moderate and strong, five between moderate and cannot_tell. With the unobtainable facts
+  out of the outcome, the grade now rests on judgement calls at those two boundaries, and the
+  judge lands on either side of them from one run to the next.
+
+**The three checks, how many of the 20 fail each** (result "no"), which nothing had measured:
+
+| check | run 1 | run 2 | same result in both runs |
+|---|---|---|---|
+| primary_occupation | 3 no, 7 unknown | 2 no, 8 unknown | 17 of 20 |
+| runs_the_business | 1 no, 4 unknown | 1 no, 5 unknown | 15 of 20 |
+| reachable_by_channel | 2 no, 3 unknown | 0 no, 3 unknown | 17 of 20 |
+
+Five of the 20 failed at least one check in run 1 and two in run 2. The two that failed in both
+runs are a person holding several concurrent roles who is not the one running the business
+(graded weak both times), and a person with a concurrent full-time position elsewhere. Four of
+the five had already been uploaded for sending. Most unknowns are the five prospects with no
+evidence.
+
+Cost: $4.60 of a $6 cap.
+
+### The staff-count ceiling, measured and NOT changed
+
+Free people-search counts for the live client's stored spec (the search is free; controls: an
+impossible range returned 0 and no range returned 635,364, so the parameter is read):
+
+| ceiling | people reachable | change |
+|---|---|---|
+| 20 (today) | 98,814 | |
+| 25 | 115,605 | +17.0% |
+| 30 | 128,750 | +30.3% |
+
+The 21 to 30 band alone is 29,936 people, exactly the difference.
