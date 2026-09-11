@@ -929,6 +929,17 @@ export function buildSynthesisParams(
     // fact failed. Each candidate now carries an opposite_reading and a seventh test,
     // so the array outgrew the old ceiling.
     max_tokens: 16000,
+    // ZERO, FOR THIS CALL ONLY. What this call produces is a verdict: icp_fit, the
+    // qualification, which candidate wins. At the API default of 1.0 the same judge
+    // disagreed with itself on 4 of 7 prospects given byte-identical input (2026-09-11),
+    // which is larger than the evidence change being measured through it. A verdict gains
+    // nothing from sampling variety. The candidate observations it writes still differ
+    // between prospects, because each prospect's research does.
+    //
+    // THE WRITER IS DELIBERATELY NOT PINNED, and nothing here changes that. See the comment
+    // above its messages.create in write-opening.ts: the batch uniqueness gate needs variety
+    // between prospects' copy, and that reason does not apply to a classification.
+    temperature: 0,
     // CACHED. The system prompt is ~6,700 tokens of instruction that does not vary
     // within a client's batch, and every prospect paid full input price for it. The
     // breakpoint sits on the system block, so the per-prospect user message below is
