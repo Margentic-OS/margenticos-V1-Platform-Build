@@ -95,6 +95,35 @@ Removals are put back in the queue when a new ICP filter spec is stored for the
 organisation, and by nothing else. See ADR-037, which also lists the three removal reasons
 that still have no re-evaluation path at all.
 
+## When the spec itself cannot be built, added 2026-09-11
+
+Everything above assumes a spec exists. `deriveFilterSpec` refuses to build one at all when
+the ICP cannot support a search, and that refusal used to be the quietest failure in this
+area.
+
+**What refuses.** Each refusal throws `FilterSpecRefusal` naming its rule:
+`non_canonical_industry`, `no_seniority_bands`, `no_geography`, `no_headcount_bound`,
+`headcount_inverted`. `persistIcpFilterSpec` adds three causes of its own:
+`geography_unresolved`, `buyer_criterion_failed` (seniority comes off that call, so its
+failure empties seniority, and the cause is named rather than the rule it trips), and
+`spec_write_failed`.
+
+**Why it was silent.** Every path that promotes an ICP (approve, auto-approve, revise,
+revert) builds the spec AFTER the version is live and the request has reported success. A
+refusal left `icp_filter_spec` NULL, the page said the change worked, and the only record was
+Sentry, labelled "non-canonical industries" whatever had actually refused. On 2026-09-08
+three versions of one live client's ICP in a row went live with no spec, all for a headcount
+with no usable numbers.
+
+**What happens now.** The refusal is written to `strategy_documents.icp_filter_spec_refusal`
+and the ICP strategy page shows the operator "Sourcing cannot use this version" with the
+reason and the refusal's own text. A version with neither a spec nor a refusal shows "Search
+specification not built yet", because straight after a change the build is still running,
+and if it lasts the build never ran. Neither state is shown to the client.
+
+**What it does not do.** It needs someone to open the page. Nothing yet alerts on an active
+ICP with no spec; that monitor is its own Backlog row.
+
 ## The third check, added 2026-08-28: the spec inspector
 
 `inspectFilterSpec` in `src/lib/sourcing/inspect-filter-spec.ts`. Report only, never gates.

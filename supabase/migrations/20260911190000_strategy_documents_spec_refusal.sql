@@ -1,5 +1,7 @@
 -- Records, on each version of the ICP, why its search specification could not be built.
--- Status: PENDING
+-- Status: APPLIED (verified live 2026-09-11, production hjpvnvjryxdjcfdsfhzy and test
+-- tidqheqjzvwmrrrebzir). Read back: jsonb, nullable, comment present, RLS still on;
+-- anon cannot SELECT it, authenticated and service_role match icp_filter_spec exactly.
 --
 -- WHY. Every path that promotes an ICP (approve, auto-approve, revise, revert) builds
 -- icp_filter_spec in the background AFTER the new version is live and the request has

@@ -247,6 +247,16 @@ Fields:
                     timestamp at all and that question could not be answered.
   update_trigger  — initial / signal_suggestion / intake_update / manual
   is_stale        — operator flag, set true after 60 days without update
+  icp_filter_spec — ICP only. The search specification sourcing runs on, built by
+                    persistIcpFilterSpec AFTER the version is live. NULL means sourcing
+                    refuses to run for this client.
+  icp_filter_spec_refusal
+                  — ICP only. Why icp_filter_spec could not be built, as
+                    { reason, detail, recorded_at }. Added 2026-09-11. Written by
+                    persistIcpFilterSpec on every refusal path and cleared in the same
+                    write that stores a spec. The reasons are listed in
+                    src/lib/sourcing/spec-refusal.ts. The ICP strategy page shows it to the
+                    operator. NULL with a NULL spec means the build has not run yet.
   created_at
 
 RLS:
