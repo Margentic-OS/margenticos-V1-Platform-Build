@@ -62,6 +62,7 @@ vi.mock('@/lib/integrations/handlers/instantly/auth', () => ({
 }))
 
 import { processReplies } from './process-reply'
+import { logger } from '@/lib/logger'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -91,7 +92,11 @@ interface Recorded {
  * other. A fake that returns a chain for an unknown table lets the code under test write
  * somewhere no assertion is looking.
  */
-function createFakeDb(opts: { prospect?: Record<string, unknown> | null } = {}) {
+function createFakeDb(opts: {
+  prospect?: Record<string, unknown> | null
+  // Action rows already on this signal from an earlier run, served to the idempotency read.
+  priorActions?: Array<Record<string, unknown>>
+} = {}) {
   const rec: Recorded = { actionUpdates: [], signalUpdates: [], prospectUpdates: [] }
   const prospect = opts.prospect === undefined
     ? { id: 'p1', first_name: 'Sam', suppressed: false, email: 'optout@example.com', outbound_lead_id: 'lead-1' }
@@ -119,7 +124,10 @@ function createFakeDb(opts: { prospect?: Record<string, unknown> | null } = {}) 
 
       if (table === 'reply_handling_actions') {
         const b: any = {
-          select: () => b,
+          // Records the column list, so the idempotency read gets back only the columns it
+          // asked for. Returning whole rows would let the code stop selecting action_error
+          // and still read it here, and the retry-log tests would pass against that.
+          select: (cols?: string) => { state.cols = cols; return b },
           insert: (v: Record<string, unknown>) => { state.values = v; state.mode = 'insert'; return b },
           update: (v: Record<string, unknown>) => { state.values = v; state.mode = 'update'; return b },
           eq: (c: string, v: unknown) => {
@@ -129,7 +137,12 @@ function createFakeDb(opts: { prospect?: Record<string, unknown> | null } = {}) 
               return Promise.resolve({ error: null })
             }
             // The idempotency read ends on its only .eq().
-            if (!state.mode) return Promise.resolve({ data: [], error: null })
+            if (!state.mode) {
+              const cols = state.cols ? String(state.cols).split(',').map((c: string) => c.trim()) : null
+              const rows = (opts.priorActions ?? []).map(r =>
+                cols ? Object.fromEntries(Object.entries(r).filter(([k]) => cols.includes(k))) : r)
+              return Promise.resolve({ data: rows, error: null })
+            }
             return b
           },
           maybeSingle: async () => ({ data: { id: 'action-1' }, error: null }),
@@ -350,5 +363,56 @@ describe('the resolved prospect is stored on the signal, not just held in a loca
     const link = db.rec.signalUpdates.find((u: Record<string, unknown>) => 'prospect_id' in u)
     expect(link).toBeDefined()
     expect(link!.prospect_id).toBe('p-suppressed')
+  })
+})
+
+// ── The retry log after a failed send ─────────────────────────────────────────
+//
+// When a send failed on an earlier run, the next run marks the signal processed and logs
+// why. That line said "send_reply API failed on previous run" whatever had happened,
+// including when no call was made at all because the organisation had no booking link.
+// It now reports the cause the failed attempt recorded on its action row.
+
+describe('a send that failed on a previous run is reported with the cause it recorded', () => {
+  beforeEach(() => {
+    vi.mocked(logger.warn).mockClear()
+  })
+
+  function retryWarning() {
+    return vi.mocked(logger.warn).mock.calls.find(([message]) => String(message).includes('previous run'))
+  }
+
+  it('names a missing booking link rather than blaming the sending API', async () => {
+    const db = createFakeDb({
+      priorActions: [{ action_taken: 'send_reply', action_succeeded: false, action_error: 'org calendly_url not set' }],
+    })
+    const result = await processReplies(db, 'key')
+
+    // Positive control: the retry branch ran and wrote the line under test.
+    expect(result.skipped).toBe(1)
+    expect(db.rec.signalUpdates.some((u: Record<string, unknown>) => u.processed === true)).toBe(true)
+    const warning = retryWarning()
+    expect(warning).toBeDefined()
+
+    expect(String(warning![0])).not.toMatch(/API/)
+    expect(warning![1]).toMatchObject({ signal_id: 'sig-1', cause: 'org calendly_url not set' })
+  })
+
+  it('still reports a real sending failure, with its own cause', async () => {
+    const db = createFakeDb({
+      priorActions: [{ action_taken: 'send_reply', action_succeeded: false, action_error: 'provider returned 500' }],
+    })
+    await processReplies(db, 'key')
+
+    expect(retryWarning()![1]).toMatchObject({ cause: 'provider returned 500' })
+  })
+
+  it('says no cause was recorded rather than inventing one', async () => {
+    const db = createFakeDb({
+      priorActions: [{ action_taken: 'send_reply', action_succeeded: false, action_error: null }],
+    })
+    await processReplies(db, 'key')
+
+    expect(retryWarning()![1]).toMatchObject({ cause: 'no cause recorded' })
   })
 })

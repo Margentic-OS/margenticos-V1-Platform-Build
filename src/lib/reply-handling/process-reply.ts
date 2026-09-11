@@ -121,7 +121,7 @@ function buildCalendlyReplyBody(
 
 interface ExistingActionSummary {
   classifierFailedCount: number
-  terminalAction: { action_taken: string; action_succeeded: boolean | null } | null
+  terminalAction: { action_taken: string; action_succeeded: boolean | null; action_error: string | null } | null
 }
 
 async function getExistingActionSummary(
@@ -131,7 +131,7 @@ async function getExistingActionSummary(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: rows, error } = await (supabase as any)
     .from('reply_handling_actions')
-    .select('action_taken, action_succeeded')
+    .select('action_taken, action_succeeded, action_error')
     .eq('signal_id', signalId)
 
   if (error) {
@@ -142,7 +142,7 @@ async function getExistingActionSummary(
   let classifierFailedCount = 0
   let terminalAction: ExistingActionSummary['terminalAction'] = null
 
-  for (const row of (rows ?? []) as Array<{ action_taken: string; action_succeeded: boolean | null }>) {
+  for (const row of (rows ?? []) as Array<{ action_taken: string; action_succeeded: boolean | null; action_error: string | null }>) {
     if (row.action_taken === 'classifier_failed') {
       classifierFailedCount++
     } else {
@@ -320,11 +320,16 @@ async function processOneSignal(
   }
 
   if (existing.terminalAction) {
-    const { action_taken, action_succeeded } = existing.terminalAction
+    const { action_taken, action_succeeded, action_error } = existing.terminalAction
     if (action_taken === 'send_reply' && action_succeeded === null) {
       logger.warn('process-reply: send_reply interrupted mid-call — marking processed, manual review needed', { signal_id: signalId })
     } else if (action_taken === 'send_reply' && action_succeeded === false) {
-      logger.warn('process-reply: send_reply API failed on previous run — marking processed, manual review needed', { signal_id: signalId })
+      // Reports the cause the failed attempt recorded. This line used to say the API failed
+      // whatever happened, including when no call was made because the org had no booking link.
+      logger.warn('process-reply: send_reply failed on previous run — marking processed, manual review needed', {
+        signal_id: signalId,
+        cause: action_error ?? 'no cause recorded',
+      })
     } else if (action_taken === 'suppress' && action_succeeded === false) {
       // DB suppression was applied on the previous run, but Instantly-side suppression failed.
       // The prospect cannot receive future MargenticOS sends (DB is authoritative), but their
