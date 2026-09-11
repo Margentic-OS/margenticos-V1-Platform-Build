@@ -21,6 +21,7 @@ import {
 } from '../write-opening'
 import { BatchUniquenessRegistry, uniquenessFeedback } from '../batch-uniqueness'
 import { ABSTRACT_NOUNS, countAbstractNouns, countFigurativeVerbs } from '@/lib/style/abstract-nouns'
+import { shapeModels, concreteRewrites, plainRewrites, printShopBridge } from './writer-prompt-specimens'
 import type { ObservationCandidate } from '../types'
 
 const FINDINGS = [
@@ -714,24 +715,20 @@ describe('the writer prompt varies the bridge construction', () => {
   it('the four worked shapes do not collide with each other', () => {
     // A worked example that shares a skeleton with another worked example teaches the
     // opposite of what this section is for.
-    const examples = [
-      'When the calendar fills that fast, prospecting is usually what gives.',
-      'A move like that runs on existing relationships for the first few months. After that it gets harder.',
-      'Delivery has a deadline. Business development never does, so it waits.',
-      'That leaves one person deciding, every week, whether to sell or to deliver.',
-    ]
-    // Deliberately distinct questions: this test is about the bridges, and "question 1?"
-    // versus "question 2?" would normalise to the same key and fail for the wrong reason.
-    const questions = [
-      'Is that a gap you are looking to close?',
-      'Worth a look to see if it fits?',
-      'Is protecting that time something you are working on?',
-      'Is any of this on your list for the quarter?',
-    ]
-    const reg = new BatchUniquenessRegistry()
-    examples.forEach((ex, i) => {
-      expect(reg.reserve(`example-${i}`, ex, questions[i])).toEqual([])
-    })
+    // READ FROM THE PROMPT since 2026-09-10. This test used to hold four bridges of its own,
+    // and by then none of the four was in the prompt: it checked copies and passed whatever
+    // the prompt said. Every pair gets a fresh registry, so one collision cannot hide behind
+    // another. The question is left empty, which switches the question key off, because this
+    // test is about the bridges.
+    const models = shapeModels()
+    expect(models).toHaveLength(4)
+    for (let i = 0; i < models.length; i++) {
+      for (let j = i + 1; j < models.length; j++) {
+        const reg = new BatchUniquenessRegistry()
+        reg.reserve(`model-${i + 1}`, models[i], '')
+        expect(reg.reserve(`model-${j + 1}`, models[j], ''), `models ${i + 1} and ${j + 1} share a skeleton`).toEqual([])
+      }
+    }
   })
 
   it('states the batch rule, not just the preference', () => {
@@ -1222,21 +1219,14 @@ describe('the bridge examples come from outside the client industry', () => {
   })
 
   it('the four examples do not collide with each other under the batch gate', () => {
-    const examples = [
-      'When the chairs are full six weeks out, nobody is phoning the patients who missed a check-up.',
-      'A big site keeps the crews busy for a year. The tenders for the next one get written in the last month, if at all.',
-      'Peak season fills the trucks without a single sales call. February does not, and by then nobody has spoken to a new shipper since October.',
-      'That books out the summer. It also means every enquiry for next spring arrives while you are editing somebody else\'s album.',
-    ]
-    const questions = [
-      'Is that a gap you are looking to close?',
-      'Worth a look to see if it fits?',
-      'Is protecting that time something you are working on?',
-      'Is any of this on your list for the quarter?',
-    ]
+    // READ FROM THE PROMPT since 2026-09-10. Three of the four strings this test used to hold
+    // had been reworded in the prompt and never here. Reserved into ONE registry in prompt
+    // order, which is how a batch actually fills.
+    const models = shapeModels()
+    expect(models).toHaveLength(4)
     const reg = new BatchUniquenessRegistry()
-    examples.forEach((ex, i) => {
-      expect(reg.reserve(`example-${i}`, ex, questions[i])).toEqual([])
+    models.forEach((m, i) => {
+      expect(reg.reserve(`example-${i + 1}`, m, ''), `model ${i + 1} collided`).toEqual([])
     })
   })
 
@@ -1309,8 +1299,10 @@ describe('the writer prompt bans abstract nouns and metaphors', () => {
   })
 
   it('the concrete rewrites in the prompt score zero on the report-only check', () => {
-    expect(countAbstractNouns('A day job and delivery both come first. Outreach gets the hours that are left, and there are fewer of those every week.')).toBe(0)
-    expect(countAbstractNouns('The first two markets were built on people you already knew. In the UK you do not know anyone yet, and the introductions have to start from nothing.')).toBe(0)
+    // READ FROM THE PROMPT since 2026-09-10, instead of from copies held here.
+    const rewrites = concreteRewrites()
+    expect(rewrites).toHaveLength(2)
+    for (const r of rewrites) expect(countAbstractNouns(r), r).toBe(0)
   })
 })
 
@@ -1513,14 +1505,13 @@ describe('the writer prompt runs a camera test, not a reading age', () => {
   })
 
   it('the plain rewrites obey every rule they sit under', () => {
-    const rewrites = [
-      'Outreach gets whatever hours are left at the end of the day. Most weeks nobody makes the call.',
-      'Some of the people who heard the talk are ready to buy. The ready buyers will not email you first.',
-    ]
+    // READ FROM THE PROMPT since 2026-09-10, instead of from copies held here.
+    const rewrites = plainRewrites()
+    expect(rewrites).toHaveLength(2)
     for (const r of rewrites) {
-      expect(countFigurativeVerbs(r)).toBe(0)
-      expect(countAbstractNouns(r)).toBe(0)
-      expect(r.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
+      expect(countFigurativeVerbs(r), r).toBe(0)
+      expect(countAbstractNouns(r), r).toBe(0)
+      expect(r.trim().split(/\s+/).length, r).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
     }
   })
 })
@@ -1631,7 +1622,8 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
   })
 
   it('the corrected bridge obeys every rule it now sits under', () => {
-    const bridge = 'Your existing customers filled the first press. The second press needs work that has not been quoted yet.'
+    // READ FROM THE PROMPT since 2026-09-10, instead of from a copy held here.
+    const bridge = printShopBridge()
     expect(countFigurativeVerbs(bridge)).toBe(0)
     expect(countAbstractNouns(bridge)).toBe(0)
     expect(bridge.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
@@ -1641,23 +1633,13 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
   })
 
   it('does not collide with the other worked examples under the batch gate', () => {
-    const examples = [
-      'Your existing customers filled the first press. The second press needs work that has not been quoted yet.',
-      'When the chairs are full six weeks out, nobody is phoning the patients who missed a check-up.',
-      'A big site keeps the crews busy for a year. The tenders for the next one get written in the last month, if at all.',
-      'Peak season fills the trucks without a single sales call. February does not, and by then nobody has spoken to a new shipper since October.',
-      "That books out the summer. It also means every enquiry for next spring arrives while you are editing somebody else's album.",
-    ]
-    const questions = [
-      'Is that a gap you are looking to close?',
-      'Worth a look to see if it fits?',
-      'Is protecting that time something you are working on?',
-      'Is any of this on your list for the quarter?',
-      'Has that come up for you this year?',
-    ]
+    // READ FROM THE PROMPT since 2026-09-10. Three of the five strings this test used to hold
+    // had been reworded in the prompt and never here.
+    const examples = [printShopBridge(), ...shapeModels()]
+    expect(examples).toHaveLength(5)
     const reg = new BatchUniquenessRegistry()
     examples.forEach((ex, i) => {
-      expect(reg.reserve(`example-${i}`, ex, questions[i])).toEqual([])
+      expect(reg.reserve(`example-${i + 1}`, ex, ''), `example ${i + 1} collided`).toEqual([])
     })
   })
 })

@@ -7,6 +7,9 @@ import {
   ABSTRACT_NOUNS, findAbstractNouns, countAbstractNouns,
   FIGURATIVE_VERBS, findFigurativeVerbs, countFigurativeVerbs,
 } from '../abstract-nouns'
+import {
+  concreteRewrites, plainRewrites, filmableDescription,
+} from '@/lib/agents/research/__tests__/writer-prompt-specimens'
 
 describe('the named list', () => {
   it('is exactly the eight from the copy review', () => {
@@ -40,13 +43,20 @@ describe('counting the real failures', () => {
     expect(countAbstractNouns(text)).toBe(1)
   })
 
-  it('scores the concrete standard at zero', () => {
-    expect(countAbstractNouns('Delivery has a deadline. Business development never does, so it waits.')).toBe(0)
+  it('scores the camera test\'s filmable description at zero', () => {
+    // CHANGED 2026-09-10. This scored "the concrete standard", a sentence the writer prompt
+    // deleted after it was lifted verbatim into a real bridge, and it scored a copy held
+    // here that had already stopped matching the prompt before that. The slot is now a
+    // description, read from the prompt at runtime. The filmable-standard test below covers
+    // the same text on both halves of the rule; this is the abstract-noun half on its own.
+    expect(countAbstractNouns(filmableDescription())).toBe(0)
   })
 
   it('scores the concrete rewrites at zero', () => {
-    expect(countAbstractNouns('A day job and delivery both come first. Outreach gets the hours that are left, and there are fewer of those every week.')).toBe(0)
-    expect(countAbstractNouns('The first two markets were built on people you already knew. In the UK you do not know anyone yet, and the introductions have to start from nothing.')).toBe(0)
+    // READ FROM THE WRITER PROMPT since 2026-09-10, instead of from copies held here.
+    const rewrites = concreteRewrites()
+    expect(rewrites).toHaveLength(2)
+    for (const r of rewrites) expect(countAbstractNouns(r), r).toBe(0)
   })
 })
 
@@ -127,12 +137,17 @@ describe('counting the verb failures that shipped', () => {
   })
 
   it('scores the plain rewrites at zero', () => {
-    expect(countFigurativeVerbs('Outreach gets whatever hours are left at the end of the day. Most weeks nobody gets to it.')).toBe(0)
-    expect(countFigurativeVerbs('Some of the people who heard it are ready to buy. They will not email you first.')).toBe(0)
+    // READ FROM THE WRITER PROMPT since 2026-09-10. The two strings held here were versions
+    // the prompt had replaced, so this passed whatever the prompt said.
+    const rewrites = plainRewrites()
+    expect(rewrites).toHaveLength(2)
+    for (const r of rewrites) expect(countFigurativeVerbs(r), r).toBe(0)
   })
 
   it('scores the filmable standard at zero on both halves of the rule', () => {
-    const standard = 'Delivery has a deadline. Business development never does, so it waits.'
+    // CHANGED 2026-09-10. The standard sentence is gone. Its slot is a description, read
+    // from the writer prompt at runtime rather than copied here.
+    const standard = filmableDescription()
     expect(countFigurativeVerbs(standard)).toBe(0)
     expect(countAbstractNouns(standard)).toBe(0)
   })
