@@ -159,6 +159,14 @@ export interface ICPFilterSpec {
    * for an unlisted empty one. Absent or empty means nothing was deliberately omitted.
    */
   omitted_axes?: OmittableAxis[]
+  /**
+   * Why each switched-off axis is off, keyed by axis. Metadata, like omitted_axes.
+   *
+   * Operator-facing, and from one of two places: the derivation's own reason for a
+   * switch-off it proposed, or the rule that a revenue band is not sent for a client who
+   * has not been opted in. Only axes actually switched off carry one.
+   */
+  omission_reasons?: Partial<Record<OmittableAxis, string>>
   notes: string
   unmatched_industries?: string[]     // Non-canonical industries flagged for operator review
   /**
@@ -210,10 +218,19 @@ export const FILTER_SPEC_FIELDS = [
   'keywords',
   'keywords_excluded',
   // ADDED with the whole-document derivation. The document states a revenue band on both
-  // tiers and NOTHING read it: it reached `notes`, which no handler consumes. The provider
-  // has a parameter for it, proven to constrain on a live client (98,917 -> 14,935) with a
-  // misspelled-name control returning the baseline. A field listed here MUST be honoured by
-  // the handler, which is what makes this a real constraint rather than a stored opinion.
+  // tiers and NOTHING read it: it reached `notes`, which no handler consumes. A field listed
+  // here MUST be honoured by the handler, which is what makes this a real constraint rather
+  // than a stored opinion.
+  //
+  // AND IT IS OPT-IN PER CLIENT, DEFAULT OFF. Measured 2026-09-10, the provider's revenue
+  // filter drops every company it holds no revenue figure for, and no request shape keeps
+  // them: a band kept 3,873 of one live client's 98,831. So the band is always read and
+  // stored, and it is SENT only for a client opted in through
+  // organisations.sourcing_revenue_filter_enabled. Otherwise company_revenue is switched off
+  // with the reason. See deriveFilterSpec.
+  //
+  // An earlier version of this comment cited "98,917 -> 14,935". That figure recorded
+  // neither the band nor the search that produced it, and does not reproduce.
   'company_revenue_min',
   'company_revenue_max',
 ] as const
@@ -246,6 +263,8 @@ export const FILTER_SPEC_METADATA_FIELDS = [
   // FILTER_SPEC_FIELDS and demands handler support for each; listing this would make it
   // demand support for a field that is a statement ABOUT the other fields.
   'omitted_axes',
+  // Why each switched-off axis is off. See omission_reasons on ICPFilterSpec.
+  'omission_reasons',
 ] as const
 
 export type FilterSpecField = typeof FILTER_SPEC_FIELDS[number]
@@ -335,6 +354,11 @@ export interface SpecSeniority {
    * remember to pass. deriveFilterSpec stores it on the spec as metadata.
    */
   omitted?: OmittableAxis[]
+  /**
+   * The derivation's reason for each axis it switched off, keyed by axis. Carried onto the
+   * spec so an operator can read WHY a filter is off, and not only that it is.
+   */
+  omittedReasons?: Partial<Record<OmittableAxis, string>>
 }
 
 // ─── ICP document types (mirrors icp-generation-agent.ts output schema) ───────
@@ -482,6 +506,32 @@ export function deriveKeywords(industries: readonly string[]): string[] {
 // ─── Main derivation function ─────────────────────────────────────────────────
 
 /**
+ * Choices about a client that live on the organisation record rather than in the document.
+ *
+ * Every member optional and every default the SAFE one, so a caller that does not know about
+ * a choice gets the answer that removes nobody.
+ */
+export interface SpecOptions {
+  /**
+   * Whether this client has been opted in to the revenue band as a sourcing filter, from
+   * organisations.sourcing_revenue_filter_enabled. ABSENT MEANS OFF.
+   *
+   * Off: a stated band is still read and stored, and company_revenue is switched off with
+   * REVENUE_NOT_OPTED_IN as the reason. On: the band is sent, and that holds even where the
+   * derivation proposed switching it off. The operator's switch is the decision, and the
+   * derivation's objection is kept in the notes where the operator reads it.
+   */
+  revenueFilterEnabled?: boolean
+}
+
+/** The recorded reason a stated revenue band is not sent. Operator-facing. */
+export const REVENUE_NOT_OPTED_IN =
+  'Not opted in. This client has not been switched on for the revenue filter in operator ' +
+  "settings, so the band the document states is recorded here and not sent. The provider's " +
+  'revenue filter excludes every company it holds no revenue figure for, measured on ' +
+  "2026-09-10 at 78% of one live client's search. A change takes effect at the next ICP approval."
+
+/**
  * Build a client's filter spec from that client's own ICP, and nothing else.
  *
  * ─── WHY THE CRITERION IS A PARAMETER ────────────────────────────────────────
@@ -515,6 +565,7 @@ export function deriveFilterSpec(
   buyerCriterion: BuyerCriterion | null,
   geography: SpecGeography,
   seniority: SpecSeniority,
+  options: SpecOptions = {},
 ): ICPFilterSpec {
   const t1 = doc.tier_1
   const t2 = doc.tier_2
@@ -624,6 +675,31 @@ export function deriveFilterSpec(
     t2.company_profile.revenue_range,
   ])
 
+  // ─── Whether the band is SENT: the per-client opt-in ──────────────────────
+  //
+  // The band above is always read and always stored. The opt-in decides only whether
+  // company_revenue is switched off, and the decision is recorded either way, so the stored
+  // spec says exactly what the search will do and why. The handler removes a switched-off
+  // axis last, after every branch has run.
+  const reasons: Partial<Record<OmittableAxis, string>> = { ...(seniority?.omittedReasons ?? {}) }
+  let revenueOverride: string | null = null
+  const bandStated = revenueBand.min !== null || revenueBand.max !== null
+  if (bandStated && options.revenueFilterEnabled !== true) {
+    const derivationSaid = omitted.has('company_revenue') ? reasons.company_revenue : undefined
+    omitted.add('company_revenue')
+    reasons.company_revenue = REVENUE_NOT_OPTED_IN +
+      (derivationSaid ? ` The derivation also proposed switching it off: ${derivationSaid}` : '')
+  } else if (bandStated && omitted.has('company_revenue')) {
+    // OPTED IN, and the derivation proposed switching the band off. The operator's switch
+    // decides: a switch labelled On that did not apply the band would be the same false
+    // record this change exists to end. The objection is kept where the operator reads it.
+    revenueOverride =
+      'Revenue band applied because this client is opted in, although the derivation ' +
+      `proposed switching it off: ${reasons.company_revenue ?? 'no reason was given'}`
+    omitted.delete('company_revenue')
+    delete reasons.company_revenue
+  }
+
   const t1Range = parseHeadcountRange(t1.company_profile.headcount)
   const t2Range = parseHeadcountRange(t2.company_profile.headcount)
 
@@ -694,6 +770,10 @@ export function deriveFilterSpec(
     company_revenue_max: revenueBand.max,
 
     omitted_axes: [...omitted],
+    // Only axes actually switched off carry a reason, so a reason cannot outlive its switch.
+    omission_reasons: Object.fromEntries(
+      Object.entries(reasons).filter(([axis]) => omitted.has(axis as OmittableAxis)),
+    ) as Partial<Record<OmittableAxis, string>>,
 
     // NOTHING IS EXCLUDED BY DEFAULT. The four literals that used to sit here named one
     // market's adjacent categories. A client who genuinely needs an exclusion has one in
@@ -709,7 +789,9 @@ export function deriveFilterSpec(
     // handed to every client, ending in "DE and NL included", which had also been false
     // since the country defaults moved to GB/IE/US. A hardcoded note is worse than no
     // note: it reads as a finding about this client and is a finding about another one.
-    notes: buildNotes(t1, t2, buyerCriterion, geography),
+    notes: revenueOverride
+      ? `${buildNotes(t1, t2, buyerCriterion, geography)} ${revenueOverride}`
+      : buildNotes(t1, t2, buyerCriterion, geography),
   }
 }
 

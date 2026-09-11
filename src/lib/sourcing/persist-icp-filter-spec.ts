@@ -211,12 +211,38 @@ export async function persistIcpFilterSpec(
       return
     }
 
+    // ── 3.2 The per-client revenue opt-in ─────────────────────────────────────
+    //
+    // Read HERE, when the spec is built, and never at search time: the stored spec must
+    // describe the search it produces. So flipping the switch takes effect at the next ICP
+    // approval, which the settings page says beside the control.
+    //
+    // A FAILED READ IS TREATED AS NOT OPTED IN. That is the direction that cannot remove
+    // anybody the client did not ask to remove: the band is still read and recorded, only
+    // switched off with the reason. Measured 2026-09-10: the provider's revenue filter drops
+    // every company it holds no revenue figure for, 78% of one live client's search.
+    const { data: orgRow, error: orgError } = await supabase
+      .from('organisations')
+      .select('sourcing_revenue_filter_enabled')
+      .eq('id', doc.organisation_id)
+      .single()
+    if (orgError) {
+      logger.warn('persistIcpFilterSpec: could not read the revenue opt-in, treating it as off', {
+        operation_id: operationId,
+        organisation_id: doc.organisation_id,
+        error: orgError.message,
+      })
+    }
+    const revenueFilterEnabled = !orgError && orgRow?.sourcing_revenue_filter_enabled === true
+
     // ── 3.25 Derive the filter spec from ICP content ───────────────────────────
     // deriveFilterSpec throws if industries are non-canonical.
     // Catch that explicitly and report the invalid names.
     let spec: ICPFilterSpec
     try {
-      spec = deriveFilterSpec(doc.content as IcpDocument, buyerCriterion, geography, seniority)
+      spec = deriveFilterSpec(
+        doc.content as IcpDocument, buyerCriterion, geography, seniority, { revenueFilterEnabled },
+      )
     } catch (specError) {
       const msg = specError instanceof Error ? specError.message : String(specError)
       logger.error('persistIcpFilterSpec: deriveFilterSpec failed (non-canonical industries)', {

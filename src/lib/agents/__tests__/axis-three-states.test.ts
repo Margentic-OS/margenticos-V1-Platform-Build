@@ -53,9 +53,15 @@ const aCriterion = () => ({
 
 const omitted = (): SpecSeniority => ({ bands: [], discarded: [], evidence: '', omitted: [SENIORITY_AXIS] })
 
+// The seniority tests below are about SENIORITY. The fixture states a revenue band, and since
+// 2026-09-10 a band is switched off for a client not opted in, which would add a second axis
+// to every omitted_axes they assert exactly. Opting in keeps each assertion exact; revenue's
+// own states are tested at the bottom of this file and in revenue-opt-in.test.ts.
+const OPTED_IN = { revenueFilterEnabled: true }
+
 describe('the three states behave differently and read differently', () => {
   it('PRESENT: values are stored and the handler sends them', () => {
-    const spec = deriveFilterSpec(doc, aCriterion(), geo(), seniorityFixture(3))
+    const spec = deriveFilterSpec(doc, aCriterion(), geo(), seniorityFixture(3), OPTED_IN)
     expect(spec.seniority_levels).toEqual(someBands(3))
     expect(spec.omitted_axes).toEqual([])
 
@@ -64,7 +70,7 @@ describe('the three states behave differently and read differently', () => {
   })
 
   it('DELIBERATELY OMITTED: the spec is built, the decision is recorded, the handler sends nothing', () => {
-    const spec = deriveFilterSpec(doc, aCriterion(), geo(), omitted())
+    const spec = deriveFilterSpec(doc, aCriterion(), geo(), omitted(), OPTED_IN)
 
     // It did NOT refuse. That is the whole change.
     expect(spec.seniority_levels).toEqual([])
@@ -112,12 +118,17 @@ describe('the three states behave differently and read differently', () => {
 })
 
 describe('the revenue band the document always stated and nothing ever read', () => {
-  it('is parsed onto the spec and sent by the handler', () => {
-    const spec = deriveFilterSpec(doc, aCriterion(), geo(), seniorityFixture(2))
-    expect(spec.company_revenue_min).toBe(1_000_000)
-    expect(spec.company_revenue_max).toBe(20_000_000)
+  it('is parsed onto the spec, and sent only for a client who has been opted in', () => {
+    // Opt-in per client since 2026-09-10: the provider's filter drops every company with no
+    // revenue figure recorded. The band is ALWAYS read and stored; the opt-in decides only
+    // whether it is sent.
+    const off = deriveFilterSpec(doc, aCriterion(), geo(), seniorityFixture(2))
+    expect(off.company_revenue_min).toBe(1_000_000)
+    expect(off.company_revenue_max).toBe(20_000_000)
+    expect(buildApolloRequest(off as unknown as Record<string, unknown>)).not.toHaveProperty('revenue_range')
 
-    const request = buildApolloRequest(spec as unknown as Record<string, unknown>) as Record<string, unknown>
+    const on = deriveFilterSpec(doc, aCriterion(), geo(), seniorityFixture(2), OPTED_IN)
+    const request = buildApolloRequest(on as unknown as Record<string, unknown>) as Record<string, unknown>
     expect(request.revenue_range).toEqual({ min: 1_000_000, max: 20_000_000 })
   })
 
