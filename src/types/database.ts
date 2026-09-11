@@ -1028,6 +1028,10 @@ export type Database = {
           booked_at: string
           calendly_event_uuid: string | null
           calendly_invitee_uuid: string | null
+          attendee_email: string | null
+          attendee_name: string | null
+          booking_uid: string | null
+          prospect_match: string | null
           campaign_id: string | null
           created_at: string
           held_confirmed_by: string | null
@@ -1052,6 +1056,10 @@ export type Database = {
           booked_at?: string
           calendly_event_uuid?: string | null
           calendly_invitee_uuid?: string | null
+          attendee_email?: string | null
+          attendee_name?: string | null
+          booking_uid?: string | null
+          prospect_match?: string | null
           campaign_id?: string | null
           created_at?: string
           held_confirmed_by?: string | null
@@ -1076,6 +1084,10 @@ export type Database = {
           booked_at?: string
           calendly_event_uuid?: string | null
           calendly_invitee_uuid?: string | null
+          attendee_email?: string | null
+          attendee_name?: string | null
+          booking_uid?: string | null
+          prospect_match?: string | null
           campaign_id?: string | null
           created_at?: string
           held_confirmed_by?: string | null
@@ -1264,6 +1276,8 @@ export type Database = {
           billing_basis: string
           calendly_url: string | null
           calendly_webhook_secret: string | null
+          booking_host_ref: string | null
+          booking_url: string | null
           client_review_enabled: boolean
           sourcing_revenue_filter_enabled: boolean
           contract_end_date: string | null
@@ -1301,6 +1315,8 @@ export type Database = {
           billing_basis?: string
           calendly_url?: string | null
           calendly_webhook_secret?: string | null
+          booking_host_ref?: string | null
+          booking_url?: string | null
           client_review_enabled?: boolean
           sourcing_revenue_filter_enabled?: boolean
           contract_end_date?: string | null
@@ -1338,6 +1354,8 @@ export type Database = {
           billing_basis?: string
           calendly_url?: string | null
           calendly_webhook_secret?: string | null
+          booking_host_ref?: string | null
+          booking_url?: string | null
           client_review_enabled?: boolean
           sourcing_revenue_filter_enabled?: boolean
           contract_end_date?: string | null
@@ -2933,6 +2951,56 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: []
+      }
+      unattributed_bookings: {
+        Row: {
+          attendee_email: string | null
+          attendee_name: string | null
+          cancelled_at: string | null
+          first_seen_at: string
+          host_ref: string | null
+          id: string
+          provider: string
+          provider_booking_uid: string
+          resolved_at: string | null
+          resolved_meeting_id: string | null
+          scheduled_start_at: string | null
+        }
+        Insert: {
+          attendee_email?: string | null
+          attendee_name?: string | null
+          cancelled_at?: string | null
+          first_seen_at?: string
+          host_ref?: string | null
+          id?: string
+          provider: string
+          provider_booking_uid: string
+          resolved_at?: string | null
+          resolved_meeting_id?: string | null
+          scheduled_start_at?: string | null
+        }
+        Update: {
+          attendee_email?: string | null
+          attendee_name?: string | null
+          cancelled_at?: string | null
+          first_seen_at?: string
+          host_ref?: string | null
+          id?: string
+          provider?: string
+          provider_booking_uid?: string
+          resolved_at?: string | null
+          resolved_meeting_id?: string | null
+          scheduled_start_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unattributed_bookings_resolved_meeting_id_fkey"
+            columns: ["resolved_meeting_id"]
+            isOneToOne: false
+            referencedRelation: "meetings"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       unattributed_replies: {
         Row: {

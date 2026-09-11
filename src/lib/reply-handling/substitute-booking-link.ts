@@ -1,7 +1,7 @@
 // src/lib/reply-handling/substitute-booking-link.ts
 //
 // Deterministic booking link substitution.
-// Replaces all occurrences of {calendly_link} in the body with the provided URL.
+// Replaces all occurrences of {booking_link} in the body with the provided URL.
 // Returns a result struct so the caller can distinguish "no placeholder" (not a failure)
 // from "placeholder present but link missing" (send_failed).
 
@@ -11,7 +11,13 @@ export interface SubstituteBookingLinkResult {
   substituted: boolean // true when at least one replacement was made
 }
 
-const PLACEHOLDER = '{calendly_link}'
+// THE ONE DEFINITION of the booking-link placeholder. The drafting prompt
+// (docs/prompts/reply-draft-agent.md) tells the model to write exactly this, and the FAQ
+// filler rule imports it rather than restating it. booking-link-placeholder-pair.test.ts
+// fails if the prompt and this constant ever disagree, which is the drift that would
+// otherwise ship a literal token to a prospect.
+export const BOOKING_LINK_PLACEHOLDER = '{booking_link}'
+const PLACEHOLDER = BOOKING_LINK_PLACEHOLDER
 
 export function substituteBookingLink(
   body: string,

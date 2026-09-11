@@ -7,7 +7,7 @@ import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 //
 // Responsibilities:
 //   1. Idempotency guard (already sent / already failed → skip)
-//   2. Calendly link substitution in final_sent_body
+//   2. Booking link substitution in final_sent_body
 //   3. Sign-off insertion per ADR-020
 //   4. Thread context load from the original signal
 //   5. Send via Instantly sendThreadReply
@@ -39,7 +39,7 @@ type SupabaseServiceClient = ServiceRoleClient
 
 export type SendFailedReason =
   | 'founder_first_name_required_but_missing'
-  | 'calendly_link_required_but_missing'
+  | 'booking_link_required_but_missing'
   | 'instantly_api_error'
   | 'instantly_timeout'
   | 'final_sent_body_empty'
@@ -123,7 +123,7 @@ export async function sendApprovedDraft(
 
   const { data: org, error: orgErr } = await supabase
     .from('organisations')
-    .select('name, founder_first_name, calendly_url')
+    .select('name, founder_first_name, booking_url')
     .eq('id', organisationId)
     .maybeSingle()
 
@@ -143,26 +143,26 @@ export async function sendApprovedDraft(
     }
   }
 
-  // ── 4. Calendly substitution FIRST ───────────────────────────────────────
+  // ── 4. Booking link substitution FIRST ───────────────────────────────────────
 
-  const { body: bodyAfterCalendly, missing: calendlyMissing } = substituteBookingLink(
+  const { body: bodyAfterBookingLink, missing: bookingLinkMissing } = substituteBookingLink(
     rawBody,
-    org.calendly_url,
+    org.booking_url,
   )
 
-  if (calendlyMissing) {
-    await markSendFailed(supabase, replyDraftId, 'calendly_link_required_but_missing')
+  if (bookingLinkMissing) {
+    await markSendFailed(supabase, replyDraftId, 'booking_link_required_but_missing')
     return {
       kind: 'send_failed',
-      error: 'body contains {calendly_link} placeholder but org calendly_url is not set',
-      reason: 'calendly_link_required_but_missing',
+      error: 'body contains {booking_link} placeholder but org booking_url is not set',
+      reason: 'booking_link_required_but_missing',
     }
   }
 
   // ── 5. Sign-off SECOND ───────────────────────────────────────────────────
   // insertSignoff throws if founderFirstName is empty, but we validated above.
 
-  const assembledBody = insertSignoff(bodyAfterCalendly, founderFirstName)
+  const assembledBody = insertSignoff(bodyAfterBookingLink, founderFirstName)
 
   // ── 5b. No template token may survive into what the prospect receives ─────
   // substituteBookingLink knows only its own token and says "nothing to do" about any

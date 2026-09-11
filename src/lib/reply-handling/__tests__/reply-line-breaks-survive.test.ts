@@ -26,7 +26,7 @@
 // present there as markup, not as raw \n.
 //
 // MUTATION-PROVED. Removing the plainTextToHtml call in send-approved-draft.ts turns the
-// first describe block red; removing it in process-reply.ts's Calendly path turns the
+// first describe block red; removing it in process-reply.ts's booking-link path turns the
 // second red. Reverting reply-actions.ts to `body: { text }` turns both red.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -46,7 +46,7 @@ import { sendThreadReply } from '@/lib/integrations/handlers/instantly/reply-act
 const TEST_ORG = {
   name: 'ZZ Internal Test Org',
   founder_first_name: 'Alex',
-  calendly_url: 'https://booking.test/alex',
+  booking_url: 'https://booking.test/alex',
 }
 
 const TEST_SIGNAL = {
@@ -70,7 +70,7 @@ function createFakeDb() {
     tier: 2,
     status: 'approved',
     // Two paragraphs and a placeholder, so the assertion has real structure to check.
-    final_sent_body: 'Thanks for coming back to me.\n\nGrab a slot here: {calendly_link}',
+    final_sent_body: 'Thanks for coming back to me.\n\nGrab a slot here: {booking_link}',
     ai_draft_body: null as string | null,
   }
   const client: any = {
@@ -201,8 +201,8 @@ describe('the API boundary forwards html without composing it', () => {
 
 // ── The AUTOMATED path ────────────────────────────────────────────────────────
 //
-// The Calendly reply for a high-confidence booking intent sends WITHOUT an operator
-// seeing it. buildCalendlyReplyBody returns a greeting, a line carrying the booking link,
+// The booking reply for a high-confidence booking intent sends WITHOUT an operator
+// seeing it. buildBookingReplyBody returns a greeting, a line carrying the booking link,
 // and a sign-off, separated by blank lines. Under a text-only body all three arrived as
 // one run-on line, unreviewed, to a prospect who had just said they want to book.
 //
@@ -287,7 +287,7 @@ function createAutoReplyDb(bookingUrl = 'https://booking.test/alex') {
           select: () => b, eq: () => b,
           single: async () => ({ data: { id: 'org-1', archived_at: null }, error: null }),
           maybeSingle: async () => ({
-            data: { name: 'ZZ Internal Test Org', calendly_url: bookingUrl,
+            data: { name: 'ZZ Internal Test Org', booking_url: bookingUrl,
                     founder_first_name: 'Alex' },
             error: null,
           }),

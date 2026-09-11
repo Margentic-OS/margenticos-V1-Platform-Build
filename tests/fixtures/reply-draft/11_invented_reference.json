@@ -11,7 +11,7 @@
   },
   "tierHint": 2,
   "faqMatches": [],
-  "includeCalendlyHint": false,
+  "includeBookingHint": false,
   "signalId": "00000000-0000-0000-0000-000000000111",
   "prospectId": "00000000-0000-0000-0000-000000000211",
   "expected_behaviour": "Should DOWNGRADE to Tier 3 — coherence guard. The prospect references 'the case study you sent' but the original outbound contains no case study. This is an invented reference the agent cannot play along with. ambiguity_note should clearly flag that the prospect is referencing a document not present in the original outbound. Agent must NOT pretend to know which case study they mean or describe results."

@@ -8,7 +8,7 @@
 //   can_schedule_linkedin_post  → Taplio (content delivery model — no API scheduling)
 //   can_send_linkedin_dm        → Lemlist
 //   can_enrich_contact          → Apollo
-//   can_book_meeting            → Calendly (URL stored per client in registry)
+//   can_book_meeting            → Cal.com (link in organisations.booking_url; detection by webhook, ADR-054)
 //   can_validate_email          → Hunter.io (phase two — not yet active)
 
 import { getCapabilityRow } from '@/lib/registry-cache'

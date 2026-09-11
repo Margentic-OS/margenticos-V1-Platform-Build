@@ -49,7 +49,7 @@ export interface ReplyDrafterInput {
     positioningDocument: string    // serialised Positioning strategy doc
   }
   faqMatches: FaqMatch[]           // from matcher; may be empty
-  includeCalendlyHint: boolean     // true → prompt includes soft-CTA toward booking
+  includeBookingHint: boolean     // true → prompt includes soft-CTA toward booking
   signalId: string                 // for agent_runs logging + idempotency check
   prospectId: string | null        // for agent_runs logging
   supabase: SupabaseClient         // for idempotency check + agent_runs write
@@ -86,7 +86,7 @@ export async function draftReply(input: ReplyDrafterInput): Promise<ReplyDrafter
     tierHint,
     orgContext,
     faqMatches,
-    includeCalendlyHint,
+    includeBookingHint,
     signalId,
     prospectId,
     supabase,
@@ -373,7 +373,7 @@ function buildUserMessage(input: ReplyDrafterInput, faqMatches: FaqMatch[]): str
 
   const userInput = {
     tier_hint: input.tierHint,
-    include_calendly_hint: input.includeCalendlyHint,
+    include_booking_hint: input.includeBookingHint,
     prospect_reply_body: input.prospectReplyBody,
     original_outbound_body: input.originalOutboundBody,
     classification: {

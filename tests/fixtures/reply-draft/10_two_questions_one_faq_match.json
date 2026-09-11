@@ -18,7 +18,7 @@
       "score": 0.72
     }
   ],
-  "includeCalendlyHint": false,
+  "includeBookingHint": false,
   "signalId": "00000000-0000-0000-0000-000000000110",
   "prospectId": "00000000-0000-0000-0000-000000000210",
   "expected_behaviour": "Two questions — one has an FAQ match (timeline), one does not (geography). Agent should either: (a) answer the timeline question from the FAQ and handle geography from positioning doc context (MargenticOS is English-language outbound, not geography-limited), staying Tier 2; OR (b) downgrade to Tier 3 if it cannot confidently address both. If it stays Tier 2, the draft must address both questions. If it downgrades, ambiguity_note should flag which question wasn't answerable."

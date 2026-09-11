@@ -1,4 +1,4 @@
-// The operator edit path for organisations.calendly_url.
+// The operator edit path for organisations.booking_url.
 //
 // WHY THIS FIELD IS WORTH A TEST FILE. It is not a display label. It is read live by
 // process-reply.ts and put into the reply a prospect receives after answering positively,
@@ -116,25 +116,24 @@ describe('accepting a link', () => {
 
     expect(result.error).toBeUndefined()
     expect(updates).toHaveLength(1)
-    expect(updates[0].payload).toEqual({ calendly_url: 'https://example.test/book/30min' })
+    expect(updates[0].payload).toEqual({ booking_url: 'https://example.test/book/30min' })
     // The write is scoped. Without this the fake would accept an unfiltered update.
     expect(updates[0].id).toBe(ORG)
   })
 
   it('trims surrounding whitespace before storing', async () => {
     await updateBookingUrl(ORG, '  https://example.test/book/30min  ')
-    expect(updates[0].payload).toEqual({ calendly_url: 'https://example.test/book/30min' })
+    expect(updates[0].payload).toEqual({ booking_url: 'https://example.test/book/30min' })
   })
 
   it('accepts a booking link from any vendor, not only one', async () => {
-    // NOT A STYLE PREFERENCE. The locked decision of 2026-07-28 has two halves: booking
-    // DETECTION is Calendly-specific, but "sending prospects to a booking link is
-    // tool-agnostic and already open", and a client on another tool uses their own
-    // connected instance. A hostname check here would be Rule Zero and would refuse the
-    // exact case that decision anticipates.
+    // NOT A STYLE PREFERENCE. Sending prospects to a booking link is tool-agnostic: any
+    // link works. Only booking DETECTION depends on the tool (ADR-054). A hostname check
+    // here would be Rule Zero and would refuse a client who books through a tool we do
+    // not detect, which is the case manual meeting recording exists for.
     const result = await updateBookingUrl(ORG, 'https://some-other-booking-tool.test/u/abc')
     expect(result.error).toBeUndefined()
-    expect(updates[0].payload).toEqual({ calendly_url: 'https://some-other-booking-tool.test/u/abc' })
+    expect(updates[0].payload).toEqual({ booking_url: 'https://some-other-booking-tool.test/u/abc' })
   })
 })
 
@@ -146,8 +145,8 @@ describe('clearing', () => {
 
     expect(result.error).toBeUndefined()
     expect(updates).toHaveLength(1)
-    expect(updates[0].payload).toEqual({ calendly_url: null })
-    expect(updates[0].payload.calendly_url).not.toBe('')
+    expect(updates[0].payload).toEqual({ booking_url: null })
+    expect(updates[0].payload.booking_url).not.toBe('')
   })
 })
 

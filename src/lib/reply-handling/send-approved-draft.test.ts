@@ -7,7 +7,7 @@
 // manual_required, with reviewed_at, reviewed_by_user_id, sent_at, instantly_message_id
 // and send_error all NULL. ever_reviewed = 0. ever_sent = 0.
 //
-// So every step below — Calendly substitution, sign-off assembly, thread context, the
+// So every step below — booking-link substitution, sign-off assembly, thread context, the
 // provider payload, the atomic status transition — had shipped and been reviewed but had
 // never once executed. A path that has never run is not a working path, it is an untested
 // one, and the two are indistinguishable until something goes through it.
@@ -65,17 +65,17 @@ import { sendApprovedDraft } from './send-approved-draft'
 // deliberately generic placeholders, per the standing rule that no company, industry,
 // sector, country or buyer type enters code, comments, tests or fixtures.
 // Typed to the real column nullability rather than inferred from the literal. Inferred,
-// calendly_url would be `string` and a test could not override it to null — which is the
+// booking_url would be `string` and a test could not override it to null — which is the
 // exact case the "refuses to send when the booking placeholder cannot be filled" test needs.
 interface TestOrg {
   name: string
   founder_first_name: string | null
-  calendly_url: string | null
+  booking_url: string | null
 }
 const TEST_ORG: TestOrg = {
   name: 'Test Organisation',
   founder_first_name: 'Alex',
-  calendly_url: 'https://booking.test/alex',
+  booking_url: 'https://booking.test/alex',
 }
 
 const TEST_SIGNAL = {
@@ -109,7 +109,7 @@ function createFakeDb(opts: { draft?: Partial<Draft>; org?: Partial<TestOrg> } =
     prospect_id: 'test-prospect-1',
     tier: 2,
     status: 'approved',
-    final_sent_body: 'Happy to talk. Grab a slot here: {calendly_link}',
+    final_sent_body: 'Happy to talk. Grab a slot here: {booking_link}',
     ai_draft_body: null,
     ...opts.draft,
   }
@@ -190,9 +190,9 @@ describe('a draft an operator approved reaches the provider, assembled correctly
     const body = sendThreadReply.mock.calls[0][0].bodyText
 
     // The placeholder is gone and the real link is in its place. Shipping the literal
-    // '{calendly_link}' to a prospect is the failure this guards.
+    // '{booking_link}' to a prospect is the failure this guards.
     expect(body).toContain('https://booking.test/alex')
-    expect(body).not.toContain('{calendly_link}')
+    expect(body).not.toContain('{booking_link}')
 
     // The sign-off is the last thing in the body.
     expect(body.trimEnd().endsWith('Alex')).toBe(true)
@@ -246,11 +246,11 @@ describe('the failure invariant: never left at approved', () => {
   })
 
   it('refuses to send when the booking placeholder cannot be filled', async () => {
-    // Sending the literal '{calendly_link}' to a prospect is worse than not sending.
-    const db = createFakeDb({ org: { calendly_url: null } })
+    // Sending the literal '{booking_link}' to a prospect is worse than not sending.
+    const db = createFakeDb({ org: { booking_url: null } })
     const result = await sendApprovedDraft('test-draft-1', db)
 
-    expect(result).toMatchObject({ kind: 'send_failed', reason: 'calendly_link_required_but_missing' })
+    expect(result).toMatchObject({ kind: 'send_failed', reason: 'booking_link_required_but_missing' })
     expect(sendThreadReply).not.toHaveBeenCalled()
   })
 

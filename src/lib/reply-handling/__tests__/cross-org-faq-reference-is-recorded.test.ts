@@ -102,10 +102,10 @@ function createFakeDb(opts: { faqs?: Record<string, string>; extractions?: Recor
     prospect_id: 'test-prospect-1',
     tier: 3,                       // tier 3 is the only tier that runs FAQ extraction
     status: 'approved',
-    final_sent_body: 'Happy to talk. Grab a slot here: {calendly_link}',
+    final_sent_body: 'Happy to talk. Grab a slot here: {booking_link}',
     ai_draft_body: null,
   }
-  const org = { name: 'Test Organisation', founder_first_name: 'Alex', calendly_url: 'https://booking.test/alex' }
+  const org = { name: 'Test Organisation', founder_first_name: 'Alex', booking_url: 'https://booking.test/alex' }
   const signal = {
     id: 'test-signal-1',
     raw_data: {
