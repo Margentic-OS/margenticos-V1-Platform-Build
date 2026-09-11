@@ -337,3 +337,32 @@ Everything in it was already bought at enrichment. **No new lookup and no new ca
 The test is `src/lib/agents/research/__tests__/judge-company-evidence.test.ts`: one case per
 fact, and a loader case whose fake returns only the columns the select named. If a fact stops
 reaching the judge, the case named after that fact fails.
+
+### What the fuller evidence did, measured 2026-09-11
+
+Twenty already-graded prospects, chosen by a fixed rule before any grading (every 111/20th by
+id), were re-graded twice on the same day through the production request builder: once with
+the evidence as it was, once with the company section. Nothing was written to any table. On all
+20, the two requests differed by the company section and nothing else.
+
+| | moderate | strong | weak |
+|---|---|---|---|
+| stored grade | 16 | 2 | 2 |
+| re-graded, evidence as it was | 19 | 0 | 1 |
+| re-graded, with company facts | 15 | 3 | 2 |
+
+- Changed from the stored grade: 4 of 20 on the old evidence, 6 of 20 with the company facts.
+- The company facts changed the verdict against the old evidence, same day, on 4 of 20.
+- **The same judge on identical evidence disagreed with itself on 4 of 7.** The first
+  company-facts run died after 7 calls and was repeated, so those 7 were graded twice on the
+  same input. A 4-in-20 difference is inside that, so this sample cannot show the facts moved
+  any verdict.
+- Most grades still sit on the middle value: 15 of 20 with the facts, 19 of 20 without.
+
+**The request sets no temperature**, so the judge samples at the API default of 1.0. Its
+verdict is a three-way classification read from sampled output, which is the likeliest source
+of a 4-in-7 self-disagreement. That is worth measuring before any change to the grade
+definitions, because a definition change graded by an unstable judge cannot be told apart from
+noise either.
+
+Cost: $4.20 of a $5 cap, including $0.75 for the run that died.
