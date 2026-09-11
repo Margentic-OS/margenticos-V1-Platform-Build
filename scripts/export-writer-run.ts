@@ -92,14 +92,17 @@ import { createClient } from '@supabase/supabase-js'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import fs from 'node:fs'
 import path from 'node:path'
-import { loadStoredFindings } from '@/lib/agents/prospect-research-agent-v2'
+import { loadStoredFindings, synthesisFromStored } from '@/lib/agents/prospect-research-agent-v2'
 import {
   produceOpening,
   resolveVariantId,
   loadClientName,
   type MessagingContent,
+  type ProduceOpeningInput,
 } from '@/lib/agents/research/produce-opening'
 import type { AttemptObservation, JudgeComparison } from '@/lib/agents/research/write-opening'
+import { buildFindingsBlock } from '@/lib/agents/research/write-opening'
+import { writerInputFromSynthesis } from '@/lib/agents/research/writer-input'
 import { loadClientContext } from '@/lib/agents/research/synthesize'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
@@ -249,6 +252,13 @@ interface ProspectRecord {
   /** The research result the findings were reused from, and how many it carried. */
   source_result_id: string
   candidate_count: number
+  /**
+   * WHAT THE WRITER WAS HANDED, beyond the brief. Recorded from the SAME object that is
+   * spread into produceOpening, so the record cannot claim a field the writer never got.
+   * findings_block is rebuilt with buildFindingsBlock and those same values, which is the
+   * call writeAndJudgeOpening makes, so it is the text the writer read, byte for byte.
+   */
+  writer_handover: WriterHandover
   strong_material: boolean
 
   observation: string | null
@@ -294,6 +304,44 @@ interface ProspectRecord {
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
+
+/** The part of the writer's input that comes from synthesis, as the record stores it. */
+export interface WriterHandover {
+  selected_candidate_id: string | null
+  relevance_reason: string | null
+  findings_block: string
+}
+
+export function describeHandover(
+  input: Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason'>,
+): WriterHandover {
+  const selectedCandidateId = input.selectedCandidateId ?? null
+  const relevanceReason = input.relevanceReason ?? null
+  return {
+    selected_candidate_id: selectedCandidateId,
+    relevance_reason: relevanceReason,
+    findings_block: buildFindingsBlock(input.candidates, { selectedCandidateId, relevanceReason }),
+  }
+}
+
+/**
+ * What a production REUSE run hands the writer for these stored findings.
+ *
+ * THE REUSE PATH'S OWN CODE, called rather than restated: synthesisFromStored is what the
+ * agent runs on a stored-findings run, and writerInputFromSynthesis is the mapping every
+ * production caller uses. So this carries the stored relevance reason, and no selection
+ * mark, because a reuse run reaches no selection of its own.
+ *
+ * UNTIL 2026-09-11 the export passed the candidates alone. Every export before then measured
+ * a writer that never saw the relevance reason a production reuse run carries forward.
+ */
+export async function writerInputForStored(
+  stored: NonNullable<Awaited<ReturnType<typeof loadStoredFindings>>>,
+  ctx: ProspectContext,
+  clientId: string,
+): Promise<Pick<ProduceOpeningInput, 'candidates' | 'selectedCandidateId' | 'relevanceReason'>> {
+  return writerInputFromSynthesis(await synthesisFromStored(stored, ctx, clientId))
+}
 
 function env(name: string): string {
   const v = process.env[name]
@@ -396,12 +444,14 @@ async function runOne(
   const variantId = resolveVariantId(ctx.id, (p.variant_id ?? null) as string | null, messaging.content)
   const clientCtx = await loadClientContext(clientId, ctx.segment_id)
 
+  const writerInput = await writerInputForStored(stored, ctx, clientId)
+
   const attempts: AttemptObservation[] = []
   const opening = await produceOpening({
     apiKey,
     clientName: await loadClientName(supabase as never, clientId),
     ctx,
-    candidates: stored.candidates,
+    ...writerInput,
     messagingContent: messaging.content,
     variantId,
     icpBuyerTitle: clientCtx.buyerTitle,
@@ -417,6 +467,7 @@ async function runOne(
     messaging_doc_version: messaging.version,
     source_result_id: stored.result_id,
     candidate_count:  stored.candidates.length,
+    writer_handover:  describeHandover(writerInput),
     strong_material:  opening.strong_material,
     observation:      opening.observation,
     bridge:           opening.bridge,
