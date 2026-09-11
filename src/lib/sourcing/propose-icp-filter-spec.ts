@@ -30,6 +30,7 @@ import {
   type TargetingInputs,
 } from '@/lib/sourcing/targeting-inputs'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import { buildSpecRefusal } from '@/lib/sourcing/spec-refusal'
 
 // What happens to a client's search settings when their ICP, or one of the two inputs
 // outside it, changes. ADR-061.
@@ -261,6 +262,54 @@ export function rederiveCarryingModelParts(live: ICPFilterSpec, inputs: Targetin
  * revenue switch is saved.
  */
 export async function proposeIcpFilterSpec(
+  supabase: SupabaseClient,
+  documentId: string,
+): Promise<ProposalOutcome> {
+  const outcome = await runProposal(supabase, documentId)
+  await recordProposalOutcomeOnDocument(documentId, outcome)
+  return outcome
+}
+
+/**
+ * Write the outcome onto the document, so the operator's ICP page says when the search settings
+ * do not reflect this version. Before this, a failed proposal reached Sentry and nowhere the
+ * operator looks: the ICP read as finished while the search kept its old settings (F2a, 5 Oct
+ * 2026). A later success clears the mark.
+ *
+ * A skipped outcome means the document was not the active ICP, so there is nothing to say about
+ * it and nothing is written. NEVER THROWS: the caller's answer is already decided.
+ */
+async function recordProposalOutcomeOnDocument(
+  documentId: string,
+  outcome: ProposalOutcome,
+): Promise<void> {
+  if (outcome.outcome === 'skipped') return
+  try {
+    const service = await createServiceRoleClient()
+    const refusal =
+      outcome.outcome === 'failed'
+        ? buildSpecRefusal('proposal_failed', `${outcome.step}: ${outcome.error}`)
+        : null
+    const { error } = await service
+      .from('strategy_documents')
+      .update({ icp_filter_spec_refusal: refusal })
+      .eq('id', documentId)
+    if (error) throw new Error(error.message)
+  } catch (err) {
+    logger.error('proposeIcpFilterSpec: could not record the outcome on the document', {
+      document_id: documentId,
+      outcome: outcome.outcome,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    Sentry.withScope(scope => {
+      scope.setTag('component', 'proposeIcpFilterSpec')
+      scope.setTag('step', 'record the outcome on the document')
+      Sentry.captureException(err instanceof Error ? err : new Error(String(err)))
+    })
+  }
+}
+
+async function runProposal(
   supabase: SupabaseClient,
   documentId: string,
 ): Promise<ProposalOutcome> {

@@ -26,6 +26,8 @@ import { DocumentVersionHistory } from '@/components/dashboard/strategy/Document
 import { describeVersionHistory } from '@/lib/dashboard/version-history'
 import { StaleDocumentNotice } from '@/components/dashboard/strategy/StaleDocumentNotice'
 import { selectStaleDocuments } from '@/lib/dashboard/stale-documents'
+import { SpecRefusalNotice } from '@/components/dashboard/strategy/SpecRefusalNotice'
+import { operatorSpecStatus } from '@/lib/sourcing/spec-refusal'
 import type { DocumentType } from '@/types'
 import type { Json } from '@/types/database'
 import { LIVE_DOCUMENT_STATUSES } from '@/lib/documents/live-document-statuses'
@@ -124,7 +126,7 @@ export default async function StrategyDocumentPage({
   // --- Document fetch ---
   let docQuery = supabase
     .from('strategy_documents')
-    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, change_summary, revision_note, icp_filter_spec, is_stale, stale_reason')
+    .select('id, document_type, status, version, content, plain_text, last_updated_at, generated_at, update_trigger, change_summary, revision_note, icp_filter_spec, icp_filter_spec_refusal, is_stale, stale_reason')
     .eq('organisation_id', org.id)
     .eq('document_type', docType)
     .in('status', LIVE_DOCUMENT_STATUSES)
@@ -185,6 +187,14 @@ export default async function StrategyDocumentPage({
   // StaleDocumentNotice for why a client is not shown this.
   const staleNotice =
     doc && isOperatorViewing ? (selectStaleDocuments([doc])[0] ?? null) : null
+
+  // Whether sourcing can use this version of the ICP, and if not, why. Operator only, like the
+  // stale notice above: the detail is written for the person who can fix it. See
+  // SpecRefusalNotice for why this has to be on the page rather than only in Sentry.
+  const specStatus =
+    doc && isOperatorViewing && docType === 'icp'
+      ? operatorSpecStatus(doc.icp_filter_spec, doc.icp_filter_spec_refusal)
+      : null
 
   // ── The buyer criterion, gated before it is anywhere near a component ───────
   //
@@ -337,6 +347,7 @@ export default async function StrategyDocumentPage({
                 <TargetingProposalPanel view={proposalPanel.view} />
               )}
               {proposalPanel.state === 'failed' && <TargetingProposalUnavailable />}
+              {specStatus && <SpecRefusalNotice status={specStatus} />}
               <DocumentVersionHistory
                 versions={versions}
                 canRestore={isOperatorViewing}
