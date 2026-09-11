@@ -23,7 +23,7 @@ function metrics(overrides: Partial<ClientVisibleCampaignMetrics> = {}): ClientV
     sentCount: 26,
     deliveredCount: 26,
     bouncedCount: 0,
-    unsubscribedCount: 1,
+    peopleOptedOutCount: 1,
     repliedCount: 1,
     peopleRepliedCount: 1,
     replyRate: (1 / 26) * 100,
@@ -47,7 +47,7 @@ function largeSample(): ClientVisibleCampaignMetrics {
     sentCount: 4000,
     deliveredCount: 3920,
     bouncedCount: 80,
-    unsubscribedCount: 20,
+    peopleOptedOutCount: 20,
     repliedCount: 160,
     positiveReplyCount: 80,
     meetingsBooked: 30,
@@ -117,10 +117,10 @@ describe('too early to report', () => {
 
   it('shows the counts anyway, because those are true from the first email', () => {
     render(<BenchmarksView metrics={metrics()} />)
-    // The reply card names PEOPLE, and says so, because the denominator is the thing a
-    // reader has to be able to see. The opt-out card still names emails.
+    // Both name PEOPLE, and say so, because the denominator is the thing a reader has to
+    // be able to see. The opt-out card named emails until 2026-09-08.
     expect(screen.getByText('1 reply from 15 people contacted')).toBeInTheDocument()
-    expect(screen.getByText('1 opted out from 26 emails sent')).toBeInTheDocument()
+    expect(screen.getByText('1 opted out from 15 people contacted')).toBeInTheDocument()
   })
 
   it('withholds a zero rate too', () => {
@@ -149,7 +149,8 @@ describe('too early to report', () => {
     expect(screen.getByText('50.0%')).toBeInTheDocument()  // positive share
     expect(screen.getByText('1.5%')).toBeInTheDocument()   // meeting booking
     expect(screen.getByText('2.0%')).toBeInTheDocument()   // bounce
-    expect(screen.getByText('0.5%')).toBeInTheDocument()   // opt-out
+    // 20 people from 2,000 contacted. Per email it would read 0.5%.
+    expect(screen.getByText('1.0%')).toBeInTheDocument()   // opt-out
   })
 })
 
@@ -255,7 +256,7 @@ describe('reply rate is denominated in people, not emails', () => {
       sentCount: 60,
       deliveredCount: 60,
       bouncedCount: 0,
-      unsubscribedCount: 0,
+      peopleOptedOutCount: 0,
       repliedCount: 2,
       positiveReplyCount: 0,
       meetingsBooked: 0,
@@ -276,8 +277,19 @@ describe('reply rate is denominated in people, not emails', () => {
 
     // 400 - 24 = 376 people. On the old denominator it would have been 400 - 60 = 340
     // emails, which is the same sentence measuring a different thing.
-    expect(screen.getByText(/376 to go/)).toBeInTheDocument()
-    expect(screen.getByText(/around 400 people contacted/)).toBeInTheDocument()
+    //
+    // TWO cards say it, not one: the reply card and, since 2026-09-08, the opt-out card.
+    // Both are gated on 400 PEOPLE, so both count down from contactedCount. Asserted as a
+    // count rather than with getByText, which throws on a second match.
+    expect(screen.getAllByText(/376 to go/)).toHaveLength(2)
+    expect(screen.getAllByText(/around 400 people contacted/)).toHaveLength(2)
+
+    // Scoped to the reply card rather than asserted page-wide. The bounce card counts
+    // emails by design and its own shortfall at 60 sent is 400 - 60 = 340, so a
+    // page-wide "never says 340" would fail on a card that is behaving correctly.
+    const replyCard = screen.getByText('Reply rate').closest('div')
+    expect(replyCard?.textContent).toContain('around 400 people contacted, so 376 to go')
+    expect(replyCard?.textContent).not.toContain('emails sent')
   })
 
   it('computes 8.3% and not 3.3% once the sample clears the gate', () => {
@@ -286,20 +298,20 @@ describe('reply rate is denominated in people, not emails', () => {
     // sent-denominated would read 3.3%.
     render(<BenchmarksView metrics={metrics({
       contactedCount: 480, sentCount: 1200, repliedCount: 40,
-      bouncedCount: 0, unsubscribedCount: 0, meetingsBooked: 0, positiveReplyCount: 0,
+      bouncedCount: 0, peopleOptedOutCount: 0, meetingsBooked: 0, positiveReplyCount: 0,
     })} />)
 
     expect(screen.getByText('8.3%')).toBeInTheDocument()
     expect(screen.queryByText('3.3%')).not.toBeInTheDocument()
   })
 
-  it('leaves bounce, opt-out and the positive share on their own denominators', () => {
-    // Bounce and opt-out are per email BY DEFINITION: deliverability is a property of a
-    // message, not of a person. The positive share is of replies. None of them move.
+  it('leaves bounce and the positive share on their own denominators', () => {
+    // Bounce is per email BY DEFINITION: deliverability is a property of a message, not
+    // of a person, and the guidelines it is compared against are stated per message. The
+    // positive share is of replies. Neither moves when the reply denominator does.
     render(<BenchmarksView metrics={largeSample()} />)
 
     expect(screen.getByText('80 bounced from 4,000 emails sent')).toBeInTheDocument()
-    expect(screen.getByText('20 opted out from 4,000 emails sent')).toBeInTheDocument()
     expect(screen.getByText('80 positive from 160 replies')).toBeInTheDocument()
   })
 })
@@ -324,7 +336,7 @@ describe('meeting booking rate is denominated in people, not emails', () => {
       repliedCount: 160,
       positiveReplyCount: 80,
       bouncedCount: 0,
-      unsubscribedCount: 0,
+      peopleOptedOutCount: 0,
       meetingsBooked: 30,
       meetingsHeld: 18,
     })
@@ -353,7 +365,7 @@ describe('meeting booking rate is denominated in people, not emails', () => {
     // rate prints here off 8 meetings, while the reply rate legitimately does not wait.
     render(<BenchmarksView metrics={metrics({
       contactedCount: 800, sentCount: 2000, repliedCount: 64,
-      meetingsBooked: 8, bouncedCount: 0, unsubscribedCount: 0, positiveReplyCount: 0,
+      meetingsBooked: 8, bouncedCount: 0, peopleOptedOutCount: 0, positiveReplyCount: 0,
     })} />)
 
     // Reply rate clears its own gate at 800 people and prints.
@@ -388,11 +400,9 @@ describe('the meeting card shows no industry range, and says why', () => {
     // number would have been the easy version of this change and the wrong one.
     render(<BenchmarksView metrics={largeSample()} />)
 
-    expect(screen.getByText(/No published range/)).toBeInTheDocument()
-    // Said in BOTH places on purpose: on the card, where a reader looking at the meeting
-    // rate will see it, and in the attribution, where a reader auditing the sources will.
-    // Exactly two, so neither copy can be dropped without this failing.
-    expect(screen.getAllByText(/cited a report that does not measure meetings/)).toHaveLength(2)
+    // Two cards now have no range: meetings and opt-out.
+    expect(screen.getAllByText(/No published range/)).toHaveLength(2)
+    expect(screen.getByText(/measures meetings booked per person contacted/)).toBeInTheDocument()
   })
 
   it('never claims the meeting rate sits anywhere relative to a range', () => {
@@ -420,7 +430,7 @@ describe('every card states the unit it was measured in', () => {
       '80 positive from 160 replies',
       '30 meetings from 2,000 people contacted',
       '80 bounced from 4,000 emails sent',
-      '20 opted out from 4,000 emails sent',
+      '20 opted out from 2,000 people contacted',
     ]) {
       expect(screen.getByText(line)).toBeInTheDocument()
     }
@@ -434,7 +444,8 @@ describe('every card states the unit it was measured in', () => {
     expect(screen.getByText('0.7–3% of people contacted')).toBeInTheDocument()
     expect(screen.getByText('40–65% of replies')).toBeInTheDocument()
     expect(screen.getByText('0–2% of emails sent')).toBeInTheDocument()
-    expect(screen.getByText('0–1% of emails sent')).toBeInTheDocument()
+    // The opt-out range is gone entirely, so there is no unit to name beside it. See the
+    // opt-out block at the end of this file.
   })
 })
 
@@ -455,5 +466,159 @@ describe('the reply range is measured per person, matching the rate above it', (
 
     expect(screen.getByText(/both measured per person contacted/)).toBeInTheDocument()
     expect(screen.getAllByText('Smartlead and ReplyLead · 2026').length).toBeGreaterThan(0)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE OPT-OUT CARD COUNTS OUR OWN RECORDS, AND DIVIDES BY PEOPLE
+//
+// It read 0 on 2026-09-08 for a client two people had written to and asked to stop. The
+// numerator was campaigns.unsubscribed_count, which counts unsubscribe LINK CLICKS, and
+// our footer says "Not for you? Just reply stop." There is no link, so that number is
+// blind to our opt-outs by construction rather than by lag.
+//
+// These are mutation guards. Each names what turns it red.
+
+describe('opt-out rate is counted from our own records, per person', () => {
+  // The LIVE CAMPAIGN as measured on 2026-09-08: 69 people, 117 emails, 2 people who
+  // wrote in to say stop, and a provider tally of 0.
+  function liveCampaign(): ClientVisibleCampaignMetrics {
+    return metrics({
+      contactedCount: 69,
+      sentCount: 117,
+      deliveredCount: 117,
+      bouncedCount: 0,
+      peopleOptedOutCount: 2,
+      repliedCount: 2,
+      peopleRepliedCount: 2,
+      positiveReplyCount: 0,
+      meetingsBooked: 0,
+      meetingsHeld: 0,
+    })
+  }
+
+  it('shows the two people who opted out, not the provider zero', () => {
+    render(<BenchmarksView metrics={liveCampaign()} />)
+
+    expect(screen.getByText('2 opted out from 69 people contacted')).toBeInTheDocument()
+    // The line the card printed until 2026-09-08. If it renders again the numerator has
+    // gone back to the provider.
+    expect(screen.queryByText('0 opted out from 117 emails sent')).not.toBeInTheDocument()
+  })
+
+  it('names people, never emails, on the opt-out card', () => {
+    render(<BenchmarksView metrics={liveCampaign()} />)
+
+    // MUTATION: set optOutRate.unit back to 'emails sent' and this line becomes
+    // "2 opted out from 117 emails sent". The unit drives the division, so changing it
+    // changes both halves of the sentence at once.
+    expect(screen.queryByText('2 opted out from 117 emails sent')).not.toBeInTheDocument()
+  })
+
+  it('measures the shortfall in people, so the too-early line counts the right thing', () => {
+    render(<BenchmarksView metrics={liveCampaign()} />)
+
+    // 400 - 69 = 331 people, on the reply card AND the opt-out card, because both are
+    // gated on people now.
+    expect(screen.getAllByText(/331 to go/)).toHaveLength(2)
+
+    // MUTATION GUARD, scoped to the opt-out card. Put the unit back to 'emails sent' and
+    // this line becomes "around 400 emails sent, so 283 to go". Not asserted page-wide:
+    // the bounce card counts emails legitimately and says 283 itself at 117 sent, so a
+    // page-wide check would pass on the wrong card and fail on a correct one.
+    const optOutCard = screen.getByText('Opt-out rate').closest('div')
+    expect(optOutCard?.textContent).toContain('around 400 people contacted, so 331 to go')
+    expect(optOutCard?.textContent).not.toContain('emails sent')
+  })
+
+  it('computes 2.9% and not 1.7% once the sample clears the gate', () => {
+    // The same live ratio scaled ten-fold, so the rate actually prints. This is the
+    // assertion that fails if the denominator goes back to emails: at these values
+    // send-denominated reads 1.7%.
+    render(<BenchmarksView metrics={metrics({
+      contactedCount: 690, sentCount: 1170, peopleOptedOutCount: 20,
+      repliedCount: 0, bouncedCount: 0, meetingsBooked: 0, positiveReplyCount: 0,
+    })} />)
+
+    expect(screen.getByText('2.9%')).toBeInTheDocument()
+    expect(screen.queryByText('1.7%')).not.toBeInTheDocument()
+  })
+
+  it('shows no industry range on the opt-out card, and says why', () => {
+    render(<BenchmarksView metrics={largeSample()} />)
+
+    // The removed range, in every form it was ever rendered in. Page-wide, because the
+    // 0 to 1 range appeared nowhere else.
+    const text = document.body.textContent ?? ''
+    expect(text).not.toContain('0–1%')
+    expect(text).not.toContain('0-1%')
+
+    // The unsourced label, scoped to THIS card. It is still the positive reply card's
+    // source and that is a separate question, deliberately not changed here.
+    const optOutCard = screen.getByText('Opt-out rate').closest('div')
+    expect(optOutCard?.textContent).not.toContain('Aggregated B2B research')
+
+    // Said out loud on the card rather than left as an empty heading.
+    expect(screen.getByText(/Published opt-out figures count people who clicked an unsubscribe link/))
+      .toBeInTheDocument()
+  })
+
+  it('never claims the opt-out rate sits anywhere relative to a range', () => {
+    // 20 from 2,000 is 1.0%, which would have been "within" the old 0 to 1 range. With no
+    // range there is nothing to be within, and inventing a position would be the deleted
+    // number coming back wearing a different hat.
+    render(<BenchmarksView metrics={largeSample()} />)
+
+    const optOutCard = screen.getByText('Opt-out rate').closest('div')
+    expect(optOutCard?.textContent).not.toContain('Within the industry range')
+    expect(optOutCard?.textContent).not.toContain('Above the industry range')
+    expect(optOutCard?.textContent).not.toContain('Below the industry range')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTHING ON THIS PAGE EXPLAINS OUR OWN PAST DECISIONS TO A CLIENT
+//
+// A client never saw the earlier figures, so a sentence about what "previously" stood
+// here reads as an apology for something that did not happen to them. The reasoning
+// belongs in the source files, where it is kept, and in sourceCitation, which is internal
+// and never rendered.
+
+describe('no changelog copy reaches the client', () => {
+  it('carries no sentence about what the page used to show', () => {
+    render(<BenchmarksView metrics={largeSample()} />)
+    const text = document.body.textContent ?? ''
+
+    for (const phrase of [
+      'previously',
+      'cited a report that does not measure meetings',
+      'shown here',
+      'no longer',
+      'used to',
+      'we removed',
+      'Removed 2026',
+    ]) {
+      expect(text).not.toContain(phrase)
+    }
+  })
+
+  it('still says what the reader is looking at now', () => {
+    // The forward-looking half of each absent-range note stays. Deleting the changelog
+    // must not take the explanation with it: a heading with nothing under it reads as a
+    // loading failure.
+    render(<BenchmarksView metrics={largeSample()} />)
+
+    expect(screen.getAllByText(/No published range/)).toHaveLength(2)
+    expect(screen.getByText(/measures meetings booked per person contacted/)).toBeInTheDocument()
+    expect(screen.getByText(/not measuring the same thing/)).toBeInTheDocument()
+  })
+
+  it('proves the search can find something that IS on the page', () => {
+    // The instrument check. A `not.toContain` sweep that never ran looks exactly like a
+    // clean page, so assert a positive with the same shape first.
+    render(<BenchmarksView metrics={largeSample()} />)
+    const text = document.body.textContent ?? ''
+
+    expect(text).toContain('Industry ranges are context, not targets')
   })
 })

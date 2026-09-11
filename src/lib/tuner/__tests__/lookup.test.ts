@@ -10,8 +10,9 @@ const webSearch = vi.fn()
 vi.mock('@/lib/agents/tools/webSearch', () => ({ webSearch: (...a: unknown[]) => webSearch(...a) }))
 
 import {
-  LookupBudget, lookUpCompany, lookupIsUsable, buildLookupQuery, MIN_USEFUL_LOOKUP_CHARS,
+  LookupBudget, lookUpCompany, lookUpMany, lookupIsUsable, buildLookupQuery, MIN_USEFUL_LOOKUP_CHARS,
 } from '@/lib/tuner/lookup'
+import { FatalApiError } from '@/lib/agents/fatal-api-error'
 
 afterEach(() => { webSearch.mockReset() })
 
@@ -130,5 +131,78 @@ describe('a page with nothing useful on it does not become a verdict', () => {
     const q = buildLookupQuery('Zqv-1234')
     expect(q).toContain('Zqv-1234')
     expect(q.toLowerCase()).not.toMatch(/consult|software|school|health|retail|logistic/)
+  })
+})
+
+describe('a billing or auth failure stops the lookups, and is never recorded as a company we could not research', () => {
+  // MEASURED 2026-09-10: the credit balance ran out partway through a paid 220-company round.
+  // The lookup step used to catch that failure and record a failed lookup, which the judge
+  // reads as "could not establish" for that company: a verdict about the company, entered
+  // into the fit proportion, with no error anywhere. It is the account, not the company.
+
+  const FATAL = () => new FatalApiError('Anthropic credit balance exhausted (Anthropic web search)', 'placeholder')
+
+  it('rethrows a fatal failure from the search, and records no lookup for it', async () => {
+    webSearch.mockRejectedValue(FATAL())
+    const budget = new LookupBudget(10)
+    await expect(lookUpCompany('Alpha-1', budget)).rejects.toBeInstanceOf(FatalApiError)
+    expect(budget.lookups).toBe(0)
+    expect(budget.cached('Alpha-1')).toBeUndefined()
+  })
+
+  it('treats the raw billing message the provider actually sends as fatal too', async () => {
+    // The exact shape that reached the top of the failed run, in case a change upstream ever
+    // stops wrapping it.
+    webSearch.mockRejectedValue(new Error(
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}',
+    ))
+    const budget = new LookupBudget(10)
+    await expect(lookUpCompany('Alpha-1', budget)).rejects.toBeInstanceOf(FatalApiError)
+    expect(budget.lookups).toBe(0)
+  })
+
+  it('CONTROL: an ordinary failure is still one company that could not be researched', async () => {
+    webSearch.mockRejectedValue(new Error('placeholder transient failure'))
+    const budget = new LookupBudget(10)
+    const result = await lookUpCompany('Alpha-1', budget)
+    expect(result?.limited).toBe(true)
+    expect(budget.lookups).toBe(1)
+  })
+
+  it('the batch stops at the first fatal failure and rejects, one at a time', async () => {
+    let calls = 0
+    webSearch.mockImplementation(async () => {
+      calls++
+      if (calls === 3) throw FATAL()
+      return good()
+    })
+    const names = Array.from({ length: 50 }, (_, i) => `Alpha-${i}`)
+    await expect(lookUpMany(names, new LookupBudget(1000), 1)).rejects.toBeInstanceOf(FatalApiError)
+    expect(calls).toBe(3)
+  })
+
+  it('ten at a time: no worker starts another lookup once one has failed fatally', async () => {
+    // The first lookup fails fatally at once; the nine started beside it succeed a moment
+    // later. Without the stop, each of those nine would go on taking names until all fifty
+    // were looked up, on a round already declared failed.
+    let calls = 0
+    webSearch.mockImplementation(async () => {
+      const n = ++calls
+      await new Promise(r => setTimeout(r, n === 1 ? 0 : 5))
+      if (n === 1) throw FATAL()
+      return good()
+    })
+    const names = Array.from({ length: 50 }, (_, i) => `Alpha-${i}`)
+    await expect(lookUpMany(names, new LookupBudget(1000), 10)).rejects.toBeInstanceOf(FatalApiError)
+    expect(calls).toBeLessThanOrEqual(10)
+  })
+
+  it('CONTROL: with no fatal failure the batch looks every name up', async () => {
+    let calls = 0
+    webSearch.mockImplementation(async () => { calls++; return good() })
+    const names = Array.from({ length: 50 }, (_, i) => `Alpha-${i}`)
+    const out = await lookUpMany(names, new LookupBudget(1000), 10)
+    expect(calls).toBe(50)
+    expect(out.every(r => r && !r.limited)).toBe(true)
   })
 })

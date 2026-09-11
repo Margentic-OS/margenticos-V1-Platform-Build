@@ -116,6 +116,19 @@ export const POSITIVE_REPLY_INTENTS = [
   'information_request_commercial',
 ] as const
 
+// ─── WHAT COUNTS AS AN OPT-OUT ───────────────────────────────────────────────
+//
+// One intent, and it lives here for the same reason the two lists above do: it is a
+// definition of what a reply MEANS, and a second private copy in the metrics layer would
+// be free to drift from the classifier this file already speaks for.
+//
+// A single string rather than a list, deliberately. There is exactly one refusal intent
+// in the taxonomy (see reply-classifier.ts), and wrapping it in an array to look like its
+// neighbours would suggest a set that can grow without anyone having decided it should.
+// objection_mild is NOT an opt-out: "come back next quarter" is a soft no, not a request
+// to stop, and it does not suppress anybody.
+export const OPT_OUT_INTENT = 'opt_out'
+
 // Two values. Never five, and never the raw intent.
 export type ClientReplyBadge = 'interested' | 'meeting_booked'
 

@@ -63,7 +63,7 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
     sentCount,
     repliedCount,
     bouncedCount,
-    unsubscribedCount,
+    peopleOptedOutCount,
     positiveReplyCount,
     meetingsBooked,
   } = metrics
@@ -97,12 +97,18 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
   // from campaigns.contacted_count. Do NOT substitute the provider's own field of that
   // name: see campaign-analytics.ts, where it read 52 against 24 leads.
   //
-  // WHAT THE REPLY RATE IS, EXACTLY. The numerator is the provider's reply count, which
-  // is a count of REPLIES and not of people who replied. We cannot decompose it: our own
-  // signals rows carry a NULL prospect_id, so "distinct people who replied" is not
-  // available from this database today. So it is replies per person contacted: the right
-  // denominator and an approximate numerator. It overstates only when one person replies
-  // twice, which is rarer than one person receiving four emails. Recorded in BACKLOG.
+  // WHAT THE REPLY RATE IS, EXACTLY. The numerator is still the provider's reply count,
+  // which counts REPLIES and not people who replied. So it is replies per person
+  // contacted: the right denominator and an approximate numerator.
+  //
+  // THE REASON GIVEN HERE FOR THAT IS NO LONGER TRUE AND IS CORRECTED RATHER THAN LEFT.
+  // It said "distinct people who replied is not available from this database today",
+  // because signals rows carried a null prospect_id. metrics.peopleRepliedCount now
+  // computes exactly that, from reply_handling_actions, and the client overview already
+  // renders it as the Replies count. So this card and the overview can print two
+  // different reply counts for one client, which is the thing this file's own rules
+  // forbid. Not changed here because the numerator swap is a deliberate decision with
+  // both halves to check, not a tidy-up: see the Notion Backlog row opened 2026-09-08.
   function denominatorFor(unit: RateUnit): number {
     switch (unit) {
       case 'people contacted': return contactedCount
@@ -136,17 +142,32 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
     TIER1_BENCHMARKS.meetingBookingRate, MIN_PEOPLE_FOR_MEETING_RATE,
   )
 
-  // BOTH STAY PER EMAIL, and that is not an omission. Deliverability is a property of each
-  // message: a bounce is one address rejecting one delivery, and an opt-out arrives from
-  // one email even when three more were scheduled. Dividing either by people would answer
-  // a question nobody asks of them.
+  // BOUNCE STAYS PER EMAIL, and that is not an omission. Deliverability is a property of
+  // each message: a bounce is one address rejecting one delivery, and the Google and Yahoo
+  // guidelines it is compared against are stated per message too.
   const bounce = card(
     bouncedCount, 'bounced',
     TIER1_BENCHMARKS.bounceRate, MIN_SENDS_FOR_RATE,
   )
+
+  // ─── OPT-OUT: OUR OWN RECORDS, AND PER PERSON, SINCE 2026-09-08 ───────────
+  //
+  // The numerator WAS campaigns.unsubscribed_count, the provider's tally, and it is not
+  // fetched any more. The provider counts unsubscribe LINK CLICKS and our footer asks for
+  // a reply instead, so its number is blind to our opt-outs by construction: it read 0
+  // while two people had written to say stop.
+  //
+  // The unit moved with it. A person opts out once and is suppressed from every remaining
+  // step, so a de-duplicated count of people divided by emails would be the mixed unit
+  // this page exists to prevent. Both halves of our own side moved together. There is no
+  // published range left to compare against, and tier1-benchmarks.ts records why.
+  //
+  // Gated on MIN_PEOPLE_FOR_RATE, not MIN_SENDS_FOR_RATE. Same 400, different unit, and
+  // the card prints that unit in its own too-early line, so passing the sends constant
+  // here would put "around 400 emails sent" under a rate measured in people.
   const optOut = card(
-    unsubscribedCount, 'opted out',
-    TIER1_BENCHMARKS.optOutRate, MIN_SENDS_FOR_RATE,
+    peopleOptedOutCount, 'opted out',
+    TIER1_BENCHMARKS.optOutRate, MIN_PEOPLE_FOR_RATE,
   )
 
   // A share OF replies. Its denominator was never emails and is unaffected by any of this.
@@ -216,12 +237,14 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
 
       {/* Attribution. Every range names the unit it was measured in, on its own card,
           because a range and a rate are only comparable when both counted the same thing.
-          The meeting card carries no range at all: see tier1-benchmarks.ts. */}
+          The meeting and opt-out cards carry no range at all, and each says so in its
+          own note: see tier1-benchmarks.ts for the sources checked and rejected. */}
       <div className="px-1 pt-3 pb-2 space-y-1">
         <p className="text-[11px] text-text-secondary leading-relaxed max-w-[70ch]">
           Industry ranges are context, not targets. Each card states what its range was
           measured against, because a rate and a range only compare when both counted the
-          same thing. Reply rates are drawn from{' '}
+          same thing. Two cards carry no range, and say so on the card itself. Reply rates
+          are drawn from{' '}
           <a
             href="https://www.smartlead.ai/benchmarks/average-cold-email-reply-rate"
             target="_blank"
@@ -242,12 +265,6 @@ export function BenchmarksView({ metrics }: BenchmarksViewProps) {
           , both measured per person contacted. Bounce rates come from Google and
           Yahoo&apos;s 2024 bulk sender guidelines. Open rate is excluded because it has
           been unreliable since Apple Mail&apos;s 2021 privacy changes.
-        </p>
-        <p className="text-[11px] text-text-secondary leading-relaxed max-w-[70ch]">
-          There is no industry range on the meeting booking card. The figure shown there
-          previously cited a report that does not measure meetings, and we could not find
-          a published range measured per person contacted. Your own rate is shown without
-          one rather than beside a number we cannot stand behind.
         </p>
         <p className="text-[10px] text-text-muted">
           Ranges last reviewed: {BENCHMARKS_LAST_UPDATED}

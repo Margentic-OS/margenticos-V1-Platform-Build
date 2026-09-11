@@ -41,6 +41,16 @@ Fields:
                                      regardless of the automatic unlock rules (2 months / 5 meetings).
                                      Default false. Never exposed to clients via client_organisation_view.
   meetings_count      — running count of qualified meetings booked
+  sourcing_revenue_filter_enabled — boolean NOT NULL DEFAULT false (2026-09-10). Per-client
+                                     opt-in for the ICP revenue band as a sourcing filter. Read
+                                     when the spec is derived at ICP approval, so a change
+                                     takes effect at the next approval. Off: the band is stored
+                                     on the spec and switched off, with the reason recorded in
+                                     omission_reasons. On: the band is sent. Off by default
+                                     because the provider's revenue filter excludes every
+                                     company with no revenue figure recorded (78% of one live
+                                     client's search). Operators switch it in Settings; clients
+                                     have no UPDATE policy on this table.
   created_at / updated_at
 
 RLS (read back from pg_policies live on 2026-08-27, not from the migration files):
@@ -110,8 +120,8 @@ Permissions (read back live after the change):
   Only clients are restricted to this view.
 
   Nothing in src/ reads this view today. There is no `.from('client_organisation_view')`
-  anywhere in the application, only generated FK metadata in the two database.types
-  files. If you wire a client-facing organisation read, this is the path to use.
+  anywhere in the application, only generated FK metadata in src/types/database.ts.
+  If you wire a client-facing organisation read, this is the path to use.
 
 If you add a new operator-only field to organisations:
   Do not add it to this view. It will remain invisible to clients automatically.

@@ -304,8 +304,8 @@ true from the first email; only the rate has to wait.
 
 | Gate | Value | Derivation |
 |---|---|---|
-| Send-denominated rates (bounce, opt-out) | 400 emails | standard error of a proportion under 1 point at a 4% rate needs n ≈ 384; at a 1% rate, under half a point needs n ≈ 396 |
-| Reply rate | 400 people | same algebra, different unit. n is a count of people, and the formula assumes n INDEPENDENT trials: four emails to one person are one person deciding once, not four chances |
+| Bounce rate | 400 emails | standard error of a proportion under 1 point at a 4% rate needs n ≈ 384; at a 1% rate, under half a point needs n ≈ 396 |
+| Reply rate, opt-out rate | 400 people | same algebra, different unit. n is a count of people, and the formula assumes n INDEPENDENT trials: four emails to one person are one person deciding once, not four chances |
 | Meeting booking rate | 1,500 people | derived separately, NOT copied from the reply gate. Meetings run near 0.9%, and half a point apart at that rate needs 0.0025 = sqrt(0.009 × 0.991 / n) → n ≈ 1,427. At 400 people the expected meeting count is about 3.6, and a rate off 3.6 events moves by a third of itself when the next one lands |
 | Positive reply share | 25 replies | denominator is replies and the proportion sits near half, where the error is widest: a 10-point standard error needs n = 25 |
 
@@ -347,8 +347,82 @@ the Instantly report that does not contain it. The card shows the rate alone and
 its face that there is no range. In the type system this is a discriminated union member,
 not an optional field, so removing a range without writing down why does not compile.
 
-Bounce and opt-out stay per email and must: deliverability is a property of a message, not
-of the person it was addressed to. The positive share is of replies and always was.
+Bounce stays per email and must: deliverability is a property of a message, not of the
+person it was addressed to, and the Google and Yahoo guidelines it is compared against are
+stated per message too. The positive share is of replies and always was. **Opt-out moved
+to people on 2026-09-08** and no longer stays with bounce; see the section below.
+
+**THE OPT-OUT CARD COUNTS OUR OWN RECORDS, NOT THE PROVIDER'S. 2026-09-08.**
+
+It read 0 for a client two people had written in to say stop. Both were classified
+`opt_out`, both were suppressed, both had `reply_handling_actions` rows. The card was
+dividing `campaigns.unsubscribed_count` by emails sent.
+
+**The provider's number is blind to our opt-outs by construction, and always will be.** It
+counts unsubscribe LINK CLICKS. Our opt-out footer is "Not for you? Just reply stop." There
+is no link to click, on purpose. So a client running our copy as designed produces opt-outs
+the sending tool cannot see. This is not a sync lag that closes; it is the two systems
+counting different events.
+
+The numerator is now `peopleOptedOutCount`: distinct prospects with
+`classified_intent = 'opt_out'`, read from `reply_handling_actions` at the metrics
+chokepoint. Same table, same helper and same shape as `peopleRepliedCount`, so the opt-out
+count and the overview's reply count cannot drift apart.
+
+Not read from `prospects.suppressed`, which is also true for operator stops and research
+disqualifications and would have read 7 against 2 on the live org. Not read from
+`prospects.suppression_reason = 'explicit_opt_out'` either, which narrows correctly but is
+a materialised verdict written only where a prospect row resolved and the update succeeded.
+The action row is written FIRST, before dispatch, and a person whose suppression write
+failed still told us to stop.
+
+**The unit moved with the numerator**, which is the half the 2026-09-02 defect got wrong. A
+person opts out once and is suppressed from every remaining step, so the count is
+de-duplicated people and the denominator is people contacted. Live: 2 from 69, about 2.9%,
+where the provider said 0 from 117.
+
+**`campaigns.unsubscribed_count` is no longer selected or returned at all.** A
+client-facing metrics type carrying a field known to read 0 while people are opting out is
+an invitation to render it again. `campaign-metrics-failure.test.ts` asserts the exact
+select string, so putting the column back turns that registry red.
+
+**The 0 to 1% range came off rather than being relabelled.** Every published opt-out figure
+checked on 2026-09-08 counts link clicks per email sent: Omnisend, Listclean and Smartlead
+all state 0.1 to 0.5% or "under 2%" per send. ReplyLead's August 2026 dataset holds 103
+unsubscribes across 242,669 unique leads, which is 0.04% per contacted lead if computed
+from their raw counts, but they do not publish it as a benchmark and it is link clicks too.
+So no published figure counts what we count: both the numerator and the denominator differ.
+The old citation also read "Aggregated B2B research", which names no study, the same
+failure that removed the meeting range. The card now says there is no range and why.
+
+**What this makes visible, said plainly because it is uncomfortable.** The client's own
+opt-out rate is roughly 2.9%, well above the 0 to 1% that used to be printed. The range
+coming off is not what hides that: the count is on the card either way, and the old 0 was
+the thing hiding it. Note the sample gate still withholds the RATE at 69 people, so what
+renders today is "2 opted out from 69 people contacted" and "too early to report a rate".
+
+**NO COPY ON A CLIENT SCREEN EXPLAINS OUR OWN PAST DECISIONS. 2026-09-08.**
+
+The attribution notes carried a paragraph reading "The figure previously shown here cited a
+report that does not measure meetings", and the meeting card's own absent-range note opened
+with the same sentence. Both are deleted. **A client never saw the old figure**, so the
+sentence reads as an apology for something that never happened to them, and it spends their
+attention on our changelog instead of on what they are looking at.
+
+The forward-looking half of each note stays, because that explains what is on screen now:
+"No published range. We could not find a source that measures meetings booked per person
+contacted." The reasoning lives in `sourceCitation`, which is a field on every benchmark
+and **is never rendered** (`BenchmarkCard` reads `sourceLabel` only), and in the source
+file comments.
+
+`BenchmarksView.test.tsx` guards this with a sweep for "previously", "no longer", "used to",
+"shown here" and "Removed 2026" over the rendered page, paired with a positive control that
+proves the sweep can find a string that IS on the page. A `not.toContain` sweep that never
+ran looks exactly like a clean page.
+
+Audited on 2026-09-08 across `src/app/dashboard/(client)/` and every client-facing component
+and copy module. Two instances existed, both on this page, both now gone. Everything else
+matching that grep is a code comment, which is where this reasoning belongs.
 
 **The ninety-days block is collapsed by default.** It was four paragraphs above the
 cards, which is why nobody read it. It is now a disclosure with the lead line

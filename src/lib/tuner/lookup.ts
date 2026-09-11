@@ -21,6 +21,7 @@
 
 import { webSearch } from '@/lib/agents/tools/webSearch'
 import { logger } from '@/lib/logger'
+import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { PRICE_PER_BILLABLE_SEARCH, tokenCost, isPricedModel, usd } from '@/lib/tuner/pricing'
 
 /**
@@ -199,6 +200,18 @@ export async function lookUpCompany(
     budget.record(companyName, out)
     return out
   } catch (err) {
+    // A BILLING OR AUTH FAILURE IS NOT A COMPANY WE COULD NOT RESEARCH. It is the account, and
+    // it is true of every company after this one. This catch used to record it as a failed
+    // lookup, which the judge then read as "could not establish" for that company: a verdict
+    // about the company, entered into the fit proportion, with no error anywhere. MEASURED
+    // 2026-09-10: the credit balance ran out partway through a paid 220-company round, and
+    // the run failed loudly only because the judging call after it threw.
+    //
+    // So it is rethrown, and NOT recorded, because no lookup happened. webSearch already
+    // rethrows it as a FatalApiError; this checks again so a change there cannot quietly
+    // reopen the hole, and so a raw billing message that reaches here unwrapped is caught too.
+    throwIfFatal(err, 'tuner lookup')
+
     // A failed lookup still costs whatever the provider ran before it failed, and that is not
     // knowable from here. It is counted as one lookup so the cap cannot be bypassed by
     // failures, and as zero billable searches so the reported bill is never overstated.
@@ -267,15 +280,32 @@ export async function lookUpMany(
 ): Promise<(LookupResult | null)[]> {
   const out: (LookupResult | null)[] = new Array(names.length).fill(null)
   let next = 0
+
+  // THE FIRST FATAL FAILURE STOPS EVERY WORKER. lookUpCompany throws only for a failure that
+  // is true of the account rather than of one company (see its catch). Promise.all rejects on
+  // the first one, but it does NOT stop the other workers, and they would go on taking names:
+  // for a failure other than a spent balance, that is money spent on a round already declared
+  // failed. So every worker checks this before taking another name, the lookups already in
+  // flight are allowed to settle, and only then is the error thrown.
+  const halt: { hit: boolean; err: unknown } = { hit: false, err: null }
+
   await Promise.all(
     Array.from({ length: Math.max(1, Math.min(concurrency, names.length)) }, async () => {
       for (;;) {
+        if (halt.hit) return
         const i = next++
         if (i >= names.length) return
         const name = names[i]
-        out[i] = name ? await lookUpCompany(name, budget) : null
+        try {
+          out[i] = name ? await lookUpCompany(name, budget) : null
+        } catch (err) {
+          if (!halt.hit) { halt.hit = true; halt.err = err }
+          return
+        }
       }
     }),
   )
+
+  if (halt.hit) throw halt.err
   return out
 }

@@ -115,3 +115,69 @@ export async function updateBookingUrl(
 
   return { value: stored }
 }
+
+/**
+ * Switches the ICP revenue band on or off as a sourcing filter, for one client.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════
+ * OFF UNLESS AN OPERATOR TURNS IT ON
+ *
+ * MEASURED 2026-09-10: the sourcing provider's revenue filter excludes every company it holds
+ * no revenue figure for, and no request shape keeps them. On one live client's search that was
+ * 78% of everyone it could reach, so applying a band by default would delete most of a
+ * client's audience for missing data rather than for being the wrong size. The band is
+ * therefore applied only to a client who has been opted in, here.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════
+ * IT TAKES EFFECT AT THE NEXT ICP APPROVAL
+ *
+ * The spec is built from this switch when the ICP is approved, so the stored spec always
+ * describes the search it produces. Flipping it does not rewrite a stored spec, and the page
+ * says so beside the control.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════
+ * A BOOLEAN IS VALIDATED AS A BOOLEAN
+ *
+ * A caller posting the string "false" would otherwise be truthy and switch a client ON while
+ * the operator meant off, which is the one direction this setting must never fail in.
+ */
+export async function updateRevenueFilterEnabled(
+  orgId: string,
+  enabled: boolean,
+): Promise<{ error?: string; value?: boolean }> {
+  if (typeof enabled !== 'boolean') {
+    return { error: 'The revenue filter can only be switched on or off.' }
+  }
+
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  // The session client, matching updateBookingUrl: operators_full_access_organisations is an
+  // ALL policy gated by is_operator(), and clients have no UPDATE policy on organisations, so
+  // RLS is a real second layer and a client cannot switch this on for themselves.
+  const { error } = await supabase
+    .from('organisations')
+    .update({ sourcing_revenue_filter_enabled: enabled })
+    .eq('id', orgId)
+
+  if (error) return { error: error.message }
+
+  logger.info('operator: revenue filter opt-in changed', {
+    organisation_id: orgId,
+    enabled,
+  })
+
+  revalidatePath('/dashboard/operator/settings')
+
+  return { value: enabled }
+}
