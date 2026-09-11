@@ -35,6 +35,10 @@ export interface OrchestratorInput {
   }
   prospectId: string | null
   supabase: SupabaseServiceClient
+  // False when the organisation has no booking link, so process-reply could not send its
+  // automatic booking reply and handed the reply here for an operator to answer instead.
+  // Only an explicit false changes routing. Absent behaves exactly as before.
+  bookingLinkSet?: boolean
 }
 
 export type OrchestratorResult =
@@ -122,7 +126,16 @@ export async function orchestrateDraft(input: OrchestratorInput): Promise<Orches
     faqMatchResults.length > 0 ? Math.max(...faqMatchResults.map((m) => m.score)) : null
 
   // ── 2. Route intent ───────────────────────────────────────────────────────
-  const routing = routeIntent({ intent, confidence, faqMatchTopScore })
+  const routed = routeIntent({ intent, confidence, faqMatchTopScore })
+
+  // A high-confidence booking reply is Tier 1 only because process-reply answers it
+  // automatically, and it can do that only with a booking link. Without one it arrives
+  // here and is drafted for the operator as Tier 2, rather than thrown back as a caller
+  // error. The throw below still fires for every other Tier 1 arrival.
+  const routing =
+    routed === 'tier_1_handled' && intent === 'positive_direct_booking' && input.bookingLinkSet === false
+      ? 'tier_2'
+      : routed
 
   // ── 3. Guard: Tier 1 throws; log_only returns immediately ─────────────────
   if (routing === 'tier_1_handled') {

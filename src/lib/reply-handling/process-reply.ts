@@ -121,7 +121,7 @@ function buildCalendlyReplyBody(
 
 interface ExistingActionSummary {
   classifierFailedCount: number
-  terminalAction: { action_taken: string; action_succeeded: boolean | null } | null
+  terminalAction: { action_taken: string; action_succeeded: boolean | null; action_error: string | null } | null
 }
 
 async function getExistingActionSummary(
@@ -131,7 +131,7 @@ async function getExistingActionSummary(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: rows, error } = await (supabase as any)
     .from('reply_handling_actions')
-    .select('action_taken, action_succeeded')
+    .select('action_taken, action_succeeded, action_error')
     .eq('signal_id', signalId)
 
   if (error) {
@@ -142,7 +142,7 @@ async function getExistingActionSummary(
   let classifierFailedCount = 0
   let terminalAction: ExistingActionSummary['terminalAction'] = null
 
-  for (const row of (rows ?? []) as Array<{ action_taken: string; action_succeeded: boolean | null }>) {
+  for (const row of (rows ?? []) as Array<{ action_taken: string; action_succeeded: boolean | null; action_error: string | null }>) {
     if (row.action_taken === 'classifier_failed') {
       classifierFailedCount++
     } else {
@@ -320,11 +320,16 @@ async function processOneSignal(
   }
 
   if (existing.terminalAction) {
-    const { action_taken, action_succeeded } = existing.terminalAction
+    const { action_taken, action_succeeded, action_error } = existing.terminalAction
     if (action_taken === 'send_reply' && action_succeeded === null) {
       logger.warn('process-reply: send_reply interrupted mid-call — marking processed, manual review needed', { signal_id: signalId })
     } else if (action_taken === 'send_reply' && action_succeeded === false) {
-      logger.warn('process-reply: send_reply API failed on previous run — marking processed, manual review needed', { signal_id: signalId })
+      // Reports the cause the failed attempt recorded. This line used to say the API failed
+      // whatever happened, including when no call was made because the org had no booking link.
+      logger.warn('process-reply: send_reply failed on previous run — marking processed, manual review needed', {
+        signal_id: signalId,
+        cause: action_error ?? 'no cause recorded',
+      })
     } else if (action_taken === 'suppress' && action_succeeded === false) {
       // DB suppression was applied on the previous run, but Instantly-side suppression failed.
       // The prospect cannot receive future MargenticOS sends (DB is authoritative), but their
@@ -477,6 +482,9 @@ async function processOneSignal(
 
   const calendlyUrl = org?.calendly_url ?? null
   const founderFirstName = org?.founder_first_name?.trim() ?? ''
+  // One value for both the auto-send decision and what the orchestrator is told, so the
+  // two cannot disagree about whether this organisation has a link. Whitespace is no link.
+  const bookingLinkSet = Boolean(calendlyUrl?.trim())
 
   // ── Classify — always pass subject for OOO detection ─────────────────────
 
@@ -600,7 +608,20 @@ async function processOneSignal(
   } else if (intent === 'out_of_office') {
     actionTaken = 'ooo_log'
   } else if (intent === 'positive_direct_booking' && confidence >= POSITIVE_BOOKING_CONFIDENCE_THRESHOLD) {
-    actionTaken = 'send_reply'
+    // NO BOOKING LINK, NO AUTOMATIC REPLY. Until 2026-09-10 this took send_reply regardless,
+    // failed at the link check in the dispatch below, and the prospect who had just asked
+    // to book received nothing. It now goes to the orchestrator like any other reply and
+    // becomes a draft in the triage queue, so a person answers it with a link.
+    if (bookingLinkSet) {
+      actionTaken = 'send_reply'
+    } else {
+      logger.warn('process-reply: no booking link set — booking reply drafted for the operator instead of sent', {
+        signal_id: signalId,
+        organisation_id: signal.organisation_id,
+        fix: 'Set the client booking link in operator Settings',
+      })
+      actionTaken = 'log_only'
+    }
   } else {
     actionTaken = 'log_only'
   }
@@ -790,6 +811,9 @@ async function processOneSignal(
   }
 
   if (actionTaken === 'send_reply') {
+    // Unreachable since 2026-09-10: send_reply is chosen above only when a booking link is
+    // set. Kept because it narrows calendlyUrl for the reply builder, and because failing
+    // here is safer than sending a blank link if that decision ever changes.
     if (!calendlyUrl) {
       logger.error('process-reply: no calendly_url set for org — cannot send reply', {
         signal_id: signalId,
@@ -909,6 +933,7 @@ async function processOneSignal(
       classification: { intent, confidence, reasoning },
       prospectId,
       supabase,
+      bookingLinkSet,
     })
 
     let orchActionTaken: string
