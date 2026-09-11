@@ -141,4 +141,4 @@ it, braced or percent-encoded, nothing is sent. The approved-draft path marks th
 `send_failed` with reason `unfilled_placeholder`.
 
 What happens after someone books is booking detection, not reply handling. See the Cal.com
-section of `integrations.md` and ADR-054.
+section of `integrations.md` and ADR-056.

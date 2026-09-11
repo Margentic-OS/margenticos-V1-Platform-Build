@@ -37,7 +37,7 @@ export function verifyCalComSignature(rawBody: string, header: string | null, se
 //
 // MEETING_ENDED IS DELIBERATELY ABSENT, and must never be added here. It fires at the
 // scheduled end time whether or not anyone attended, so wiring it to held or billable would
-// bill meetings nobody came to. Held stays an operator judgement (ADR-054).
+// bill meetings nobody came to. Held stays an operator judgement (ADR-056).
 const HANDLED_TRIGGERS: Record<string, 'created' | 'cancelled' | 'rescheduled'> = {
   BOOKING_CREATED: 'created',
   BOOKING_CANCELLED: 'cancelled',

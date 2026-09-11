@@ -1,6 +1,6 @@
 // POST /api/webhooks/cal-com
 //
-// Cal.com booking notifications. Replaces the Calendly route, deleted 2026-09-11 (ADR-054).
+// Cal.com booking notifications. Replaces the Calendly route, deleted 2026-09-11 (ADR-056).
 //
 // THE SIGNATURE IS THE AUTHENTICATION. A webhook carries no user session, so this route
 // verifies x-cal-signature-256 against CALCOM_WEBHOOK_SECRET over the RAW request body, and

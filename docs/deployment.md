@@ -23,7 +23,7 @@ Separate environment variables in Vercel for each environment.
 
 ## Environment variables added by feature
 
-**CALCOM_WEBHOOK_SECRET** (added 2026-09-11, ADR-054). Production and Preview. The secret that
+**CALCOM_WEBHOOK_SECRET** (added 2026-09-11, ADR-056). Production and Preview. The secret that
 signs Cal.com booking notifications. Generate with `openssl rand -hex 32`, type the same value into
 the Cal.com webhook's secret field, and never commit it. Missing: every booking notification is
 refused with a 500 and logged. Different from Cal.com's copy: every notification is refused with a

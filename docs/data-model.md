@@ -41,7 +41,7 @@ Fields:
                                      regardless of the automatic unlock rules (2 months / 5 meetings).
                                      Default false. Never exposed to clients via client_organisation_view.
   meetings_count      — running count of qualified meetings booked
-  booking_url         — the booking link sent to prospects in reply emails (2026-09-11, ADR-054;
+  booking_url         — the booking link sent to prospects in reply emails (2026-09-11, ADR-056;
                         successor to calendly_url, which is dropped after merge). Tool-agnostic.
   booking_host_ref    — the email of the booking-tool seat that hosts this client's bookings.
                         Lowercased, trimmed, unique. A booking notification finds its client by
@@ -546,7 +546,7 @@ RLS:
 
 ## Table: unattributed_bookings
 
-A booking whose hosting seat maps to no organisation (2026-09-11, ADR-054). meetings needs an
+A booking whose hosting seat maps to no organisation (2026-09-11, ADR-056). meetings needs an
 organisation, so such a booking cannot be a meeting, and it is never discarded. The operator is
 emailed on every new row.
 
@@ -740,6 +740,7 @@ declares for it. Added 2026-09-03 alongside `mon_025`.
 |---|---|---|
 | `jobname` | text | primary key. Matches `cron.job.jobname`. |
 | `schedule` | text | The cron expression the migrations declare. Not necessarily what is live: the whole point is to detect when those differ. |
+| `active` | boolean | Whether the migrations declare the job ON. `false` means switched off on purpose. Added 2026-09-11, ADR-054. Default `true`. |
 | `declared_by` | text | The migration filename. Diagnostic, so a reader knows which file to open. |
 | `notes` | text | Plain English, for a row with a story. |
 | `updated_at` | timestamptz | |
@@ -764,10 +765,32 @@ table cannot be edited into agreement with a drifted database. Between the two h
 | Disagreement | Caught by | Where |
 |---|---|---|
 | live differs from the registry | MON-025 | production, continuously |
-| the registry differs from the files | the vitest scan | CI, before merge |
+| the registry differs from the files | the vitest scan | the test suite, before merge |
+
+There is no CI in this repository (no `.github/` workflows), so "before merge" means only
+when someone runs the suite. Nothing requires it to be green before a migration is applied
+through the MCP, which is how the stagger reached production with a stale registry.
 
 **Never edit this table on its own to turn MON-025 green.** If the live schedule is the
 correct one, add a migration declaring it, so a rebuild keeps it.
+
+**The scan was blind to the stagger (2026-09-10).** Its `cron.alter_job` parser read only
+`schedule := '...'` and the stagger wrote `schedule => '...'`, so it saw none of the eleven
+changes and passed while MON-025 was red. It now reads both notations and throws on any
+`alter_job` that changes a schedule or on/off state it cannot attribute to a job. ADR-054.
+
+**On and off (2026-09-11).** `active` is the declared on/off state, held to the files the same
+way as `schedule`: `cron.alter_job(..., active => false)` in a migration declares a job off.
+
+| Live | Declared | MON-025 | MON-001 (auto-approve) |
+|---|---|---|---|
+| on | on | fine | reads the heartbeat, as before |
+| off | off | fine, named in the detail | OK, "Switched off, as declared" |
+| off | on | PROBLEM, "Switched off, but declared on" | PROBLEM, "nothing declares it off" |
+| on | off | PROBLEM, "Running, but declared off" | reads the heartbeat |
+
+MON-001 reads "off" only when BOTH columns say off. A job paused by hand, with no migration
+declaring it, stays red on both monitors.
 
 RLS: enabled, no policies. Grants revoked from `anon` and `authenticated` by name and
 granted to `service_role`, because RLS with zero policies leaves the Supabase default grant
@@ -839,3 +862,25 @@ stored `monitor_events` row, not the view, so a rule change does not rewrite exi
 events: it takes effect the next time the sweep observes a genuine change, within 15
 minutes. Monitor state is system-wide. There is no `organisation_id` on `monitor_events`,
 `monitor_checks` or `cron_heartbeats`, and no client-facing route reads any of them.
+
+### When an alert goes out (2026-09-11, ADR-055)
+
+The sweep's only alert is a Sentry error, and Sentry is what emails the operator. It goes out
+on the **second consecutive PROBLEM reading**, not the first:
+
+| Sweep reads | What is written | Alert |
+|---|---|---|
+| first PROBLEM | a PROBLEM event, at once, with `alert_pending = true` | none yet |
+| PROBLEM again | nothing new; `alert_pending` cleared | **sent now** |
+| OK or UNKNOWN before that | the PROBLEM event resolved, `alert_pending` cleared; the new state recorded | never |
+| the view could not be read | nothing at all; the check is skipped | the owed alert stays owed |
+
+So the dashboard, the badge and the history show a failure the moment it is seen; only the
+email waits one sweep. `monitor_events.alert_pending` defaults to `false`, which is exactly
+right for every row the previous sweep wrote, since it alerted on the spot.
+
+It exists because 19 PROBLEM transitions across six checks overnight to 2026-09-11 each sent
+an email and each cleared by itself, 16 of them on the very next sweep. It cannot help a check
+whose own design holds one failed run red for more than a sweep: MON-026 reads a verdict
+written every 30 minutes and MON-021 counts failures over 60 minutes, so a single failed run
+behind either still alerts.

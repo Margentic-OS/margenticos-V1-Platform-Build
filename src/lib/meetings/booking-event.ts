@@ -10,7 +10,7 @@
 // There is deliberately no "meeting ended" or "meeting held" event. A booking tool's
 // meeting-ended notification fires at the scheduled end time whether or not anyone
 // attended, so it says nothing about whether a meeting was held. Held stays an operator
-// judgement (ADR-054). A handler that receives one returns it as ignored.
+// judgement (ADR-056). A handler that receives one returns it as ignored.
 
 export interface BookedDetails {
   /** The booking tool's identifier for this booking. */

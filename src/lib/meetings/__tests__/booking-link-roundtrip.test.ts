@@ -6,7 +6,7 @@
 //
 // WHAT THIS CANNOT PROVE: that the booking tool copies a URL parameter into its hidden
 // booking question. That is the tool's behaviour, set up by hand, and is proven only by a
-// real booking made through a real link. See the operator steps in ADR-054.
+// real booking made through a real link. See the operator steps in ADR-056.
 
 import { describe, it, expect } from 'vitest'
 import { buildProspectBookingLink, PROSPECT_REF_PARAM } from '../booking-link'

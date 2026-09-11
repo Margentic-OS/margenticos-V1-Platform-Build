@@ -128,7 +128,7 @@ describe('accepting a link', () => {
 
   it('accepts a booking link from any vendor, not only one', async () => {
     // NOT A STYLE PREFERENCE. Sending prospects to a booking link is tool-agnostic: any
-    // link works. Only booking DETECTION depends on the tool (ADR-054). A hostname check
+    // link works. Only booking DETECTION depends on the tool (ADR-056). A hostname check
     // here would be Rule Zero and would refuse a client who books through a tool we do
     // not detect, which is the case manual meeting recording exists for.
     const result = await updateBookingUrl(ORG, 'https://some-other-booking-tool.test/u/abc')

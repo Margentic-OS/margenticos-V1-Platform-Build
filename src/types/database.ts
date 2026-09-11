@@ -1191,6 +1191,7 @@ export type Database = {
         Row: {
           acknowledged_at: string | null
           acknowledged_note: string | null
+          alert_pending: boolean
           check_code: string
           created_at: string
           detail: string | null
@@ -1201,6 +1202,7 @@ export type Database = {
         Insert: {
           acknowledged_at?: string | null
           acknowledged_note?: string | null
+          alert_pending?: boolean
           check_code: string
           created_at?: string
           detail?: string | null
@@ -1211,6 +1213,7 @@ export type Database = {
         Update: {
           acknowledged_at?: string | null
           acknowledged_note?: string | null
+          alert_pending?: boolean
           check_code?: string
           created_at?: string
           detail?: string | null

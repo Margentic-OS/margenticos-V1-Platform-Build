@@ -7,7 +7,7 @@
 --
 -- DO NOT APPLY THIS FILE TO PRODUCTION AGAIN; the ADD CONSTRAINT statements are not idempotent.
 --
--- Booking detection moves from Calendly to Cal.com: the ADDITIVE half. See ADR-054.
+-- Booking detection moves from Calendly to Cal.com: the ADDITIVE half. See ADR-056.
 --
 -- ─────────────────────────────────────────────────────────────────────────────
 -- WHY THIS IS HALF A MIGRATION
@@ -20,7 +20,7 @@
 --
 -- So this file only ADDS. Every Calendly column stays until the second half, which is
 -- destructive, runs only after merge, and only on Doug's explicit yes. Its SQL is recorded in
--- ADR-054 and on the Notion Backlog, deliberately NOT as an unapplied file in this folder,
+-- ADR-056 and on the Notion Backlog, deliberately NOT as an unapplied file in this folder,
 -- where anything replaying the folder onto a fresh database would run it.
 --
 -- The one statement here that is not an ADD is the meetings source CHECK, dropped and

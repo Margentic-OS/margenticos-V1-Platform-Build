@@ -118,7 +118,7 @@ Never skip staging for any reason.
   Lemlist         LinkedIn DM outreach
   Apollo          Prospect enrichment and contact data
   GoHighLevel     CRM, meeting tracking, client communication
-  Cal.com         Meeting booking and detection (ADR-054)
+  Cal.com         Meeting booking and detection (ADR-056)
   Resend          Transactional email from MargenticOS (approval notifications, 90-day refresh)
   Sentry          Error monitoring
 

@@ -27,7 +27,7 @@ const MAX_BOOKING_URL_LENGTH = 500
  *
  * This deliberately does NOT require any particular booking tool's address, and must not
  * be changed to. Sending prospects to a booking link is tool-agnostic: any link works.
- * Only booking DETECTION depends on the tool (Cal.com since 2026-09-11, ADR-054), and
+ * Only booking DETECTION depends on the tool (Cal.com since 2026-09-11, ADR-056), and
  * detection is the webhook's business, not this field's. Matching on a hostname here
  * would put a vendor name in the application layer, which is Rule Zero, and would refuse a
  * client who books through a tool we do not detect, which is the case manual meeting

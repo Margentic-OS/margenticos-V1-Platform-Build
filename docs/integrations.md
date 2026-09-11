@@ -373,7 +373,7 @@ query in `lookupSuppressedEmails()`. Nothing else in the codebase may assume it.
 
 ## Booking detection — Cal.com (`can_book_meeting`)
 
-Added 2026-09-11. Full reasoning in ADR-054. Replaces the Calendly route, which never recorded a meeting.
+Added 2026-09-11. Full reasoning in ADR-056. Replaces the Calendly route, which never recorded a meeting.
 
 **What it does.** When someone books through a booking link we sent, Cal.com notifies
 `POST /api/webhooks/cal-com`. The route checks the signature, works out which client the booking

@@ -111,7 +111,7 @@ The system declares capabilities, not tool names:
    Never attempt programmatic API scheduling with Taplio.)
   can_send_linkedin_dm        → currently: Lemlist
   can_enrich_contact          → currently: Apollo
-  can_book_meeting            → currently: Cal.com (ADR-054)
+  can_book_meeting            → currently: Cal.com (ADR-056)
   can_validate_email          → currently: Hunter.io (phase two)
 
 Agents and components reference capabilities only. Never tool names.
@@ -1111,7 +1111,7 @@ Do not build:  LinkedIn DMs         → Lemlist
 Do not build:  CRM                  → GoHighLevel
 Do not build:  prospect database    → Apollo
 Do not build:  email signatures     → configure in Instantly per client
-Do not build:  booking system       → Cal.com (ADR-054), or manual recording for any other tool
+Do not build:  booking system       → Cal.com (ADR-056), or manual recording for any other tool
 
 ---
 
@@ -1812,7 +1812,14 @@ For quick reference. Full text in /docs/ADR.md.
            different event, and a range whose NUMERATOR differs is removed as readily as
            one whose denominator does. Extends ADR-048 from the denominator to the
            numerator. Also: no copy on a client screen explains our own past decisions
-  ADR-054  Booking detection moves to Cal.com through one signed webhook. The client is
+  ADR-054  A cron job can be declared OFF in cron_schedule_registry.active; MON-001 reads
+           "off" only when that declaration AND the live pg_cron flag agree, mapped to OK
+           per ADR-035. The registry test reads `=>` as well as `:=`, and throws on an
+           alter_job it cannot attribute rather than skipping it
+  ADR-055  A monitor alert (Sentry, which emails the operator) goes out on the SECOND
+           consecutive PROBLEM reading; the first is recorded and shown at once.
+           monitor_events.alert_pending carries the owed alert
+  ADR-056  Booking detection moves to Cal.com through one signed webhook. The client is
            found by the hosting seat, the prospect by a reference on our link and then by
            email; an unmatched booking is recorded and never auto-billed; meeting-ended is
            ignored. Calendly naming removed; the destructive database half waits for merge

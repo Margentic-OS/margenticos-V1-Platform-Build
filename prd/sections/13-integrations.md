@@ -164,7 +164,7 @@ What MargenticOS uses GHL for:
 
 What MargenticOS does NOT build:
   - A custom CRM — GoHighLevel is the CRM
-  - Meeting booking — Cal.com (ADR-054) or manual recording for any other tool
+  - Meeting booking — Cal.com (ADR-056) or manual recording for any other tool
 
 Integration approach:
   Meeting outcome signals flow from GHL to MargenticOS via webhook.
@@ -176,7 +176,7 @@ Webhook events:
 
 ---
 
-## Cal.com — can_book_meeting (ADR-054, 2026-09-11)
+## Cal.com — can_book_meeting (ADR-056, 2026-09-11)
 
 Purpose: the booking link in positive reply emails, and detection of the meeting that
 results.

@@ -566,7 +566,7 @@ live (`process-reply.ts` puts it in the reply a prospect receives), and no way t
 outside SQL. Anything else earns an edit control by having all four.
 
 Validated as an https URL and never as a vendor. The 2026-07-28 decision makes booking
-*detection* tool-specific (Cal.com since 2026-09-11, ADR-054) but the link itself tool-agnostic, so a hostname check here
+*detection* tool-specific (Cal.com since 2026-09-11, ADR-056) but the link itself tool-agnostic, so a hostname check here
 would be Rule Zero and would refuse the case that decision anticipates. Clearing the field
 writes NULL, not an empty string: an empty string passes a truthiness check downstream and
 would put a blank link into a prospect's reply.
