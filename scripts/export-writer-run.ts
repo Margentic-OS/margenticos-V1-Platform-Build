@@ -222,6 +222,7 @@ const GATE_PATTERNS: ReadonlyArray<readonly [string, string]> = [
   ['missing_question',      'writer returned no closing question'],
   ['missing_observation',   'writer returned no observation'],
   ['missing_bridge',        'writer returned no bridge'],
+  ['bridge_sentences',      'sentences and must be ONE'],
 ]
 
 export function classifyGateFailure(failure: string): string {
