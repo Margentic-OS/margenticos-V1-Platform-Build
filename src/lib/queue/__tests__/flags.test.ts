@@ -1,13 +1,32 @@
-// Rollout flags. Every test here is really the same test: does it fail closed?
+// Rollout flags. Three answers, and the third is the reason this file was rewritten.
 //
-// A flag read that goes wrong must land on the INLINE path, because the inline path is
-// the one already running in production. Silently switching execution onto new
-// machinery because a select errored is the failure this module exists to prevent.
+//   genuinely off   returns false, and says NOTHING: no Sentry event, no log line
+//   genuinely on    returns true
+//   unreadable      THROWS, and reports to Sentry. It never returns false.
+//
+// Until 2026-09-11 an unreadable switch returned false, which is the same answer as a
+// genuine off. For the queue worker that meant a skipped minute of work with a warning nobody
+// reads, and it happened forty times in one day. See the header of flags.ts.
 
-import { describe, it, expect } from 'vitest'
-import { isQueueEnabled, setQueueFlag, QUEUE_FLAG_KEYS } from '../flags'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import * as Sentry from '@sentry/nextjs'
+import { createClient } from '@supabase/supabase-js'
+import { logger } from '@/lib/logger'
+import {
+  isQueueEnabled,
+  setQueueFlag,
+  QUEUE_FLAG_KEYS,
+  QueueFlagUnreadableError,
+} from '../flags'
 import { JOB_TYPES } from '../types'
 import { createFakeQueue } from './fake-queue'
+
+vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
+vi.mock('@/lib/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}))
+
+beforeEach(() => vi.clearAllMocks())
 
 describe('isQueueEnabled — reading the flag', () => {
   it('returns true only when the row says enabled', async () => {
@@ -34,7 +53,7 @@ describe('isQueueEnabled — reading the flag', () => {
 
   it('maps each job type to its documented key', () => {
     // These strings are also written by the migrations' seed INSERTs. If they drift, the
-    // flag silently reads a missing row and every job type falls back to inline.
+    // flag reads a missing row and the job type reads as switched off.
     expect(QUEUE_FLAG_KEYS).toEqual({
       enrich:           'queue_enrich',
       research:         'queue_research',
@@ -48,8 +67,7 @@ describe('isQueueEnabled — reading the flag', () => {
     // The assertion above is a literal, so it can only fail once someone has already
     // added a job type AND remembered to come here. This one fails the moment JOB_TYPES
     // grows: a job type with no flag key reads undefined, isQueueEnabled queries for a
-    // row that cannot exist, and the type falls back to inline for ever with nothing
-    // saying why.
+    // row that cannot exist, and the type reads as off for ever with nothing saying why.
     for (const jobType of JOB_TYPES) {
       expect(QUEUE_FLAG_KEYS[jobType], `no flag key for job type '${jobType}'`).toBeTruthy()
     }
@@ -82,26 +100,85 @@ describe('isQueueEnabled — reading the flag', () => {
   })
 })
 
-describe('isQueueEnabled — failing closed', () => {
-  it('falls back to the inline path when the select errors', async () => {
-    const fake = createFakeQueue([], { failRpc: { 'select:system_flags': 'permission denied' } })
-    expect(await isQueueEnabled(fake.client, 'enrich')).toBe(false)
-  })
-
-  it('falls back to the inline path when the flag row is missing', async () => {
+describe('isQueueEnabled — the three answers', () => {
+  it('GENUINELY OFF is quiet: false, no Sentry event, no log line', async () => {
     const fake = createFakeQueue([])
-    // No row seeded. "No instruction" reads as "do what we did before".
-    expect(await isQueueEnabled(fake.client, 'research')).toBe(false)
+    fake.flags.set('queue_compose', false)
+
+    expect(await isQueueEnabled(fake.client, 'compose')).toBe(false)
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(logger.error).not.toHaveBeenCalled()
+    expect(logger.warn).not.toHaveBeenCalled()
   })
 
-  it('falls back to the inline path when the client throws', async () => {
+  it('GENUINELY ON runs: true, and also quiet', async () => {
+    const fake = createFakeQueue([])
+    fake.flags.set('queue_compose', true)
+
+    expect(await isQueueEnabled(fake.client, 'compose')).toBe(true)
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+  })
+
+  it('UNREADABLE raises: a failed select throws, and is reported to Sentry', async () => {
+    const fake = createFakeQueue([], { failRpc: { 'select:system_flags': 'permission denied' } })
+    fake.flags.set('queue_enrich', true)
+
+    const read = isQueueEnabled(fake.client, 'enrich')
+    await expect(read).rejects.toBeInstanceOf(QueueFlagUnreadableError)
+    await expect(read).rejects.toThrow(/queue_enrich could not be read.*permission denied/)
+
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1)
+    const [reported, context] = vi.mocked(Sentry.captureException).mock.calls[0]
+    expect(reported).toBeInstanceOf(QueueFlagUnreadableError)
+    expect(context).toMatchObject({ tags: { flag_key: 'queue_enrich', job_type: 'enrich' } })
+  })
+
+  it('UNREADABLE raises when the client itself throws, and is reported to Sentry', async () => {
     const exploding = {
       from() {
         throw new Error('client is not initialised')
       },
     } as never
 
-    await expect(isQueueEnabled(exploding, 'compose')).resolves.toBe(false)
+    await expect(isQueueEnabled(exploding, 'compose'))
+      .rejects.toThrow(/queue_compose could not be read.*client is not initialised/)
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1)
+  })
+
+  it('UNREADABLE never reads as off, even when the stored value WAS off', async () => {
+    // The old behaviour was indistinguishable from this row's real value. The new one must
+    // not be: an operator reading "false" here would be told something nobody measured.
+    const fake = createFakeQueue([], { failRpc: { 'select:system_flags': 'Gateway Timeout' } })
+    fake.flags.set('queue_research', false)
+
+    await expect(isQueueEnabled(fake.client, 'research')).rejects.toBeInstanceOf(QueueFlagUnreadableError)
+  })
+
+  it('an unreadable switch cut by an empty 504 names the status, through the real client', async () => {
+    // The real incident, reproduced below the fake: the gateway cut, read through
+    // postgrest-js, not through a stub that returns a message nobody would have received.
+    const client = createClient('https://example.supabase.co', 'test-anon-key', {
+      global: {
+        fetch: async () => new Response(null, { status: 504, statusText: 'Gateway Timeout' }),
+      },
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+
+    await expect(isQueueEnabled(client, 'research'))
+      .rejects.toThrow(/queue_research could not be read.*HTTP 504 Gateway Timeout/)
+  })
+})
+
+describe('isQueueEnabled — the two states that are not failed reads', () => {
+  it('a missing flag row reads as off, with a warning and no Sentry event', async () => {
+    const fake = createFakeQueue([])
+    // No row seeded. The read succeeded and found no instruction.
+    expect(await isQueueEnabled(fake.client, 'research')).toBe(false)
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/flag row missing/),
+      expect.objectContaining({ flag_key: 'queue_research' }),
+    )
+    expect(Sentry.captureException).not.toHaveBeenCalled()
   })
 
   it('treats a non-boolean value as disabled', async () => {
@@ -139,8 +216,8 @@ describe('setQueueFlag', () => {
     const fake = createFakeQueue([], { failRpc: { 'update:system_flags': 'read only transaction' } })
     fake.flags.set('queue_enrich', true)
 
-    // Unlike the read, the write must be loud: an operator who thinks they turned the
-    // queue off, and did not, is worse off than one who sees an error.
+    // The write is loud for the same reason the read now is: an operator who thinks they
+    // turned the queue off, and did not, is worse off than one who sees an error.
     await expect(setQueueFlag(fake.client, 'enrich', false, 'operator:doug'))
       .rejects.toThrow(/Failed to set queue_enrich to false/)
   })
