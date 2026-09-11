@@ -65,6 +65,8 @@ describe('the writer is stopped when synthesis finds no usable candidate', () =>
     expect(out.opening).toBeNull()
     expect(out.judge_reasoning).toBe(NO_USABLE_CANDIDATE_REASON)
     expect(out.usage.calls).toBe(0)
+    // THE CODE THE OPERATOR'S LIST READS. Stored in trigger_data.judge on the prospect.
+    expect(out.not_written_reason).toBe('no_usable_candidate')
   })
 
   it('stops when the only relevant candidate is not verifiable, which is not enough to use', async () => {
@@ -83,6 +85,8 @@ describe('the writer still runs whenever synthesis would use a candidate', () =>
     const out = await run([candidate()])
     expect(writeAndJudgeOpening).toHaveBeenCalledTimes(1)
     expect(out).toBe(WRITTEN)
+    // A written opening, won or lost, never carries the not-written code.
+    expect((out as { not_written_reason?: string }).not_written_reason).toBeUndefined()
   })
 
   it('runs for a candidate that passes only SPECIFIC + VERIFIABLE + RELEVANT', async () => {

@@ -13,7 +13,7 @@ import {
   getVariantEmail1Frame,
 } from '@/lib/composition/compose-sequence'
 import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
-import { writeAndJudgeOpening, type OpeningResult, type AttemptObservation } from './write-opening'
+import { writeAndJudgeOpening, type OpeningResult, type AttemptObservation, type NotWrittenReason } from './write-opening'
 import { resolveBuyer } from './resolve-buyer'
 import { logger } from '@/lib/logger'
 import type { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
@@ -88,8 +88,9 @@ export const NO_USABLE_CANDIDATE_REASON =
  * path's EMPTY_OPENING uses for a prospect that stopped being mailable, and callers already
  * store it: personalisation_trigger stays null and composition ships the approved opener.
  */
-function notWrittenOpening(reason: string): OpeningResult {
+function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningResult {
   return {
+    not_written_reason: code,
     opening: null,
     question: null,
     subject: null,
@@ -169,7 +170,7 @@ export async function produceOpening({
       variant_id: variantId,
       candidate_count: candidates.length,
     })
-    return notWrittenOpening(NO_USABLE_CANDIDATE_REASON)
+    return notWrittenOpening('no_usable_candidate', NO_USABLE_CANDIDATE_REASON)
   }
 
   const frame = getVariantEmail1Frame(messagingContent, variantId)
