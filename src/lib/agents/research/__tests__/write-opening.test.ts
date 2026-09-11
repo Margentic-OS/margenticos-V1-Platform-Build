@@ -348,7 +348,7 @@ describe('prompt shape', () => {
     // The corrected half no longer belongs to the first case. The writer reproduced it
     // almost verbatim, so it was re-welded to a print shop, whose facts belong to nobody
     // in the batch.
-    expect(flat).toContain('Your existing customers filled your first press')
+    expect(flat).toContain('Your second press needs work from customers you have not quoted yet')
   })
 
   it('no longer offers the model that seeded the batch collapse', () => {
@@ -653,8 +653,8 @@ describe('the writer prompt targets load before resolution, not length', () => {
     expect(flat).toContain('length is not what changed')
     expect(flat).toContain('A two-word subject, one relative clause, nothing nested')
     // And the rewrite of the hard one, same facts.
-    expect(flat).toContain('Conferences deliver in bursts')
-    expect(flat).toContain('The pipeline tends to follow the event calendar')
+    expect(flat).toContain('At firms that rely on conferences, the pipeline follows the event calendar rather than delivery demand.')
+    expect(flat).toContain('A short subject, one relative clause, and the verb arrives early')
     expect(flat).toContain('Nothing was dropped and nothing was softened')
   })
 
@@ -690,19 +690,22 @@ describe('the writer prompt varies the bridge construction', () => {
     const p = prompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(flat).toContain('ONE FLAT SENTENCE.')
-    expect(flat).toContain('TWO FLAT FACTS.')
-    expect(flat).toContain('A CONTRAST.')
-    expect(flat).toContain('A CONCESSION.')
+    expect(flat).toContain('WHAT HAPPENS, WITH ITS SETTING.')
+    expect(flat).toContain('A COUNT THAT MAKES THE POINT.')
+    expect(flat).toContain('WHAT A WORKING THING DOES NOT REACH.')
     expect(flat).not.toContain('A CONDITIONAL')
+    // CHANGED 2026-09-11: the bridge is one sentence, so the two-sentence shapes went too.
+    expect(flat).not.toContain('TWO FLAT FACTS')
+    expect(p).not.toMatch(/^\s*A CONTRAST\. /m)
     // Matched as a LABEL LINE. The bare phrase "A CONSEQUENCE" still opens an unrelated rule
     // near the top of the prompt, so a substring check would pass after the label was gone.
     expect(p).not.toMatch(/^\s*A CONSEQUENCE\. /m)
     // The illustrations moved out of consulting entirely, because two batches lifted the
     // in-industry ones almost verbatim and the batch gate then threw the attempts away.
     expect(flat).toContain('Families new to your town book whichever dentist comes up first on a phone search.')
-    expect(flat).toContain('Site managers spend every weekday of a year-long build on site. The next tender gets priced at night.')
-    expect(flat).toContain('At an expo, shippers walk up to your stand for two days straight. The next expo is eleven months away.')
-    expect(flat).toContain('Couples post your photos the week after the wedding. People who like your photos rarely ask for your prices.')
+    expect(flat).toContain('On a year-long build, the next tender gets priced at night.')
+    expect(flat).toContain('At an expo, shippers walk past your stand for two days a year.')
+    expect(flat).toContain('People who like your wedding photos rarely ask for your prices.')
   })
 
   it('limits the concession model to offers that follow up', () => {
@@ -1192,9 +1195,9 @@ describe('the bridge examples come from outside the client industry', () => {
   it('keeps the four constructions and labels none as preferred', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('ONE FLAT SENTENCE.')
-    expect(flat).toContain('TWO FLAT FACTS.')
-    expect(flat).toContain('A CONTRAST.')
-    expect(flat).toContain('A CONCESSION.')
+    expect(flat).toContain('WHAT HAPPENS, WITH ITS SETTING.')
+    expect(flat).toContain('A COUNT THAT MAKES THE POINT.')
+    expect(flat).toContain('WHAT A WORKING THING DOES NOT REACH.')
     expect(flat).not.toContain('preferred answer')
   })
 
@@ -1280,11 +1283,11 @@ describe('the writer prompt bans abstract nouns and metaphors', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('The remainder tends to shrink before it grows')
     expect(flat).toContain('Nobody can picture a remainder')
-    expect(flat).toContain('Outreach gets the hours that are left')
+    expect(flat).toContain('A day job and delivery leave outreach fewer hours every week.')
     // CHANGED 2026-09-10. The second pair was a real shipped sentence about regions and a
     // rewrite about markets in the UK. Replaced with a constructed pair about a seafront.
     expect(flat).toContain('The winter months need an engine of their own.')
-    expect(flat).toContain('In August, holidaymakers queue at the ice-cream kiosks. In January, the kiosks along the seafront stay shut.')
+    expect(flat).toContain('The seafront ice-cream kiosks with August queues stay shut all January.')
   })
 
   it('offers no standard sentence to copy, only a description of what films', () => {
@@ -1497,10 +1500,10 @@ describe('the writer prompt runs a camera test, not a reading age', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     // The first.
     expect(flat).toContain('A few drivers convert into cider buyers after passing your orchard sign.')
-    expect(flat).toContain('Drivers pass your orchard sign at fifty miles an hour. Hardly anyone turns into an unfamiliar farm gate.')
+    expect(flat).toContain('Hardly anyone turns into an unfamiliar farm gate at fifty miles an hour.')
     // The second.
     expect(flat).toContain('tend to need a nudge before they become an order')
-    expect(flat).toContain('Every June, parents hear a dozen handmade violins at a pupil concert. New pupils usually start violin lessons in September.')
+    expect(flat).toContain("A child's first violin is usually bought in September, not at a June concert.")
     expect(flat).not.toContain('Two of these shipped last week')
   })
 
@@ -1553,10 +1556,13 @@ describe('the bridge states one true thing', () => {
     expect(flat).toContain('Say the consequence flat, in a sentence of its own')
   })
 
-  it('prefers two short sentences to one conditional', () => {
+  it('prefers one plain sentence to one conditional, with nothing trailing', () => {
+    // CHANGED 2026-09-11. This rule said two short sentences beat one conditional. The bridge
+    // is now one sentence, enforced by a gate, and the rule says so as well.
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('TWO SHORT SENTENCES BEAT ONE CONDITIONAL')
-    expect(flat).toContain('State the fact. Then state what follows')
+    expect(flat).toContain('ONE PLAIN SENTENCE BEATS ONE CONDITIONAL')
+    expect(flat).toContain('no condition in front of it and no until, before, while or when clause trailing after it')
+    expect(flat).not.toContain('TWO SHORT SENTENCES BEAT ONE CONDITIONAL')
   })
 
   it('forbids chaining back to the observation, and says why', () => {
@@ -1604,7 +1610,7 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('PATTERN, corrected, and deliberately about a PRINT SHOP')
     expect(flat).toContain('You added a second large-format press in March.')
-    expect(flat).toContain('Your existing customers filled your first press. Your second press needs work that has not been quoted yet.')
+    expect(flat).toContain('Your second press needs work from customers you have not quoted yet.')
   })
 
   it('no longer carries the phrasing that was reproduced almost verbatim', () => {
@@ -1627,9 +1633,9 @@ describe('the corrected pattern example is welded to facts nobody in the batch h
     expect(countFigurativeVerbs(bridge)).toBe(0)
     expect(countAbstractNouns(bridge)).toBe(0)
     expect(bridge.trim().split(/\s+/).length).toBeLessThanOrEqual(OPENING_BUDGET.bridge)
-    // Two sentences, no conditional, no "because".
+    // One sentence (the bridge gate), no conditional, no "because".
     expect(bridge).not.toMatch(/\bbecause\b|\bwhen\b/i)
-    expect(bridge.split(/(?<=\.)\s+/).filter(Boolean)).toHaveLength(2)
+    expect(bridge.split(/(?<=\.)\s+/).filter(Boolean)).toHaveLength(1)
   })
 
   it('does not collide with the other worked examples under the batch gate', () => {
@@ -1680,7 +1686,7 @@ describe('the offer line rules one destination out without choosing the other', 
 
   it('carries the working example and says why it works', () => {
     const flat = prompt().replace(/\s+/g, ' ')
-    expect(flat).toContain('The first clients in a new market usually come through people you already know.')
+    expect(flat).toContain('London is full of people who have never heard of you.')
     expect(flat).toContain('The gap is people who do not know her')
   })
 })
@@ -1816,7 +1822,7 @@ describe('two smaller bridge faults', () => {
   it('carries the longest and still-explaining bridge, with the fix', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('the advisory work fills the diary, and the question of who to go after next stays unresolved long after the call ends')
-    expect(flat).toContain('Two sentences, each standing on its own, and inside the bridge budget')
+    expect(flat).toContain('The fix is not two sentences. The fix is the one clause that matters')
   })
 })
 
@@ -1841,7 +1847,7 @@ describe('the new failing examples do not become the next thing copied', () => {
 
   it('the one WORKING bridge quoted here is Makesha own, already shipped and hers', () => {
     const p = buildWriterPrompt()
-    const idx = p.indexOf('The first clients in a new market usually come through people you already know.')
+    const idx = p.indexOf('London is full of people who have never heard of you.')
     const before = p.slice(0, idx)
     expect(before.lastIndexOf('WORKING')).toBeGreaterThan(before.lastIndexOf('FAILING'))
   })

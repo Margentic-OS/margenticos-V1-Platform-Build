@@ -41,8 +41,10 @@ describe('RULE 1: never point back, name the thing again', () => {
     expect(rule).toMatch(/"one" or "ones"/)
   })
 
-  it('says the rule applies inside the bridge, not only across the two parts', () => {
-    expect(prompt).toContain('THIS APPLIES INSIDE THE BRIDGE')
+  it('says the rule applies inside the observation, not only across the two parts', () => {
+    // CHANGED 2026-09-11. The bridge is one sentence, so the within-part half of this rule
+    // now lives in the observation.
+    expect(prompt).toContain('THIS APPLIES INSIDE THE OBSERVATION TOO')
   })
 })
 

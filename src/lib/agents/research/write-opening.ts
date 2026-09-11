@@ -18,6 +18,7 @@ import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/firmographic'
 import { checkSentenceInitialNames } from '@/lib/style/sentence-initial-names'
+import { countSentences } from '@/lib/style/sentence-count'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
 import { checkOpeningReferences } from '@/lib/style/opening-reference'
 import { readabilityScore } from '@/lib/style/readability'
@@ -231,10 +232,10 @@ First, the observation: the thing you noticed about this specific person. You ca
 they posted, what they published, who they hired, where they spoke, what roles they have
 held and when. Say one of those.
 
-Second, the bridge: its own paragraph, naming the CONSEQUENCE that follows from the
-observation above it, as a PATTERN that is typically true of firms in the situation you
-just described. The consequence you name is the one that lands on the problem your target
-is.
+Second, the bridge: its own paragraph and ONE sentence, naming the CONSEQUENCE that follows
+from the observation above it, as a PATTERN that is typically true of firms in the situation
+you just described. The consequence you name is the one that lands on the problem your
+target is.
 
 A CONSEQUENCE MAY BE AN ABSENCE. IT DOES NOT HAVE TO BE. Where something genuinely is
 absent, naming it stays permitted, on the terms set out lower down. Where it is not, do
@@ -304,8 +305,7 @@ capacity. We told him the thing that works does not work.
 
 PATTERN, corrected, and deliberately about a PRINT SHOP:
   observation: "You added a second large-format press in March."
-  bridge: "Your existing customers filled your first press. Your second press needs work that
-   has not been quoted yet."
+  bridge: "Your second press needs work from customers you have not quoted yet."
 Nothing here claims anyone's network has failed. It states what is true and stops, and it
 leaves the reader to decide whether it is happening to them.
 
@@ -350,8 +350,9 @@ NO CAUSAL CONSTRUCTIONS. No "when X, that tends to be Y". No "because". No condi
 reader has to hold in their head while they resolve the consequence. Say the consequence
 flat, in a sentence of its own.
 
-TWO SHORT SENTENCES BEAT ONE CONDITIONAL. State the fact. Then state what follows. Each one
-stands on its own and neither needs the other to be understood.
+ONE PLAIN SENTENCE BEATS ONE CONDITIONAL. The observation above has already stated the fact.
+The bridge does not state it again. The bridge states what follows, in ONE sentence, with no
+condition in front of it and no until, before, while or when clause trailing after it.
 
 DO NOT BUILD A CAUSAL CHAIN BACK TO THE OBSERVATION. The observation is sitting directly
 above the bridge, and the reader joins them without any help from you. Explaining the join
@@ -384,9 +385,9 @@ feed, or WHAT opening, you have pointed at it rather than named it.
 
 The cost of naming it again is one or two words. The cost of pointing is the whole sentence.
 
-THIS APPLIES INSIDE THE BRIDGE, not only between the observation and the bridge. Your second
-sentence pointing back at your own first sentence is the same fault and is the more common
-half of it.
+THIS APPLIES INSIDE THE OBSERVATION TOO, not only between the observation and the bridge. An
+observation sentence pointing back at the one before it is the same fault. The bridge is one
+sentence. The only thing it could point back at is the observation, and it must not.
 
 THE TEST, AND IT IS MECHANICAL. Cover every sentence above the one you are reading. Does
 that sentence still say who and what it is about? If a word in it now has nothing to attach
@@ -466,8 +467,7 @@ working, which is banned above.
 FAILING: "The founders who need you next are reading your feed already."
 They are already reading it. There is no gap in that sentence at all.
 
-WORKING: "The first clients in a new market usually come through people you already know.
- London is full of people who have never heard of you."
+WORKING: "London is full of people who have never heard of you."
 The gap is people who do not know her. Nobody has to be re-engaged for that to be true.
 
 THIS RULE RULES ONE DESTINATION OUT. IT DOES NOT CHOOSE THE OTHER. It says where the
@@ -550,8 +550,8 @@ AND KEEP IT INSIDE THE BUDGET. The longest bridge in the last batch was 32 words
 also the one still explaining:
 FAILING: "the advisory work fills the diary, and the question of who to go after next stays
  unresolved long after the call ends."
-One sentence carrying a clause, a second clause and a trailing qualifier. Two sentences, each
-standing on its own, and inside the bridge budget.
+One sentence carrying a clause, a second clause and a trailing qualifier. The fix is not two
+sentences. The fix is the one clause that matters, said plainly, inside the bridge budget.
 
 NAME THE PATTERN IN A DIFFERENT SHAPE EVERY TIME.
 
@@ -571,27 +571,29 @@ the point: the last two batches lifted the examples almost verbatim and the batc
 threw the attempts away. Read them for structure and then write your own sentence out of
 your own prospect's facts.
 
+Every shape below is ONE sentence, and so is every bridge you write.
+
   ONE FLAT SENTENCE. One thing that happens, stated and left there.
     A dentist: "Families new to your town book whichever dentist comes up first on a phone
      search."
 
-  TWO FLAT FACTS. The situation, then what happens. Neither sentence needs the other.
-    A commercial builder: "Site managers spend every weekday of a year-long build on site.
-     The next tender gets priced at night."
+  WHAT HAPPENS, WITH ITS SETTING. The time or the place goes in a short phrase, never a clause.
+    A commercial builder: "On a year-long build, the next tender gets priced at night."
 
-  A CONTRAST. Two sentences, the second overturning the first, each naming its own subject.
-    A freight broker: "At an expo, shippers walk up to your stand for two days straight.
-     The next expo is eleven months away."
+  A COUNT THAT MAKES THE POINT. One number from the findings does the contrasting. No second
+  clause is needed.
+    A freight broker: "At an expo, shippers walk past your stand for two days a year."
 
-  A CONCESSION. What plainly works, then what it does not reach. This one lands on people
-  who already know the work, which is only permitted where the offer line follows up rather
-  than generates, as set out above.
-    A wedding photographer: "Couples post your photos the week after the wedding. People
-     who like your photos rarely ask for your prices."
+  WHAT A WORKING THING DOES NOT REACH. The observation has already conceded what works. The
+  bridge names the one thing it does not reach. This one lands on people who already know
+  the work, which is only permitted where the offer line follows up rather than generates,
+  as set out above.
+    A wedding photographer: "People who like your wedding photos rarely ask for your prices."
 
-There are more shapes than these four: a plain statement of what the situation costs, a
-comparison between the two halves of the same week. The point is that you choose the shape
-AFTER you know the observation, instead of reaching for the same one every time.
+There are more shapes than these four, and every one of them is a single sentence: a plain
+statement of what the situation costs, a comparison between the two halves of the same week.
+The point is that you choose the shape AFTER you know the observation, instead of reaching for
+the same one every time.
 
 The bridge is NEVER a question. The email gets exactly one question mark and it is the
 closing question, because the CTA is the question and a second one splits the ask. This is
@@ -616,9 +618,11 @@ ONE FACT PER SENTENCE.
 This is about STRUCTURE, not length. A short sentence carrying three facts is still a
 second read.
 
-If you are naming two things, use two sentences. Do not join facts with appositives. Do
-not bury a list mid-sentence. Never separate a subject from its verb with clauses. Your
-reader is scanning between meetings, and a sentence they go back over has already lost.
+If you are naming two things, use two sentences, in the observation. The bridge names one
+thing, in one sentence: if you have two, keep the one that matters and cut the other. Do not
+join facts with appositives. Do not bury a list mid-sentence. Never separate a subject from
+its verb with clauses. Your reader is scanning between meetings, and a sentence they go back
+over has already lost.
 
 The old version of this line asked for something an eleven year old could read. It was here
 for two batches and it stopped nothing, because a reading age measures how hard the WORDS
@@ -691,10 +695,10 @@ Eight words shorter, and length is not what changed. A two-word subject, one rel
 clause, nothing nested.
 
 The hard one again, same facts, written to be read once:
-  "Conferences deliver in bursts. The pipeline tends to follow the event calendar, so the
-   months in between run quieter."
-Nothing was dropped and nothing was softened. The reader is simply never asked to hold
-more than one idea at a time.
+  "At firms that rely on conferences, the pipeline follows the event calendar rather than
+   delivery demand."
+Nothing was dropped and nothing was softened. A short subject, one relative clause, and the
+verb arrives early.
 
 CONCRETE NOUNS ONLY. THIS IS THE ONE THAT DECIDES WHETHER THEY RECOGNISE THEMSELVES.
 
@@ -719,8 +723,7 @@ ABSTRACT, and this shipped:
 Nobody can picture a remainder.
 
 CONCRETE, same idea:
-  "A day job and delivery both come first. Outreach gets the hours that are left, and
-   there are fewer of those every week."
+  "A day job and delivery leave outreach fewer hours every week."
 Hours. A reader knows exactly how many of those they had last week.
 
 ABSTRACT:
@@ -728,9 +731,8 @@ ABSTRACT:
 A metaphor doing work a plain sentence should do. Which months, and what engine.
 
 CONCRETE, same idea:
-  "In August, holidaymakers queue at the ice-cream kiosks. In January, the kiosks along the
-   seafront stay shut."
-Same claim, and now it names the months, the people and what is missing.
+  "The seafront ice-cream kiosks with August queues stay shut all January."
+Same claim, and now it names the months, the queue and what is missing.
 
 THE CAMERA TEST. RUN IT ON EVERY SENTENCE, AND TWICE ON THE LAST FEW WORDS OF THE BRIDGE.
 
@@ -758,15 +760,13 @@ Two more. Both have concrete nouns throughout and both fail:
 
 FAILING: "A few drivers convert into cider buyers after passing your orchard sign."
 Drivers do not convert. Point the camera and there is nothing to film.
-PLAIN: "Drivers pass your orchard sign at fifty miles an hour. Hardly anyone turns into an
- unfamiliar farm gate."
+PLAIN: "Hardly anyone turns into an unfamiliar farm gate at fifty miles an hour."
 Now you can film it: a car at fifty miles an hour, and a farm gate nobody turns into.
 
 FAILING: "The parents who hear the violins at a pupil concert tend to need a nudge before
  they become an order."
 Parents do not become orders. "Need a nudge" is not something anyone does either.
-PLAIN: "Every June, parents hear a dozen handmade violins at a pupil concert. New pupils
- usually start violin lessons in September."
+PLAIN: "A child's first violin is usually bought in September, not at a June concert."
 A child with a new violin case on the first day of term. That is a thing you can point a
 camera at.
 
@@ -830,10 +830,9 @@ PLAIN:   "You are CEO of two companies at once, so on Monday you work on the com
 Now the subject is him and the verb is work, which is a thing you can watch him do.
 
 FAILING: "Weekend fairs fill the diary around their dates."
-PLAIN:   "You sell mugs at a craft fair most weekends. Visitors walk past twenty potters'
- stalls in an afternoon."
+PLAIN:   "You sell mugs from one of twenty potters' stalls at a weekend craft fair."
 Three fixes at once: the subject is the reader, the compressed phrase became the sentence
-it was hiding, and "the diary" became twenty stalls a visitor walks past.
+it was hiding, and "the diary" became the twenty stalls around yours.
 
 THESE THREE ARE ABOUT STANFORD GSB, TWO CEO ROLES AND A POTTER AT A CRAFT FAIR. Those facts
 belong to two specific people and a potter, and to nobody else in your batch. Lifting a
@@ -926,7 +925,8 @@ had already been shown its exact word count and rewritten anyway. Write short fi
 far easier to add a word than to find ten to cut.
 
 CONSTRAINTS, and there are only four:
-  At most five sentences across all three parts, inside the budget above.
+  At most five sentences across all three parts, inside the budget above. The bridge is
+  exactly one of them.
   Write to them, as "you" or by naming their company. Never write their first name in the
   text: the email already greets them by name on the line above.
   Use only what is in the findings below. Invent nothing, and do not soften a fact into
@@ -958,7 +958,7 @@ its place. Nothing else about your answer is affected, so do not spend words def
 Return your answer as exactly four labelled blocks and nothing else, in this order:
 
 OBSERVATION: <the thing you noticed, its own paragraph>
-BRIDGE: <the pattern, its own paragraph>
+BRIDGE: <the pattern, in one sentence, its own paragraph>
 QUESTION: <the closing question, ending in a question mark>
 SUBJECT: <the subject line, on one line>`
 }
@@ -1301,6 +1301,28 @@ export function checkOpeningGates(
     const needle = p3Words.slice(0, 6).join(' ')
     if (p3Words.length >= 6 && normaliseForEcho(opening).includes(needle)) {
       failures.push('repeats the approved offer line, which is already in the email: write only the observation, the bridge and the closing question')
+    }
+  }
+
+  // ONE SENTENCE, ON THE BRIDGE ALONE. A HARD GATE, NOT A PROMPT RULE.
+  //
+  // On the 2026-09-10 run of the pinned 41, 23 of 36 shipped bridges needed the sentence
+  // before them to make sense, and 26 of the 36 were two sentences. The prompt's prose had
+  // not moved that, so the cap lives here, on the same channel as every other hard failure:
+  // a non-empty return ends the attempt, the retry is told why, and an exhausted prospect
+  // ships the approved template.
+  //
+  // SEMICOLONS AND COLONS COUNT AS BREAKS, because they are how a second sentence gets past
+  // a full-stop count. What this cannot see is two ideas joined by a comma, "and", "so" or
+  // "until". That is measured separately, as the causal count on the writer export, and it
+  // is the known cost of this gate, which is why it was measured before and after.
+  //
+  // Only when the parts are supplied. Production always passes them, and the bridge cannot
+  // be told apart from the observation in the joined block.
+  if (params) {
+    const bridgeSentences = countSentences(params.bridge)
+    if (bridgeSentences > 1) {
+      failures.push(`the bridge is ${bridgeSentences} sentences and must be ONE (a semicolon or a colon counts as a break): keep the one consequence that matters and cut the rest, and do not join two ideas with a comma, "and", "so", "because", "until" or "while"`)
     }
   }
 

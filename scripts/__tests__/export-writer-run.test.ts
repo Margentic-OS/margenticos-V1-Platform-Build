@@ -119,6 +119,7 @@ describe('classifyGateFailure', () => {
     ['writer returned no closing question', 'missing_question'],
     ['writer returned no observation', 'missing_observation'],
     ['writer returned no bridge', 'missing_bridge'],
+    ['the bridge is 2 sentences and must be ONE (a semicolon or a colon counts as a break)', 'bridge_sentences'],
   ]
 
   for (const [failure, expected] of cases) {
