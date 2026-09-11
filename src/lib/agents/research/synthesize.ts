@@ -509,14 +509,20 @@ function selectCandidate(
   const allPass = candidates.filter(c => c.passes_all)
   // Among the six-out-of-six candidates, only those clearing both gates are hook-eligible.
   const hookEligible = allPass
-    .filter(c => !c.readability.hard_fail && c.inference_direction !== 'ambiguous_unhandled')
+    // OPTIONAL CHAINING ON readability AND scores, for STORED candidates. This rule now also
+    // runs on candidates read back from prospect_research_results (hasUsableCandidate, on every
+    // writer path), and rows written before readability was recorded lack the field: three
+    // were in the 30-day reuse window on 2026-09-11. Missing reads as "not measured", which is
+    // how those candidates were selected when they were written. Complete candidates, which is
+    // every freshly parsed one, are unaffected.
+    .filter(c => !c.readability?.hard_fail && c.inference_direction !== 'ambiguous_unhandled')
     // Lower readability penalty first: of two legal sentences, the plainer one wins.
-    .sort((a, b) => a.readability.penalty - b.readability.penalty)
+    .sort((a, b) => (a.readability?.penalty ?? 0) - (b.readability?.penalty ?? 0))
 
   if (hookEligible.length > 0) {
     const preferred = hookEligible.find(c => c.id === modelPreferredId)
     // Honour the model's pick only when it is no less readable than the best alternative.
-    const winner = preferred && preferred.readability.penalty === hookEligible[0].readability.penalty
+    const winner = preferred && (preferred.readability?.penalty ?? 0) === (hookEligible[0].readability?.penalty ?? 0)
       ? preferred
       : hookEligible[0]
     return { winner, relevance: 'use_as_hook', demotionReason: null }
@@ -530,7 +536,7 @@ function selectCandidate(
 
   // Tier 2 — passes SPECIFIC + VERIFIABLE + RELEVANT.
   const partial = candidates
-    .filter(c => c.scores.specific && c.scores.verifiable && c.scores.relevant)
+    .filter(c => c.scores?.specific && c.scores?.verifiable && c.scores?.relevant)
     .sort((a, b) => b.score_total - a.score_total)
   if (partial.length > 0) {
     const preferred = partial.find(c => c.id === modelPreferredId)
@@ -541,6 +547,23 @@ function selectCandidate(
 
   // Nothing cleared the bar. Failing closed is correct.
   return { winner: null, relevance: 'no_signal', demotionReason }
+}
+
+/**
+ * Whether synthesis's own selection rule finds ANY candidate it would use: a six-out-of-six
+ * candidate clearing both gates or, failing that, one passing SPECIFIC + VERIFIABLE +
+ * RELEVANT. False is the do-not-write verdict, the rule's own "Nothing cleared the bar.
+ * Failing closed is correct."
+ *
+ * COMPUTED FROM THE CANDIDATES, NEVER READ FROM selected_candidate_id, and that is the
+ * point. The stored-findings path sets selected_candidate_id to null on EVERY run, so a check
+ * keyed on it would stop every reuse run. The candidates carry their scores, readability and
+ * inference direction on every path, fresh or reused, and this runs the same rule over them,
+ * so the verdict is the same on both. The model's preferred id only chooses AMONG winners;
+ * whether there is one does not depend on it, so null is passed.
+ */
+export function hasUsableCandidate(candidates: ObservationCandidate[]): boolean {
+  return selectCandidate(candidates, null).winner !== null
 }
 
 // trigger_text is the string that actually reaches the prospect: compose-sequence reads

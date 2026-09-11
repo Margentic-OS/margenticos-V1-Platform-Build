@@ -97,6 +97,7 @@ import {
   produceOpening,
   resolveVariantId,
   loadClientName,
+  NO_USABLE_CANDIDATE_REASON,
   type MessagingContent,
   type ProduceOpeningInput,
 } from '@/lib/agents/research/produce-opening'
@@ -639,7 +640,9 @@ async function main() {
         // behind it. A record visible on stdout but absent from disk is the exact
         // confusion this is meant to remove.
         fs.appendFileSync(partialPath, JSON.stringify(rec) + '\n')
-        console.log(`  judge ${rec.judge_won ? 'WON' : 'lost'}  retries ${rec.retries_used}  $${rec.usd.toFixed(4)}`)
+        console.log(rec.judge_reasoning === NO_USABLE_CANDIDATE_REASON
+          ? '  NOT WRITTEN: synthesis found no usable candidate, the approved template ships  $0.0000'
+          : `  judge ${rec.judge_won ? 'WON' : 'lost'}  retries ${rec.retries_used}  $${rec.usd.toFixed(4)}`)
       }
     }
   } catch (err) {
@@ -680,6 +683,9 @@ async function main() {
     prospects_requested: targets.length,
     judge_wins: won,
     judge_win_rate: records.length > 0 ? won / records.length : null,
+    // Prospects the writer was never run for, counted by the exact reason value. They are
+    // inside prospects_run and lower judge_win_rate, because the template ships for them.
+    not_written_no_usable_candidate: records.filter(r => r.judge_reasoning === NO_USABLE_CANDIDATE_REASON).length,
     total_usd: totalUsd,
     usd_per_prospect: records.length > 0 ? totalUsd / records.length : null,
     gate_failure_counts: Object.fromEntries([...gateCounts].sort((a, b) => b[1] - a[1])),
@@ -712,6 +718,7 @@ async function main() {
     (records.length ? `, $${(totalUsd / records.length).toFixed(4)} per prospect` : ''))
   console.log(`gate failures       ${JSON.stringify(summary.gate_failure_counts)}`)
   console.log(`retries used        ${JSON.stringify(summary.retries_used_distribution)}`)
+  console.log(`not written         ${summary.not_written_no_usable_candidate} (synthesis found no usable candidate)`)
   if (unclassified.length > 0) {
     console.log(`\nUNCLASSIFIED GATE FAILURES (${unclassified.length}). Add a pattern for each:`)
     for (const u of [...new Set(unclassified)]) console.log(`  ${u}`)
