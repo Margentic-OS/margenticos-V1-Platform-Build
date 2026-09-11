@@ -400,3 +400,53 @@ so the input was identical.
   criterion, grade MODERATE"). **The definitions are the next piece of work.**
 
 Cost of this measurement: $3.30 of a $5 cap.
+
+## The fit judge grades the prospect, and "cannot tell" is its own outcome (2026-09-11)
+
+### What changed
+
+`moderate` meant both a genuine partial fit and "I cannot tell". The prompt sent thin evidence,
+sparse profiles and uncertain criteria there, and the code stored a failed or unreadable answer
+there too.
+
+- **A fourth outcome, `cannot_tell`**, is never a grade and never a fit (`ICP_FIT_OUTCOMES` against
+  `ICP_FIT_GRADES` in `types.ts`). A failed call, an answer with no text, an answer that is not
+  JSON, an `icp_fit` outside the four outcomes, and a reused research row with no grade all record
+  it, with `icp_fit_missing` saying why. They all used to record `moderate`.
+- **The definitions judge the prospect.** STRONG matches every dimension the client context names;
+  MODERATE clearly meets some and clearly misses at least one; WEAK is unchanged; CANNOT_TELL names
+  what the research could not check. An unknown dimension is unknown, not a partial match. The
+  three sentences that sent uncertainty to MODERATE are gone.
+- **The database CHECK on `icp_fit`** must be widened for the new value. Migration
+  `20260911150000_icp_fit_cannot_tell.sql` is written and **not applied**: it drops and re-adds the
+  constraint, which needs an explicit yes. It must be applied to production and the test project
+  before this branch is merged, or research writes that reach no grade will fail the CHECK.
+
+Tests: `judge-definitions.test.ts` (outcomes, failed and unreadable answers, the prompt, the
+migration), plus the reuse case in `stored-findings.test.ts`. Nine mutations, each red.
+
+### What it did, measured on the same 20 prospects, twice
+
+Temperature 0, job title and company facts in every request. 19 of 20 requests were
+byte-identical between the two runs; the 20th had an identical prospect message and the same
+verdict both times.
+
+| | before (old definitions) | run 1 | run 2 |
+|---|---|---|---|
+| strong / moderate / weak / cannot_tell | 1 / 17 / 2 / 0 | 1 / 6 / 1 / 12 | 0 / 7 / 2 / 11 |
+| disagrees with itself | 2 of 20 | 4 of 20 (4 of 19 on byte-identical input) | |
+
+- **The middle value emptied into cannot_tell.** Of the 17 prospects graded moderate before, 11
+  are now cannot_tell and 6 are still moderate.
+- **Every cannot_tell names revenue as what is missing**: 12 of 12 in run 1, 11 of 11 in run 2.
+  About half also name average deal size or operating history. Those are disqualifiers in this
+  client's own ICP, and the research does not collect them: revenue is on file for 12 of the 111
+  researched prospects.
+- **Self-disagreement rose from 2 to 4 of 20**, and 3 of the 4 are one run saying cannot_tell
+  where the other gave a grade. The line between "an unknown could move the grade" and "what is
+  known decides it" is where the judge now wobbles.
+
+So this is mostly not a wording problem. The judge cannot grade these prospects because the
+evidence that would decide them, revenue above all, is not in what the pipeline gathers.
+
+Cost of this measurement: $3.71 of a $6 cap.
