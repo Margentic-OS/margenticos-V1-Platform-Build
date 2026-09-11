@@ -242,7 +242,7 @@ const AUTO_SIGNAL = {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function createAutoReplyDb() {
+function createAutoReplyDb(bookingUrl = 'https://booking.test/alex') {
   const client: any = {
     from(table: string) {
       const state: any = { values: undefined, mode: undefined }
@@ -287,7 +287,7 @@ function createAutoReplyDb() {
           select: () => b, eq: () => b,
           single: async () => ({ data: { id: 'org-1', archived_at: null }, error: null }),
           maybeSingle: async () => ({
-            data: { name: 'ZZ Internal Test Org', calendly_url: 'https://booking.test/alex',
+            data: { name: 'ZZ Internal Test Org', calendly_url: bookingUrl,
                     founder_first_name: 'Alex' },
             error: null,
           }),
@@ -322,5 +322,19 @@ describe('the automated booking reply keeps its structure too', () => {
     // The booking link survived, and is not glued to the sign-off.
     expect(html).toContain('https://booking.test/alex')
     expect(html).not.toMatch(/email Alex/)
+  })
+
+  it('sends nothing when the booking reply would carry a template token', async () => {
+    // Nobody reviews this path, so the final check is the only thing between a token and
+    // the prospect. The token rides in on the stored link, which is the one part of this
+    // body that does not come from the fixed template.
+    classifyReplyMock.mockResolvedValue({
+      intent: 'positive_direct_booking', confidence: 0.99, reasoning: 'asked for a time',
+    })
+    const calls = captureRequestBody()
+
+    await processReplies(createAutoReplyDb('https://booking.test/{username}'), 'key')
+
+    expect(calls.find(c => 'reply_to_uuid' in c)).toBeUndefined()
   })
 })

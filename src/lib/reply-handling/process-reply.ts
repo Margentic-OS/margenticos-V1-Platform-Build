@@ -49,6 +49,7 @@ import { sendOperatorReplyNotification } from '@/lib/notifications/send-operator
 // paragraphs separated by blank lines, and without this every one of them collapsed into a
 // single run-on line on delivery.
 import { plainTextToHtml } from '@/lib/composition/custom-variables'
+import { findUnfilledPlaceholder } from './unfilled-placeholder'
 
 type SupabaseServiceClient = ServiceRoleClient
 
@@ -860,6 +861,22 @@ async function processOneSignal(
       await updateActionRow(supabase, actionRowId, {
         action_succeeded: false,
         action_error: 'founder_first_name_required_but_missing',
+      })
+      return 'error'
+    }
+
+    // No template token may reach a prospect, and on this path no person would see it
+    // first. The body is built from a fixed template plus the stored booking link, so a
+    // hit here means the link itself, or a future edit to the template, carries a token.
+    const unfilled = findUnfilledPlaceholder(bodyText)
+    if (unfilled) {
+      logger.error('process-reply: booking reply still contains a template token, not sent', {
+        signal_id: signalId,
+        token: unfilled,
+      })
+      await updateActionRow(supabase, actionRowId, {
+        action_succeeded: false,
+        action_error: `unfilled_placeholder: ${unfilled}`,
       })
       return 'error'
     }

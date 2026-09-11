@@ -22,6 +22,7 @@ import type { Database, Json } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { substituteBookingLink } from './substitute-booking-link'
 import { insertSignoff } from './insert-signoff'
+import { findUnfilledPlaceholder } from './unfilled-placeholder'
 // The SAME converter campaign outbound uses. Reused rather than reimplemented: the reply
 // path is the only send path that was not going through it, which is why replies lost
 // their line breaks while campaign email did not.
@@ -42,6 +43,7 @@ export type SendFailedReason =
   | 'instantly_api_error'
   | 'instantly_timeout'
   | 'final_sent_body_empty'
+  | 'unfilled_placeholder'
   | 'unexpected_state'
   | 'thread_context_missing'
   | 'db_update_failed_after_send'
@@ -161,6 +163,22 @@ export async function sendApprovedDraft(
   // insertSignoff throws if founderFirstName is empty, but we validated above.
 
   const assembledBody = insertSignoff(bodyAfterCalendly, founderFirstName)
+
+  // ── 5b. No template token may survive into what the prospect receives ─────
+  // substituteBookingLink knows only its own token and says "nothing to do" about any
+  // other, so this is the check that catches drift between the drafting prompt and the
+  // substitution. It reads the final bytes, after substitution and sign-off, and runs
+  // before any provider call.
+
+  const unfilled = findUnfilledPlaceholder(assembledBody)
+  if (unfilled) {
+    await markSendFailed(supabase, replyDraftId, `unfilled_placeholder: ${unfilled}`)
+    return {
+      kind: 'send_failed',
+      error: `body still contains the template token ${unfilled}; nothing was sent`,
+      reason: 'unfilled_placeholder',
+    }
+  }
 
   // ── 6. Load thread context from signal ───────────────────────────────────
 

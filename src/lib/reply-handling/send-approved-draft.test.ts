@@ -254,6 +254,19 @@ describe('the failure invariant: never left at approved', () => {
     expect(sendThreadReply).not.toHaveBeenCalled()
   })
 
+  it('refuses to send a body carrying a template token the substitution does not know', async () => {
+    // The drift case. The substitution replaces its own token and reports "nothing to do"
+    // about any other, so without the final check this body would reach the provider with
+    // the literal braces in it. The token name is deliberately one no code fills.
+    const db = createFakeDb({ draft: { final_sent_body: 'Happy to talk. Book here: {unknown_link}' } })
+    const result = await sendApprovedDraft('test-draft-1', db)
+
+    expect(result).toMatchObject({ kind: 'send_failed', reason: 'unfilled_placeholder' })
+    expect(sendThreadReply).not.toHaveBeenCalled()
+    // And the row is left at send_failed, never at approved.
+    expect(db.updates.some((u: { values: Record<string, unknown> }) => u.values.status === 'send_failed')).toBe(true)
+  })
+
   it('refuses to send without a sender first name rather than signing off blank', async () => {
     const db = createFakeDb({ org: { founder_first_name: '  ' } })
     const result = await sendApprovedDraft('test-draft-1', db)
