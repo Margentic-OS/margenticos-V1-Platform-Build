@@ -2515,6 +2515,7 @@ export type Database = {
           generated_at: string | null
           generated_by_model: string | null
           icp_filter_spec: Json | null
+          icp_filter_spec_refusal: Json | null
           id: string
           is_stale: boolean
           last_updated_at: string
@@ -2540,6 +2541,7 @@ export type Database = {
           generated_at?: string | null
           generated_by_model?: string | null
           icp_filter_spec?: Json | null
+          icp_filter_spec_refusal?: Json | null
           id?: string
           is_stale?: boolean
           last_updated_at?: string
@@ -2565,6 +2567,7 @@ export type Database = {
           generated_at?: string | null
           generated_by_model?: string | null
           icp_filter_spec?: Json | null
+          icp_filter_spec_refusal?: Json | null
           id?: string
           is_stale?: boolean
           last_updated_at?: string

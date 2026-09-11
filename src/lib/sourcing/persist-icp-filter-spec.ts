@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import {
   deriveFilterSpec,
+  FilterSpecRefusal,
   type IcpDocument,
   type ICPFilterSpec,
 } from '@/lib/agents/icp-filter-spec'
@@ -14,6 +15,7 @@ import {
   resolveIcpGeography,
   type ResolvedGeography,
 } from '@/lib/sourcing/resolve-icp-geography'
+import { buildSpecRefusal, type SpecRefusalReason } from '@/lib/sourcing/spec-refusal'
 
 /**
  * Derives and persists the ICP filter spec for a newly promoted strategy document.
@@ -22,15 +24,22 @@ import {
  * strategy_documents row with icp_filter_spec. Non-ICP documents return early.
  * Failures are logged and reported to Sentry but do NOT fail the promotion itself.
  * NULL icp_filter_spec is a safe failure mode: the sourcing orchestrator will fail
- * loudly when it encounters a NULL spec, providing clear operator feedback.
+ * loudly when it encounters a NULL spec.
+ *
+ * WHEN THE SPEC CANNOT BE BUILT, THE REASON IS WRITTEN ON THE DOCUMENT, in
+ * icp_filter_spec_refusal, and the strategy page shows it to the operator. Every caller runs
+ * this after the promotion has already been reported as a success, so without that column the
+ * only record of a refusal was Sentry. See spec-refusal.ts.
  *
  * Also re-queues the organisation's previously REMOVED prospects for tiering, because
  * a new filter spec is the rule that removed them changing. This is the only thing in
  * the codebase that re-queues them. See ADR-037.
  *
- * Called from:
- *   - POST /api/suggestions/[id]/approve (in after() handler)
- *   - POST /api/cron/auto-approve (after RPC succeeds)
+ * Called from, always after the new version is live:
+ *   - POST /api/suggestions/[id]/approve (in after())
+ *   - POST /api/cron/auto-approve (after the RPC succeeds)
+ *   - POST /api/documents/revise (in after())
+ *   - POST /api/documents/revert
  *
  * Never throws. Always logs. Sentry.flush() called in serverless contexts.
  */
@@ -89,19 +98,15 @@ export async function persistIcpFilterSpec(
     //
     // It rides in the spec, so it is approved with the ICP, regenerates with the ICP, and
     // is thawed by the same re-queue below. No new document and no new approval step.
-    //
-    // NEVER FAILS THE WRITE, and that is now a LARGER consequence than it was. A spec
-    // with no criterion has no job titles either, so it cannot build a people search and
-    // the sourcing handler refuses to run on it. That is deliberate: a refusal is
-    // recoverable by approving an ICP, and sourcing a default set of titles is not
-    // recoverable at all once the emails are sent. The old comment said this client
-    // "pays to enrich every approved prospect"; that is still true of the enrichment
-    // gate, which still fails open, and sourcing now stops before reaching it.
     let buyerCriterion: BuyerCriterion | null = null
     // No default and no fallback. deriveFilterSpec refuses on an empty set, which is the
     // point: the two fixed lists that used to stand in for this are what removed almost
     // everyone one live client's own job titles reached.
     let seniority: SpecSeniority = { bands: [], discarded: [], evidence: '' }
+    // Kept so a refusal further down can name THIS as its cause. Seniority comes off the same
+    // call, so when this fails the spec refuses for want of seniority, and a label saying
+    // "no seniority" would send the reader to the wrong place.
+    let criterionFailure: string | null = null
     try {
       // ONE CALL, TWO ANSWERS. The seniority bands come off the same request that derives
       // the criterion: it already carries every approved document and the whole intake,
@@ -144,15 +149,17 @@ export async function persistIcpFilterSpec(
       }
     } catch (criterionError) {
       const msg = criterionError instanceof Error ? criterionError.message : String(criterionError)
+      criterionFailure = msg
       logger.error('persistIcpFilterSpec: buyer criterion derivation failed', {
         operation_id: operationId,
         document_id: documentId,
         organisation_id: doc.organisation_id,
         error: msg,
         consequence:
-          'The spec is stored WITHOUT a buyer criterion and therefore WITHOUT job titles. ' +
-          'Sourcing will refuse to run for this client, and tiering will withhold a tier, ' +
-          'until an ICP is re-approved. Both are recoverable; neither spends money.',
+          'There is no buyer criterion and no seniority, because both come off this call, so ' +
+          'the spec will be refused below and the refusal recorded on the document. Sourcing ' +
+          'refuses to run for this client until an ICP is re-approved. Recoverable; nothing ' +
+          'is spent.',
       })
       Sentry.captureException(criterionError, {
         tags: { component: 'persistIcpFilterSpec', step: 'buyer_criterion' },
@@ -164,10 +171,6 @@ export async function persistIcpFilterSpec(
     //
     // DIFFERENT FAILURE POLICY FROM THE BUYER CRITERION ABOVE, deliberately.
     //
-    // A missing buyer criterion fails OPEN: the spec is written without job titles and
-    // the sourcing handler refuses it later. That is right for titles, because the cost
-    // of being wrong is commercial and the refusal is recoverable.
-    //
     // Geography fails CLOSED. A spec with no countries, or with the wrong ones, is a
     // legal exposure rather than a wasted send, and there is no value that could stand in
     // for a missing country list without guessing which markets a client sells to. So the
@@ -176,7 +179,7 @@ export async function persistIcpFilterSpec(
     // NULL IS AN EXISTING, LOUD FAILURE and that is why it is reused rather than a new
     // mechanism being invented: the sourcing orchestrator already refuses to run on a NULL
     // spec with an operator-facing message. Nothing is sourced, nothing is spent, and the
-    // document that caused it is named in this log and in Sentry.
+    // document that caused it is named in this log, in Sentry, and on the document itself.
     //
     // WHAT THIS DOES NOT DO, per ADR-034: it governs the NEXT spec. Prospects already
     // sourced, enriched or uploaded under the previous spec are untouched, and no code
@@ -198,13 +201,14 @@ export async function persistIcpFilterSpec(
           'nowhere or target somewhere this client never asked for.',
       })
       Sentry.captureException(geoError, {
-        tags: { component: 'persistIcpFilterSpec', step: 'geography' },
+        tags: { component: 'persistIcpFilterSpec', step: 'geography', refusal_reason: 'geography_unresolved' },
         extra: {
           operation_id: operationId,
           document_id: documentId,
           organisation_id: doc.organisation_id,
         },
       })
+      await recordSpecRefusal(supabase, documentId, operationId, 'geography_unresolved', msg)
       try {
         await Sentry.flush(2000)
       } catch {}
@@ -236,8 +240,9 @@ export async function persistIcpFilterSpec(
     const revenueFilterEnabled = !orgError && orgRow?.sourcing_revenue_filter_enabled === true
 
     // ── 3.25 Derive the filter spec from ICP content ───────────────────────────
-    // deriveFilterSpec throws if industries are non-canonical.
-    // Catch that explicitly and report the invalid names.
+    // deriveFilterSpec refuses on non-canonical industries, a missing seniority set, no
+    // countries, and a headcount range with no usable bound. Each refusal is a
+    // FilterSpecRefusal naming its rule.
     let spec: ICPFilterSpec
     try {
       spec = deriveFilterSpec(
@@ -245,27 +250,45 @@ export async function persistIcpFilterSpec(
       )
     } catch (specError) {
       const msg = specError instanceof Error ? specError.message : String(specError)
-      logger.error('persistIcpFilterSpec: deriveFilterSpec failed (non-canonical industries)', {
+
+      // THE LABEL IS THE CAUSE. This used to read "non-canonical industries" for every
+      // refusal, whatever refused, and the one that reached Sentry on 2026-09-08 was a blank
+      // headcount. The rule comes from the error itself. A failed criterion call is named
+      // over the rule it tripped, because it is what emptied seniority; anything thrown that
+      // is not a named refusal is 'unclassified', a true label rather than a guess.
+      const rule: SpecRefusalReason =
+        specError instanceof FilterSpecRefusal ? specError.reason : 'unclassified'
+      const reason: SpecRefusalReason = criterionFailure ? 'buyer_criterion_failed' : rule
+      const detail = criterionFailure
+        ? `The buyer criterion call failed (${criterionFailure}), so the spec was refused: ${msg}`
+        : msg
+
+      logger.error(`persistIcpFilterSpec: deriveFilterSpec refused the ICP (${reason})`, {
         operation_id: operationId,
         document_id: documentId,
+        refusal_reason: reason,
+        refusal_rule: rule,
         error: msg,
       })
       Sentry.withScope((scope) => {
         scope.setExtra('operation_id', operationId)
         scope.setExtra('document_id', documentId)
-        scope.setExtra('error_type', 'non_canonical_industry')
+        scope.setExtra('error_type', reason)
         scope.setContext('icp_content', { content_type: doc.content?.constructor.name })
         Sentry.captureException(specError, {
           extra: {
             operation_id: operationId,
             document_id: documentId,
             error_context: 'deriveFilterSpec validation',
+            refusal_rule: rule,
           },
           tags: {
             component: 'persistIcpFilterSpec',
+            refusal_reason: reason,
           },
         })
       })
+      await recordSpecRefusal(supabase, documentId, operationId, reason, detail)
       try {
         await Sentry.flush(2000)
       } catch {}
@@ -290,9 +313,11 @@ export async function persistIcpFilterSpec(
     }
 
     // ── 4. Update strategy_documents with the derived spec ──────────────────────
+    // The refusal is cleared IN THE SAME WRITE, so a version can never carry a spec and a
+    // stale refusal from an earlier attempt at once.
     const { error: updateError } = await supabase
       .from('strategy_documents')
-      .update({ icp_filter_spec: spec })
+      .update({ icp_filter_spec: spec, icp_filter_spec_refusal: null })
       .eq('id', documentId)
 
     if (updateError) {
@@ -310,6 +335,7 @@ export async function persistIcpFilterSpec(
           'error'
         )
       })
+      await recordSpecRefusal(supabase, documentId, operationId, 'spec_write_failed', msg)
       try {
         await Sentry.flush(2000)
       } catch {}
@@ -416,8 +442,47 @@ export async function persistIcpFilterSpec(
         component: 'persistIcpFilterSpec',
       },
     })
+    await recordSpecRefusal(supabase, documentId, operationId, 'unexpected', msg)
     try {
       await Sentry.flush(2000)
     } catch {}
+  }
+}
+
+/**
+ * Write down, on the document itself, why this version has no usable search specification.
+ *
+ * NEVER THROWS. It runs inside failure handling, often when the database is the thing that is
+ * unwell, and a recorder that could fail the promotion would be worse than none. When this
+ * write fails, the log line and the Sentry event written just before it still stand.
+ */
+async function recordSpecRefusal(
+  supabase: SupabaseClient,
+  documentId: string,
+  operationId: string,
+  reason: SpecRefusalReason,
+  detail: string,
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('strategy_documents')
+      .update({ icp_filter_spec_refusal: buildSpecRefusal(reason, detail) })
+      .eq('id', documentId)
+
+    if (error) {
+      logger.error('persistIcpFilterSpec: could not record the refusal on the document', {
+        operation_id: operationId,
+        document_id: documentId,
+        refusal_reason: reason,
+        error: error.message,
+      })
+    }
+  } catch (err) {
+    logger.error('persistIcpFilterSpec: recording the refusal threw', {
+      operation_id: operationId,
+      document_id: documentId,
+      refusal_reason: reason,
+      error: err instanceof Error ? err.message : String(err),
+    })
   }
 }
