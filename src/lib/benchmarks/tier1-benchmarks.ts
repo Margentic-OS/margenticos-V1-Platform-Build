@@ -1,6 +1,6 @@
 // Tier-1 benchmarks: typed constants sourced from published B2B research.
 // No DB calls, no async. These are updated manually when new annual reports publish.
-// Last updated: 2026-09-03.
+// Last updated: 2026-09-08.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // RANGES ONLY. NO TARGETS.
@@ -73,6 +73,48 @@
 // DO NOT re-add a range here without a primary source that states its denominator. If one
 // is found and it is measured per email, it still does not go here: it would need the
 // unit changed too, and that changes the arithmetic on the page.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// THE OPT-OUT RANGE IS REMOVED TOO, 2026-09-08, AND FOR A STRONGER REASON.
+//
+// The card used to divide the provider's unsubscribed_count by emails sent and print it
+// beside 0 to 1% of emails sent, cited to "Aggregated B2B research". Three things were
+// wrong with that and only one of them was the number.
+//
+//   THE NUMERATOR. The provider counts unsubscribe LINK CLICKS. Our opt-out footer is
+//   "Not for you? Just reply stop." There is no link. So a client running our copy as
+//   designed produces opt-outs the provider cannot see, by construction, forever. Live on
+//   2026-09-08 the provider said 0 while two people had written to say stop. The
+//   numerator now comes from our own classification: see peopleOptedOutCount.
+//
+//   THE DENOMINATOR. Our numerator is now a count of PEOPLE, de-duplicated, because a
+//   person opts out once and is suppressed from every remaining step. Dividing people by
+//   emails would be the mixed unit this whole file exists to prevent, so the unit moved
+//   to people contacted with it. Both halves of our own side moved together, which is the
+//   thing the 2026-09-02 defect failed to do.
+//
+//   THE RANGE. "Aggregated B2B research" names no study, which is the same failure that
+//   removed the meeting range: a number presenting itself as research with nothing behind
+//   it. Searched on 2026-09-08 for a replacement and found none that is comparable:
+//
+//     Omnisend, Listclean, Smartlead   0.1 to 0.5%, "under 2%", all stated PER SEND.
+//                                      Wrong denominator.
+//     ReplyLead (Aug 2026)             103 unsubscribes across 242,669 unique leads, so
+//                                      0.04% per contacted lead if computed from their raw
+//                                      counts. They do not publish it as a benchmark, and
+//                                      it is link clicks, so it is ALSO the wrong
+//                                      numerator. Deriving a range from someone else's raw
+//                                      counts is not citing a source.
+//
+//   So there is no published figure that counts what we now count. Every one of them
+//   measures link clicks per email; we measure people who refused, per person contacted.
+//   Both halves differ, and printing 0 to 1% beside our number would be a false comparison
+//   in two dimensions at once rather than one.
+//
+// The consequence, stated because it is uncomfortable and should not be discovered later:
+// this organisation's own rate is 2 from 69 people contacted, about 2.9%, well above the
+// range that used to be printed. The range coming off is NOT what hides that. The count
+// is on the card either way, and the old 0 was the thing hiding it.
 
 export type RateUnit = 'people contacted' | 'emails sent' | 'replies'
 
@@ -122,9 +164,14 @@ export const TIER1_BENCHMARKS = {
   meetingBookingRate: {
     industryRange: null,
     unit:          'people contacted',
+    // CLIENT-VISIBLE TEXT. It says what the reader is looking at, never what it used to
+    // say. The sentence about the figure "previously shown here" was cut on 2026-09-08:
+    // no client ever saw that figure, so it read as an apology for something that never
+    // happened to them. The reason for the removal belongs in sourceCitation below, which
+    // is internal and is never rendered.
     rangeAbsentNote:
-      'No published range. The figure previously shown here cited a report that does not ' +
-      'measure meetings, and no source we could verify measures them per person contacted.',
+      'No published range. We could not find a source that measures meetings booked per ' +
+      'person contacted.',
     sourceLabel:    'No verified source',
     sourceCitation:
       'Removed 2026-09-03. The prior 1 to 3% range cited the Instantly 2025 cold email ' +
@@ -140,11 +187,20 @@ export const TIER1_BENCHMARKS = {
     sourceCitation: 'Google and Yahoo 2024 bulk sender guidelines',
   } satisfies MetricBenchmark,
 
+  // PER PERSON CONTACTED since 2026-09-08, because the numerator counts people. No range:
+  // see the block above for the sources checked and why none of them counts what we count.
   optOutRate: {
-    industryRange: { min: 0, max: 1 },
-    unit:           'emails sent',
-    sourceLabel:    'Aggregated B2B research',
-    sourceCitation: 'Aggregated B2B research',
+    industryRange: null,
+    unit:          'people contacted',
+    rangeAbsentNote:
+      'No published range. Published opt-out figures count people who clicked an ' +
+      'unsubscribe link, and this counts everyone who asked us to stop, most of whom ' +
+      'say so in a reply. The two are not measuring the same thing.',
+    sourceLabel:    'No comparable source',
+    sourceCitation:
+      'Removed 2026-09-08. Published unsubscribe benchmarks (Omnisend, Listclean, ' +
+      'Smartlead) are link clicks per email sent. This metric is people who asked to ' +
+      'stop, per person contacted: a different numerator and a different denominator.',
   } satisfies MetricBenchmark,
 
   // A share OF replies, so its denominator is replies and always was. Unaffected by the

@@ -336,9 +336,19 @@ export async function sendApprovedDraft(
 
               if (!faqCheck || faqCheck.organisation_id !== organisationId) {
                 const msg = `CRITICAL: similar_faq_id ${result.similar_faq_id} does not belong to organisation ${organisationId}`
+                // msg is the record of WHAT went wrong and it must reach the log. It was
+                // built and discarded here for months: the behaviour was right, the write
+                // was refused, and the only trace of a cross-organisation reference was a
+                // generic line with no organisation on it. actual_organisation_id separates
+                // the two cases the predicate collapses — a dangling id that matches no row
+                // (null) from a real row owned by SOMEBODY ELSE (an id). Those are different
+                // incidents and only one of them is an isolation failure.
                 logger.error('send-approved-draft: FAQ ownership validation failed', {
                   draft_id: replyDraftId,
                   faq_id: result.similar_faq_id,
+                  organisation_id: organisationId,
+                  actual_organisation_id: faqCheck?.organisation_id ?? null,
+                  detail: msg,
                 })
                 continue // Skip this extraction; do not write it
               }
@@ -353,9 +363,13 @@ export async function sendApprovedDraft(
 
               if (!extractionCheck || extractionCheck.organisation_id !== organisationId) {
                 const msg = `CRITICAL: similar_pending_extraction_id ${result.similar_pending_extraction_id} does not belong to organisation ${organisationId}`
+                // See the note on the faqs check above. Same defect, same fix.
                 logger.error('send-approved-draft: pending extraction ownership validation failed', {
                   draft_id: replyDraftId,
                   extraction_id: result.similar_pending_extraction_id,
+                  organisation_id: organisationId,
+                  actual_organisation_id: extractionCheck?.organisation_id ?? null,
+                  detail: msg,
                 })
                 continue // Skip this extraction; do not write it
               }

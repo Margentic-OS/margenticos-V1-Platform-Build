@@ -120,8 +120,8 @@ Permissions (read back live after the change):
   Only clients are restricted to this view.
 
   Nothing in src/ reads this view today. There is no `.from('client_organisation_view')`
-  anywhere in the application, only generated FK metadata in the two database.types
-  files. If you wire a client-facing organisation read, this is the path to use.
+  anywhere in the application, only generated FK metadata in src/types/database.ts.
+  If you wire a client-facing organisation read, this is the path to use.
 
 If you add a new operator-only field to organisations:
   Do not add it to this view. It will remain invisible to clients automatically.

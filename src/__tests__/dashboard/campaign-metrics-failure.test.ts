@@ -1,4 +1,4 @@
-// The four client-facing metric reads, and what happens when one of them does not answer.
+// The five client-facing metric reads, and what happens when one of them does not answer.
 //
 // THE FAILURE THIS GUARDS. postgrest-js converts a refusal, a network failure and a
 // timeout alike into { data: null, error }. It never throws. So `?? []` and `?? 0` turned
@@ -10,9 +10,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // WHY THIS FAKE IS NOT KEYED BY RELATION, WHICH IS WHAT IT USED TO BE
 //
-// Reads 2 and 4 BOTH query reply_handling_actions. A fake keyed by relation is therefore
-// structurally incapable of failing exactly one of them: setting that key fails both. So
-// no test could ever pin a recorded row to read 2 or read 4 alone, and a quarter of this
+// Reads 2, 4 and 5 ALL query reply_handling_actions. A fake keyed by relation is therefore
+// structurally incapable of failing exactly one of them: setting that key fails all three.
+// So no test could ever pin a recorded row to one of them alone, and a large share of this
 // recorder's coverage was unproven. Deleting ['reply-signals', replySignalsResult] from
 // the production loop went entirely unnoticed by this file.
 //
@@ -39,7 +39,7 @@ vi.mock('@/lib/dashboard/record-dashboard-failure', () => ({
 }))
 
 /**
- * THE FOUR READS, IN THE ORDER getClientVisibleCampaignMetrics ISSUES THEM.
+ * THE FIVE READS, IN THE ORDER getClientVisibleCampaignMetrics ISSUES THEM.
  *
  * `label` is the label the production recording loop pairs with each result, and is what
  * ends up in the recorded row's `source`. `relation` and `select` are what that read must
@@ -49,7 +49,11 @@ const READS = [
   {
     label: 'campaigns',
     relation: 'campaigns',
-    select: 'contacted_count, sent_count, replied_count, bounced_count, unsubscribed_count',
+    // unsubscribed_count is NOT here, and its absence is load-bearing. The provider
+    // counts unsubscribe link clicks; the opt-out card counts people who asked us to
+    // stop, which is the fifth read below. Putting the column back turns this registry
+    // assertion red.
+    select: 'contacted_count, sent_count, replied_count, bounced_count',
   },
   {
     label: 'positive-replies',
@@ -64,6 +68,11 @@ const READS = [
   },
   {
     label: 'reply-signals',
+    relation: 'reply_handling_actions',
+    select: 'prospect_id',
+  },
+  {
+    label: 'opt-outs',
     relation: 'reply_handling_actions',
     select: 'prospect_id',
   },
@@ -129,7 +138,7 @@ function readIndex(label: string): number {
  *
  * Every test calls this. Addressing reads by ordinal is only safe while the ordinals still
  * mean what READS says they mean, and this is the assertion that keeps that true. Without
- * it, adding a fifth read or swapping two of them would leave the whole file green while
+ * it, adding a sixth read or swapping two of them would leave the whole file green while
  * every test silently pointed at the wrong query.
  */
 function expectIssuedReadsMatchRegistry() {
@@ -140,15 +149,15 @@ function expectIssuedReadsMatchRegistry() {
   ).toEqual(READS.map(shapeOf))
 }
 
-/** All four reads answering with nothing produces exactly this. */
+/** All five reads answering with nothing produces exactly this. */
 const RENDERABLE_ZEROS = {
   contactedCount: 0,
   sentCount: 0,
   deliveredCount: 0,
   bouncedCount: 0,
-  unsubscribedCount: 0,
   repliedCount: 0,
   peopleRepliedCount: 0,
+  peopleOptedOutCount: 0,
   replyRate: null,
   positiveReplyCount: 0,
   meetingsBooked: 0,
@@ -166,10 +175,10 @@ beforeEach(() => {
 })
 
 describe('getClientVisibleCampaignMetrics failure recording', () => {
-  it('issues exactly the four reads this file claims to cover', async () => {
+  it('issues exactly the five reads this file claims to cover', async () => {
     await getClientVisibleCampaignMetrics('org-1')
     expectIssuedReadsMatchRegistry()
-    expect(issued, 'four reads, no more and no fewer').toHaveLength(4)
+    expect(issued, 'five reads, no more and no fewer').toHaveLength(5)
   })
 
   it('writes nothing when every read answers', async () => {
@@ -215,7 +224,7 @@ describe('getClientVisibleCampaignMetrics failure recording', () => {
   }
 
   it('records EVERY failed read, not just the first', async () => {
-    // Four reads run in one Promise.all. Reporting only the first would understate an
+    // Five reads run in one Promise.all. Reporting only the first would understate an
     // outage as a single-card problem.
     for (const read of READS) results[readIndex(read.label)] = refused(`${read.label} down`)
 
@@ -229,8 +238,8 @@ describe('getClientVisibleCampaignMetrics failure recording', () => {
 
   it('scopes EVERY failure row to the organisation that was being read', async () => {
     // Was: failed one relation, which failed two reads, and then asserted recorded[0]
-    // only. It passed while leaving three of four rows unexamined. Every row is checked
-    // now, and every read is failed so there is a row per read to check.
+    // only. It passed while leaving most rows unexamined. Every row is checked now, and
+    // every read is failed so there is a row per read to check.
     for (const read of READS) results[readIndex(read.label)] = refused(`${read.label} down`)
 
     await getClientVisibleCampaignMetrics('org-42')

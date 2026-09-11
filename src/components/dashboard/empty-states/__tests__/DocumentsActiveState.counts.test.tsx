@@ -35,7 +35,7 @@ const metrics = {
   sentCount: 92,
   deliveredCount: 92,
   bouncedCount: 0,
-  unsubscribedCount: 0,
+  peopleOptedOutCount: 0,
   repliedCount: 9,
   peopleRepliedCount: 5,
   replyRate: null,

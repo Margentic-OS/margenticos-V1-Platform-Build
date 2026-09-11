@@ -1786,6 +1786,14 @@ For quick reference. Full text in /docs/ADR.md.
   ADR-039  A client-facing view runs as the CALLER, and the GRANT is the control;
            the predicate constrains which rows, only the grant constrains what
            operations, so a read-only view gets SELECT and nothing else
+  ADR-048  A rate declares its unit, the unit drives the denominator, and an unsourced
+           range is removed rather than kept
+  ADR-050  An operator alert is internal mail; a customer-copy style rule must never be
+           able to suppress one
+  ADR-053  A client-facing count is read from OUR OWN records when the provider counts a
+           different event, and a range whose NUMERATOR differs is removed as readily as
+           one whose denominator does. Extends ADR-048 from the denominator to the
+           numerator. Also: no copy on a client screen explains our own past decisions
 
 ---
 
