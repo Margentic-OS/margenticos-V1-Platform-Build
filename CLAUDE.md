@@ -1775,6 +1775,9 @@ For quick reference. Full text in /docs/ADR.md.
            "off" only when that declaration AND the live pg_cron flag agree, mapped to OK
            per ADR-035. The registry test reads `=>` as well as `:=`, and throws on an
            alter_job it cannot attribute rather than skipping it
+  ADR-055  A monitor alert (Sentry, which emails the operator) goes out on the SECOND
+           consecutive PROBLEM reading; the first is recorded and shown at once.
+           monitor_events.alert_pending carries the owed alert
   ADR-046  Buyer criterion derived per client from their own documents, applied before
            enrichment through one shared selector; it is NOT the provider seniority filter
   ADR-035  A four-state sending-health verdict collapsed onto the sweep's three states;

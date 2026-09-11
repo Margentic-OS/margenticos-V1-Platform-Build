@@ -4914,3 +4914,52 @@ CODE-EVIDENCED at `e8520af`, each mutation reverted and the file checked afterwa
 | parser back to `:=` only | 8 red |
 | MON-001 "off" keyed on the live flag alone | 2 red |
 | MON-001 staleness branch deleted | 2 red |
+
+
+## ADR-055 — A monitor alert waits for a second consecutive failing sweep; the first failure is recorded at once
+
+**Date:** 2026-09-11
+**Status:** Accepted. Built on branch `cron-registry-sync` at Doug's instruction.
+
+### Context
+
+DATABASE-EVIDENCED, production `monitor_events`, 2026-09-10 18:00 to 2026-09-11 14:05 UTC:
+19 PROBLEM transitions across six checks, each followed by OK.
+
+    MON-005 x8   MON-002 x4   MON-027 x2   MON-016 x2   MON-026 x2   MON-021 x1
+
+The sweep raised a Sentry error at every transition to PROBLEM, and Sentry is what emails the
+operator: about nineteen emails, zero standing faults. 16 of the 19 cleared on the very next
+sweep. The cause is the Supabase gateway cutting reads at five seconds inside the jobs being
+watched, which is recorded in the Backlog and is not addressed here.
+
+Nothing else alerts on monitor state. Checked: no trigger on `monitor_events` (live
+`pg_trigger`, with `cron.job`'s trigger as the positive control), and none of the files that
+send email reads `monitor_events`.
+
+### Decision
+
+- The first PROBLEM reading is **recorded at once**, exactly as before, with
+  `alert_pending = true`. The dashboard, the badge and the history show it immediately.
+- The alert goes out on the **second consecutive PROBLEM reading**. It is claimed with a
+  conditional update first, so two overlapping sweeps cannot both send it. A claim that errors
+  still sends, because a duplicate email is cheaper than a lost one.
+- A recovery to OK or UNKNOWN before that drops the owed alert and resolves the row as usual.
+- A failed view read is not a reading: nothing is recorded, resolved or sent, and the owed
+  alert stays owed. UNKNOWN is recorded as UNKNOWN and never alerted.
+
+### Why a column on the event row
+
+The decision needs one bit of memory per open PROBLEM: has its alert gone out. The open PROBLEM
+row is already where the sweep looks, so the bit lives there. Its default, `false`, is exactly
+true of every row the old sweep wrote, because the old sweep alerted on the spot. So the
+migration can be applied ahead of the code, with no backfill, and the deploy cannot re-send an
+alert for a problem that was already emailed.
+
+### Cost, stated so it is not discovered later
+
+- **A real fault emails up to one sweep later**, 15 minutes. The dashboard is not delayed.
+- **3 of the 19 would still have sent**: MON-026 twice and MON-021 once. Both hold a single
+  failed run red for longer than a sweep by their own design (MON-026 reads a verdict written
+  every 30 minutes; MON-021 counts failures over 60 minutes). Two consecutive sweeps is the
+  wrong unit for those two; that is a per-check question, not a sweep question.

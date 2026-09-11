@@ -830,3 +830,25 @@ stored `monitor_events` row, not the view, so a rule change does not rewrite exi
 events: it takes effect the next time the sweep observes a genuine change, within 15
 minutes. Monitor state is system-wide. There is no `organisation_id` on `monitor_events`,
 `monitor_checks` or `cron_heartbeats`, and no client-facing route reads any of them.
+
+### When an alert goes out (2026-09-11, ADR-055)
+
+The sweep's only alert is a Sentry error, and Sentry is what emails the operator. It goes out
+on the **second consecutive PROBLEM reading**, not the first:
+
+| Sweep reads | What is written | Alert |
+|---|---|---|
+| first PROBLEM | a PROBLEM event, at once, with `alert_pending = true` | none yet |
+| PROBLEM again | nothing new; `alert_pending` cleared | **sent now** |
+| OK or UNKNOWN before that | the PROBLEM event resolved, `alert_pending` cleared; the new state recorded | never |
+| the view could not be read | nothing at all; the check is skipped | the owed alert stays owed |
+
+So the dashboard, the badge and the history show a failure the moment it is seen; only the
+email waits one sweep. `monitor_events.alert_pending` defaults to `false`, which is exactly
+right for every row the previous sweep wrote, since it alerted on the spot.
+
+It exists because 19 PROBLEM transitions across six checks overnight to 2026-09-11 each sent
+an email and each cleared by itself, 16 of them on the very next sweep. It cannot help a check
+whose own design holds one failed run red for more than a sweep: MON-026 reads a verdict
+written every 30 minutes and MON-021 counts failures over 60 minutes, so a single failed run
+behind either still alerts.
