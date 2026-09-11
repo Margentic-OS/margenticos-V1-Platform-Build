@@ -1,4 +1,11 @@
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-09-11) to production hjpvnvjryxdjcfdsfhzy AND the test
+--   database tidqheqjzvwmrrrebzir. Read back on both: all six columns present; all five
+--   constraints present, source CHECK now ('calendly','manual','webhook'); booking_url copied
+--   for the two organisations that had calendly_url and NULL for the other three;
+--   unattributed_bookings RLS on, service_role SELECT/INSERT/UPDATE/DELETE true, anon and
+--   authenticated false for all four; can_book_meeting/cal_com row present and active.
+--
+-- DO NOT APPLY THIS FILE TO PRODUCTION AGAIN; the ADD CONSTRAINT statements are not idempotent.
 --
 -- Booking detection moves from Calendly to Cal.com: the ADDITIVE half. See ADR-054.
 --
