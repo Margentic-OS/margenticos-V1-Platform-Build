@@ -182,6 +182,16 @@ export interface ICPFilterSpec {
    * the gate fails OPEN and warns. See src/lib/sourcing/buyer-criterion.ts.
    */
   buyer_criterion?: BuyerCriterion
+  /**
+   * The conditions this client's profile names, each marked required or supporting and
+   * establishable by research or not. Derived once, when the profile is approved, so the fit
+   * judge does not re-decide them on every call. The judge reads each and code computes the
+   * grade. See src/lib/agents/research/fit-dimensions.ts.
+   *
+   * Optional because every spec approved before this existed lacks one, and absent means that
+   * client's judge grades the way it did before. Metadata: the sourcing handler never sees it.
+   */
+  fit_dimensions?: import('@/lib/agents/research/fit-dimensions').FitDimensionSet
 }
 
 // ─── Layer G: ONE list of spec fields, and a compile-time guard on it ─────────
@@ -244,6 +254,9 @@ export const FILTER_SPEC_METADATA_FIELDS = [
   'notes',
   'unmatched_industries',
   'buyer_criterion',
+  // The fit judge's dimension list. Read by the research judge, never by a sourcing handler,
+  // so listing it as a filter field would make the manifest check fail for every client.
+  'fit_dimensions',
   // ─── THE THIRD STATE ───────────────────────────────────────────────────────
   //
   // An axis can be in one of three conditions, and two of them used to be indistinguishable:

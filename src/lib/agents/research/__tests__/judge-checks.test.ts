@@ -52,7 +52,14 @@ function answer(fields: Record<string, unknown>): string {
   }, null, 2)}`
 }
 
-const judge = (text: string) => synthesisFromMessage(message(text), prospect(), CLIENT_CTX, SIGNAL)
+// No sources: this client context carries no fit dimensions, so no quotation is checked.
+const NO_SOURCES = {
+  linkedin: { available: false, profile_data: null, recent_posts: null, formatted: null },
+  apollo: { available: false, formatted: null, raw: null },
+  website: { available: false, url: null, content: null, fetch_method: null },
+  web_search: { available: false, person_search: null, company_search: null, combined: null },
+} as never
+const judge = (text: string) => synthesisFromMessage(message(text), prospect(), CLIENT_CTX, SIGNAL, NO_SOURCES)
 
 const ANSWERED: Record<FitCheckName, { result: string; evidence: string }> = {
   primary_occupation:   { result: 'no',             evidence: 'Placeholder: a concurrent full-time role elsewhere.' },

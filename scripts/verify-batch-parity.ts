@@ -200,8 +200,8 @@ async function run(prospectId: string): Promise<void> {
   // refuses to do and why the snapshot exists.
   const live = await buildSynthesisRequest(ctx, entry.raw_sources, clientId, { ttl: '1h' })
 
-  const fromSnapshot = synthesisFromMessage(entry.response_message, ctx, entry.client_context, entry.detected_signal)
-  const fromLive     = synthesisFromMessage(entry.response_message, ctx, live.clientCtx,       live.detectedSignal)
+  const fromSnapshot = synthesisFromMessage(entry.response_message, ctx, entry.client_context, entry.detected_signal, entry.raw_sources)
+  const fromLive     = synthesisFromMessage(entry.response_message, ctx, live.clientCtx,       live.detectedSignal,       entry.raw_sources)
 
   // usage is identical by construction (same Message); excluded only to keep the diff
   // about material rather than about a field that cannot vary.

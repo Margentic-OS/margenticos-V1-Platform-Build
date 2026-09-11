@@ -171,7 +171,11 @@ export async function runProspectResearchCollect({
     // made inline. That equivalence is structural, not a claim a test has to keep
     // re-checking: synthesizeResearch is DEFINED in terms of this function.
     const synthesis = entry.response_message
-      ? synthesisFromMessage(entry.response_message, ctx, entry.client_context, entry.detected_signal)
+      // raw_sources is what phase 1 sent, so a fit-dimension quotation is checked against the
+      // research the judge actually read. The prospect header is rebuilt from the live row, so
+      // a quotation of a job title changed during the wait would not be found and would count
+      // as unknown, which is the safe direction.
+      ? synthesisFromMessage(entry.response_message, ctx, entry.client_context, entry.detected_signal, entry.raw_sources)
       : synthesisFallback(
           ctx, entry.client_context, entry.detected_signal,
           `Batch entry ${entry.id} returned ${entry.result_type ?? entry.state}: ${entry.error ?? 'no message'}`,

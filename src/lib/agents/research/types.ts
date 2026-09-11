@@ -224,6 +224,13 @@ export interface SynthesisOutput {
   icp_fit_unestablished: string[]
   /** The three checks in FIT_CHECKS, each with its evidence. Unknown when not answered. */
   fit_checks:          FitChecks
+  /**
+   * The judge's reading of each of the client's fit dimensions, when the approved profile
+   * carries them. icp_fit above was then computed from these by fixed rules, not given by the
+   * judge (fit-dimensions.ts). null when the profile carries none, and on every path that
+   * reached no answer.
+   */
+  fit_dimensions:      import('./fit-dimensions').DimensionReadings | null
   has_dateable_signal: boolean
   signal_observation:  string | null
   signal_relevance:    SignalRelevance

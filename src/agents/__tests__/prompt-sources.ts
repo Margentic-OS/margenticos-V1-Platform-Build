@@ -130,6 +130,17 @@ export const PROMPT_SOURCES: PromptSource[] = [
   { kind: 'template-literal', path: 'src/agents/messaging-generation-agent.ts',   symbol: 'buildUserMessage', note: 'the messaging user message' },
   { kind: 'template-literal', path: 'src/agents/messaging-generation-agent.ts',   symbol: 'buildSingleVariantUserMessage', note: 'the messaging single-variant retry, a SECOND prompt in the same file' },
   { kind: 'template-literal', path: 'src/agents/buyer-criterion-agent.ts',        symbol: 'buildUserMessage', note: 'the buyer criterion user message; its own docs say an example job title here reaches every client' },
+
+  // ── The fit dimensions: derived once per approval, then shown to the research judge ──
+  //
+  // ADDED 2026-09-11. The derivation decides which conditions make a prospect a fit for one
+  // client, which is the shortest distance in the codebase to writing one market's customer
+  // down, so it is scanned from the day it exists. formatFitDimensions is listed because its
+  // literals are interpolated into the research synthesis prompt, and a prompt assembled from
+  // two files is scanned in both or not at all.
+  { kind: 'template-literal', path: 'src/agents/fit-dimensions-agent.ts',              symbol: 'FIT_DIMENSIONS_PROMPT', note: 'the fit dimensions derivation, once per ICP approval' },
+  { kind: 'template-literal', path: 'src/agents/fit-dimensions-agent.ts',              symbol: 'buildUserMessage',      note: 'the fit dimensions user message' },
+  { kind: 'template-literal', path: 'src/lib/agents/research/fit-dimensions.ts',       symbol: 'formatFitDimensions',   note: 'the dimension list as the research judge reads it' },
 ]
 
 // The markdown prompt files a loadSystemPrompt() is allowed to resolve to. Derived

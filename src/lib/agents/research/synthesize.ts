@@ -18,6 +18,9 @@ import {
   FIT_CHECKS, FIT_CHECK_RESULTS, unknownFitChecks, readTokenUsage,
 } from './types'
 import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
+import {
+  readStoredFitDimensions, readDimensionAnswers, gradeFromDimensions, type FitDimension,
+} from './fit-dimensions'
 import type {
   IcpFit, FitChecks, ProspectContext, RawSourceData, SynthesisOutput,
   ObservationCandidate, CandidateScores, CandidateSource, SignalRelevance,
@@ -68,6 +71,15 @@ export interface ClientDocContext {
   positioningSummary: string
   valuePropContext:   string
   tovRules:           string
+  /**
+   * The client's fit dimensions, read from the approved profile's filter spec. When present,
+   * the judge reads each one and the grade is computed from those readings in code. null or
+   * absent means the profile carries none, and the judge grades as it always has.
+   *
+   * OPTIONAL because the batch path snapshots this object onto synthesis_batch_entries, and
+   * every snapshot written before this field existed lacks it. Absent reads as none.
+   */
+  fitDimensions?:     FitDimension[] | null
 }
 
 /**
@@ -104,7 +116,7 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
       .single(),
     supabase
       .from('strategy_documents')
-      .select('document_type, content, segment_id')
+      .select('document_type, content, segment_id, icp_filter_spec')
       .eq('organisation_id', clientId)
       .eq('status', 'active')
       .in('document_type', ['icp', 'positioning', 'tov'])
@@ -117,10 +129,24 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
 
   // ICP is segment-scoped: use the doc matching the resolved segment.
   // Falls back to any active ICP if the segment match is missing (defensive only).
-  const icpDoc = (
+  const icpRow = (
     docs.find(d => d.document_type === 'icp' && d.segment_id === resolvedSegmentId)
     ?? docs.find(d => d.document_type === 'icp')
-  )?.content as Record<string, unknown> | undefined
+  )
+  const icpDoc = icpRow?.content as Record<string, unknown> | undefined
+
+  // THE FIT DIMENSIONS, from the same row as the ICP, so the judge reads the list fixed when
+  // THIS profile was approved and never another version's. None stored means the judge grades
+  // as it always has. Something stored that does not read is said out loud, not skipped quietly.
+  const storedDimensions = readStoredFitDimensions(
+    (icpRow?.icp_filter_spec as { fit_dimensions?: unknown } | null | undefined)?.fit_dimensions,
+  )
+  if (storedDimensions.problem) {
+    logger.warn('research/synthesize: stored fit dimensions do not read, grading without them', {
+      organisation_id: clientId,
+      problem: storedDimensions.problem,
+    })
+  }
 
   // Positioning and TOV are org-level (segment_id IS NULL) — no segment filter needed.
   const posDoc  = docs.find(d => d.document_type === 'positioning')?.content as Record<string, unknown> | undefined
@@ -228,7 +254,10 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
     if (parts.length) tovRules = parts.join('\n')
   }
 
-  return { clientName, buyerTitle, icpSummary, positioningSummary, valuePropContext, tovRules }
+  return {
+    clientName, buyerTitle, icpSummary, positioningSummary, valuePropContext, tovRules,
+    fitDimensions: storedDimensions.dimensions,
+  }
 }
 
 // ─── Research section formatter ───────────────────────────────────────────────
@@ -646,23 +675,13 @@ function parseFitChecks(raw: unknown): FitChecks {
   })) as FitChecks
 }
 
-function parseSynthesisResponse(
-  raw: string,
-  prospect: ProspectContext,
-  icpSummary: string,
-  detectedSignal: DetectedSignal,
-): SynthesisOutput {
-  const reasoning = parseReasoningBlock(raw)
-  const jsonStr   = extractJson(raw)
-
-  let parsed: Record<string, unknown>
-  try {
-    parsed = JSON.parse(jsonStr) as Record<string, unknown>
-  } catch {
-    logger.warn('research/synthesize: JSON parse failed, falling back', { raw: raw.slice(0, 200) })
-    return buildFallbackSynthesis(prospect, icpSummary, reasoning, 'Claude returned non-JSON', detectedSignal)
-  }
-
+/**
+ * The grade as the judge itself gives it. Used ONLY for a client whose approved profile carries
+ * no fit dimension list, which is every profile approved before fit-dimensions.ts existed.
+ */
+function judgeOwnGrade(parsed: Record<string, unknown>): {
+  icp_fit: IcpFit; icp_fit_missing: string | null; icp_fit_unestablished: string[]
+} {
   // FOUR OUTCOMES, AND AN ANSWER OUTSIDE THEM IS NOT A GRADE. It records cannot_tell, never a
   // grade nobody reached. This used to record 'moderate', which made an answer the code could
   // not read indistinguishable from a genuine partial fit. See ICP_FIT_OUTCOMES.
@@ -683,6 +702,37 @@ function parseSynthesisResponse(
         .map(s => s.trim())
         .slice(0, MAX_UNESTABLISHED)
     : []
+
+  return { icp_fit, icp_fit_missing, icp_fit_unestablished }
+}
+
+function parseSynthesisResponse(
+  raw: string,
+  prospect: ProspectContext,
+  icpSummary: string,
+  detectedSignal: DetectedSignal,
+  dimensions: FitDimension[] | null,
+  material: string,
+): SynthesisOutput {
+  const reasoning = parseReasoningBlock(raw)
+  const jsonStr   = extractJson(raw)
+
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(jsonStr) as Record<string, unknown>
+  } catch {
+    logger.warn('research/synthesize: JSON parse failed, falling back', { raw: raw.slice(0, 200) })
+    return buildFallbackSynthesis(prospect, icpSummary, reasoning, 'Claude returned non-JSON', detectedSignal)
+  }
+
+  // THE GRADE. With a dimension list, the judge reads each dimension and the grade is computed
+  // from those readings by fixed rules. A grade it volunteers anyway is ignored: its final word
+  // is the part that disagreed with itself on identical input. Without a list, the grade is the
+  // judge's own, read as strictly as before.
+  const fit_dimensions = dimensions ? readDimensionAnswers(parsed.fit_dimensions, dimensions, material) : null
+  const { icp_fit, icp_fit_missing, icp_fit_unestablished } = dimensions && fit_dimensions
+    ? gradeFromDimensions(dimensions, fit_dimensions)
+    : judgeOwnGrade(parsed)
 
   // THE THREE CHECKS. A missing or unrecognised answer is unknown, never a yes or a no.
   const fit_checks = parseFitChecks(parsed.fit_checks)
@@ -754,6 +804,7 @@ function parseSynthesisResponse(
     icp_fit_missing,
     icp_fit_unestablished,
     fit_checks,
+    fit_dimensions,
     has_dateable_signal: detectedSignal.has_dateable_signal,
     // The winning candidate is the observation of record. Fall back to the
     // deterministic recency check only when nothing was selected.
@@ -822,6 +873,7 @@ function buildFallbackSynthesis(
     icp_fit_missing: `No grade: ${errorNote}`,
     icp_fit_unestablished: [],
     fit_checks: unknownFitChecks(`No answer: ${errorNote}`),
+    fit_dimensions: null,
     has_dateable_signal: detectedSignal.has_dateable_signal,
     signal_observation:  detectedSignal.signal_observation,
     signal_relevance: 'no_signal',
@@ -948,20 +1000,17 @@ export async function buildSynthesisRequest(
 }
 
 /**
- * The request body itself. Pure: same inputs, byte-identical output, no clock and no
- * database. That is what lets a resubmission after a batch expiry reproduce the exact
- * bytes, and therefore hit the same cache entry.
+ * The user message: everything the judge is shown about THIS prospect. Pure.
+ *
+ * EXPORTED AND SHARED because it is also the material a fit-dimension quotation is checked
+ * against, in synthesisFromMessage. One builder for both, so the judge cannot be shown one
+ * text and have its quotations checked against another.
  */
-export function buildSynthesisParams(
+export function buildSynthesisUserMessage(
   prospect: ProspectContext,
   rawData: RawSourceData,
-  clientCtx: ClientDocContext,
   detectedSignal: DetectedSignal,
-  ttl: '5m' | '1h' = '5m',
-): MessageCreateParamsNonStreaming {
-  // Per-client only. The per-prospect signal moved to the user message so this string is
-  // byte-identical across a batch and can therefore be cached. See buildSignalBlock.
-  const systemPrompt = buildSynthesisPrompt(clientCtx)
+): string {
   const researchSections = formatResearchSections(rawData)
 
   // THE COMPANY, AS ALREADY RECORDED. The judge grades company fit and was shown a staff
@@ -980,6 +1029,25 @@ export function buildSynthesisParams(
 
   const fullName = [prospect.first_name, prospect.last_name].filter(Boolean).join(' ') || 'Unknown'
   const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${roleLine}\nCompany: ${prospect.company_name ?? 'Unknown'}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n${companySection}## Recency check\n\n${buildSignalBlock(detectedSignal.signal_observation)}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
+  return userMessage
+}
+
+/**
+ * The request body itself. Pure: same inputs, byte-identical output, no clock and no
+ * database. That is what lets a resubmission after a batch expiry reproduce the exact
+ * bytes, and therefore hit the same cache entry.
+ */
+export function buildSynthesisParams(
+  prospect: ProspectContext,
+  rawData: RawSourceData,
+  clientCtx: ClientDocContext,
+  detectedSignal: DetectedSignal,
+  ttl: '5m' | '1h' = '5m',
+): MessageCreateParamsNonStreaming {
+  // Per-client only. The per-prospect signal moved to the user message so this string is
+  // byte-identical across a batch and can therefore be cached. See buildSignalBlock.
+  const systemPrompt = buildSynthesisPrompt(clientCtx)
+  const userMessage = buildSynthesisUserMessage(prospect, rawData, detectedSignal)
 
   return {
     model: SYNTHESIS_MODEL,
@@ -1050,6 +1118,9 @@ export function synthesisFromMessage(
   prospect: ProspectContext,
   clientCtx: ClientDocContext,
   detectedSignal: DetectedSignal,
+  // The sources the judge was shown. Read only when the client has a fit dimension list: the
+  // user message is rebuilt from them, and every quotation is checked against that message.
+  rawData: RawSourceData,
 ): SynthesisOutput {
   // THE ONE PLACE THAT HAS THE RESPONSE. Every SynthesisOutput producer below defaults
   // usage to zero; this is what makes it true. Read before any early return, so a
@@ -1071,7 +1142,10 @@ export function synthesisFromMessage(
     })
   }
 
-  const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal)
+  // The material is built only when there is a dimension list to check quotations for.
+  const dimensions = clientCtx.fitDimensions?.length ? clientCtx.fitDimensions : null
+  const material = dimensions ? buildSynthesisUserMessage(prospect, rawData, detectedSignal) : ''
+  const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal, dimensions, material)
 
   // Scrubbing rewrites the trigger (em dashes become full stops, AI tells are replaced),
   // so the readability verdict is recomputed on the text that actually ships.
@@ -1160,7 +1234,7 @@ export async function synthesizeResearch(
     // remains here is what is genuinely inline-only: holding an HTTP connection open,
     // retrying a 429 in-process, and aborting on a fatal account error.
     const response = await callWithRetry(client, params, prospect.id)
-    return synthesisFromMessage(response, prospect, clientCtx, detectedSignal)
+    return synthesisFromMessage(response, prospect, clientCtx, detectedSignal, rawData)
 
   } catch (err) {
     // A spent credit balance or a rejected key is not a per-prospect condition. Falling

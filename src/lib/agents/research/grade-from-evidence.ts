@@ -49,7 +49,7 @@ export async function gradeFromEvidence(args: {
     prospect_id,
     evidence_record_id: evidence.id,
     evidence_from:      evidence.created_at,
-    synthesis:          synthesisFromMessage(response, ctx, clientCtx, detectedSignal),
+    synthesis:          synthesisFromMessage(response, ctx, clientCtx, detectedSignal, evidence.raw),
     reason:             null,
   }
 }

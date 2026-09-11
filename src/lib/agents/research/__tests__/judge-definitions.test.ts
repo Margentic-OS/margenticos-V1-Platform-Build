@@ -54,8 +54,15 @@ function answer(fields: Record<string, unknown>): string {
   }, null, 2)}`
 }
 
+// No sources: this client context carries no fit dimensions, so no quotation is checked.
+const NO_SOURCES = {
+  linkedin: { available: false, profile_data: null, recent_posts: null, formatted: null },
+  apollo: { available: false, formatted: null, raw: null },
+  website: { available: false, url: null, content: null, fetch_method: null },
+  web_search: { available: false, person_search: null, company_search: null, combined: null },
+} as never
 const judge = (text: string, overrides: Partial<Message> = {}) =>
-  synthesisFromMessage(message(text, overrides), prospect(), CLIENT_CTX, SIGNAL)
+  synthesisFromMessage(message(text, overrides), prospect(), CLIENT_CTX, SIGNAL, NO_SOURCES)
 
 describe('not knowing is its own outcome, and never a grade', () => {
   it('cannot_tell is one of the four outcomes and not one of the three grades', () => {

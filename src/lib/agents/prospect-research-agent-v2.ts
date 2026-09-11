@@ -442,6 +442,8 @@ export async function synthesisFromStored(
     // Research rows do not record these, so a reuse run has nothing to carry: unknown, never a guess.
     icp_fit_unestablished: [],
     fit_checks: unknownFitChecks(`Carried from research result ${stored.result_id}, which did not record these checks.`),
+    // Nor these. The carried grade is whatever the source row reached, however it reached it.
+    fit_dimensions: null,
     has_dateable_signal: stored.has_dateable_signal ?? stored.candidates.some(c => c.date !== null),
     signal_observation: stored.signal_observation ?? stored.candidates[0]?.observation ?? null,
     signal_relevance: 'no_signal',   // overwritten by the judge verdict downstream

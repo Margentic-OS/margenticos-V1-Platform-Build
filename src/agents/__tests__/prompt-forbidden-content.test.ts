@@ -231,6 +231,12 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   // Negative exemplars only: the banned firmographic specimens, quoted to teach avoidance.
   'src/agents/messaging-generation-agent.ts:buildUserMessage': 4,
   'src/agents/messaging-generation-agent.ts:buildSingleVariantUserMessage': 1,
+  // The fit dimensions, added 2026-09-11. MEASURED, not assumed: the three entries were added
+  // and the scan re-run, and neither the total nor any other source moved. The research
+  // synthesis prompt, which now carries the dimension branch, stayed at 2.
+  'src/agents/fit-dimensions-agent.ts:FIT_DIMENSIONS_PROMPT': 0,
+  'src/agents/fit-dimensions-agent.ts:buildUserMessage': 0,
+  'src/lib/agents/research/fit-dimensions.ts:formatFitDimensions': 0,
 }
 
 describe('prompt text carries no client-specific content', () => {

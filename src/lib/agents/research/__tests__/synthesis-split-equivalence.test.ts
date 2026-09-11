@@ -204,17 +204,17 @@ describe('the cached prefix is shared across prospects, which is why batching pa
 
 describe('synthesisFromMessage is pure, so phase 2 reaches phase 1 verdicts', () => {
   it('returns a deep-equal result when called twice on the same Message', () => {
-    const a = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX, SIGNAL)
-    const b = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX, SIGNAL)
+    const a = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX, SIGNAL, sources())
+    const b = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX, SIGNAL, sources())
     expect(a).toEqual(b)
   })
 
   it('reaches the same verdict 24 hours later, which is the actual batch scenario', () => {
-    const atSubmit = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX, SIGNAL)
+    const atSubmit = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX, SIGNAL, sources())
 
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2027-01-01T00:00:00Z'))
-    const atCollect = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX, SIGNAL)
+    const atCollect = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX, SIGNAL, sources())
 
     expect(atCollect).toEqual(atSubmit)
     // Named explicitly, because these are the fields that reach the prospect's row.
@@ -229,23 +229,23 @@ describe('synthesisFromMessage is pure, so phase 2 reaches phase 1 verdicts', ()
     // ever recomputed it, the snapshot would be decorative and a post near the recency
     // threshold would flip between the two phases.
     const withSignal = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX,
-      { has_dateable_signal: true,  signal_observation: 'x' })
+      { has_dateable_signal: true,  signal_observation: 'x' }, sources())
     const without    = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX,
-      { has_dateable_signal: false, signal_observation: null })
+      { has_dateable_signal: false, signal_observation: null }, sources())
 
     expect(withSignal.has_dateable_signal).toBe(true)
     expect(without.has_dateable_signal).toBe(false)
   })
 
   it('reports the usage from the Message, which is how the cache rate gets measured', () => {
-    const out = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX, SIGNAL)
+    const out = synthesisFromMessage(message(RESPONSE), prospect(), CLIENT_CTX, SIGNAL, sources())
     expect(out.usage.cache_read_input_tokens).toBe(6700)
     expect(out.usage.output_tokens).toBe(6200)
   })
 
   it('falls back rather than throwing when the batch returns a Message with no text block', () => {
     const out = synthesisFromMessage(
-      message('', { content: [] as never }), prospect(), CLIENT_CTX, SIGNAL,
+      message('', { content: [] as never }), prospect(), CLIENT_CTX, SIGNAL, sources(),
     )
     expect(out.candidates).toEqual([])
     expect(out.relevance_reason).toContain('No text block')
