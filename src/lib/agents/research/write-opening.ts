@@ -182,8 +182,8 @@ the client's approved positioning. Reproduce it exactly, do not alter or paraphr
 
   ${params.p3}
 
-The approved closing question for this particular variant is "${params.cta}". Like the four
-in your instructions, it shows register and length. It is not an instruction to reuse it.`
+The approved closing question for this particular variant is "${params.cta}", and it shows
+register and length. It is not an instruction to reuse it.`
 }
 
 export function buildWriterPrompt(): string {
@@ -249,22 +249,16 @@ commitment and easy to answer. No meeting request, no calendar link, no "worth a
 
 WRITE THE CLOSING QUESTION. DO NOT PICK ONE.
 
-These four are the client's own approved closing questions. They are here to show you
-REGISTER AND LENGTH. They are not a menu and they are not four options to choose between:
-  "Is pipeline consistency something you're actively trying to fix?"
-  "Is getting more conversations in front of you something you're working on?"
-  "Is this a gap you're looking to close?"
-  "Worth a look to see if it fits where you are?"
+The approved question for this particular variant is named in the ASSIGNMENT block. It is
+there to show you REGISTER AND LENGTH: one question, about ${OPENING_BUDGET.question} words,
+answerable yes or no, about the problem in the reader's own terms. It is not a menu.
 
-The approved question for this particular variant is named in the ASSIGNMENT block, and the
-same applies to it.
-
-Your default is to WRITE a question for this prospect. Using one of the four verbatim is
-permitted only when it genuinely is the right question for this person, which will be rare,
-because a question written for the problem you just named will almost always beat a generic
-one. Twelve prospects came back and six of them carried the same approved question word for
-word. That is what happens when register anchors get read as a shortlist, and it undoes the
-work the observation and the bridge just did.
+Your default is to WRITE a question for this prospect. Using the approved question verbatim
+is permitted only when it genuinely is the right question for this person, which will be
+rare, because a question written for the problem you just named will almost always beat a
+generic one. Twelve prospects came back and six of them carried the same approved question
+word for word. That is what happens when register anchors get read as a shortlist, and it
+undoes the work the observation and the bridge just did.
 
 And no two prospects in this batch may get the same closing question. If you are told your
 question is already taken, do not reword it slightly. Ask about a different aspect of the
@@ -310,7 +304,7 @@ capacity. We told him the thing that works does not work.
 
 PATTERN, corrected, and deliberately about a PRINT SHOP:
   observation: "You added a second large-format press in March."
-  bridge: "Your existing customers filled the first press. The second press needs work that
+  bridge: "Your existing customers filled your first press. Your second press needs work that
    has not been quoted yet."
 Nothing here claims anyone's network has failed. It states what is true and stops, and it
 leaves the reader to decide whether it is happening to them.
@@ -572,31 +566,32 @@ the CONSTRUCTION, not just the nouns.
 
 EVERY EXAMPLE BELOW IS FROM A DIFFERENT INDUSTRY TO YOUR PROSPECT'S, DELIBERATELY. THE
 SHAPE IS WHAT TRANSFERS. EVERY WORD IN THEM IS UNUSABLE HERE, because a sentence about
-scaffolding or wedding albums pasted into this email is obviously wrong on sight. That is
+tenders or wedding photos pasted into this email is obviously wrong on sight. That is
 the point: the last two batches lifted the examples almost verbatim and the batch gate
 threw the attempts away. Read them for structure and then write your own sentence out of
 your own prospect's facts.
 
-  A CONDITIONAL. Puts their own situation on the left of the sentence.
-    A dentist: "When the chairs are full six weeks out, nobody is phoning the patients who
-     missed a check-up."
+  ONE FLAT SENTENCE. One thing that happens, stated and left there.
+    A dentist: "Families new to your town book whichever dentist comes up first on a phone
+     search."
 
-  WHAT USUALLY HAPPENS NEXT. Plain sequence, no hedging verb at all.
-    A commercial builder: "A big site keeps the crews busy for a year. The tenders for the
-     next site get written in the last month, if at all."
+  TWO FLAT FACTS. The situation, then what happens. Neither sentence needs the other.
+    A commercial builder: "Site managers spend every weekday of a year-long build on site.
+     The next tender gets priced at night."
 
-  A CONTRAST. Two short clauses, the second overturning the first.
-    A freight broker: "Peak season fills the trucks without a single sales call. February
-     fills nothing, and by February nobody has spoken to a new shipper since October."
+  A CONTRAST. Two sentences, the second overturning the first, each naming its own subject.
+    A freight broker: "At an expo, shippers walk up to your stand for two days straight.
+     The next expo is eleven months away."
 
-  A CONSEQUENCE. States the position their situation puts them in.
-    A wedding photographer: "The wedding season books out your summer. The enquiries for
-     next spring arrive while you are editing somebody else's album."
+  A CONCESSION. What plainly works, then what it does not reach. This one lands on people
+  who already know the work, which is only permitted where the offer line follows up rather
+  than generates, as set out above.
+    A wedding photographer: "Couples post your photos the week after the wedding. People
+     who like your photos rarely ask for your prices."
 
-There are more shapes than these four: a short concession, a plain statement of what the
-situation costs, a comparison between the two halves of the same week. The point is that
-you choose the shape AFTER you know the observation, instead of reaching for the same one
-every time.
+There are more shapes than these four: a plain statement of what the situation costs, a
+comparison between the two halves of the same week. The point is that you choose the shape
+AFTER you know the observation, instead of reaching for the same one every time.
 
 The bridge is NEVER a question. The email gets exactly one question mark and it is the
 closing question, because the CTA is the question and a second one splits the ask. This is
@@ -630,27 +625,25 @@ for two batches and it stopped nothing, because a reading age measures how hard 
 are and the problem is figurative language. "Hours shrink before they grow" is eight easy
 words and it describes nothing. The test that catches that is the camera test, below.
 
-CRAMPED, and both of these shipped:
-  "The regulatory commentary. DTCC tokenization, Treasury clearing, SEC crypto posture,
-   shows where the thinking is."
+CRAMPED:
+  "The latest Friday post. A fig sourdough, rye, spelt, goes up on your shop page at seven."
 A fragment, then a list, then a verb whose subject is three clauses back. By the time you
-reach "shows" you have forgotten what is doing the showing.
+reach "goes up" you have forgotten what is going up.
 
 CLEAN, same facts, nothing lost:
-  "Taffet publishes regulatory commentary regularly. Recent pieces covered DTCC
-   tokenization, Treasury clearing and the SEC's crypto posture. The commentary shows where
-   your thinking is."
-Three sentences. Each one carries a single idea and every subject sits next to its verb.
+  "You post the Friday bake on your shop page at seven. Your latest Friday post showed a fig
+   sourdough, rye and spelt."
+Two sentences. Each one carries a single idea and every subject sits next to its verb.
 
 CRAMPED:
-  "Two new board seats in early 2026. Hollywood Food Coalition and Sovern LA, on top of
-   running SCG full-time is a real load."
-The same fault. An appositive list swallows the subject, so "is a real load" arrives with
-nothing attached to it.
+  "Two new standing orders since March. The town hall and the station hotel, on top of a
+   shop open six days a week, is a lot of flowers."
+The same fault. An appositive list swallows the subject, so "is a lot of flowers" arrives
+with nothing attached to it.
 
 CLEAN:
-  "You took two board seats in early 2026, at Hollywood Food Coalition and Sovern LA. Both
-   seats sit on top of running SCG full time."
+  "You took on two standing orders in March, for the town hall and the station hotel. Your
+   shop was already open six days a week."
 Two sentences. The naming sits inside a clean subject and verb rather than replacing one.
 
 Note what did NOT change in either rewrite. Same facts, same specificity, same length
@@ -692,9 +685,10 @@ Fifteen words before the verb. Three relative clauses, one nested inside another
 word of it is true and nobody reads it once.
 
 EASY:
-  "The first clients come quickly at a firm that moves that fast, and the pipeline behind
-   them takes longer to build."
-Barely shorter. A three-word subject, one relative clause, nothing nested.
+  "Most homeowners sign the cheapest of the three window quotes that land on the doormat in
+   the same week."
+Eight words shorter, and length is not what changed. A two-word subject, one relative
+clause, nothing nested.
 
 The hard one again, same facts, written to be read once:
   "Conferences deliver in bursts. The pipeline tends to follow the event calendar, so the
@@ -729,26 +723,21 @@ CONCRETE, same idea:
    there are fewer of those every week."
 Hours. A reader knows exactly how many of those they had last week.
 
-ABSTRACT, also shipped:
-  "The regions that come after tend to need a different engine."
-A metaphor doing work a plain sentence should do. Which regions, and what engine.
+ABSTRACT:
+  "The winter months need an engine of their own."
+A metaphor doing work a plain sentence should do. Which months, and what engine.
 
 CONCRETE, same idea:
-  "The first two markets were built on people you already knew. In the UK you do not know
-   anyone yet, and the introductions have to start from nothing."
-Same claim, and now it names the country, the people and what is missing.
-
-CONCRETE, already working, and this is the standard:
-  "Delivery has a deadline. Business development has no deadline, so it waits."
-Deadline. Waits. Two things anyone can see happening in their own calendar.
+  "In August, holidaymakers queue at the ice-cream kiosks. In January, the kiosks along the
+   seafront stay shut."
+Same claim, and now it names the months, the people and what is missing.
 
 THE CAMERA TEST. RUN IT ON EVERY SENTENCE, AND TWICE ON THE LAST FEW WORDS OF THE BRIDGE.
 
 Point a camera at their week. Would you see the thing you just described happening?
 
   "Hours shrink before they grow" is unfilmable. Nobody can photograph an hour shrinking.
-  "Delivery has a deadline. Business development has no deadline, so it waits" is filmable: a
-  calendar with a date on it, and something pushed to next week.
+  What you can film is a calendar with a date on it, and something pushed to next week.
 
 Every noun is concrete now and the abstraction moved into the verbs and the endings. That is
 where it hides, because a sentence can be built entirely out of real things and still
@@ -765,21 +754,21 @@ FINISH ON A CONCRETE THING, NOT A CATEGORY. The last few words are what the read
 holding, and a category leaves them holding nothing.
   "goes to whoever was in the room last" beats "rather than from anything systematic".
 
-Two of these shipped last week. Both have concrete nouns throughout and both fail:
+Two more. Both have concrete nouns throughout and both fail:
 
-FAILING: "Outreach for the new-business side gets whatever hours remain, and those tend to
- shrink before they grow."
-Hours do not grow. Point the camera and there is nothing to film.
-PLAIN: "Outreach gets whatever hours are left at the end of the day. Most weeks nobody makes
- the call."
-Now you can film it: a day ending, and a person not making the call.
+FAILING: "A few drivers convert into cider buyers after passing your orchard sign."
+Drivers do not convert. Point the camera and there is nothing to film.
+PLAIN: "Drivers pass your orchard sign at fifty miles an hour. Hardly anyone turns into an
+ unfamiliar farm gate."
+Now you can film it: a car at fifty miles an hour, and a farm gate nobody turns into.
 
-FAILING: "The founders who hear the talk and are ready to buy tend to need a nudge before
- they become a conversation."
-People do not become conversations. "Need a nudge" is not something anyone does either.
-PLAIN: "Some of the people who heard the talk are ready to buy. The ready buyers will not
- email you first."
-An inbox with nothing in it. That is a thing you can point a camera at.
+FAILING: "The parents who hear the violins at a pupil concert tend to need a nudge before
+ they become an order."
+Parents do not become orders. "Need a nudge" is not something anyone does either.
+PLAIN: "Every June, parents hear a dozen handmade violins at a pupil concert. New pupils
+ usually start violin lessons in September."
+A child with a new violin case on the first day of term. That is a thing you can point a
+camera at.
 
 POINT EVERY SENTENCE AT THE PERSON.
 
@@ -840,18 +829,18 @@ PLAIN:   "You are CEO of two companies at once, so on Monday you work on the com
 "Means" and "answers" both described nothing, and neither had a subject who could do them.
 Now the subject is him and the verb is work, which is a thing you can watch him do.
 
-FAILING: "Exhibitions fill the diary around their dates."
-PLAIN:   "You get in front of the right buyers at CAVE. Then the show ends, and the next
- sales conversation waits for the next show."
-Three fixes at once: the subject is him, the compressed phrase became the sentence it was
-hiding, and "conversation" got qualified into "sales conversation".
+FAILING: "Weekend fairs fill the diary around their dates."
+PLAIN:   "You sell mugs at a craft fair most weekends. Visitors walk past twenty potters'
+ stalls in an afternoon."
+Three fixes at once: the subject is the reader, the compressed phrase became the sentence
+it was hiding, and "the diary" became twenty stalls a visitor walks past.
 
-THESE THREE ARE ABOUT STANFORD GSB, TWO CEO ROLES AND THE CAVE STAND. Those facts belong to
-three specific people and to nobody else in your batch. Lifting a phrase from them into an
-email about a different prospect is wrong on sight, and the uniqueness gate will throw the
-whole attempt away. It has already happened five times: an earlier version of a plain
-rewrite above ended "nobody gets to it", and two prospects in the same batch both ended on it.
-Take the move. Write your own words from the findings in front of you.
+THESE THREE ARE ABOUT STANFORD GSB, TWO CEO ROLES AND A POTTER AT A CRAFT FAIR. Those facts
+belong to two specific people and a potter, and to nobody else in your batch. Lifting a
+phrase from them into an email about a different prospect is wrong on sight, and the
+uniqueness gate will throw the whole attempt away. It has already happened five times: one
+earlier plain rewrite ended "nobody gets to it", and two prospects in the same batch both
+ended on it. Take the move. Write your own words from the findings in front of you.
 
 THE AIM TEST, run it on every draft. Read your observation, your bridge, the offer line
 and your question as one message. If the reader could answer that question with "that is
@@ -870,12 +859,11 @@ AIMED WRONG:
 The bridge says she already has plenty of conversations and the wrong ones. The question
 asks whether she wants MORE. She does not want more. She wants different.
 
-AIMED RIGHT, same observation, pattern-framed and pointed at what that question asks:
-  bridge: "Collaborators find you first. The clients you want take longer, and they arrive
-   by a different route."
-Now she is short of the right conversations, which is what being asked about more
-conversations answers. And it claims nothing about her results: it says what tends to
-happen, not what is happening to her.
+AIMED RIGHT is not shown as a sentence, deliberately. Keep the observation from AIMED WRONG.
+Aim the bridge at the gap the closing question asks about: a shortage of the right clients,
+rather than too many of the wrong clients. Say where the right clients come from, and take
+it from a finding. A bridge that only compares the right clients with the collaborators in
+the observation is pointing back, and NEVER POINT BACK rejects it.
 
 THE AIM TEST HAS A SECOND HALF, AND THE FIRST HALF CANNOT SEE IT.
 
