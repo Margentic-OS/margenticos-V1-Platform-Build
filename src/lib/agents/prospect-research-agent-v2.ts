@@ -22,6 +22,7 @@ import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nou
 import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { produceOpening, resolveVariantId, loadClientName } from './research/produce-opening'
+import { writerInputFromSynthesis } from './research/writer-input'
 import { loadProspectContext } from './research/prospect-context'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { suppressProspectAtProvider } from '@/lib/suppression/provider-suppression'
@@ -403,7 +404,10 @@ export async function loadStoredFindings(
 // offer: it reports the one the source row reached. Where the source row has no value the
 // old placeholder still applies, so a row predating those columns degrades no worse than
 // it did before.
-async function synthesisFromStored(
+// EXPORTED so scripts/export-writer-run.ts runs this reuse path's own code rather than a
+// copy of it. The export measures what production writes, so it must be handed what
+// production hands the writer.
+export async function synthesisFromStored(
   stored: StoredFindings,
   ctx: ProspectContext,
   client_id: string,
@@ -548,12 +552,10 @@ export async function runProspectResearchAgentV2({
       apiKey,
       clientName: await loadClientName(supabase, client_id),
       ctx,
-      candidates: synthesis.candidates,
-      // Both live on SynthesisOutput, not on a candidate, so they are the two fields the
-      // writer never saw until now. Null on the stored-findings branch, which reaches no
-      // selection of its own; buildFindingsBlock then marks nothing, which is correct.
-      selectedCandidateId: synthesis.selected_candidate_id,
-      relevanceReason: synthesis.relevance_reason,
+      // The candidates, the selection and the relevance reason, through the ONE mapping
+      // every caller uses. The selection is null on the stored-findings branch, which
+      // reaches no selection of its own; buildFindingsBlock then marks nothing.
+      ...writerInputFromSynthesis(synthesis),
       messagingContent: messaging.content,
       variantId,
       icpBuyerTitle: clientCtx.buyerTitle,

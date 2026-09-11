@@ -13,11 +13,12 @@ import {
   getVariantEmail1Frame,
 } from '@/lib/composition/compose-sequence'
 import { assignVariantDeterministically } from '@/lib/composition/variant-assignment'
-import { writeAndJudgeOpening, type OpeningResult, type AttemptObservation } from './write-opening'
+import { writeAndJudgeOpening, type OpeningResult, type AttemptObservation, type NotWrittenReason } from './write-opening'
 import { resolveBuyer } from './resolve-buyer'
 import { logger } from '@/lib/logger'
 import type { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
-import type { ProspectContext, ObservationCandidate } from './types'
+import { ZERO_TOKEN_USAGE, type ProspectContext, type ObservationCandidate } from './types'
+import { hasUsableCandidate } from './synthesize'
 
 /**
  * The messaging document content the opening is written against.
@@ -74,6 +75,39 @@ export interface ProduceOpeningInput {
 }
 
 /**
+ * The judge_reasoning a prospect carries when the writer was not run because synthesis found
+ * no usable candidate. EXPORTED so the export and any report can count these by value rather
+ * than by matching prose.
+ */
+export const NO_USABLE_CANDIDATE_REASON =
+  'Not written: synthesis found no usable candidate for this prospect, so the approved template ships.'
+
+/**
+ * What produceOpening returns when the writer is not run. Nothing was written and nothing
+ * was compared, so the arrays are empty and the usage is zero. The same shape the batch
+ * path's EMPTY_OPENING uses for a prospect that stopped being mailable, and callers already
+ * store it: personalisation_trigger stays null and composition ships the approved opener.
+ */
+function notWrittenOpening(code: NotWrittenReason, reason: string): OpeningResult {
+  return {
+    not_written_reason: code,
+    opening: null,
+    question: null,
+    subject: null,
+    bridge: null,
+    observation: null,
+    written_won: false,
+    retry_used: false,
+    retries_used: 0,
+    strong_material: false,
+    judge_reasoning: reason,
+    usage: ZERO_TOKEN_USAGE,
+    comparisons: [],
+    gate_failures: [],
+  } satisfies OpeningResult
+}
+
+/**
  * Resolve which variant this prospect's opening is written for.
  *
  * Read from the prospect row when composition has already assigned one, otherwise
@@ -115,6 +149,30 @@ export async function produceOpening({
   uniqueness,
   onAttempt,
 }: ProduceOpeningInput): Promise<OpeningResult> {
+  // THE DO-NOT-WRITE VERDICT HAS A READER, AND THIS IS IT. Added 2026-09-11.
+  //
+  // When synthesis's selection rule finds nothing that clears even SPECIFIC + VERIFIABLE +
+  // RELEVANT, the writer has no finding it may build on. Until now it ran anyway: on the
+  // pinned 41, four of the five prospects with that verdict got a personalised opening, and
+  // an opening written from material synthesis rejected is where a sentence names a thing
+  // there is no fact for.
+  //
+  // HERE, because every research path converges on this function: the inline agent, phase 2
+  // of the batch path, and the export. One check, one place, the same verdict everywhere.
+  //
+  // WHAT HAPPENS INSTEAD IS DECIDED BY WHAT IS RETURNED, and only that: the not-written
+  // result below, which every caller already stores as it stores an opening that lost, so
+  // the approved template ships. Holding the prospect for review, or excluding it from the
+  // batch, are separate decisions and neither is taken here.
+  if (!hasUsableCandidate(candidates)) {
+    logger.info('research/produce-opening: not written, synthesis found no usable candidate', {
+      prospect_id: ctx.id,
+      variant_id: variantId,
+      candidate_count: candidates.length,
+    })
+    return notWrittenOpening('no_usable_candidate', NO_USABLE_CANDIDATE_REASON)
+  }
+
   const frame = getVariantEmail1Frame(messagingContent, variantId)
 
   // THE ONE PLACE THE PRECEDENCE IS DECIDED. Both research paths converge here, so
