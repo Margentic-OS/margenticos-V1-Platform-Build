@@ -38,6 +38,18 @@ Why patch the library rather than wrap each client: about 90 files build their o
 and a wrapper missed at any one of them would silently have no retry. Every one of them goes
 through this single package.
 
+**How often the retry fires (added 2026-09-11).** Most cut reads now succeed on the second
+attempt and leave no error anywhere, so the gateway fault would disappear from view while still
+getting worse. The patch reports each retry to `globalThis.__postgrestGatewayRetryHook`, which
+`src/instrumentation.ts` sets at server start, and each report adds one to
+`gateway_retry_counts`. Not an alert. Read the trend with:
+
+    SELECT day, method, retries FROM public.gateway_retry_counts ORDER BY day DESC, method;
+
+The number is a floor: server-side retries only, and a count whose own write fails is lost. A
+steady zero on a day the edge logs show 504s means the counter is not wired, not that the
+gateway is healthy.
+
 ## Environment variables added by feature
 
 **CALCOM_WEBHOOK_SECRET** (added 2026-09-11, ADR-056). Production and Preview. The secret that

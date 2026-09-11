@@ -731,6 +731,32 @@ there would repeat the one-table-two-meanings mistake described under `job_queue
 
 ---
 
+## Table: gateway_retry_counts
+
+**What it holds.** How many reads the client library retried after a 504, per UTC day and
+HTTP method. Added 2026-09-11 with the read retry (CLAUDE.md, "Supabase client library").
+
+| Field | Type | Notes |
+|---|---|---|
+| `day` | date | UTC. Primary key with `method`. |
+| `method` | text | `GET`, `HEAD` or `OPTIONS` only (CHECK). Writes are never retried, so never counted. |
+| `retries` | integer | Added to by `record_gateway_retry(p_method)`, one per retry. |
+| `updated_at` | timestamptz | When the row last moved. |
+
+**Why it exists.** Once the retry shipped, most cut reads succeeded on the second attempt and
+left no error, so a gateway fault that was still worsening would have disappeared from view.
+This keeps it as one number a day. **Not an alert**; nothing reads it to notify anyone.
+
+**Read it with** `SELECT day, method, retries FROM public.gateway_retry_counts ORDER BY day DESC, method;`
+
+**It is a floor.** Server-side (Node.js) retries only; a count whose own write fails is lost.
+A zero on a day the Supabase edge logs show 504s on reads means the counter is not wired.
+
+**Access.** Service-role only: RLS on with no policies, `anon` and `authenticated` revoked by
+name, `record_gateway_retry` executable by `service_role` alone.
+
+---
+
 ## Table: cron_schedule_registry
 
 **What it holds.** One row per scheduled job, carrying the LAST schedule a migration

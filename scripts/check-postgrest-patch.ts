@@ -18,6 +18,9 @@ const PACKAGE_DIR = join(process.cwd(), 'node_modules', '@supabase', 'postgrest-
 const EXPECTED_VERSION = '2.103.2'
 const MARKER = 'LOCAL PATCH: retry-504-on-reads'
 const POLICY = 'const GATEWAY_TIMEOUT_MAX_RETRIES = 1;'
+// The retry counter depends on this call. Without it the count reads zero, which is
+// indistinguishable from a healthy gateway.
+const HOOK = 'globalThis.__postgrestGatewayRetryHook'
 const BUILDS = ['dist/index.cjs', 'dist/index.mjs']
 
 const problems: string[] = []
@@ -32,7 +35,7 @@ if (version !== EXPECTED_VERSION) {
 
 for (const build of BUILDS) {
   const source = readFileSync(join(PACKAGE_DIR, build), 'utf8')
-  if (!source.includes(MARKER) || !source.includes(POLICY)) {
+  if (!source.includes(MARKER) || !source.includes(POLICY) || !source.includes(HOOK)) {
     problems.push(`${build} does not carry the 504 retry patch. Run \`npx patch-package\`.`)
   }
 }

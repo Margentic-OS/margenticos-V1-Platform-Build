@@ -637,6 +637,27 @@ export type Database = {
           },
         ]
       }
+      gateway_retry_counts: {
+        Row: {
+          day: string
+          method: string
+          retries: number
+          updated_at: string
+        }
+        Insert: {
+          day: string
+          method: string
+          retries?: number
+          updated_at?: string
+        }
+        Update: {
+          day?: string
+          method?: string
+          retries?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       industry_tag_mappings: {
         Row: {
           apollo_tag: string
@@ -3851,6 +3872,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      record_gateway_retry: {
+        Args: { p_method: string }
+        Returns: undefined
       }
       record_job_spend: {
         Args: { p_detail: Json; p_job_id: string }

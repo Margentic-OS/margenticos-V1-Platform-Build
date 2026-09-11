@@ -330,6 +330,13 @@ errors. POST, PATCH and DELETE are never retried: a 504 means the gateway stoppe
 not that the write failed. The reason: since September 2026 Supabase's gateway has cut
 about 1% of requests at five seconds, on reads that normally take 25 ms.
 
+**Every retry is counted, because the retry hides the fault.** The patch reports each retry
+to `globalThis.__postgrestGatewayRetryHook`, which `src/instrumentation.ts` installs at
+server start, and each report adds one to `gateway_retry_counts` (per UTC day and method).
+That table is the only place the gateway fault stays visible once reads stop failing. It is
+a trend to look at, deliberately not an alert. A regenerated patch must keep the hook call;
+`scripts/check-postgrest-patch.ts` fails the build without it.
+
 **Before upgrading supabase-js, READ THE RETRY CODE in the new version.** Open
 `node_modules/@supabase/postgrest-js/dist/index.cjs` and find `RETRYABLE_STATUS_CODES`,
 `RETRYABLE_METHODS` and `executeWithRetry`. Do not rely on release notes or a vendor

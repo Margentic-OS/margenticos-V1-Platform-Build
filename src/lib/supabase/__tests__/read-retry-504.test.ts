@@ -175,6 +175,56 @@ describe('when the retry also fails', () => {
   })
 })
 
+describe('each retry is reported, so it can be counted', () => {
+  // The patched library calls this global on every 504 retry. The retry counter
+  // (gateway-retry-counter.ts) sets it at server start. Set directly here so these tests
+  // watch the library's side of the contract and nothing else.
+  const HOOK = '__postgrestGatewayRetryHook'
+  const host = globalThis as Record<string, unknown>
+
+  // PromiseLike, not Promise: a query builder is thenable but is not a Promise.
+  async function withHook<T>(hook: (event: { method: string }) => void, run: () => PromiseLike<T>): Promise<T> {
+    host[HOOK] = hook
+    try {
+      return await run()
+    } finally {
+      delete host[HOOK]
+    }
+  }
+
+  it('a retried GET reports itself once, with its method', async () => {
+    const hook = vi.fn()
+    const { client } = clientAnswering([JSON_504, ROWS_200])
+    const result = await withHook(hook, () => client.from('things').select('id'))
+
+    expect(result.data).toEqual([{ id: 1 }])
+    expect(hook).toHaveBeenCalledTimes(1)
+    expect(hook).toHaveBeenCalledWith({ method: 'GET' })
+  })
+
+  it('nothing is reported for a write 504, a 403, or a success', async () => {
+    const hook = vi.fn()
+    await withHook(hook, async () => {
+      await clientAnswering([JSON_504]).client.rpc('some_function', { p_value: 1 })
+      await clientAnswering([
+        { status: 403, body: '{"message":"permission denied"}', headers: { 'content-type': 'application/json' } },
+      ]).client.from('things').select('id')
+      await clientAnswering([ROWS_200]).client.from('things').select('id')
+    })
+
+    expect(hook).not.toHaveBeenCalled()
+  })
+
+  it('a hook that throws cannot stop the retry', async () => {
+    const { client, calls } = clientAnswering([JSON_504, ROWS_200])
+    const result = await withHook(() => { throw new Error('counter broke') }, () => client.from('things').select('id'))
+
+    expect(calls).toHaveLength(2)
+    expect(result.error).toBeNull()
+    expect(result.data).toEqual([{ id: 1 }])
+  })
+})
+
 describe('the patch is actually installed', () => {
   it('both builds the package ships carry it, at the version it was written for', () => {
     const dir = join(process.cwd(), 'node_modules', '@supabase', 'postgrest-js')
