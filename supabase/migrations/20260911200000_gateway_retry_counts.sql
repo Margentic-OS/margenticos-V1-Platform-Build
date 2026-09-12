@@ -1,5 +1,8 @@
 -- A count, per day and method, of reads the client library retried after a 504.
--- Status: PENDING
+-- Status: APPLIED (verified live 2026-09-11, production hjpvnvjryxdjcfdsfhzy and test
+-- tidqheqjzvwmrrrebzir). Read back on both: table and function present, RLS on, and the
+-- privileges checked in both directions. service_role holds SELECT/INSERT/UPDATE/DELETE
+-- and EXECUTE; anon and authenticated hold none of them. Production table empty at apply.
 --
 -- WHY. Since 2026-09-09 Supabase's API gateway has cut about 1% of REST requests at five
 -- seconds with a 504. The client library now retries a cut READ once
