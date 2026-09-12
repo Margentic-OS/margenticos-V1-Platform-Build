@@ -32,6 +32,7 @@ vi.mock('../synthesize', () => ({
 
 import { runSynthesisBatchSweep, BATCH_SLA_HOURS, MAX_ENTRIES_PER_BATCH } from '../batch-sweep'
 import { companyFactsFromRow } from '../company-facts'
+import { aTargetableCode } from '@/test-utils/geography-fixture'
 
 const NOW = new Date('2026-08-26T12:00:00Z')
 
@@ -407,6 +408,23 @@ describe('the batch path shows the judge the same company facts as the inline pa
 
     expect(requestContexts).toHaveLength(1)
     expect((requestContexts[0] as { job_title: unknown }).job_title).toBe('Placeholder Title')
+  })
+
+  it('passes the country through the join, which the judge\'s header also reads', async () => {
+    // The inline path shows the judge the country on the prospect row. If this join stopped
+    // selecting it, or contextFor stopped passing it, the batch path would quietly grade
+    // location blind while the inline path did not.
+    requestContexts.length = 0
+    const db = fakeDb({
+      entries: [entry({
+        prospects: { first_name: 'Placeholder', last_name: 'P', company_name: 'Placeholder Company', country: aTargetableCode(), role: null, job_title: 'Placeholder Title', linkedin_url: null },
+      })],
+    })
+
+    await runSynthesisBatchSweep(db.client, fakeAnthropic().client, NOW)
+
+    expect(requestContexts).toHaveLength(1)
+    expect((requestContexts[0] as { country: unknown }).country).toBe(aTargetableCode())
   })
 })
 

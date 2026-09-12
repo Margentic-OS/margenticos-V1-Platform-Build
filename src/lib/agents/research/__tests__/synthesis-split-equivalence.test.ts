@@ -56,6 +56,7 @@ function prospect(overrides: Partial<ProspectContext> = {}): ProspectContext {
     first_name: 'Ada',
     last_name: 'Okoro',
     company_name: 'Meridian Systems',
+    country: null,
     role: 'Head of Delivery',
     job_title: 'Head of Delivery',
     email: 'ada@example.com',

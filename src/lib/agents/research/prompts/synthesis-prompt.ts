@@ -90,6 +90,10 @@ HOW TO READ:
     likely. Unknown is not a partial match, and it is not a match.
   • Read only what the dimension says. A consideration that feels relevant but appears in no
     dimension below plays no part in any reading.
+  • A dimension that names example titles or labels is about the POSITION, not the wording.
+    Someone who holds the equivalent position meets it however their own title reads, and
+    someone whose wording matches while the position does not is a miss. Judge what the
+    dimension says the person is accountable for, runs or decides.
 
 THE DIMENSIONS:
 ${formatFitDimensions(ctx.fitDimensions ?? [])}

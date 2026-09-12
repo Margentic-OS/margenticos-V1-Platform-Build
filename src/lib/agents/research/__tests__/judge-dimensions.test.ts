@@ -109,6 +109,13 @@ describe('what the judge is asked, with and without a dimension list', () => {
     expect(withDims).toContain('"fit_dimensions": {')
   })
 
+  it('with a list: a dimension naming titles is read as a position, not as words', () => {
+    // A profile lists example titles. Read as the only acceptable wording, one miss on a
+    // required dimension makes a prospect weak for describing the same position differently.
+    expect(withDims).toContain('about the POSITION, not the wording')
+    expect(withDims).toMatch(/equivalent position meets it however their own title reads/)
+  })
+
   it('with a list: no grade is asked for anywhere', () => {
     expect(withDims).not.toContain('"icp_fit":')
     expect(withDims).not.toContain('STRONG —')

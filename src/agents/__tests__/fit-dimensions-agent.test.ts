@@ -141,6 +141,14 @@ describe('deriveFitDimensions: what it sends and what it returns', () => {
   })
 })
 
+describe('a profile that names titles produces a condition about the position', () => {
+  it('tells the derivation that named titles are examples, and to ask for an equivalent position', () => {
+    expect(FIT_DIMENSIONS_PROMPT).toContain('TITLES AND LABELS')
+    expect(FIT_DIMENSIONS_PROMPT).toMatch(/examples of the position, never as the only acceptable wording/)
+    expect(FIT_DIMENSIONS_PROMPT).toMatch(/EQUIVALENT position/)
+  })
+})
+
 describe('Rule Zero: the prompt names no market, buyer type, figure or company', () => {
   it('carries no job title or industry vocabulary, and no canonical industry name', () => {
     expect(findBannedContent(FIT_DIMENSIONS_PROMPT)).toEqual([])

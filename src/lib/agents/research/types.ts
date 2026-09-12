@@ -282,6 +282,15 @@ export interface ProspectContext {
   first_name: string | null
   last_name: string | null
   company_name: string | null
+  /**
+   * The country on the prospect's own row, as sourcing recorded it (ISO-3166 alpha-2).
+   *
+   * SHOWN TO THE JUDGE, because a client's profile can name where it sells and the judge was
+   * left to find location in the research: it read location as unknown for 6 of 13 prospects in
+   * one measured run, while this column was filled for all 111 researched prospects. It is a
+   * record of where sourcing found them, not a finding of the research, and it says so.
+   */
+  country: string | null
   role: string | null
   /**
    * The SOURCED job title, and the one the writer and the judge are briefed with.

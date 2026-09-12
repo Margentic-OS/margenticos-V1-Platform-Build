@@ -1027,8 +1027,17 @@ export function buildSynthesisUserMessage(
   // that carry it and no job_title.
   const roleLine = prospect.job_title ?? prospect.role ?? 'Unknown'
 
+  // THE COUNTRY, FROM THE COLUMN THAT HOLDS IT. Filled for all 111 researched prospects for the
+  // live client and never sent until now, so the judge was left to find location in the research
+  // and read it as unknown for 6 of 13 prospects in a measured run, which is most of what put
+  // them in cannot_tell. Labelled as a record rather than a finding, so it is not mistaken for
+  // something this research established.
+  const countryLine = prospect.country
+    ? `${prospect.country} (recorded when this prospect was sourced)`
+    : 'Not recorded'
+
   const fullName = [prospect.first_name, prospect.last_name].filter(Boolean).join(' ') || 'Unknown'
-  const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${roleLine}\nCompany: ${prospect.company_name ?? 'Unknown'}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n${companySection}## Recency check\n\n${buildSignalBlock(detectedSignal.signal_observation)}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
+  const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${roleLine}\nCompany: ${prospect.company_name ?? 'Unknown'}\nCountry: ${countryLine}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n${companySection}## Recency check\n\n${buildSignalBlock(detectedSignal.signal_observation)}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
   return userMessage
 }
 
@@ -1051,12 +1060,15 @@ export function buildSynthesisParams(
 
   return {
     model: SYNTHESIS_MODEL,
-    // 16000, not 8000. Truncation is not a theoretical risk: three of twelve prospects
-    // in the 2026-08-19 batch hit exactly 8000 output tokens, lost their JSON, fell
-    // through to the ICP proxy and were recorded as "no_signal" when the run had in
-    // fact failed. Each candidate now carries an opposite_reading and a seventh test,
-    // so the array outgrew the old ceiling.
-    max_tokens: 16000,
+    // 24000, and neither earlier ceiling was theoretical. Three of twelve prospects in the
+    // 2026-08-19 batch hit exactly 8000 output tokens; three of 39 calls hit exactly 16000 on
+    // 2026-09-11, once the judge began reading each fit dimension with a quotation. The JSON is
+    // the LAST thing in the answer, so a truncated answer always loses it and reaches no grade.
+    //
+    // Raising the ceiling costs nothing on an answer that does not need it, because output
+    // tokens are billed as generated. Measured with a ten-dimension list, answers ran 5,800 to
+    // 13,000 tokens, so this leaves room for a longer list rather than only for today's.
+    max_tokens: 24000,
     // ZERO, FOR THIS CALL ONLY. What this call produces is a verdict: icp_fit, the
     // qualification, which candidate wins. At the API default of 1.0 the same judge
     // disagreed with itself on 4 of 7 prospects given byte-identical input (2026-09-11),
@@ -1133,13 +1145,30 @@ export function synthesisFromMessage(
     return { ...buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', 'No text block in response', detectedSignal), usage: callUsage }
   }
 
-  // A truncated response is the most likely cause of a JSON parse failure, and it
-  // looks identical to a model error unless stop_reason is checked.
+  // AN ANSWER WE CUT OFF IS ITS OWN FAILURE, WITH ITS OWN REASON.
+  //
+  // The JSON is the last thing the judge writes, so an answer that reaches the ceiling has
+  // always lost it. This used to log and fall through to the parse, which then recorded
+  // "Claude returned non-JSON": a reason that blames the model for something we did, and that
+  // reads identically to a genuinely malformed answer. Three of 39 calls landed here on
+  // 2026-09-11 and every one of them was recorded that way.
+  //
+  // It returns rather than parsing, even if what arrived happens to parse: the rest of the
+  // answer is missing, so any grade in it was reached without the candidates that follow it.
   if (response.stop_reason === 'max_tokens') {
-    logger.error('research/synthesize: response truncated at max_tokens — candidates will be lost', {
+    const producedTokens = response.usage?.output_tokens ?? 0
+    logger.error('research/synthesize: the answer was cut off at the output ceiling, so no grade was reached', {
       prospect_id: prospect.id,
-      output_tokens: response.usage?.output_tokens,
+      output_tokens: producedTokens,
     })
+    return {
+      ...buildFallbackSynthesis(
+        prospect, clientCtx.icpSummary, '',
+        `the answer was cut off at the output ceiling after ${producedTokens} tokens, so its JSON never arrived`,
+        detectedSignal,
+      ),
+      usage: callUsage,
+    }
   }
 
   // The material is built only when there is a dimension list to check quotations for.

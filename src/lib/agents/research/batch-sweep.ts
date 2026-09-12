@@ -111,6 +111,8 @@ interface PendingEntry {
   prospect_first_name: string | null
   prospect_last_name: string | null
   prospect_company_name: string | null
+  /** The country on the prospect row, so the batch path shows the judge what the inline path does. */
+  prospect_country: string | null
   prospect_role: string | null
   prospect_job_title: string | null
   prospect_linkedin_url: string | null
@@ -138,6 +140,7 @@ function contextFor(entry: PendingEntry): ProspectContext {
     first_name: entry.prospect_first_name,
     last_name: entry.prospect_last_name,
     company_name: entry.prospect_company_name,
+    country: entry.prospect_country,
     role: entry.prospect_role,
     job_title: entry.prospect_job_title,
     email: null,
@@ -181,7 +184,7 @@ async function submitPendingForOneOrganisation(
 ): Promise<void> {
   const { data: pendingData, error: pendingError } = await supabase
     .from('synthesis_batch_entries')
-    .select('id, organisation_id, prospect_id, raw_sources, detected_signal, client_context, segment_id, submit_attempts, prospects!inner(first_name, last_name, company_name, role, job_title, linkedin_url, company_headcount, company_industry, website_url, apollo_enrichment_data)')
+    .select('id, organisation_id, prospect_id, raw_sources, detected_signal, client_context, segment_id, submit_attempts, prospects!inner(first_name, last_name, company_name, country, role, job_title, linkedin_url, company_headcount, company_industry, website_url, apollo_enrichment_data)')
     .eq('organisation_id', organisationId)
     .eq('state', 'pending_submission')
     .order('created_at', { ascending: true })
@@ -209,6 +212,7 @@ async function submitPendingForOneOrganisation(
       prospect_first_name:   (p?.first_name as string | null) ?? null,
       prospect_last_name:    (p?.last_name as string | null) ?? null,
       prospect_company_name: (p?.company_name as string | null) ?? null,
+      prospect_country:      (p?.country as string | null) ?? null,
       prospect_role:         (p?.role as string | null) ?? null,
       prospect_job_title:    (p?.job_title as string | null) ?? null,
       prospect_linkedin_url: (p?.linkedin_url as string | null) ?? null,

@@ -70,6 +70,12 @@ One condition, about the person or about their company, that can be read as met 
 
 Phrase every dimension so that meeting it is good for fit. A statement that rules prospects out becomes the condition of being clear of it.
 
+TITLES AND LABELS
+
+Where the profile names particular titles, labels or role words for the person, treat them as examples of the position, never as the only acceptable wording. The same position is worded differently from one business to the next, and a dimension met only by matching wording rejects the right person for saying it another way.
+
+So write such a dimension as whether the person holds an EQUIVALENT position, and say what that position does, in the profile's own words: what they are accountable for, what they run, what they decide. Name the profile's examples only as examples, if at all.
+
 ROLE
 
 required: the profile states it as a condition or as something that rules a prospect out. A prospect who fails it is not a fit.

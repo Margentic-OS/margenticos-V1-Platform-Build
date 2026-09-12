@@ -363,7 +363,7 @@ async function runOne(
   // that it writes nothing should not depend on a guard firing.
   const { data: p, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, segment_id, variant_id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, personalisation_trigger, personalisation_question, personalisation_subject, company_headcount, company_industry, apollo_enrichment_data')
+    .select('id, organisation_id, segment_id, variant_id, first_name, last_name, company_name, country, role, job_title, email, linkedin_url, website_url, personalisation_trigger, personalisation_question, personalisation_subject, company_headcount, company_industry, apollo_enrichment_data')
     .eq('id', prospectId)
     .single()
   if (error || !p) throw new Error(`prospect not found: ${prospectId}`)
@@ -376,6 +376,7 @@ async function runOne(
     first_name:      (p.first_name ?? null) as string | null,
     last_name:       (p.last_name ?? null) as string | null,
     company_name:    (p.company_name ?? null) as string | null,
+    country:         (p.country ?? null) as string | null,
     role:            (p.role ?? null) as string | null,
     job_title:       (p.job_title ?? null) as string | null,
     email:           (p.email ?? null) as string | null,

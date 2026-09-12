@@ -26,7 +26,7 @@ function prospect(overrides: Partial<ProspectContext> = {}): ProspectContext {
   return {
     id: 'p-1', organisation_id: 'org-1', segment_id: 'seg-1',
     first_name: 'Placeholder', last_name: 'Person', company_name: 'Placeholder Company',
-    role: null, job_title: 'Placeholder Title', email: null,
+    country: null, role: null, job_title: 'Placeholder Title', email: null,
     linkedin_url: null, website_url: null, company: null,
     ...overrides,
   }

@@ -22,7 +22,7 @@ import { companyFactsFromRow } from './company-facts'
  * company_headcount and company_industry are for the fit judge (see company-facts.ts).
  */
 export const PROSPECT_CONTEXT_COLUMNS =
-  'id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, organisation_id, segment_id, variant_id, apollo_enrichment_data, company_headcount, company_industry'
+  'id, first_name, last_name, company_name, country, role, job_title, email, linkedin_url, website_url, organisation_id, segment_id, variant_id, apollo_enrichment_data, company_headcount, company_industry'
 
 /** The prospect row columns a research run needs, beyond what ProspectContext carries. */
 export interface ProspectRowExtras {
@@ -55,6 +55,7 @@ export function prospectContextFromRow(prospect: Record<string, any>, segmentId:
       first_name:      prospect.first_name,
       last_name:       prospect.last_name,
       company_name:    prospect.company_name,
+      country:         prospect.country ?? null,
       role:            prospect.role,
       job_title:       prospect.job_title,
       email:           prospect.email,
