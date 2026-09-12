@@ -105,7 +105,9 @@ import type { AttemptObservation, JudgeComparison } from '@/lib/agents/research/
 import { buildFindingsBlock } from '@/lib/agents/research/write-opening'
 import { writerInputFromSynthesis } from '@/lib/agents/research/writer-input'
 import { loadClientContext } from '@/lib/agents/research/synthesize'
-import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
+import { fetchApprovedMessagingDoc, composeEmail1WithOpening, getVariantEmail1Frame } from '@/lib/composition/compose-sequence'
+import { checkResearchEligibility, type VerificationFacts } from '@/lib/sourcing/send-eligibility-policy'
+import { resolveSegmentId } from '@/lib/agents/research/prospect-context'
 import { BatchUniquenessRegistry } from '@/lib/agents/research/batch-uniqueness'
 import type { ProspectContext, TokenUsage } from '@/lib/agents/research/types'
 
@@ -253,6 +255,17 @@ interface ProspectRecord {
   /** The research result the findings were reused from, and how many it carried. */
   source_result_id: string
   candidate_count: number
+  /** Who the email is to, for a reader. Read from the prospect row; nothing is inferred. */
+  company_name: string | null
+  job_title: string | null
+  /**
+   * THE EMAIL AS IT WOULD SEND: subject and body, built by composeEmail1WithOpening, the
+   * function the judge reads and composition uses. A written opening that won ships with its
+   * question and subject (a discarded subject is null, so the authored one ships). Anything
+   * else, including a prospect the writer was stopped for, ships the approved opening, CTA
+   * and subject. First name resolved and opt-out footer included, as at send time.
+   */
+  email_as_sent: { subject: string | null; body: string }
   /**
    * WHAT THE WRITER WAS HANDED, beyond the brief. Recorded from the SAME object that is
    * spread into produceOpening, so the record cannot claim a field the writer never got.
@@ -323,6 +336,22 @@ export function describeHandover(
     relevance_reason: relevanceReason,
     findings_block: buildFindingsBlock(input.candidates, { selectedCandidateId, relevanceReason }),
   }
+}
+
+/**
+ * Whether production would write for this prospect at all: not suppressed, and passing the
+ * send-eligibility policy that the research queue gate and phase 2 of the batch path both
+ * apply before the writer. The same policy function they call, so the export cannot disagree.
+ *
+ * UNTIL 2026-09-11 the export skipped neither, so a suppressed prospect (#29 of the pinned 41,
+ * operator_stop) was written for in every run although production never would be.
+ */
+export function mailabilityForResearch(
+  row: { suppressed: boolean | null } & VerificationFacts,
+): { mailable: true } | { mailable: false; reason: string } {
+  if (row.suppressed === true) return { mailable: false, reason: 'suppressed' }
+  const eligibility = checkResearchEligibility(row)
+  return eligibility.eligible ? { mailable: true } : { mailable: false, reason: eligibility.reason }
 }
 
 /**
@@ -405,23 +434,42 @@ async function runOne(
   prospectId: string,
   uniqueness: BatchUniquenessRegistry,
   pinnedDocId: string | null,
-): Promise<ProspectRecord | null> {
+): Promise<ProspectRecord | { skipped: 'not_mailable' | 'no_findings'; detail: string }> {
   // A PLAIN SELECT, NOT loadProspectContext. That helper stamps prospects.segment_id when
   // it finds it null, which is correct for the agents and is a WRITE. The proxy would
   // throw on it, but not calling it at all is the better answer: a tool whose claim is
   // that it writes nothing should not depend on a guard firing.
   const { data: p, error } = await supabase
     .from('prospects')
-    .select('id, organisation_id, segment_id, variant_id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, personalisation_trigger, personalisation_question, personalisation_subject')
+    .select('id, organisation_id, segment_id, variant_id, first_name, last_name, company_name, role, job_title, email, linkedin_url, website_url, personalisation_trigger, personalisation_question, personalisation_subject, suppressed, independent_verified_at, independent_email_status, email_send_ineligible_reason, verification_provider, second_pass_status, second_pass_provider')
     .eq('id', prospectId)
     .single()
   if (error || !p) throw new Error(`prospect not found: ${prospectId}`)
 
   const clientId = p.organisation_id as string
+
+  // PRODUCTION DOES NOT WRITE FOR A PROSPECT IT CANNOT MAIL, so neither does this.
+  const mailable = mailabilityForResearch({
+    suppressed:                   (p.suppressed ?? null) as boolean | null,
+    independent_verified_at:      (p.independent_verified_at ?? null) as string | null,
+    independent_email_status:     (p.independent_email_status ?? null) as string | null,
+    email_send_ineligible_reason: (p.email_send_ineligible_reason ?? null) as string | null,
+    verification_provider:        (p.verification_provider ?? null) as string | null,
+    second_pass_status:           (p.second_pass_status ?? null) as string | null,
+    second_pass_provider:         (p.second_pass_provider ?? null) as string | null,
+  })
+  if (!mailable.mailable) {
+    console.log(`  SKIPPED ${prospectId}: not mailable (${mailable.reason}). Production does not write for this prospect.`)
+    return { skipped: 'not_mailable', detail: mailable.reason }
+  }
+
+  // THE SEGMENT PRODUCTION WOULD USE, resolved by the same rule loadProspectContext uses and
+  // NOT stamped. It decides which messaging document and which ICP the writer is briefed with.
+  const segmentId = await resolveSegmentId(supabase, (p.segment_id ?? null) as string | null, clientId)
   const ctx: ProspectContext = {
     id:              p.id as string,
     organisation_id: clientId,
-    segment_id:      (p.segment_id ?? null) as string | null,
+    segment_id:      segmentId,
     first_name:      (p.first_name ?? null) as string | null,
     last_name:       (p.last_name ?? null) as string | null,
     company_name:    (p.company_name ?? null) as string | null,
@@ -438,7 +486,7 @@ async function runOne(
   const stored = await loadStoredFindings(supabase as never, prospectId, clientId)
   if (!stored || stored.candidates.length === 0) {
     console.log(`  SKIPPED ${prospectId}: no stored findings with candidates. A reuse run has nothing to write from.`)
-    return null
+    return { skipped: 'no_findings', detail: 'no stored findings with candidates' }
   }
 
   const messaging = await loadMessaging(supabase, clientId, ctx.segment_id, pinnedDocId)
@@ -460,6 +508,11 @@ async function runOne(
     onAttempt: o => attempts.push(o),
   })
 
+  const frame = getVariantEmail1Frame(messaging.content, variantId)
+  const sent = opening.written_won && opening.opening
+    ? composeEmail1WithOpening(messaging.content, variantId, opening.opening, opening.question, ctx.first_name, opening.subject)
+    : composeEmail1WithOpening(messaging.content, variantId, frame.authoredOpening, null, ctx.first_name, null)
+
   return {
     prospect_id:      prospectId,
     organisation_id:  clientId,
@@ -468,6 +521,9 @@ async function runOne(
     messaging_doc_version: messaging.version,
     source_result_id: stored.result_id,
     candidate_count:  stored.candidates.length,
+    company_name:     ctx.company_name,
+    job_title:        ctx.job_title,
+    email_as_sent:    { subject: sent.subject_line ?? null, body: sent.body },
     writer_handover:  describeHandover(writerInput),
     strong_material:  opening.strong_material,
     observation:      opening.observation,
@@ -629,12 +685,17 @@ async function main() {
   const partialPath = path.join(outDir, `writer-run-${stamp}.partial.jsonl`)
 
   const records: ProspectRecord[] = []
+  const skipped: Array<{ prospect_id: string; skipped: string; detail: string }> = []
   let aborted: string | null = null
   try {
     for (const [i, id] of targets.entries()) {
       console.log(`[${i + 1}/${targets.length}] ${id}`)
       const rec = await runOne(supabase, apiKey, id, uniqueness, pinnedDocId)
-      if (rec) {
+      if ('skipped' in rec) {
+        skipped.push({ prospect_id: id, ...rec })
+        continue
+      }
+      {
         records.push(rec)
         // Appended BEFORE the console line, so the file is ahead of the log rather than
         // behind it. A record visible on stdout but absent from disk is the exact
@@ -681,6 +742,9 @@ async function main() {
     messaging_docs_used: [...new Set(records.map(r => `${r.messaging_doc_id}${r.messaging_doc_version ? ` v${r.messaging_doc_version}` : ''}`))],
     prospects_run: records.length,
     prospects_requested: targets.length,
+    // Requested but not run, with why: not mailable (production would not write for them) or
+    // no stored findings. prospects_run + skipped.length = prospects_requested on a full run.
+    skipped,
     judge_wins: won,
     judge_win_rate: records.length > 0 ? won / records.length : null,
     // Prospects the writer was never run for, counted by the exact reason value. They are
@@ -719,6 +783,7 @@ async function main() {
   console.log(`gate failures       ${JSON.stringify(summary.gate_failure_counts)}`)
   console.log(`retries used        ${JSON.stringify(summary.retries_used_distribution)}`)
   console.log(`not written         ${summary.not_written_no_usable_candidate} (synthesis found no usable candidate)`)
+  console.log(`skipped             ${skipped.length} ${JSON.stringify(skipped.reduce((m: Record<string, number>, s) => (m[s.detail] = (m[s.detail] ?? 0) + 1, m), {}))}`)
   if (unclassified.length > 0) {
     console.log(`\nUNCLASSIFIED GATE FAILURES (${unclassified.length}). Add a pattern for each:`)
     for (const u of [...new Set(unclassified)]) console.log(`  ${u}`)
