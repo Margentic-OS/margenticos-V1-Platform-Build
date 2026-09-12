@@ -146,6 +146,40 @@ describe('rule 3: a human answer before the deadline wins', () => {
     })
   })
 
+  it('does not bill a meeting the backstop already billed, which would be a second charge', async () => {
+    // ═══════════════════════════════════════════════════════════════════════════
+    // THE FIXTURE ABOVE COULD NOT CATCH THIS, AND THE MUTATION SAID SO.
+    //
+    // Removing held_decision_locked from BOTH the read and the update left every test in
+    // this file green, because the "decided" meeting above also carries meeting_status
+    // 'no_show', so the STATUS filter was excluding it and the lock filter was never the
+    // thing doing the work. A guard that no test can distinguish from its neighbour is an
+    // uncovered guard whatever the count says.
+    //
+    // This is the state where the lock is the ONLY guard, and it is not a contrived one: it
+    // is exactly what the backstop itself writes. It sets is_billable and the basis and
+    // deliberately LEAVES meeting_status as 'booked', because billing an unconfirmed meeting
+    // is not a finding that anybody attended. So an already-billed meeting is
+    // {booked, locked, billable}, it matches the status filter, and only the lock keeps the
+    // next daily run from billing it again.
+    // ═══════════════════════════════════════════════════════════════════════════
+    seed([meeting('already-billed', {
+      ...ASKED,
+      meeting_status: 'booked',
+      held_decision_locked: true,
+      is_billable: true,
+      billable_basis: 'unconfirmed_backstop',
+    })])
+
+    const run = await sweepMeetingOutcomes(db.client, AFTER_DEADLINE)
+
+    expect(run.billed_unconfirmed).toBe(0)
+    expect(db.tables.meetings[0]).toMatchObject({
+      is_billable: true,
+      billable_basis: 'unconfirmed_backstop',
+    })
+  })
+
   it('a meeting the client confirmed as held keeps the client as its basis', async () => {
     seed([meeting('confirmed', {
       ...ASKED,
