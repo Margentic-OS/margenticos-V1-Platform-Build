@@ -5212,3 +5212,98 @@ presence, length and length-without-surrounding-whitespace only. The value is ne
 returned or sent. Sentry groups by title, so a flood of bad requests is one issue with a count.
 Proved in `route-refusals.test.ts`, including a search of every log line, record and response
 for the secret.
+
+---
+
+## ADR-057 — Attendance cannot be detected, so held is a permanent human judgement; the 72-hour auto-held job is removed, and an unconfirmed meeting bills at the end of the following month with its basis recorded
+
+**Date**: 2026-09-12
+**Status**: Accepted
+
+### Context
+
+Booking detection went live on 2026-09-11 (ADR-056). The question it left open was how a
+booked meeting becomes a BILLED meeting.
+
+**Attendance cannot be detected automatically, and this is permanent.** Cal.com's automatic
+"didn't join" triggers, `AFTER_HOSTS_CAL_VIDEO_NO_SHOW` and
+`AFTER_GUESTS_CAL_VIDEO_NO_SHOW`, fire only for bookings using Cal's own video product. Every
+client seat is wired to the client's own calendar using the client's own video tool: Google
+Meet, Teams or Zoom, and only rarely Cal Video. So those triggers will never fire for a client
+meeting. Cal.com exposes no attendee RSVP field either, and a meeting bot is ruled out: a bot
+cannot be made invisible, and it will not be put in front of a prospect.
+
+What Cal.com does offer after a meeting is `MEETING_ENDED`, which fires at the scheduled end
+time for every booking whether or not anybody attended, and `BOOKING_NO_SHOW_UPDATED`, which
+fires when a host marks an attendee absent BY HAND. The first is a clock. The second is a
+person. Only the second is evidence.
+
+**And a job was already billing without a person.** `resolve-auto-held` marked every booked
+meeting held and billable 72 hours after its scheduled start, recorded as
+`held_confirmed_by = 'auto'`. It was built on 2026-06-15 and it was never part of the pricing
+decision of 2026-08-24, which bills an unconfirmed meeting at the end of the FOLLOWING MONTH.
+With booking detection live, the first real booking would have been billed three days after
+the meeting whether or not anyone attended.
+
+### Decision
+
+**Held versus no-show is a human judgement, permanently. The design does not work around
+that, it is built on it.**
+
+1. **The primary path is client confirmation.** After a meeting's scheduled end the client is
+   asked, in one click, whether it happened. The link carries a signed token naming one
+   meeting of one organisation and needs no login. It expires AFTER the billing deadline, so
+   it cannot die while the client still has time to answer.
+
+2. **The 72-hour job is gone.** Paused live and declared off in `cron_schedule_registry`
+   (20260911210000), and its route and library deleted. The pg_cron row is left paused rather
+   than unscheduled, because `cron.unschedule()` destroys the only copy of the command, which
+   carries a bearer token, and because MON-025 turns red if anybody switches a job on that the
+   registry declares off.
+
+3. **The monthly backstop stays, because it is a commercial term the client agrees to.** The
+   2026-08-24 decision stands unchanged: a meeting in month M rolls unconfirmed onto the M+1
+   invoice, and if still unconfirmed at the end of M+1 it bills automatically.
+
+4. **The deadline is a calendar date, never a number of days.** `bill_unconfirmed_after` holds
+   the last instant of the month after the meeting's month, UTC, computed once when the booking
+   is taken. A meeting on the 1st has about eight weeks; one on the 30th has about four.
+   Reminders work back from that date (14, 7 and 2 days before it) rather than forward from the
+   meeting, so a late-month meeting gets the same three chances, just closer together.
+
+5. **Every billable meeting records HOW it became billable**, in `billable_basis`:
+   `client_confirmed`, `operator_marked`, or `unconfirmed_backstop`. It is shown in words on
+   the operator screen, because a client asking about an invoice is asking exactly that.
+
+6. **Nothing is billed that the client was never asked about.** The backstop requires
+   `confirmation_sent_at`. A missing `JWT_SECRET`, a bounced address or an organisation with no
+   client user all leave the meeting unasked, and an unasked meeting past its deadline is
+   reported to the operator as a fault rather than billed.
+
+7. **A booking tool never makes a meeting billable.** `MEETING_ENDED` stamps
+   `outcome_requested_at` and nothing else. `BOOKING_NO_SHOW_UPDATED` records a no-show, which
+   is never billable, and only when an attendee actually carries `noShow: true`, because the
+   same trigger fires when a host UNMARKS someone. Neither overturns a decision a person has
+   already made.
+
+8. **Two database constraints, so the rules survive a future edit.**
+   `meetings_billable_records_its_basis` forbids a billable meeting with no basis, and
+   `meetings_billable_needs_a_prospect` forbids billing a booking that matched no prospect. Both
+   were added VALID (production held 0 meetings, the test project 0 billable rows) and both were
+   proved to BITE on the live test database with a probe that cannot commit.
+
+### Consequences
+
+- A client who never answers is still billed, at the end of the following month, and that is
+  deliberate. What changed is that it is no longer three days, and it never happens to a
+  client who was not asked.
+- `meeting_status` is NOT set to `held` by the backstop. Billing an unconfirmed meeting is a
+  consequence of silence, not a finding that anybody attended, and writing 'held' would put a
+  fact in the record that no person established.
+- mon_010 now reads the `meeting-outcomes` heartbeat instead of `resolve-auto-held`'s, keeping
+  the same `Examined N organisations` format contract and its organisation cross-check.
+- `organisations.auto_held_window_hours` is now read by nothing and still shows on the operator
+  Settings screen. Left in place deliberately rather than half-removed, and filed in the
+  Backlog.
+- The operator screen is the only surface where held or no-show can be recorded by hand, so it
+  is linked in the sidebar; `operator-page-reachability.test.tsx` enforces that.

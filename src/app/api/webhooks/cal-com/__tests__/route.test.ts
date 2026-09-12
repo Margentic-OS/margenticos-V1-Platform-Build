@@ -270,19 +270,64 @@ describe('cancelled and rescheduled are distinct events', () => {
 })
 
 describe('meeting-ended is not evidence that anyone attended', () => {
-  it('is acknowledged and ignored: nothing is read or written, nothing becomes held or billable', async () => {
+  // CHANGED 2026-09-12 (ADR-057). This block asserted that MEETING_ENDED was IGNORED and that
+  // the route touched nothing. It is now HANDLED, because it is how the platform learns when
+  // to ASK a person for an outcome. The rule it was written to protect is unchanged and is
+  // still the assertion below: the notification fires at the scheduled end time whether or not
+  // anybody attended, so it must never produce held, billable, or a locked decision.
+  function endedBody(uid: string) {
+    return JSON.stringify({
+      triggerEvent: 'MEETING_ENDED',
+      createdAt: '2026-09-15T10:00:00Z',
+      // The payload is FLAT: the booking's own fields, not a nested booking object.
+      payload: { uid, endTime: '2026-09-15T10:00:00Z', title: 'Intro call' },
+    })
+  }
+
+  it('records only that an outcome is wanted: nothing becomes held, billable or decided', async () => {
     seed({ meetings: [{
       id: 'meeting-1', organisation_id: 'org-a', prospect_id: PROSPECT_A, booking_uid: 'uid-1',
       meeting_status: 'booked', is_billable: false, held_decision_locked: false,
+      outcome_requested_at: null, held_confirmed_by: null, billable_basis: null,
     }] })
-    // Flat payload, as Cal.com documents for MEETING_ENDED.
-    const body = JSON.stringify({ triggerEvent: 'MEETING_ENDED', uid: 'uid-1', createdAt: '2026-09-15T10:00:00Z' })
+    const body = endedBody('uid-1')
     const res = await POST(request(body, sign(body)))
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ignored: 'MEETING_ENDED' })
+    expect(await res.json()).toEqual({ outcome: 'outcome_requested', meetingId: 'meeting-1' })
+
+    const row = db.tables.meetings[0]
+    expect(row.outcome_requested_at).not.toBeNull()
+    // THE ASSERTION THIS BLOCK HAS ALWAYS BEEN FOR.
+    expect(row).toMatchObject({
+      meeting_status: 'booked',
+      is_billable: false,
+      held_decision_locked: false,
+      held_confirmed_by: null,
+      billable_basis: null,
+    })
+  })
+
+  it('is malformed, not silently accepted, when the delivery carries no payload', async () => {
+    // The shape this test used to send: a flat top-level uid with no payload object at all.
+    // While the trigger was ignored that was harmless. Now it names a booking the route
+    // cannot find, so it must say so rather than answer 200 over a delivery it did not apply.
+    seed({ meetings: [] })
+    const body = JSON.stringify({ triggerEvent: 'MEETING_ENDED', uid: 'uid-1', createdAt: '2026-09-15T10:00:00Z' })
+    const res = await POST(request(body, sign(body)))
+
+    expect(res.status).toBe(400)
     expect(db.calls).toEqual([])
-    expect(db.tables.meetings[0]).toMatchObject({ meeting_status: 'booked', is_billable: false })
+  })
+
+  it('reports a meeting-ended for a booking it never recorded, rather than inventing one', async () => {
+    seed({ meetings: [] })
+    const body = endedBody('never-recorded')
+    const res = await POST(request(body, sign(body)))
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ outcome: 'no_change' })
+    expect(db.tables.meetings).toHaveLength(0)
   })
 })
 

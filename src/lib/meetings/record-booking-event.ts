@@ -25,11 +25,21 @@
 //    hosting seat, so a reference to another client's prospect can never attach a meeting
 //    across clients.
 //
-// An unmatched meeting (prospect_match 'none', prospect_id NULL) is excluded from auto-held
-// billing in auto-held-resolution.ts. Recording it must never make it billable on its own.
+// An unmatched meeting (prospect_match 'none', prospect_id NULL) can never be billed: the
+// database refuses it outright, through meetings_billable_needs_a_prospect (migration
+// 20260912154500). That used to be a filter in the 72-hour auto-held job, which is gone.
+//
+// ═════════════════════════════════════════════════════════════════════════════
+// 4. A BOOKING TOOL NEVER MAKES A MEETING BILLABLE. Two of the five events it sends arrive
+//    after the meeting: 'ended', which fires at the scheduled end time whether or not anyone
+//    attended, and 'no_show_marked', which is a host's own judgement. The first only stamps
+//    "time to ask a person"; the second records a no-show, which is never billable. Nothing
+//    in this file sets is_billable true, and nothing sets billable_basis. Billing needs a
+//    human answer through the confirm route, or the monthly backstop (ADR-057).
 
 import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 import { logger } from '@/lib/logger'
+import { unconfirmedBillingDeadline } from './billing-deadline'
 import type { BookedDetails, BookingEvent } from './booking-event'
 import { sendFirstMeetingEmail } from '@/lib/notifications/send-first-meeting-email'
 import { sendUnmatchedBookingNotification } from '@/lib/notifications/send-unmatched-booking-notification'
@@ -45,6 +55,10 @@ export type BookingOutcome =
   | { outcome: 'quarantined' }
   | { outcome: 'cancelled'; meetingId: string }
   | { outcome: 'rescheduled'; meetingId: string }
+  /** The slot has passed and a person is now being asked. Nothing about held or billable. */
+  | { outcome: 'outcome_requested'; meetingId: string }
+  /** A host marked the attendee absent. Not billable, by definition. */
+  | { outcome: 'no_show_recorded'; meetingId: string }
   | { outcome: 'no_change'; detail: string }
 
 export async function recordBookingEvent(
@@ -59,7 +73,27 @@ export async function recordBookingEvent(
       return recordCancelled(supabase, event.bookingUid, provider)
     case 'rescheduled':
       return recordRescheduled(supabase, event, provider)
+    case 'ended':
+      return recordEnded(supabase, event.bookingUid, event.endTime)
+    case 'no_show_marked':
+      return recordNoShowMarked(supabase, event.bookingUid)
   }
+}
+
+/**
+ * When this meeting bills if nobody ever answers: the last instant of the month AFTER the
+ * month it happened in (2026-08-24 decision, computed in billing-deadline.ts).
+ *
+ * Falls back to the time the booking was taken when the tool reported no start time, because
+ * a meeting with no deadline could never be billed and would sit unresolved for ever. The
+ * fallback is the conservative direction only by accident, so it is stated rather than
+ * relied on: a booking with no start time is a malformed booking and shows on the operator
+ * screen as one.
+ */
+function billingDeadlineFor(startTime: string | null, bookedAt: string): string {
+  const basis = startTime ? new Date(startTime) : new Date(bookedAt)
+  const usable = Number.isNaN(basis.getTime()) ? new Date(bookedAt) : basis
+  return unconfirmedBillingDeadline(usable).toISOString()
 }
 
 // ── Which client, which prospect ─────────────────────────────────────────────
@@ -152,6 +186,8 @@ async function recordCreated(
       booking_uid: details.bookingUid,
       booked_at: bookedAt,
       scheduled_start_at: details.startTime,
+      scheduled_end_at: details.endTime,
+      bill_unconfirmed_after: billingDeadlineFor(details.startTime, bookedAt),
       meeting_status: 'booked',
       is_billable: false,
       held_decision_locked: false,
@@ -297,8 +333,18 @@ async function recordRescheduled(
       .update({
         booking_uid: event.bookingUid,
         scheduled_start_at: event.startTime,
+        scheduled_end_at: event.endTime,
+        // The deadline follows the meeting. Moved into a later month, the client gets the
+        // longer window that month earns, which is what the calendar rule says. Only on the
+        // undecided path: a meeting already decided keeps the deadline it was judged under.
+        bill_unconfirmed_after: billingDeadlineFor(event.startTime, new Date().toISOString()),
         meeting_status: 'booked',
         is_billable: false,
+        // A rescheduled meeting is unanswered again, so the asking starts over.
+        outcome_requested_at: null,
+        confirmation_sent_at: null,
+        last_reminded_at: null,
+        reminder_count: 0,
       })
       .eq('booking_uid', event.previousBookingUid)
       .eq('held_decision_locked', false)
@@ -350,4 +396,118 @@ async function recordRescheduled(
 
   // Never seen before. Recorded as a new booking so it is not lost.
   return recordCreated(supabase, event, provider)
+}
+
+// ── The slot has passed: ASK A PERSON ────────────────────────────────────────
+//
+// This is the whole of what a meeting-ended notification is allowed to do. It stamps
+// outcome_requested_at, which is what the daily sweep reads to send the client the
+// one-click confirmation. It sets no status, no held decision and no billable flag, because
+// the notification fires at the scheduled end time whether or not anyone turned up.
+//
+// Only an undecided, still-booked meeting is stamped, and only if it has not been stamped
+// already, so a repeated delivery does not restart the asking or move the deadline.
+
+async function recordEnded(
+  supabase: ServiceRoleClient,
+  bookingUid: string,
+  endTime: string | null,
+): Promise<BookingOutcome> {
+  const patch: { outcome_requested_at: string; scheduled_end_at?: string } = {
+    outcome_requested_at: new Date().toISOString(),
+  }
+  // The end time as the tool reported it at the time it actually ended, which is better
+  // evidence than what was scheduled when the booking was taken.
+  if (endTime) patch.scheduled_end_at = endTime
+
+  const { data: asked, error } = await supabase
+    .from('meetings')
+    .update(patch)
+    .eq('booking_uid', bookingUid)
+    .eq('meeting_status', 'booked')
+    .eq('held_decision_locked', false)
+    .is('outcome_requested_at', null)
+    .select('id')
+  if (error) throw new Error(`booking: meeting-ended update failed: ${error.message}`)
+  if (asked && asked.length > 0) {
+    logger.info('booking: slot has passed, an outcome will be requested from the client', {
+      meeting_id: asked[0].id,
+      booking_uid: bookingUid,
+    })
+    return { outcome: 'outcome_requested', meetingId: asked[0].id }
+  }
+
+  // Nothing was stamped. Say WHICH of the harmless reasons it was, rather than reporting a
+  // bare no-op: "already asked" and "no such booking" need different actions from a person.
+  const { data: existing, error: readError } = await supabase
+    .from('meetings')
+    .select('id, meeting_status, held_decision_locked, outcome_requested_at')
+    .eq('booking_uid', bookingUid)
+    .maybeSingle()
+  if (readError) throw new Error(`booking: meeting-ended read failed: ${readError.message}`)
+  if (!existing) {
+    logger.warn('booking: meeting-ended for a booking that was never recorded', { booking_uid: bookingUid })
+    return { outcome: 'no_change', detail: 'no booking recorded under this uid' }
+  }
+  if (existing.outcome_requested_at) return { outcome: 'no_change', detail: 'an outcome was already requested' }
+  if (existing.held_decision_locked) return { outcome: 'no_change', detail: 'the outcome is already decided' }
+  return { outcome: 'no_change', detail: `meeting is ${existing.meeting_status}, not booked` }
+}
+
+// ── A host marked the attendee absent ───────────────────────────────────────
+//
+// The one attendance signal that is a human judgement rather than a clock: a host ticking
+// "no-show" on the booking tool's past-bookings screen. It records a no-show and locks the
+// decision, exactly as a client answering "it didn't happen" would.
+//
+// A no-show is NEVER billable, so is_billable stays false and billable_basis stays null. The
+// database agrees: meetings_billable_records_its_basis means nothing can be billable without
+// a basis, and no basis exists for "a host said nobody came".
+//
+// It does not overturn a decision already made. If the client has answered and the operator
+// has locked it, a later mark in the booking tool is recorded in the log and not applied:
+// letting a vendor webhook overwrite a human answer is how an outcome changes with nobody
+// deciding it.
+
+async function recordNoShowMarked(
+  supabase: ServiceRoleClient,
+  bookingUid: string,
+): Promise<BookingOutcome> {
+  const { data: marked, error } = await supabase
+    .from('meetings')
+    .update({
+      meeting_status: 'no_show',
+      held_confirmed_by: 'host',
+      held_decision_locked: true,
+      is_billable: false,
+    })
+    .eq('booking_uid', bookingUid)
+    .eq('meeting_status', 'booked')
+    .eq('held_decision_locked', false)
+    .select('id')
+  if (error) throw new Error(`booking: no-show update failed: ${error.message}`)
+  if (marked && marked.length > 0) {
+    logger.info('booking: host marked the attendee absent, recorded as a no-show', {
+      meeting_id: marked[0].id,
+      booking_uid: bookingUid,
+    })
+    return { outcome: 'no_show_recorded', meetingId: marked[0].id }
+  }
+
+  const { data: existing, error: readError } = await supabase
+    .from('meetings')
+    .select('id, meeting_status, held_confirmed_by')
+    .eq('booking_uid', bookingUid)
+    .maybeSingle()
+  if (readError) throw new Error(`booking: no-show read failed: ${readError.message}`)
+  if (!existing) {
+    logger.warn('booking: no-show mark for a booking that was never recorded', { booking_uid: bookingUid })
+    return { outcome: 'no_change', detail: 'no booking recorded under this uid' }
+  }
+  logger.info('booking: no-show mark arrived for a meeting already decided, not applied', {
+    meeting_id: existing.id,
+    decided_as: existing.meeting_status,
+    decided_by: existing.held_confirmed_by,
+  })
+  return { outcome: 'no_change', detail: `meeting is already ${existing.meeting_status}` }
 }

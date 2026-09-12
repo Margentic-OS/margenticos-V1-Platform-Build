@@ -72,6 +72,9 @@ describe('parseCalComEvent', () => {
       kind: 'created',
       bookingUid: 'booking-uid-1',
       startTime: '2026-09-15T09:30:00Z',
+      // Added 2026-09-12. The scheduled END is what makes "has this meeting finished, so we
+      // can ask about it?" answerable without assuming a duration.
+      endTime: '2026-09-15T10:00:00Z',
       hostRef: 'host@example.test',
       attendeeEmail: 'sam@example.test',
       attendeeName: 'Sam Booker',
@@ -106,16 +109,35 @@ describe('parseCalComEvent', () => {
     expect(parseCalComEvent(body)).toEqual({ kind: 'cancelled', bookingUid: 'booking-uid-1' })
   })
 
-  it('IGNORES meeting-ended, which fires whether or not anyone attended', () => {
-    // Flat payload, as Cal.com documents for MEETING_STARTED and MEETING_ENDED.
-    expect(parseCalComEvent({ triggerEvent: 'MEETING_ENDED', uid: 'booking-uid-1' }))
-      .toEqual({ kind: 'ignored', trigger: 'MEETING_ENDED' })
-    expect(parseCalComEvent({ triggerEvent: 'MEETING_STARTED', uid: 'booking-uid-1' }))
+  it('reads meeting-ended as "the slot has passed", which is all it can mean', () => {
+    // CHANGED 2026-09-12. This test asserted that MEETING_ENDED was IGNORED. It is now
+    // handled, and what it produces is an 'ended' event carrying nothing but the uid and the
+    // end time. The rule it was protecting is unchanged and is asserted below: the
+    // notification fires at the scheduled end time whether or not anybody attended, so it
+    // must never imply held or billable. See webhook-outcome-triggers.test.ts, and rule 4 in
+    // record-booking-event.ts, which stamps a timestamp and nothing else.
+    const ended = parseCalComEvent({
+      triggerEvent: 'MEETING_ENDED',
+      payload: { uid: 'booking-uid-1', endTime: '2026-09-15T10:00:00Z' },
+    })
+    expect(ended).toEqual({ kind: 'ended', bookingUid: 'booking-uid-1', endTime: '2026-09-15T10:00:00Z' })
+
+    // MEETING_STARTED stays unhandled: nothing in the lifecycle needs it.
+    expect(parseCalComEvent({ triggerEvent: 'MEETING_STARTED', payload: { uid: 'booking-uid-1' } }))
       .toEqual({ kind: 'ignored', trigger: 'MEETING_STARTED' })
   })
 
-  it('ignores every other trigger, including a no-show update and a test ping', () => {
-    for (const trigger of ['BOOKING_NO_SHOW_UPDATED', 'BOOKING_REQUESTED', 'PING']) {
+  it('ignores a no-show update in which nobody was actually marked absent', () => {
+    // BOOKING_NO_SHOW_UPDATED is handled now, but only when an attendee carries
+    // noShow: true. This fixture's attendees carry no such flag, which is also what an
+    // UNMARK looks like, and reading either as a no-show would record the opposite of what
+    // the host just did.
+    expect(parseCalComEvent({ ...bookingPayload(), triggerEvent: 'BOOKING_NO_SHOW_UPDATED' }))
+      .toEqual({ kind: 'ignored', trigger: 'BOOKING_NO_SHOW_UPDATED' })
+  })
+
+  it('ignores every other trigger, including a test ping', () => {
+    for (const trigger of ['BOOKING_REQUESTED', 'PING']) {
       expect(parseCalComEvent({ ...bookingPayload(), triggerEvent: trigger })).toEqual({ kind: 'ignored', trigger })
     }
   })

@@ -94,6 +94,9 @@ describe('a client answering through the emailed link', () => {
     expect(await res.json()).toMatchObject({ recorded: true })
     expect(db.tables.meetings.find(m => m.id === 'm-1')).toMatchObject({
       meeting_status: 'no_show', held_decision_locked: true, held_confirmed_by: 'client', is_billable: false,
+      // No basis, because nothing is billable. The database refuses a billable row without
+      // one (meetings_billable_records_its_basis).
+      billable_basis: null,
     })
   })
 
@@ -101,6 +104,8 @@ describe('a client answering through the emailed link', () => {
     await post({ token: generateConfirmationToken('m-1', ORG_A), decision: 'held' })
     expect(db.tables.meetings.find(m => m.id === 'm-1')).toMatchObject({
       meeting_status: 'held', held_confirmed_by: 'client', is_billable: true,
+      // HOW it became billable, which must be visible on every billing view (ADR-057).
+      billable_basis: 'client_confirmed',
     })
   })
 
@@ -186,7 +191,12 @@ describe('an operator', () => {
     session.userRow = { role: 'operator', organisation_id: 'operator-home-org' }
     const res = await post({ meeting_id: 'm-2', decision: 'held' })
     expect(res.status).toBe(200)
-    expect(db.tables.meetings.find(m => m.id === 'm-2')).toMatchObject({ meeting_status: 'held', held_confirmed_by: 'operator', is_billable: true })
+    expect(db.tables.meetings.find(m => m.id === 'm-2')).toMatchObject({
+      meeting_status: 'held', held_confirmed_by: 'operator', is_billable: true,
+      // An operator's decision is recorded as the operator's, never as the client's. A
+      // client asking why they were billed is entitled to that distinction.
+      billable_basis: 'operator_marked',
+    })
   })
 })
 

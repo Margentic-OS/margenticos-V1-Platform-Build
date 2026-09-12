@@ -388,11 +388,36 @@ belongs to and which prospect booked, and records a meeting.
 - Vendor-neutral recording: `src/lib/meetings/record-booking-event.ts`
 - The link we send: `src/lib/meetings/booking-link.ts` adds `prospect_ref`
 
+**The five triggers it handles** (extended 2026-09-12, ADR-057). Everything else Cal.com can
+send is acknowledged with a 200 and ignored, by name, in the response.
+
+| Trigger | What it does | What it must never do |
+|---|---|---|
+| `BOOKING_CREATED` | Records the meeting, with its scheduled end and its calendar billing deadline | |
+| `BOOKING_RESCHEDULED` | Moves the meeting onto the new booking id, updates both times, recomputes the deadline, and restarts the asking | Overturn a decision already made |
+| `BOOKING_CANCELLED` | Cancels a meeting that is still booked | Overturn a decision already made |
+| `MEETING_ENDED` | Stamps `outcome_requested_at`, which is how the platform learns to ASK a person | Set held, billable or a locked decision. It fires at the scheduled end time whether or not anybody attended |
+| `BOOKING_NO_SHOW_UPDATED` | Records a no-show when an attendee carries `noShow: true`, as `held_confirmed_by = 'host'` | Bill anything (a no-show never is), or apply when a host UNMARKS someone, which fires the same trigger with `noShow: false` |
+
+`AFTER_HOSTS_CAL_VIDEO_NO_SHOW` and `AFTER_GUESTS_CAL_VIDEO_NO_SHOW` are deliberately NOT
+handled. They fire only for bookings on Cal's own video product, and every client seat uses the
+client's own Google Meet, Teams or Zoom, so they would never fire for a client meeting.
+`MEETING_ENDED` carries a FLAT payload: the booking's fields at the top of `payload`, not a
+nested booking object. `BOOKING_NO_SHOW_UPDATED` names the booking `bookingUid`, not `uid`.
+
 **Setup it depends on, none of which code can do:**
 - `CALCOM_WEBHOOK_SECRET` set in Vercel, identical to the secret typed into Cal.com's webhook settings
-- the webhook subscribed to Booking Created, Booking Cancelled and Booking Rescheduled only
+- the webhook subscribed to the five triggers in the table above, and no others
 - a HIDDEN booking question on the event type, identifier exactly `prospect_ref`
 - `organisations.booking_host_ref` set to the email of the Cal.com account that hosts the booking
+- `JWT_SECRET` set in Vercel, at least 32 characters, for the confirmation links. There is no
+  fallback: without it nothing is signed and nothing is accepted, so no client can confirm a
+  meeting and the backstop will not bill those meetings either (Backlog, Live risk)
+- **a webhook scope that actually covers the client seat.** A user-level webhook covers only
+  that user's own event types, excluding team-managed ones, so the current webhook on Doug's
+  user will not fire for a client seat's personal event type. Before the first client seat,
+  either one webhook per client user, or each client's campaign event type set up as a TEAM
+  event type with one organisation-level webhook over all of them (Backlog, before first client)
 
 **What to check if it breaks.**
 - Every refusal names its reason, in the response (`reason`) and in a Sentry issue titled

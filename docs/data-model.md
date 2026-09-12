@@ -538,9 +538,58 @@ Fields:
   attendee_email / attendee_name — who booked, so an unmatched meeting names a person.
   created_at / updated_at
 
+The outcome lifecycle (2026-09-12, ADR-057). Held versus no-show is a human judgement,
+permanently: the booking tool's automatic "didn't join" events need its own video product and
+every client seat uses the client's own Meet, Teams or Zoom, so they will never fire for a
+client meeting.
+
+  scheduled_start_at / scheduled_end_at — as the booking tool reported them. The END is what
+                  makes "has this finished, so we can ask about it?" answerable without
+                  assuming a duration.
+  outcome_requested_at — stamped when the slot has passed and a person is being asked. A
+                  meeting-ended notification sets ONLY this. It fires at the scheduled end
+                  time whether or not anyone attended, so it is never evidence of attendance.
+  confirmation_sent_at — when the client was actually emailed the one-click link. THE BACKSTOP
+                  REQUIRES IT: nothing bills that nobody was asked about.
+  last_reminded_at / reminder_count — reminders work BACK from the deadline (14, 7, 2 days
+                  before it), not forward from the meeting.
+  bill_unconfirmed_after — the deadline, as a CALENDAR DATE: the last instant of the month
+                  after the meeting's month, UTC, computed once when the booking is taken. A
+                  meeting on the 1st has about eight weeks, one on the 30th about four. Never
+                  a fixed number of days from the meeting.
+  is_billable    — whether this meeting is charged.
+  billable_basis — HOW it became billable: client_confirmed / operator_marked /
+                  unconfirmed_backstop. Shown in words on the operator screen, because a
+                  client asking why they were billed is asking exactly this.
+  held_confirmed_by — client / operator / host / auto. 'host' is a no-show marked by hand in
+                  the booking tool, which can only ever record a no-show. 'auto' was the
+                  retired 72-hour job and nothing writes it any more; it stays admissible so
+                  history remains writable (Backlog).
+
+Three CHECK constraints carry rules that used to live only in application code, so a later
+edit cannot drop them silently. Added 2026-09-12 as VALID (production held 0 meetings, the
+test project 0 billable rows) and both billable constraints were then proved to BITE on the
+live test database with a probe that cannot commit:
+
+  meetings_billable_records_its_basis   NOT is_billable OR billable_basis IS NOT NULL.
+                                        No meeting can be billable anonymously.
+  meetings_billable_needs_a_prospect    NOT is_billable OR prospect_id IS NOT NULL.
+                                        A booking that matched no prospect can never be
+                                        billed. This was a filter in the deleted auto-held
+                                        job; it is now a property of the table.
+  meetings_billable_basis_check         the three basis values above, and nothing else.
+
+Note what the monthly backstop does NOT write: meeting_status stays 'booked'. Billing an
+unconfirmed meeting is a consequence of silence, not a finding that anybody attended, and
+writing 'held' would put a fact in the record that no person established.
+
 RLS:
   Operator: full access
   Client:   read only, their own organisation (visible after pipeline unlock)
+
+  Client read-only is why the confirm route writes through the SERVICE-ROLE client. A client's
+  own update matched 0 rows, and the route used to read those 0 rows as "already recorded" and
+  thank them while writing nothing (fixed 2026-09-12).
 
 ---
 

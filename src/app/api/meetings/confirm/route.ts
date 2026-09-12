@@ -151,6 +151,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         held_confirmed_by: caller.decidedBy,
         held_decision_locked: true,
         is_billable: decision === 'held',
+        // HOW it became billable, which must be visible on every billing view (ADR-057).
+        // The database refuses a billable meeting with no basis
+        // (meetings_billable_records_its_basis), so this is not optional: drop it and the
+        // write fails loudly rather than producing an anonymous charge.
+        billable_basis: decision === 'held'
+          ? (caller.decidedBy === 'operator' ? 'operator_marked' : 'client_confirmed')
+          : null,
       })
       .eq('id', meeting.id)
       .eq('organisation_id', meeting.organisation_id)

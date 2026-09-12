@@ -42,6 +42,9 @@ function details(overrides: Partial<BookedDetails>): BookedDetails {
   return {
     bookingUid: uid('default'),
     startTime: '2026-09-15T09:30:00Z',
+    // Half an hour later. The recorder stores this as scheduled_end_at, which is what the
+    // outcome sweep reads to decide whether a meeting has finished and can be asked about.
+    endTime: '2026-09-15T10:00:00Z',
     hostRef: HOST,
     attendeeEmail: `booker.${RUN}@example.test`,
     attendeeName: 'Live Test Booker',

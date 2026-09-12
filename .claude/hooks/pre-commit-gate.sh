@@ -73,7 +73,32 @@ check_secret "generic sk- key"                        '\bsk-[A-Za-z0-9]{20,}'
 check_secret "Resend key"                             '\bre_[A-Za-z0-9]{15,}'
 check_secret "AWS access key"                         '\bAKIA[0-9A-Z]{16}\b'
 check_secret "GitHub token"                           '\bghp_[A-Za-z0-9]{20,}'
-check_secret "bearer literal"                         'Bearer[[:space:]]+[A-Za-z0-9_.-]{20,}'
+
+# ── The ONE allowed Bearer literal ───────────────────────────────────────────
+#
+# NARROWED 2026-09-12, per the instruction this hook prints on a block: a false positive is
+# answered by narrowing the pattern, never by rewording around it or bypassing.
+#
+# Every pg_cron migration in this repository writes its job command with the token REDACTED
+# at rest. The real CRON_SECRET is substituted at apply time and never committed, which is
+# the whole point: `cron.job.command` holds a live bearer token, and that is why a database
+# dump is not safe to commit by default. The placeholder is not a secret, but it matched the
+# bearer pattern, so the gate blocked the migration that DECLARES a cron job
+# (20260912160000_meeting_outcomes_cron_and_monitor.sql) while the identical literal already
+# sat in four earlier cron migrations, committed before this hook existed.
+#
+# THE EXEMPTION IS THE EXACT STRING AND NOTHING ELSE. Only this one literal is removed
+# before scanning, and it is removed as a SUBSTRING rather than dropping the whole line, so a
+# line carrying both the placeholder and a real token still blocks on the token. A different
+# redaction wording still blocks, which is deliberate: an exemption keyed on the word
+# REDACTED would be a hole anything could walk through. Proved both ways in the self-test.
+BEARER_PLACEHOLDER='Bearer REDACTED_CRON_SECRET_IN_COMMAND'
+BEARER_HITS=$(printf '%s' "$ADDED" \
+  | sed "s|${BEARER_PLACEHOLDER}||g" \
+  | grep -oE 'Bearer[[:space:]]+[A-Za-z0-9_.-]{20,}' | head -3 || true)
+if [ -n "$BEARER_HITS" ]; then
+  add_failure "  SECRET (bearer literal): $(printf '%s' "$BEARER_HITS" | cut -c1-6 | sed 's/$/…[redacted]/' | tr '\n' ' ')"
+fi
 
 # ── 2. .env ──────────────────────────────────────────────────────────────────
 #

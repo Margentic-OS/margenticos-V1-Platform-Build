@@ -69,16 +69,27 @@ export const SIGNATURE_REFUSAL_EXPLANATION: Record<SignatureRefusal, string> = {
     'Both sides have a secret and they differ: the value in Vercel is not the value in the Cal.com webhook. Compare secret_length and secret_trimmed_length for a stray space or newline.',
 }
 
-// The only three notifications that change a meeting. Everything else Cal.com can send is
+// The five notifications that touch a meeting. Everything else Cal.com can send is
 // acknowledged and ignored.
 //
-// MEETING_ENDED IS DELIBERATELY ABSENT, and must never be added here. It fires at the
-// scheduled end time whether or not anyone attended, so wiring it to held or billable would
-// bill meetings nobody came to. Held stays an operator judgement (ADR-056).
-const HANDLED_TRIGGERS: Record<string, 'created' | 'cancelled' | 'rescheduled'> = {
+// MEETING_ENDED IS HANDLED, AND IT MEANS ONLY "ASK SOMEBODY NOW".
+//
+// It fires at the scheduled end time whether or not anyone attended, so it is never evidence
+// that a meeting happened. Wiring it to held or billable would bill meetings nobody came to.
+// It is handled here so the platform knows when to ASK the client for an outcome, which is
+// the primary path (ADR-057); what it writes is a timestamp, nothing more. Held stays a human
+// judgement (ADR-056).
+//
+// AFTER_HOSTS_CAL_VIDEO_NO_SHOW and AFTER_GUESTS_CAL_VIDEO_NO_SHOW are deliberately absent.
+// They fire only for bookings using Cal's own video product, and every client seat uses the
+// client's own Google Meet, Teams or Zoom, so they would never fire for a client meeting.
+// BOOKING_NO_SHOW_UPDATED is the one that does: a host marking an attendee absent by hand.
+const HANDLED_TRIGGERS: Record<string, 'created' | 'cancelled' | 'rescheduled' | 'ended' | 'no_show_marked'> = {
   BOOKING_CREATED: 'created',
   BOOKING_CANCELLED: 'cancelled',
   BOOKING_RESCHEDULED: 'rescheduled',
+  MEETING_ENDED: 'ended',
+  BOOKING_NO_SHOW_UPDATED: 'no_show_marked',
 }
 
 export type CalComParseResult =
@@ -127,10 +138,33 @@ export function parseCalComEvent(body: unknown): CalComParseResult {
   const payload = body.payload
   if (!isRecord(payload)) return { kind: 'malformed', reason: `${trigger} has no payload` }
 
-  const bookingUid = readString(payload.uid)
+  // BOOKING_NO_SHOW_UPDATED names the booking 'bookingUid'. Every other trigger uses 'uid'.
+  const bookingUid = readString(payload.uid) ?? readString(payload.bookingUid)
   if (!bookingUid) return { kind: 'malformed', reason: `${trigger} has no booking uid` }
 
   if (handled === 'cancelled') return { kind: 'cancelled', bookingUid }
+
+  // MEETING_ENDED carries a FLAT payload: the booking's own fields, not a nested booking
+  // object. All that is taken from it is the uid and the end time, because all it means is
+  // that the slot has passed.
+  if (handled === 'ended') {
+    return { kind: 'ended', bookingUid, endTime: readString(payload.endTime) }
+  }
+
+  // BOOKING_NO_SHOW_UPDATED: { message, attendees: [{ email, noShow }], bookingUid, bookingId }.
+  //
+  // ONLY AN ATTENDEE ACTUALLY MARKED ABSENT IS AN OUTCOME. The same trigger fires when a host
+  // UNMARKS someone, with noShow false, and reading that as a no-show would record the
+  // opposite of what the person just said. An unmark is ignored rather than reversed: the
+  // decision is already locked by then, and reopening it from a webhook would let a booking
+  // tool overturn a human judgement.
+  if (handled === 'no_show_marked') {
+    const attendees = Array.isArray(payload.attendees) ? payload.attendees : []
+    const marked = attendees.find(entry => isRecord(entry) && entry.noShow === true)
+    if (!isRecord(marked)) return { kind: 'ignored', trigger }
+    const email = readString(marked.email)
+    return { kind: 'no_show_marked', bookingUid, attendeeEmail: email ? email.toLowerCase() : null }
+  }
 
   const organizer = isRecord(payload.organizer) ? payload.organizer : {}
   const firstAttendee = Array.isArray(payload.attendees) && isRecord(payload.attendees[0])
@@ -144,6 +178,7 @@ export function parseCalComEvent(body: unknown): CalComParseResult {
   const details = {
     bookingUid,
     startTime: readString(payload.startTime),
+    endTime: readString(payload.endTime),
     hostRef: hostEmail ? hostEmail.toLowerCase() : null,
     attendeeEmail: attendeeEmail ? attendeeEmail.toLowerCase() : null,
     attendeeName: readString(firstAttendee.name) ?? readAnswer(responses.name),

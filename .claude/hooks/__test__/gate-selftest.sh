@@ -6,8 +6,10 @@
 # Each case stages something, runs the gate, and checks it blocks or allows as intended.
 # It stages and unstages only its own probe files and restores the index afterwards.
 #
-# The FOUR-ALLOW cases matter as much as the blocks. A gate that blocks everything is not
-# a gate, it is an outage, and the two most important allows are:
+# The ALLOW cases matter as much as the blocks. A gate that blocks everything is not
+# a gate, it is an outage, and the most important allows are:
+#   - the redacted bearer placeholder every cron migration carries (without it, no migration
+#     can declare a scheduled job at all)
 #   - a commit that REMOVES a secret (the fix commit must not be blocked)
 #   - a vendor name inside a COMMENT (naming the vendor while explaining a decision is
 #     good practice; forbidding it produces worse comments, not better code)
@@ -83,6 +85,11 @@ git add src/lib/__gate_probe__/a.ts; expect BLOCK "Resend key"; git reset -q -- 
 write_probe "\"Bearer \" + \"NOTAREALTOKENNOTAREALTOKEN\""
 git add src/lib/__gate_probe__/a.ts; expect BLOCK "bearer literal"; git reset -q -- src/lib/__gate_probe__/a.ts
 
+# The bearer exemption is ONE EXACT STRING. A different redaction wording must still block,
+# or the exemption has become a wildcard that anything can walk through by saying REDACTED.
+write_probe "\"Bearer \" + \"REDACTED_BUT_A_DIFFERENT_WORDING\""
+git add src/lib/__gate_probe__/a.ts; expect BLOCK "a DIFFERENT redacted bearer wording"; git reset -q -- src/lib/__gate_probe__/a.ts
+
 echo ""
 echo "── .ENV (must BLOCK) ───────────────────────────────────────────────────"
 printf 'X=1\n' > .env.__probe__
@@ -104,6 +111,13 @@ echo ""
 echo "── MUST ALLOW ──────────────────────────────────────────────────────────"
 printf "export const X = 1\n" > src/lib/__gate_probe__/a.ts
 git add src/lib/__gate_probe__/a.ts; expect ALLOW "ordinary code"
+git reset -q -- src/lib/__gate_probe__/a.ts
+
+# The redacted placeholder every pg_cron migration carries in its job command. If this
+# BLOCKS, no migration can declare a cron job, which is what happened on 2026-09-12 and is
+# why the pattern was narrowed. Assembled at runtime like every other fixture here.
+write_probe "\"Bearer \" + \"REDACTED_CRON_SECRET_IN_COMMAND\""
+git add src/lib/__gate_probe__/a.ts; expect ALLOW "the cron migration bearer placeholder"
 git reset -q -- src/lib/__gate_probe__/a.ts
 
 # THE IMPORTANT ONE. Committing the REMOVAL of a secret must not be blocked, or the fix

@@ -61,8 +61,13 @@ const COVERED = [
   //
   // The count is deliberately larger than any plausible organisation count, so the
   // cross-check cannot fire here either. The cross-check has its own coverage in
-  // the migration's BEGIN..ROLLBACK verification and in resolve-auto-held/route.test.ts.
-  ['mon_010', 'resolve-auto-held', 'Examined 999999 organisations, resolved 0 meetings. '],
+  // the migration's BEGIN..ROLLBACK verification and in meeting-outcomes/route.test.ts.
+  //
+  // THE JOB NAME CHANGED ON 2026-09-12. mon_010 watched resolve-auto-held, the 72-hour
+  // auto-held job, which is deleted: it billed meetings with no human (ADR-057). The view now
+  // reads the meeting-outcomes heartbeat, which carries the same "Examined N organisations"
+  // format contract deliberately, so this file's fixture shape did not have to change.
+  ['mon_010', 'meeting-outcomes', 'Examined 999999 organisations, resolved 0 meetings. '],
 ] as const
 
 /** Heartbeat rows this file inserted, deleted by id in afterAll. */
@@ -188,7 +193,7 @@ describe('liveness monitor state reads whether the LATEST run succeeded', () => 
   // MON-010 CROSS-CHECKS THE WORLD, NOT ONLY THE JOB'S SELF-REPORT
   //
   // These live in THIS file, not a file of their own, deliberately. Both would write
-  // resolve-auto-held heartbeats and both read "the latest one", so as separate files
+  // meeting-outcomes heartbeats and both read "the latest one", so as separate files
   // running in parallel they would race and flake. Vitest runs tests within a file
   // sequentially, which is the property being relied on.
   //
@@ -216,7 +221,7 @@ describe('liveness monitor state reads whether the LATEST run succeeded', () => 
       expect(orgs, 'no organisations in this database, the cross-check cannot be tested').toBeGreaterThan(0)
 
       await writeHeartbeat(
-        'resolve-auto-held',
+        'meeting-outcomes',
         true,
         new Date(),
         'Examined 0 organisations, resolved 0 meetings',
@@ -236,7 +241,7 @@ describe('liveness monitor state reads whether the LATEST run succeeded', () => 
 
     it('OK when the run examined at least as many organisations as exist', async () => {
       await writeHeartbeat(
-        'resolve-auto-held',
+        'meeting-outcomes',
         true,
         new Date(),
         'Examined 999999 organisations, resolved 0 meetings',
@@ -251,7 +256,7 @@ describe('liveness monitor state reads whether the LATEST run succeeded', () => 
       // The exact wording the job wrote for all 31 runs of the outage. It must not be
       // silently parsed, and it must not read as healthy.
       await writeHeartbeat(
-        'resolve-auto-held',
+        'meeting-outcomes',
         true,
         new Date(),
         'Processed 0 organisations, resolved 0 meetings',
