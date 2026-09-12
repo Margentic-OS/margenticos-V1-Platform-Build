@@ -53,7 +53,13 @@ export interface StrictFakeDb {
   failInsertsInto?: string
 }
 
-export function createStrictFakeDb(seed: Record<string, Row[]>, opts: { failInsertsInto?: string } = {}): StrictFakeDb {
+export function createStrictFakeDb(
+  seed: Record<string, Row[]>,
+  // silentlyBlockUpdatesTo makes every update to that table match nothing and return no
+  // error, which is exactly what a row-level-security policy without UPDATE does to a caller.
+  // It exists to reproduce "the write touched 0 rows and nobody said so".
+  opts: { failInsertsInto?: string; silentlyBlockUpdatesTo?: string } = {},
+): StrictFakeDb {
   const tables: Record<string, Row[]> = {}
   for (const [name, rows] of Object.entries(seed)) tables[name] = rows.map(r => ({ ...r }))
   const calls: string[] = []
@@ -81,6 +87,10 @@ export function createStrictFakeDb(seed: Record<string, Row[]>, opts: { failInse
       }
       const matched = rows.filter(r => filters.every(f => f(r)))
       if (op === 'update') {
+        // What RLS without an UPDATE policy does to a caller: the statement succeeds, no
+        // error is raised, and it matched nothing. Checked BEFORE the rows are touched,
+        // so a blocked update leaves the seeded rows exactly as they were.
+        if (opts.silentlyBlockUpdatesTo === table) return { data: [], error: null, count: 0 }
         for (const r of matched) {
           if (collides(table, rows, { ...r, ...payload }, r)) {
             return { data: null, error: { code: '23505', message: `duplicate key value violates unique constraint on ${table}` } }

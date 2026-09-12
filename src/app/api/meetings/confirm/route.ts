@@ -1,243 +1,196 @@
-import { createClient } from '@/lib/supabase/server'
-import { logger } from '@/lib/logger'
-import * as Sentry from '@sentry/nextjs'
-import { verifyConfirmationToken } from '@/lib/meetings/confirmation-token'
+// POST /api/meetings/confirm
+//
+// Records whether a meeting happened: 'held' or 'no_show'. A human answer here is what makes
+// a meeting billable before the monthly backstop (ADR-057).
+//
+// WHO MAY ANSWER
+//   A client, through the signed link in the confirmation email, with no login. The token
+//     names one meeting of one organisation.
+//   A signed-in client, for a meeting of their own organisation.
+//   An operator, for any organisation's meeting.
+//
+// NEVER A FALSE "RECORDED". This route used to write through the login-based client. Clients
+// hold only SELECT on meetings, so a client's update touched 0 rows, and the route read those
+// 0 rows as "already locked" and answered "Meeting confirmation already recorded" while nothing
+// had been written. A client who said "no-show" was told it was recorded and the meeting
+// stayed booked. Now the caller is identified first, the write goes through the service-role
+// client scoped explicitly to that meeting and organisation, and every answer says plainly
+// whether the decision was recorded. An update that touches no row is reported as NOT
+// recorded, never as success. confirm-meeting.test.ts proves it.
+//
+// SCANNER SAFETY. Only POST is exported. An email security scanner that pre-fetches a link
+// cannot change anything: the link opens a page, and the page's button posts here.
+
 import { NextRequest, NextResponse } from 'next/server'
+import * as Sentry from '@sentry/nextjs'
+import { logger } from '@/lib/logger'
+import { createClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import {
+  ConfirmationSecretMissingError,
+  verifyConfirmationToken,
+} from '@/lib/meetings/confirmation-token'
+
+type Decision = 'held' | 'no_show'
+type DecidedBy = 'client' | 'operator'
 
 interface ConfirmationRequest {
-  token?: string // For email link path (signed token)
-  decision: 'held' | 'no_show' // held or no_show
-}
-
-type ConfirmedBy = 'client' | 'operator'
-
-async function resolveMeetingAndOrg(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  meetingId: string,
-  organisationId: string | null
-): Promise<
-  | {
-      meeting: {
-        id: string
-        organisation_id: string
-        scheduled_start_at: string | null
-      } | null
-      org: {
-        auto_held_window_hours: number
-      } | null
-    }
-  | { error: string }
-> {
-  const [meetingResult, orgResult] = await Promise.all([
-    supabase
-      .from('meetings')
-      .select('id, organisation_id, scheduled_start_at')
-      .eq('id', meetingId)
-      .eq(organisationId ? 'organisation_id' : 'id', organisationId || meetingId)
-      .single(),
-    organisationId
-      ? supabase
-          .from('organisations')
-          .select('auto_held_window_hours')
-          .eq('id', organisationId)
-          .single()
-      : Promise.resolve({ data: null, error: null }),
-  ])
-
-  if (meetingResult.error || !meetingResult.data) {
-    return { error: 'Meeting not found' }
-  }
-
-  if (orgResult.error || !orgResult.data) {
-    return { error: 'Organisation not found' }
-  }
-
-  return {
-    meeting: meetingResult.data,
-    org: orgResult.data,
-  }
-}
-
-function isWindowOpen(
-  scheduledStartAt: string | null,
-  windowHours: number
-): boolean {
-  if (!scheduledStartAt) {
-    logger.warn('meeting confirmation: scheduled_start_at is null')
-    return false
-  }
-
-  const scheduledTime = new Date(scheduledStartAt).getTime()
-  const windowEnd = scheduledTime + windowHours * 60 * 60 * 1000
-  const now = Date.now()
-
-  return now < windowEnd
-}
-
-interface ConfirmationRequestFull extends ConfirmationRequest {
+  token?: string
   meeting_id?: string
+  decision?: string
+}
+
+interface Caller {
+  decidedBy: DecidedBy
+  meetingId: string
+  /** null only for an operator, who may answer for any organisation. */
+  organisationId: string | null
+}
+
+const DECISION_LABEL: Record<string, string> = {
+  held: 'held (it happened)',
+  no_show: 'a no-show',
+  booked: 'still booked',
+  canceled: 'cancelled',
+  rescheduled: 'rescheduled',
+}
+
+function answer(status: number, recorded: boolean, message: string, extra: Record<string, unknown> = {}) {
+  return NextResponse.json({ recorded, message, ...extra }, { status })
+}
+
+async function identifyCaller(body: ConfirmationRequest): Promise<Caller | NextResponse> {
+  if (body.token) {
+    let decoded
+    try {
+      decoded = verifyConfirmationToken(body.token)
+    } catch (error) {
+      if (error instanceof ConfirmationSecretMissingError) {
+        logger.error('meeting confirmation: JWT_SECRET is not configured, so no link can be checked')
+        Sentry.captureMessage('meeting confirmation refused: secret_not_configured', 'error')
+        return answer(500, false,
+          'Meeting confirmation is not set up yet, so your answer was not recorded. Please reply to the email instead.',
+          { reason: 'secret_not_configured' })
+      }
+      throw error
+    }
+    if (!decoded) {
+      return answer(401, false, 'This confirmation link is invalid or has expired, so your answer was not recorded.',
+        { reason: 'invalid_token' })
+    }
+    return { decidedBy: 'client', meetingId: decoded.meeting_id, organisationId: decoded.organisation_id }
+  }
+
+  const session = await createClient()
+  const { data: { user } } = await session.auth.getUser()
+  if (!user) return answer(401, false, 'Please sign in to record this.', { reason: 'not_signed_in' })
+
+  const { data: userRow } = await session
+    .from('users')
+    .select('role, organisation_id')
+    .eq('id', user.id)
+    .maybeSingle()
+  if (!userRow) return answer(403, false, 'Your account could not be found, so nothing was recorded.', { reason: 'unknown_user' })
+  if (!body.meeting_id) return answer(400, false, 'Missing meeting_id, so nothing was recorded.', { reason: 'missing_meeting_id' })
+
+  if (userRow.role === 'operator') return { decidedBy: 'operator', meetingId: body.meeting_id, organisationId: null }
+  if (!userRow.organisation_id) return answer(403, false, 'Your account has no organisation, so nothing was recorded.', { reason: 'no_organisation' })
+  return { decidedBy: 'client', meetingId: body.meeting_id, organisationId: userRow.organisation_id }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const body = (await request.json()) as ConfirmationRequestFull
-
-    if (!body.decision || !['held', 'no_show'].includes(body.decision)) {
-      return NextResponse.json(
-        { error: 'Invalid decision. Must be "held" or "no_show".' },
-        { status: 400 }
-      )
+    let body: ConfirmationRequest
+    try {
+      body = (await request.json()) as ConfirmationRequest
+    } catch {
+      return answer(400, false, 'The request could not be read, so nothing was recorded.', { reason: 'invalid_json' })
     }
 
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    if (body.decision !== 'held' && body.decision !== 'no_show') {
+      return answer(400, false, 'Invalid decision. Must be "held" or "no_show".', { reason: 'invalid_decision' })
+    }
+    const decision: Decision = body.decision
 
-    // Determine confirmation source: token (email link, no auth required) or session (logged-in client)
-    let meetingId: string | null = null
-    let organisationId: string | null = null
-    let confirmedBy: ConfirmedBy = 'client'
+    const caller = await identifyCaller(body)
+    if (caller instanceof NextResponse) return caller
 
-    if (body.token) {
-      // Email link path: verify token (stateless, no login required, no auth check)
-      const decoded = verifyConfirmationToken(body.token)
-      if (!decoded) {
-        return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 })
-      }
-      meetingId = decoded.meeting_id
-      organisationId = decoded.organisation_id
-    } else {
-      // Logged-in path: user must be authenticated
-      if (!user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
+    const db = await createServiceRoleClient()
 
-      const { data: userRow } = await supabase
-        .from('users')
-        .select('role, organisation_id')
-        .eq('id', user.id)
-        .single()
+    let read = db
+      .from('meetings')
+      .select('id, organisation_id, meeting_status, held_decision_locked, held_confirmed_by, is_billable')
+      .eq('id', caller.meetingId)
+    if (caller.organisationId) read = read.eq('organisation_id', caller.organisationId)
+    const { data: meeting, error: readError } = await read.maybeSingle()
 
-      if (!userRow) {
-        return NextResponse.json({ error: 'User not found' }, { status: 404 })
-      }
-
-      if (userRow.role === 'operator') {
-        confirmedBy = 'operator'
-      }
-
-      meetingId = body.meeting_id || null
-      organisationId = userRow.organisation_id
-
-      if (!meetingId) {
-        return NextResponse.json({ error: 'Missing meeting_id' }, { status: 400 })
-      }
+    if (readError) {
+      logger.error('meeting confirmation: meeting read failed', { meeting_id: caller.meetingId, error: readError.message })
+      Sentry.captureException(readError, { extra: { action: 'confirm_meeting', meeting_id: caller.meetingId } })
+      return answer(500, false, 'Something went wrong, so your answer was not recorded. Please try again.', { reason: 'read_failed' })
+    }
+    if (!meeting) {
+      return answer(404, false, 'We could not find that meeting, so nothing was recorded.', { reason: 'not_found' })
     }
 
-    if (!meetingId || !organisationId) {
-      return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+    if (meeting.held_decision_locked) {
+      return answer(409, false,
+        `This meeting is already recorded as ${DECISION_LABEL[meeting.meeting_status] ?? meeting.meeting_status}. Your answer was not recorded.`,
+        { reason: 'already_decided', current: { meeting_status: meeting.meeting_status, decided_by: meeting.held_confirmed_by } })
+    }
+    if (meeting.meeting_status !== 'booked') {
+      return answer(409, false,
+        `This meeting is ${DECISION_LABEL[meeting.meeting_status] ?? meeting.meeting_status}, so an answer cannot be recorded for it.`,
+        { reason: 'not_booked', current: { meeting_status: meeting.meeting_status } })
     }
 
-    // Fetch meeting and org data
-    const resolved = await resolveMeetingAndOrg(supabase, meetingId, organisationId)
-
-    if ('error' in resolved) {
-      return NextResponse.json({ error: resolved.error }, { status: 404 })
-    }
-
-    const { meeting, org } = resolved
-
-    if (!meeting || !org) {
-      return NextResponse.json({ error: 'Meeting or org not found' }, { status: 404 })
-    }
-
-    // CRITICAL IDEMPOTENT CHECK: use a transaction to atomically check and update
-    // This ensures scanner HEAD/GET requests do not trigger the button click logic
-    // and that multiple POSTs are safe
-
-    // Check if window is still open
-    const windowOpen = isWindowOpen(meeting.scheduled_start_at, org.auto_held_window_hours)
-
-    if (!windowOpen && body.decision) {
-      // If window has closed and decision hasn't been recorded, we can still allow the update once
-      // But if held_decision_locked is already true, return current state without changing
-    }
-
-    // Update meeting with idempotent check: only update if not already locked
-    const { data: updated, error: updateError } = await supabase
+    const { data: written, error: writeError } = await db
       .from('meetings')
       .update({
-        meeting_status: body.decision,
-        held_confirmed_by: confirmedBy,
+        meeting_status: decision,
+        held_confirmed_by: caller.decidedBy,
         held_decision_locked: true,
-        is_billable: body.decision === 'held' ? true : false,
+        is_billable: decision === 'held',
       })
-      .eq('id', meetingId)
-      .eq('held_decision_locked', false) // Only update if not already locked
-      .select('id, meeting_status, held_confirmed_by, held_decision_locked, is_billable')
-      .single()
+      .eq('id', meeting.id)
+      .eq('organisation_id', meeting.organisation_id)
+      .eq('held_decision_locked', false)
+      .eq('meeting_status', 'booked')
+      .select('id, meeting_status, held_confirmed_by, is_billable')
 
-    if (updateError) {
-      // If the row was not found with held_decision_locked=false, it's already been locked
-      // Fetch and return current state instead of erroring
-      if (updateError.code === 'PGRST116') {
-        const { data: current } = await supabase
-          .from('meetings')
-          .select('id, meeting_status, held_confirmed_by, held_decision_locked, is_billable')
-          .eq('id', meetingId)
-          .single()
-
-        if (current) {
-          logger.info('meeting confirmation: already locked, returning current state', {
-            meeting_id: meetingId,
-            current_status: current.meeting_status,
-            confirmed_by: current.held_confirmed_by,
-          })
-          return NextResponse.json(
-            {
-              success: true,
-              message: 'Meeting confirmation already recorded',
-              meeting: current,
-            },
-            { status: 200 }
-          )
-        }
-      }
-
-      logger.error('meeting confirmation: update failed', {
-        meeting_id: meetingId,
-        error: updateError.message,
-      })
-      Sentry.captureException(updateError, {
-        extra: { action: 'confirm_meeting', meeting_id: meetingId },
-      })
-      return NextResponse.json(
-        { error: 'Failed to confirm meeting' },
-        { status: 500 }
-      )
+    if (writeError) {
+      logger.error('meeting confirmation: write failed', { meeting_id: meeting.id, error: writeError.message })
+      Sentry.captureException(writeError, { extra: { action: 'confirm_meeting', meeting_id: meeting.id } })
+      return answer(500, false, 'Something went wrong, so your answer was not recorded. Please try again.', { reason: 'write_failed' })
     }
 
-    logger.info('meeting confirmation: success', {
-      meeting_id: meetingId,
-      organisation_id: organisationId,
-      decision: body.decision,
-      confirmed_by: confirmedBy,
-    })
+    if (!written || written.length === 0) {
+      // No row was written. Say so. The only honest "already" is one read back just now.
+      const { data: now } = await db
+        .from('meetings')
+        .select('meeting_status, held_decision_locked, held_confirmed_by')
+        .eq('id', meeting.id)
+        .maybeSingle()
+      if (now?.held_decision_locked) {
+        return answer(409, false,
+          `This meeting was recorded as ${DECISION_LABEL[now.meeting_status] ?? now.meeting_status} a moment ago. Your answer was not recorded.`,
+          { reason: 'already_decided', current: { meeting_status: now.meeting_status, decided_by: now.held_confirmed_by } })
+      }
+      logger.error('meeting confirmation: update touched no row and the meeting is still undecided', { meeting_id: meeting.id })
+      Sentry.captureMessage('meeting confirmation: update touched no row', 'error')
+      return answer(500, false, 'Something went wrong, so your answer was not recorded. Please try again.', { reason: 'not_written' })
+    }
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: `Meeting confirmed as ${body.decision}`,
-        meeting: updated,
-      },
-      { status: 200 }
-    )
-  } catch (error) {
-    logger.error('meeting confirmation: unhandled error', {
-      error: error instanceof Error ? error.message : String(error),
+    logger.info('meeting confirmation: recorded', {
+      meeting_id: meeting.id,
+      organisation_id: meeting.organisation_id,
+      decision,
+      decided_by: caller.decidedBy,
     })
+    return answer(200, true, `Recorded: the meeting was ${DECISION_LABEL[decision]}.`, { meeting: written[0] })
+  } catch (error) {
+    logger.error('meeting confirmation: unhandled error', { error: error instanceof Error ? error.message : String(error) })
     Sentry.captureException(error, { extra: { action: 'confirm_meeting' } })
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return answer(500, false, 'Something went wrong, so your answer was not recorded. Please try again.', { reason: 'unhandled' })
   }
 }
