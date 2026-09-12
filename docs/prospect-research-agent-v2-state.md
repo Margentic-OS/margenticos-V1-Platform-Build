@@ -639,3 +639,74 @@ to exactly the 15 the first graded. The request was identical between runs for a
    reads differently is a quoted miss, and one miss on a required dimension is weak.
 
 Spend: $5.13 for 30 grading calls, plus one derivation call of about $0.03 to $0.10.
+
+## The three things that measurement exposed, fixed (2026-09-12)
+
+### The country we already hold is shown to the judge
+
+`prospects.country` is ISO-3166 alpha-2 and filled for all 111 researched prospects of the live
+client. It was never sent, so the judge looked for location in the research and read it as unknown
+for 6 of 13 prospects, which is most of what put them in cannot_tell.
+
+The prospect header now carries `Country: <code> (recorded when this prospect was sourced)`, which
+says what it is: a record of where sourcing found them, not a finding of this research. The batch
+path reads the same column through its own join, so neither path grades location blind while the
+other does. Verified free on three real prospects by building their requests without calling the
+model.
+
+### A condition that names titles is read as a position, not as wording
+
+A profile lists example titles for the buyer. The derived condition asked for those titles, so a
+person holding the same position under different wording was a quoted miss, and one miss on a
+required condition is weak: 3 of 15 were marked that way.
+
+The derivation is now told that named titles are examples of a position, and to write the
+condition as whether the person holds an equivalent position, saying what it is accountable for,
+runs or decides. The judge is told the same when it reads such a condition. On the live client's
+profile the literal title condition disappeared: the re-derived list asks whether the buyer holds
+an equivalent position to the ones the profile names, described by what they do, and it split out
+a separate condition about there being no functioning internal sales team.
+
+### A cut-off answer is a failure with its own reason
+
+The JSON is the last thing the judge writes, so an answer that reaches the ceiling always loses it.
+The ceiling is 24,000 rather than 16,000, which costs nothing on answers that do not need it
+because output tokens are billed as generated. A cut-off answer now returns without parsing what
+arrived, and records the ceiling and the tokens it ran to in `icp_fit_missing` and in
+`relevance_reason`, which is the field stored on the research row. It used to record "Claude
+returned non-JSON", blaming the model for something we did.
+
+Tests: `judge-location.test.ts`, `judge-truncation.test.ts`, plus assertions in
+`judge-dimensions.test.ts`, `fit-dimensions-agent.test.ts` and `batch-sweep.test.ts`. Eleven
+mutations, all red.
+
+### Measured on 8 of the 15, ONCE, and then the account ran out of API budget
+
+The re-grade was meant to be the same 15 twice. The first run graded 8, then two calls timed out
+and five came back `invalid_request_error: You have reached your specified API usage limits. You
+will regain access on 2026-10-01 at 00:00 UTC.` The second run reached nothing at all. So the
+numbers below are one reading of 8 prospects, and **self-disagreement was not re-measured**: the
+2-of-15 figure from the pre-fix pair still stands as the last measurement of it.
+
+Spend: $1.26 of a $6 cap, plus one derivation call. A refused call is not billed; the two timeouts
+may have been.
+
+| | the same 8, before these fixes | after |
+|---|---|---|
+| strong / moderate / weak / cannot_tell | 1 / 2 / 4 / 1 | 0 / 0 / 3 / 5 |
+
+- **Location is settled.** `company_geography` read match 7, miss 1, unknown 0. On the same 8
+  before, it read unknown 3 times. The one miss is a company outside the three countries the
+  profile names, which is the right answer.
+- **The literal title misses are gone.** The condition now asks whether the buyer holds an
+  equivalent position. It read match 7 and miss 1, and that miss is a person whose position is
+  genuinely not the one described, which the person checks flag too.
+- **No answer was truncated**, against 3 of 39 before.
+- **Weak fell from 4 of 8 to 3 of 8**, and each remaining weak is a quoted miss on a required
+  condition: one revenue floor, one location, one position.
+- **A NEW unknowable condition replaced the old problem.** The re-derived list contains
+  "the firm does not have a functioning internal sales team with a dedicated pipeline owner",
+  marked as something research can establish. It read **unknown on 8 of 8**, and because it is
+  required, it is the sole reason all five non-weak prospects are cannot_tell. This is the failure
+  mode already written up under the fit dimensions agent: a required condition marked establishable
+  that the research does not, in practice, show. It is not fixed here.
