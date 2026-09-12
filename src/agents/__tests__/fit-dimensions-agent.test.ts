@@ -149,6 +149,27 @@ describe('a profile that names titles produces a condition about the position', 
   })
 })
 
+describe('a condition about what is absent inside a business cannot be established by research', () => {
+  // Measured 2026-09-12: a derived condition about the absence of an internal function was
+  // marked establishable, read unknown on 8 of 8 prospects, and was the sole reason five of
+  // them returned cannot_tell. Nothing outside a conversation settles what a company lacks.
+  it('states that absence and internal arrangement are not establishable', () => {
+    expect(FIT_DIMENSIONS_PROMPT).toMatch(/WHAT IS NOT THERE, OR ABOUT HOW A BUSINESS IS ARRANGED INSIDE, IS FALSE BY DEFAULT/)
+    expect(FIT_DIMENSIONS_PROMPT).toMatch(/silence about a thing is not evidence that the thing is absent/)
+  })
+
+  it('tells the derivation to split a condition that mixes the visible with the internal', () => {
+    expect(FIT_DIMENSIONS_PROMPT).toMatch(/split it in two/)
+    expect(FIT_DIMENSIONS_PROMPT).toMatch(/Do not let the internal half make the visible half unanswerable/)
+  })
+
+  it('keeps the rule where establishability is decided, not loose in the prompt', () => {
+    const rule = FIT_DIMENSIONS_PROMPT.indexOf('WHAT IS NOT THERE')
+    expect(rule).toBeGreaterThan(FIT_DIMENSIONS_PROMPT.indexOf('\nESTABLISHABLE\n'))
+    expect(rule).toBeLessThan(FIT_DIMENSIONS_PROMPT.indexOf('\nKEY\n'))
+  })
+})
+
 describe('Rule Zero: the prompt names no market, buyer type, figure or company', () => {
   it('carries no job title or industry vocabulary, and no canonical industry name', () => {
     expect(findBannedContent(FIT_DIMENSIONS_PROMPT)).toEqual([])

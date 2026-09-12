@@ -88,6 +88,10 @@ The research gathered for each prospect is: the person's public professional pro
 establishable is true when that research will usually show, one way or the other, whether a prospect meets the dimension.
 establishable is false when it usually will not. The private financial figures and commercial terms of a private business are the usual case, and so is how a business would behave inside a working relationship it has not yet entered. A fact the research shows only now and then is not establishable.
 
+A CONDITION ABOUT WHAT IS NOT THERE, OR ABOUT HOW A BUSINESS IS ARRANGED INSIDE, IS FALSE BY DEFAULT. These sources show what a business publishes about itself, and silence about a thing is not evidence that the thing is absent. Nothing they read can establish that something does not exist inside a company, or how work is divided inside it. That covers whether a business has a particular function at all, who inside it is accountable for a task, and whether a responsibility sits with one person or is shared. Only a conversation settles those.
+
+Where a condition mixes something visible from outside with something internal, split it in two: the visible part becomes its own dimension and can be established, and the internal part becomes its own, marked false. Do not let the internal half make the visible half unanswerable.
+
 KEY
 
 A short identifier in lower snake case, unique within the list, naming what the condition is about. Never put a number, a place, a name or a value in a key.

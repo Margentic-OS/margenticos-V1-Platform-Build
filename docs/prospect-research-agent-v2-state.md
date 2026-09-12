@@ -709,4 +709,43 @@ may have been.
   marked as something research can establish. It read **unknown on 8 of 8**, and because it is
   required, it is the sole reason all five non-weak prospects are cannot_tell. This is the failure
   mode already written up under the fit dimensions agent: a required condition marked establishable
-  that the research does not, in practice, show. It is not fixed here.
+  that the research does not, in practice, show.
+
+## A condition about what is absent, or about how a business is arranged inside (2026-09-12)
+
+### The rule
+
+Nothing these sources read can establish that something does not exist inside a company, or how
+work is divided inside it: they show what a business publishes about itself, and silence about a
+thing is not evidence that the thing is absent. Only a conversation settles that. So the
+derivation now marks such a condition as one research cannot establish, BY DEFAULT, and is told to
+split a condition that mixes something visible from outside with something internal, so the
+visible half stays answerable.
+
+Stated at category level: the prompt names no market, buyer type, function, figure or company.
+Tests in `fit-dimensions-agent.test.ts`; three mutations, all red.
+
+### What it would have done to the eight already graded
+
+Recomputed FREE from the readings those eight prospects already produced, through the shipped
+counting and the shipped rules. No model call, no re-grading, nothing written.
+
+| | as graded | with the rule |
+|---|---|---|
+| strong / moderate / weak / cannot_tell | 0 / 0 / 3 / 5 | 1 / 2 / 3 / 2 |
+
+- **Three of the five cannot_tell become real grades** (two moderate, one strong). The absence
+  condition was the only thing standing in their way.
+- **The three weak verdicts do not move.** Each rests on a quoted miss, which the rule does not
+  touch.
+- **Two remain cannot_tell**, now for a different reason: a condition that research genuinely
+  could have shown was not shown, in one case because the quotation offered for it was not found
+  in the material.
+- The same recomputation with the buyer condition also marked unestablishable gives an identical
+  result, because its readings rest on quotations that were found.
+
+### What was NOT done
+
+The condition lists themselves were not re-derived, for any client. That derivation is a model
+call by design, and the account's API budget is exhausted until 2026-10-01. No client's stored
+spec carries a list yet, so nothing in production changes either way.
