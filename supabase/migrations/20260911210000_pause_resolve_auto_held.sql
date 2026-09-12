@@ -1,4 +1,8 @@
--- Status: NOT YET APPLIED
+-- Status: APPLIED (verified live 2026-09-12)
+--   production hjpvnvjryxdjcfdsfhzy: cron.job jobid 13 read back active = false (was true),
+--     cron_schedule_registry active = false, declared_by this file.
+--   test tidqheqjzvwmrrrebzir: no pg_cron job of this name exists, so the DO block was a
+--     no-op there as designed; the registry row read back active = false.
 --
 -- Pause the daily resolve-auto-held job. See ADR-057.
 --
