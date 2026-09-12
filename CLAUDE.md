@@ -342,6 +342,18 @@ An upgrade that skips this fails loudly twice: patch-package refuses to apply a 
 written for a different version, and `scripts/check-postgrest-patch.ts` in `prebuild`
 stops the build if the patch is missing from either build the package ships.
 
+**AN INSTALL-TIME CHECK PROVES THE FILE ON DISK, NOT THE ARTIFACT THAT SHIPS.** On
+2026-09-11 this patch merged, deployed, and did not run: Vercel restored the build cache from
+the previous deployment, and webpack validates `node_modules` by PACKAGE VERSION rather than
+by file contents, so it reused the module it had compiled before the patch existed. The
+install applied the patch, `check-postgrest-patch.ts` read the patched files and passed, and
+production kept failing reads with nothing saying why. Two things now prevent it:
+`next.config.ts` mixes a fingerprint of `patches/` into webpack's cache version, and
+`scripts/check-patch-in-build.ts` runs as `postbuild` and fails the build when the shipped
+`.next/server` output does not carry the patch. The same trap applies to any patched
+dependency, and to anything else that changes a file inside `node_modules` without changing
+its version.
+
 ---
 
 ## Documentation — update /docs every session, never skip
