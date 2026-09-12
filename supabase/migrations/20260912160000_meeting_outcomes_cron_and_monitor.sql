@@ -74,61 +74,16 @@ ON CONFLICT (jobname) DO UPDATE SET
   notes       = COALESCE(EXCLUDED.notes, public.cron_schedule_registry.notes),
   updated_at  = now();
 
--- ── 2. mon_010 watches the new job ──────────────────────────────────────────
+-- ── 2. mon_010 ──────────────────────────────────────────────────────────────
 --
--- Same view, same format contract. It parses the organisation count out of the heartbeat
--- detail and compares it against the organisations that existed at run time, so a job
--- reporting success over work it did not do is a PROBLEM whatever its own `ok` said. That
--- cross-check is why the detail string in the route is load-bearing.
+-- MOVED OUT of this file into 20260912170000_mon_010_watches_meeting_outcomes.sql, and
+-- APPLIED there on 2026-09-12.
 --
--- CREATE OR REPLACE keeps the view's existing options and privileges. The grants are then
--- asserted explicitly anyway, because assuming the effect of a grant instead of reading it
--- back is the mistake behind three separate incidents in this database.
-
-CREATE OR REPLACE VIEW public.mon_010 AS
-SELECT 'MON-010'::text AS check_code,
-       CASE
-         WHEN ran_at IS NULL THEN 'UNKNOWN'::text
-         WHEN (EXTRACT(epoch FROM now() - ran_at) / 60::numeric) > 1500::numeric THEN 'PROBLEM'::text
-         WHEN ok = false THEN 'PROBLEM'::text
-         WHEN examined IS NULL THEN 'UNKNOWN'::text
-         WHEN examined < org_count THEN 'PROBLEM'::text
-         ELSE 'OK'::text
-       END AS state,
-       CASE
-         WHEN ran_at IS NULL THEN 'meeting-outcomes has never reported. Check the pg_cron job exists and is active.'::text
-         WHEN (EXTRACT(epoch FROM now() - ran_at) / 60::numeric) > 1500::numeric
-           THEN 'Last run '::text || to_char(ran_at, 'YYYY-MM-DD HH24:MI:SS UTC'::text) || ', over 1500 minutes ago.'::text
-         WHEN ok = false THEN 'Last run FAILED: '::text || COALESCE(detail, 'no detail'::text)
-         WHEN examined IS NULL
-           THEN 'Cannot verify. Heartbeat detail does not match the expected "Examined N organisations" format, so the organisation cross-check could not run. Reporting UNKNOWN rather than OK. Detail was: '::text || COALESCE(detail, 'no detail'::text)
-         WHEN examined < org_count
-           THEN 'Run reported ok but examined only '::text || examined::text || ' organisation(s) while '::text || org_count::text || ' existed at '::text || to_char(ran_at, 'YYYY-MM-DD HH24:MI:SS UTC'::text) || '. The job is reporting success over work it did not do. Check the cron is using a service-role client: this is exactly how resolve-auto-held ran as anon for a month.'::text
-         ELSE 'Last run OK: '::text || COALESCE(detail, to_char(ran_at, 'YYYY-MM-DD HH24:MI:SS UTC'::text)) || ' (cross-checked against '::text || org_count::text || ' organisation(s) live at run time)'::text
-       END AS detail,
-       ran_at AS last_run
-  FROM (
-    SELECT latest.ran_at,
-           latest.ok,
-           latest.detail,
-           "substring"(latest.detail, '^Examined ([0-9]+) organisations'::text)::bigint AS examined,
-           COALESCE((SELECT count(*) FROM organisations o
-                      WHERE o.archived_at IS NULL AND o.created_at <= latest.ran_at), 0::bigint) AS org_count
-      FROM (SELECT 1) one
-      LEFT JOIN LATERAL (
-        SELECT h.ran_at, h.ok, h.detail
-          FROM cron_heartbeats h
-         WHERE h.job_name = 'meeting-outcomes'::text
-         ORDER BY h.ran_at DESC, h.id DESC
-         LIMIT 1
-      ) latest ON true
-  ) p;
-
-REVOKE ALL ON TABLE public.mon_010 FROM PUBLIC;
-REVOKE ALL ON TABLE public.mon_010 FROM anon, authenticated;
-GRANT SELECT ON TABLE public.mon_010 TO service_role;
-
--- Read back after applying, in BOTH directions, per the standing rule:
---   SELECT has_table_privilege('service_role','public.mon_010','SELECT'),  -- expect t
---          has_table_privilege('anon','public.mon_010','SELECT'),          -- expect f
---          has_table_privilege('authenticated','public.mon_010','SELECT'); -- expect f
+-- It was here first, and that was a mistake: the view repoint needs no secret and depends on
+-- no deployed code, so bundling it with the pg_cron job that needs BOTH meant the live view
+-- went on reading the heartbeat of a deleted job while the code and its tests had moved to
+-- the new one. Six tests failed on exactly that disagreement.
+--
+-- So mon_010 already watches `meeting-outcomes` and currently reports UNKNOWN with
+-- "meeting-outcomes has never reported. Check the pg_cron job exists and is active." Applying
+-- section 1 above is what makes it report OK.
