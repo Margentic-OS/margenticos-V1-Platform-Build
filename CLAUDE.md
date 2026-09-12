@@ -570,6 +570,15 @@ Per ADR-013, current agent model assignments:
                                                        nothing retries a failed spec
                                                        derivation. Every other client here
                                                        still inherits those defaults.
+  Fit dimension derivation:                            claude-opus-4-6
+                                                       Reads the tier 1 and tier 2 profile
+                                                       and fixes the conditions the research
+                                                       fit judge reads, each required or
+                                                       supporting, establishable or not.
+                                                       Once per ICP approval, in parallel
+                                                       with the geography call, so that
+                                                       path now makes THREE model calls.
+                                                       Temperature 0. See ADR-057.
   Messaging generation agent:                          claude-sonnet-4-6
                                                        (local-dev workaround —
                                                         revert to opus-4-6 when

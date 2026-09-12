@@ -228,6 +228,13 @@ Fields:
   document_type   — icp / positioning / tov / messaging
   version         — always lowercase v, one decimal: "1.0", "2.1"
   content         — structured document content (JSON)
+  icp_filter_spec — ICP rows only. The filter spec derived when the ICP is approved (jsonb,
+                    written by persistIcpFilterSpec). Besides the search filters it carries
+                    two pieces of metadata no sourcing handler reads: buyer_criterion (who is
+                    emailed, ADR-046) and fit_dimensions (the conditions the research fit
+                    judge reads, each required or supporting and establishable or not, from
+                    which code computes icp_fit, ADR-057). A spec approved before 2026-09-11
+                    has no fit_dimensions, and that client's judge gives its own grade.
   plain_text      — plain text version for agent consumption
   status          — draft / active / archived
   generated_at    — when the agent generated this version

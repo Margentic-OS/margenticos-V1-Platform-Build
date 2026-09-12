@@ -846,3 +846,44 @@ document and no extra approval step.
 **The rule that matters most.** The prompt must never contain an example job title, industry,
 or buyer type. An example gets copied into every client's answer, including clients in
 markets where it makes no sense. There is a test that fails the build if one appears.
+
+---
+
+## Fit Dimensions Agent — entry point: src/agents/fit-dimensions-agent.ts
+
+**Model:** claude-opus-4-6, temperature 0
+
+**What it does, in plain English.** When a client's ICP is approved, it breaks the profile into
+the separate conditions a prospect must meet to be a good fit. Each is marked *required*
+(failing it means not a fit) or *supporting* (typical of a fit, not a condition), and
+*establishable* (the research we gather will usually show it either way) or not (a private
+company's financial figures are the usual case).
+
+**Why it exists.** The research fit judge used to read the whole profile and give its own grade,
+and on identical input it disagreed with itself on 8 of 20 prospects. Now the judge reads each
+dimension and quotes the words that show it, and code computes the grade from those readings by
+fixed rules (`src/lib/agents/research/fit-dimensions.ts`). Which conditions exist, and which of
+them research could ever show, is a property of the profile, so it is decided once, here.
+
+**What it produces.** Up to ten dimensions, each with a short key, the condition, the exact words
+of the profile it came from, its role, and whether research can establish it. Every source is
+checked against the profile; an answer with any source not found there is refused.
+
+**Where it is stored.** Inside the ICP filter spec, as `fit_dimensions`, beside `buyer_criterion`.
+Re-derived whenever a new ICP is approved. No separate document and no extra approval step.
+
+**What connects to it.** `persistIcpFilterSpec` calls it after an ICP is promoted, in parallel
+with the geography call. `loadClientContext` reads the stored list for the research judge.
+
+**What to check if it breaks.**
+  - If a client's grades look like the judge's own again, check whether their spec has
+    `fit_dimensions`. A spec approved before 2026-09-11, or one whose derivation failed, has
+    none, and the judge then grades exactly as it did before. The failure is logged as "fit
+    dimensions could not be derived".
+  - If nearly every prospect comes out cannot_tell, read the list: a required dimension marked
+    establishable that research rarely shows will do that. Re-approving the profile re-derives it.
+  - If nearly every prospect comes out weak, look for a required dimension worded more strictly
+    than the client meant, such as one that names exact titles.
+
+**The rule that matters most.** The prompt names no market, buyer type, money figure or company,
+and gives no worked example with real content. Two scans fail the build if one appears.

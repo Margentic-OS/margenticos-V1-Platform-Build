@@ -530,3 +530,112 @@ impossible range returned 0 and no range returned 635,364, so the parameter is r
 | 30 | 128,750 | +30.3% |
 
 The 21 to 30 band alone is 29,936 people, exactly the difference.
+
+## Which research record the grader reads (2026-09-11)
+
+### The defect
+
+A reuse run writes a research record that fetches nothing and makes it the prospect's current
+one. On 2026-08-20 one batch did that to twelve prospects for the live client, all later
+uploaded; their full records, written about seven hours earlier, were still on file. Anything
+judging from the current record judged from nothing. Reuse itself then preferred the newest
+reuse record over the full one, because on every other sort key the two tie.
+
+### What changed
+
+- `evidence-record.ts`: `loadEvidenceRecord` returns the newest record, in the prospect's own
+  organisation, with at least one successful source. `current_research_result_id` is untouched:
+  it still records which run last touched the prospect.
+- `grade-from-evidence.ts`: grades a prospect from that record. It fetches nothing and writes
+  nothing; `readProspectContext` reads the prospect without stamping a segment. Recording a
+  grade it reaches is a separate decision nothing takes yet.
+- `loadStoredFindings`: holding evidence is now the first sort key.
+- `scripts/grade-from-evidence.ts`: operator CLI with a hard spend ceiling. It saves after every
+  prospect and waits 600s per call, as production does. The first version waited 240s and saved
+  only at the end, and lost six paid grades when its seventh call timed out.
+
+Tests: `evidence-record.test.ts`, `stored-findings.test.ts`. Seven mutations, all red.
+
+### The twelve, graded from their full records (measured 2026-09-11)
+
+| prospect | stored grade | from the full record | main occupation / runs it / reach |
+|---|---|---|---|
+| ca26acfd | moderate | strong | yes / yes / yes |
+| ee42ed11 | moderate | strong | yes / yes / yes |
+| 08873b1d | moderate | moderate | yes / yes / yes |
+| 6462fb0f | moderate | weak | yes / yes / yes |
+| 42e90653 | moderate | moderate | yes / yes / no |
+| ce9c94af | moderate | moderate | yes / yes / yes |
+| 8bd0578a | moderate | moderate | yes / yes / yes |
+| f5f83c7a | weak | weak | no / yes / no |
+| ecc5f9d2 | moderate | no grade: the answer ran past 16,000 output tokens and was cut off | |
+| f69dedaa, 1c0b56bb, a547b044 | strong, moderate, moderate | not graded, to protect the spend cap | |
+
+The full record for ecc5f9d2 makes the judge's answer longer than its output ceiling, so the JSON
+is lost and no grade is reached. Research run on that record would hit the same limit.
+
+Spend: $0.62 metered, plus a first, unmetered run of six grades in which one prospect timed out
+four times. Estimated $1.6 to $2.0 in all; about $3.10 if every timed-out attempt was billed.
+
+## The judge reads each dimension, and code gives the grade (2026-09-11)
+
+### Why
+
+At temperature 0 on byte-identical input the judge disagreed with itself on 8 of 20 prospects,
+and in 3 of those its three checks were identical both times. The reading was stable; the final
+word was not. It was also re-deciding on every call which conditions the profile names and which
+of them research can establish, which is a property of the profile, not of the prospect.
+
+### What changed
+
+See ADR-057 for the decision and the rules. In short: the conditions are derived once when the
+ICP is approved and stored on the spec (`fit_dimensions`); the judge records match, miss, unknown
+or unestablished for each, with a verbatim quotation, and is asked for no grade; code computes
+the grade. A quotation not found in the exact user message the judge was sent counts as unknown.
+A client with no stored list gets a byte-identical request and the judge's own grade, checked by
+fingerprinting the request before and after the change.
+
+Tests: `fit-dimensions.test.ts`, `fit-dimensions-agent.test.ts`, `judge-dimensions.test.ts`,
+`persist-fit-dimensions.test.ts`. Twenty mutations, all red.
+
+### The live client's list, derived in memory (not stored: re-approval was not authorised)
+
+Ten dimensions from 25 statements: 9 required, 8 establishable. Industry, location, staff count,
+the buyer's title, founder-led, sells to businesses, operating history and credibility proof are
+marked establishable. The revenue floor and the minimum deal size are marked as research usually
+cannot establish, which matches what the earlier runs found: every prospect had them missing.
+
+### Measured on the sample, twice (2026-09-11)
+
+The spend cap allowed 15 of the 20 in each run at $0.171 a call, and the second run was restricted
+to exactly the 15 the first graded. The request was identical between runs for all 15.
+
+| | earlier pair, same 15 | run 1 | run 2 |
+|---|---|---|---|
+| strong / moderate / weak / cannot_tell | 4 / 6 / 2 / 3 | 1 / 2 / 8 / 4 | 2 / 2 / 7 / 4 |
+| disagrees with itself | 6 of 15 | 2 of 15 | |
+
+- **Both remaining disagreements are one failure, not judgement.** In each case one of the two
+  runs hit the 16,000-token output ceiling, lost its JSON and recorded cannot_tell. On the 13
+  prospects where both runs produced readings, the grade agreed 13 of 13.
+- **The readings themselves are nearly fixed.** Of 130 dimension readings compared across the two
+  runs, 5 differed: `buyer_title` twice, `sells_to_businesses` twice, `founder_led` once.
+- **The judge never volunteered a grade**, in 30 of 30 calls.
+- **8 of 300 readings claimed a match or a miss with a quotation that was not in the material**
+  and were counted as unknown. They cluster on the same three dimensions.
+- **The grade moved hard towards weak**: 8 of 15 against 2 of 15 before. The rules are stricter
+  than the judge's own summary judgement was. The misses are real and quoted: staff count outside
+  the band (3), a buyer title the profile does not name (3), a location outside the three
+  countries (2).
+
+### Three things the measurement exposed, none of them fixed here
+
+1. **The 16,000-token ceiling truncates real answers.** 2 of these 30 calls, plus one of the
+   twelve in the section above. A truncated answer reaches no grade at all.
+2. **The judge is never shown the country**, though `prospects.country` is filled for all 111
+   researched prospects. `company_geography` therefore read unknown for 6 of 13 and is what most
+   cannot_tell verdicts rest on.
+3. **`buyer_title` is as literal as the profile.** It names two titles, so a founder whose title
+   reads differently is a quoted miss, and one miss on a required dimension is weak.
+
+Spend: $5.13 for 30 grading calls, plus one derivation call of about $0.03 to $0.10.
