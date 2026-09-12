@@ -19,7 +19,8 @@
     "test-substitute-booking-link": "npx tsx scripts/test-substitute-booking-link.ts",
     "test-apollo-degradation": "npx tsx scripts/test-apollo-degradation.ts",
     "test": "vitest run",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "postbuild": "npx tsx scripts/check-patch-in-build.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
