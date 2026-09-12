@@ -504,6 +504,7 @@ async function runOne(
     messagingContent: messaging.content,
     variantId,
     icpBuyerTitle: clientCtx.buyerTitle,
+    voiceSamples: clientCtx.voiceSamples,
     uniqueness,
     onAttempt: o => attempts.push(o),
   })

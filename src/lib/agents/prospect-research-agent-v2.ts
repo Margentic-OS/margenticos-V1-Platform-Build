@@ -559,6 +559,7 @@ export async function runProspectResearchAgentV2({
       messagingContent: messaging.content,
       variantId,
       icpBuyerTitle: clientCtx.buyerTitle,
+      voiceSamples: clientCtx.voiceSamples,
       uniqueness,
     })
 

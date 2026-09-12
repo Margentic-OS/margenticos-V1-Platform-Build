@@ -65,6 +65,12 @@ export interface ProduceOpeningInput {
    * field existed, so an older entry reads back as undefined rather than null.
    */
   icpBuyerTitle?: string | null
+  /**
+   * The client's own sentences, from loadClientContext. Passed straight to the writer, which
+   * shows them in the assignment block. Absent on a caller that has no client context, and the
+   * block is then omitted.
+   */
+  voiceSamples?: string[]
   /** Batch-scoped. Absent on a single-prospect run, where there is nothing to collide with. */
   uniqueness?: BatchUniquenessRegistry
   /**
@@ -146,6 +152,7 @@ export async function produceOpening({
   messagingContent,
   variantId,
   icpBuyerTitle,
+  voiceSamples,
   uniqueness,
   onAttempt,
 }: ProduceOpeningInput): Promise<OpeningResult> {
@@ -198,6 +205,7 @@ export async function produceOpening({
     apiKey,
     clientName,
     buyer: buyer.description,
+    voiceSamples,
     prospectFirstName: ctx.first_name,
     candidates,
     selectedCandidateId,

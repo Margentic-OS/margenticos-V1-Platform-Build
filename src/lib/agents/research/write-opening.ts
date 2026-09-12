@@ -185,7 +185,18 @@ export function buildWriterAssignment(params: {
   buyer: string
   p3: string
   cta: string
+  /**
+   * The client's own sentences, read from their tone of voice document at runtime. Shown so
+   * the writer can hear the sender, never as rules about tone. ABSENT OR EMPTY OMITS THE
+   * BLOCK: a client with no samples sees nothing about voice at all.
+   */
+  voiceSamples?: string[]
 }): string {
+  const samples = (params.voiceSamples ?? []).map(s => s.trim()).filter(s => s.length > 0)
+  const voiceBlock = samples.length > 0
+    ? `\n\n## How the sender writes\n\n${samples.map(s => `  "${s}"`).join('\n\n')}`
+    : ''
+
   return `## Assignment
 
 You are writing for: ${params.clientName}
@@ -198,7 +209,7 @@ the client's approved positioning. Reproduce it exactly, do not alter or paraphr
   ${params.p3}
 
 The approved closing question for this particular variant is "${params.cta}", and it shows
-register and length. It is not an instruction to reuse it.`
+register and length. It is not an instruction to reuse it.${voiceBlock}`
 }
 
 export function buildWriterPrompt(): string {
@@ -232,6 +243,8 @@ white space, which is what stops you cramming two jobs into one sentence.
 
 The offer line in the middle is FIXED. It is the client's positioning and what they
 approved. Do not alter it, do not paraphrase it, do not work around it.
+
+The ASSIGNMENT block may carry sentences the sender has written before, under "How the sender writes": they are there to show how this person sounds, and they are neither sentences to reuse nor facts about your prospect.
 
 START BY READING THE OFFER LINE, BEFORE YOU LOOK AT THE FINDINGS.
 
@@ -1758,6 +1771,8 @@ export interface WriteAndJudgeParams {
   selectedCandidateId?: string | null
   /** Synthesis's one-sentence reason this material connects to what the client solves. */
   relevanceReason?: string | null
+  /** The client's own sentences, passed through to the assignment block. See voice-samples.ts. */
+  voiceSamples?: string[]
   p3: string
   cta: string
   /**
@@ -1884,7 +1899,10 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
   // Constant across every prospect, variant and client, which is what makes it cacheable.
   // The parts that used to vary are in the assignment block, prepended to the user message.
   const writerSystem = buildWriterPrompt()
-  const assignment = buildWriterAssignment({ clientName: params.clientName, buyer: params.buyer, p3: params.p3, cta: params.cta })
+  const assignment = buildWriterAssignment({
+    clientName: params.clientName, buyer: params.buyer, p3: params.p3, cta: params.cta,
+    voiceSamples: params.voiceSamples,
+  })
 
   // Accumulated across EVERY call this prospect makes, including the ones on attempts that
   // were thrown away. A retried prospect's real cost is the point of measuring at all, so

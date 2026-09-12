@@ -250,6 +250,8 @@ export async function runProspectResearchCollect({
       // field existed carries no key at all and reads back undefined, which resolveBuyer
       // treats as absent and falls through, never as a value.
       icpBuyerTitle: entry.client_context?.buyerTitle ?? null,
+      // Absent on a snapshot taken before voice samples existed, which omits the block.
+      voiceSamples: entry.client_context?.voiceSamples,
       // No batch-uniqueness registry: it is scoped to one in-process batch run and this
       // phase processes one prospect per job.
     })

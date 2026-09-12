@@ -41,6 +41,8 @@ const CLIENT_CTX: ClientDocContext = {
   positioningSummary: 'They shorten the gap between a signed contract and a working system.',
   valuePropContext:   'Core pain solved: "projects stall between sale and delivery"',
   tovRules:           'Plain, specific, no hype.',
+  // Voice samples play no part in this equivalence; an empty list is the honest fixture.
+  voiceSamples: [],
 }
 
 const SIGNAL: DetectedSignal = {

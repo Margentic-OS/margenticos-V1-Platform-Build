@@ -11,6 +11,7 @@ import { logger } from '@/lib/logger'
 import { buildSynthesisPrompt, buildSignalBlock } from './prompts/synthesis-prompt'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
+import { extractVoiceSamples } from './voice-samples'
 import { readabilityScore, type ReadabilityScore } from '@/lib/style/readability'
 import { SIX_TESTS, INFERENCE_DIRECTIONS, ZERO_TOKEN_USAGE, readTokenUsage } from './types'
 import type {
@@ -47,6 +48,13 @@ export interface DetectedSignal {
 
 export interface ClientDocContext {
   clientName:         string
+  /**
+   * The client's OWN sentences, quoted as evidence in their tone of voice document. Passed to
+   * the writer to imitate; see research/voice-samples.ts for what counts as one and why the
+   * document's rules and generated examples are not. Empty for a client whose document has
+   * none, and the writer's assignment block is then omitted entirely.
+   */
+  voiceSamples:       string[]
   /**
    * The ICP's tier-1 buyer title, RAW, alongside the prose summary that already renders
    * it. Both come from the same read of the same field, so there is one source and no
@@ -223,7 +231,7 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
     if (parts.length) tovRules = parts.join('\n')
   }
 
-  return { clientName, buyerTitle, icpSummary, positioningSummary, valuePropContext, tovRules }
+  return { clientName, buyerTitle, icpSummary, positioningSummary, valuePropContext, tovRules, voiceSamples: extractVoiceSamples(tovDoc) }
 }
 
 // ─── Research section formatter ───────────────────────────────────────────────
