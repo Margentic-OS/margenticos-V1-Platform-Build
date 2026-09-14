@@ -101,6 +101,11 @@ export default defineConfig({
     // exported or loaded with `dotenv -e .env.local`. See vitest.setup.ts.
     setupFiles: ['./vitest.setup.ts'],
 
+    // Runs ONCE per suite run, before any file. Holds a lock in the shared git
+    // directory so two worktrees cannot run the suite against the same test
+    // database at the same time. See vitest.global-setup.ts.
+    globalSetup: ['./vitest.global-setup.ts'],
+
     // PINNED, NOT INHERITED. These are vitest 4's current defaults, and the
     // isolation this suite's safety depends on is a property of them rather than
     // of anything we wrote. Stated explicitly so that turning them off — which is
