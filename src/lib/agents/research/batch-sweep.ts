@@ -41,6 +41,7 @@ import { buildSynthesisParams, type ClientDocContext, type DetectedSignal } from
 import { BATCH_CACHE_TTL } from '@/lib/agents/prospect-research-sources-agent'
 import { enqueueResearchPhaseJob } from '@/lib/queue/job-queue'
 import type { ProspectContext, RawSourceData } from './types'
+import { companyFactsFromRow, type CompanyFacts } from './company-facts'
 
 const SYNTHESIS_MODEL = 'claude-sonnet-4-6'
 
@@ -110,9 +111,13 @@ interface PendingEntry {
   prospect_first_name: string | null
   prospect_last_name: string | null
   prospect_company_name: string | null
+  /** The country on the prospect row, so the batch path shows the judge what the inline path does. */
+  prospect_country: string | null
   prospect_role: string | null
   prospect_job_title: string | null
   prospect_linkedin_url: string | null
+  /** The company facts on file, read from the prospect row by the same mapping the inline path uses. */
+  prospect_company: CompanyFacts | null
 }
 
 /**
@@ -122,6 +127,10 @@ interface PendingEntry {
  * the prompt's "## Prospect" header, and a name corrected between phase 1 and submission
  * should be the corrected one. segment_id comes from the snapshot because it is the key
  * the client documents were resolved under.
+ *
+ * The company facts come from the row for the same reason, through companyFactsFromRow,
+ * which is the function the inline path's loader calls. One mapping, so the judge sees the
+ * same company whichever path graded it.
  */
 function contextFor(entry: PendingEntry): ProspectContext {
   return {
@@ -131,11 +140,13 @@ function contextFor(entry: PendingEntry): ProspectContext {
     first_name: entry.prospect_first_name,
     last_name: entry.prospect_last_name,
     company_name: entry.prospect_company_name,
+    country: entry.prospect_country,
     role: entry.prospect_role,
     job_title: entry.prospect_job_title,
     email: null,
     linkedin_url: entry.prospect_linkedin_url,
     website_url: null,
+    company: entry.prospect_company,
   }
 }
 
@@ -173,7 +184,7 @@ async function submitPendingForOneOrganisation(
 ): Promise<void> {
   const { data: pendingData, error: pendingError } = await supabase
     .from('synthesis_batch_entries')
-    .select('id, organisation_id, prospect_id, raw_sources, detected_signal, client_context, segment_id, submit_attempts, prospects!inner(first_name, last_name, company_name, role, job_title, linkedin_url)')
+    .select('id, organisation_id, prospect_id, raw_sources, detected_signal, client_context, segment_id, submit_attempts, prospects!inner(first_name, last_name, company_name, country, role, job_title, linkedin_url, company_headcount, company_industry, website_url, apollo_enrichment_data)')
     .eq('organisation_id', organisationId)
     .eq('state', 'pending_submission')
     .order('created_at', { ascending: true })
@@ -201,9 +212,18 @@ async function submitPendingForOneOrganisation(
       prospect_first_name:   (p?.first_name as string | null) ?? null,
       prospect_last_name:    (p?.last_name as string | null) ?? null,
       prospect_company_name: (p?.company_name as string | null) ?? null,
+      prospect_country:      (p?.country as string | null) ?? null,
       prospect_role:         (p?.role as string | null) ?? null,
       prospect_job_title:    (p?.job_title as string | null) ?? null,
       prospect_linkedin_url: (p?.linkedin_url as string | null) ?? null,
+      prospect_company: p
+        ? companyFactsFromRow({
+            company_headcount:      p.company_headcount,
+            company_industry:       p.company_industry,
+            website_url:            p.website_url,
+            apollo_enrichment_data: p.apollo_enrichment_data,
+          })
+        : null,
     }
   })
 

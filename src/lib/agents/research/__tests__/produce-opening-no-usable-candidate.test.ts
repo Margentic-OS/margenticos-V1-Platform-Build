@@ -40,7 +40,8 @@ function candidate(over: Partial<Scores> = {}, extra: Partial<ObservationCandida
 
 const ctx: ProspectContext = {
   id: 'p1', organisation_id: 'org1', segment_id: null, first_name: 'Sam', last_name: null,
-  company_name: 'Example Co', role: null, job_title: 'Founder', email: null, linkedin_url: null, website_url: null,
+  company_name: 'Example Co', country: null, role: null, job_title: 'Founder', email: null,
+  linkedin_url: null, website_url: null, company: null,
 }
 
 const WRITTEN = { written_won: true, judge_reasoning: 'written', usage: { calls: 3 } }

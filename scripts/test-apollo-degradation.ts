@@ -19,11 +19,13 @@ const TEST_PROSPECT = {
   first_name: 'Jane',
   last_name: 'Smith',
   company_name: 'Test Co',
+  country: null,
   role: 'Founder',
   job_title: null,
   email: 'jane@test.com',
   linkedin_url: null,
   website_url: null,
+  company: null,
 }
 
 // Set a dummy API key so the early-exit guard doesn't trigger

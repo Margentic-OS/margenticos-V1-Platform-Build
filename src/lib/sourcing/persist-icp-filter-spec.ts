@@ -8,6 +8,8 @@ import {
 } from '@/lib/agents/icp-filter-spec'
 import { inspectFilterSpec } from '@/lib/sourcing/inspect-filter-spec'
 import { deriveBuyerCriterionWithVocabulary } from '@/agents/buyer-criterion-agent'
+import { deriveFitDimensions } from '@/agents/fit-dimensions-agent'
+import type { FitDimensionSet } from '@/lib/agents/research/fit-dimensions'
 import type { BuyerCriterion } from '@/lib/sourcing/buyer-criterion'
 import type { SpecSeniority } from '@/lib/agents/icp-filter-spec'
 import {
@@ -160,6 +162,25 @@ export async function persistIcpFilterSpec(
       })
     }
 
+    // ── 3.1 Fix this client's fit dimensions, alongside the geography ─────────
+    //
+    // The conditions this profile names, each marked required or supporting and establishable
+    // by research or not. Decided HERE, once per approval, so the research fit judge stops
+    // re-deciding them on every call; it reads each one and code computes the grade.
+    //
+    // STARTED NOW AND AWAITED AFTER THE SPEC IS BUILT, so it runs in parallel with the
+    // geography call below. Both are bounded at 60s x 3 attempts, and sequential they would no
+    // longer fit the 300 second route budget beside the buyer criterion call above.
+    //
+    // FAILS OPEN, like the buyer criterion and unlike the geography. A spec with no dimension
+    // list leaves this client's judge grading exactly as it did before this existed, which is
+    // recoverable by re-approving. The .catch is attached here so a geography failure that
+    // returns early cannot leave an unhandled rejection behind it.
+    const dimensionsPending: Promise<{ set: FitDimensionSet | null; error: string | null }> =
+      deriveFitDimensions({ doc: doc.content as IcpDocument })
+        .then(set => ({ set, error: null }))
+        .catch(err => ({ set: null, error: err instanceof Error ? err.message : String(err) }))
+
     // ── 3.2 Resolve this client's geography, and FAIL CLOSED if it cannot ──────
     //
     // DIFFERENT FAILURE POLICY FROM THE BUYER CRITERION ABOVE, deliberately.
@@ -273,6 +294,28 @@ export async function persistIcpFilterSpec(
     }
 
     if (buyerCriterion) spec.buyer_criterion = buyerCriterion
+
+    // ── 3.3 Attach the fit dimensions, or say why there are none ───────────────
+    const dimensions = await dimensionsPending
+    if (dimensions.set) {
+      spec.fit_dimensions = dimensions.set
+    } else {
+      logger.error('persistIcpFilterSpec: fit dimensions could not be derived', {
+        operation_id: operationId,
+        document_id: documentId,
+        organisation_id: doc.organisation_id,
+        error: dimensions.error,
+        consequence:
+          'The spec is stored WITHOUT a fit dimension list, so this client\'s research judge ' +
+          'keeps giving its own grade, as it did before the list existed, until the ICP is ' +
+          're-approved. Nothing else changes.',
+      })
+      Sentry.withScope((scope) => {
+        scope.setExtra('operation_id', operationId)
+        scope.setExtra('document_id', documentId)
+        Sentry.captureMessage(`persistIcpFilterSpec: fit dimensions not derived for ${documentId}`, 'error')
+      })
+    }
 
     // ── 3.5 Inspect the spec we are about to write ─────────────────────────────
     // Report only. A finding here does NOT stop the write: a spec with a flaw is more

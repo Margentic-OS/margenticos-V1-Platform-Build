@@ -5,6 +5,7 @@
 // Weekly review: spot-check 5-10 results per batch, identify patterns, edit here, redeploy.
 
 import { CUSTOMER_FACING_STYLE_RULES } from '@/lib/style/customer-facing-style-rules'
+import { formatFitDimensions, type FitDimension } from '../fit-dimensions'
 
 export interface PromptContext {
   clientName:         string
@@ -12,6 +13,12 @@ export interface PromptContext {
   positioningSummary: string  // positioning_summary plain text
   valuePropContext:   string  // cold outreach hook + top 2 value themes — alignment filter
   tovRules:           string  // writing rules + do/don't list
+  /**
+   * The client's fit dimensions, fixed when the profile was approved. When present the judge
+   * reads each one and gives NO grade: code computes it. When absent the prompt is the one
+   * every client had before, byte for byte.
+   */
+  fitDimensions?:     FitDimension[] | null
 }
 
 /**
@@ -49,19 +56,80 @@ ${ctx.positioningSummary}
 
 ${ctx.tovRules}
 
+${ctx.fitDimensions?.length ? `─────────────────────────────────────────────────────────────────────
+ICP FIT: READ EACH DIMENSION. THE GRADE IS NOT YOURS TO GIVE.
 ─────────────────────────────────────────────────────────────────────
+
+When ${ctx.clientName}'s profile was approved, it was broken into the dimensions listed below.
+Read the research against each one, one at a time, and record what it shows. The grade is then
+computed from your readings by fixed rules in code. Do not give a grade, and do not let a sense
+of the overall fit colour any single reading.
+
+For every dimension, record exactly one result in fit_dimensions, under its key:
+  • match: the material shows the prospect meets this dimension.
+  • miss: the material shows the prospect does not meet it.
+  • unknown: the material says nothing that settles it either way.
+  • unestablished: no source of the kind gathered here could show this.
+
+EVIDENCE IS A QUOTATION, AND IT IS CHECKED:
+For match and miss, put in evidence the exact words from the user message that show it: one
+continuous passage, copied character for character. Do not paraphrase, summarise, translate, or
+join words from two places. Code looks for the quotation in the user message, and a match or a
+miss whose quotation is not found there is recorded as unknown. Words from these instructions or
+from the client context above are not evidence about the prospect. For unknown and unestablished,
+set evidence to null.
+
+Whether the research can establish each dimension was settled when the profile was approved, and
+is marked below. It is not yours to revisit. Read the material for every dimension either way: if
+it does show one the research usually cannot establish, record the match or miss with its
+quotation.
+
+HOW TO READ:
+  • Read each dimension on its own terms. One dimension's result never decides another's.
+  • Silence is unknown. A dimension the material does not speak to is unknown, whatever seems
+    likely. Unknown is not a partial match, and it is not a match.
+  • Read only what the dimension says. A consideration that feels relevant but appears in no
+    dimension below plays no part in any reading.
+  • A dimension that names example titles or labels is about the POSITION, not the wording.
+    Someone who holds the equivalent position meets it however their own title reads, and
+    someone whose wording matches while the position does not is a miss. Judge what the
+    dimension says the person is accountable for, runs or decides.
+
+THE DIMENSIONS:
+${formatFitDimensions(ctx.fitDimensions ?? [])}
+
+THREE CHECKS, RECORDED ON THEIR OWN:
+Establish each from the employment history and the website, and record it in fit_checks as
+yes, no or unknown, with one sentence of evidence. They are recorded separately and do not enter
+the grade.
+  • primary_occupation — Is this role the person's main occupation? A no is a concurrent
+    full-time position elsewhere, or a history that shows this role as secondary to another.
+  • runs_the_business — Does the person run this business day to day, rather than hold a
+    title in it? A no is a title in a business someone else runs, or no sign of operating
+    responsibility for it.
+  • reachable_by_channel — Who does the prospect's business sell to, and can those customers
+    be reached through the channel the client context describes? A no is a customer base
+    that channel cannot reach. Record not_applicable when the client context describes no
+    channel.
+
+` : `─────────────────────────────────────────────────────────────────────
 ICP FIT ASSESSMENT
 ─────────────────────────────────────────────────────────────────────
 
-Assess how well this prospect matches the buyer profile and company stage described above.
-Output one of three grades in the icp_fit field:
+Judge how well this prospect matches the buyer profile and company stage described above.
+Record exactly one of four outcomes in the icp_fit field. Three are grades, and each grade is
+a judgement about the PROSPECT, reached from what the research shows. The fourth records that
+the research does not show enough to reach a grade. That is a correct answer, not a failure,
+and it is never counted as a fit.
 
-STRONG — Clearly matches the buyer profile and company stage described in the client context
-above. The prospect's situation plausibly connects to one or more of the push forces named there.
+STRONG — The research shows the prospect matches the buyer profile and the company stage
+described above on every dimension the client context names, and their situation connects to
+at least one of the push forces named there. Nothing found contradicts the match.
 
-MODERATE — Partial fit. Matches some dimensions but not all: borderline on team size, adjacent
-industry with similar dynamics, role close but not exact, or evidence is too thin to grade
-STRONG without guessing.
+MODERATE — The research shows a real partial match: the prospect clearly meets some of the
+dimensions the client context names, and clearly misses or sits at the edge of at least one
+other. Name the dimension that falls short. MODERATE is a finding about the prospect. A
+prospect never lands here because the research was thin.
 
 WEAK — Clear mismatch. Any one of these, and nothing else:
   • The prospect or their company matches one of the disqualifying criteria named in the
@@ -72,16 +140,49 @@ WEAK — Clear mismatch. Any one of these, and nothing else:
     company to sell to, or they are visibly leaving the role.
   • Their situation has no plausible connection to any of the push forces named above.
 
-Nothing in this instruction names a market, a company type, a way of operating or a problem
-to be solved, because the client context above is the only place any of those are defined.
-A criterion that feels like common sense but appears nowhere above is your assumption about
-this client's market, and grading on it is how a prospect the client actively wants gets
-marked WEAK. If you find yourself reaching for one, grade MODERATE and say why.
+CANNOT_TELL — The research does not establish enough about this prospect or their company to
+reach any of the three grades, on a dimension the research could have shown. Put what was
+missing in icp_fit_missing: name the dimension (for example the size of the company, or the
+person's role) and say what evidence would settle it.
 
-Grade cautiously when the profile is sparse: missing team size and no visible operational
-signals → MODERATE, not STRONG. Absence of evidence is not evidence of fit.
+WHAT THE RESEARCH CAN AND CANNOT ESTABLISH:
+  • Some facts a client's profile names cannot be established by any source this research
+    reads. The private financial figures and commercial terms of a private business are the
+    usual case. List each such fact in icp_fit_unestablished.
+  • An unestablished fact is left out of the outcome. It is never the reason for CANNOT_TELL
+    and never the reason for WEAK: grade on what the research can establish. If the research
+    does state the fact, it is established, and you use it.
 
-─────────────────────────────────────────────────────────────────────
+THREE CHECKS, FROM THE EVIDENCE ALREADY GATHERED:
+Establish each from the employment history and the website, and record it in fit_checks as
+yes, no or unknown, with one sentence of evidence. Each is a dimension of fit in its own
+right: a clear yes is a match, a clear no is a clear miss, and unknown is unknown.
+  • primary_occupation — Is this role the person's main occupation? A no is a concurrent
+    full-time position elsewhere, or a history that shows this role as secondary to another.
+  • runs_the_business — Does the person run this business day to day, rather than hold a
+    title in it? A no is a title in a business someone else runs, or no sign of operating
+    responsibility for it.
+  • reachable_by_channel — Who does the prospect's business sell to, and can those customers
+    be reached through the channel the client context describes? A no is a customer base
+    that channel cannot reach. Record not_applicable when the client context describes no
+    channel.
+
+HOW TO REACH THE OUTCOME:
+  • Take each dimension the client context names, and each of the three checks, in turn and
+    record what the research shows. A dimension the research says nothing about is UNKNOWN.
+    Unknown is not a partial match, and it is not a match.
+  • If what is known already decides the outcome, give that grade. One clear disqualifier
+    decides WEAK however much else is unknown. A clear miss on one dimension alongside clear
+    matches on the others decides MODERATE.
+  • If an unknown dimension the research could have shown could move the prospect from one
+    grade to another, the outcome is CANNOT_TELL. An unestablished fact never makes it so.
+  • Grade only on criteria the client context names. Nothing in this instruction names a
+    market, a company type, a way of operating or a problem to be solved, because the client
+    context above is the only place any of those are defined. A criterion that feels like
+    common sense but appears nowhere above is your assumption about this client's market:
+    leave it out of the outcome entirely. It counts neither for the prospect nor against them.
+
+`}─────────────────────────────────────────────────────────────────────
 SIGNAL DIMENSION
 ─────────────────────────────────────────────────────────────────────
 
@@ -487,7 +588,12 @@ First, reason through the research in a <reasoning> block. Cover:
   1. What each source returned (or didn't)
   2. The full candidate sweep: every candidate you generated and where it came from.
      Say explicitly what you found in employment history and what composites you considered.
-  3. ICP fit assessment: which dimensions match, which don't, and why
+  3. ${ctx.fitDimensions?.length ? `ICP fit: for each dimension, in turn, what the material shows about it and the
+     exact words that show it, or that it says nothing. The three checks, each with its
+     evidence. Give no grade` : `ICP fit assessment: for each dimension the client context names, what the research
+     shows about it, or that it shows nothing. Which of those facts no source here can
+     establish. The three checks, each with its evidence. Then the outcome, and why the
+     other three do not apply`}
   4. Seven-test scoring: for each candidate, which tests it passed and failed.
      For READABLE, say the longest sentence's word count and name any hedge you removed.
   5. Inference direction: for each candidate, the opposite reading and how you handled it
@@ -501,7 +607,16 @@ First, reason through the research in a <reasoning> block. Cover:
 Then output this exact JSON with no markdown fences:
 
 {
-  "icp_fit": "strong" or "moderate" or "weak",
+${ctx.fitDimensions?.length ? `  "fit_dimensions": {
+    "<each dimension key listed above>": { "result": "match" or "miss" or "unknown" or "unestablished", "evidence": "the exact words from the user message, or null" }
+  },` : `  "icp_fit": "strong" or "moderate" or "weak" or "cannot_tell",
+  "icp_fit_missing": null or "only when icp_fit is cannot_tell: the dimension the research could not check, and the evidence that would settle it",
+  "icp_fit_unestablished": ["each fact the client's profile names that no source here can establish"],`}
+  "fit_checks": {
+    "primary_occupation":   { "result": "yes" or "no" or "unknown", "evidence": "one sentence" },
+    "runs_the_business":    { "result": "yes" or "no" or "unknown", "evidence": "one sentence" },
+    "reachable_by_channel": { "result": "yes" or "no" or "unknown" or "not_applicable", "evidence": "one sentence" }
+  },
   "candidates": [
     {
       "id": "c1",

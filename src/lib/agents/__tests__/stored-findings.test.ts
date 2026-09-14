@@ -29,6 +29,7 @@ import {
   runProspectResearchAgentV2,
   runProspectResearchAgentV2Batch,
   STORED_FINDINGS_MAX_AGE_DAYS,
+  synthesisFromStored,
 } from '../prospect-research-agent-v2'
 
 // ─── Stub client ──────────────────────────────────────────────────────────────
@@ -95,6 +96,35 @@ const load = (result: DbResult) => {
 
 beforeEach(() => { vi.clearAllMocks() })
 
+// ─── Reuse invents no grade ───────────────────────────────────────────────────
+// A reuse run does no new analysis. Where the source row reached no grade, it used to write
+// 'moderate', a verdict nobody reached. It now carries cannot_tell, which is never a fit.
+
+describe('synthesisFromStored: a source row with no grade carries cannot_tell', () => {
+  const stored = (icp_fit: unknown) => ({
+    result_id: 'row-1', candidates: [{ observation: 'a thing that happened', date: null }],
+    had_linkedin: true, created_at: '2026-08-20T01:00:00Z', synthesized_at: null,
+    icp_fit, qualification_status: null, qualification_reason: null, confidence: null,
+    has_dateable_signal: null, signal_observation: null, relevance_reason: null,
+  }) as never
+  const ctx = { id: 'p-1', organisation_id: 'org-1' } as never
+
+  it('records cannot_tell, naming the source row, when that row has no grade', async () => {
+    const out = await synthesisFromStored(stored(null), ctx, 'org-1')
+    expect(out.icp_fit).toBe('cannot_tell')
+    expect(out.icp_fit_missing).toContain('row-1')
+    // Research rows do not record the three checks, so a reuse run carries none: unknown.
+    for (const check of Object.values(out.fit_checks)) expect(check.result).toBe('unknown')
+    expect(out.icp_fit_unestablished).toEqual([])
+  })
+
+  it('carries a grade the source row did reach, with nothing missing', async () => {
+    const out = await synthesisFromStored(stored('strong'), ctx, 'org-1')
+    expect(out.icp_fit).toBe('strong')
+    expect(out.icp_fit_missing).toBeNull()
+  })
+})
+
 // ─── Selection: best, not most recent ────────────────────────────────────────
 
 describe('loadStoredFindings: which row it picks', () => {
@@ -140,6 +170,19 @@ describe('loadStoredFindings: which row it picks', () => {
       error: null,
     })
     expect((await run())?.result_id).toBe('has')
+  })
+
+  it('prefers a record that holds evidence over a newer reuse record carrying the same findings', async () => {
+    // A reuse row copies the findings forward and fetches nothing. Picking it made a reuse run
+    // carry forward from another reuse run, one step further from any evidence each time.
+    const { run } = load({
+      data: [
+        dbRow({ id: 'reuse', sources_successful: [],                  created_at: '2026-08-20T22:51:00Z' }),
+        dbRow({ id: 'full',  sources_successful: ['apollo', 'website'], created_at: '2026-08-20T15:24:00Z' }),
+      ],
+      error: null,
+    })
+    expect((await run())?.result_id).toBe('full')
   })
 
   it('returns null when nothing usable is stored, so the caller fetches instead', async () => {
