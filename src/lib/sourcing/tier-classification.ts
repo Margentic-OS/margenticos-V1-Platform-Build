@@ -11,6 +11,7 @@ import {
   seniorityScoreFor,
   type BuyerVerdict,
 } from './buyer-criterion'
+import { holdsAnotherCurrentRole } from './concurrent-roles'
 
 export interface EnrichedProspect {
   id: string
@@ -21,6 +22,12 @@ export interface EnrichedProspect {
   company_headcount: number | null
   company_industry: string | null
   company_name?: string | null
+  /**
+   * The stored enrichment blob, read ONLY for the concurrent-role count. Optional because
+   * every row enriched before that subset was kept lacks it, and a missing blob counts as
+   * no evidence rather than as a removal. See concurrent-roles.ts.
+   */
+  apollo_enrichment_data?: unknown
 }
 
 // Every reason a prospect can be REMOVED at stage 1. One list, and the reporting
@@ -46,6 +53,10 @@ export const REMOVAL_REASONS = [
   'company_too_large',
   'industry_excluded',
   'industry_off_target',
+  // The provider's own employment history says they hold another current job. Decided here,
+  // free, from data enrichment already bought, rather than by the research synthesis call
+  // after $0.13 to $0.19 of model spend. See concurrent-roles.ts.
+  'holds_another_current_role',
 ] as const
 
 export type RemovalReason = typeof REMOVAL_REASONS[number]
@@ -361,6 +372,27 @@ export async function classifyTier(
       sourced_tier: null,
       fit_score: null,
       tiering_reason: 'not_decision_maker' satisfies RemovalReason,
+    }
+  }
+
+  // Disqualifier 3c: the provider's own employment history says they hold another current job.
+  //
+  // FREE, AND EARLIER THAN IT WAS. This was decided by the research synthesis call, as the
+  // primary_occupation check, which happens after the verification probe and after $0.13 to
+  // $0.19 of model spend. Enrichment already bought the employment history, so the count is
+  // arithmetic on data on file.
+  //
+  // It counts only positions the provider ATTRIBUTES to another employer. A current position
+  // with no employer id is left alone, because that is the case that needs a reading rather
+  // than a count, and the judge still makes it. Whether the other position is full time is
+  // likewise still the judge's call: the provider returns nothing that answers it, and
+  // deciding it from a title would put one market's vocabulary in this file.
+  if (holdsAnotherCurrentRole(prospect.apollo_enrichment_data)) {
+    return {
+      prospect_id: prospectId,
+      sourced_tier: null,
+      fit_score: null,
+      tiering_reason: 'holds_another_current_role' satisfies RemovalReason,
     }
   }
 

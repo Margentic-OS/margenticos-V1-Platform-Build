@@ -1132,15 +1132,36 @@ export interface JudgeComparison {
 // Some gates run REPORT-ONLY behind a mode constant in their own module. Those log and
 // return nothing, so they cannot reject anything until the constant is flipped by hand.
 
-/** Numbers, years and proper nouns in the opening that do not appear in the findings. */
-function untraceableClaims(opening: string, findingsText: string): string[] {
+/**
+ * Numbers, years and proper nouns in the opening that do not appear in the findings.
+ *
+ * TWO HAYSTACKS, AND THE ASYMMETRY IS DELIBERATE. `findingsText` is the evidence corpus
+ * (observation plus provenance). `numbersText`, when supplied, is the wider block the
+ * writer was actually shown, which also carries the counter-readings and the relevance
+ * sentence.
+ *
+ * Numbers are checked against both, because the writer being marked down for using a
+ * figure the system put in front of it is not a traceability failure, it is the gate
+ * reading a different document from the one the writer read. Measured 2026-09-14: a
+ * prospect burned all three attempts on "22", from "operated on relationships and
+ * referrals for 22 years" in a counter-reading and "A 22-year-old firm" in the relevance
+ * sentence. Both were in the writer's block. Neither was in the evidence corpus.
+ *
+ * NAMES ARE NOT WIDENED, because the concern recorded above buildFindingsBlock is about
+ * names specifically: a name appearing ONLY in a counter-reading would become traceable
+ * and the gate would quietly stop covering the case it exists for. That argument does not
+ * transfer to a bare figure, so this widens the half it applies to and leaves the half it
+ * does not.
+ */
+function untraceableClaims(opening: string, findingsText: string, numbersText?: string): string[] {
   const haystack = findingsText.toLowerCase()
+  const numberHaystack = `${findingsText}\n${numbersText ?? ''}`.toLowerCase()
   const untraceable: string[] = []
 
-  // Every number and year must come from somewhere.
+  // Every number and year must come from somewhere the writer was given.
   for (const token of opening.match(/\b\d[\d,.]*\b/g) ?? []) {
     const bare = token.replace(/[.,]$/, '')
-    if (!haystack.includes(bare.toLowerCase())) untraceable.push(bare)
+    if (!numberHaystack.includes(bare.toLowerCase())) untraceable.push(bare)
   }
 
   // Capitalised words that are not sentence-initial read as names of things.
@@ -1148,7 +1169,16 @@ function untraceableClaims(opening: string, findingsText: string): string[] {
   words.forEach((word, i) => {
     // Strip the possessive before comparing: "SCG's" is the same claim as "SCG", and the
     // findings will only ever contain the bare form. This fired as a false positive.
-    const clean = word.replace(/[^\p{L}\p{N}'-]/gu, '').replace(/'s$/i, '')
+    //
+    // BOTH POSSESSIVES, and the plural one is why this line changed. A singular "SCG's"
+    // was already handled; a plural "Advisors'" ends in a bare apostrophe and was not, so
+    // the possessive of the prospect's OWN company name was rejected as an invented name.
+    // Measured 2026-09-14: one prospect spent all three attempts on "Advisors'" and shipped
+    // the template. Curly forms are stripped too, because the writer produces both.
+    const clean = word
+      .replace(/[^\p{L}\p{N}'’-]/gu, '')
+      .replace(/['’]s$/i, '')
+      .replace(/['’]$/, '')
     if (clean.length < 3) return
     if (i === 0) return
     if (!/^\p{Lu}/u.test(clean)) return
@@ -1158,6 +1188,22 @@ function untraceableClaims(opening: string, findingsText: string): string[] {
   })
 
   return [...new Set(untraceable)]
+}
+
+/**
+ * The text with balanced quoted spans removed, for counting punctuation the WRITER wrote
+ * rather than punctuation it is reporting. Straight and curly double quotes, and single
+ * quotes only where one plainly opens and closes a span, because an apostrophe inside a
+ * contraction is the same character.
+ *
+ * Unbalanced quotes are left alone on purpose: a span this cannot resolve stays in the
+ * text and keeps counting.
+ */
+export function stripQuotedSpans(text: string): string {
+  return text
+    .replace(/"[^"]*"/g, ' ')
+    .replace(/[“][^”]*[”]/g, ' ')
+    .replace(/(?:^|[\s(])'[^']*'(?=[\s),.;:!?]|$)/g, ' ')
 }
 
 /** Words in one part. Same counting rule as the gate and the composition layer. */
@@ -1218,6 +1264,13 @@ export function checkOpeningGates(
    * and tests need not thread it through; production always passes it.
    */
   context?: { prospectId: string },
+  /**
+   * The findings block the writer was actually shown, which is wider than the evidence
+   * corpus. Numbers only, see untraceableClaims. Optional so existing single-purpose
+   * callers and tests need not thread it through; production always passes it, and
+   * omitting it restores the old narrow behaviour exactly.
+   */
+  writerFindingsBlock?: string,
 ): string[] {
   const failures: string[] = []
 
@@ -1240,7 +1293,7 @@ export function checkOpeningGates(
     }
   }
 
-  const untraceable = untraceableClaims(opening, findingsText)
+  const untraceable = untraceableClaims(opening, findingsText, writerFindingsBlock)
   if (untraceable.length > 0) {
     failures.push(`claims not traceable to any finding: ${untraceable.join(', ')}`)
   }
@@ -1288,7 +1341,16 @@ export function checkOpeningGates(
   //
   // Gated at MORE THAN ONE rather than EXACTLY ONE: this runs on the combined block, and a
   // missing question is already reported by its own check with a clearer message.
-  const questionMarks = (opening.match(/\?/g) ?? []).length
+  // PUNCTUATION INSIDE A QUOTED SPAN IS NOT THE WRITER ASKING A QUESTION. It is the
+  // writer reporting what the prospect's own page says, which is exactly the kind of
+  // specific, checkable observation this agent exists to produce. Measured 2026-09-14: a
+  // prospect burned all three attempts because its observation quoted the site's own
+  // referral line, "do you know an executive who could benefit from our services?", and
+  // the '?' inside the quotation counted as a second question.
+  //
+  // Only BALANCED spans are removed. An unmatched quote leaves the text untouched, so the
+  // failure direction is toward still counting rather than toward silently not counting.
+  const questionMarks = (stripQuotedSpans(opening).match(/\?/g) ?? []).length
   if (questionMarks > 1) {
     failures.push(`contains ${questionMarks} question marks: the closing question is the only question, and the observation and bridge must not ask one`)
   }
@@ -1951,7 +2013,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     // The cap covers the whole written block, so gate the combined text.
     const gates = checkOpeningGates(
       `${opening} ${question}`.trim(), params.prospectFirstName, findingsEvidence, params.p3,
-      { observation, bridge, question }, { prospectId: params.prospectId },
+      { observation, bridge, question }, { prospectId: params.prospectId }, findings,
     )
     if (!question) gates.push('writer returned no closing question')
     // A missing half means the reply was malformed. Failing here rather than shipping is
