@@ -2138,6 +2138,7 @@ export type Database = {
           faq_entry_id: string | null
           id: string
           instantly_response: Json | null
+          link_sent_at: string | null
           organisation_id: string
           prospect_id: string | null
           scheduled_resume_at: string | null
@@ -2159,6 +2160,7 @@ export type Database = {
           faq_entry_id?: string | null
           id?: string
           instantly_response?: Json | null
+          link_sent_at?: string | null
           organisation_id: string
           prospect_id?: string | null
           scheduled_resume_at?: string | null
@@ -2180,6 +2182,7 @@ export type Database = {
           faq_entry_id?: string | null
           id?: string
           instantly_response?: Json | null
+          link_sent_at?: string | null
           organisation_id?: string
           prospect_id?: string | null
           scheduled_resume_at?: string | null

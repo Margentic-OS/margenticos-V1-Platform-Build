@@ -268,6 +268,10 @@ async function updateActionRow(
     scheduled_resume_at?: string | null
     action_error?: string | null
     instantly_response?: Json | null
+    // Written ONCE, at send time, and only when the provider accepted. The funnel measures
+    // time to booking from this rather than from updated_at, which any later write to the
+    // row would move forward and make the interval look shorter than it was.
+    link_sent_at?: string
   },
 ): Promise<void> {
   if (!actionRowId) {
@@ -907,6 +911,12 @@ async function processOneSignal(
       action_payload: { reply_body: bodyText, calendar_link: bookingUrl } as Json,
       action_error: replyResult.ok ? null : replyResult.error,
       instantly_response: replyResult.raw as Json ?? null,
+      // ONLY on success, and that distinction is the whole point. A link that failed to
+      // send is not a link the prospect received, so it must not enter the funnel's
+      // population: it is counted as a failed send instead, which the operator screen
+      // renders even at zero. Conflating the two would hide the people who asked to book
+      // and got nothing inside a healthy-looking never-booked list.
+      ...(replyResult.ok ? { link_sent_at: new Date().toISOString() } : {}),
     })
 
     if (replyResult.ok) {
