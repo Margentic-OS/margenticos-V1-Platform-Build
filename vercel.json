@@ -1,3 +1,6 @@
 {
-  "regions": ["dub1"]
+  "regions": [
+    "dub1"
+  ],
+  "installCommand": "node scripts/reset-patched-packages.mjs && npm install"
 }

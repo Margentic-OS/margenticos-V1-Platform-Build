@@ -361,6 +361,29 @@ production kept failing reads with nothing saying why. Two things now prevent it
 dependency, and to anything else that changes a file inside `node_modules` without changing
 its version.
 
+**AND THE SAME CACHE BREAKS THE INSTALL WHENEVER THE PATCH ITSELF CHANGES.** Vercel restores
+`node_modules` from the previous deployment, and its cache key does not include `patches/`.
+So a branch that EDITS a patch gets a `node_modules` already carrying the OLD one.
+patch-package can apply to a pristine package, and can recognise its own patch already
+applied and skip. It cannot apply a patch over a DIFFERENT patch: the context matches neither
+forwards nor in reverse, and the build dies with `Failed to apply patch ... Try removing
+node_modules and trying again`. The patch file is fine; only the order of events is wrong.
+
+Fixed by `scripts/reset-patched-packages.mjs`, run from `installCommand` in `vercel.json`
+ahead of `npm install`. It removes every package `patches/` names, deriving the list from the
+patch filenames so there is no second list to keep in step, and npm then reinstalls each one
+pristine. **It must NOT become a `preinstall` hook.** Measured 2026-09-14: npm loads the
+installed tree from disk BEFORE running the root package's preinstall, so a package deleted
+there is still in the tree npm has decided to reify, nothing is reinstalled, and postinstall
+fails instead with `Patch file found for package X which is not present`. The deletion only
+works ahead of npm, which is what an install command is. Locally, `npm run reinstall` does
+the same two steps.
+
+A marker file recording which patch was applied does not work either, and it is worth knowing
+why before someone proposes it: the first build carrying such a scheme meets a cache written
+before it existed, so there is no marker to read and nothing to reverse. Removing the package
+needs to know nothing about what was done to it.
+
 ---
 
 ## Documentation — update /docs every session, never skip

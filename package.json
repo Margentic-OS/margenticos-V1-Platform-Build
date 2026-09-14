@@ -20,6 +20,7 @@
     "test-apollo-degradation": "npx tsx scripts/test-apollo-degradation.ts",
     "test": "vitest run",
     "postinstall": "patch-package",
+    "reinstall": "node scripts/reset-patched-packages.mjs && npm install",
     "postbuild": "npx tsx scripts/check-patch-in-build.ts"
   },
   "dependencies": {
