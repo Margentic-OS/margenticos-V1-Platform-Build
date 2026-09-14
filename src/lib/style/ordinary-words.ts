@@ -39,6 +39,29 @@
 // Removing a word makes the gate stricter and risks rejecting legitimate copy. Do not
 // remove one to catch a specific name. Names are caught by absence, not by exclusion.
 //
+// ─── SIX WORDS ADDED 2026-09-14, EACH BACKED BY A MEASURED REJECTION ─────────
+//
+// Not a guess at what might be missing. Every one of these was rejected by the shipped
+// gate, at the start of a sentence, in a stored writer run:
+//
+//   boutique   "Boutique ..." and "Boutiques ...", 3 runs, 4 attempts
+//   cross      "Cross-market ...", reported by the operator
+//   dependent  "Referral-dependent ...", 2 runs, both times the ONLY gate that failed
+//   qualify    "Qualified ...", reported by the operator; also the recorded false
+//              positive «Qualify» in the prompt-name scan
+//   scout      "Scouting ...", the only gate that failed on that attempt
+//   sole       "Sole-owner ...", the only gate that failed on that attempt
+//
+// DELIBERATELY NOT ADDED, though the same runs rejected them. "Bridge", "OBSERVATION",
+// "Draft", "Trim" and "Yesno" are the writer printing its own drafting labels and
+// reasoning into the answer. Those rejections are CORRECT and the gate should keep them.
+// Every one of those attempts also failed three or more other gates, so admitting the
+// words would not have saved a single attempt, and it would blind the gate to the leak.
+// This is the same reasoning that keeps "treasury" and "cave" off the list.
+//
+// "Salesforce" was also rejected, three times, and is a real company. It must stay
+// rejected, and the tests assert that it does.
+
 // ONE WORD IN THIS LIST TRIPS THE TOOL-NAME PRE-COMMIT SCAN: "instantly", the adverb, in
 // the adverb block. It is ordinary English and has nothing to do with the vendor of the
 // same name. It stays, on the rule directly above: removing an ordinary word to catch a
@@ -80,10 +103,12 @@ know land laugh launch lead learn leave let lift like limit listen live look los
 maintain make manage mark match matter mean measure meet mention miss move name need
 notice offer open operate order owe own pass pay perform pick place plan play point post
 prefer prepare present press prevent produce promise protect prove provide publish pull
-push put raise reach read realise realize receive recognise recognize recommend record
+push put qualify raise reach read realise realize receive recognise recognize
+recommend record
 reduce refer reflect refuse regard release remain remember remind remove repeat replace
 reply report represent request require reserve resolve respond rest result return review
-run save say scale search see seek seem sell send serve set settle share shift ship show
+run save say scale scout search see seek seem sell send serve set settle share shift ship
+show
 sign sit skip solve sort sound speak spend split stand start state stay step stick stop
 struggle study suggest supply support suppose switch take talk teach tell tend test thank
 think throw touch track train travel treat try turn understand update use value visit
@@ -146,7 +171,9 @@ annual anxious appropriate available average aware awful bad basic beautiful big
 blue bright brief brilliant broad busy calm capable careful central certain cheap clean
 clear clever close cold comfortable commercial common competitive complete complex
 concerned confident considerable consistent constant content cool correct critical
-crucial current daily dark dead dear deep detailed different difficult digital direct
+dependent
+cross crucial current daily dark dead dear deep detailed different difficult
+digital direct
 distant double dry due early easy economic effective efficient either electric elegant
 empty entire equal essential even eventual exact excellent exciting existing expensive
 external extra extreme fair familiar famous fast favourite final financial fine firm
@@ -168,7 +195,7 @@ quick quiet rapid rare raw ready real realistic reasonable recent regular relate
 relative relevant reliable remarkable remote responsible rich right rough round routine
 royal rural sad safe same satisfied scientific second secret secure select senior
 sensible sensitive separate serious severe sharp short sick significant silent similar
-simple single slight slow small smart smooth social soft solid sorry sound special
+simple single slight slow small smart smooth social soft sole solid sorry sound special
 specific stable standard steady still straight strange strategic strong stupid subject
 substantial successful sudden sufficient suitable superior sure surprised sweet
 sympathetic technical temporary tense terrible thick thin third thorough tight tiny
@@ -205,7 +232,8 @@ seventeen seventy several six sixteen sixty ten third thirteen thirty thousand t
 twelve twenty twice two zero
 
 acquisition advertising advisory audit automation bandwidth benchmark bid bill billing
-bio blog booking bottleneck brief broker calendar campaign capability capacity churn
+bio blog booking bottleneck boutique brief broker calendar campaign capability
+capacity churn
 clause coach coaching cold commission compliance consultancy consultant consulting
 conversion copywriting credential deadline delivery demo diary discount distribution
 downturn ecommerce enquiry enterprise engagement equity escalation estimate event
@@ -314,11 +342,102 @@ const IRREGULAR_FORMS: Record<string, string[]> = {
 }
 
 /**
+ * One suffix rule: the ending it strips, what it proposes, and whether it is a PLURAL.
+ *
+ * ─── WHY A TABLE AND NOT A RUN OF `if` STATEMENTS ────────────────────────────
+ *
+ * The rules used to be inline `if`s, and chaining a plural onto them needed the plural
+ * rules written out a second time to know which candidates to re-expand. That is the
+ * parallel-list shape CLAUDE.md names as a silent-failure class: two lists that must
+ * agree, walked separately, where adding a rule to one and not the other produces no
+ * error. Tagging each rule with `plural` puts the fact ON the rule, so there is one list
+ * and the drift cannot be expressed.
+ */
+interface SuffixRule {
+  /** The ending this rule recognises. */
+  readonly ends: string
+  /** Lemmas to propose. Generous by design; see the note on lemmaCandidates. */
+  readonly propose: (word: string) => string[]
+  /** True when the rule strips a plural, which is the only step the chain re-expands. */
+  readonly plural?: true
+  /** Endings this rule must NOT fire on, e.g. -s must not strip the second s of "ss". */
+  readonly notEnds?: string
+}
+
+/** Doubled final consonant: running -> runn -> run, dropped -> dropp -> drop. */
+const undouble = (stem: string): string[] => (/(\w)\1$/.test(stem) ? [stem.slice(0, -1)] : [])
+
+const SUFFIX_RULES: readonly SuffixRule[] = [
+  // Plurals and third person: shows -> show, buyers -> buyer, companies -> company
+  { ends: 'ies', plural: true, propose: w => [w.slice(0, -3) + 'y'] },
+  { ends: 'es', plural: true, propose: w => [w.slice(0, -2), w.slice(0, -1)] },
+  { ends: 's', plural: true, notEnds: 'ss', propose: w => [w.slice(0, -1)] },
+
+  // Agent nouns: founders -> founder -> found, buyers -> buyer -> buy
+  { ends: 'ers', plural: true, propose: w => [w.slice(0, -3), w.slice(0, -1)] },
+  { ends: 'er', propose: w => [w.slice(0, -2), w.slice(0, -1)] },
+  { ends: 'ors', plural: true, propose: w => [w.slice(0, -3), w.slice(0, -1)] },
+  { ends: 'or', propose: w => [w.slice(0, -2)] },
+
+  // Gerunds: finding -> find, running -> run (doubled), making -> make (dropped e)
+  { ends: 'ing', propose: w => { const s = w.slice(0, -3); return [s, s + 'e', ...undouble(s)] } },
+
+  // Past tense: worked -> work, tried -> try, scaled -> scale, dropped -> drop
+  { ends: 'ied', propose: w => [w.slice(0, -3) + 'y'] },
+  { ends: 'ed', propose: w => { const s = w.slice(0, -2); return [s, s + 'e', ...undouble(s)] } },
+
+  // Adverbs: quickly -> quick, easily -> easy
+  { ends: 'ily', propose: w => [w.slice(0, -3) + 'y'] },
+  { ends: 'ly', propose: w => [w.slice(0, -2)] },
+] as const
+
+/** Every rule that fires on this word, applied ONCE. */
+function applySuffixRules(word: string): { word: string; viaPlural: boolean }[] {
+  const out: { word: string; viaPlural: boolean }[] = []
+  for (const rule of SUFFIX_RULES) {
+    if (!word.endsWith(rule.ends)) continue
+    if (rule.notEnds && word.endsWith(rule.notEnds)) continue
+    for (const proposed of rule.propose(word)) {
+      if (proposed.length >= 2) out.push({ word: proposed, viaPlural: rule.plural === true })
+    }
+  }
+  return out
+}
+
+/**
  * Candidate lemmas for an inflected form, so the list above can stay lemma-sized.
  *
  * Deliberately generous and deliberately WRONG-TOLERANT. Every extra candidate can only
  * turn a reject into an allow, and allowing is the safe direction here. "Runnings" is not
  * a word, but proposing "running" and "run" for it costs nothing.
+ *
+ * ─── THE PLURAL CHAIN, ADDED 2026-09-14 ──────────────────────────────────────
+ *
+ * ONE inflection step was applied, never two, so a word that is only ordinary THROUGH a
+ * suffix rule stopped being ordinary the moment it was pluralised. The list holds "drive";
+ * "driver" reaches it by the -er rule; "drivers" reached "driv" and "driver", neither of
+ * which is in the list, and was reported as an invented name.
+ *
+ * MEASURED at ce13be3, before this change:
+ *
+ *     driver   true    drivers    FALSE
+ *     producer true    producers  FALSE
+ *     maker    true    makers     FALSE
+ *
+ * "buyers" and "founders" escaped it by luck rather than by rule: -ers proposes the
+ * three-letter stem too, and "buy" and "found" happen to be in the list where "driv" and
+ * "produc" are not. So the bug was invisible in exactly the words anyone would have
+ * spot-checked.
+ *
+ * THE CHAIN IS BOUNDED AT ONE EXTRA STEP AND ONLY THROUGH A PLURAL. Not general depth-2
+ * recursion: each extra round widens what the gate calls ordinary, and a plural is the
+ * step the evidence actually named. "drivers" -> "driver" -> "drive" and no further.
+ *
+ * IT CANNOT ADMIT A WORD THE LIST DOES NOT ALREADY CARRY, the same self-limit the
+ * irregular-forms map relies on. Every step proposes CANDIDATES, and a candidate only
+ * counts if the vocabulary already holds it. An invented plural resolves to nothing:
+ * "Zentaras" proposes "zentara" and "zentar", the second round proposes nothing further,
+ * and none of them is English. That is asserted in the tests, in both directions.
  */
 function lemmaCandidates(word: string): string[] {
   const out = [word]
@@ -329,37 +448,14 @@ function lemmaCandidates(word: string): string[] {
   // the vocabulary for the word to be allowed.
   for (const lemma of IRREGULAR_FORMS[word] ?? []) add(lemma)
 
-  // Plurals and third person: shows -> show, buyers -> buyer, companies -> company
-  if (word.endsWith('ies')) { add(word.slice(0, -3) + 'y') }
-  if (word.endsWith('es')) { add(word.slice(0, -2)); add(word.slice(0, -1)) }
-  if (word.endsWith('s') && !word.endsWith('ss')) { add(word.slice(0, -1)) }
-
-  // Agent nouns: founders -> founder -> found, buyers -> buyer -> buy
-  if (word.endsWith('ers')) { add(word.slice(0, -3)); add(word.slice(0, -1)) }
-  if (word.endsWith('er')) { add(word.slice(0, -2)); add(word.slice(0, -1)) }
-  if (word.endsWith('ors')) { add(word.slice(0, -3)); add(word.slice(0, -1)) }
-  if (word.endsWith('or')) { add(word.slice(0, -2)) }
-
-  // Gerunds: finding -> find, running -> run (doubled), making -> make (dropped e)
-  if (word.endsWith('ing')) {
-    const stem = word.slice(0, -3)
-    add(stem)
-    add(stem + 'e')
-    if (/(\w)\1$/.test(stem)) add(stem.slice(0, -1))
+  for (const first of applySuffixRules(word)) {
+    add(first.word)
+    // THE SECOND ROUND, through a plural only. "drivers" is now a plural of "driver", and
+    // "driver" gets the same rules any singular gets.
+    if (!first.viaPlural) continue
+    for (const lemma of IRREGULAR_FORMS[first.word] ?? []) add(lemma)
+    for (const second of applySuffixRules(first.word)) add(second.word)
   }
-
-  // Past tense: worked -> work, tried -> try, scaled -> scale, dropped -> drop
-  if (word.endsWith('ied')) { add(word.slice(0, -3) + 'y') }
-  if (word.endsWith('ed')) {
-    const stem = word.slice(0, -2)
-    add(stem)
-    add(stem + 'e')
-    if (/(\w)\1$/.test(stem)) add(stem.slice(0, -1))
-  }
-
-  // Adverbs: quickly -> quick, easily -> easy
-  if (word.endsWith('ily')) { add(word.slice(0, -3) + 'y') }
-  if (word.endsWith('ly')) { add(word.slice(0, -2)) }
 
   return out
 }
