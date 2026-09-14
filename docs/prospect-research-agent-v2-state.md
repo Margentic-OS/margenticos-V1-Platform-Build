@@ -780,3 +780,58 @@ counting and the shipped rules. No model call, no re-grading, nothing written.
 The condition lists themselves were not re-derived, for any client. That derivation is a model
 call by design, and the account's API budget is exhausted until 2026-10-01. No client's stored
 spec carries a list yet, so nothing in production changes either way.
+
+## The writer had nowhere to put its working, so it put it in the bridge (2026-09-14)
+
+### The defect
+
+The writer prompt asks for deliberation: weigh each finding, test the counter-reading, reject
+what does not hold. The output format gave it four blocks and every one of them was email
+copy. So the deliberation had no destination, and on a minority of prospects it went into the
+BRIDGE field, which takes ONE sentence of about 22 words.
+
+Measured on the 33-prospect run of 2026-09-14 (`writer-run-2026-09-14T16-41-29-453Z`):
+**3 dump attempts from 2 of 33 prospects**, bridges of 508, 493 and 235 words. A second run
+of the same 33 that afternoon produced 1 more from a third prospect. So roughly one prospect
+in twenty, which matches the rate that prompted the fix.
+
+One dump began `OBSERVATION: Looking at these findings carefully before writing:` with the
+whole of the reasoning underneath it. That is the writer narrating, not failing.
+
+### NOTHING EVER SHIPPED, AND THAT IS THE MEASURED PART
+
+It is worth stating plainly because the opposite is the natural assumption. Every dump was
+caught, by the 67-word cap and by the one-sentence bridge gate, both of which fire long
+before anything is stored. Across both runs of the 33 the largest bridge that reached stored
+copy was **22 words**, then **28**. No dump reached a prospect and none could have.
+
+What a dump costs is the RETRY BUDGET. A prospect gets two or three attempts:
+
+- `539ea47e` burned attempt 0 (508 words) and attempt 1 (235 words), and wrote a good
+  16-word bridge on its last one. It had no attempt left. Cost $0.0511 against a
+  $0.0209 mean.
+- `0e25e73c` burned attempt 0 (493 words) and won on attempt 1. Cost $0.0311.
+
+Both won. The exposure is a prospect that dumps twice and then trips any ordinary gate on
+its final try: the approved template ships and the personalisation is lost, having been paid
+for three times.
+
+### What changed
+
+A fifth block, `SCRATCH:`, first in the output format, with one line in the prompt saying the
+working goes there and is discarded. No new instruction about how to think.
+
+It is **stripped before any field is read**, in `parseWriterOutput`, so there is no field on
+the returned object that could carry it: storing, composing or sending it would require
+adding one. The strip runs to the `OBSERVATION:` line and to nothing else, so a scratch block
+that writes "BRIDGE:" mid-thought cannot end the strip early and leave its own prose standing
+as a field. A reply that is all scratch and no email strips to empty and fails closed on the
+empty-bridge gate.
+
+`WORKING:` was the obvious label and is NOT the one used: the prompt already uses `WORKING:`
+at line 484 to label a worked example that succeeds, paired with `FAILING:`. A field label
+colliding with an example label points the writer at a specimen bridge.
+
+Covered by `__tests__/write-opening-scratch.test.ts`, including a positive control that feeds
+deliberation into the BRIDGE field and asserts the gates reject it. The prose in that test is
+synthetic: the real dumps name real prospects and this repository is public.
