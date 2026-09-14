@@ -15,6 +15,7 @@ import type { Message } from '@anthropic-ai/sdk/resources/messages'
 import { synthesisFromMessage, synthesisFallback, type ClientDocContext, type DetectedSignal } from '../synthesize'
 import { buildSynthesisPrompt } from '../prompts/synthesis-prompt'
 import { FIT_CHECKS, FIT_CHECK_RESULTS, type FitCheckName, type ProspectContext } from '../types'
+import type { FitDimension } from '../fit-dimensions'
 
 const CLIENT_CTX: ClientDocContext = {
   clientName:         'Placeholder Client',
@@ -145,5 +146,47 @@ describe('the prompt asks for each check and for the unestablished facts', () =>
       expect(lower).not.toContain(word)
     }
     expect(fitSection).not.toMatch(/[$£€]\s?\d|\d\s?(k|m|bn)\b/i)
+  })
+})
+
+// ─── THE SAME THREE CHECKS, ON THE BRANCH THAT ACTUALLY RUNS ─────────────────
+//
+// buildSynthesisPrompt has TWO branches, and every assertion above reads the one taken when a
+// client has no stored dimensions. Every live client now has them, so the covered branch was
+// the one no longer used and the live one was unguarded.
+//
+// MEASURED BY MUTATION, 2026-09-14, not reasoned about: the three check definitions appear
+// verbatim in both branches, and deleting them from the DIMENSIONS branch left the whole suite
+// green while deleting them from the legacy branch went red. Two copies of one piece of text
+// with a test on only one of them is the parallel-list shape: the copies drift and nothing says
+// so. These cases exist so the live branch cannot lose a check silently.
+describe('the prompt asks for each check on the DIMENSIONS branch too', () => {
+  const DIMENSIONS: FitDimension[] = [{
+    key: 'placeholder_condition',
+    statement: 'The organisation meets a condition the profile states.',
+    source: 'the profile states it',
+    role: 'required',
+    establishable: true,
+  }]
+  const prompt = buildSynthesisPrompt({ ...CLIENT_CTX, fitDimensions: DIMENSIONS })
+  const fitSection = prompt.slice(
+    prompt.indexOf('THE GRADE IS NOT YOURS TO GIVE'),
+    prompt.indexOf('SIGNAL DIMENSION'),
+  )
+
+  // SELF-GUARDING. Without this the three cases below would pass vacuously against the legacy
+  // branch if the slice ever picked it up, which is the failure they exist to prevent.
+  it('read the dimensions branch, and not the legacy one', () => {
+    expect(fitSection.length).toBeGreaterThan(500)
+    expect(prompt).not.toContain('ICP FIT ASSESSMENT')
+    expect(fitSection).toContain('placeholder_condition')
+  })
+
+  it.each(FIT_CHECKS)('defines %s on the dimensions branch', name => {
+    expect(fitSection).toMatch(new RegExp(`•\\s*${name} —`))
+  })
+
+  it.each(FIT_CHECKS)('asks for %s in the output on the dimensions branch', name => {
+    expect(prompt.slice(prompt.indexOf('"fit_checks"'))).toMatch(new RegExp(`"${name}":\\s*\\{\\s*"result"`))
   })
 })

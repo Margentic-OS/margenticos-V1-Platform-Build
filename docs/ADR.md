@@ -5318,7 +5318,7 @@ that, it is built on it.**
 ---
 
 ## ADR-058 — The research fit grade is computed in code from the judge's reading of each dimension, and the dimensions are fixed per client when the ICP is approved
-Date: 2026-09-11 | Status: Accepted on branch judge-company-evidence, not merged
+Date: 2026-09-11 | Status: Accepted, merged to main 2026-09-14
 
 Numbered 058 because main reached ADR-057, the meeting outcome decision, while this branch was open.
 
