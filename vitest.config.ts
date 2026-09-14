@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config'
 import path from 'path'
 import fs from 'fs'
+import SkipGuardReporter from './vitest.skip-guard'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // THE TEST DATABASE CREDENTIALS, LOADED HERE SO `npm test` MEANS ONE THING
@@ -95,6 +96,11 @@ const testDatabaseEnv = resolveTestDatabaseEnv()
 export default defineConfig({
   test: {
     environment: 'node',
+
+    // 'default' keeps the normal output; the guard is additive. It fails the run
+    // when a test was meant to run and did not, which vitest reports as "skipped"
+    // beside genuine exclusions. See vitest.skip-guard.ts.
+    reporters: ['default', new SkipGuardReporter()],
 
     // Runs before EVERY test file. Strips production Supabase credentials from
     // process.env so no test can reach the live database, whatever the caller
