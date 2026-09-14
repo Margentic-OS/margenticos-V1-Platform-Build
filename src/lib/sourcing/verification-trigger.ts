@@ -69,6 +69,11 @@ export interface VerificationRun {
   status: 'success' | 'partial' | 'free_tier_exhausted' | 'failed'
   error_message?: string
   daily_verifications_used?: number
+  /**
+   * Prospects the country rule decided WITHOUT a probe. Each one is a probe not spent, out of
+   * a daily budget that is finite and shared across every organisation.
+   */
+  skipped_excluded_country?: number
 }
 
 /**
@@ -210,7 +215,9 @@ export async function verifyEnrichedBatch(
     // Select (a) unverified, (b) Grey-listed retryable
     const lockableQuery = supabase
       .from('prospects')
-      .select('id, email, country')
+      // send_hold_at comes along so the country skip below reaches the same verdict the write
+      // path would have: a held prospect reports its hold, not a country exclusion.
+      .select('id, email, country, send_hold_at')
       .eq('organisation_id', organisationId)
       .eq('enrichment_status', 'enriched')
       .or(
@@ -320,8 +327,55 @@ export async function verifyEnrichedBatch(
     // the ones that came back.
     let probesAttempted = 0
 
+    /** Decided by the country rule without a probe. Each one is quota left for someone mailable. */
+    let skippedExcluded = 0
+
     for (let idx = 0; idx < lockableProspects.length; idx++) {
       const prospect = lockableProspects[idx]
+
+      // ── THE COUNTRY RULE, BEFORE THE PROBE INSTEAD OF AFTER IT ──────────────
+      //
+      // checkSendEligibility decides that a prospect in an excluded country can never be
+      // mailed. It ran on the RESULT of a probe already paid for, inside
+      // recordVerificationResult, so quota went on addresses the platform will never use.
+      // Run here it reaches the identical verdict from the identical inputs, and spends
+      // nothing. The daily budget is finite and account-wide, so a probe not spent here is
+      // one available to a prospect that can actually be emailed.
+      //
+      // THE SAME FUNCTIONS, not a copy of their rules: the country list, the alias matching,
+      // the email-domain inference and the operator hold all stay where they were, so this
+      // cannot drift from the verdict the write path would have recorded.
+      const countryVerdict = checkSendEligibility(
+        (prospect.country as string | null) ?? null,
+        (prospect.email as string | null) ?? null,
+      )
+      if (!countryVerdict.is_eligible) {
+        const sendEligibility = firstPassSendEligibility({
+          heldAt: (prospect.send_hold_at as string | null) ?? null,
+          country: countryVerdict,
+          // No vendor was asked. False is not a claim about the address: the country rule has
+          // already decided the outcome, and this only keeps the shape of the written verdict
+          // identical to the one the probe path writes.
+          vendorSendEligible: false,
+        })
+        await supabase
+          .from('prospects')
+          .update({
+            email_send_eligible: sendEligibility.email_send_eligible,
+            email_send_ineligible_reason: sendEligibility.email_send_ineligible_reason,
+            verification_locked_at: null,
+          })
+          .eq('id', prospect.id as string)
+          .eq('organisation_id', organisationId)
+        heldLocks.delete(prospect.id as string)
+        skippedExcluded++
+        logger.info('verification-trigger: skipped, the country rule already decides it', {
+          operation_id: operationId,
+          prospect_id: prospect.id,
+          reason: sendEligibility.email_send_ineligible_reason,
+        })
+        continue
+      }
 
       // Stop before spending past the budget. The remaining prospects keep their locks
       // released below and are picked up by the next sweep.
@@ -433,6 +487,7 @@ export async function verifyEnrichedBatch(
 
     verificationRun.batch_size = prospectIds.length
     verificationRun.daily_verifications_used = dailyUsed + verificationRun.total_verified
+    verificationRun.skipped_excluded_country = skippedExcluded
 
     logger.info('verification-trigger: run completed', {
       operation_id: operationId,

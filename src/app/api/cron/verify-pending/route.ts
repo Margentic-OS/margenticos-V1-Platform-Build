@@ -40,6 +40,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import { logger } from '@/lib/logger'
 import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE, MAX_RETRY_ATTEMPTS } from '@/lib/sourcing/verification-trigger'
+import { tierEnrichedBatch } from '@/lib/sourcing/tiering-trigger'
 import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
 
 export const dynamic = 'force-dynamic'
@@ -180,6 +181,35 @@ export async function POST(request: NextRequest) {
       Sentry.captureCheckIn({ checkInId, monitorSlug: MONITOR_SLUG, status: 'ok' }, MONITOR_CONFIG)
       await Sentry.flush(2000)
       return NextResponse.json({ ok: true, organisation_id: null, verified: 0, detail: 'nothing pending' })
+    }
+
+    // ── TIERING FIRST, BECAUSE IT IS FREE AND IT DECIDES WHO IS WORTH PROBING ──
+    //
+    // Tiering removes prospects on staff count, industry, the client's buyer criterion and,
+    // since 2026-09-14, a plainly held second job. Every one of those is a deterministic read
+    // of data enrichment already paid for. Verification spends a finite daily budget, shared
+    // across every organisation, one probe per address.
+    //
+    // Run the other way round, which is how it ran until now, the budget goes on prospects
+    // tiering is about to reject: measured 2026-09-01, 15 rejected rows in the live
+    // organisation had all been verified first. The tier gate inside the trigger only helps
+    // once a verdict exists, and this ordering is what produces one in time.
+    //
+    // IT NEVER BLOCKS VERIFICATION. Tiering throws when a client has no approved spec, and
+    // when no prospect in a batch maps to a spec industry. Neither is a reason to stop
+    // verifying, so the failure is logged and the sweep carries on.
+    try {
+      const tiering = await tierEnrichedBatch(supabase, organisationId)
+      logger.info('verify-pending: tiered before verifying', {
+        organisation_id: organisationId,
+        classified: tiering.prospects_classified,
+        untiered: tiering.untiered_count,
+      })
+    } catch (error) {
+      logger.error('verify-pending: tiering failed, verifying anyway', {
+        organisation_id: organisationId,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
 
     const run = await verifyEnrichedBatch(supabase, organisationId, DEFAULT_VERIFY_BATCH_SIZE)

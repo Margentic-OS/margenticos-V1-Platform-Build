@@ -209,6 +209,15 @@ export interface FitOutcome {
   fitOfAll: number | null
   /** Fits out of those that could be established. The one to compare rounds on. */
   fitOfResolved: number | null
+  /**
+   * A 95% interval around fitOfResolved, by Wilson's method. null whenever that figure is.
+   *
+   * REPORTED WITH THE FIGURE, ALWAYS, because a fit rate without one invites a decision the
+   * sample cannot support: at 80 rows a rate carries about ±11 points and at 30 about ±18, so
+   * "42%" and "somewhere between 24% and 62%" are the same measurement and read as different
+   * facts.
+   */
+  interval: { low: number; high: number } | null
   resolved: number
   /** True when too little was established for either figure to mean anything. */
   lowSignal: boolean
@@ -228,10 +237,66 @@ export const LOW_SIGNAL_UNRESOLVED_SHARE = 0.5
  *
  * Measured: at a sample of 20 roughly 14 rows resolve, and a proportion on 14 rows has a
  * standard error near 13 points, which is the same size as the effects being looked for.
+ *
+ * KEPT AS THE FLOOR, no longer as the whole rule. A fixed 25 is wrong in both directions: a
+ * sample of 30 can almost never reach it (15% to 40% of rows resolve to nothing), so a run
+ * asked for 30 reported no figure at all; and a sample of 400 clears it while still being
+ * mostly unresolved. See minResolvedFor.
  */
 export const MIN_RESOLVED_FOR_A_FIGURE = 25
 
-export function assessFit(judged: JudgedCompany[]): FitOutcome {
+/** Below this many resolved rows a proportion says nothing, whatever the sample was. */
+export const MIN_RESOLVED_FLOOR = 10
+
+/**
+ * The sample MIN_RESOLVED_FOR_A_FIGURE was chosen against. Provenance, deliberately NOT a
+ * reference to DEFAULT_SAMPLE_SIZE: 25 was picked when the sample was 80, and that is what it
+ * implies about the standard regardless of what the default becomes later.
+ */
+const SAMPLE_THE_FIXED_MINIMUM_WAS_CHOSEN_FOR = 80
+
+/**
+ * The share of the requested sample that must resolve before a proportion is reported.
+ *
+ * NOT A NEW JUDGEMENT, and deliberately so. It is the old fixed 25 expressed as a share of the
+ * sample it was chosen for, so a run at 80 needs exactly what it needed before this change,
+ * and a run at any other size gets the same standard rather than one meant for 80 rows.
+ * Tightening it here would have been a second change smuggled in beside this one, and it
+ * showed up immediately when tried: at 0.4 an existing case of 30 resolved from 80 stopped
+ * reporting a rate it had always reported.
+ */
+export const MIN_RESOLVED_SHARE = MIN_RESOLVED_FOR_A_FIGURE / SAMPLE_THE_FIXED_MINIMUM_WAS_CHOSEN_FOR
+
+/**
+ * The fewest resolved rows needed to report a proportion, FOR THE SAMPLE THAT WAS ASKED FOR.
+ *
+ * A run that asks for 30 and resolves 14 now gets a figure with an interval around it, which
+ * is the honest answer, rather than silence. A run that asks for 80 and resolves 14 does not:
+ * two thirds of it vanished and the number would describe the third that did not.
+ */
+export function minResolvedFor(sampleSize: number): number {
+  return Math.max(MIN_RESOLVED_FLOOR, Math.ceil(sampleSize * MIN_RESOLVED_SHARE))
+}
+
+/**
+ * A 95% confidence interval on a proportion, by Wilson's method.
+ *
+ * WILSON RATHER THAN THE TEXTBOOK ONE. p ± 1.96·sqrt(p(1-p)/n) is the formula everyone
+ * remembers and it breaks exactly where this loop lives: at n of 30 and a rate near 0 or 1 it
+ * runs past the ends of the scale and reports intervals like "-4% to 11%". Wilson stays
+ * inside 0 and 1 and is accurate at these sizes, which is the whole reason for reporting an
+ * interval rather than a bare number.
+ */
+export function wilsonInterval(successes: number, n: number, z = 1.96): { low: number; high: number } {
+  if (n <= 0) return { low: 0, high: 1 }
+  const p = successes / n
+  const denominator = 1 + (z * z) / n
+  const centre = (p + (z * z) / (2 * n)) / denominator
+  const margin = (z / denominator) * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))
+  return { low: Math.max(0, centre - margin), high: Math.min(1, centre + margin) }
+}
+
+export function assessFit(judged: JudgedCompany[], requestedSample: number = judged.length): FitOutcome {
   const best = judged.filter(j => j.verdict === 'best').length
   const acceptable = judged.filter(j => j.verdict === 'acceptable').length
   const neither = judged.filter(j => j.verdict === 'neither').length
@@ -241,7 +306,9 @@ export function assessFit(judged: JudgedCompany[]): FitOutcome {
   const fits = best + acceptable
 
   const lowSignal = sampled > 0 && cannotEstablish / sampled > LOW_SIGNAL_UNRESOLVED_SHARE
-  const enough = resolved >= MIN_RESOLVED_FOR_A_FIGURE
+  const needed = minResolvedFor(requestedSample)
+  const enough = resolved >= needed
+  const interval = enough ? wilsonInterval(fits, resolved) : null
 
   return {
     sampled, best, acceptable, neither, cannotEstablish, resolved,
@@ -249,13 +316,15 @@ export function assessFit(judged: JudgedCompany[]): FitOutcome {
     // nothing fitted, which is the opposite of "we could not tell".
     fitOfAll: enough && sampled > 0 ? fits / sampled : null,
     fitOfResolved: enough ? fits / resolved : null,
+    interval,
     lowSignal,
     note: !enough
-      ? `No proportion reported: ${resolved} of ${sampled} rows resolved, ${MIN_RESOLVED_FOR_A_FIGURE} needed. ` +
-        `A rate on this many moves by tens of points on a single row.`
+      ? `No proportion reported: ${resolved} of ${sampled} rows resolved, ${needed} needed for a sample of ` +
+        `${requestedSample}. A rate on this many moves by tens of points on a single row.`
       : `${best} best, ${acceptable} acceptable, ${neither} neither, ${cannotEstablish} could not be established ` +
         `of ${sampled}. Fit of all sampled ${((fits / sampled) * 100).toFixed(1)}%; fit of those established ` +
-        `${((fits / resolved) * 100).toFixed(1)}%.`,
+        `${((fits / resolved) * 100).toFixed(1)}%, 95% interval ` +
+        `${((interval!.low) * 100).toFixed(1)}% to ${((interval!.high) * 100).toFixed(1)}%.`,
   }
 }
 

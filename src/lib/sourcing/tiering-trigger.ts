@@ -131,7 +131,9 @@ export async function tierEnrichedBatch(
     // nothing else. See ADR-037.
     const { data: prospects, error: prospectError } = await supabase
       .from('prospects')
-      .select('id, organisation_id, email_status, enrichment_status, job_title, company_headcount, company_industry, company_name')
+      // apollo_enrichment_data is read for the concurrent-role count only (concurrent-roles.ts),
+      // which is free and deterministic and now decides here rather than inside research.
+      .select('id, organisation_id, email_status, enrichment_status, job_title, company_headcount, company_industry, company_name, apollo_enrichment_data')
       .eq('organisation_id', organisationId)
       .eq('enrichment_status', 'enriched')
       .is('sourced_tier', null)

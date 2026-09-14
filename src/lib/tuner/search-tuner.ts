@@ -45,6 +45,7 @@ import { logger } from '@/lib/logger'
 import { FatalApiError } from '@/lib/agents/fatal-api-error'
 import { buildApolloRequest } from '@/lib/sourcing/handlers/adapter-apollo'
 import { deriveBuyerCriterionWithVocabulary } from '@/agents/buyer-criterion-agent'
+import { readStoredFitDimensions } from '@/lib/agents/research/fit-dimensions'
 import { ProviderBudget, ProviderRateLimited, countAndSample } from '@/lib/tuner/count-and-sample'
 import { differenceSearch } from '@/lib/tuner/differencing'
 import { measureCeiling } from '@/lib/tuner/relaxation-ceiling'
@@ -183,14 +184,10 @@ export interface SearchTunerResult {
   consumedBy: 'nothing'
 }
 
-/**
- * The smallest population worth researching.
- *
- * DERIVED, not chosen: a round cannot report a proportion below the fit judge's own resolved
- * floor, and a population smaller than the sample cannot fill one. Researching it would spend
- * money to learn something the count already said.
- */
-export const MIN_POPULATION_TO_RESEARCH = DEFAULT_SAMPLE_SIZE
+// The smallest population worth researching is now the SAMPLE THIS RUN ASKED FOR, checked at
+// the gate itself rather than against a constant pinned to the default. A population smaller
+// than the sample cannot fill one, and researching it would spend money to learn something the
+// free count already said.
 
 export async function runSearchTuner(input: SearchTunerInput): Promise<SearchTunerResult> {
   const {
@@ -305,9 +302,11 @@ export async function runSearchTuner(input: SearchTunerInput): Promise<SearchTun
   const audience = checkAudience(reachable, input.audienceFloor)
   if (!audience.judged) notes.push(audience.reason)
 
-  if (reachable < MIN_POPULATION_TO_RESEARCH) {
+  // THE SAMPLE THIS RUN ASKED FOR, not the default one. This compared against a constant, so a
+  // run asked for 30 was refused on a population of 50 that would have filled it comfortably.
+  if (reachable < sampleSize) {
     return withMarker('audience_cannot_support_the_work',
-      `The search reaches ${reachable}, below the ${MIN_POPULATION_TO_RESEARCH} needed to fill one ` +
+      `The search reaches ${reachable}, below the ${sampleSize} needed to fill one ` +
       `sample. With the buyer constraints relaxed it reaches ${zero.ceiling.ceiling}. No model call ` +
       'and no research were spent, because neither could have produced information.', populations)
   }
@@ -322,44 +321,87 @@ export async function runSearchTuner(input: SearchTunerInput): Promise<SearchTun
       'No model call and no research were made.', populations)
   }
 
-  let derived
-  try {
-    derived = await deriveBuyerCriterionWithVocabulary({ supabase, organisation_id: organisationId })
-    modelCalls += 1
-  } catch (e) {
-    return withMarker('derivation_refused',
-      'The whole-document derivation failed, so there is no proposed search and nothing to ' +
-      `judge against: ${e instanceof Error ? e.message : String(e)}`, populations)
-  }
+  // ── WHAT "FIT" MEANS FOR THIS RUN ──
+  //
+  // From the client's STORED conditions when they have them. That list is derived once, when
+  // their profile is approved, and read every time after; so two runs a fortnight apart grade
+  // against the same standard, and a difference between them is the search moving rather than
+  // the standard moving.
+  //
+  // It used to come from a derivation made fresh on every run, and that call is measured at
+  // roughly a quarter of its output moving between identical calls. A fit rate measured
+  // against a rubric that wobbles cannot be compared with last week's, which is most of what
+  // a sampler is for. The stored path also makes the run cheaper: this was the only model call
+  // outside the rounds, it was an Opus one, and no dollar figure the module reported counted it.
+  //
+  // With no stored list it falls back to the derivation, which is what every client had before
+  // the lists existed.
+  const storedConditions = readStoredFitDimensions(spec.fit_dimensions)
+  let proposal: ProposedSearch | null = null
+  let context: FitContext
 
-  const proposal = derived.search
-  if (proposalIsEmpty(proposal)) {
-    return withMarker('derivation_refused',
-      'The derivation returned no traceable search elements. Every element it proposed was ' +
-      'dropped for having no reason pointing at something the document states, which is the ' +
-      'guard against inventing a market rather than a fault in the loop. ' +
-      `Dropped: ${JSON.stringify(proposal.droppedUntraceable)}.`, { ...populations, proposal })
-  }
+  if (storedConditions.dimensions) {
+    const conditions = storedConditions.dimensions
+    const required = conditions.filter(d => d.role === 'required')
+    const content = (doc.content ?? {}) as { summary?: unknown; jtbd_statement?: unknown }
+    context = {
+      // The client's own document, unchanged between runs for the same reason.
+      sells: typeof content.summary === 'string' ? content.summary : '',
+      usedFor: typeof content.jtbd_statement === 'string' ? content.jtbd_statement : '',
+      // BEST is everything the profile asks for; ACCEPTABLE is the conditions it treats as
+      // requirements. A prospect meeting the requirements and not the rest is the acceptable
+      // kind of customer, which is exactly the distinction the judge is asked to draw.
+      bestDescription: conditions.map(d => d.statement).join('; '),
+      acceptableDescription: required.map(d => d.statement).join('; '),
+    }
+    notes.push(
+      `Graded against the ${conditions.length} conditions stored on this client's own settings ` +
+      `(${required.length} required), fixed when their profile was approved. No model call was ` +
+      'made to decide what fit means for this run.',
+    )
+  } else {
+    if (storedConditions.problem) {
+      notes.push(`The stored conditions could not be read (${storedConditions.problem}), so this run derived a rubric instead.`)
+    }
+    let derived
+    try {
+      derived = await deriveBuyerCriterionWithVocabulary({ supabase, organisation_id: organisationId })
+      modelCalls += 1
+    } catch (e) {
+      return withMarker('derivation_refused',
+        'The whole-document derivation failed, so there is no proposed search and nothing to ' +
+        `judge against: ${e instanceof Error ? e.message : String(e)}`, populations)
+    }
 
-  const forbidden = checkCountriesPermitted(proposal.places.map(p => p.value))
-  if (forbidden.forbidden) {
-    return withMarker('derivation_refused', forbidden.reason, { ...populations, proposal })
-  }
+    proposal = derived.search
+    if (proposalIsEmpty(proposal)) {
+      return withMarker('derivation_refused',
+        'The derivation returned no traceable search elements. Every element it proposed was ' +
+        'dropped for having no reason pointing at something the document states, which is the ' +
+        'guard against inventing a market rather than a fault in the loop. ' +
+        `Dropped: ${JSON.stringify(proposal.droppedUntraceable)}.`, { ...populations, proposal })
+    }
 
-  const traced = statedShare(proposal)
-  notes.push(
-    `Proposal: ${proposal.categories.length} categories, ${proposal.words.length} words, ` +
-    `${proposal.places.length} places, ${proposal.omit.length} deliberate omissions. ` +
-    (traced.share !== null
-      ? `${traced.stated} of ${traced.stated + traced.inferred} elements are stated by the document rather than inferred.`
-      : 'No elements to attribute.'),
-  )
+    const forbidden = checkCountriesPermitted(proposal.places.map(p => p.value))
+    if (forbidden.forbidden) {
+      return withMarker('derivation_refused', forbidden.reason, { ...populations, proposal })
+    }
 
-  const context: FitContext = {
-    sells: derived.vocabulary.sells,
-    usedFor: derived.vocabulary.usedFor,
-    bestDescription: proposal.categories.map(c => c.value).join('; ') || derived.vocabulary.sells,
-    acceptableDescription: proposal.words.map(w => w.value).join('; ') || derived.vocabulary.usedFor,
+    const traced = statedShare(proposal)
+    notes.push(
+      `Proposal: ${proposal.categories.length} categories, ${proposal.words.length} words, ` +
+      `${proposal.places.length} places, ${proposal.omit.length} deliberate omissions. ` +
+      (traced.share !== null
+        ? `${traced.stated} of ${traced.stated + traced.inferred} elements are stated by the document rather than inferred.`
+        : 'No elements to attribute.'),
+    )
+
+    context = {
+      sells: derived.vocabulary.sells,
+      usedFor: derived.vocabulary.usedFor,
+      bestDescription: proposal.categories.map(c => c.value).join('; ') || derived.vocabulary.sells,
+      acceptableDescription: proposal.words.map(w => w.value).join('; ') || derived.vocabulary.usedFor,
+    }
   }
 
   // ── ROUNDS ──
