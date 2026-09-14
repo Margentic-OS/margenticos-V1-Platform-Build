@@ -174,6 +174,11 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   'src/agents/buyer-criterion-agent.ts:buildUserMessage': 0,
   'src/agents/messaging-generation-agent.ts:buildUserMessage': 1,
   'src/agents/messaging-generation-agent.ts:buildSingleVariantUserMessage': 1,
+  // The fit dimensions, added 2026-09-11. MEASURED, not assumed: the three entries were added
+  // and this scan re-run, and neither the total nor any other source moved.
+  'src/agents/fit-dimensions-agent.ts:FIT_DIMENSIONS_PROMPT': 0,
+  'src/agents/fit-dimensions-agent.ts:buildUserMessage': 0,
+  'src/lib/agents/research/fit-dimensions.ts:formatFitDimensions': 0,
 }
 
 describe('prompt examples name nothing real', () => {

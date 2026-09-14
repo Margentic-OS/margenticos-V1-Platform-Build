@@ -1,7 +1,8 @@
 // Synthesis step for prospect research agent v2.
 // Loads client ICP/Positioning/TOV documents, builds context, calls Sonnet 4.6.
 // Parses <reasoning> chain-of-thought then the JSON output.
-// On any parse failure: returns moderate icp_fit with low confidence rather than throwing.
+// On any parse failure: returns icp_fit cannot_tell with low confidence rather than throwing.
+// A failed or unreadable answer reaches no grade, so it records none.
 // Model: claude-sonnet-4-6 (per ADR-013).
 
 import Anthropic, { RateLimitError } from '@anthropic-ai/sdk'
@@ -12,9 +13,16 @@ import { buildSynthesisPrompt, buildSignalBlock } from './prompts/synthesis-prom
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { readabilityScore, type ReadabilityScore } from '@/lib/style/readability'
-import { SIX_TESTS, INFERENCE_DIRECTIONS, ZERO_TOKEN_USAGE, readTokenUsage } from './types'
+import {
+  SIX_TESTS, INFERENCE_DIRECTIONS, ZERO_TOKEN_USAGE, ICP_FIT_OUTCOMES,
+  FIT_CHECKS, FIT_CHECK_RESULTS, unknownFitChecks, readTokenUsage,
+} from './types'
+import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
+import {
+  readStoredFitDimensions, readDimensionAnswers, gradeFromDimensions, type FitDimension,
+} from './fit-dimensions'
 import type {
-  ProspectContext, RawSourceData, SynthesisOutput,
+  IcpFit, FitChecks, ProspectContext, RawSourceData, SynthesisOutput,
   ObservationCandidate, CandidateScores, CandidateSource, SignalRelevance,
   CandidateReadability, InferenceDirection, TriggerSource,
 } from './types'
@@ -63,6 +71,15 @@ export interface ClientDocContext {
   positioningSummary: string
   valuePropContext:   string
   tovRules:           string
+  /**
+   * The client's fit dimensions, read from the approved profile's filter spec. When present,
+   * the judge reads each one and the grade is computed from those readings in code. null or
+   * absent means the profile carries none, and the judge grades as it always has.
+   *
+   * OPTIONAL because the batch path snapshots this object onto synthesis_batch_entries, and
+   * every snapshot written before this field existed lacks it. Absent reads as none.
+   */
+  fitDimensions?:     FitDimension[] | null
 }
 
 /**
@@ -99,7 +116,7 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
       .single(),
     supabase
       .from('strategy_documents')
-      .select('document_type, content, segment_id')
+      .select('document_type, content, segment_id, icp_filter_spec')
       .eq('organisation_id', clientId)
       .eq('status', 'active')
       .in('document_type', ['icp', 'positioning', 'tov'])
@@ -112,10 +129,24 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
 
   // ICP is segment-scoped: use the doc matching the resolved segment.
   // Falls back to any active ICP if the segment match is missing (defensive only).
-  const icpDoc = (
+  const icpRow = (
     docs.find(d => d.document_type === 'icp' && d.segment_id === resolvedSegmentId)
     ?? docs.find(d => d.document_type === 'icp')
-  )?.content as Record<string, unknown> | undefined
+  )
+  const icpDoc = icpRow?.content as Record<string, unknown> | undefined
+
+  // THE FIT DIMENSIONS, from the same row as the ICP, so the judge reads the list fixed when
+  // THIS profile was approved and never another version's. None stored means the judge grades
+  // as it always has. Something stored that does not read is said out loud, not skipped quietly.
+  const storedDimensions = readStoredFitDimensions(
+    (icpRow?.icp_filter_spec as { fit_dimensions?: unknown } | null | undefined)?.fit_dimensions,
+  )
+  if (storedDimensions.problem) {
+    logger.warn('research/synthesize: stored fit dimensions do not read, grading without them', {
+      organisation_id: clientId,
+      problem: storedDimensions.problem,
+    })
+  }
 
   // Positioning and TOV are org-level (segment_id IS NULL) — no segment filter needed.
   const posDoc  = docs.find(d => d.document_type === 'positioning')?.content as Record<string, unknown> | undefined
@@ -223,7 +254,10 @@ export async function loadClientContext(clientId: string, segmentId: string | nu
     if (parts.length) tovRules = parts.join('\n')
   }
 
-  return { clientName, buyerTitle, icpSummary, positioningSummary, valuePropContext, tovRules }
+  return {
+    clientName, buyerTitle, icpSummary, positioningSummary, valuePropContext, tovRules,
+    fitDimensions: storedDimensions.dimensions,
+  }
 }
 
 // ─── Research section formatter ───────────────────────────────────────────────
@@ -645,11 +679,63 @@ export function contentOverlap(a: string, b: string): number {
   return shared / Math.min(A.size, B.size)
 }
 
+/** How many unestablished facts are kept. A profile names a handful; more is noise. */
+const MAX_UNESTABLISHED = 10
+
+/**
+ * The judge's three checks, read strictly. A check it did not answer, or answered with a value
+ * outside FIT_CHECK_RESULTS, is unknown: never a yes or a no nobody gave. Built from
+ * FIT_CHECKS, so a check added there is read here without a second list to keep in step.
+ */
+function parseFitChecks(raw: unknown): FitChecks {
+  const given = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  return Object.fromEntries(FIT_CHECKS.map(name => {
+    const c = given[name] && typeof given[name] === 'object' ? given[name] as Record<string, unknown> : null
+    if (!c) return [name, { result: 'unknown', evidence: 'The judge did not answer this check.' }]
+    const result = FIT_CHECK_RESULTS.find(r => r === c.result) ?? 'unknown'
+    const evidence = typeof c.evidence === 'string' && c.evidence.trim() ? c.evidence.trim() : null
+    return [name, { result, evidence }]
+  })) as FitChecks
+}
+
+/**
+ * The grade as the judge itself gives it. Used ONLY for a client whose approved profile carries
+ * no fit dimension list, which is every profile approved before fit-dimensions.ts existed.
+ */
+function judgeOwnGrade(parsed: Record<string, unknown>): {
+  icp_fit: IcpFit; icp_fit_missing: string | null; icp_fit_unestablished: string[]
+} {
+  // FOUR OUTCOMES, AND AN ANSWER OUTSIDE THEM IS NOT A GRADE. It records cannot_tell, never a
+  // grade nobody reached. This used to record 'moderate', which made an answer the code could
+  // not read indistinguishable from a genuine partial fit. See ICP_FIT_OUTCOMES.
+  const judged = ICP_FIT_OUTCOMES.find(f => f === parsed.icp_fit)
+  const icp_fit: IcpFit = judged ?? 'cannot_tell'
+  const missingText = typeof parsed.icp_fit_missing === 'string' ? parsed.icp_fit_missing.trim() : ''
+  const icp_fit_missing = icp_fit !== 'cannot_tell'
+    ? null
+    : judged
+      ? (missingText || 'The judge answered cannot_tell without naming what was missing.')
+      : `No grade: the judge's icp_fit was not one of the four outcomes (${JSON.stringify(parsed.icp_fit ?? null)}).`
+
+  // FACTS NO SOURCE CAN ESTABLISH, recorded so the gap stays visible instead of turning into
+  // a grade or into cannot_tell. See the prompt's "can and cannot establish" block.
+  const icp_fit_unestablished = Array.isArray(parsed.icp_fit_unestablished)
+    ? parsed.icp_fit_unestablished
+        .filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+        .map(s => s.trim())
+        .slice(0, MAX_UNESTABLISHED)
+    : []
+
+  return { icp_fit, icp_fit_missing, icp_fit_unestablished }
+}
+
 function parseSynthesisResponse(
   raw: string,
   prospect: ProspectContext,
   icpSummary: string,
   detectedSignal: DetectedSignal,
+  dimensions: FitDimension[] | null,
+  material: string,
 ): SynthesisOutput {
   const reasoning = parseReasoningBlock(raw)
   const jsonStr   = extractJson(raw)
@@ -662,8 +748,17 @@ function parseSynthesisResponse(
     return buildFallbackSynthesis(prospect, icpSummary, reasoning, 'Claude returned non-JSON', detectedSignal)
   }
 
-  const icp_fit = (['strong', 'moderate', 'weak'] as const)
-    .find(f => f === parsed.icp_fit) ?? 'moderate'
+  // THE GRADE. With a dimension list, the judge reads each dimension and the grade is computed
+  // from those readings by fixed rules. A grade it volunteers anyway is ignored: its final word
+  // is the part that disagreed with itself on identical input. Without a list, the grade is the
+  // judge's own, read as strictly as before.
+  const fit_dimensions = dimensions ? readDimensionAnswers(parsed.fit_dimensions, dimensions, material) : null
+  const { icp_fit, icp_fit_missing, icp_fit_unestablished } = dimensions && fit_dimensions
+    ? gradeFromDimensions(dimensions, fit_dimensions)
+    : judgeOwnGrade(parsed)
+
+  // THE THREE CHECKS. A missing or unrecognised answer is unknown, never a yes or a no.
+  const fit_checks = parseFitChecks(parsed.fit_checks)
 
   // Candidates + deterministic selection. signal_relevance is DERIVED here, never
   // read from the model output.
@@ -729,6 +824,10 @@ function parseSynthesisResponse(
     // Overwritten by synthesizeResearch, which is the only caller that saw the response.
     usage: ZERO_TOKEN_USAGE,
     icp_fit,
+    icp_fit_missing,
+    icp_fit_unestablished,
+    fit_checks,
+    fit_dimensions,
     has_dateable_signal: detectedSignal.has_dateable_signal,
     // The winning candidate is the observation of record. Fall back to the
     // deterministic recency check only when nothing was selected.
@@ -790,7 +889,14 @@ function buildFallbackSynthesis(
     // Overwritten by synthesizeResearch when a call was actually made. A fallback reached
     // WITHOUT a call, or after one that threw, correctly keeps zero.
     usage: ZERO_TOKEN_USAGE,
-    icp_fit: 'moderate',
+    // NO GRADE WAS REACHED, SO NONE IS RECORDED. The call failed, returned no text, or
+    // returned something that is not JSON. This used to record 'moderate', a grade nobody
+    // gave, which sat indistinguishably beside genuine partial fits.
+    icp_fit: 'cannot_tell',
+    icp_fit_missing: `No grade: ${errorNote}`,
+    icp_fit_unestablished: [],
+    fit_checks: unknownFitChecks(`No answer: ${errorNote}`),
+    fit_dimensions: null,
     has_dateable_signal: detectedSignal.has_dateable_signal,
     signal_observation:  detectedSignal.signal_observation,
     signal_relevance: 'no_signal',
@@ -917,6 +1023,48 @@ export async function buildSynthesisRequest(
 }
 
 /**
+ * The user message: everything the judge is shown about THIS prospect. Pure.
+ *
+ * EXPORTED AND SHARED because it is also the material a fit-dimension quotation is checked
+ * against, in synthesisFromMessage. One builder for both, so the judge cannot be shown one
+ * text and have its quotations checked against another.
+ */
+export function buildSynthesisUserMessage(
+  prospect: ProspectContext,
+  rawData: RawSourceData,
+  detectedSignal: DetectedSignal,
+): string {
+  const researchSections = formatResearchSections(rawData)
+
+  // THE COMPANY, AS ALREADY RECORDED. The judge grades company fit and was shown a staff
+  // count for 17 of 111 prospects. See company-facts.ts for what is in here and what is
+  // deliberately not. Empty when nothing is on file, so that prospect gets the same bytes it
+  // got before this section existed.
+  const companyFacts = formatCompanyFacts(prospect.company)
+  const companySection = companyFacts ? `## Company on file\n\n${COMPANY_FACTS_PREAMBLE}\n\n${companyFacts}\n\n` : ''
+
+  // THE JOB TITLE, FROM THE COLUMN THAT HOLDS IT. This read prospects.role, which only the
+  // old research agent ever wrote: empty on all 111 researched prospects for the live client,
+  // while job_title was filled on all 111, so every request told the judge "Role: Unknown"
+  // (measured 2026-09-11 on 20 real requests). role stays as a fallback for the older rows
+  // that carry it and no job_title.
+  const roleLine = prospect.job_title ?? prospect.role ?? 'Unknown'
+
+  // THE COUNTRY, FROM THE COLUMN THAT HOLDS IT. Filled for all 111 researched prospects for the
+  // live client and never sent until now, so the judge was left to find location in the research
+  // and read it as unknown for 6 of 13 prospects in a measured run, which is most of what put
+  // them in cannot_tell. Labelled as a record rather than a finding, so it is not mistaken for
+  // something this research established.
+  const countryLine = prospect.country
+    ? `${prospect.country} (recorded when this prospect was sourced)`
+    : 'Not recorded'
+
+  const fullName = [prospect.first_name, prospect.last_name].filter(Boolean).join(' ') || 'Unknown'
+  const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${roleLine}\nCompany: ${prospect.company_name ?? 'Unknown'}\nCountry: ${countryLine}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n${companySection}## Recency check\n\n${buildSignalBlock(detectedSignal.signal_observation)}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
+  return userMessage
+}
+
+/**
  * The request body itself. Pure: same inputs, byte-identical output, no clock and no
  * database. That is what lets a resubmission after a batch expiry reproduce the exact
  * bytes, and therefore hit the same cache entry.
@@ -931,19 +1079,30 @@ export function buildSynthesisParams(
   // Per-client only. The per-prospect signal moved to the user message so this string is
   // byte-identical across a batch and can therefore be cached. See buildSignalBlock.
   const systemPrompt = buildSynthesisPrompt(clientCtx)
-  const researchSections = formatResearchSections(rawData)
-
-  const fullName = [prospect.first_name, prospect.last_name].filter(Boolean).join(' ') || 'Unknown'
-  const userMessage = `## Prospect\n\nName: ${fullName}\nRole: ${prospect.role ?? 'Unknown'}\nCompany: ${prospect.company_name ?? 'Unknown'}\nLinkedIn: ${prospect.linkedin_url ?? 'Not provided'}\n\n## Recency check\n\n${buildSignalBlock(detectedSignal.signal_observation)}\n\n## Research gathered\n\n${researchSections}\n\nNow reason through the research and produce the classification JSON.`
+  const userMessage = buildSynthesisUserMessage(prospect, rawData, detectedSignal)
 
   return {
     model: SYNTHESIS_MODEL,
-    // 16000, not 8000. Truncation is not a theoretical risk: three of twelve prospects
-    // in the 2026-08-19 batch hit exactly 8000 output tokens, lost their JSON, fell
-    // through to the ICP proxy and were recorded as "no_signal" when the run had in
-    // fact failed. Each candidate now carries an opposite_reading and a seventh test,
-    // so the array outgrew the old ceiling.
-    max_tokens: 16000,
+    // 24000, and neither earlier ceiling was theoretical. Three of twelve prospects in the
+    // 2026-08-19 batch hit exactly 8000 output tokens; three of 39 calls hit exactly 16000 on
+    // 2026-09-11, once the judge began reading each fit dimension with a quotation. The JSON is
+    // the LAST thing in the answer, so a truncated answer always loses it and reaches no grade.
+    //
+    // Raising the ceiling costs nothing on an answer that does not need it, because output
+    // tokens are billed as generated. Measured with a ten-dimension list, answers ran 5,800 to
+    // 13,000 tokens, so this leaves room for a longer list rather than only for today's.
+    max_tokens: 24000,
+    // ZERO, FOR THIS CALL ONLY. What this call produces is a verdict: icp_fit, the
+    // qualification, which candidate wins. At the API default of 1.0 the same judge
+    // disagreed with itself on 4 of 7 prospects given byte-identical input (2026-09-11),
+    // which is larger than the evidence change being measured through it. A verdict gains
+    // nothing from sampling variety. The candidate observations it writes still differ
+    // between prospects, because each prospect's research does.
+    //
+    // THE WRITER IS DELIBERATELY NOT PINNED, and nothing here changes that. See the comment
+    // above its messages.create in write-opening.ts: the batch uniqueness gate needs variety
+    // between prospects' copy, and that reason does not apply to a classification.
+    temperature: 0,
     // CACHED. The system prompt is ~6,700 tokens of instruction that does not vary
     // within a client's batch, and every prospect paid full input price for it. The
     // breakpoint sits on the system block, so the per-prospect user message below is
@@ -994,6 +1153,9 @@ export function synthesisFromMessage(
   prospect: ProspectContext,
   clientCtx: ClientDocContext,
   detectedSignal: DetectedSignal,
+  // The sources the judge was shown. Read only when the client has a fit dimension list: the
+  // user message is rebuilt from them, and every quotation is checked against that message.
+  rawData: RawSourceData,
 ): SynthesisOutput {
   // THE ONE PLACE THAT HAS THE RESPONSE. Every SynthesisOutput producer below defaults
   // usage to zero; this is what makes it true. Read before any early return, so a
@@ -1006,16 +1168,36 @@ export function synthesisFromMessage(
     return { ...buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', 'No text block in response', detectedSignal), usage: callUsage }
   }
 
-  // A truncated response is the most likely cause of a JSON parse failure, and it
-  // looks identical to a model error unless stop_reason is checked.
+  // AN ANSWER WE CUT OFF IS ITS OWN FAILURE, WITH ITS OWN REASON.
+  //
+  // The JSON is the last thing the judge writes, so an answer that reaches the ceiling has
+  // always lost it. This used to log and fall through to the parse, which then recorded
+  // "Claude returned non-JSON": a reason that blames the model for something we did, and that
+  // reads identically to a genuinely malformed answer. Three of 39 calls landed here on
+  // 2026-09-11 and every one of them was recorded that way.
+  //
+  // It returns rather than parsing, even if what arrived happens to parse: the rest of the
+  // answer is missing, so any grade in it was reached without the candidates that follow it.
   if (response.stop_reason === 'max_tokens') {
-    logger.error('research/synthesize: response truncated at max_tokens — candidates will be lost', {
+    const producedTokens = response.usage?.output_tokens ?? 0
+    logger.error('research/synthesize: the answer was cut off at the output ceiling, so no grade was reached', {
       prospect_id: prospect.id,
-      output_tokens: response.usage?.output_tokens,
+      output_tokens: producedTokens,
     })
+    return {
+      ...buildFallbackSynthesis(
+        prospect, clientCtx.icpSummary, '',
+        `the answer was cut off at the output ceiling after ${producedTokens} tokens, so its JSON never arrived`,
+        detectedSignal,
+      ),
+      usage: callUsage,
+    }
   }
 
-  const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal)
+  // The material is built only when there is a dimension list to check quotations for.
+  const dimensions = clientCtx.fitDimensions?.length ? clientCtx.fitDimensions : null
+  const material = dimensions ? buildSynthesisUserMessage(prospect, rawData, detectedSignal) : ''
+  const result = parseSynthesisResponse(textBlock.text, prospect, clientCtx.icpSummary, detectedSignal, dimensions, material)
 
   // Scrubbing rewrites the trigger (em dashes become full stops, AI tells are replaced),
   // so the readability verdict is recomputed on the text that actually ships.
@@ -1104,7 +1286,7 @@ export async function synthesizeResearch(
     // remains here is what is genuinely inline-only: holding an HTTP connection open,
     // retrying a 429 in-process, and aborting on a fatal account error.
     const response = await callWithRetry(client, params, prospect.id)
-    return synthesisFromMessage(response, prospect, clientCtx, detectedSignal)
+    return synthesisFromMessage(response, prospect, clientCtx, detectedSignal, rawData)
 
   } catch (err) {
     // A spent credit balance or a rejected key is not a per-prospect condition. Falling

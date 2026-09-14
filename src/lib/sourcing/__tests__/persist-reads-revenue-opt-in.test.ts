@@ -39,6 +39,11 @@ vi.mock('@/agents/buyer-criterion-agent', () => ({
   }),
 }))
 
+// The fit dimension derivation is a paid model call and is never reached from this file.
+vi.mock('@/agents/fit-dimensions-agent', () => ({
+  deriveFitDimensions: async () => ({ dimensions: [], derived_at: new Date(0).toISOString(), model: 'test' }),
+}))
+
 vi.mock('@/lib/sourcing/resolve-icp-geography', () => ({
   resolveIcpGeography: async () => ({
     countries: [aTargetableCode()],

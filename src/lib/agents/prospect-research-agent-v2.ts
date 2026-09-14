@@ -4,7 +4,7 @@
 // Architecture: all four sources run in parallel → single synthesis step → store.
 // Sources: LinkedIn (Apify), Apollo, company website, web search.
 // Output: prospect_research_results row + updated prospects columns.
-// Classification: icp_fit (strong/moderate/weak) + has_dateable_signal (bool) + signal_relevance (use_as_hook/ignore).
+// Classification: icp_fit (strong/moderate/weak, or cannot_tell when no grade was reached) + has_dateable_signal (bool) + signal_relevance (use_as_hook/ignore).
 // v1 agent (prospect-research-agent.ts) remains in place until v2 is dogfooded end-to-end.
 
 import fs from 'fs'
@@ -24,6 +24,7 @@ import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { produceOpening, resolveVariantId, loadClientName } from './research/produce-opening'
 import { writerInputFromSynthesis } from './research/writer-input'
 import { loadProspectContext } from './research/prospect-context'
+import { holdsEvidence } from './research/evidence-record'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { suppressProspectAtProvider } from '@/lib/suppression/provider-suppression'
 import type { OpeningResult } from './research/write-opening'
@@ -44,7 +45,7 @@ import type {
   SynthesisConfidence,
   TokenUsage,
 } from './research/types'
-import { ZERO_TOKEN_USAGE, addTokenUsage } from './research/types'
+import { ZERO_TOKEN_USAGE, addTokenUsage, unknownFitChecks } from './research/types'
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
 
@@ -307,6 +308,8 @@ const STORED_FINDINGS_SCAN_LIMIT = 50
 interface StoredFindings {
   result_id:            string
   candidates:           ObservationCandidate[]
+  /** The row fetched at least one source. A reuse row carries findings and fetched none. */
+  had_evidence:         boolean
   had_linkedin:         boolean
   created_at:           string
   synthesized_at:       string | null
@@ -368,6 +371,7 @@ export async function loadStoredFindings(
     .map(row => ({
       result_id: row.id as string,
       candidates: (row.candidates ?? []) as ObservationCandidate[],
+      had_evidence: holdsEvidence(row.sources_successful),
       had_linkedin: ((row.sources_successful ?? []) as string[]).includes('linkedin'),
       created_at: row.created_at as string,
       synthesized_at: (row.synthesized_at ?? null) as string | null,
@@ -383,8 +387,12 @@ export async function loadStoredFindings(
 
   if (scored.length === 0) return null
 
+  // Evidence first. A reuse row copies the findings forward and fetches nothing, so on
+  // every other key it ties with the row it copied and then wins on recency. That made a
+  // reuse run carry forward from the previous reuse run, never from the evidence.
   scored.sort((a, b) =>
-    (Number(b.had_linkedin) - Number(a.had_linkedin))
+    (Number(b.had_evidence) - Number(a.had_evidence))
+    || (Number(b.had_linkedin) - Number(a.had_linkedin))
     || (b.candidates.length - a.candidates.length)
     || b.created_at.localeCompare(a.created_at),
   )
@@ -402,11 +410,14 @@ export async function loadStoredFindings(
 // a strong prospect to moderate and re-qualified a disqualified one, silently, with no
 // analysis behind the change. A reuse run did no new analysis, so it has no verdict to
 // offer: it reports the one the source row reached. Where the source row has no value the
-// old placeholder still applies, so a row predating those columns degrades no worse than
-// it did before.
+// old placeholders still apply for qualification and confidence, so a row predating those
+// columns degrades no worse than it did before. The fit grade does NOT get one: a source row
+// with no grade carries cannot_tell, because a placeholder grade is a verdict nobody reached.
+//
 // EXPORTED so scripts/export-writer-run.ts runs this reuse path's own code rather than a
-// copy of it. The export measures what production writes, so it must be handed what
-// production hands the writer.
+// copy of it, and so its own test drives the shipped function. The export measures what
+// production writes, so it must be handed what production hands the writer. Pure apart from
+// one log line.
 export async function synthesisFromStored(
   stored: StoredFindings,
   ctx: ProspectContext,
@@ -426,7 +437,17 @@ export async function synthesisFromStored(
     // A stored-findings run makes NO Anthropic call in synthesis. Zero is the measurement,
     // not a gap in it, and it is what makes reuse legible in the spend data.
     usage: ZERO_TOKEN_USAGE,
-    icp_fit: stored.icp_fit ?? 'moderate',
+    // A source row with no grade carries cannot_tell, never a grade: this used to write
+    // 'moderate' for a verdict no run ever reached.
+    icp_fit: stored.icp_fit ?? 'cannot_tell',
+    icp_fit_missing: stored.icp_fit && stored.icp_fit !== 'cannot_tell'
+      ? null
+      : `Carried from research result ${stored.result_id}, which reached no grade.`,
+    // Research rows do not record these, so a reuse run has nothing to carry: unknown, never a guess.
+    icp_fit_unestablished: [],
+    fit_checks: unknownFitChecks(`Carried from research result ${stored.result_id}, which did not record these checks.`),
+    // Nor these. The carried grade is whatever the source row reached, however it reached it.
+    fit_dimensions: null,
     has_dateable_signal: stored.has_dateable_signal ?? stored.candidates.some(c => c.date !== null),
     signal_observation: stored.signal_observation ?? stored.candidates[0]?.observation ?? null,
     signal_relevance: 'no_signal',   // overwritten by the judge verdict downstream

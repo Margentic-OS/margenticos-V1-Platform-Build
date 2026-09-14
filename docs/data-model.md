@@ -233,6 +233,13 @@ Fields:
   document_type   — icp / positioning / tov / messaging
   version         — always lowercase v, one decimal: "1.0", "2.1"
   content         — structured document content (JSON)
+  icp_filter_spec — ICP rows only. The filter spec derived when the ICP is approved (jsonb,
+                    written by persistIcpFilterSpec). Besides the search filters it carries
+                    two pieces of metadata no sourcing handler reads: buyer_criterion (who is
+                    emailed, ADR-046) and fit_dimensions (the conditions the research fit
+                    judge reads, each required or supporting and establishable or not, from
+                    which code computes icp_fit, ADR-058). A spec approved before 2026-09-11
+                    has no fit_dimensions, and that client's judge gives its own grade.
   plain_text      — plain text version for agent consumption
   status          — draft / active / archived
   generated_at    — when the agent generated this version
@@ -340,6 +347,13 @@ Fields:
                             subject has its own gate and it FAILS SOFT, so an opening can
                             ship with the authored subject above it.
   research_source         — apollo / web_search / website / pain_proxy
+  icp_fit                 — the fit judge's outcome. Three GRADES, each a judgement about
+                            the prospect: strong / moderate / weak. Or cannot_tell: no grade
+                            was reached, because the research did not show enough or the
+                            judge's answer failed or could not be read. cannot_tell is NEVER
+                            a fit. 'unassessed' is the column default for a prospect never
+                            graded. CHECK-constrained; the same values apply on
+                            prospect_research_results.icp_fit. See ICP_FIT_OUTCOMES.
   suppressed              — true means no further contact, ever
   suppressed_at / suppression_reason
   created_at / updated_at

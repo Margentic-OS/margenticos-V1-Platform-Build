@@ -1,7 +1,57 @@
 // Types for prospect research agent v2.
 // All source handlers and the synthesizer use these interfaces.
 
-export type IcpFit = 'strong' | 'moderate' | 'weak'
+/** The three GRADES. Each is a judgement about the prospect, reached from the research. */
+export const ICP_FIT_GRADES = ['strong', 'moderate', 'weak'] as const
+
+/**
+ * Every outcome the fit judge records: the three grades, and cannot_tell.
+ *
+ * cannot_tell is NOT a grade and is NEVER a fit. It records that no grade was reached: the
+ * research did not show enough, the judge's answer failed, or the answer could not be read.
+ * Before 2026-09-11 all three were stored as 'moderate', which made "cannot tell"
+ * indistinguishable from a genuine partial fit, and 17 of 20 re-graded prospects sat there.
+ *
+ * The database also allows 'unassessed', the column default for a prospect never graded. The
+ * judge never records it. Adding an outcome here means widening the CHECK on
+ * prospects.icp_fit and prospect_research_results.icp_fit in the same change; a test compares
+ * this list with the newest migration that defines that CHECK.
+ */
+export const ICP_FIT_OUTCOMES = [...ICP_FIT_GRADES, 'cannot_tell'] as const
+export type IcpFit = (typeof ICP_FIT_OUTCOMES)[number]
+
+/**
+ * Three checks the fit judge establishes from evidence research already gathers: the
+ * employment history and the website. Each defines the customer, and none had ever been
+ * measured. No new source is involved.
+ *
+ *   primary_occupation    the role is the person's main occupation, not one held alongside a
+ *                         full-time position elsewhere
+ *   runs_the_business     the person runs the business day to day, rather than holding a title
+ *   reachable_by_channel  the people or organisations the prospect's business sells to can be
+ *                         reached through the channel the client context describes
+ */
+export const FIT_CHECKS = ['primary_occupation', 'runs_the_business', 'reachable_by_channel'] as const
+export type FitCheckName = (typeof FIT_CHECKS)[number]
+
+/** not_applicable is for a check the client context gives no basis for, such as a channel it never describes. */
+export const FIT_CHECK_RESULTS = ['yes', 'no', 'unknown', 'not_applicable'] as const
+export type FitCheckResult = (typeof FIT_CHECK_RESULTS)[number]
+
+export interface FitCheck {
+  result:   FitCheckResult
+  /** One sentence of evidence, or why there is none. */
+  evidence: string | null
+}
+export type FitChecks = Record<FitCheckName, FitCheck>
+
+/**
+ * Every check recorded as unknown, for a synthesis that reached no answer at all. Built from
+ * FIT_CHECKS, so a check added there cannot be missing here.
+ */
+export function unknownFitChecks(evidence: string): FitChecks {
+  return Object.fromEntries(FIT_CHECKS.map(name => [name, { result: 'unknown', evidence }])) as FitChecks
+}
 
 // use_as_hook  — a candidate passed all six tests; safe to reference directly in the opener
 // mention_only — passed SPECIFIC + VERIFIABLE + RELEVANT but not all six; usable as context, not as a hook
@@ -161,6 +211,26 @@ export interface SynthesisOutput {
    */
   usage:               TokenUsage
   icp_fit:             IcpFit
+  /**
+   * When icp_fit is cannot_tell: what was missing. The judge's own words when it chose
+   * cannot_tell, or why no grade was reached when the answer failed or could not be read.
+   * null for every grade.
+   */
+  icp_fit_missing:     string | null
+  /**
+   * Facts the client's profile names that no source this research reads can establish. The
+   * judge grades around them, never on them, and lists them here so the gap stays visible.
+   */
+  icp_fit_unestablished: string[]
+  /** The three checks in FIT_CHECKS, each with its evidence. Unknown when not answered. */
+  fit_checks:          FitChecks
+  /**
+   * The judge's reading of each of the client's fit dimensions, when the approved profile
+   * carries them. icp_fit above was then computed from these by fixed rules, not given by the
+   * judge (fit-dimensions.ts). null when the profile carries none, and on every path that
+   * reached no answer.
+   */
+  fit_dimensions:      import('./fit-dimensions').DimensionReadings | null
   has_dateable_signal: boolean
   signal_observation:  string | null
   signal_relevance:    SignalRelevance
@@ -212,6 +282,15 @@ export interface ProspectContext {
   first_name: string | null
   last_name: string | null
   company_name: string | null
+  /**
+   * The country on the prospect's own row, as sourcing recorded it (ISO-3166 alpha-2).
+   *
+   * SHOWN TO THE JUDGE, because a client's profile can name where it sells and the judge was
+   * left to find location in the research: it read location as unknown for 6 of 13 prospects in
+   * one measured run, while this column was filled for all 111 researched prospects. It is a
+   * record of where sourcing found them, not a finding of the research, and it says so.
+   */
+  country: string | null
   role: string | null
   /**
    * The SOURCED job title, and the one the writer and the judge are briefed with.
@@ -229,6 +308,15 @@ export interface ProspectContext {
   email: string | null
   linkedin_url: string | null
   website_url: string | null
+  /**
+   * The company as already recorded, for the fit judge. null when nothing is on file.
+   *
+   * REQUIRED, not optional. The batch path builds its own context (contextFor in
+   * batch-sweep.ts), and an optional field would let one builder quietly leave the facts out
+   * while the other sent them, so the judge would see a different company depending on which
+   * path ran. Required means a builder that forgets it does not compile. See company-facts.ts.
+   */
+  company: import('./company-facts').CompanyFacts | null
 }
 
 /**
