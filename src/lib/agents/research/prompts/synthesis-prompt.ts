@@ -604,7 +604,17 @@ First, reason through the research in a <reasoning> block. Cover:
      prospect's facts.
   8. Qualification assessment
 
-Then output this exact JSON with no markdown fences:
+THE WORKING IS WRITTEN ONCE, AND THE ANSWER ONCE.
+
+The <reasoning> block is your working, and it is the only place working belongs. The parser
+strips it and throws it away, so nothing outside it is read by anyone. Do not write the JSON
+inside it.
+
+After </reasoning> the very next character is the opening { of the JSON below. Nothing
+between them: no summary, no "## Reasoning" section, no headings, no restatement of the
+analysis you have just done. You have written it once already.
+
+Output this exact JSON with no markdown fences:
 
 {
 ${ctx.fitDimensions?.length ? `  "fit_dimensions": {
