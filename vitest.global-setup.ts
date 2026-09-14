@@ -52,6 +52,28 @@ import { isAbsolute, join, resolve } from 'node:path'
 //
 // Only a lock that is BOTH alive AND recent refuses. Everything else is taken
 // over, and the takeover says so rather than being silent.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// AND IT CHECKS THE WORLD, NOT JUST THE LOCK FILE
+//
+// A lock file only sees runs that write one, which means it is blind to exactly
+// the worktrees that are the problem. Measured 2026-09-14: 24 of 30 worktrees on
+// this machine were cut before this file existed, so their suites take no lock at
+// all; one of them was found mid-run against the shared test database while this
+// very lock reported nothing held.
+//
+// Requiring every worktree to be updated is not a workable control when the
+// population regenerates faster than it can be updated: 40 worktrees, purged to
+// 26, back to 30 within one day. So the check also scans the process table. An
+// up-to-date worktree refuses to start while ANY vitest is live on this machine,
+// lock or no lock, which turns "everyone must have the fix" into "one participant
+// with the fix is enough".
+//
+// THE HARD PART IS NOT DETECTING OTHERS, IT IS NOT DETECTING YOURSELF. This code
+// runs inside a vitest process, launched by a chain of npm/npx/dotenv processes
+// whose command lines all contain the word "vitest". Matching naively would make
+// every run refuse to start, forever. So the whole of this process's own lineage
+// is excluded: itself, every ancestor up to pid 1, and every descendant.
 
 const LOCK_FILE_NAME = 'vitest-suite-run.lock'
 
@@ -104,6 +126,112 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+interface ProcessRow {
+  pid: number
+  ppid: number
+  command: string
+}
+
+/** Every process on the machine. Returns null if ps cannot be read. */
+function readProcessTable(): ProcessRow[] | null {
+  let raw: string
+  try {
+    raw = execFileSync('ps', ['-axo', 'pid=,ppid=,command='], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+  } catch {
+    return null
+  }
+
+  const rows: ProcessRow[] = []
+  for (const line of raw.split('\n')) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line)
+    if (!match) continue
+    rows.push({ pid: Number(match[1]), ppid: Number(match[2]), command: match[3] })
+  }
+  return rows
+}
+
+/**
+ * This process, everything that launched it, and everything it has launched.
+ *
+ * The ancestors matter most: vitest is started through a chain like
+ * zsh -> npm exec dotenv -> node dotenv -> npm exec vitest -> node vitest, and
+ * every one of those command lines contains "vitest". Without this the suite
+ * would detect itself and refuse to run, every time.
+ */
+function ownLineage(rows: readonly ProcessRow[]): Set<number> {
+  const parentOf = new Map<number, number>()
+  const childrenOf = new Map<number, number[]>()
+  for (const row of rows) {
+    parentOf.set(row.pid, row.ppid)
+    const siblings = childrenOf.get(row.ppid)
+    if (siblings) siblings.push(row.pid)
+    else childrenOf.set(row.ppid, [row.pid])
+  }
+
+  const lineage = new Set<number>([process.pid])
+
+  // Upwards to pid 1. The visited guard is for safety against a cycle ps should
+  // never report; without it a bad table would hang the suite before it started.
+  let current = parentOf.get(process.pid) ?? 0
+  while (current > 1 && !lineage.has(current)) {
+    lineage.add(current)
+    current = parentOf.get(current) ?? 0
+  }
+
+  // Downwards, so workers this run spawns are never mistaken for a rival.
+  const pending = [process.pid]
+  while (pending.length > 0) {
+    const pid = pending.pop()!
+    for (const child of childrenOf.get(pid) ?? []) {
+      if (lineage.has(child)) continue
+      lineage.add(child)
+      pending.push(child)
+    }
+  }
+
+  return lineage
+}
+
+/**
+ * Whether a command line is a vitest RUNNER, rather than something that merely
+ * mentions vitest.
+ *
+ * This distinction is the whole difficulty. Matching /\bvitest\b/ also matches the
+ * shell that launched the run, and this agent harness wraps every command in a
+ * long `zsh -c "...";` string, so a naive match reports several processes that are
+ * nobody's test run. Measured 2026-09-14: on an otherwise quiet machine a loose
+ * match produced five hits, four of them wrapper shells.
+ *
+ * So the name must appear as an executable: a path segment `/vitest` or
+ * `/vitest.mjs` at the end of a word, or npm's own `npm exec vitest`. A shell
+ * whose arguments contain "npx vitest run" is deliberately NOT matched; it will be
+ * caught a moment later when it spawns the real runner.
+ */
+function isVitestRunner(command: string): boolean {
+  return /(?:^|\/)vitest(?:\.mjs)?(?=\s|$)/.test(command) || /\bnpm exec vitest(?=\s|$)/.test(command)
+}
+
+/**
+ * Vitest runs on this machine that are not this one.
+ *
+ * Returns an empty list when ps cannot be read: a guard that refuses because it
+ * could not look is an outage, not a control.
+ */
+function foreignVitestRuns(): ProcessRow[] {
+  const rows = readProcessTable()
+  if (rows === null) {
+    console.warn('[suite-lock] could not read the process table, skipping the machine-wide check')
+    return []
+  }
+
+  const lineage = ownLineage(rows)
+  return rows.filter((row) => !lineage.has(row.pid) && isVitestRunner(row.command))
+}
+
 function readLock(lockPath: string): LockEntry | null {
   try {
     const parsed = JSON.parse(readFileSync(lockPath, 'utf8')) as Partial<LockEntry>
@@ -146,6 +274,25 @@ function refuse(entry: LockEntry, lockPath: string): never {
   )
 }
 
+function refuseForeignRun(foreign: readonly ProcessRow[]): never {
+  const listed = foreign
+    .slice(0, 5)
+    .map((row) => `  pid ${row.pid}: ${row.command.slice(0, 160)}`)
+    .join('\n')
+
+  throw new Error(
+    `\n[suite-lock] A vitest run is already live on this machine.\n\n` +
+      `${listed}\n` +
+      (foreign.length > 5 ? `  ...and ${foreign.length - 5} more\n` : '') +
+      `\n  It holds no lock file, so it is almost certainly a worktree cut before the\n` +
+      `  suite lock existed. 24 of 30 worktrees were in that state on 2026-09-14.\n` +
+      `  Two suites against one test database produce failures belonging to neither.\n\n` +
+      `  Wait for it to finish. If the process above is NOT a test run, this check is\n` +
+      `  wrong and you can bypass it for one run with:\n` +
+      `      MARGENTICOS_ALLOW_CONCURRENT_SUITE=1 <your command>\n`,
+  )
+}
+
 /** The lock this process wrote, so teardown only ever removes its own. */
 let heldLockPath: string | null = null
 
@@ -157,6 +304,14 @@ export async function setup(): Promise<void> {
   }
 
   const lockPath = join(gitDir, LOCK_FILE_NAME)
+
+  // Before anything is written: is another suite live on this machine at all?
+  // The lock file below only sees runs that write one; this sees the rest.
+  if (process.env.MARGENTICOS_ALLOW_CONCURRENT_SUITE !== '1') {
+    const foreign = foreignVitestRuns()
+    if (foreign.length > 0) refuseForeignRun(foreign)
+  }
+
   const entry: LockEntry = {
     pid: process.pid,
     worktree: git(['rev-parse', '--show-toplevel']) ?? process.cwd(),
