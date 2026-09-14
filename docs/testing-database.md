@@ -242,3 +242,60 @@ added tomorrow makes the final delete fail with 23503, the helper throws naming
 the exact constraint and table, and the suite goes red on the next run. Verified
 by deleting `reply_handling_actions` from the list (10 tests red) and `agent_runs`
 (the file red), 2026-09-04.
+
+---
+
+## One suite run at a time, per machine
+
+The test database is shared by every worktree on this machine. On 2026-09-14 two
+sessions ran the full suite against it simultaneously, from different worktrees,
+and neither knew. That produces failures belonging to neither run (rows appearing
+and vanishing mid-assertion, organisations deleted under a run still using them)
+and a test count that is measuring two suites at once.
+
+`vitest.global-setup.ts` now holds a lock for the length of a run.
+
+### What it does
+
+It writes `{pid, worktree, commit, started_at}` to `vitest-suite-run.lock` in the
+git directory shared by every worktree (`git rev-parse --git-common-dir`), and
+removes it when the run ends. If a lock is already there, a second run refuses and
+prints the pid, worktree, commit and age of the run holding it.
+
+### Why it cannot jam
+
+A lock whose failure mode is "blocks forever after a crash" is worse than no lock,
+because the first thing anyone does is delete the check. A held lock is therefore
+disbelieved for two independent reasons, and either alone releases it:
+
+1. **The recorded pid is not alive.** A crashed or killed run clears on the very
+   next run, immediately, with no waiting.
+2. **The entry is older than 30 minutes.** The backstop for the one case the pid
+   check gets wrong: the OS reusing a dead run's pid for something unrelated.
+
+Only a lock that is both alive and recent refuses. A takeover logs what it took
+over and from where, rather than being silent.
+
+### Verified, 2026-09-14
+
+| scenario | expected | result |
+| --- | --- | --- |
+| lock held by a live pid | refuse, name who and where, do not steal it | refused, exit 1, lock left intact |
+| lock held by a dead pid | take over and run | took over, 279 tests passed, released |
+| run SIGKILLed so teardown never runs | next run proceeds | lock stranded, next run took it over and passed |
+
+The third is the one that matters. Without it this becomes a daily obstacle.
+
+### If it ever blocks you wrongly
+
+The message prints the path. `rm` the file named in it. Then work out which
+process it named, because a lock held by a live pid usually means exactly what it
+says.
+
+### Why the lock is not in the database
+
+The contended resource is the test database, so strictly the lock belongs there.
+That costs a table, a migration and a network round trip in the path of every run,
+to defend against two machines sharing one test database, which has never happened
+here. The git directory is free, needs no configuration, and covers every worktree
+on the machine. Revisit if a second machine ever runs this suite.

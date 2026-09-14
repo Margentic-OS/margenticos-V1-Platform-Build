@@ -49,7 +49,10 @@ import type { Database } from '@/types/database'
 import { runResearchBatchForOrg, type ResearchScope } from '@/lib/operator/research-batch-entry'
 import { isQueueEnabled } from '@/lib/queue/flags'
 import { enqueueResearchForOrganisation } from '@/lib/queue/enqueue/research'
-import { HALF_ENABLED_BATCH_PATH_REFUSAL } from '@/lib/operator/research-verdict'
+import {
+  HALF_ENABLED_BATCH_PATH_REFUSAL,
+  describeQueuedResearch,
+} from '@/lib/operator/research-verdict'
 import { logger } from '@/lib/logger'
 import { requireOperator } from '@/lib/supabase/require-operator'
 
@@ -208,11 +211,15 @@ export async function POST(
           selected: enqueued.selected,
           queued: enqueued.created,
           already_queued: enqueued.alreadyQueued,
-          message:
-            enqueued.created > 0
-              ? `${enqueued.created} prospect(s) queued for research. The background worker runs ` +
-                'up to ten at a time and takes roughly a minute per prospect.'
-              : `Nothing new to queue: all ${enqueued.alreadyQueued} eligible prospect(s) are already in the queue.`,
+          // Built from the path, not restated here. The literal this replaced named a
+          // concurrency of ten against a configured twenty and a minute per prospect
+          // against a measured 145 seconds, and would have promised a minute on a path
+          // where a prospect can wait a day. See describeQueuedResearch.
+          message: describeQueuedResearch(
+            enqueued.created,
+            enqueued.alreadyQueued,
+            batched ? 'queue:batch' : 'queue:single-job',
+          ),
         },
       })
     }
