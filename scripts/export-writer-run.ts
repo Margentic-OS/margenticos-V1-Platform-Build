@@ -434,6 +434,7 @@ async function runOne(
   prospectId: string,
   uniqueness: BatchUniquenessRegistry,
   pinnedDocId: string | null,
+  withoutVoiceSamples: boolean,
 ): Promise<ProspectRecord | { skipped: 'not_mailable' | 'no_findings'; detail: string }> {
   // A PLAIN SELECT, NOT loadProspectContext. That helper stamps prospects.segment_id when
   // it finds it null, which is correct for the agents and is a WRITE. The proxy would
@@ -504,7 +505,13 @@ async function runOne(
     messagingContent: messaging.content,
     variantId,
     icpBuyerTitle: clientCtx.buyerTitle,
-    voiceSamples: clientCtx.voiceSamples,
+    // THE A/B SWITCH, and the only input it touches. Everything else on this call is
+    // resolved exactly as production resolves it, so a pair of runs differing only in
+    // this flag differs only in whether the assignment carries the "How the sender
+    // writes" block. An empty array is the same value a client with no quoted evidence
+    // in their voice document produces, so this exercises a real production path rather
+    // than a test-only one.
+    voiceSamples: withoutVoiceSamples ? [] : clientCtx.voiceSamples,
     uniqueness,
     onAttempt: o => attempts.push(o),
   })
@@ -638,9 +645,10 @@ async function main() {
   const argv = process.argv.slice(2)
   const withQuestion = argv.includes('--with-question')
   const pinnedDocId = argv.find(a => a.startsWith('--messaging-doc-id='))?.split('=')[1] ?? null
+  const withoutVoiceSamples = argv.includes('--no-voice-samples')
   const ids = argv.filter(a => !a.startsWith('--'))
   if (!withQuestion && ids.length === 0) {
-    console.error('usage: npx tsx --env-file=.env.local scripts/export-writer-run.ts <prospect_id>... | --with-question [--messaging-doc-id=<uuid>]')
+    console.error('usage: npx tsx --env-file=.env.local scripts/export-writer-run.ts <prospect_id>... | --with-question [--messaging-doc-id=<uuid>] [--no-voice-samples]')
     process.exit(2)
   }
 
@@ -652,6 +660,9 @@ async function main() {
   console.log(pinnedDocId
     ? `messaging document PINNED to ${pinnedDocId}. The active-and-approved rule is bypassed.`
     : 'messaging document resolved by the production rule (active AND client-approved).')
+  console.log(withoutVoiceSamples
+    ? 'VOICE SAMPLES OMITTED: the assignment carries no "How the sender writes" block.'
+    : 'voice samples included, read from the client\'s own voice document.')
 
   // ONE REGISTRY FOR THE RUN, which is what a production batch has. A per-prospect
   // registry would only ever reserve against itself, so the bridge and question
@@ -691,7 +702,7 @@ async function main() {
   try {
     for (const [i, id] of targets.entries()) {
       console.log(`[${i + 1}/${targets.length}] ${id}`)
-      const rec = await runOne(supabase, apiKey, id, uniqueness, pinnedDocId)
+      const rec = await runOne(supabase, apiKey, id, uniqueness, pinnedDocId, withoutVoiceSamples)
       if ('skipped' in rec) {
         skipped.push({ prospect_id: id, ...rec })
         continue
@@ -740,6 +751,8 @@ async function main() {
     aborted: aborted !== null,
     abort_reason: aborted,
     messaging_doc_pinned: pinnedDocId,
+    // Recorded so the two arms of the A/B cannot be told apart by filename alone.
+    voice_samples_omitted: withoutVoiceSamples,
     messaging_docs_used: [...new Set(records.map(r => `${r.messaging_doc_id}${r.messaging_doc_version ? ` v${r.messaging_doc_version}` : ''}`))],
     prospects_run: records.length,
     prospects_requested: targets.length,
