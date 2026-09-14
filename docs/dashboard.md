@@ -598,6 +598,62 @@ found" against a real client means the row is not readable, which is an RLS ques
 **What it still does not do.** Every other per-client value on the organisation record is
 read-only here, and changing it is a database change. That gap is a Notion Backlog row.
 
+### Operator meetings — /dashboard/operator/meetings (2026-09-12, funnel added 2026-09-14)
+
+The only screen where held or no-show can be recorded by hand, and the only place the reason
+a meeting became billable is visible. Cross-organisation: it takes no client parameter.
+Linked in the operator sidebar as **Meetings**; `operator-page-reachability.test.tsx` fails if
+it ever stops being.
+
+Four blocks, in the order a person needs them.
+
+**Speed to booking, and the drop-off** (the funnel panel). Two measurements that are only
+honest together, computed by `computeBookingFunnel` in `src/lib/meetings/booking-funnel.ts`:
+
+- **Time to booking**, per booking and as a median with **n stated**. Measured from
+  `reply_handling_actions.link_sent_at`, never from `updated_at`: see the note on that column
+  in data-model.md, because the difference only ever flatters.
+- **Sent a link, never booked**, oldest first, counted only once the link is more than
+  `MINIMUM_AGE_HOURS` (24) old, which the panel prints. Someone linked this morning has not
+  dropped off, they are still deciding.
+
+**WHY ONE PANEL AND NOT TWO CARDS.** A median over people who booked counts only successes,
+so it can only look good, and it IMPROVES AS CONVERSION FALLS: if only the fastest bookers
+still convert, the median drops and reads as a win. The never-booked list is the denominator
+that makes it meaningful, so both come from one computation over one read and neither can be
+rendered alone.
+
+**Three counts are rendered even at zero**, which is the point of them:
+
+| Count | Why it must never be absent |
+|---|---|
+| Asked to book and the send failed | The never-booked list counts links we actually sent, so it drops these people. They asked and got nothing: the most expensive rows here, invisible on the screen built to find them |
+| Bookings with no prospect attached | Cannot be joined to a link send, so they would leave the sample without trace while the person who booked still looked like a drop-off |
+| Bookings quarantined to no client | The same story from the other side, read from `unattributed_bookings` |
+
+A negative interval, where a booking predates the link it is attributed to, is rendered as a
+**fault** in red: no minutes, excluded from the median, and counted. Clamping it to zero would
+pull the median down, which is the flattering direction, and the disorder would never be seen.
+
+**Tier 1 only, and the panel says so.** Only the automatic reply path writes `link_sent_at`.
+An operator-approved draft can carry a booking link and records no fact about whether it did,
+so those are excluded. No draft has ever reached `sent`, so the population is complete today
+and stops being complete the moment one does.
+
+Then the three outcome sections: **due to bill unconfirmed** (within 7 days of the deadline,
+never-asked flagged), **awaiting an outcome**, and **decided**, each billable meeting showing
+its `billable_basis` in words. Two buttons per undecided row, posting to
+`/api/meetings/confirm`; the screen repeats that route's own `recorded` field rather than
+assuming success from an HTTP 200.
+
+**What to check if it breaks.**
+- Numbers all zero: a failed read is returned as an *error* and the panel says so instead of
+  rendering zeros, because a zero on a drop-off screen reads as "nobody dropped off". If you
+  see zeros rather than a message, they are real.
+- Everything reads "Unknown client": the page collects organisation and prospect ids from the
+  funnel rows as well as the meetings, because never-booked prospects have no meeting at all.
+- Median present but n = 1: that is one observation, and the panel labels it as such.
+
 ## View inventory (to be built)
 - Empty state view (months 1–2 default)
 - Client pipeline view (post-unlock)

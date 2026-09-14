@@ -21,7 +21,9 @@ import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { WarningsRail } from '@/components/dashboard/operator/WarningsRail'
 import { MeetingOutcomesBoard, type OutcomeRow } from './components/MeetingOutcomesBoard'
+import { BookingFunnelPanel } from './components/BookingFunnelPanel'
 import { OPERATOR_WARNING_DAYS, daysUntil } from '@/lib/meetings/billing-deadline'
+import { readBookingFunnel } from '@/lib/meetings/booking-funnel'
 
 // Enough to see everything that matters without paging. If this screen ever runs against
 // hundreds of open meetings, the limit is the thing to revisit, and a truncated list says so
@@ -76,8 +78,25 @@ export default async function OperatorMeetingsPage() {
   }
 
   const rows = meetings ?? []
-  const organisationIds = [...new Set(rows.map(row => row.organisation_id))]
-  const prospectIds = [...new Set(rows.map(row => row.prospect_id).filter((id): id is string => Boolean(id)))]
+
+  // Read beside the meetings so both halves of this screen come from one request. A failed
+  // funnel read arrives as an error, never as zeros: a zero on a drop-off screen reads as
+  // "nobody dropped off", which is the most reassuring possible lie here.
+  const { funnel, error: funnelError } = await readBookingFunnel(db, new Date())
+
+  // Ids from BOTH sets. The never-booked list names prospects who have no meeting at all, so
+  // collecting ids from the meetings alone would render every one of them as an unknown
+  // client against an unidentified prospect.
+  const organisationIds = [...new Set([
+    ...rows.map(row => row.organisation_id),
+    ...(funnel?.timeToBooking ?? []).map(row => row.organisationId),
+    ...(funnel?.neverBooked ?? []).map(row => row.organisationId),
+  ])]
+  const prospectIds = [...new Set([
+    ...rows.map(row => row.prospect_id),
+    ...(funnel?.timeToBooking ?? []).map(row => row.prospectId),
+    ...(funnel?.neverBooked ?? []).map(row => row.prospectId),
+  ].filter((id): id is string => Boolean(id)))]
 
   // Separate reads rather than a nested select, so a missing relationship cannot turn the
   // whole page into an error and the types stay obvious.
@@ -130,6 +149,14 @@ export default async function OperatorMeetingsPage() {
         userEmail={user.email}
       />
       <WarningsRail />
+      <div className="px-7 pt-6">
+        <BookingFunnelPanel
+          funnel={funnel}
+          error={funnelError}
+          organisationName={id => organisationName.get(id) ?? 'Unknown client'}
+          prospectLabel={id => prospectLabel.get(id) ?? 'prospect not identified'}
+        />
+      </div>
       <MeetingOutcomesBoard
         rows={outcomeRows}
         warningDays={OPERATOR_WARNING_DAYS}

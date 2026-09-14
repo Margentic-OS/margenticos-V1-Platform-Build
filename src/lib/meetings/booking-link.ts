@@ -18,20 +18,24 @@
 export const PROSPECT_REF_PARAM = 'prospect_ref'
 
 /**
- * The stored booking URL with the prospect reference, and any extra parameters, added.
+ * The stored booking URL with the prospect reference added, and nothing else.
  *
  * With no prospect (a draft with no prospect attached) the link goes out without a
  * reference and the booking can still be matched by email. A stored URL that will not
  * parse is returned exactly as stored rather than mangled.
+ *
+ * DELIBERATELY NO EXTRA PARAMETERS. This took an extraParams argument, and the reply path
+ * passed utm_source=reply and utm_medium=email on every link it built. Those were identical
+ * every time and nothing of ours read them back, so on 2026-09-14 they went, and the
+ * argument that carried them went with them: a parameter no caller uses is an invitation to
+ * add a constant back. booking-link-roundtrip.test.ts asserts the link carries prospect_ref
+ * and nothing else, so re-adding one fails a test rather than just widening a URL.
  */
 export function buildProspectBookingLink(
   bookingUrl: string,
   prospectId: string | null,
-  extraParams: Record<string, string> = {},
 ): string {
-  const params: Record<string, string> = { ...extraParams }
-  if (prospectId) params[PROSPECT_REF_PARAM] = prospectId
-  if (Object.keys(params).length === 0) return bookingUrl
+  if (!prospectId) return bookingUrl
 
   let url: URL
   try {
@@ -39,8 +43,6 @@ export function buildProspectBookingLink(
   } catch {
     return bookingUrl
   }
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value)
-  }
+  url.searchParams.set(PROSPECT_REF_PARAM, prospectId)
   return url.toString()
 }
