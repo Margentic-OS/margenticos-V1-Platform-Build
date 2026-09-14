@@ -52,6 +52,14 @@
 //   scout      "Scouting ...", the only gate that failed on that attempt
 //   sole       "Sole-owner ...", the only gate that failed on that attempt
 //
+// AND THIS DID NOT BREAK THE TWO-LISTS RULE, which the next person will reasonably wonder
+// about. prompt-name-allowlist.data.ts says this file must NOT be extended to quieten the
+// prompt-name test, because "a prompt-file vocabulary problem must not be paid for in
+// production leak surface". That rule holds and this change respects it: every word here
+// was added because THE SHIPPED GATE rejected it on REAL OUTBOUND COPY, which is the thing
+// this list exists to govern. The prompt scan reading one token lower as a result is a side
+// effect, not the reason. The test is still the wrong reason to edit this file.
+
 // DELIBERATELY NOT ADDED, though the same runs rejected them. "Bridge", "OBSERVATION",
 // "Draft", "Trim" and "Yesno" are the writer printing its own drafting labels and
 // reasoning into the answer. Those rejections are CORRECT and the gate should keep them.
@@ -103,12 +111,12 @@ know land laugh launch lead learn leave let lift like limit listen live look los
 maintain make manage mark match matter mean measure meet mention miss move name need
 notice offer open operate order owe own pass pay perform pick place plan play point post
 prefer prepare present press prevent produce promise protect prove provide publish pull
-push put qualify raise reach read realise realize receive recognise recognize
-recommend record
+push put qualify raise reach read realise realize receive recognise recognize recommend
+record
 reduce refer reflect refuse regard release remain remember remind remove repeat replace
 reply report represent request require reserve resolve respond rest result return review
-run save say scale scout search see seek seem sell send serve set settle share shift ship
-show
+run save say scale scout search see seek seem sell send serve set settle share shift
+ship show
 sign sit skip solve sort sound speak spend split stand start state stay step stick stop
 struggle study suggest supply support suppose switch take talk teach tell tend test thank
 think throw touch track train travel treat try turn understand update use value visit
@@ -170,10 +178,9 @@ able above absolute active actual additional advanced afraid alive alone amazing
 annual anxious appropriate available average aware awful bad basic beautiful big black
 blue bright brief brilliant broad busy calm capable careful central certain cheap clean
 clear clever close cold comfortable commercial common competitive complete complex
-concerned confident considerable consistent constant content cool correct critical
-dependent
-cross crucial current daily dark dead dear deep detailed different difficult
-digital direct
+concerned confident considerable consistent constant content cool correct critical cross
+crucial current daily dark dead dear deep dependent detailed different difficult digital
+direct
 distant double dry due early easy economic effective efficient either electric elegant
 empty entire equal essential even eventual exact excellent exciting existing expensive
 external extra extreme fair familiar famous fast favourite final financial fine firm
@@ -232,8 +239,8 @@ seventeen seventy several six sixteen sixty ten third thirteen thirty thousand t
 twelve twenty twice two zero
 
 acquisition advertising advisory audit automation bandwidth benchmark bid bill billing
-bio blog booking bottleneck boutique brief broker calendar campaign capability
-capacity churn
+bio blog booking bottleneck boutique brief broker calendar campaign capability capacity
+churn
 clause coach coaching cold commission compliance consultancy consultant consulting
 conversion copywriting credential deadline delivery demo diary discount distribution
 downturn ecommerce enquiry enterprise engagement equity escalation estimate event
