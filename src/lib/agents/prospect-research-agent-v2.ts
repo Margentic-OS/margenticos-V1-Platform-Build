@@ -22,6 +22,7 @@ import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nou
 import { FatalApiError, fatalApiReason } from '@/lib/agents/fatal-api-error'
 import { fetchApprovedMessagingDoc } from '@/lib/composition/compose-sequence'
 import { produceOpening, resolveVariantId, loadClientName } from './research/produce-opening'
+import { writerInputFromSynthesis } from './research/writer-input'
 import { loadProspectContext } from './research/prospect-context'
 import { holdsEvidence } from './research/evidence-record'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
@@ -409,11 +410,14 @@ export async function loadStoredFindings(
 // a strong prospect to moderate and re-qualified a disqualified one, silently, with no
 // analysis behind the change. A reuse run did no new analysis, so it has no verdict to
 // offer: it reports the one the source row reached. Where the source row has no value the
-// old placeholders still apply for qualification and confidence. The fit grade does NOT get
-// one: a source row with no grade carries cannot_tell, because a placeholder grade is a
-// verdict nobody reached.
+// old placeholders still apply for qualification and confidence, so a row predating those
+// columns degrades no worse than it did before. The fit grade does NOT get one: a source row
+// with no grade carries cannot_tell, because a placeholder grade is a verdict nobody reached.
 //
-// Exported for its test. It is pure apart from one log line.
+// EXPORTED so scripts/export-writer-run.ts runs this reuse path's own code rather than a
+// copy of it, and so its own test drives the shipped function. The export measures what
+// production writes, so it must be handed what production hands the writer. Pure apart from
+// one log line.
 export async function synthesisFromStored(
   stored: StoredFindings,
   ctx: ProspectContext,
@@ -569,12 +573,10 @@ export async function runProspectResearchAgentV2({
       apiKey,
       clientName: await loadClientName(supabase, client_id),
       ctx,
-      candidates: synthesis.candidates,
-      // Both live on SynthesisOutput, not on a candidate, so they are the two fields the
-      // writer never saw until now. Null on the stored-findings branch, which reaches no
-      // selection of its own; buildFindingsBlock then marks nothing, which is correct.
-      selectedCandidateId: synthesis.selected_candidate_id,
-      relevanceReason: synthesis.relevance_reason,
+      // The candidates, the selection and the relevance reason, through the ONE mapping
+      // every caller uses. The selection is null on the stored-findings branch, which
+      // reaches no selection of its own; buildFindingsBlock then marks nothing.
+      ...writerInputFromSynthesis(synthesis),
       messagingContent: messaging.content,
       variantId,
       icpBuyerTitle: clientCtx.buyerTitle,

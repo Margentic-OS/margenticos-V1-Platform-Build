@@ -111,7 +111,7 @@ The system declares capabilities, not tool names:
    Never attempt programmatic API scheduling with Taplio.)
   can_send_linkedin_dm        → currently: Lemlist
   can_enrich_contact          → currently: Apollo
-  can_book_meeting            → currently: Calendly
+  can_book_meeting            → currently: Cal.com (ADR-056)
   can_validate_email          → currently: Hunter.io (phase two)
 
 Agents and components reference capabilities only. Never tool names.
@@ -314,6 +314,45 @@ against a schema that has already moved on.
 
 `supabase migration list` is safe and useful. `db push`, `db reset` and `db remote
 commit` are not. Confirmed 2026-08-24 while building the job queue.
+
+---
+
+## Supabase client library — pinned exactly, and patched
+
+`@supabase/supabase-js` is pinned to an EXACT version in package.json (2.103.2), not a
+caret range. It pins `@supabase/postgrest-js` to the same version, and that package carries
+a local patch, `patches/@supabase+postgrest-js+2.103.2.patch`, applied by `patch-package`
+in `postinstall`.
+
+**What the patch does.** One retry on HTTP 504, for GET, HEAD and OPTIONS only, after a
+250 to 750 ms jittered wait. The library as shipped retries only 503, 520 and network
+errors. POST, PATCH and DELETE are never retried: a 504 means the gateway stopped waiting,
+not that the write failed. The reason: since September 2026 Supabase's gateway has cut
+about 1% of requests at five seconds, on reads that normally take 25 ms.
+
+**Before upgrading supabase-js, READ THE RETRY CODE in the new version.** Open
+`node_modules/@supabase/postgrest-js/dist/index.cjs` and find `RETRYABLE_STATUS_CODES`,
+`RETRYABLE_METHODS` and `executeWithRetry`. Do not rely on release notes or a vendor
+assistant: on 2026-09-11 a vendor assistant said versions from 2.102.0 retry 504 including
+POST, and the installed code retried neither. Then decide whether the patch is still
+needed, regenerate it with `npx patch-package @supabase/postgrest-js`, and run
+`src/lib/supabase/__tests__/read-retry-504.test.ts`.
+
+An upgrade that skips this fails loudly twice: patch-package refuses to apply a patch
+written for a different version, and `scripts/check-postgrest-patch.ts` in `prebuild`
+stops the build if the patch is missing from either build the package ships.
+
+**AN INSTALL-TIME CHECK PROVES THE FILE ON DISK, NOT THE ARTIFACT THAT SHIPS.** On
+2026-09-11 this patch merged, deployed, and did not run: Vercel restored the build cache from
+the previous deployment, and webpack validates `node_modules` by PACKAGE VERSION rather than
+by file contents, so it reused the module it had compiled before the patch existed. The
+install applied the patch, `check-postgrest-patch.ts` read the patched files and passed, and
+production kept failing reads with nothing saying why. Two things now prevent it:
+`next.config.ts` mixes a fingerprint of `patches/` into webpack's cache version, and
+`scripts/check-patch-in-build.ts` runs as `postbuild` and fails the build when the shipped
+`.next/server` output does not carry the patch. The same trap applies to any patched
+dependency, and to anything else that changes a file inside `node_modules` without changing
+its version.
 
 ---
 
@@ -578,7 +617,7 @@ Per ADR-013, current agent model assignments:
                                                        Once per ICP approval, in parallel
                                                        with the geography call, so that
                                                        path now makes THREE model calls.
-                                                       Temperature 0. See ADR-057.
+                                                       Temperature 0. See ADR-058.
   Messaging generation agent:                          claude-sonnet-4-6
                                                        (local-dev workaround —
                                                         revert to opus-4-6 when
@@ -912,6 +951,9 @@ Phase one — schema only:
   Do not build it speculatively.
 
 Auto-approve: phase four only. Do not build in phase one.
+The hourly auto-approve job that was built anyway is PAUSED, not fixed. See ADR-052: its
+broken reviewer foreign key is the only thing that ever stopped it, so fixing that key
+while the job runs switches auto-approval on.
 
 ---
 
@@ -942,7 +984,7 @@ Doug notified for all rejections and auto-approvals across all channels.
 ## Reply handling
 
 Positive reply:
-  Respond same business hour. Include Calendly link. Say "grab a slot."
+  Respond same business hour. Include the booking link. Say "grab a slot."
   Sign as "[Client Company Name] Team." Never use founder name, never mention AI.
 
 Information request:
@@ -1057,6 +1099,18 @@ matter as much as the BLOCKs. A gate that blocks everything is an outage, not a 
 Do not bypass a block with `--no-verify` or by rewording the command. If a match is a
 false positive, narrow the pattern in the hook, and say so in the commit message.
 
+**KNOWN HOLE, found 2026-09-11: this gate does not see a commit made from a worktree.** It runs
+in the session's working directory, which is the main checkout, and reads what is staged THERE,
+before the command runs. So a commit made from a worktree, or one whose files are staged in the
+same command as the commit, passes uninspected. Measured with a probe commit that should have
+been blocked and landed. Until the fix on the Notion Backlog is built (a real git pre-commit hook
+through core.hooksPath), run the gate by hand from the worktree before every commit:
+
+    printf '%s' '{"tool_input":{"command":"git commit -m x"}}' | bash .claude/hooks/pre-commit-gate.sh; echo $?
+
+Exit 2 means blocked. A retro scan of everything merged to main since the gate existed found no
+secret (one 64-character hash, a cohort fingerprint in docs/BACKLOG.md, not a credential).
+
 ### Pre-commit: secret check (NEW 2026-08-27)
 Blocks any staged addition containing a 64- or 32-character hex string, a JWT, an
 `sk-`/`sk-ant-`/`re_` key, an AWS or GitHub token, or a `Bearer` literal.
@@ -1079,7 +1133,7 @@ Never proceed with a commit if .env could be tracked by Git.
 
 ### Pre-commit: tool-name reference check
 Before committing any new or modified agent or component file, scan for hardcoded
-tool names: Instantly, Taplio, Lemlist, Apollo, GoHighLevel, Calendly, HunterIO,
+tool names: Instantly, Taplio, Lemlist, Apollo, GoHighLevel, Calendly, Cal.com, HunterIO,
 MyEmailVerifier, Bouncer, Apify, Brave.
 
 MyEmailVerifier was missing from this list until 2026-08-25, and its absence is exactly
@@ -1105,7 +1159,7 @@ Do not build:  LinkedIn DMs         → Lemlist
 Do not build:  CRM                  → GoHighLevel
 Do not build:  prospect database    → Apollo
 Do not build:  email signatures     → configure in Instantly per client
-Do not build:  booking system       → Calendly or client's existing tool
+Do not build:  booking system       → Cal.com (ADR-056), or manual recording for any other tool
 
 ---
 
@@ -1799,10 +1853,24 @@ For quick reference. Full text in /docs/ADR.md.
            range is removed rather than kept
   ADR-050  An operator alert is internal mail; a customer-copy style rule must never be
            able to suppress one
+  ADR-052  The hourly auto-approve job on document_suggestions is paused, not fixed. It
+           was never authorised (phase four) and never approved anything, and fixing its
+           reviewer foreign key while it runs would switch auto-approval on
   ADR-053  A client-facing count is read from OUR OWN records when the provider counts a
            different event, and a range whose NUMERATOR differs is removed as readily as
            one whose denominator does. Extends ADR-048 from the denominator to the
            numerator. Also: no copy on a client screen explains our own past decisions
+  ADR-054  A cron job can be declared OFF in cron_schedule_registry.active; MON-001 reads
+           "off" only when that declaration AND the live pg_cron flag agree, mapped to OK
+           per ADR-035. The registry test reads `=>` as well as `:=`, and throws on an
+           alter_job it cannot attribute rather than skipping it
+  ADR-055  A monitor alert (Sentry, which emails the operator) goes out on the SECOND
+           consecutive PROBLEM reading; the first is recorded and shown at once.
+           monitor_events.alert_pending carries the owed alert
+  ADR-056  Booking detection moves to Cal.com through one signed webhook. The client is
+           found by the hosting seat, the prospect by a reference on our link and then by
+           email; an unmatched booking is recorded and never auto-billed; meeting-ended is
+           ignored. Calendly naming removed; the destructive database half waits for merge
 
 ---
 

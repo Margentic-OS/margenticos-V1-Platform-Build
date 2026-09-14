@@ -13,6 +13,10 @@
 //   PROBLEM (liveness overdue, or threshold exceeded)
 // Transitions are recorded only on state change. Repeated states do not create duplicate events.
 //
+// Alerts go out on the SECOND consecutive PROBLEM reading, not the first. The first is
+// recorded at once, so the dashboard shows it; only the Sentry alert, which is what emails
+// the operator, waits one sweep. See alert-policy.ts for why, and what it cannot fix.
+//
 // Monitor check views queried:
 //   mon_001, mon_002, mon_003, mon_004, mon_005, mon_007, mon_010 (liveness checks)
 //   mon_006 (Tier 1: client revisions awaiting review)
@@ -40,6 +44,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import * as Sentry from '@sentry/nextjs'
 import { MONITORS } from './monitors'
+import { planSweepStep, type MonitorState } from './alert-policy'
 
 export async function POST(request: NextRequest) {
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -83,13 +88,13 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const currentState = data.state as 'PROBLEM' | 'OK' | 'UNKNOWN'
+      const currentState = data.state as MonitorState
       const currentDetail = data.detail as string | null
 
       // Fetch the most recent event for this check
       const { data: lastEvent, error: eventError } = await supabase
         .from('monitor_events')
-        .select('state, detail, created_at, resolved_at')
+        .select('id, state, detail, created_at, resolved_at, alert_pending')
         .eq('check_code', checkCode)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -106,20 +111,47 @@ export async function POST(request: NextRequest) {
 
       results.checked++
 
-      // Determine if we should record a state change
-      const lastState = lastEvent?.state ?? 'UNKNOWN'
-      const shouldRecord = currentState !== lastState
+      const lastState = (lastEvent?.state ?? 'UNKNOWN') as MonitorState
+      const step = planSweepStep(currentState, lastEvent ?? null)
 
-      if (!shouldRecord) {
+      // The second consecutive PROBLEM reading: send the alert the first one deferred.
+      //
+      // Claimed before it is sent, so two overlapping sweeps cannot both send it. A claim that
+      // ERRORS still sends, because a duplicate email is cheaper than a lost one. A claim that
+      // matches no row means another sweep has already sent it.
+      if (step.alertNow && lastEvent) {
+        const { data: claimed, error: claimError } = await supabase
+          .from('monitor_events')
+          .update({ alert_pending: false })
+          .eq('id', lastEvent.id)
+          .eq('alert_pending', true)
+          .select('id')
+
+        if (claimError) {
+          logger.warn('Monitor sweep: could not claim a deferred alert, sending it anyway', {
+            check_code: checkCode,
+            error: claimError.message,
+          })
+        }
+
+        if (claimError || (claimed?.length ?? 0) > 0) {
+          Sentry.captureMessage(
+            `Monitor check ${checkCode} has read PROBLEM on two consecutive sweeps, first at ${lastEvent.created_at}: ${currentDetail}`,
+            'error'
+          )
+        }
+      }
+
+      if (!step.record) {
         continue
       }
 
-      // If transitioning FROM PROBLEM, record the resolution time
-      const needsResolution = lastState === 'PROBLEM' && currentState !== 'PROBLEM'
-      if (needsResolution && lastEvent) {
+      // If transitioning FROM PROBLEM, record the resolution time, and drop any alert the
+      // PROBLEM row still owed: it recovered before a second reading confirmed it.
+      if (step.resolvePrevious && lastEvent) {
         const { error: updateError } = await supabase
           .from('monitor_events')
-          .update({ resolved_at: new Date().toISOString() })
+          .update({ resolved_at: new Date().toISOString(), alert_pending: false })
           .eq('check_code', checkCode)
           .eq('created_at', lastEvent.created_at)
 
@@ -131,13 +163,14 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Record the new state
+      // Record the new state. A first PROBLEM reading is recorded now, owing its alert.
       const { error: insertError } = await supabase
         .from('monitor_events')
         .insert({
           check_code: checkCode,
           state: currentState,
           detail: currentDetail,
+          alert_pending: step.alertPending,
         })
 
       if (insertError) {
@@ -153,11 +186,6 @@ export async function POST(request: NextRequest) {
           to_state: currentState,
         })
         results.state_changes++
-
-        // Alert to Sentry when transitioning to PROBLEM
-        if (currentState === 'PROBLEM') {
-          Sentry.captureMessage(`Monitor check ${checkCode} transitioned to PROBLEM: ${currentDetail}`, 'error')
-        }
       }
     } catch (err) {
       logger.error('Monitor sweep: unexpected error', {

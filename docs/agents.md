@@ -414,7 +414,7 @@ Inputs (ReplyDrafterInput):
   tierHint              — tier routing decision from Group 4 caller (2 or 3)
   orgContext            — { tovDocument, positioningDocument } pre-loaded by caller
   faqMatches            — top-N FAQ candidates already scored by findFaqMatches()
-  includeCalendlyHint   — whether to weave a soft CTA toward booking
+  includeBookingHint    — whether to weave a soft CTA toward booking
   signalId              — used for idempotency check and agent_runs logging
   prospectId            — for agent_runs logging (may be null)
   supabase              — authenticated Supabase client
@@ -517,7 +517,7 @@ Mismatch triggers a critical error log and returns []. Defence in depth per ADR-
 
 Skip cases (returns [] without calling Haiku):
   - Filler-detection gate: answer < 20 words, filler prefix, question-dominated,
-    calendly-only, operator-did-not-edit-AI-draft (Jaccard similarity > 0.95).
+    booking-link-only, operator-did-not-edit-AI-draft (Jaccard similarity > 0.95).
   - Idempotency hit: previous successful run found for this replyDraftId.
   - Haiku decided no extraction: vague prospect question, hostile reply,
     operator pivoted away from the question, invented context referenced.
@@ -554,8 +554,8 @@ with idempotency, validation, sign-off, and post-send extraction.
 **10-step flow:**
 1. Load draft + idempotency check (already sent/failed → skip)
 2. Validate status === 'approved' and final_sent_body non-empty
-3. Load org context (name, founder_first_name, calendly_url)
-4. Calendly substitution — replace {calendly_link} or fail if placeholder present but URL null
+3. Load org context (name, founder_first_name, booking_url)
+4. Booking link substitution — replace {booking_link} with booking_url carrying the draft's prospect_ref, or fail if placeholder present but URL null. Then the final guard: any template token left, braced or percent-encoded, fails the send (unfilled_placeholder)
 5. Sign-off insertion — append founder first name per ADR-020 (idempotent: no double sign-off)
 6. Load thread context from signal (raw_data.id, raw_data.eaccount, raw_data.subject)
 7. Load Instantly API key from env
@@ -570,7 +570,8 @@ with idempotency, validation, sign-off, and post-send extraction.
 
 **SendFailedReason values:**
 - `founder_first_name_required_but_missing` — organisations.founder_first_name not set
-- `calendly_link_required_but_missing` — {calendly_link} in body but org has no calendly_url
+- `booking_link_required_but_missing` — {booking_link} in body but org has no booking_url
+- `unfilled_placeholder` — a template token survived into the final body; nothing was sent
 - `final_sent_body_empty` — final_sent_body is blank after trim
 - `thread_context_missing` — signal row missing or raw_data lacks id/eaccount
 - `instantly_api_error` — Instantly API returned non-2xx or threw

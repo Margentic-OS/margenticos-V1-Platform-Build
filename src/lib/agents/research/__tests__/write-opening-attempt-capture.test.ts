@@ -43,10 +43,12 @@ const CANDIDATE: ObservationCandidate = {
 } as unknown as ObservationCandidate
 
 const OBSERVATION = 'Two locations were added and four roles listed in the same month.'
-const BRIDGE_CLEAN = 'The filling of them lands before the work that pays for it. That order is uncomfortable.'
+// One sentence each: a two-sentence bridge fails the bridge gate, so BRIDGE_CLEAN would not
+// be clean and BRIDGE_GATED would be gated for two reasons instead of one.
+const BRIDGE_CLEAN = 'The filling of them lands before the work that pays for it.'
 // Names the prospect, which is a deterministic gate. Everything else about it is fine, so
 // the attempt is rejected with all four blocks present and readable.
-const BRIDGE_GATED = 'The filling of them is the part Robin carries alone. That order is uncomfortable.'
+const BRIDGE_GATED = 'The filling of them is the part Robin carries alone.'
 const QUESTION = 'Is closing that gap something you are looking at?'
 const SUBJECT_OK = 'two locations, four roles'
 // Nothing in the findings supports it, so the subject's own soft gate discards it. The

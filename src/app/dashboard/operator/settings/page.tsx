@@ -24,7 +24,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Measured against production the same day: of 16 integrations_registry rows exactly TWO
  * carry connection_status 'connected', no row carries any date the page displayed, and
  * `integrations_registry` HAS NO last_verified COLUMN AT ALL — that field had nowhere to
- * have come from. calendly_url was NULL on both live client organisations while the page
+ * have come from. booking_url was NULL on both live client organisations while the page
  * showed a link.
  *
  * The amber "not yet wired to live data" banner was true, and a banner is not a licence.
@@ -85,7 +85,7 @@ export default async function OperatorSettingsPage({
   if (orgId) {
     const { data } = await supabase
       .from('organisations')
-      .select('id, name, calendly_url, auto_approve_window_hours, auto_held_window_hours, monthly_meetings_target, currency, client_review_enabled, linkedin_channel_enabled, sourcing_revenue_filter_enabled, founder_first_name, archived_at')
+      .select('id, name, booking_url, auto_approve_window_hours, auto_held_window_hours, monthly_meetings_target, currency, client_review_enabled, linkedin_channel_enabled, sourcing_revenue_filter_enabled, founder_first_name, archived_at')
       .eq('id', orgId)
       .maybeSingle()
 

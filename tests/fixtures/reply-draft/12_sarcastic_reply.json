@@ -11,7 +11,7 @@
   },
   "tierHint": 2,
   "faqMatches": [],
-  "includeCalendlyHint": false,
+  "includeBookingHint": false,
   "signalId": "00000000-0000-0000-0000-000000000112",
   "prospectId": "00000000-0000-0000-0000-000000000212",
   "expected_behaviour": "Should DOWNGRADE to Tier 3 — coherence guard rule 4. Words look positive but tone is hostile/sarcastic. The words 'another AI pipeline tool' and the exaggerated enthusiasm are clear sarcasm signals. ambiguity_note should identify the sarcasm clearly. The draft starting point should be disarming and acknowledge the scepticism honestly — not pretend the reply was positive. The operator should handle this carefully."

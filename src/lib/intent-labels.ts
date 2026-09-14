@@ -2,7 +2,7 @@
 // Used by the triage UI and any future operator-facing views.
 //
 // Rules:
-//   - Tool-agnostic: no "Calendly", no "Instantly", no tool names.
+//   - Tool-agnostic: no "Cal.com", no "Instantly", no tool names.
 //   - Niche-agnostic: no "consulting", no "coaching", no buyer archetypes.
 //   - Unknown intents (classifier adds a new value before this mapping is updated)
 //     render as the raw string in monospace — never crash.

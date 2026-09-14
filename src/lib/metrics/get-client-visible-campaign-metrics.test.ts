@@ -127,7 +127,7 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
         signal_id: replySignal.data.id,
         classified_intent: 'positive_passive',
         classification_confidence: 0.95,
-        action_taken: 'auto_reply_calendly',
+        action_taken: 'send_reply',
         attempt_number: 1,
       })
     }

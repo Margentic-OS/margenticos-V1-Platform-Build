@@ -106,7 +106,7 @@ describe('assertNoUnsourcedVendorNames', () => {
   it('the vendor list is built from one source, so pattern and list cannot drift', () => {
     // Every name in the list must actually be detected. A name added to the array but
     // missing from the regex would be a silent gap, which is the parallel-list shape.
-    for (const v of ['Instantly', 'Apollo', 'Taplio', 'Lemlist', 'GoHighLevel', 'Calendly',
+    for (const v of ['Instantly', 'Apollo', 'Taplio', 'Lemlist', 'GoHighLevel', 'Calendly', 'Cal.com',
                      'Hunter.io', 'MyEmailVerifier', 'Bouncer', 'Apify', 'Brave', 'Smartlead']) {
       expect(findVendorNames({ s: `uses ${v} for this` }, ''), v).toHaveLength(1)
     }

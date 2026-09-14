@@ -13,7 +13,7 @@
 // Full intent taxonomy (8 values):
 //   opt_out                     — suppress immediately (any confidence)
 //   out_of_office               — log only, Instantly handles natively (any confidence)
-//   positive_direct_booking     — send Calendly reply (confidence >= 0.90 only)
+//   positive_direct_booking     — send the booking-link reply (confidence >= 0.90 only)
 //   positive_passive            — log_only in Phase 1; Phase 2 adds nurture handler
 //   information_request_generic — log_only in Phase 1; Phase 2 adds FAQ-match handler
 //   information_request_commercial — log_only in Phase 1; Phase 2 adds escalation handler
@@ -106,7 +106,7 @@ Decision rules (apply in order):
      a human, but only unclear counts as a reply, so choosing the wrong one misstates how
      many people engaged.
   4. When in doubt between positive_direct_booking and positive_passive: choose positive_passive.
-     A Calendly link sent to a passive prospect is premature; escalating a warm reply is recoverable.
+     A booking link sent to a passive prospect is premature; escalating a warm reply is recoverable.
   5. When in doubt between information_request_generic and information_request_commercial: choose
      information_request_commercial. Routes to human escalation rather than a failed FAQ match.
   6. When in doubt between any classified intent and unclear: choose unclear.

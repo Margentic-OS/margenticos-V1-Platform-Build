@@ -54,10 +54,12 @@ const OPERATOR_TEMPLATES = [
   'agent-failure.ts',
   'approval-reminder.ts',
   'intake-complete.ts',
+  'meetings-due-to-bill.ts',
   'multi-user-signup-attempt.ts',
   'operator-reply.ts',
   'revision-gate-failure.ts',
   'suggestion-ready.ts',
+  'unmatched-booking.ts',
 ]
 
 function templateFiles(): string[] {

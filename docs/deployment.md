@@ -20,3 +20,42 @@ Separate environment variables in Vercel for each environment.
 [ ] Create Sentry project
 [ ] Add NEXT_PUBLIC_SENTRY_DSN to environment variables
 [ ] Add SENTRY_AUTH_TOKEN to Vercel
+
+## Dependencies with a local patch (added 2026-09-11)
+
+`@supabase/postgrest-js` 2.103.2 carries `patches/@supabase+postgrest-js+2.103.2.patch`: one
+retry on a 504 for reads only. `npm install` applies it through the `postinstall` script, and
+Vercel runs that script on every install. `prebuild` runs `scripts/check-postgrest-patch.ts`,
+which fails the build if the patch is not in the installed files.
+
+**Two checks, because the first one is not enough.** `prebuild` runs
+`check-postgrest-patch.ts`, which reads the patched files in `node_modules`. `postbuild` runs
+`check-patch-in-build.ts`, which reads the SHIPPED `.next/server` output. On 2026-09-11 the
+first passed and the deploy still went out without the retry in it: Vercel restored the build
+cache, and webpack validates `node_modules` by package version, which patch-package does not
+change, so it reused the pre-patch compiled module. `next.config.ts` now mixes a fingerprint of
+`patches/` into webpack's cache version, and the postbuild check is the backstop.
+
+**What to check if a build stops at `check-patch-in-build: FAILED`.**
+- "the library is in the server output but the patch is not": a stale build cache. Redeploy
+  without the build cache on Vercel, or delete `.next/cache` locally.
+- "the library is not in the server output": bundling changed, or the check is looking in the
+  wrong place. Fix the check; do not weaken it.
+
+**What to check if a build stops at `check-postgrest-patch: FAILED`.**
+- "does not carry the 504 retry patch": the install ran without scripts. Run `npm install`
+  normally, or `npx patch-package`.
+- "installed @supabase/postgrest-js is X": the library version changed. Read the retry code
+  in the new version first (CLAUDE.md, "Supabase client library"), then regenerate the patch.
+
+Why patch the library rather than wrap each client: about 90 files build their own client,
+and a wrapper missed at any one of them would silently have no retry. Every one of them goes
+through this single package.
+
+## Environment variables added by feature
+
+**CALCOM_WEBHOOK_SECRET** (added 2026-09-11, ADR-056). Production and Preview. The secret that
+signs Cal.com booking notifications. Generate with `openssl rand -hex 32`, type the same value into
+the Cal.com webhook's secret field, and never commit it. Missing: every booking notification is
+refused with a 500 and logged. Different from Cal.com's copy: every notification is refused with a
+401. Replaces `CALENDLY_WEBHOOK_SECRET`, which was never set in any environment and is no longer read.

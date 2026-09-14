@@ -22,7 +22,7 @@ import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 //   manual review rather than automated retry (risk of duplicate send on retry).
 //   3+ classifier_failed rows → write permanently_failed; mark processed; stop retrying.
 //
-// Type assertions (as any) on reply_handling_actions and organisations.calendly_url resolve
+// Type assertions (as any) on reply_handling_actions and organisations.booking_url resolve
 // automatically after the reply-handling migration is applied and `supabase gen types` is run.
 
 import { SupabaseClient } from '@supabase/supabase-js'
@@ -45,10 +45,12 @@ import {
 import { resolveOooResumeAt } from './ooo-resume'
 import { orchestrateDraft } from './draft-orchestrator'
 import { sendOperatorReplyNotification } from '@/lib/notifications/send-operator-reply-notification'
-// The same converter campaign outbound uses. buildCalendlyReplyBody below returns three
+// The same converter campaign outbound uses. buildBookingReplyBody below returns three
 // paragraphs separated by blank lines, and without this every one of them collapsed into a
 // single run-on line on delivery.
 import { plainTextToHtml } from '@/lib/composition/custom-variables'
+import { findUnfilledPlaceholder } from './unfilled-placeholder'
+import { buildProspectBookingLink } from '@/lib/meetings/booking-link'
 
 type SupabaseServiceClient = ServiceRoleClient
 
@@ -72,21 +74,26 @@ export interface ProcessResult {
 // Deterministic regex — ADR-018: no LLM for pattern-matchable text.
 // Returns ISO timestamptz string if a plausible future date is found, null otherwise.
 
-// ── Calendly reply body ───────────────────────────────────────────────────────
+// ── Booking reply body ────────────────────────────────────────────────────────
 // Hardcoded template — no LLM needed, no scrubAITells needed (not generated copy).
 // Sign-off: founder first name only per ADR-020.
 // If founderFirstName is empty, returns null — caller must treat as send_failed.
 
-function buildCalendlyReplyBody(
+function buildBookingReplyBody(
   prospectFirstName: string | null,
   founderFirstName: string,
-  calendlyUrl: string,
+  bookingUrl: string,
+  prospectId: string | null,
 ): string | null {
   if (!founderFirstName.trim()) return null
 
   const firstName = prospectFirstName?.trim() || 'there'
-  const separator = calendlyUrl.includes('?') ? '&' : '?'
-  const taggedUrl = `${calendlyUrl}${separator}utm_source=reply&utm_medium=email`
+  // The prospect reference rides on the link so the booking can be tied back to them; the
+  // utm tags record where the click came from.
+  const taggedUrl = buildProspectBookingLink(bookingUrl, prospectId, {
+    utm_source: 'reply',
+    utm_medium: 'email',
+  })
 
   return [
     `Hi ${firstName},`,
@@ -121,7 +128,7 @@ function buildCalendlyReplyBody(
 
 interface ExistingActionSummary {
   classifierFailedCount: number
-  terminalAction: { action_taken: string; action_succeeded: boolean | null } | null
+  terminalAction: { action_taken: string; action_succeeded: boolean | null; action_error: string | null } | null
 }
 
 async function getExistingActionSummary(
@@ -131,7 +138,7 @@ async function getExistingActionSummary(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: rows, error } = await (supabase as any)
     .from('reply_handling_actions')
-    .select('action_taken, action_succeeded')
+    .select('action_taken, action_succeeded, action_error')
     .eq('signal_id', signalId)
 
   if (error) {
@@ -142,7 +149,7 @@ async function getExistingActionSummary(
   let classifierFailedCount = 0
   let terminalAction: ExistingActionSummary['terminalAction'] = null
 
-  for (const row of (rows ?? []) as Array<{ action_taken: string; action_succeeded: boolean | null }>) {
+  for (const row of (rows ?? []) as Array<{ action_taken: string; action_succeeded: boolean | null; action_error: string | null }>) {
     if (row.action_taken === 'classifier_failed') {
       classifierFailedCount++
     } else {
@@ -320,11 +327,16 @@ async function processOneSignal(
   }
 
   if (existing.terminalAction) {
-    const { action_taken, action_succeeded } = existing.terminalAction
+    const { action_taken, action_succeeded, action_error } = existing.terminalAction
     if (action_taken === 'send_reply' && action_succeeded === null) {
       logger.warn('process-reply: send_reply interrupted mid-call — marking processed, manual review needed', { signal_id: signalId })
     } else if (action_taken === 'send_reply' && action_succeeded === false) {
-      logger.warn('process-reply: send_reply API failed on previous run — marking processed, manual review needed', { signal_id: signalId })
+      // Reports the cause the failed attempt recorded. This line used to say the API failed
+      // whatever happened, including when no call was made because the org had no booking link.
+      logger.warn('process-reply: send_reply failed on previous run — marking processed, manual review needed', {
+        signal_id: signalId,
+        cause: action_error ?? 'no cause recorded',
+      })
     } else if (action_taken === 'suppress' && action_succeeded === false) {
       // DB suppression was applied on the previous run, but Instantly-side suppression failed.
       // The prospect cannot receive future MargenticOS sends (DB is authoritative), but their
@@ -465,18 +477,21 @@ async function processOneSignal(
     logger.warn('process-reply: raw_data has no from_address_email', { signal_id: signalId })
   }
 
-  // ── Fetch org (name + calendly_url) ──────────────────────────────────────
-  // calendly_url added by 20260429_reply_handling.sql — not in generated types until applied.
+  // ── Fetch org (name + booking_url) ──────────────────────────────────────
+  // booking_url added by 20260429_reply_handling.sql — not in generated types until applied.
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: org } = await (supabase as any)
     .from('organisations')
-    .select('name, calendly_url, founder_first_name')
+    .select('name, booking_url, founder_first_name')
     .eq('id', signal.organisation_id)
-    .maybeSingle() as { data: { name: string; calendly_url: string | null; founder_first_name: string | null } | null }
+    .maybeSingle() as { data: { name: string; booking_url: string | null; founder_first_name: string | null } | null }
 
-  const calendlyUrl = org?.calendly_url ?? null
+  const bookingUrl = org?.booking_url ?? null
   const founderFirstName = org?.founder_first_name?.trim() ?? ''
+  // One value for both the auto-send decision and what the orchestrator is told, so the
+  // two cannot disagree about whether this organisation has a link. Whitespace is no link.
+  const bookingLinkSet = Boolean(bookingUrl?.trim())
 
   // ── Classify — always pass subject for OOO detection ─────────────────────
 
@@ -600,7 +615,20 @@ async function processOneSignal(
   } else if (intent === 'out_of_office') {
     actionTaken = 'ooo_log'
   } else if (intent === 'positive_direct_booking' && confidence >= POSITIVE_BOOKING_CONFIDENCE_THRESHOLD) {
-    actionTaken = 'send_reply'
+    // NO BOOKING LINK, NO AUTOMATIC REPLY. Until 2026-09-10 this took send_reply regardless,
+    // failed at the link check in the dispatch below, and the prospect who had just asked
+    // to book received nothing. It now goes to the orchestrator like any other reply and
+    // becomes a draft in the triage queue, so a person answers it with a link.
+    if (bookingLinkSet) {
+      actionTaken = 'send_reply'
+    } else {
+      logger.warn('process-reply: no booking link set — booking reply drafted for the operator instead of sent', {
+        signal_id: signalId,
+        organisation_id: signal.organisation_id,
+        fix: 'Set the client booking link in operator Settings',
+      })
+      actionTaken = 'log_only'
+    }
   } else {
     actionTaken = 'log_only'
   }
@@ -790,15 +818,18 @@ async function processOneSignal(
   }
 
   if (actionTaken === 'send_reply') {
-    if (!calendlyUrl) {
-      logger.error('process-reply: no calendly_url set for org — cannot send reply', {
+    // Unreachable since 2026-09-10: send_reply is chosen above only when a booking link is
+    // set. Kept because it narrows bookingUrl for the reply builder, and because failing
+    // here is safer than sending a blank link if that decision ever changes.
+    if (!bookingUrl) {
+      logger.error('process-reply: no booking_url set for org — cannot send reply', {
         signal_id: signalId,
         organisation_id: signal.organisation_id,
-        fix: "UPDATE organisations SET calendly_url = '<url>' WHERE id = '<org_id>'",
+        fix: "UPDATE organisations SET booking_url = '<url>' WHERE id = '<org_id>'",
       })
       await updateActionRow(supabase, actionRowId, {
         action_succeeded: false,
-        action_error: 'org calendly_url not set',
+        action_error: 'org booking_url not set',
       })
       return 'error'
     }
@@ -817,7 +848,7 @@ async function processOneSignal(
 
     // ADR-020: sign-off is founder first name. Fail loud if not set.
     if (!founderFirstName) {
-      logger.error('process-reply: founder_first_name not set — cannot build Calendly reply', {
+      logger.error('process-reply: founder_first_name not set — cannot build booking reply', {
         signal_id: signalId,
         organisation_id: signal.organisation_id,
         fix: "UPDATE organisations SET founder_first_name = '<name>' WHERE id = '<org_id>'",
@@ -829,10 +860,10 @@ async function processOneSignal(
       return 'error'
     }
 
-    const bodyText = buildCalendlyReplyBody(prospectFirstName, founderFirstName, calendlyUrl)
+    const bodyText = buildBookingReplyBody(prospectFirstName, founderFirstName, bookingUrl, prospectId)
     if (!bodyText) {
-      // buildCalendlyReplyBody returns null only if founderFirstName is empty — guarded above.
-      logger.error('process-reply: buildCalendlyReplyBody returned null unexpectedly', { signal_id: signalId })
+      // buildBookingReplyBody returns null only if founderFirstName is empty — guarded above.
+      logger.error('process-reply: buildBookingReplyBody returned null unexpectedly', { signal_id: signalId })
       await updateActionRow(supabase, actionRowId, {
         action_succeeded: false,
         action_error: 'founder_first_name_required_but_missing',
@@ -840,10 +871,26 @@ async function processOneSignal(
       return 'error'
     }
 
+    // No template token may reach a prospect, and on this path no person would see it
+    // first. The body is built from a fixed template plus the stored booking link, so a
+    // hit here means the link itself, or a future edit to the template, carries a token.
+    const unfilled = findUnfilledPlaceholder(bodyText)
+    if (unfilled) {
+      logger.error('process-reply: booking reply still contains a template token, not sent', {
+        signal_id: signalId,
+        token: unfilled,
+      })
+      await updateActionRow(supabase, actionRowId, {
+        action_succeeded: false,
+        action_error: `unfilled_placeholder: ${unfilled}`,
+      })
+      return 'error'
+    }
+
     const replySubject = (raw.subject as string | undefined) ?? ''
 
     // THIS PATH SENDS WITHOUT AN OPERATOR SEEING IT, so a formatting fault here reaches a
-    // prospect who has just said they want to book, unreviewed. buildCalendlyReplyBody
+    // prospect who has just said they want to book, unreviewed. buildBookingReplyBody
     // returns a greeting, a line carrying the booking link, and a sign-off, separated by
     // blank lines. Sent as text alone, all three arrived as one run-on line.
     const replyResult = await sendThreadReply(
@@ -855,7 +902,7 @@ async function processOneSignal(
 
     await updateActionRow(supabase, actionRowId, {
       action_succeeded: replyResult.ok,
-      action_payload: { reply_body: bodyText, calendar_link: calendlyUrl } as Json,
+      action_payload: { reply_body: bodyText, calendar_link: bookingUrl } as Json,
       action_error: replyResult.ok ? null : replyResult.error,
       instantly_response: replyResult.raw as Json ?? null,
     })
@@ -883,7 +930,7 @@ async function processOneSignal(
         }
       }
       await markSignalProcessed(supabase, signalId)
-      logger.info('process-reply: Calendly reply sent', { signal_id: signalId, prospect_id: prospectId })
+      logger.info('process-reply: booking reply sent', { signal_id: signalId, prospect_id: prospectId })
       return 'processed'
     }
 
@@ -909,6 +956,7 @@ async function processOneSignal(
       classification: { intent, confidence, reasoning },
       prospectId,
       supabase,
+      bookingLinkSet,
     })
 
     let orchActionTaken: string

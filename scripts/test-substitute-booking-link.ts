@@ -29,7 +29,7 @@ console.log('\nsubstitute-booking-link tests\n')
 
 // ── Body with placeholder + valid link → substituted ────────────────────────
 {
-  const result = substituteBookingLink('Grab a slot: {calendly_link}', 'https://cal.com/doug/30min')
+  const result = substituteBookingLink('Grab a slot: {booking_link}', 'https://cal.com/doug/30min')
   expect('placeholder + valid link → substituted', result, {
     body: 'Grab a slot: https://cal.com/doug/30min',
     missing: false,
@@ -39,9 +39,9 @@ console.log('\nsubstitute-booking-link tests\n')
 
 // ── Body with placeholder + null link → missing: true ───────────────────────
 {
-  const result = substituteBookingLink('Grab a slot: {calendly_link}', null)
+  const result = substituteBookingLink('Grab a slot: {booking_link}', null)
   expect('placeholder + null link → missing: true', result, {
-    body: 'Grab a slot: {calendly_link}',
+    body: 'Grab a slot: {booking_link}',
     missing: true,
     substituted: false,
   })
@@ -49,9 +49,9 @@ console.log('\nsubstitute-booking-link tests\n')
 
 // ── Body with placeholder + empty string link → missing: true ───────────────
 {
-  const result = substituteBookingLink('Book here: {calendly_link}', '')
+  const result = substituteBookingLink('Book here: {booking_link}', '')
   expect('placeholder + empty string → missing: true', result, {
-    body: 'Book here: {calendly_link}',
+    body: 'Book here: {booking_link}',
     missing: true,
     substituted: false,
   })
@@ -59,9 +59,9 @@ console.log('\nsubstitute-booking-link tests\n')
 
 // ── Body with placeholder + whitespace-only link → missing: true ─────────────
 {
-  const result = substituteBookingLink('Book here: {calendly_link}', '   ')
+  const result = substituteBookingLink('Book here: {booking_link}', '   ')
   expect('placeholder + whitespace-only → missing: true', result, {
-    body: 'Book here: {calendly_link}',
+    body: 'Book here: {booking_link}',
     missing: true,
     substituted: false,
   })
@@ -70,7 +70,7 @@ console.log('\nsubstitute-booking-link tests\n')
 // ── Body with multiple placeholders → all substituted ────────────────────────
 {
   const result = substituteBookingLink(
-    'Click {calendly_link} or {calendly_link} to book.',
+    'Click {booking_link} or {booking_link} to book.',
     'https://cal.com/doug/30min',
   )
   expect('multiple placeholders → all substituted', result, {

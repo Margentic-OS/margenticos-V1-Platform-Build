@@ -11,7 +11,7 @@
   },
   "tierHint": 3,
   "faqMatches": [],
-  "includeCalendlyHint": false,
+  "includeBookingHint": false,
   "signalId": "00000000-0000-0000-0000-000000000108",
   "prospectId": "00000000-0000-0000-0000-000000000208",
   "expected_behaviour": "Tier 3. Draft should acknowledge the complexity without pressing for details. Short, open, no pressure. ambiguity_note should flag that 'it's complicated' could mean many things — internal decision process, budget discussion, existing agency. alternative_directions should include: (a) open invitation to share what makes it complicated, (b) low-pressure 'no action needed, just flagging we're here when ready.'"

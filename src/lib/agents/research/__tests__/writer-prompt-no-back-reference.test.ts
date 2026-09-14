@@ -175,7 +175,7 @@ describe('the bare-pronoun rewrites stay rewritten', () => {
   // forms themselves.
   const PINNED = [
     'The right buyers hear the talk on the day. Then the event ends, and most buyers do not follow up first.',
-    'Drivers pass your orchard sign at fifty miles an hour. Hardly anyone turns into an unfamiliar farm gate.',
+    'Hardly anyone turns into an unfamiliar farm gate at fifty miles an hour.',
     'The parents who hear the violins at a pupil concert tend to need a nudge before they become an order.',
   ]
   const flat = readFileSync(FILE, 'utf8').replace(/\s*\n\s*/g, ' ')

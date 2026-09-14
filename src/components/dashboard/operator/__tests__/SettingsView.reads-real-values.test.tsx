@@ -28,7 +28,7 @@ afterEach(cleanup)
 const ORG: OrganisationSettings = {
   id: '00000000-0000-4000-8000-000000000001',
   name: 'Example Org',
-  calendly_url: null,
+  booking_url: null,
   auto_approve_window_hours: 72,
   auto_held_window_hours: 48,
   monthly_meetings_target: 10,
@@ -63,9 +63,11 @@ describe('the placeholder is gone', () => {
     const input = screen.getByLabelText(/client booking link/i) as HTMLInputElement
     // Positive control: the field exists and is the one under test.
     expect(input).toBeInTheDocument()
-    // ORG.calendly_url is null, so the field must be empty rather than showing a sample.
+    // ORG.booking_url is null, so the field must be empty rather than showing a sample.
     expect(input.value).toBe('')
-    expect(document.body.textContent).not.toMatch(/calendly\.com/i)
+    // No link text of any kind, from any tool. The only URL in the component is the input's
+    // placeholder attribute, which textContent does not include.
+    expect(document.body.textContent).not.toMatch(/https?:\/\//)
   })
 
   it('never claims a verification date, because no column holds one', () => {
@@ -136,10 +138,41 @@ describe('empty values', () => {
     expect(screen.getAllByText('Not set up').length).toBeGreaterThanOrEqual(2)
   })
 
+  // The no-link note used to say "A positive reply is sent without one until it is set
+  // here." Neither reply path did that: the automatic one failed and sent nothing, and a
+  // draft carrying the link placeholder fails at send. Since 2026-09-10 a booking reply
+  // with no link is held as a draft for the operator, and the note says so.
+  it('says a positive reply is held as a draft when there is no booking link', () => {
+    render(<SettingsView organisation={ORG} integrations={REGISTRY} clientRequested />)
+
+    // Positive control: the no-link note is rendering at all.
+    expect(screen.getAllByText('Not set up').length).toBeGreaterThanOrEqual(1)
+    expect(document.body.textContent).toMatch(
+      /held as a draft for the operator instead of being sent automatically/i,
+    )
+    // The old sentence promised a send that no path makes.
+    expect(document.body.textContent).not.toMatch(/sent without one/i)
+  })
+
+  it('does not show the held-as-draft note once a link is set', () => {
+    render(
+      <SettingsView
+        organisation={{ ...ORG, booking_url: 'https://example.test/book/30min' }}
+        integrations={REGISTRY}
+        clientRequested
+      />,
+    )
+
+    // Positive control: the link is what the field shows.
+    const input = screen.getByLabelText(/client booking link/i) as HTMLInputElement
+    expect(input.value).toBe('https://example.test/book/30min')
+    expect(document.body.textContent).not.toMatch(/held as a draft/i)
+  })
+
   it('renders the real values when they are present', () => {
     const filled: OrganisationSettings = {
       ...ORG,
-      calendly_url: 'https://example.test/book/30min',
+      booking_url: 'https://example.test/book/30min',
       founder_first_name: 'Alex',
     }
     render(<SettingsView organisation={filled} integrations={REGISTRY} clientRequested />)

@@ -18,8 +18,8 @@
       "score": 0.71
     }
   ],
-  "includeCalendlyHint": false,
+  "includeBookingHint": false,
   "signalId": "00000000-0000-0000-0000-000000000101",
   "prospectId": "00000000-0000-0000-0000-000000000201",
-  "expected_behaviour": "Should produce a Tier 2 draft that explains the process briefly using the FAQ answer as the basis. Conversational, not salesy. Should end with a soft suggestion toward a next step. No booking CTA since includeCalendlyHint is false. Under 120 words."
+  "expected_behaviour": "Should produce a Tier 2 draft that explains the process briefly using the FAQ answer as the basis. Conversational, not salesy. Should end with a soft suggestion toward a next step. No booking CTA since includeBookingHint is false. Under 120 words."
 }

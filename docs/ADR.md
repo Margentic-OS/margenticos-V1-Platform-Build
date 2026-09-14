@@ -541,7 +541,7 @@ ICP geography derivation (icp-geography-agent): claude-opus-4-6
   route. Every other Anthropic client in the codebase still inherits the SDK defaults, and
   that is a known gap rather than a decision.
 Fit dimension derivation (fit-dimensions-agent): claude-opus-4-6, temperature 0
-  Added 2026-09-11 with ADR-057. Opus for the same reason as the two derivations above: it
+  Added 2026-09-11 with ADR-058. Opus for the same reason as the two derivations above: it
   reads a client's profile and decides which conditions it names and which of them research
   could ever show, which is a reading task. It runs ONCE PER ICP APPROVAL, in parallel with
   the geography call, so the promotion path now makes THREE model calls. Bounded like the
@@ -4699,6 +4699,97 @@ reverting, or the pair-list test fails.
 
 ---
 
+## ADR-052 — The hourly auto-approve job is paused, not fixed
+
+**Date:** 2026-09-10
+**Status:** Accepted
+
+### What the job is
+
+`POST /api/cron/auto-approve`, triggered by pg_cron job `auto-approve`. For every pending
+`document_suggestions` row that is not a client revision, once
+`organisations.auto_approve_window_hours` (default 72) has elapsed, it calls
+`approve_document_suggestion`, which makes an agent's suggestion the live strategy
+document. Twelve hours before that it emails the operator a reminder.
+
+### It was never authorised
+
+ADR-002: "Agents write to document_suggestions. Doug reviews and approves." and
+"Auto-approve (phase four) adds one field and one condition." CLAUDE.md: "Auto-approve:
+phase four only. Do not build in phase one." PRD 07: "Auto-approve (phase four — do not
+build)".
+
+It was built on 2026-04-23 (`679d40a`, on Vercel Cron) and moved to pg_cron on 2026-06-05
+(`2880866`), where it ran hourly from then on: 2,337 runs to 2026-09-10.
+
+ADR-047 says the job was "not touched". That records that ADR-047 did not decide it. It is
+not an authorisation.
+
+### It never approved anything
+
+It writes `reviewed_by = 00000000-0000-0000-0000-000000000001`. That id is in neither
+`public.users` nor `auth.users`, and `document_suggestions.reviewed_by` has a foreign key
+to `users`, so any approval it attempts rolls back.
+
+Measured 2026-09-10: 0 of 92 suggestions carry that id. Every heartbeat since heartbeats
+began on 2026-08-09 reads either "No pending suggestions" or "Processed 0 suggestions", so
+it never even reached a due suggestion and the foreign key never actually fired. The first
+would have been a messaging suggestion generated on 2026-09-10, due at 2026-09-13 19:50 UTC,
+preceded by a reminder email at 08:30 announcing an approval that could not happen.
+
+The 13 strategy documents with `approval_source = 'auto'` (approved 2026-08-09 to 08-11)
+were promoted by a different job, the daily `strategy-doc-auto-approve`, which ADR-047
+retired.
+
+### The decision
+
+Paused. Not fixed, and not deleted. Automatically approving agent-written client copy is
+phase four, and nobody has decided to bring phase four forward.
+
+Paused with `cron.alter_job(..., active => false)`. `cron.unschedule` would delete the row
+and the only stored copy of its command, which carries a bearer token that cannot be written
+into a migration. Migration: `supabase/migrations/20260910230000_pause_auto_approve_cron.sql`.
+
+### Warning to whoever touches this next
+
+**The broken reviewer reference is the only thing that ever stopped this job.** Fixing it is
+not a bug fix: with the job running, it switches on automatic approval. Do not fix that
+foreign key, and do not resume the job, without first superseding this decision. The open
+Backlog row that proposes the foreign-key fix carries the same warning.
+
+Two further defects wait for anyone who resumes it. It reads the organisation's window as an
+array when PostgREST returns an object, so it always uses 72 hours whatever the organisation
+has configured. And the operator Settings page shows that window as if something acts on it.
+
+### What still works
+
+Manual approval, unchanged. The approve route calls `persistIcpFilterSpec`,
+`notifyAfterPromotion` and `triggerCascadeIfEligible` itself, and revise and revert call the
+first and third. Nothing lives only inside the paused job except the reminder email and the
+job's own heartbeat.
+
+### What the monitors say
+
+MON-001 reads the job's heartbeat and reports PROBLEM, "over 75 minutes ago", for as long as
+the job is paused. The transition raises one Sentry error. MON-025 adds "Declared and switched
+off: auto-approve". Both statements are true. They are left reporting it rather than taught to
+ignore it, so the pause stays visible to anyone reading the monitors.
+
+**Amended by ADR-054, 2026-09-11.** The paragraph above describes the monitors when this was
+written. `cron_schedule_registry.active` now declares auto-approve off, so MON-001 reads OK
+with the detail "Switched off, as declared", and MON-025 names the job under "Switched off, as
+declared" instead of failing on it. The pause is still visible in both detail lines, and a
+pause that nothing declares still reads PROBLEM on both.
+
+### Resume
+
+    SELECT cron.alter_job((SELECT jobid FROM cron.job WHERE jobname = 'auto-approve'), active => true);
+
+Since ADR-054 a resume also needs a migration declaring the job on (`active => true`), or
+MON-025 reads "Running, but declared off". Supersede this decision first.
+
+---
+
 ## ADR-053 — A client-facing count is read from our own records when the provider counts a different event, and a range whose numerator differs is removed as readily as one whose denominator does
 
 **Date:** 2026-09-08
@@ -4827,12 +4918,409 @@ Each turned tests red and each was reverted:
 
 The last three rows were run on 2026-09-10 at 415bfaf, where the chokepoint file and its test file are byte-identical to e28b8ee's, against the shared test database, and each was reverted. Counts are assertion failures only. Each run also had one hook timeout and one test-cleanup error from that shared database, not caused by the mutation and not counted. The org-scoping mutation is the one that had been left in place in a working tree on 2026-09-08; it was applied from the patch recovered from that tree, so the proof is of that exact change.
 
+
+## ADR-054 — A cron job can be declared off, and a monitor reads "off" only when the declaration and the live flag agree
+
+**Date:** 2026-09-11
+**Status:** Accepted. Built on branch `cron-registry-sync` at Doug's instruction; merged to
+main on 2026-09-11, after `auto-approve-pause`.
+**Amends ADR-052's "What the monitors say"** (above). ADR-052 left MON-001 red for the pause
+on purpose so it stayed visible. On 2026-09-11 Doug asked for a deliberate pause to read as
+off rather than failing. This records how, and what
+stops it from hiding a real stall.
+
+### Context
+
+DATABASE-EVIDENCED, production, 2026-09-11. Two monitors red, zero faults between them:
+
+- **MON-025 PROBLEM**, naming eleven jobs. `20260910140000_stagger_cron_offsets.sql` moved
+  them with `cron.alter_job` and did not touch `cron_schedule_registry`, last updated
+  2026-09-04. It also said "Declared and switched off: auto-approve".
+- **MON-001 PROBLEM**, "over 75 minutes ago". auto-approve was paused on 2026-09-10
+  (ADR-052). Nothing anywhere declared the pause, so the monitor could not tell it from a
+  stall.
+
+### Why the stagger left the registry behind
+
+1. **The registry is a second list kept in step with the migrations by hand.** That is the
+   parallel-array shape CLAUDE.md warns about. The stagger changed the first list.
+2. **The test that exists to force the second list was blind to the statement.**
+   `cron-schedule-registry.test.ts` matched `schedule := '...'`; the stagger wrote
+   `schedule => '...'`, the standard named-argument notation. Measured: 0 of 11 read. The
+   files therefore still appeared to declare the old schedules, the old seed agreed with them,
+   and the test passed 8 of 8 on `e4c2161` while MON-025 was red over exactly that drift. Its
+   only guard on `alter_job` was `toBeGreaterThanOrEqual(0)`, which cannot fail.
+3. **Nothing makes the suite run before a migration is applied.** There is no CI
+   (no `.github/` workflows), and migrations reach production through the MCP straight from a
+   branch.
+
+**Could a test have caught it before it was applied?** Yes, the existing one, had it read
+`=>`: it reads files, needs no database, and so could have gone red the moment the stagger file
+was written. But only if someone ran it before the MCP apply, and nothing requires that.
+
+### Decision
+
+1. **`cron_schedule_registry.active`** holds the declared on/off state. It is held to the
+   migration files by the same test as `schedule`: `cron.alter_job(..., active => false)` in a
+   migration declares a job off. The registry cannot be flipped to off by hand without that
+   test refusing it.
+2. **MON-025** fails on a job switched off that is declared on, and on a job running that is
+   declared off. A job switched off AS DECLARED is not a finding and is named in the detail
+   line, so it is never hidden.
+3. **MON-001** reads OK, detail "Switched off, as declared", only when ALL of: the pg_cron job
+   is inactive, the registry declares it off, and it has not reported a run in 75 minutes.
+   `IS FALSE` rather than `= false`, so a missing job or a missing registry row is NULL and
+   never counts as off. Anything less falls through to the heartbeat branches, unchanged.
+   Switched off with no declaration is PROBLEM. Declared off but reporting runs is PROBLEM:
+   for auto-approve that means something is calling a job ADR-052 says must not run.
+4. **OK, not a fourth state.** `monitor_events.state` accepts OK, PROBLEM and UNKNOWN. ADR-035
+   settled the collapse: the light answers "should you act", the detail answers "what is
+   known". A deliberate pause needs no action. UNKNOWN would claim the monitor could not read
+   its inputs, which is false, and a resting UNKNOWN makes a check born dark.
+5. **auto-approve is declared off in this ADR's own migration too.** When this was written,
+   ADR-052's pause file was applied in production but lived only on the unmerged
+   `auto-approve-pause` branch, so main's files declared the job on and a rebuild from main
+   would have re-enabled it. Both are now on main, so the pause is declared twice, by
+   `20260910230000` and `20260911120000`. Both say off and the registry test takes the later,
+   so they cannot disagree. The second is conditional on the job being active; in production
+   it was not, so it called nothing.
+
+### Deliberately not done
+
+- **No grey OFF light.** The board shows a green OK with the detail saying off. A true fourth
+  state means changing the `monitor_events` CHECK constraint, the sweep's types,
+  `src/lib/monitor/check-state.ts` and the monitor page. Not in scope.
+- **Only MON-001 reads the declaration.** MON-002 to MON-005 and MON-010 watch jobs that are
+  all on today. The first time one of those is paused, give it the same two-sided test.
+
+### Consequences
+
+- Pausing a job now needs a migration with `active => false` for the monitors to accept it.
+  Pausing by hand leaves MON-025 and MON-001 both red. That is the point of the design.
+- Resuming auto-approve now needs a migration with `active => true` as well as the one-line
+  `alter_job`, or MON-025 goes red with "Running, but declared off". ADR-052 already requires
+  superseding it first.
+
+### Verified
+
+DATABASE-EVIDENCED, production, 2026-09-11, immediately after applying: MON-025 OK, MON-001 OK
+("Switched off, as declared"), MON-024 OK, every `cron.job` row identical to a capture taken
+before (the conditional pause called nothing), grants unchanged in both directions. Nine live
+probes, two of them against mutated views, are recorded in the header of
+`20260911120000_cron_registry_declares_stagger_and_pause.sql`.
+
+CODE-EVIDENCED at `e8520af`, each mutation reverted and the file checked afterwards:
+
+| Mutation | Result |
+|---|---|
+| the registry migration removed | 2 red, naming all 11 stagger schedules and auto-approve not declared off. This is what the fixed test would have said about the stagger before it was applied |
+| parser back to `:=` only | 8 red |
+| MON-001 "off" keyed on the live flag alone | 2 red |
+| MON-001 staleness branch deleted | 2 red |
+
+
+## ADR-055 — A monitor alert waits for a second consecutive failing sweep; the first failure is recorded at once
+
+**Date:** 2026-09-11
+**Status:** Accepted. Built on branch `cron-registry-sync` at Doug's instruction; merged to
+main on 2026-09-11.
+
+### Context
+
+DATABASE-EVIDENCED, production `monitor_events`, 2026-09-10 18:00 to 2026-09-11 14:05 UTC:
+19 PROBLEM transitions across six checks, each followed by OK.
+
+    MON-005 x8   MON-002 x4   MON-027 x2   MON-016 x2   MON-026 x2   MON-021 x1
+
+The sweep raised a Sentry error at every transition to PROBLEM, and Sentry is what emails the
+operator: about nineteen emails, zero standing faults. 16 of the 19 cleared on the very next
+sweep. The cause is the Supabase gateway cutting reads at five seconds inside the jobs being
+watched, which is recorded in the Backlog and is not addressed here.
+
+Nothing else alerts on monitor state. Checked: no trigger on `monitor_events` (live
+`pg_trigger`, with `cron.job`'s trigger as the positive control), and none of the files that
+send email reads `monitor_events`.
+
+### Decision
+
+- The first PROBLEM reading is **recorded at once**, exactly as before, with
+  `alert_pending = true`. The dashboard, the badge and the history show it immediately.
+- The alert goes out on the **second consecutive PROBLEM reading**. It is claimed with a
+  conditional update first, so two overlapping sweeps cannot both send it. A claim that errors
+  still sends, because a duplicate email is cheaper than a lost one.
+- A recovery to OK or UNKNOWN before that drops the owed alert and resolves the row as usual.
+- A failed view read is not a reading: nothing is recorded, resolved or sent, and the owed
+  alert stays owed. UNKNOWN is recorded as UNKNOWN and never alerted.
+
+### Why a column on the event row
+
+The decision needs one bit of memory per open PROBLEM: has its alert gone out. The open PROBLEM
+row is already where the sweep looks, so the bit lives there. Its default, `false`, is exactly
+true of every row the old sweep wrote, because the old sweep alerted on the spot. So the
+migration can be applied ahead of the code, with no backfill, and the deploy cannot re-send an
+alert for a problem that was already emailed.
+
+### Cost, stated so it is not discovered later
+
+- **A real fault emails up to one sweep later**, 15 minutes. The dashboard is not delayed.
+- **3 of the 19 would still have sent**: MON-026 twice and MON-021 once. Both hold a single
+  failed run red for longer than a sweep by their own design (MON-026 reads a verdict written
+  every 30 minutes; MON-021 counts failures over 60 minutes). Two consecutive sweeps is the
+  wrong unit for those two; that is a per-check question, not a sweep question.
+
+### Verified
+
+DATABASE-EVIDENCED, 2026-09-11: `alert_pending` is live on production (recorded
+`20260911143130`) and the test project (`20260911143133`), `boolean NOT NULL DEFAULT false`.
+All 120 existing production rows read false. Grants on `monitor_events` unchanged in both
+directions. The deployed sweep, which predates this code, ran at 14:35:03 UTC against the new
+column with `ok=true`. The rule itself is not live until this branch merges and deploys.
+
+CODE-EVIDENCED at `36f8063`, each mutation reverted and the file checked afterwards:
+
+| Mutation | Result |
+|---|---|
+| alert on the first failure (the old line put back) | 6 red |
+| never alert | 5 red |
+| UNKNOWN recorded as OK | 1 red, "records a check that cannot read its input as UNKNOWN" |
+| a failed view read counted as an OK reading | 1 red, "treats a sweep that cannot read the view as no reading" |
+| claim guard removed | 1 red, "sends once when two sweeps overlap" |
+| `alert_pending` dropped from the select | 4 red, which is the fake honouring the column list |
+
+## ADR-056 — Booking detection moves to Cal.com through one signed webhook; an unmatched booking is recorded and never billed automatically; Calendly is removed
+
+**Date:** 2026-09-11
+**Status:** Accepted. Built on branch `calcom-booking`, not yet merged.
+**Supersedes** the 2026-07-28 decision "Clients book on their own connected Calendly" on the TOOL,
+and upholds its reasoning: a client's booking link must be wired to their real diary. The
+decision is in the Notion Decisions Log, "DECIDED — Cal.com replaces Calendly as the booking tool".
+
+### Context
+
+The Calendly route had five independent faults, each enough to stop detection on its own. Its
+secret was set in no environment. Its signature check did not match Calendly's format. It read
+the database through the login-based client, as an anonymous visitor with no permission to read
+clients or write meetings. It attached every booking to whichever organisation came back first.
+And it discarded any booking it could not match while answering 200. Its tests passed because
+they signed in the same wrong format. DATABASE-EVIDENCED on 2026-09-11: production `meetings`
+held 0 rows. It had never recorded a meeting.
+
+### Decision
+
+1. **One route, authenticated only by its signature.** `POST /api/webhooks/cal-com` reads the RAW
+   body before any parsing, verifies `x-cal-signature-256` (hex HMAC-SHA256 under
+   `CALCOM_WEBHOOK_SECRET`), and only then uses the service-role client. The route and the secret
+   are vendor-named on purpose: a second booking tool gets its own route and secret.
+2. **A vendor-neutral core.** `src/lib/integrations/handlers/cal-com/webhook.ts` is the only
+   Cal.com-aware code, and turns a payload into a `BookingEvent`. `src/lib/meetings/record-booking-event.ts`
+   knows no vendor. `meetings.source = 'webhook'` records how a row arrived; the registry
+   (`can_book_meeting`) records which tool serves it.
+3. **The client is found by the seat that hosted the booking.** `organisations.booking_host_ref`
+   holds the hosting seat's email, lowercased and unique. We own one Cal.com organisation; each
+   client will be a seat in it. TODAY THERE IS ONE SEAT, OURS. Client seats drop in by setting the
+   column on the client's organisation; no code changes. No client is covered yet.
+4. **The prospect is found by a reference carried on our link, then by email.**
+   `buildProspectBookingLink` adds `prospect_ref=<prospect id>` on both reply send paths. Cal.com
+   copies it into a hidden booking question named `prospect_ref` (a manual setup step) and returns
+   it. It is accepted only for a prospect of the hosting client, so it can never attach a meeting
+   across clients. The fallback is a case-insensitive email match with LIKE wildcards escaped and
+   an exact comparison; more than one match is treated as none rather than guessed.
+5. **Nothing answers success while discarding a booking.** No matching prospect: a meetings row with
+   `prospect_match = 'none'`, and an operator email. A seat that belongs to no client: a row in
+   `unattributed_bookings` (service-role only), and an operator email. A database failure answers
+   500 so the provider can retry.
+6. **A repeated delivery is a no-op**, enforced by the database's unique keys on
+   `meetings.booking_uid` and `unattributed_bookings (provider, provider_booking_uid)`.
+7. **Created, cancelled and rescheduled are distinct.** A cancellation changes only a meeting still
+   at 'booked'; a person's held or no-show decision is never overturned. A reschedule moves the row
+   onto the new booking uid instead of making a second meeting, and an undecided meeting that a
+   cancellation reached first goes back to 'booked'.
+8. **Meeting-ended is ignored.** It fires at the scheduled end time whether or not anyone attended.
+   Held stays an operator judgement. It must never be wired to held or billable.
+9. **Auto-held never bills a meeting with no prospect**, filtered on both its read and its update.
+10. **Calendly naming is gone from the product.** `booking_url`, the `{booking_link}` placeholder
+    (one constant, `BOOKING_LINK_PLACEHOLDER`), `include_booking_hint`, and
+    `booking_link_required_but_missing`. The column, the placeholder, the substitution and the
+    drafting prompt changed in one commit, with a test that reads the real prompt.
+11. **No template token reaches a prospect.** A final check on both reply send paths refuses any
+    body still carrying a braced or percent-encoded token. Built first, because the rename changes
+    the placeholder on both sides.
+12. **The migration is in two halves.** The additive half (`20260911160000_booking_detection_additive.sql`)
+    is applied to both databases. The destructive half runs only after merge, on Doug's explicit yes.
+
+### The destructive half: NOT APPLIED. After merge, on Doug's explicit yes only.
+
+Deliberately not a file in `supabase/migrations/`, where anything replaying the folder would run it.
+Pre-checks, all on BOTH databases:
+
+    SELECT count(*) FROM meetings WHERE source = 'calendly';                         -- expect 0
+    SELECT name, calendly_url, booking_url FROM organisations
+     WHERE calendly_url IS DISTINCT FROM booking_url;                                -- review every row
+
+Then:
+
+    UPDATE public.organisations SET booking_url = calendly_url
+     WHERE booking_url IS NULL AND calendly_url IS NOT NULL;
+    ALTER TABLE public.organisations DROP COLUMN calendly_url, DROP COLUMN calendly_webhook_secret;
+    ALTER TABLE public.meetings DROP COLUMN calendly_event_uuid, DROP COLUMN calendly_invitee_uuid;
+    ALTER TABLE public.meetings
+      DROP CONSTRAINT meetings_source_check,
+      ADD CONSTRAINT meetings_source_check CHECK (source IN ('manual', 'webhook'));
+    DELETE FROM public.integrations_registry WHERE capability = 'can_book_meeting' AND tool_name = 'calendly';
+
+Dropping the two meetings columns drops their unique constraints and `idx_meetings_calendly_uuids`
+with them. Afterwards: read back on both databases, remove the four columns from
+`src/types/database.ts`, and regenerate `supabase/baseline/schema.sql`.
+
+### What this cannot prove yet
+
+- That Cal.com copies a URL parameter into the hidden question and returns it in
+  `payload.responses`. Cal.com documents hidden questions filled from the URL, and metadata only
+  for embeds. It is proven only by a real booking through a real link. Until then, email is the
+  match that works.
+- That the free solo tier delivers webhooks at all. The decision page lists it as unverified, and
+  the 2026-09-11 manual proof showed a booking and confirmation emails, not a delivery to us.
+
+### Deliberately not changed
+
+- A person confirming held on an unmatched meeting, through the confirm route, can still make it
+  billable. Held is a human judgement, and only the automatic path is closed.
+- The client's own metrics count an unmatched booking as a booked meeting. Filed on the Backlog.
+- `unattributed_bookings` has no retention sweep. The retention decision is filed on the Backlog.
+
+### Mutation proofs, each reverted after the run
+
+| Commit | Mutation | Result |
+|---|---|---|
+| 56e34e3 | guard removed from the approved-draft send | 1 red |
+| 56e34e3 | guard removed from the automated booking reply | 1 red |
+| 3eeb585 | placeholder constant back to the old token | 9 red: drafts stopped receiving a link |
+| 3eeb585 | prompt teaches the old placeholder | 2 red |
+| 3eeb585 | agent sends the old hint key | 1 red |
+| 79fcd88 | signature check removed | 2 red |
+| 79fcd88 | signature over re-serialised JSON, not the raw bytes | 1 red |
+| 79fcd88 | unmatched booking returned early instead of recorded | 2 red |
+| 79fcd88 | repeated-delivery handling removed | 1 red |
+| 79fcd88 | meeting-ended mapped to a handled event | 2 red |
+| 79fcd88 | no-prospect exclusion removed from auto-held read AND update | 1 red |
+| 79fcd88 | removed from the read only, or the update only | green, by design: each is a full guard |
+
+### Addendum, 2026-09-11 (after merge): every refusal says which one it was
+
+"Our secret is not configured", "Cal.com sent no signature", "the signature is not a real one"
+and "the two secrets differ" all look like "the booking never arrived" from outside, and nobody
+can read either secret back to compare. Before this change the last three were one answer:
+401 "Invalid signature", with one log line. So "Cal.com's webhook has no secret" could not be
+told from "the two secrets differ".
+
+Each refusal now carries a reason code (`secret_not_configured`, `signature_missing`,
+`signature_malformed`, `signature_mismatch`) in its response, and a Sentry record titled
+`cal-com webhook refused: <reason>` that explains it in plain words and describes our secret by
+presence, length and length-without-surrounding-whitespace only. The value is never logged,
+returned or sent. Sentry groups by title, so a flood of bad requests is one issue with a count.
+Proved in `route-refusals.test.ts`, including a search of every log line, record and response
+for the secret.
+
 ---
 
-## ADR-057 — The research fit grade is computed in code from the judge's reading of each dimension, and the dimensions are fixed per client when the ICP is approved
+## ADR-057 — Attendance cannot be detected, so held is a permanent human judgement; the 72-hour auto-held job is removed, and an unconfirmed meeting bills at the end of the following month with its basis recorded
+
+**Date**: 2026-09-12
+**Status**: Accepted
+
+### Context
+
+Booking detection went live on 2026-09-11 (ADR-056). The question it left open was how a
+booked meeting becomes a BILLED meeting.
+
+**Attendance cannot be detected automatically, and this is permanent.** Cal.com's automatic
+"didn't join" triggers, `AFTER_HOSTS_CAL_VIDEO_NO_SHOW` and
+`AFTER_GUESTS_CAL_VIDEO_NO_SHOW`, fire only for bookings using Cal's own video product. Every
+client seat is wired to the client's own calendar using the client's own video tool: Google
+Meet, Teams or Zoom, and only rarely Cal Video. So those triggers will never fire for a client
+meeting. Cal.com exposes no attendee RSVP field either, and a meeting bot is ruled out: a bot
+cannot be made invisible, and it will not be put in front of a prospect.
+
+What Cal.com does offer after a meeting is `MEETING_ENDED`, which fires at the scheduled end
+time for every booking whether or not anybody attended, and `BOOKING_NO_SHOW_UPDATED`, which
+fires when a host marks an attendee absent BY HAND. The first is a clock. The second is a
+person. Only the second is evidence.
+
+**And a job was already billing without a person.** `resolve-auto-held` marked every booked
+meeting held and billable 72 hours after its scheduled start, recorded as
+`held_confirmed_by = 'auto'`. It was built on 2026-06-15 and it was never part of the pricing
+decision of 2026-08-24, which bills an unconfirmed meeting at the end of the FOLLOWING MONTH.
+With booking detection live, the first real booking would have been billed three days after
+the meeting whether or not anyone attended.
+
+### Decision
+
+**Held versus no-show is a human judgement, permanently. The design does not work around
+that, it is built on it.**
+
+1. **The primary path is client confirmation.** After a meeting's scheduled end the client is
+   asked, in one click, whether it happened. The link carries a signed token naming one
+   meeting of one organisation and needs no login. It expires AFTER the billing deadline, so
+   it cannot die while the client still has time to answer.
+
+2. **The 72-hour job is gone.** Paused live and declared off in `cron_schedule_registry`
+   (20260911210000), and its route and library deleted. The pg_cron row is left paused rather
+   than unscheduled, because `cron.unschedule()` destroys the only copy of the command, which
+   carries a bearer token, and because MON-025 turns red if anybody switches a job on that the
+   registry declares off.
+
+3. **The monthly backstop stays, because it is a commercial term the client agrees to.** The
+   2026-08-24 decision stands unchanged: a meeting in month M rolls unconfirmed onto the M+1
+   invoice, and if still unconfirmed at the end of M+1 it bills automatically.
+
+4. **The deadline is a calendar date, never a number of days.** `bill_unconfirmed_after` holds
+   the last instant of the month after the meeting's month, UTC, computed once when the booking
+   is taken. A meeting on the 1st has about eight weeks; one on the 30th has about four.
+   Reminders work back from that date (14, 7 and 2 days before it) rather than forward from the
+   meeting, so a late-month meeting gets the same three chances, just closer together.
+
+5. **Every billable meeting records HOW it became billable**, in `billable_basis`:
+   `client_confirmed`, `operator_marked`, or `unconfirmed_backstop`. It is shown in words on
+   the operator screen, because a client asking about an invoice is asking exactly that.
+
+6. **Nothing is billed that the client was never asked about.** The backstop requires
+   `confirmation_sent_at`. A missing `JWT_SECRET`, a bounced address or an organisation with no
+   client user all leave the meeting unasked, and an unasked meeting past its deadline is
+   reported to the operator as a fault rather than billed.
+
+7. **A booking tool never makes a meeting billable.** `MEETING_ENDED` stamps
+   `outcome_requested_at` and nothing else. `BOOKING_NO_SHOW_UPDATED` records a no-show, which
+   is never billable, and only when an attendee actually carries `noShow: true`, because the
+   same trigger fires when a host UNMARKS someone. Neither overturns a decision a person has
+   already made.
+
+8. **Two database constraints, so the rules survive a future edit.**
+   `meetings_billable_records_its_basis` forbids a billable meeting with no basis, and
+   `meetings_billable_needs_a_prospect` forbids billing a booking that matched no prospect. Both
+   were added VALID (production held 0 meetings, the test project 0 billable rows) and both were
+   proved to BITE on the live test database with a probe that cannot commit.
+
+### Consequences
+
+- A client who never answers is still billed, at the end of the following month, and that is
+  deliberate. What changed is that it is no longer three days, and it never happens to a
+  client who was not asked.
+- `meeting_status` is NOT set to `held` by the backstop. Billing an unconfirmed meeting is a
+  consequence of silence, not a finding that anybody attended, and writing 'held' would put a
+  fact in the record that no person established.
+- mon_010 now reads the `meeting-outcomes` heartbeat instead of `resolve-auto-held`'s, keeping
+  the same `Examined N organisations` format contract and its organisation cross-check.
+- `organisations.auto_held_window_hours` is now read by nothing and still shows on the operator
+  Settings screen. Left in place deliberately rather than half-removed, and filed in the
+  Backlog.
+- The operator screen is the only surface where held or no-show can be recorded by hand, so it
+  is linked in the sidebar; `operator-page-reachability.test.tsx` enforces that.
+---
+
+## ADR-058 — The research fit grade is computed in code from the judge's reading of each dimension, and the dimensions are fixed per client when the ICP is approved
 Date: 2026-09-11 | Status: Accepted on branch judge-company-evidence, not merged
 
-Numbered 057 because origin/main reached ADR-056 while this branch was open.
+Numbered 058 because main reached ADR-057, the meeting outcome decision, while this branch was open.
 
 Context:
 The research synthesis call gave its own icp_fit. At temperature 0 on byte-identical input it

@@ -183,7 +183,7 @@ function createFakeDb() {
           eq: () => b,
           single: async () => ({ data: { id: 'org-1', archived_at: null }, error: null }),
           maybeSingle: async () => ({
-            data: { name: 'Org', calendly_url: null, founder_first_name: 'Sam' },
+            data: { name: 'Org', booking_url: null, founder_first_name: 'Sam' },
             error: null,
           }),
         }

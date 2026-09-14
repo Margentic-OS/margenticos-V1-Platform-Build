@@ -41,6 +41,11 @@ Fields:
                                      regardless of the automatic unlock rules (2 months / 5 meetings).
                                      Default false. Never exposed to clients via client_organisation_view.
   meetings_count      — running count of qualified meetings booked
+  booking_url         — the booking link sent to prospects in reply emails (2026-09-11, ADR-056;
+                        successor to calendly_url, which is dropped after merge). Tool-agnostic.
+  booking_host_ref    — the email of the booking-tool seat that hosts this client's bookings.
+                        Lowercased, trimmed, unique. A booking notification finds its client by
+                        this. NULL: no seat, and a booking from an unknown seat is quarantined.
   sourcing_revenue_filter_enabled — boolean NOT NULL DEFAULT false (2026-09-10). Per-client
                                      opt-in for the ICP revenue band as a sourcing filter. Read
                                      when the spec is derived at ICP approval, so a change
@@ -233,7 +238,7 @@ Fields:
                     two pieces of metadata no sourcing handler reads: buyer_criterion (who is
                     emailed, ADR-046) and fit_dimensions (the conditions the research fit
                     judge reads, each required or supporting and establishable or not, from
-                    which code computes icp_fit, ADR-057). A spec approved before 2026-09-11
+                    which code computes icp_fit, ADR-058). A spec approved before 2026-09-11
                     has no fit_dimensions, and that client's judge gives its own grade.
   plain_text      — plain text version for agent consumption
   status          — draft / active / archived
@@ -536,11 +541,87 @@ Fields:
   qualification — qualified / unqualified / pending
   qualification_notes
   revenue_value — for pipeline value tracking (nullable)
+  meeting_status — booked / held / no_show / canceled / rescheduled. THE status column the
+                  code reads and writes. The older `status` column above is read by nothing
+                  (Backlog, 2026-09-11).
+  source        — manual / webhook (plus calendly until the post-merge migration)
+  booking_uid   — the booking tool's id for the booking. UNIQUE: a repeated notification
+                  cannot create a second meeting. Moves to the new id on a reschedule.
+  prospect_match — link / email / none: how the booking was tied to a prospect. A none row
+                  has prospect_id NULL, is still a real record, and is never auto-billed.
+  attendee_email / attendee_name — who booked, so an unmatched meeting names a person.
   created_at / updated_at
+
+The outcome lifecycle (2026-09-12, ADR-057). Held versus no-show is a human judgement,
+permanently: the booking tool's automatic "didn't join" events need its own video product and
+every client seat uses the client's own Meet, Teams or Zoom, so they will never fire for a
+client meeting.
+
+  scheduled_start_at / scheduled_end_at — as the booking tool reported them. The END is what
+                  makes "has this finished, so we can ask about it?" answerable without
+                  assuming a duration.
+  outcome_requested_at — stamped when the slot has passed and a person is being asked. A
+                  meeting-ended notification sets ONLY this. It fires at the scheduled end
+                  time whether or not anyone attended, so it is never evidence of attendance.
+  confirmation_sent_at — when the client was actually emailed the one-click link. THE BACKSTOP
+                  REQUIRES IT: nothing bills that nobody was asked about.
+  last_reminded_at / reminder_count — reminders work BACK from the deadline (14, 7, 2 days
+                  before it), not forward from the meeting.
+  bill_unconfirmed_after — the deadline, as a CALENDAR DATE: the last instant of the month
+                  after the meeting's month, UTC, computed once when the booking is taken. A
+                  meeting on the 1st has about eight weeks, one on the 30th about four. Never
+                  a fixed number of days from the meeting.
+  is_billable    — whether this meeting is charged.
+  billable_basis — HOW it became billable: client_confirmed / operator_marked /
+                  unconfirmed_backstop. Shown in words on the operator screen, because a
+                  client asking why they were billed is asking exactly this.
+  held_confirmed_by — client / operator / host / auto. 'host' is a no-show marked by hand in
+                  the booking tool, which can only ever record a no-show. 'auto' was the
+                  retired 72-hour job and nothing writes it any more; it stays admissible so
+                  history remains writable (Backlog).
+
+Three CHECK constraints carry rules that used to live only in application code, so a later
+edit cannot drop them silently. Added 2026-09-12 as VALID (production held 0 meetings, the
+test project 0 billable rows) and both billable constraints were then proved to BITE on the
+live test database with a probe that cannot commit:
+
+  meetings_billable_records_its_basis   NOT is_billable OR billable_basis IS NOT NULL.
+                                        No meeting can be billable anonymously.
+  meetings_billable_needs_a_prospect    NOT is_billable OR prospect_id IS NOT NULL.
+                                        A booking that matched no prospect can never be
+                                        billed. This was a filter in the deleted auto-held
+                                        job; it is now a property of the table.
+  meetings_billable_basis_check         the three basis values above, and nothing else.
+
+Note what the monthly backstop does NOT write: meeting_status stays 'booked'. Billing an
+unconfirmed meeting is a consequence of silence, not a finding that anybody attended, and
+writing 'held' would put a fact in the record that no person established.
 
 RLS:
   Operator: full access
   Client:   read only, their own organisation (visible after pipeline unlock)
+
+  Client read-only is why the confirm route writes through the SERVICE-ROLE client. A client's
+  own update matched 0 rows, and the route used to read those 0 rows as "already recorded" and
+  thank them while writing nothing (fixed 2026-09-12).
+
+---
+
+## Table: unattributed_bookings
+
+A booking whose hosting seat maps to no organisation (2026-09-11, ADR-056). meetings needs an
+organisation, so such a booking cannot be a meeting, and it is never discarded. The operator is
+emailed on every new row.
+
+Fields:
+  id, provider (no default, written by the handler), provider_booking_uid,
+  host_ref, attendee_email, attendee_name, scheduled_start_at, cancelled_at,
+  first_seen_at, resolved_at, resolved_meeting_id
+  UNIQUE (provider, provider_booking_uid): a repeated notification is a no-op.
+
+RLS and grants (read back live on both databases 2026-09-11): RLS on, no policies;
+anon and authenticated hold no privileges; service_role only. Holds personal data with no
+client attached; retention is an open Backlog decision.
 
 ---
 
@@ -722,6 +803,7 @@ declares for it. Added 2026-09-03 alongside `mon_025`.
 |---|---|---|
 | `jobname` | text | primary key. Matches `cron.job.jobname`. |
 | `schedule` | text | The cron expression the migrations declare. Not necessarily what is live: the whole point is to detect when those differ. |
+| `active` | boolean | Whether the migrations declare the job ON. `false` means switched off on purpose. Added 2026-09-11, ADR-054. Default `true`. |
 | `declared_by` | text | The migration filename. Diagnostic, so a reader knows which file to open. |
 | `notes` | text | Plain English, for a row with a story. |
 | `updated_at` | timestamptz | |
@@ -746,10 +828,32 @@ table cannot be edited into agreement with a drifted database. Between the two h
 | Disagreement | Caught by | Where |
 |---|---|---|
 | live differs from the registry | MON-025 | production, continuously |
-| the registry differs from the files | the vitest scan | CI, before merge |
+| the registry differs from the files | the vitest scan | the test suite, before merge |
+
+There is no CI in this repository (no `.github/` workflows), so "before merge" means only
+when someone runs the suite. Nothing requires it to be green before a migration is applied
+through the MCP, which is how the stagger reached production with a stale registry.
 
 **Never edit this table on its own to turn MON-025 green.** If the live schedule is the
 correct one, add a migration declaring it, so a rebuild keeps it.
+
+**The scan was blind to the stagger (2026-09-10).** Its `cron.alter_job` parser read only
+`schedule := '...'` and the stagger wrote `schedule => '...'`, so it saw none of the eleven
+changes and passed while MON-025 was red. It now reads both notations and throws on any
+`alter_job` that changes a schedule or on/off state it cannot attribute to a job. ADR-054.
+
+**On and off (2026-09-11).** `active` is the declared on/off state, held to the files the same
+way as `schedule`: `cron.alter_job(..., active => false)` in a migration declares a job off.
+
+| Live | Declared | MON-025 | MON-001 (auto-approve) |
+|---|---|---|---|
+| on | on | fine | reads the heartbeat, as before |
+| off | off | fine, named in the detail | OK, "Switched off, as declared" |
+| off | on | PROBLEM, "Switched off, but declared on" | PROBLEM, "nothing declares it off" |
+| on | off | PROBLEM, "Running, but declared off" | reads the heartbeat |
+
+MON-001 reads "off" only when BOTH columns say off. A job paused by hand, with no migration
+declaring it, stays red on both monitors.
 
 RLS: enabled, no policies. Grants revoked from `anon` and `authenticated` by name and
 granted to `service_role`, because RLS with zero policies leaves the Supabase default grant
@@ -821,3 +925,25 @@ stored `monitor_events` row, not the view, so a rule change does not rewrite exi
 events: it takes effect the next time the sweep observes a genuine change, within 15
 minutes. Monitor state is system-wide. There is no `organisation_id` on `monitor_events`,
 `monitor_checks` or `cron_heartbeats`, and no client-facing route reads any of them.
+
+### When an alert goes out (2026-09-11, ADR-055)
+
+The sweep's only alert is a Sentry error, and Sentry is what emails the operator. It goes out
+on the **second consecutive PROBLEM reading**, not the first:
+
+| Sweep reads | What is written | Alert |
+|---|---|---|
+| first PROBLEM | a PROBLEM event, at once, with `alert_pending = true` | none yet |
+| PROBLEM again | nothing new; `alert_pending` cleared | **sent now** |
+| OK or UNKNOWN before that | the PROBLEM event resolved, `alert_pending` cleared; the new state recorded | never |
+| the view could not be read | nothing at all; the check is skipped | the owed alert stays owed |
+
+So the dashboard, the badge and the history show a failure the moment it is seen; only the
+email waits one sweep. `monitor_events.alert_pending` defaults to `false`, which is exactly
+right for every row the previous sweep wrote, since it alerted on the spot.
+
+It exists because 19 PROBLEM transitions across six checks overnight to 2026-09-11 each sent
+an email and each cleared by itself, 16 of them on the very next sweep. It cannot help a check
+whose own design holds one failed run red for more than a sweep: MON-026 reads a verdict
+written every 30 minutes and MON-021 counts failures over 60 minutes, so a single failed run
+behind either still alerts.

@@ -27,7 +27,7 @@ export interface IntegrationRow {
 export interface OrganisationSettings {
   id: string
   name: string
-  calendly_url: string | null
+  booking_url: string | null
   auto_approve_window_hours: number
   auto_held_window_hours: number
   monthly_meetings_target: number
@@ -231,8 +231,9 @@ function BookingLinkField({ orgId, initial }: { orgId: string; initial: string |
       {!error && saved === null && (
         <p className="text-[11px] text-text-secondary mt-2 leading-relaxed">
           <NotSetUp />{' '}
-          — this client has no booking link. A positive reply is sent without one until it
-          is set here.
+          — this client has no booking link. A positive reply is held as a draft for the
+          operator instead of being sent automatically, and a draft that includes the link
+          cannot be sent until one is set here.
         </p>
       )}
 
@@ -277,7 +278,7 @@ export function SettingsView({ organisation, integrations, clientRequested }: Se
               title="Booking link"
               subtitle="The only setting on this page that can be changed here."
             >
-              <BookingLinkField orgId={organisation.id} initial={organisation.calendly_url} />
+              <BookingLinkField orgId={organisation.id} initial={organisation.booking_url} />
             </Section>
 
             <Section

@@ -11,12 +11,12 @@ import { logger } from '@/lib/logger'
 const MAX_BOOKING_URL_LENGTH = 500
 
 /**
- * Sets or clears organisations.calendly_url for one client.
+ * Sets or clears organisations.booking_url for one client.
  *
  * ═════════════════════════════════════════════════════════════════════════════
  * THE COLUMN ALREADY EXISTED. THIS IS THE FIRST WRITE PATH TO IT.
  *
- * `calendly_url` has been on the organisation record since the reply-handling migration
+ * `booking_url` has been on the organisation record since the reply-handling migration
  * and is read live by process-reply.ts, which puts it in the reply a prospect receives.
  * Until now nothing could set it outside SQL, and it was NULL on both live client
  * organisations while the Settings page displayed an invented link that belonged to
@@ -25,15 +25,13 @@ const MAX_BOOKING_URL_LENGTH = 500
  * ═════════════════════════════════════════════════════════════════════════════
  * VALIDATED AS A URL, NEVER AS A VENDOR
  *
- * This deliberately does NOT require a Calendly address, and must not be changed to.
- * The locked decision of 2026-07-28 has two halves and only one of them is about Calendly:
- *
- *   "Sending prospects to a booking link is tool-agnostic and already open. Any link
- *    works." — and a client on another tool "uses their own connected instance of it".
- *
- * Only booking DETECTION is Calendly-specific, and detection is the webhook's business,
- * not this field's. Matching on a hostname here would put a vendor name in the application
- * layer, which is Rule Zero, and would refuse the exact case the decision anticipates.
+ * This deliberately does NOT require any particular booking tool's address, and must not
+ * be changed to. Sending prospects to a booking link is tool-agnostic: any link works.
+ * Only booking DETECTION depends on the tool (Cal.com since 2026-09-11, ADR-056), and
+ * detection is the webhook's business, not this field's. Matching on a hostname here
+ * would put a vendor name in the application layer, which is Rule Zero, and would refuse a
+ * client who books through a tool we do not detect, which is the case manual meeting
+ * recording exists for.
  *
  * https is required because the link is sent to prospects. http would be downgraded or
  * warned about by their mail client, on a link whose whole job is to be clicked.
@@ -98,7 +96,7 @@ export async function updateBookingUrl(
   // around it.
   const { error } = await supabase
     .from('organisations')
-    .update({ calendly_url: stored })
+    .update({ booking_url: stored })
     .eq('id', orgId)
 
   if (error) return { error: error.message }

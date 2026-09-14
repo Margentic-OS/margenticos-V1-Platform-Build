@@ -41,7 +41,7 @@ const say = (text: string) => ({
 /** The writer's four blocks, with whatever subject the test wants to try. */
 const writerReply = (subject: string) => say([
   'OBSERVATION: Two field roles are open across three depots.',
-  'BRIDGE: Capacity lands before the work that pays for it. That order is uncomfortable.',
+  'BRIDGE: Capacity lands before the work that pays for it.',
   'QUESTION: Is closing that gap something you are looking at?',
   `SUBJECT: ${subject}`,
 ].join('\n'))

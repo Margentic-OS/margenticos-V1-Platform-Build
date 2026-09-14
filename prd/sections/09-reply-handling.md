@@ -24,7 +24,7 @@ Definition:
 
 Response:
   Send automated reply within the same business hour.
-  Include the client's Calendly booking link.
+  Include the client's booking link (organisations.booking_url).
   Use the phrase "grab a slot" — warm, low-friction.
   Signed as: founder first name, last name, and title (e.g. "Doug Pettit, Founder & Head of Pipeline")
 

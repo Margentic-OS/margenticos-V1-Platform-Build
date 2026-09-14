@@ -18,8 +18,8 @@
       "score": 0.74
     }
   ],
-  "includeCalendlyHint": true,
+  "includeBookingHint": true,
   "signalId": "00000000-0000-0000-0000-000000000104",
   "prospectId": "00000000-0000-0000-0000-000000000204",
-  "expected_behaviour": "Tier 2 draft confirming yes, a team of 4 is in the sweet spot. Uses FAQ answer as the basis. Since includeCalendlyHint is true, weaves in a soft booking suggestion with {calendly_link} — NO duration specified ('grab a slot' or 'find a time', not '15 minutes'). Does NOT echo niche-specific phrases from the strategy docs ('founder-led consulting firms') — uses generic referents like 'your business' or 'firms like yours' instead. Confident, warm, no oversell."
+  "expected_behaviour": "Tier 2 draft confirming yes, a team of 4 is in the sweet spot. Uses FAQ answer as the basis. Since includeBookingHint is true, weaves in a soft booking suggestion with {booking_link} — NO duration specified ('grab a slot' or 'find a time', not '15 minutes'). Does NOT echo niche-specific phrases from the strategy docs ('founder-led consulting firms') — uses generic referents like 'your business' or 'firms like yours' instead. Confident, warm, no oversell."
 }

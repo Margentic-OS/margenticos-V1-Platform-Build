@@ -26,7 +26,7 @@
 // present there as markup, not as raw \n.
 //
 // MUTATION-PROVED. Removing the plainTextToHtml call in send-approved-draft.ts turns the
-// first describe block red; removing it in process-reply.ts's Calendly path turns the
+// first describe block red; removing it in process-reply.ts's booking-link path turns the
 // second red. Reverting reply-actions.ts to `body: { text }` turns both red.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -46,7 +46,7 @@ import { sendThreadReply } from '@/lib/integrations/handlers/instantly/reply-act
 const TEST_ORG = {
   name: 'ZZ Internal Test Org',
   founder_first_name: 'Alex',
-  calendly_url: 'https://booking.test/alex',
+  booking_url: 'https://booking.test/alex',
 }
 
 const TEST_SIGNAL = {
@@ -70,7 +70,7 @@ function createFakeDb() {
     tier: 2,
     status: 'approved',
     // Two paragraphs and a placeholder, so the assertion has real structure to check.
-    final_sent_body: 'Thanks for coming back to me.\n\nGrab a slot here: {calendly_link}',
+    final_sent_body: 'Thanks for coming back to me.\n\nGrab a slot here: {booking_link}',
     ai_draft_body: null as string | null,
   }
   const client: any = {
@@ -201,8 +201,8 @@ describe('the API boundary forwards html without composing it', () => {
 
 // ── The AUTOMATED path ────────────────────────────────────────────────────────
 //
-// The Calendly reply for a high-confidence booking intent sends WITHOUT an operator
-// seeing it. buildCalendlyReplyBody returns a greeting, a line carrying the booking link,
+// The booking reply for a high-confidence booking intent sends WITHOUT an operator
+// seeing it. buildBookingReplyBody returns a greeting, a line carrying the booking link,
 // and a sign-off, separated by blank lines. Under a text-only body all three arrived as
 // one run-on line, unreviewed, to a prospect who had just said they want to book.
 //
@@ -242,7 +242,7 @@ const AUTO_SIGNAL = {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function createAutoReplyDb() {
+function createAutoReplyDb(bookingUrl = 'https://booking.test/alex') {
   const client: any = {
     from(table: string) {
       const state: any = { values: undefined, mode: undefined }
@@ -287,7 +287,7 @@ function createAutoReplyDb() {
           select: () => b, eq: () => b,
           single: async () => ({ data: { id: 'org-1', archived_at: null }, error: null }),
           maybeSingle: async () => ({
-            data: { name: 'ZZ Internal Test Org', calendly_url: 'https://booking.test/alex',
+            data: { name: 'ZZ Internal Test Org', booking_url: bookingUrl,
                     founder_first_name: 'Alex' },
             error: null,
           }),
@@ -322,5 +322,19 @@ describe('the automated booking reply keeps its structure too', () => {
     // The booking link survived, and is not glued to the sign-off.
     expect(html).toContain('https://booking.test/alex')
     expect(html).not.toMatch(/email Alex/)
+  })
+
+  it('sends nothing when the booking reply would carry a template token', async () => {
+    // Nobody reviews this path, so the final check is the only thing between a token and
+    // the prospect. The token rides in on the stored link, which is the one part of this
+    // body that does not come from the fixed template.
+    classifyReplyMock.mockResolvedValue({
+      intent: 'positive_direct_booking', confidence: 0.99, reasoning: 'asked for a time',
+    })
+    const calls = captureRequestBody()
+
+    await processReplies(createAutoReplyDb('https://booking.test/{username}'), 'key')
+
+    expect(calls.find(c => 'reply_to_uuid' in c)).toBeUndefined()
   })
 })

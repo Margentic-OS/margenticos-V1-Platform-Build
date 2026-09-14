@@ -11,7 +11,7 @@
   },
   "tierHint": 3,
   "faqMatches": [],
-  "includeCalendlyHint": false,
+  "includeBookingHint": false,
   "signalId": "00000000-0000-0000-0000-000000000105",
   "prospectId": "00000000-0000-0000-0000-000000000205",
   "expected_behaviour": "Tier 3 hint with no FAQ. Draft should be a starting point addressing the industry question. Agent knows from positioning doc that MargenticOS is industry-agnostic. Draft should convey that the system works across B2B consulting regardless of industry. ambiguity_note should flag if the operator wants to speak to healthcare-specific examples. Under 80 words."

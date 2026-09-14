@@ -199,7 +199,7 @@ export async function getClientVisibleCampaignMetrics(
       .in('classified_intent', POSITIVE_REPLY_INTENTS),
 
     // meeting_status, not status. Both columns exist and both default to 'booked', but
-    // meeting_status is the one the Calendly webhook and the confirm route actually
+    // meeting_status is the one the booking webhook and the confirm route actually
     // write ('booked', 'held', 'no_show', 'canceled', 'rescheduled').
     supabase
       .from('meetings')
@@ -340,8 +340,8 @@ export async function getClientVisibleCampaignMetrics(
     // still produced by outreach.
     //
     // NOT CAMPAIGN-SCOPED, and that is deliberate rather than overlooked. meetings has a
-    // campaign_id column but the Calendly webhook, which is the only writer of meeting
-    // rows, never populates it: see webhooks/calendly/route.ts. The link exists one hop
+    // campaign_id column but the booking webhook, the only writer of booked meeting
+    // rows, never populates it: see webhooks/cal-com/route.ts. The link exists one hop
     // away through prospect_id -> prospects.campaign_id. Left alone because there is
     // currently one campaign per organisation, so the org-wide numerator and the
     // campaign-scoped denominator have no instance where they disagree. Recorded in

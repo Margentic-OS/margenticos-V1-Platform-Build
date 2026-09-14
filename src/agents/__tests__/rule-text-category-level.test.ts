@@ -58,7 +58,7 @@ const BANNED: Array<{ label: string; re: RegExp }> = [
   { label: 'named statute or regulation', re: /\b(GDPR|CCPA|HIPAA|Sarbanes[- ]Oxley|SOX|Companies Act|Data Protection Act)\b/ },
   { label: 'named standard or scheme', re: /\bISO ?\d{4,5}\b|\b(SOC ?2|PCI[- ]DSS|Cyber Essentials|B Corp)\b/i },
   // Companies. "Acme" is the sanctioned placeholder in Rule 9's Right/Wrong pair.
-  { label: 'named company', re: /\b(Accenture|McKinsey|Deloitte|KPMG|PwC|Bain|HubSpot|Salesforce|Instantly|Apollo|Taplio|Lemlist|GoHighLevel|Calendly|Sandler|Lean Enterprise Institute)\b/ },
+  { label: 'named company', re: /\b(Accenture|McKinsey|Deloitte|KPMG|PwC|Bain|HubSpot|Salesforce|Instantly|Apollo|Taplio|Lemlist|GoHighLevel|Calendly|Cal\.com|Sandler|Lean Enterprise Institute)\b/ },
 ]
 
 const ALLOWED_PLACEHOLDERS = [

@@ -114,8 +114,8 @@ The right pattern is a soft offer with a clear out:
    scope clarity, internal alignment. Use conditional framing: "if you want to plan
    ahead", "if it's useful for budgeting", "if having scope clarity now helps". Always
    conditional on what benefits them, never on closing the deal.
-3. Include the Calendly link with the soft offer — friction-removal, not pressure.
-   This applies even if `include_calendly_hint` is false, because the conditional
+3. Include the booking link with the soft offer — friction-removal, not pressure.
+   This applies even if `include_booking_hint` is false, because the conditional
    soft offer requires a frictionless booking option to be genuine.
 4. Explicitly defer back to their stated timeframe as the default path: "no pressure
    though, happy to circle back in [their timeframe]" or "we can revisit when [their
@@ -188,12 +188,14 @@ you may mirror it.
 - Tier 3 draft: aim for under 80 words. Starting points should be lean.
 - Minimum: 10 words. Anything shorter is treated as a failure.
 
-### Calendly hint
+### Booking hint
 
-When `include_calendly_hint` is true, the operator will insert a Calendly link in a
-specific spot. Your draft should weave a soft suggestion toward booking — but do NOT
-write the link itself. Use a placeholder "{calendly_link}" or naturally lead toward
-"happy to grab a slot" or "find a time that works" without inserting any URL.
+When `include_booking_hint` is true, a booking link will be inserted in a specific
+spot. Your draft should weave a soft suggestion toward booking — but do NOT write the
+link itself. Use the placeholder "{booking_link}" exactly as written, or naturally lead
+toward "happy to grab a slot" or "find a time that works" without inserting any URL.
+Never invent any other placeholder: a token that is not "{booking_link}" is never
+filled, and a draft carrying one cannot be sent.
 
 When the flag is false, do not suggest booking unless the prospect explicitly asked
 for a meeting — or unless the Timing objections rule applies (see below).
