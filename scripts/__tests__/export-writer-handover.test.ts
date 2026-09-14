@@ -39,12 +39,16 @@ const candidate: ObservationCandidate = {
 
 const ctx: ProspectContext = {
   id: 'p1', organisation_id: 'org1', segment_id: null, first_name: 'Sam', last_name: null,
-  company_name: 'Example Co', role: null, job_title: 'Founder', email: null, linkedin_url: null, website_url: null,
+  company_name: 'Example Co', country: null, role: null, job_title: 'Founder', email: null,
+  linkedin_url: null, website_url: null, company: null,
 }
 
 const stored = (relevance_reason: string | null) => ({
   result_id: 'r1',
   candidates: [candidate],
+  // The row fetched sources of its own. A reuse row carries findings and fetched none, which is
+  // what the reuse selector now ranks on first.
+  had_evidence: true,
   had_linkedin: true,
   created_at: '2026-09-01T00:00:00Z',
   synthesized_at: null,

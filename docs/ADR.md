@@ -540,6 +540,14 @@ ICP geography derivation (icp-geography-agent): claude-opus-4-6
   re-approves the document. This client is bounded so that its worst case fits inside the
   route. Every other Anthropic client in the codebase still inherits the SDK defaults, and
   that is a known gap rather than a decision.
+Fit dimension derivation (fit-dimensions-agent): claude-opus-4-6, temperature 0
+  Added 2026-09-11 with ADR-058. Opus for the same reason as the two derivations above: it
+  reads a client's profile and decides which conditions it names and which of them research
+  could ever show, which is a reading task. It runs ONCE PER ICP APPROVAL, in parallel with
+  the geography call, so the promotion path now makes THREE model calls. Bounded like the
+  geography client (60s x 3 attempts), and because the two run side by side their worst case
+  is the longer of the two, not the sum. Temperature 0 because its answer then fixes how every
+  prospect for that client is graded.
 Messaging generation agent: claude-sonnet-4-6 (see update note below)
 Reply drafting (reply-draft-agent): claude-sonnet-4-6
 Prospect research (synthesis, writer, floor judge, judge): claude-sonnet-4-6
@@ -5307,3 +5315,55 @@ that, it is built on it.**
   Backlog.
 - The operator screen is the only surface where held or no-show can be recorded by hand, so it
   is linked in the sidebar; `operator-page-reachability.test.tsx` enforces that.
+---
+
+## ADR-058 — The research fit grade is computed in code from the judge's reading of each dimension, and the dimensions are fixed per client when the ICP is approved
+Date: 2026-09-11 | Status: Accepted on branch judge-company-evidence, not merged
+
+Numbered 058 because main reached ADR-057, the meeting outcome decision, while this branch was open.
+
+Context:
+The research synthesis call gave its own icp_fit. At temperature 0 on byte-identical input it
+disagreed with itself on 8 of 20 prospects, and in 3 of those 8 the three checks it recorded
+were identical both times: the facts it read were stable and the final word was not. It was
+also re-deciding, on every call, which conditions the client's profile names and which of them
+research could ever show.
+
+Decision:
+1. When an ICP is approved, fit-dimensions-agent (claude-opus-4-6, temperature 0) breaks the
+   profile into conditions, each required or supporting and establishable by research or not,
+   each tied to the profile's own words. Stored on the spec as `fit_dimensions`: metadata, not a
+   filter field, so no sourcing handler reads it.
+2. When a list exists, the judge records match, miss, unknown or unestablished for each
+   dimension with a verbatim quotation, and is asked for no grade. Code computes it:
+     weak         a required dimension is a miss
+     cannot_tell  a required dimension research can establish is unknown, or nothing
+                  research can establish matched
+     strong       every dimension research can establish matched
+     moderate     otherwise
+3. A match or a miss whose quotation is not in the exact user message the judge was sent
+   counts as unknown. Establishability comes from the list, never from the judge: on an
+   establishable dimension "unestablished" counts as unknown, and on one research usually
+   cannot establish, silence never moves the grade, though a quoted miss on a required one does.
+4. No list, no change: the judge gives its own grade exactly as before, and the request is
+   byte-identical (checked by fingerprinting the request before and after).
+
+Alternatives rejected:
+- Several judge calls and a majority vote: multiplies the per-prospect cost and still leaves
+  the final word to the model.
+- Deriving the list inside each judge call: that is the re-deciding this removes.
+- Failing the approval when the list cannot be derived: a missing list changes nothing, while a
+  failed approval stops sourcing.
+
+Consequences:
+- Every client keeps today's grading until its ICP is re-approved. Nothing backfills the list,
+  because a backfill writes the client's spec.
+- The grade is only as good as the list, and the list only as good as the profile's wording. The
+  derived list sits on the spec and should be read before it is relied on.
+- The measured effect is in docs/prospect-research-agent-v2-state.md, "The judge reads each
+  dimension, and code gives the grade". On 15 prospects graded twice on identical input, the
+  grade disagreed with itself 2 times against 6 for the judge's own grade on the same 15, and
+  both remaining disagreements are one call in each pair hitting the 16,000-token output ceiling
+  and reaching no grade at all. Where both runs produced readings, the grade agreed 13 of 13.
+- The grade moved towards weak: 8 of 15 against 2 of 15. The rules are stricter than the judge's
+  summary judgement was, and every miss is quoted, so the move is readable rather than mysterious.
