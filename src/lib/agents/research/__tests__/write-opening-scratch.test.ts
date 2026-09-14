@@ -95,12 +95,23 @@ describe('SCRATCH block', () => {
     expect(parsed.bridge).toBe('That channel brings in work the partner network never reached.')
   })
 
-  it('a reply that is all SCRATCH and no email fails closed', () => {
-    const { parsed, gates } = gatesFor(`SCRATCH: ${DELIBERATION}`)
-    expect(parsed.observation).toBe('')
-    expect(parsed.bridge).toBe('')
-    expect(gates).toContain('writer returned no bridge')
-    expect(gates).toContain('writer returned no observation')
+  it('a reply that is all SCRATCH and no email is rejected, and the strip declines to act', () => {
+    // The strip requires the OBSERVATION anchor and does nothing without it, deliberately:
+    // stripping to end of string would destroy a valid email whose labels arrived in a
+    // shape the anchor did not match. So this text survives parsing, and the GATES are
+    // what reject it, exactly as they did before the block existed.
+    const { gates } = gatesFor(`SCRATCH: ${DELIBERATION}`)
+    expect(gates.length).toBeGreaterThan(0)
+    expect(gates.some(g => g.includes('hard cap'))).toBe(true)
+    expect(gates).toContain('writer returned no closing question')
+  })
+
+  it('the strip never removes an email: no OBSERVATION anchor, no strip', () => {
+    // The fail-dangerous version of this ended `|$)` and stripped to end of string. On the
+    // first run of the 33 that is not what broke, but it is the shape that would have
+    // turned any unrecognised label format into a silently empty email.
+    const odd = `SCRATCH: thinking\n**OBSERVATION:** the firm partnered with a marketplace.`
+    expect(parseWriterOutput(odd).observation).not.toBe('')
   })
 
   it('the prompt tells the writer the block exists and that it is discarded', () => {

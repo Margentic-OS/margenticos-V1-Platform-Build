@@ -971,7 +971,7 @@ its place. Nothing else about your answer is affected, so do not spend words def
 
 Return your answer as exactly five labelled blocks and nothing else, in this order:
 
-SCRATCH: <your thinking. Nobody reads this block and it is discarded after parsing, so do the weighing and the rejecting here, not in the blocks below.>
+SCRATCH: <your thinking, at most 120 words. Nobody reads this block and it is discarded after parsing, so do the weighing and the rejecting here, not in the blocks below.>
 OBSERVATION: <the thing you noticed, its own paragraph>
 BRIDGE: <the pattern, in one sentence, its own paragraph>
 QUESTION: <the closing question, ending in a question mark>
@@ -1874,14 +1874,17 @@ const SUBJECT_BLOCK = /(?:^|\n)[ \t]*SUBJECT:[\s\S]*$/i
  * It runs to the OBSERVATION line and to nothing else, deliberately. Stopping at whichever
  * label came first would let a scratch block that mentions "BRIDGE:" mid-thought end the
  * strip early and leave its own prose standing as a field, which is the failure this is
- * here to prevent. If OBSERVATION is absent the `|$` arm strips to end of string, leaving
- * nothing for the unlabelled fallback to mistake for an observation: a reply that is all
- * working and no email must fail, and it does, on the empty-bridge gate.
+ * IT REQUIRES THE OBSERVATION ANCHOR, AND STRIPS NOTHING WITHOUT IT. An earlier version
+ * ended `|$)`, so a reply with no line-initial OBSERVATION: was stripped to the empty
+ * string. That is the fail-dangerous direction: the strip destroys the email rather than
+ * declining to act. A reply with no OBSERVATION has no email to protect anyway, and the
+ * unlabelled fallback plus the length and empty-bridge gates already reject it, exactly
+ * as they did before this block existed.
  *
  * Anchored to a line start, so a prospect's own prose containing the word cannot eat the
  * reply. Absent from the output entirely, the strip is a no-op and parsing is unchanged.
  */
-const SCRATCH_BLOCK = /(?:^|\n)[ \t]*SCRATCH:[\s\S]*?(?=\n[ \t]*OBSERVATION:|$)/i
+const SCRATCH_BLOCK = /(?:^|\n)[ \t]*SCRATCH:[\s\S]*?(?=\n[ \t]*OBSERVATION:)/i
 
 /**
  * Splits the writer's five labelled blocks.
@@ -2005,7 +2008,14 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
       : `${assignment}\n\n## Findings\n\n${findings}\n\nWrite the observation, the bridge, the closing question and the subject line. Return ONLY the five labelled blocks.`
     // cacheSystem: the writer prompt is the big stable one, and this is the call that runs
     // up to three times per prospect.
-    const writerCall = await callModel(client, WRITER_MODEL, writerSystem, user, 700, `writer for prospect ${params.prospectId}`, true)
+    // 1100, RAISED FROM 700 WHEN THE SCRATCH BLOCK WAS ADDED, AND THE TWO MUST MOVE
+    // TOGETHER. The email is ~120 tokens of the budget and 700 covered it comfortably
+    // while the writer had nowhere to think. Given a block to think in, the first run of
+    // the 33 spent the WHOLE 700 on deliberation and was cut off mid-sentence before
+    // writing a single email field: 0 of 33 judge wins, against 23 of 33, with 64
+    // missing observations. A scratch block placed before the email can starve it, so
+    // the 120-word cap in the prompt and this ceiling are one mechanism in two places.
+    const writerCall = await callModel(client, WRITER_MODEL, writerSystem, user, 1100, `writer for prospect ${params.prospectId}`, true)
     record(writerCall.usage)
     const raw = writerCall.text
     const parsed = parseWriterOutput(raw)
