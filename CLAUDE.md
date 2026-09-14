@@ -528,6 +528,43 @@ too little**: a list of "still open" rows will contain items already done. The
 reverse error, concluding something exists when it has since been deleted, happens
 only where main REMOVED code, and is much rarer.
 
+### WORKTREE LIFECYCLE: cut per task, deleted when the branch merges
+
+**A worktree is deleted when its branch merges. A worktree is cut per task, from
+current `origin/main`.** Both halves are the rule; neither works alone.
+
+This is not tidiness. A worktree is a snapshot that never learns anything, and
+staleness is a function of age, unbounded and silent. **Any check that would tell a
+worktree it is out of date ships as versioned content inside that worktree**, so a
+checkout cut before the check does not contain it. That is definitional, not a gap
+to be fixed later.
+
+Measured 2026-09-14, the same shape twice in one day:
+
+  - 14 of 40 worktrees held a copy of `mon_006_per_row.test.ts` predating the
+    checked cleanup in `0e96f89`, and stranded test organisations on every run.
+  - 24 of 30 worktrees were cut before `vitest.global-setup.ts` existed and so took
+    no suite lock at all. One was caught mid-run against the shared test database
+    while the lock file reported nothing held. **The lock is the check, and its
+    absence is exactly the condition it would have detected.**
+
+Fixing main does not reach them. Purging is maintenance, not a fix: 40 worktrees,
+purged to 26, back to 30 within a day. Every new fix starts life adopted by a
+minority of the checkouts on this disk.
+
+**So a guard must detect the WORLD, not the configuration.** Three places staleness
+cannot reach, in descending order of reach: the shared `.git` (`core.hooksPath`
+hooks and `.git/config` are repo-wide and unversioned, and reach a worktree cut a
+year earlier, but fire only on git operations so they warn and cannot gate a test
+run); the machine (launchd, a process scan: the suite lock now refuses while any
+vitest runner is live here, lock or no lock); and the database. A guard that assumes
+universal adoption is exactly as strong as the oldest checkout on the disk, and
+nobody knows how old that is.
+
+In practice: after merging a branch, remove its worktree in the same breath. Never
+keep a worktree "in case". A name carrying a date (`phaseA-read-20260911`) is a
+worktree that outlived its task.
+
 **`git cherry` answers a different question than the one you are asking.** It
 compares by **patch-id**, so it reports a commit as unmerged whenever the surrounding
 context has drifted, even though the change itself is upstream. In the same 2026-09-04

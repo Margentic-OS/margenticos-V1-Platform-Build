@@ -286,6 +286,42 @@ over and from where, rather than being silent.
 
 The third is the one that matters. Without it this becomes a daily obstacle.
 
+### It also watches the machine, not just the lock file
+
+A lock file only sees runs that write one, so it is blind to exactly the worktrees
+that are the problem. Measured 2026-09-14: 24 of 30 worktrees were cut before the
+lock existed and take none, and one was caught mid-run while the lock reported
+nothing held.
+
+So the check also scans the process table and refuses while ANY vitest runner is
+live on this machine. That turns "every worktree must be updated" into "one
+participant with the fix is enough", which is the only version that survives a
+worktree population regenerating faster than it can be updated.
+
+**The difficulty is not detecting others, it is not detecting yourself.** This runs
+inside a vitest process launched by a chain of npm/npx/dotenv processes whose
+command lines all mention vitest, and the agent harness wraps every command in a
+long `zsh -c` string that does too. Two defences:
+
+1. The process's entire own lineage is excluded: itself, every ancestor to pid 1,
+   and every descendant.
+2. Only a vitest RUNNER matches: a path segment `/vitest` or `/vitest.mjs`, or
+   `npm exec vitest`. A shell whose arguments merely contain "npx vitest run" is
+   not matched; it is caught a moment later when it spawns the real runner. A
+   loose `\bvitest\b` match produced five hits on an otherwise quiet machine, four
+   of them wrapper shells.
+
+Verified 2026-09-14:
+
+| scenario | expected | result |
+| --- | --- | --- |
+| lockless run live in another worktree | refuse, name it | refused, named both pids, no lock file held |
+| quiet machine | proceed | 279 tests ran, lock released |
+| ps unreadable | proceed with a warning | fails open by construction |
+
+If the scan is ever wrong, one run can bypass it with
+`MARGENTICOS_ALLOW_CONCURRENT_SUITE=1`, which is printed in the refusal.
+
 ### If it ever blocks you wrongly
 
 The message prints the path. `rm` the file named in it. Then work out which

@@ -88,12 +88,14 @@ function buildBookingReplyBody(
   if (!founderFirstName.trim()) return null
 
   const firstName = prospectFirstName?.trim() || 'there'
-  // The prospect reference rides on the link so the booking can be tied back to them; the
-  // utm tags record where the click came from.
-  const taggedUrl = buildProspectBookingLink(bookingUrl, prospectId, {
-    utm_source: 'reply',
-    utm_medium: 'email',
-  })
+  // The prospect reference rides on the link so the booking can be tied back to them.
+  //
+  // NO utm TAGS, REMOVED 2026-09-14. This passed utm_source=reply and utm_medium=email,
+  // identical on every link the path has ever produced. Measured across src, scripts and
+  // supabase: the only occurrences anywhere were the two lines that wrote them, so nothing
+  // of ours ever read them back. A constant carries no information, and the cost was a
+  // longer, uglier URL in the one email where the prospect is about to click.
+  const taggedUrl = buildProspectBookingLink(bookingUrl, prospectId)
 
   return [
     `Hi ${firstName},`,
@@ -266,6 +268,10 @@ async function updateActionRow(
     scheduled_resume_at?: string | null
     action_error?: string | null
     instantly_response?: Json | null
+    // Written ONCE, at send time, and only when the provider accepted. The funnel measures
+    // time to booking from this rather than from updated_at, which any later write to the
+    // row would move forward and make the interval look shorter than it was.
+    link_sent_at?: string
   },
 ): Promise<void> {
   if (!actionRowId) {
@@ -905,6 +911,12 @@ async function processOneSignal(
       action_payload: { reply_body: bodyText, calendar_link: bookingUrl } as Json,
       action_error: replyResult.ok ? null : replyResult.error,
       instantly_response: replyResult.raw as Json ?? null,
+      // ONLY on success, and that distinction is the whole point. A link that failed to
+      // send is not a link the prospect received, so it must not enter the funnel's
+      // population: it is counted as a failed send instead, which the operator screen
+      // renders even at zero. Conflating the two would hide the people who asked to book
+      // and got nothing inside a healthy-looking never-booked list.
+      ...(replyResult.ok ? { link_sent_at: new Date().toISOString() } : {}),
     })
 
     if (replyResult.ok) {

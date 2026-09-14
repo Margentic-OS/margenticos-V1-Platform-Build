@@ -658,7 +658,22 @@ Fields:
   action_taken     — enum, one of the values below
   tier             — 1, 2, or 3 (Phase 2 only; null for Phase 1 actions)
   metadata         — JSON; context-specific detail (e.g. OOO return date, classifier error)
+  link_sent_at     — when a booking link actually reached the prospect. Written ONCE, at send
+                     time, and only when the provider accepted the send, so NULL means no
+                     link went out and a failed send is counted from action_succeeded
+                     instead. Added 2026-09-14 (ADR-057 funnel work).
+
+                     THE BOOKING FUNNEL MEASURES TIME TO BOOKING FROM THIS AND NEVER FROM
+                     updated_at. updated_at holds the same value today, because the send path
+                     writes the row once before dispatch and once after, but any later write
+                     to the row moves it forward and SHORTENS the measured interval. That
+                     error only ever makes speed-to-lead look better than it was.
   created_at
+
+  NOTE ON THE THREE FIELD NAMES ABOVE, read back live 2026-09-14: the real columns are
+  tier_assigned, action_payload and action_succeeded. `tier` and `metadata` as written here
+  do not exist. Corrected in this note rather than by rewriting the list, because the
+  action_taken vocabulary below is accurate and worth keeping intact.
 
 action_taken values:
   Phase 1 (process-reply.ts direct actions):
