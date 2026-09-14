@@ -20,6 +20,7 @@ import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/fir
 import { checkSentenceInitialNames } from '@/lib/style/sentence-initial-names'
 import { countSentences } from '@/lib/style/sentence-count'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
+import { checkActivityVerdict } from '@/lib/style/activity-verdict'
 import { checkOpeningReferences } from '@/lib/style/opening-reference'
 import { readabilityScore } from '@/lib/style/readability'
 // The subject character cap lives with the messaging agent's other limits and is
@@ -1430,6 +1431,21 @@ export function checkOpeningGates(
     // would reject 21 of them, three wrongly. See opening-reference.ts for the numbers, the
     // three false-positive sentences, and what has to be true before this can block.
     failures.push(...checkOpeningReferences(
+      params.observation, params.bridge, { prospectId: context?.prospectId ?? 'unknown' },
+    ))
+
+    // TELLING THE READER THEIR OWN ACTIVITY IS FAILING, OR NAMING WHAT THEY LACK. The
+    // brief forbids both in five separate places and nothing has ever checked either, so
+    // the same fault has reached real prospects run after run with every gate green.
+    //
+    // REPORT-ONLY on this commit: returns an empty array while ACTIVITY_VERDICT_MODE says
+    // 'report'. Measured over the last four export runs of the pinned cohort before being
+    // wired here, 24 hits across 246 attempts, because a detector of this kind is only
+    // worth gating on once its rate on the PERMITTED shape is known. See the module.
+    //
+    // BOTH PARTS, on the ban's own terms: "THE ABSENCE BAN. IT COVERS THE OBSERVATION AND
+    // THE BRIDGE, BOTH." Twenty of those 24 hits were in the observation.
+    failures.push(...checkActivityVerdict(
       params.observation, params.bridge, { prospectId: context?.prospectId ?? 'unknown' },
     ))
 
