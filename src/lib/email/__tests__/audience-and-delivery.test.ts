@@ -42,6 +42,7 @@ import { multiUserSignupAttemptTemplate, multiUserSignupAttemptSubject } from '.
 import { operatorReplyTemplate, operatorReplySubject, operatorReplyTemplateText } from '../templates/operator-reply'
 import { revisionGateFailureTemplate, revisionGateFailureSubject } from '../templates/revision-gate-failure'
 import { unmatchedBookingTemplate, unmatchedBookingSubject, type UnmatchedBookingNotice } from '../templates/unmatched-booking'
+import { meetingsDueToBillTemplate, meetingsDueToBillSubject, type DueToBillRow } from '../templates/meetings-due-to-bill'
 
 import { clientWelcomeTemplate, clientWelcomeSubject, clientWelcomeTemplateText } from '../templates/client-welcome'
 import { docsReadyTemplate, docsReadySubject, docsReadyTemplateText } from '../templates/docs-ready'
@@ -68,6 +69,27 @@ interface RenderedTemplate {
 const ORG = 'Apex Consulting'
 const ORG_ID = '0ed34697-0fa9-4f08-ac15-d3504ac45caf'
 const NOTE = 'Please make the second paragraph less formal.'
+
+const DUE_TO_BILL: DueToBillRow[] = [
+  {
+    meetingId: '9f1c2e4a-6b7d-4e8f-9a0b-1c2d3e4f5a6b',
+    organisationName: ORG,
+    prospectName: 'Jordan Reid',
+    scheduledStartAt: '2026-09-20T14:00:00.000Z',
+    deadline: '2026-10-31T23:59:59.999Z',
+    daysLeft: 6,
+    neverAsked: false,
+  },
+  {
+    meetingId: '2b3c4d5e-6f70-4812-93a4-b5c6d7e8f9a0',
+    organisationName: ORG,
+    prospectName: null,
+    scheduledStartAt: null,
+    deadline: '2026-10-31T23:59:59.999Z',
+    daysLeft: 0,
+    neverAsked: true,
+  },
+]
 
 const UNMATCHED_BOOKING: UnmatchedBookingNotice = {
   reason: 'no_prospect',
@@ -167,6 +189,16 @@ const OPERATOR_TEMPLATES: RenderedTemplate[] = [
     audience: 'operator',
     subject: unmatchedBookingSubject(UNMATCHED_BOOKING),
     html: unmatchedBookingTemplate(UNMATCHED_BOOKING),
+  },
+  {
+    // Sent with audience 'operator' by send-due-to-bill-notification.ts. Rendered with BOTH
+    // row kinds, and with the optional prospect name empty on one of them, because the
+    // "never asked" row is the one an operator most needs to read correctly and a missing
+    // name must come out as words rather than as a literal null.
+    file: 'meetings-due-to-bill.ts',
+    audience: 'operator',
+    subject: meetingsDueToBillSubject(DUE_TO_BILL),
+    html: meetingsDueToBillTemplate(DUE_TO_BILL),
   },
 ]
 

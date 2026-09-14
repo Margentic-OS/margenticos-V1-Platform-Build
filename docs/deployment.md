@@ -28,6 +28,20 @@ retry on a 504 for reads only. `npm install` applies it through the `postinstall
 Vercel runs that script on every install. `prebuild` runs `scripts/check-postgrest-patch.ts`,
 which fails the build if the patch is not in the installed files.
 
+**Two checks, because the first one is not enough.** `prebuild` runs
+`check-postgrest-patch.ts`, which reads the patched files in `node_modules`. `postbuild` runs
+`check-patch-in-build.ts`, which reads the SHIPPED `.next/server` output. On 2026-09-11 the
+first passed and the deploy still went out without the retry in it: Vercel restored the build
+cache, and webpack validates `node_modules` by package version, which patch-package does not
+change, so it reused the pre-patch compiled module. `next.config.ts` now mixes a fingerprint of
+`patches/` into webpack's cache version, and the postbuild check is the backstop.
+
+**What to check if a build stops at `check-patch-in-build: FAILED`.**
+- "the library is in the server output but the patch is not": a stale build cache. Redeploy
+  without the build cache on Vercel, or delete `.next/cache` locally.
+- "the library is not in the server output": bundling changed, or the check is looking in the
+  wrong place. Fix the check; do not weaken it.
+
 **What to check if a build stops at `check-postgrest-patch: FAILED`.**
 - "does not carry the 504 retry patch": the install ran without scripts. Run `npm install`
   normally, or `npx patch-package`.

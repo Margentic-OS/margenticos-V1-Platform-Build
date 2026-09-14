@@ -1068,6 +1068,13 @@ export type Database = {
           qualification_notes: string | null
           revenue_value: number | null
           scheduled_start_at: string | null
+          scheduled_end_at: string | null
+          outcome_requested_at: string | null
+          confirmation_sent_at: string | null
+          last_reminded_at: string | null
+          reminder_count: number
+          bill_unconfirmed_after: string | null
+          billable_basis: string | null
           source: string
           status: string
           updated_at: string
@@ -1096,6 +1103,13 @@ export type Database = {
           qualification_notes?: string | null
           revenue_value?: number | null
           scheduled_start_at?: string | null
+          scheduled_end_at?: string | null
+          outcome_requested_at?: string | null
+          confirmation_sent_at?: string | null
+          last_reminded_at?: string | null
+          reminder_count?: number
+          bill_unconfirmed_after?: string | null
+          billable_basis?: string | null
           source?: string
           status?: string
           updated_at?: string
@@ -1124,6 +1138,13 @@ export type Database = {
           qualification_notes?: string | null
           revenue_value?: number | null
           scheduled_start_at?: string | null
+          scheduled_end_at?: string | null
+          outcome_requested_at?: string | null
+          confirmation_sent_at?: string | null
+          last_reminded_at?: string | null
+          reminder_count?: number
+          bill_unconfirmed_after?: string | null
+          billable_basis?: string | null
           source?: string
           status?: string
           updated_at?: string

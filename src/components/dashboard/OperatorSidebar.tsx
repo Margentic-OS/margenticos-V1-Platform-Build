@@ -58,6 +58,12 @@ const NAV_OPERATOR: { label: string; href: string; perClient?: boolean }[] = [
   { label: 'Reply queue', href: '/dashboard/operator/triage' },
   { label: 'Sourcing review', href: '/dashboard/operator/sourcing-review' },
   { label: 'Approvals', href: '/dashboard/operator/approvals' },
+  // ADDED 2026-09-12 with the meeting outcome lifecycle (ADR-057). Cross-organisation: the
+  // screen shows every client's meetings awaiting an outcome and every one about to bill
+  // unconfirmed, so it takes no client param. It is the only surface where a person can
+  // record held or no-show, and the only place the reason a meeting became billable is
+  // visible, so an unlinked version of it would leave the billing rule unoperable.
+  { label: 'Meetings', href: '/dashboard/operator/meetings' },
   // ADDED 2026-09-09. The page has existed and been reachable only by typing the URL.
   // It is the ONLY surface for curating FAQs, and the FAQ store is empty across every live
   // organisation, so the screen that would fix that could not be found. Third instance of
