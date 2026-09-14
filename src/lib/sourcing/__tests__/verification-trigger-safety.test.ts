@@ -14,6 +14,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE, MAX_RETRY_ATTEMPTS } from '../verification-trigger'
 import { myemailverifierHandler } from '../handlers/adapter-myemailverifier'
 import { TIER_NOT_REJECTED_FILTER } from '../tier-verdict'
+import { EXCLUDED_COUNTRIES } from '../send-eligibility-rules'
+import { aTargetableCode } from '@/test-utils/geography-fixture'
 
 /**
  * A rejection reason, deliberately NOT one of the real ones.
@@ -215,8 +217,27 @@ function fakeSupabase(
           )
           const capped =
             limitValue === null || opts.ignoreLimit ? selectable : selectable.slice(0, limitValue)
+          // PROJECTED FROM THE SELECT, not from a fixed list. This returned
+          // { id, email, country } whatever the query asked for, so when the real select
+          // grew send_hold_at the fake kept handing back a row without it: the country skip
+          // read undefined, treated the prospect as unheld, and a test asserting the hold
+          // failed for a reason that had nothing to do with the code. Same shape as the
+          // maybeSingle projection above, and it throws on a column it does not implement
+          // rather than quietly returning a partial row.
           resolve({
-            data: capped.map(r => ({ id: r.id, email: r.email, country: r.country ?? null })),
+            data: capped.map(r => {
+              const row: Record<string, unknown> = {}
+              for (const col of selectedCols.split(',').map(c => c.trim()).filter(Boolean)) {
+                switch (col) {
+                  case 'id':           row[col] = r.id; break
+                  case 'email':        row[col] = r.email; break
+                  case 'country':      row[col] = r.country ?? null; break
+                  case 'send_hold_at': row[col] = r.send_hold_at ?? null; break
+                  default: throw new Error(`fake row select does not implement column "${col}"`)
+                }
+              }
+              return row
+            }),
             error: null,
           })
         },
@@ -550,5 +571,64 @@ describe('an operator hold reaches the first pass, and survives it', () => {
     const verdicts = payloadsFor(applied, 'p1').filter(p => 'email_send_eligible' in p)
     expect(verdicts.length).toBeGreaterThan(0)
     expect(verdicts.some(p => p.email_send_eligible === true)).toBe(true)
+  })
+})
+
+// ─── The country rule decides BEFORE the probe, not after it ──────────────────
+//
+// checkSendEligibility ran inside recordVerificationResult, on the result of a probe already
+// paid for. The daily budget is finite and shared across every organisation, so a probe spent
+// on an address the platform will never mail is one taken from an address it would.
+describe('an excluded country costs no probe', () => {
+  const EXCLUDED = EXCLUDED_COUNTRIES[0]
+
+  it('writes the same verdict the probe path would, without calling the provider', async () => {
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client, applied } = fakeSupabase([{ id: 'p1', email: 'a@b.com', country: EXCLUDED }])
+
+    const run = await verifyEnrichedBatch(client, ORG, 5)
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(run.skipped_excluded_country).toBe(1)
+    expect(run.total_verified).toBe(0)
+    const verdicts = payloadsFor(applied, 'p1').filter(p => 'email_send_eligible' in p)
+    expect(verdicts.length).toBeGreaterThan(0)
+    expect(verdicts.some(p =>
+      p.email_send_eligible === false &&
+      String(p.email_send_ineligible_reason).startsWith('country_excluded_'))).toBe(true)
+  })
+
+  it('CONTROL: the same address in a country we do send to IS probed', async () => {
+    // Without this, the assertion above would also pass if the run had stopped for some
+    // unrelated reason and probed nobody at all.
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client } = fakeSupabase([{ id: 'p1', email: 'a@b.com', country: aTargetableCode() }])
+
+    await verifyEnrichedBatch(client, ORG, 5)
+
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases the lock it took, so a skipped prospect is not stranded', async () => {
+    vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client, applied } = fakeSupabase([{ id: 'p1', email: 'a@b.com', country: EXCLUDED }])
+
+    await verifyEnrichedBatch(client, ORG, 5)
+
+    expect(payloadsFor(applied, 'p1').some(p => p.verification_locked_at === null)).toBe(true)
+  })
+
+  it('reports an operator hold as a hold, not as a country exclusion', async () => {
+    // The skip reaches its verdict through the same function the probe path uses, so the
+    // precedence between a hold and a country rule cannot differ between the two paths.
+    vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client, applied } = fakeSupabase([
+      { id: 'p1', email: 'a@b.com', country: EXCLUDED, send_hold_at: '2026-01-01T00:00:00.000Z' },
+    ])
+
+    await verifyEnrichedBatch(client, ORG, 5)
+
+    const verdicts = payloadsFor(applied, 'p1').filter(p => 'email_send_ineligible_reason' in p)
+    expect(verdicts.some(p => p.email_send_ineligible_reason === 'operator_hold')).toBe(true)
   })
 })
