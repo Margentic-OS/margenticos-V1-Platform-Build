@@ -43,13 +43,22 @@ describe('buildProspectBookingLink', () => {
     expect(link.searchParams.get(PROSPECT_REF_PARAM)).toBe(PROSPECT_ID)
   })
 
-  it('adds extra parameters alongside the reference', () => {
-    const link = new URL(buildProspectBookingLink('https://booking.test/host', PROSPECT_ID, { utm_source: 'reply' }))
-    expect(link.searchParams.get('utm_source')).toBe('reply')
+  it('adds the reference and NOTHING else', () => {
+    // CHANGED 2026-09-14. This asserted that extra parameters were added alongside the
+    // reference, and the reply path used it to attach utm_source=reply and utm_medium=email
+    // to every link. They were the same on every link and nothing read them back, so both
+    // they and the argument are gone.
+    //
+    // The assertion is now on the ABSENCE, and it is deliberately an exact key list rather
+    // than a check for the ones that were removed: a constant query parameter is exactly the
+    // kind of thing somebody adds back "just in case", and naming only utm_source would not
+    // catch the next one.
+    const link = new URL(buildProspectBookingLink('https://booking.test/host', PROSPECT_ID))
+    expect([...link.searchParams.keys()]).toEqual([PROSPECT_REF_PARAM])
     expect(link.searchParams.get(PROSPECT_REF_PARAM)).toBe(PROSPECT_ID)
   })
 
-  it('sends the stored link unchanged when there is no prospect and nothing to add', () => {
+  it('sends the stored link unchanged when there is no prospect', () => {
     expect(buildProspectBookingLink('https://booking.test/host', null)).toBe('https://booking.test/host')
   })
 

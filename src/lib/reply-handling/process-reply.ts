@@ -88,12 +88,14 @@ function buildBookingReplyBody(
   if (!founderFirstName.trim()) return null
 
   const firstName = prospectFirstName?.trim() || 'there'
-  // The prospect reference rides on the link so the booking can be tied back to them; the
-  // utm tags record where the click came from.
-  const taggedUrl = buildProspectBookingLink(bookingUrl, prospectId, {
-    utm_source: 'reply',
-    utm_medium: 'email',
-  })
+  // The prospect reference rides on the link so the booking can be tied back to them.
+  //
+  // NO utm TAGS, REMOVED 2026-09-14. This passed utm_source=reply and utm_medium=email,
+  // identical on every link the path has ever produced. Measured across src, scripts and
+  // supabase: the only occurrences anywhere were the two lines that wrote them, so nothing
+  // of ours ever read them back. A constant carries no information, and the cost was a
+  // longer, uglier URL in the one email where the prospect is about to click.
+  const taggedUrl = buildProspectBookingLink(bookingUrl, prospectId)
 
   return [
     `Hi ${firstName},`,
