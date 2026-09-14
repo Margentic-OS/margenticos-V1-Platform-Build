@@ -43,6 +43,7 @@ import {
   type ResearchScope,
   type ResearchEnqueueJobType,
 } from '@/lib/queue/enqueue/research'
+import { QUEUE_CONFIG } from '@/lib/queue/config'
 
 /**
  * Refused when the batch path is half-enabled: phase 1 buys sources and submits a batch
@@ -58,6 +59,75 @@ export const HALF_ENABLED_BATCH_PATH_REFUSAL =
   'collection half is not (queue_research_collect). Phase 1 would buy sources and ' +
   'submit a batch that nothing would ever read, which spends money on work that ' +
   'cannot finish. Turn queue_research_collect on first, then retry.'
+
+/**
+ * Median seconds one prospect takes on the single-job path.
+ *
+ * MEASURED, and the sample size is here because it is the part that gets dropped when a
+ * number is quoted onward: 79 completed `prospect-research-v2` runs on 2026-09-01, median
+ * 136.0s, mean 144.6s, max 298.4s. Read from `agent_runs`.
+ *
+ * Re-take it with:
+ *   select count(*), avg(duration_ms), percentile_cont(0.5) within group (order by duration_ms)
+ *   from agent_runs where agent_name = 'prospect-research-v2' and status = 'completed'
+ */
+const RESEARCH_SECONDS_PER_PROSPECT_MEASURED = 145
+
+/**
+ * Anthropic's own ceiling on a message batch. Not our number: the sweep gives up at
+ * BATCH_SLA_HOURS (25), one hour later, so it never declares a batch dead while Anthropic
+ * still considers it alive. 24 is the one to tell an operator, because it is the promise
+ * the provider makes.
+ */
+const ANTHROPIC_BATCH_CEILING_HOURS = 24
+
+/**
+ * What to tell the operator after a successful enqueue.
+ *
+ * ── WHY THIS IS A FUNCTION AND NOT A STRING LITERAL IN THE ROUTE ──
+ *
+ * It was a literal, and it was wrong in both halves on the path that was actually live:
+ * it said "up to ten at a time" against a maxInFlight of 20 (raised 2026-08-25 when the
+ * second Apify actor was dropped) and "roughly a minute per prospect" against a measured
+ * 145 seconds. On the batch path, where a prospect can wait a day, "roughly a minute"
+ * would have been wrong by a factor of about 1,400.
+ *
+ * This is the SECOND time this exact defect has been found in this flow. The refusal
+ * message in enqueue/research.ts described a batch path that was switched off, was fixed
+ * on 2026-09-01, and that fix did not look for the success message sitting one file away.
+ *
+ * So two things are deliberate here. The concurrency figure is READ from QUEUE_CONFIG
+ * rather than restated, so it cannot drift from the value that governs behaviour. And the
+ * function lives beside HALF_ENABLED_BATCH_PATH_REFUSAL, which is the module that exists
+ * precisely to stop the label and the action telling different stories.
+ */
+export function describeQueuedResearch(
+  created: number,
+  alreadyQueued: number,
+  path: ResearchPath,
+): string {
+  if (created === 0) {
+    return `Nothing new to queue: all ${alreadyQueued} eligible prospect(s) are already in the queue.`
+  }
+
+  const prospects = `${created} prospect(s) queued for research.`
+
+  if (path === 'queue:batch') {
+    return (
+      `${prospects} Their sources are fetched first, then the synthesis for the whole ` +
+      'client goes to Anthropic as one batch at half price. Results usually come back ' +
+      `within the hour and can take up to ${ANTHROPIC_BATCH_CEILING_HOURS} hours. Until ` +
+      'a prospect comes back it still reads as unresearched, which is expected. You can ' +
+      'close this tab.'
+    )
+  }
+
+  const minutes = Math.round(RESEARCH_SECONDS_PER_PROSPECT_MEASURED / 60)
+  return (
+    `${prospects} The background worker runs up to ${QUEUE_CONFIG.research.maxInFlight} at a ` +
+    `time and takes roughly ${minutes} to ${minutes + 1} minutes per prospect. You can close this tab.`
+  )
+}
 
 /** Which route a click would take. Named so the label and the log agree on one word. */
 export type ResearchPath = 'inline' | 'queue:single-job' | 'queue:batch'
