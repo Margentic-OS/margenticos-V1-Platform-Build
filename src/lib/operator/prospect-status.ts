@@ -293,6 +293,10 @@ export const DISQUALIFIER_LABELS: Record<string, string> = {
   industry_excluded:       'Sector excluded by the specification',
   industry_off_target:     'Sector off specification',
   industry_not_consulting: 'Sector off specification',
+  // Counted from the enrichment already bought, not judged. The gloss says WHAT WAS COUNTED
+  // rather than "holds another job", because the count is of current positions at other
+  // organisations and whether any of them is full-time is not in the data.
+  holds_another_current_role: 'Holds a current position at another organisation',
 }
 
 /** Component names classifyTier scores on, glossed. An unlisted one renders as itself. */
