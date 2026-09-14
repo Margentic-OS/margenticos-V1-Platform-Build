@@ -2559,6 +2559,36 @@ per prospect (about $0.118 of $0.159, inside an all-in $0.192). The Batch API ch
 50% of standard prices for identical bytes to an identical model, and the discount
 stacks with prompt caching. So the saving is available with no quality trade.
 
+> **MEASURED 2026-09-14 on the first live batch. The paragraph above is kept as written
+> because it is what the decision was made on, and both of its figures are now low.**
+>
+> Two prospects, batch `msgbatch_017C1LGiQLx9YJEyLBrWzxAB`, submitted 17:18 UTC and
+> collected 18:24, 67 minutes end to end, zero failures. Synthesis usage read back from
+> `synthesis_batch_entries.usage`; priced at Sonnet 4.6 $3/$15 per MTok, cache read 0.1x,
+> Batch 50%. **The 2x 1-hour write multiplier does not enter the arithmetic, because
+> writes were zero.**
+>
+> | Synthesis, per prospect | |
+> |---|---|
+> | Actual, batched and cached | **$0.0907** |
+> | Same tokens, inline | $0.1815 |
+> | Same tokens, inline, no cache | $0.2041 |
+> | **Saving from batching** | **$0.0907, exactly 50%** |
+> | Saving from caching | $0.0227, 11.1% |
+>
+> **The saving is $0.0907 per prospect, not the $0.059 forecast, and that is not good
+> news.** The forecast assumed synthesis was $0.118. Measured inline it is $0.1815 —
+> more than the entire four-call $0.159 figure this ADR quotes — because synthesis output
+> has grown from 7,750 tokens on 2026-08-25 to 11,796 and 11,612 here, up roughly 51%.
+>
+> So the percentage saving landed at about 33% against a 20-31% forecast band **because
+> the baseline grew, not because batching over-delivered.** Caching returning only 11% is
+> the same fact from the other side: caching acts on input, and output is now 96.7% of the
+> standard-price bill. Read the 33% as a symptom, not a win.
+>
+> **n=2.** Derived from returned usage, not an invoice. Reconcile a console day before
+> quoting these onward.
+
 The cost is time. A batch may take up to 24 hours. Nothing in this system can hold a
 lease that long: research's lease is 360 seconds and reap-agent-runs marks any
 agent_runs row still 'running' after 600 seconds as failed.
@@ -2621,12 +2651,21 @@ is why compose was never migrated to the queue.
   prospect still reads as unresearched. Without this, one operator click mid-wait
   re-pays Apify, Apollo and Brave for every prospect in flight: the 10 August 2026
   shape, 141 credits for 29 prospects.
-- **The 1-hour cache TTL on the batched call is PROVISIONAL.** Anthropic documents
-  in-batch cache hits as best-effort at 30% to 98%. A 1-hour write costs 2x base input
-  against 1.25x for 5 minutes, so at the bottom of that range the 1-hour TTL is a
-  loss. A 13-call probe measured 85% at 1h, but with max_tokens 16 rather than
-  production's 16,000. The real `cache_read_input_tokens` on the first live batch
-  decides it.
+- **The 1-hour cache TTL on the batched call is STILL UNDECIDED after the first live
+  batch, and the reason is worth recording.** Anthropic documents in-batch cache hits
+  as best-effort at 30% to 98%. A 1-hour write costs 2x base input against 1.25x for 5
+  minutes, so at the bottom of that range the 1-hour TTL is a loss. A 13-call probe
+  measured 85% at 1h, but with max_tokens 16 rather than production's 16,000. The real
+  `cache_read_input_tokens` on the first live batch was supposed to decide it.
+
+  **It could not, because the batch recorded ZERO cache writes.** Both entries read
+  8,402 cached tokens and wrote none, so `reads_per_write` — the B in the break-even
+  table, which the whole decision keys on — has a zero denominator and no value. The
+  runbook's decision table has no row for this. Do not read the 88.2% cache-read share
+  as a verdict on the TTL: it is a verdict on the run having found a warm prefix, not on
+  what a write would have cost. **At two prospects the ceiling on B was 1 against a
+  break-even of 6.84, so this run could never have settled it however it came out.**
+  Settle it on a batch of five or more that actually writes a cache.
 
 ### Rejected alternatives
 

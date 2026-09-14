@@ -70,8 +70,31 @@ export const BRAVE_PAID_PER_CALL = 0.003
 // line after Sonnet. Every earlier argument about it was conducted at roughly 21%.
 //
 // That number triggered the 2026-08-25 reduction to one query capped at one search, which
-// should take it to roughly 16% and the all-in per-prospect figure from $0.245 to $0.192.
-// Both are ESTIMATES until a real run is reconciled against the console.
+// was forecast to take it to roughly 16% and the all-in per-prospect figure from $0.245 to
+// $0.192.
+//
+// ─── $0.192 NEVER HAPPENED. CORRECTED 2026-09-14. ────────────────────────────
+//
+// It rested on one search per prospect. Measured over 73 production prospects the figure
+// is 2.83 (WEB_SEARCH_SEARCHES_PER_PROSPECT), so web search is $0.053 rather than $0.031
+// and the all-in research-scope figure is about $0.214, not $0.192.
+//
+// AND THE SONNET LINE HAS MOVED TOO, in the same direction and by more. Synthesis output
+// measured 11,796 and 11,612 tokens on the first live batch (2026-09-14) against the 7,750
+// recorded on 2026-08-25: up roughly 51%. Synthesis alone, at standard price with caching,
+// is now about $0.18 per prospect, which is more than the whole four-call $0.159 figure
+// this file still carries as COST_ANTHROPIC_MEASURED.
+//
+// COST_ANTHROPIC_* IS THEREFORE STALE AND IS DELIBERATELY NOT CHANGED HERE. It is a
+// console-reconciled number and the replacement would be derived from returned usage on
+// two prospects, which is a weaker kind of evidence, not a stronger one. Re-reconcile a
+// console day before overwriting it. What is recorded here is that it is known low.
+//
+// THE FIGURES IN THIS FILE ARE A MIX OF MEASURED AND ESTIMATED AND THE LABELS MATTER:
+//   COST_WEB_SEARCH_PER_SEARCH   MEASURED, console, reconciles exactly
+//   WEB_SEARCH_SEARCHES_PER_...  MEASURED, 73 production prospects
+//   COST_WEB_SEARCH_HAIKU_TOKENS ESTIMATE, bounded $0.021 to $0.029
+//   COST_ANTHROPIC_MEASURED      MEASURED on 2026-08-25, KNOWN LOW since 2026-09-14
 
 /** Per search, confirmed against the console 2026-08-25: 54 searches billed $0.54. */
 export const COST_WEB_SEARCH_PER_SEARCH = 0.01
@@ -100,28 +123,53 @@ export const COST_WEB_SEARCH_PER_SEARCH = 0.01
 export const WEB_SEARCH_QUERIES_PER_PROSPECT = 1
 
 /**
- * Searches per prospect. MEASURED 1.67, NOT THE 1 THIS CONSTANT USED TO CLAIM.
+ * Searches per prospect. MEASURED 2.83 over 73 production prospects. n IS PART OF THE FIGURE.
  *
  * ─── THE CLAIM THAT WAS WRONG, AND WHY IT READ AS SAFE ───────────────────────
  *
- * This constant read 1 and its comment said "the first figure here that is a hard bound
- * rather than an average", on the reasoning that the per-prospect caller passes
+ * This constant first read 1 and its comment said "the first figure here that is a hard
+ * bound rather than an average", on the reasoning that the per-prospect caller passes
  * { maxUses: 1 } and one query cannot exceed its own cap.
  *
- * THE CAP IS NOT HONOURED AS A BILLABLE BOUND. Measured 2026-09-08 across two runs on
- * production credentials: nine lookups with maxUses set to 1 returned FIFTEEN billable
- * searches, and individual lookups returned two and three. The parameter is passed
- * correctly into the tool definition and the counting is correct — searchCount counts
+ * THE CAP IS NOT HONOURED AS A BILLABLE BOUND. The parameter is passed correctly into the
+ * tool definition (tools/webSearch.ts) and the counting is correct — searchCount counts
  * web_search_tool_result blocks, and one block is one charged search. The provider simply
  * runs more searches than the cap and bills for them.
  *
  * So the reasoning was sound and its premise was false, which is the worst combination:
- * nothing about the code looked wrong, and the figure was 67% low.
+ * nothing about the code looked wrong.
  *
- * 1.67 is 15 billable searches over 9 capped lookups. It is an AVERAGE, like every other
- * figure in this file and unlike what the old comment claimed. Treat it as one.
+ * ─── AND THEN THE CORRECTION WAS ITSELF UNDER-SAMPLED ────────────────────────
+ *
+ * The first correction put this at 1.67, from 15 billable searches over NINE capped
+ * lookups on 2026-09-08. Nine is small enough that two quiet lookups move it a long way,
+ * and they had.
+ *
+ * READ BACK FROM prospect_research_results ON 2026-09-14, every row carrying a
+ * search_count under the one-query shape:
+ *
+ *     73 prospects, 207 billable searches, mean 2.8356, range 1 to 3
+ *
+ * So the real overrun against a cap of 1 is nearly THREE times, not 1.67. The 9-lookup
+ * sample was 41% low against the 73-prospect population.
+ *
+ * CONTROL, because a number read from the same table that produced the error needs one:
+ * the 2026-08-25 rows return 4.154 by the identical query, which matches the 4.15 already
+ * recorded below from the console reconciliation. The instrument finds a figure we already
+ * know, so it can be trusted on the one we do not.
+ *
+ * RE-TAKE IT RATHER THAN TRUSTING THIS LINE. The absolute number moves with provider
+ * behaviour, and the sample size is the part that gets dropped when a figure is quoted
+ * onward:
+ *
+ *     SELECT count(*), sum((raw_web_search->>'search_count')::int),
+ *            avg((raw_web_search->>'search_count')::numeric)
+ *       FROM prospect_research_results
+ *      WHERE raw_web_search ? 'search_count' AND created_at >= '2026-08-26';
+ *
+ * It is an AVERAGE, like every other figure in this file. Treat it as one.
  */
-export const WEB_SEARCH_SEARCHES_PER_PROSPECT = 1.67
+export const WEB_SEARCH_SEARCHES_PER_PROSPECT = 2.83
 /** The measured average under the OLD 2-query shape, before the cap was introduced at all. */
 /** The measured average under the OLD 2-query shape. Kept as the baseline to beat. */
 export const WEB_SEARCH_SEARCHES_PER_PROSPECT_OLD_MEASURED = 4.15
@@ -133,28 +181,49 @@ export const WEB_SEARCH_SEARCHES_PER_PROSPECT_OLD_MEASURED = 4.15
  * invisible and 10x understated: a single blended figure cannot be checked against a
  * console line, and this one never was.
  *
- * Old shape MEASURED $0.042 ($0.55 over 13 prospects). Halved to $0.021 because the
- * REQUEST count halves from 2 to 1. Deliberately conservative: the search results injected
- * into each request also fall from ~4.15 searches to 1, so the true figure is likely lower
- * than this. Estimating the smaller saving is the safer direction to be wrong in.
+ * Old shape MEASURED $0.042 ($0.55 over 13 prospects). Estimated at $0.021 on the
+ * reasoning that the REQUEST count halves from 2 to 1.
+ *
+ * THAT ESTIMATE WAS CALLED "DELIBERATELY CONSERVATIVE" ON A PREMISE THAT IS NOW FALSE.
+ * The old comment argued the true figure was likely LOWER, because the search results
+ * injected into each request would fall from ~4.15 searches to 1. They fall to 2.83
+ * (see WEB_SEARCH_SEARCHES_PER_PROSPECT), a 32% drop rather than a 76% one, so the
+ * injected text — which is the input side of this cost — barely fell at all.
+ *
+ * Requests halved, injected results did not. The truth is between the two:
+ *   scaling by REQUESTS  ->  $0.042 x 1/2       = $0.021   (lower bound)
+ *   scaling by SEARCHES  ->  $0.042 x 2.83/4.15 = $0.029   (upper bound)
+ *
+ * STILL AN ESTIMATE, and the only one left in this file. Settle it by filtering a console
+ * day to Haiku and dividing by the prospects researched that day, exactly as the $0.042
+ * was settled.
  */
-export const COST_WEB_SEARCH_HAIKU_TOKENS = 0.021
+export const COST_WEB_SEARCH_HAIKU_TOKENS = 0.025
 
 /**
  * Total web search cost per prospect: search fees PLUS the Haiku tokens that buy them.
- * $0.010 fee + $0.021 tokens. Both halves, which is the whole point.
+ * Both halves, which is the whole point.
  *
- * Old shape MEASURED $0.084. If the next run does not land near $0.031, this estimate is
- * wrong and the console is right.
+ *   fee    2.83 searches x $0.010  =  $0.0283   MEASURED count, confirmed rate
+ *   tokens                            $0.025    ESTIMATE, range $0.021 to $0.029
+ *   total                             $0.053
+ *
+ * WAS $0.031, on an assumed 1 search per prospect. That assumption is dead: the provider
+ * does not honour the cap. Old shape MEASURED $0.084, so the 2026-08-25 reduction bought
+ * roughly 37%, not the 63% this constant used to claim.
  */
-export const COST_WEB_SEARCH_TOTAL = 0.031
+export const COST_WEB_SEARCH_TOTAL = 0.053
 export const COST_WEB_SEARCH_TOTAL_OLD_MEASURED = 0.084
 
-// The range is now NARROW, because the cap makes the search count exact rather than a
-// distribution. The only variance left is Haiku tokens, which move with how much text the
-// single search returns.
-export const COST_WEB_SEARCH_LOW  = 0.025
-export const COST_WEB_SEARCH_HIGH = 0.040
+// The range is WIDER than this file previously claimed. The old comment said "the cap
+// makes the search count exact rather than a distribution" — the cap does nothing of the
+// sort. Measured range is 1 to 3 searches per prospect over 73 prospects, so the count is
+// a distribution and the band has to carry it as well as the Haiku token spread.
+//
+//   low  : 1 search  x $0.01 + $0.021 tokens = $0.031
+//   high : 3 searches x $0.01 + $0.029 tokens = $0.059
+export const COST_WEB_SEARCH_LOW  = 0.031
+export const COST_WEB_SEARCH_HIGH = 0.059
 
 // DEAD. NOT A LIVE COST. Composition makes ZERO model calls.
 //
