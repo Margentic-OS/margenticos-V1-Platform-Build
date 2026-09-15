@@ -21,9 +21,24 @@ const { enqueueResearchPhaseJob, requestContexts } = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/queue/job-queue', () => ({ enqueueResearchPhaseJob }))
 vi.mock('@/lib/agents/prospect-research-sources-agent', () => ({ BATCH_CACHE_TTL: '1h' }))
-vi.mock('../synthesize', () => ({
-  // Records the ProspectContext each request was built from, so a test can see what the
-  // batch path hands the judge without depending on the prompt's wording.
+// PARTIAL, VIA importOriginal, AND THAT IS THE POINT.
+//
+// This mock replaces buildSynthesisParams only, because the test wants to see the context
+// the batch path hands the judge without depending on the prompt's wording. Everything else
+// is the REAL module.
+//
+// It used to be a whole-module replacement returning one key, which silently removed every
+// other export. When the sweep started reading wasTruncated the mock had no such export and
+// the SDK threw inside the collection loop, where the sweep catches errors into
+// result.errors: five collection tests failed with 'submitted' rather than 'succeeded' and
+// nothing said the mock was the cause. That is the fake-that-does-not-implement-the-call
+// shape from CLAUDE.md, one level up — not a swallowed filter but a missing export.
+//
+// wasTruncated and truncationReason are pure and the tests below assert on what they
+// actually produce, so stubbing them would test the stub. importOriginal keeps them real,
+// and a future export is present automatically rather than breaking the collection loop.
+vi.mock('../synthesize', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../synthesize')>()),
   buildSynthesisParams: (ctx: unknown) => {
     requestContexts.push(ctx)
     return { model: 'claude-sonnet-4-6', max_tokens: 16000, system: [], messages: [] }
@@ -253,6 +268,20 @@ function succeededResult(customId: string, cacheRead = 6700) {
       },
     },
   }
+}
+
+/**
+ * A result Anthropic calls 'succeeded' that hit the output ceiling.
+ *
+ * Both halves matter: result.type IS 'succeeded' (Anthropic billed it in full) and
+ * stop_reason IS 'max_tokens' (its JSON never arrived). That combination is what used to be
+ * filed as a clean success.
+ */
+function truncatedResult(customId: string, outputTokens = 24000) {
+  const r = succeededResult(customId)
+  ;(r.result.message as Record<string, unknown>).stop_reason = 'max_tokens'
+  ;(r.result.message.usage as Record<string, number>).output_tokens = outputTokens
+  return r
 }
 
 beforeEach(() => vi.clearAllMocks())
@@ -573,6 +602,68 @@ describe('collection', () => {
 
     expect(run.cache_read_tokens).toBe(13_400)
     expect(run.output_tokens).toBe(12_400)
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // A TRUNCATED ANSWER IS RECORDED AS A FAILURE, NOT AS A SUCCESS
+  //
+  // Added 2026-09-15. Measured on the live 2026-09-14 batch: 2 of 7 entries held
+  // stop_reason 'max_tokens' and state 'succeeded', so nothing counted them and mon_022 saw
+  // a clean batch while 44% of that batch's synthesis spend had bought nothing.
+
+  const truncatedSweep = async () => {
+    const db = fakeDb({
+      batches: [endedBatch()],
+      entries: [entry({ id: 'entry-1', state: 'submitted', batch_id: 'batch-1' })],
+    })
+    const an = fakeAnthropic({
+      retrieve: (id: string) => ({ id, processing_status: 'ended', ended_at: NOW.toISOString(), request_counts: { succeeded: 1 } }),
+      results: () => [truncatedResult('entry-1')],
+    })
+    await runSynthesisBatchSweep(db.client, an.client, NOW)
+    return db
+  }
+
+  it('does NOT file a truncated answer as succeeded', async () => {
+    const db = await truncatedSweep()
+    expect(db.entries[0].state).not.toBe('succeeded')
+    expect(db.entries[0].state).toBe('failed')
+  })
+
+  it("keeps Anthropic's own verdict in result_type, because that is the BILLING fact", async () => {
+    // A truncated answer is billed in full. Rewriting result_type would make this row claim
+    // it was free, like an errored or expired one, which is the opposite of true.
+    const db = await truncatedSweep()
+    expect(db.entries[0].result_type).toBe('succeeded')
+  })
+
+  it('gives it its own reason, naming the tokens that bought nothing', async () => {
+    const db = await truncatedSweep()
+    expect(db.entries[0].error).toMatch(/cut off at the output ceiling/i)
+    expect(db.entries[0].error).toContain('24000')
+  })
+
+  it('still stores the message and the usage, so the retry and the cost survive', async () => {
+    // Phase 2 needs the Message to know it was truncated at all, and the usage is the
+    // record of what the discarded call cost.
+    const db = await truncatedSweep()
+    expect(db.entries[0].response_message).toBeTruthy()
+    expect((db.entries[0].usage as Record<string, number>).output_tokens).toBe(24000)
+    expect(db.entries[0].stop_reason).toBe('max_tokens')
+  })
+
+  it('leaves an answer that finished as succeeded', async () => {
+    const db = fakeDb({
+      batches: [endedBatch()],
+      entries: [entry({ id: 'entry-1', state: 'submitted', batch_id: 'batch-1' })],
+    })
+    const an = fakeAnthropic({
+      retrieve: (id: string) => ({ id, processing_status: 'ended', ended_at: NOW.toISOString(), request_counts: { succeeded: 1 } }),
+      results: () => [succeededResult('entry-1')],
+    })
+    await runSynthesisBatchSweep(db.client, an.client, NOW)
+    expect(db.entries[0].state).toBe('succeeded')
+    expect(db.entries[0].error).toBeFalsy()
   })
 
   it('records a per-entry outcome, so only the FAILED prospects need anything done', async () => {

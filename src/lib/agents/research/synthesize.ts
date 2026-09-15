@@ -15,7 +15,7 @@ import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { readabilityScore, type ReadabilityScore } from '@/lib/style/readability'
 import {
   SIX_TESTS, INFERENCE_DIRECTIONS, ZERO_TOKEN_USAGE, ICP_FIT_OUTCOMES,
-  FIT_CHECKS, FIT_CHECK_RESULTS, unknownFitChecks, readTokenUsage,
+  FIT_CHECKS, FIT_CHECK_RESULTS, unknownFitChecks, readTokenUsage, addTokenUsage,
 } from './types'
 import { formatCompanyFacts, COMPANY_FACTS_PREAMBLE } from './company-facts'
 import {
@@ -28,6 +28,66 @@ import type {
 } from './types'
 
 const SYNTHESIS_MODEL = 'claude-sonnet-4-6'
+
+// ─── The output ceiling, and what happens when an answer reaches it ──────────
+//
+// ONE NAME FOR THE CEILING, because three places now have to agree about it: the request
+// that sets it, the retry instruction that tells the model it was hit, and the tests. It
+// was a bare literal and the retry instruction would have been a second copy.
+export const SYNTHESIS_MAX_OUTPUT_TOKENS = 24000
+
+/**
+ * Did this answer reach the output ceiling?
+ *
+ * The JSON is the LAST thing the answer writes, so an answer that reached the ceiling has
+ * always lost it. That makes truncation a total loss rather than a partial one, and it is
+ * why this is a named predicate rather than an inline `stop_reason` comparison at three
+ * call sites: the inline path, the batch sweep and the collect agent all have to reach the
+ * same verdict about the same Message, and a fourth reader will come along.
+ */
+export function wasTruncated(response: Message): boolean {
+  return response.stop_reason === 'max_tokens'
+}
+
+/**
+ * The one reason string for a truncated answer.
+ *
+ * Read by the fallback that ships, by the batch entry's `error` column, and by the log
+ * line. It names the token count because that is the number that says how much was paid
+ * for nothing, and a reason without it cannot be costed later.
+ */
+export function truncationReason(outputTokens: number): string {
+  return `the answer was cut off at the output ceiling after ${outputTokens} tokens, so its JSON never arrived`
+}
+
+/**
+ * The instruction added to a RETRY after a truncated answer.
+ *
+ * ── IT GOES IN THE USER MESSAGE, NEVER THE SYSTEM PROMPT ──
+ *
+ * The system prompt is the cached prefix, measured at roughly 8,500 tokens and read by
+ * every prospect in a batch. Putting this in it would give the retry a different prefix
+ * from every other call, so the retry would miss the cache AND write a second cache entry
+ * nothing else reads. In the user message the cached prefix is untouched and the retry
+ * still reads it.
+ *
+ * It does not lower the ceiling or change any rule. It tells the model which half to
+ * sacrifice when it cannot fit both, and the answer is always the reasoning: the parser
+ * throws the reasoning away and reads only the JSON, so a brief analysis with complete
+ * JSON is a correct answer and a thorough analysis with no JSON is worth nothing.
+ */
+export const CONSTRAINED_REASONING_INSTRUCTION = `
+
+## Your previous answer to this prospect was cut off before its JSON arrived
+
+It reached the ${SYNTHESIS_MAX_OUTPUT_TOKENS.toLocaleString('en-US')}-token output ceiling while still inside the <reasoning> block, so it
+produced no JSON and was worth nothing.
+
+Write the same eight reasoning items, in order, but keep each to two sentences at most.
+Then write the JSON in full.
+
+The JSON is the only part that is read: the parser strips the reasoning and discards it. If
+you cannot fit both, shorten the reasoning. Never shorten or omit the JSON.`
 
 // ─── Supabase ─────────────────────────────────────────────────────────────────
 
@@ -1075,11 +1135,19 @@ export function buildSynthesisParams(
   clientCtx: ClientDocContext,
   detectedSignal: DetectedSignal,
   ttl: '5m' | '1h' = '5m',
+  /**
+   * Retry after a truncated answer. Appends CONSTRAINED_REASONING_INSTRUCTION to the USER
+   * message and changes nothing else, so the cached system prefix is byte-identical to a
+   * first attempt and the retry still reads it. Default false keeps every existing caller,
+   * and the batch resubmission path, producing the exact same bytes as before.
+   */
+  constrainReasoning = false,
 ): MessageCreateParamsNonStreaming {
   // Per-client only. The per-prospect signal moved to the user message so this string is
   // byte-identical across a batch and can therefore be cached. See buildSignalBlock.
   const systemPrompt = buildSynthesisPrompt(clientCtx)
   const userMessage = buildSynthesisUserMessage(prospect, rawData, detectedSignal)
+    + (constrainReasoning ? CONSTRAINED_REASONING_INSTRUCTION : '')
 
   return {
     model: SYNTHESIS_MODEL,
@@ -1091,7 +1159,7 @@ export function buildSynthesisParams(
     // Raising the ceiling costs nothing on an answer that does not need it, because output
     // tokens are billed as generated. Measured with a ten-dimension list, answers ran 5,800 to
     // 13,000 tokens, so this leaves room for a longer list rather than only for today's.
-    max_tokens: 24000,
+    max_tokens: SYNTHESIS_MAX_OUTPUT_TOKENS,
     // ZERO, FOR THIS CALL ONLY. What this call produces is a verdict: icp_fit, the
     // qualification, which candidate wins. At the API default of 1.0 the same judge
     // disagreed with itself on 4 of 7 prospects given byte-identical input (2026-09-11),
@@ -1178,7 +1246,7 @@ export function synthesisFromMessage(
   //
   // It returns rather than parsing, even if what arrived happens to parse: the rest of the
   // answer is missing, so any grade in it was reached without the candidates that follow it.
-  if (response.stop_reason === 'max_tokens') {
+  if (wasTruncated(response)) {
     const producedTokens = response.usage?.output_tokens ?? 0
     logger.error('research/synthesize: the answer was cut off at the output ceiling, so no grade was reached', {
       prospect_id: prospect.id,
@@ -1187,7 +1255,7 @@ export function synthesisFromMessage(
     return {
       ...buildFallbackSynthesis(
         prospect, clientCtx.icpSummary, '',
-        `the answer was cut off at the output ceiling after ${producedTokens} tokens, so its JSON never arrived`,
+        truncationReason(producedTokens),
         detectedSignal,
       ),
       usage: callUsage,
@@ -1268,6 +1336,59 @@ export function synthesisFallback(
   return buildFallbackSynthesis(prospect, clientCtx.icpSummary, '', reason, detectedSignal)
 }
 
+/**
+ * Retry a truncated synthesis ONCE, with the reasoning constrained.
+ *
+ * ── WHY THIS IS A FUNCTION AND NOT A LOOP IN EACH CALLER ──
+ *
+ * Both paths reach a truncated answer and both must do the same thing about it, but they
+ * reach it from different places: the inline path has just made the call, and the collect
+ * agent is reading a Message a batch produced up to 24 hours earlier. Two copies of "build
+ * the params again with the flag set, call once, decide whether the result is usable" is
+ * the two-implementations-that-must-agree shape, and a drift between them would show up as
+ * different research for prospects that happened to go down the other path.
+ *
+ * ── ONE RETRY, NOT A LOOP ──
+ *
+ * A truncated answer costs a full ceiling of output tokens, about $0.20 at batch rates. A
+ * second truncation is evidence the material genuinely does not fit, not bad luck, so a
+ * third attempt would spend another $0.20 to learn the same thing. The caller records the
+ * failure and the approved template ships.
+ *
+ * Returns the retry's Message whatever it says, INCLUDING one that truncated again, so the
+ * caller can read its usage: that call was billed too. `null` means the retry could not be
+ * made at all, which is different from a retry that was made and failed.
+ */
+export async function retryTruncatedSynthesis(
+  client: Anthropic,
+  prospect: ProspectContext,
+  rawData: RawSourceData,
+  clientCtx: ClientDocContext,
+  detectedSignal: DetectedSignal,
+): Promise<Message | null> {
+  const params = buildSynthesisParams(prospect, rawData, clientCtx, detectedSignal, '5m', true)
+
+  try {
+    const response = await callWithRetry(client, params, prospect.id)
+    logger.warn('research/synthesize: retried a truncated answer with the reasoning constrained', {
+      prospect_id: prospect.id,
+      retry_output_tokens: response.usage?.output_tokens ?? 0,
+      retry_truncated_again: wasTruncated(response),
+    })
+    return response
+
+  } catch (err) {
+    // A fatal account condition must abort rather than degrade, exactly as on the first
+    // call: a spent balance is not a per-prospect fact.
+    throwIfFatal(err, `synthesis truncation retry for prospect ${prospect.id}`)
+    logger.error('research/synthesize: the truncation retry itself failed', {
+      prospect_id: prospect.id,
+      error: String(err),
+    })
+    return null
+  }
+}
+
 export async function synthesizeResearch(
   prospect: ProspectContext,
   rawData: RawSourceData,
@@ -1286,7 +1407,25 @@ export async function synthesizeResearch(
     // remains here is what is genuinely inline-only: holding an HTTP connection open,
     // retrying a 429 in-process, and aborting on a fatal account error.
     const response = await callWithRetry(client, params, prospect.id)
-    return synthesisFromMessage(response, prospect, clientCtx, detectedSignal, rawData)
+    if (!wasTruncated(response)) {
+      return synthesisFromMessage(response, prospect, clientCtx, detectedSignal, rawData)
+    }
+
+    // ── TRUNCATED. RETRY ONCE, AND KEEP THE COST OF THE ANSWER WE THREW AWAY ──
+    //
+    // The first call was billed for a full ceiling of output tokens and produced nothing
+    // usable. Returning only the retry's usage would under-report the prospect by that
+    // whole amount, which is the line this entire change exists to make visible.
+    const discardedUsage = readTokenUsage(response.usage)
+    const retry = await retryTruncatedSynthesis(client, prospect, rawData, clientCtx, detectedSignal)
+
+    // No retry was made at all. One call, one usage, the fallback ships.
+    if (!retry) return synthesisFromMessage(response, prospect, clientCtx, detectedSignal, rawData)
+
+    // Two calls happened. synthesisFromMessage reports the retry's usage, so add the
+    // discarded one: whether the retry succeeded or truncated again, both were billed.
+    const out = synthesisFromMessage(retry, prospect, clientCtx, detectedSignal, rawData)
+    return { ...out, usage: addTokenUsage(discardedUsage, out.usage) }
 
   } catch (err) {
     // A spent credit balance or a rejected key is not a per-prospect condition. Falling
