@@ -34,7 +34,7 @@
 // checkOpeningGates with findings that do not contain them, TWELVE OF SIXTEEN LEAK.
 //
 // The four that are caught are caught incidentally, by a tail token that is not itself
-// sentence-initial: Blue SKY, Hollywood FOOD COALITION, Merrow Institute, Merrow CONSULTING.
+// sentence-initial: Green FIELD, Hollywood FOOD COALITION, Merrow Institute, Merrow CONSULTING.
 // "Merrow LA" leaks despite being two tokens, because the tail is two characters and the
 // existing gate has a three-character floor.
 //
@@ -152,7 +152,7 @@ import { isOrdinaryWord } from './ordinary-words'
 // THE SPLICE CONTROL, over the same 60 openings, each entity judged only against findings
 // that do not already name it: 13 of 16 before, 15 of 16 after for this gate alone, and
 // 16 of 16 for the production path once untraceableClaims is counted. The one this gate
-// still does not catch alone is "Blue Sky", covered by untraceableClaims on the tail
+// still does not catch alone is "Green Field", covered by untraceableClaims on the tail
 // "Sky"; see the multi-token note on the run-building loop below.
 export type SentenceInitialGateMode = 'report' | 'block'
 export const SENTENCE_INITIAL_GATE_MODE: SentenceInitialGateMode = 'block'
@@ -332,12 +332,12 @@ export function findSentenceInitialNames(text: string, findingsText: string): Se
     // only; the verdict is taken on the first token, which is the one nothing else checks.
     //
     // THE VERDICT IS STILL FIRST-TOKEN ONLY, DELIBERATELY, AND THIS IS THE RESIDUAL GAP.
-    // "Blue Sky" leaks here because "Blue" is ordinary English, so the run is cleared on
+    // "Green Field" leaks here because "Blue" is ordinary English, so the run is cleared on
     // its first token while "Sky" is never judged. Taking the verdict across the whole run
     // would catch it, and was NOT done, because every token after the first is not
     // sentence-initial and is therefore ALREADY CHECKED by untraceableClaims. Judging them
     // here would double-report the same word from two gates. The production path does
-    // catch "Blue Sky", on the tail, which is what the paired test at the bottom of
+    // catch "Green Field", on the tail, which is what the paired test at the bottom of
     // sentence-initial-names.test.ts asserts.
     //
     // The true residual gap is narrower than "multi-token names": a run whose first token

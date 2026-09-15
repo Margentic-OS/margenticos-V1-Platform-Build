@@ -25,7 +25,7 @@ import { shapeModels, concreteRewrites, plainRewrites, printShopBridge } from '.
 import type { ObservationCandidate } from '../types'
 
 const FINDINGS = [
-  'Blue Sky is hiring delivery consultants, posted 2026 on LinkedIn.',
+  'Green Field is hiring delivery consultants, posted 2026 on LinkedIn.',
   'The website blueskyerp.ca has no blog and no case studies.',
   'Apollo headcount is approximately 12.',
 ].join('\n')
@@ -80,18 +80,18 @@ describe('gate: firmographic figures', () => {
 
 describe('gate: factual traceability', () => {
   it('passes claims that appear in the findings', () => {
-    const opening = 'Blue Sky is hiring delivery consultants. There is no blog and no case studies.'
+    const opening = 'Green Field is hiring delivery consultants. There is no blog and no case studies.'
     expect(checkOpeningGates(opening, null, FINDINGS)).toEqual([])
   })
 
   it('fails an invented number', () => {
-    const opening = 'Blue Sky is hiring delivery consultants and now has 47 people.'
+    const opening = 'Green Field is hiring delivery consultants and now has 47 people.'
     const failures = checkOpeningGates(opening, null, FINDINGS)
     expect(failures.some(f => f.includes('47'))).toBe(true)
   })
 
   it('fails an invented proper noun', () => {
-    const opening = 'Blue Sky is hiring delivery consultants after the Fastrack acquisition.'
+    const opening = 'Green Field is hiring delivery consultants after the Fastrack acquisition.'
     const failures = checkOpeningGates(opening, null, FINDINGS)
     expect(failures.some(f => f.includes('Fastrack'))).toBe(true)
   })
@@ -978,7 +978,7 @@ describe('uniquenessFeedback tells the writer what to change', () => {
 // have read "...after that hire?.".
 
 describe('the opening may not carry its own question mark', () => {
-  const FINDINGS_TEXT = 'Blue Sky hired a Manager of Delivery and Operations in March.'
+  const FINDINGS_TEXT = 'Green Field hired a Manager of Delivery and Operations in March.'
 
   it('rejects a question-shaped bridge', () => {
     const opening = 'You hired a delivery lead in March.\n\nSo what fills the months after that hire? Is that a gap you are looking to close?'
@@ -1172,7 +1172,7 @@ describe('the writer may not hand back the approved offer line', () => {
     // "conversations" and "delivery" are ordinary vocabulary for this offer. Only an
     // eight-word run of the offer line itself counts.
     const opening = 'You hired a delivery lead.\n\nThe right conversations get harder to find. Is that a gap?'
-    expect(checkOpeningGates(opening, null, 'Blue Sky hired a delivery lead.', P3)).toEqual([])
+    expect(checkOpeningGates(opening, null, 'Green Field hired a delivery lead.', P3)).toEqual([])
   })
 
   it('is inert when no approved P3 is supplied', () => {

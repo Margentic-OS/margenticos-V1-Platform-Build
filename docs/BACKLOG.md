@@ -10011,7 +10011,7 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   MEASURED 2026-08-28 against the real exported gate at the real production shape:
   TWELVE OF THE SIXTEEN named entities in the writer prompt's worked examples leak.
   The four caught are caught incidentally by a tail token that is not sentence-initial
-  (Blue SKY, Hollywood FOOD COALITION, Merrow Institute, Merrow CONSULTING). "Merrow LA" leaks
+  (Green FIELD, Hollywood FOOD COALITION, Merrow Institute, Merrow CONSULTING). "Merrow LA" leaks
   despite being two tokens, because the tail is two characters and the old gate has a
   three-character floor.
 
@@ -10177,7 +10177,7 @@ in docs/prompts/, the four generation agents, or document-projection was touched
 - [gate] RESIDUAL GAP IN THE SENTENCE-INITIAL GATE: A RUN WHOSE FIRST TOKEN IS ORDINARY
   ENGLISH AND WHOSE REST IS UNDER THE THREE-CHARACTER FLOOR.
 
-  The verdict is taken on the FIRST token of a capitalised run only. "Blue Sky" therefore
+  The verdict is taken on the FIRST token of a capitalised run only. "Green Field" therefore
   passes this gate, because "Blue" is ordinary English and "Sky" is never judged here. That
   is not a leak in production: "Sky" is not sentence-initial, so untraceableClaims catches
   it, and the paired test at the bottom of sentence-initial-names.test.ts asserts exactly
@@ -10303,7 +10303,7 @@ in docs/prompts/, the four generation agents, or document-projection was touched
 
   In practice the frequency-based list closes most of this by accident rather than by
   rule: "treasury" and "cave" are real words but not common enough to be in a common-word
-  list, so both are caught today. Do not read that as a guarantee. "Blue Sky" IS allowed
+  list, so both are caught today. Do not read that as a guarantee. "Green Field" IS allowed
   by this gate, and is caught only because untraceableClaims sees the tail "Sky". That
   seam is asserted as a pair in the tests rather than assumed.
 
@@ -11162,7 +11162,7 @@ a corporate suffix or a domain, and `buildWriterPrompt`'s names carry neither.
 So the count is 0 and the following are still in the prompt that ships to the model on every
 writer call, inside worked examples:
 
-  Vantor, BrightlaneIQ, Devon, Calder, Visteon, Blue Sky, Chamber, Merrow Institute,
+  Vantor, BrightlaneIQ, Devon, Calder, Visteon, Green Field, Chamber, Merrow Institute,
   Hollywood Food Coalition, Merrow LA, SCG, DTCC / Treasury / SEC, and CAVE at two sites.
 
 **Why it matters more here than in most prompts.** The prompt itself records that its

@@ -59,7 +59,7 @@ describe('what must never fire: dates, tenures and counts of things they did', (
       'Three and a half years running SCG alongside a full consulting role at Beta Strategies says you can carry a serious load.',
       'Going on air to work through the ideal-client question says the positioning work is happening.',
       'Your last five posts are carrying RLCore story, media hits, open roles, the momentum is visible.',
-      'Running DRI Consulting and DRIC Jamaica simultaneously means the delivery load across two geographies rarely leaves a gap for pipeline.',
+      'Running Kestrel Consulting and KESC Jamaica simultaneously means the delivery load across two geographies rarely leaves a gap for pipeline.',
       'Your post connecting the Counselors Academy conference to opening day says you know where PR agency principals gather.',
       'The hiring post for a Manager of Delivery and Operations says the client load is real and growing.',
       'The Nashville recruiting post says delivery is live and the diary is full.',

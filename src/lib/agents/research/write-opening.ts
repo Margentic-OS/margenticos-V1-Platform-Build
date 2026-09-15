@@ -313,7 +313,7 @@ that is precisely the sentence that earns a defensive reply instead of a meeting
 VERDICT, and this one is not just presumptuous but wrong:
   observation: "The hiring post for a new delivery role says the client load is real and
    growing."
-  bridge: "What a Chamber event and a strong network cannot do is put Blue Sky in front of
+  bridge: "What a Chamber event and a strong network cannot do is put Green Field in front of
    the right buyers before the new delivery hire is already busy."
 A chamber event and a strong network is exactly how a great many consultancies fill
 capacity. We told him the thing that works does not work.

@@ -23,8 +23,8 @@ describe('contentOverlap, the winner-to-trigger check', () => {
     expect(contentOverlap(trigger, winner)).toBeLessThan(TRIGGER_WINNER_MIN_OVERLAP)
   })
 
-  it('scores the real Corral mismatch below the threshold', () => {
-    const winner = 'Richard has run Corral Consulting solo since August 2007, now 18 years, with headcount still at approximately one person.'
+  it('scores the real Larkfield mismatch below the threshold', () => {
+    const winner = 'Tam has run Larkfield Consulting solo since August 2007, now 18 years, with headcount still at approximately one person.'
     const trigger = 'Most solo consulting principals running on referrals and community relationships for years hit the same point. A project wraps, and the next conversation is not already in the diary.'
     expect(contentOverlap(trigger, winner)).toBeLessThan(TRIGGER_WINNER_MIN_OVERLAP)
   })

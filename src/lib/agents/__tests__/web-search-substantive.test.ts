@@ -26,9 +26,9 @@ describe('the verbose negative, which is what this change exists to catch', () =
   it('rejects a negative about having matched the wrong entity entirely', () => {
     const real =
       'Based on the search results, I was unable to find verifiable content matching the ' +
-      'specific query of "Richard" associated with Blue Sky Consulting in podcast, interview, ' +
-      'article, or published content from 2026. The search results show multiple "Blue Sky" ' +
-      'entities, but none show a person named "Richard" as a primary figure.'
+      'specific query of "Tam" associated with Green Field Consulting in podcast, interview, ' +
+      'article, or published content from 2026. The search results show multiple "Green Field" ' +
+      'entities, but none show a person named "Tam" as a primary figure.'
     expect(isSubstantive(real)).toBe(false)
   })
 
@@ -48,7 +48,7 @@ describe('mixed text keeps passing, which is the risk of over-tightening', () =>
   it('keeps a negative opener when a dated positive fact follows', () => {
     const mixed =
       'No verifiable 2026 press releases were found for the firm. ' +
-      'DRI Consulting Limited was incorporated in the UK on 19 March 2026, registered at ' +
+      'Kestrel Consulting Limited was incorporated in the UK on 19 March 2026, registered at ' +
       '3 Wakeling Street, London, and now reports approximately 14 employees across three ' +
       'continents including North America, Asia and South America as of July 2026.'
     expect(isSubstantive(mixed)).toBe(true)

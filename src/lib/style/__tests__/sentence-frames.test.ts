@@ -19,7 +19,7 @@ const ALMA =
 
 const UDO =
   'Three concurrent CEO roles since 2023 is a specific spread of attention across ' +
-  'Broskamp Consulting, Merrow Ventures, and Tessom Fund.'
+  'Halden Consulting, Merrow Ventures, and Tessom Fund.'
 
 describe('frameSkeleton', () => {
   it('masks numbers and mid-sentence capitals, keeping structural words', () => {

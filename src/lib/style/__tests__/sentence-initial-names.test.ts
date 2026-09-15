@@ -50,22 +50,22 @@ describe('the hole, reproduced at the real production shape', () => {
   //
   // "Blue" is ordinary English, so allowing it is the design working rather than failing:
   // rejecting every sentence that opens with a common adjective is exactly the false
-  // positive that costs writer attempts. "Blue Sky" is still defended, because "Sky" is
+  // positive that costs writer attempts. "Green Field" is still defended, because "Sky" is
   // not sentence-initial and untraceableClaims has always caught it.
   //
   // Asserted as a PAIR on purpose. Each gate alone leaves this name uncovered, and a test
   // of either one alone would report success while the seam between them was the only
   // thing holding.
-  it('leaves "Blue" to the existing gate, which catches the tail "Sky"', () => {
+  it('leaves "Green" to the existing gate, which catches the tail "Field"', () => {
     const block = productionBlock(
       'You took two board seats early this year.',
-      'Blue Sky has been growing since then.',
+      'Green Field has been growing since then.',
       'Worth a look?',
     )
     expect(findSentenceInitialNames(block, UNRELATED_FINDINGS)).toEqual([])
 
     const failures = checkOpeningGates(block, null, UNRELATED_FINDINGS)
-    expect(failures.find(f => f.startsWith('claims not traceable'))).toContain('Sky')
+    expect(failures.find(f => f.startsWith('claims not traceable'))).toContain('Field')
   })
 
   it('reports a multi-token name as the whole run, so "Merrow LA" is not judged on "LA"', () => {
