@@ -76,6 +76,58 @@ describe('synthesis prompt: the working is written once and the answer once', ()
         expect(prompt).toMatch(/no restatement of the\s+analysis you have just done/)
       })
 
+      // ── THE RULE IS ABOUT AN ACT, NOT A LOCATION ─────────────────────────
+      //
+      // The first version of this instruction forbade restatement AFTER </reasoning>.
+      // Measured on 5 prospects: it was obeyed exactly, 0 of 5 violated it, and the
+      // duplication MOVED INSIDE the reasoning block where the rule said nothing. Three of
+      // five then wrote a free-form survey and the eight numbered items over the same
+      // ground; two of those never reached item 1 before hitting the 24,000 ceiling.
+      //
+      // A rule about a place moves the behaviour. A rule about an act removes it. These
+      // assertions pin the act.
+
+      it('forbids the act of writing the analysis twice, not merely writing it in one place', () => {
+        expect(prompt).toContain('THE ANALYSIS IS WRITTEN ONCE')
+        expect(prompt).toMatch(/NOT ONCE ROUGHLY AND THEN ONCE PROPERLY/)
+      })
+
+      it('forbids the exploratory pass before the numbered items by name', () => {
+        expect(prompt).toMatch(/DO NOT survey the material first and then work through the items/)
+        expect(prompt).toContain('There is no exploratory pass before item 1')
+      })
+
+      it('names the observed free-form headings verbatim, as the boundary rule named its own', () => {
+        // These four are the headings the model actually produced on 2026-09-14. Naming
+        // them is the difference between this rule and "be concise", which would not have
+        // stopped it.
+        for (const heading of [
+          '## Source Review',
+          '## Candidate Generation',
+          '## Final Candidate List',
+          '## Final Summary',
+        ]) {
+          expect(prompt).toContain(heading)
+        }
+      })
+
+      it('gives a positive rule about where the items sit, not only a prohibition', () => {
+        // A prohibition alone leaves the model to infer what to do instead, which is how
+        // the behaviour relocated last time.
+        expect(prompt).toMatch(/FIRST heading after <reasoning> is item 1/)
+        expect(prompt).toMatch(/LAST is item 8/)
+      })
+
+      it('still permits thinking inside the items, so this does not read as "think less"', () => {
+        // The risk of over-constraining: a model told not to explore may under-work the
+        // problem. The instruction says explicitly that the thinking belongs in the items.
+        expect(prompt).toMatch(/Thinking as you go is expected/)
+      })
+
+      it('keeps the boundary rule, which was obeyed 5 of 5 and is not what failed', () => {
+        expect(prompt).toMatch(/After <\/reasoning> the very next character is the opening \{/)
+      })
+
       it('still asks for the reasoning block itself, which is NOT what is being removed', () => {
         // The chain-of-thought is kept in full. Only the second copy goes. A change that
         // deleted the reasoning block would pass every assertion above and be a different,
@@ -97,7 +149,7 @@ describe('synthesis prompt: the working is written once and the answer once', ()
   it('places the write-once instruction after the working items and before the JSON schema', () => {
     const prompt = buildSynthesisPrompt(ctx(true))
     const items    = prompt.indexOf('8. Qualification assessment')
-    const writeOnce = prompt.indexOf('THE WORKING IS WRITTEN ONCE')
+    const writeOnce = prompt.indexOf('THE ANALYSIS IS WRITTEN ONCE')
     const schema   = prompt.indexOf('Output this exact JSON')
 
     expect(items).toBeGreaterThan(-1)
