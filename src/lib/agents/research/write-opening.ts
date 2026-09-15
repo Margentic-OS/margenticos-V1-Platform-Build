@@ -20,6 +20,7 @@ import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/fir
 import { checkSentenceInitialNames } from '@/lib/style/sentence-initial-names'
 import { countSentences } from '@/lib/style/sentence-count'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
+import { checkActivityVerdict } from '@/lib/style/activity-verdict'
 import { checkOpeningReferences } from '@/lib/style/opening-reference'
 import { readabilityScore } from '@/lib/style/readability'
 // The subject character cap lives with the messaging agent's other limits and is
@@ -521,14 +522,28 @@ plausible. The one that makes it TRUE. If you cannot put your finger on it, the 
 not yours to write, and the fix is a different sentence rather than a softer one.
 
 If no consequence follows from an observation, that observation was the wrong one to choose.
-Pick another finding.
+Move to another finding. This is one of the reasons that outranks the mark.
+
+ONE FINDING MAY BE MARKED [SELECTED BY SYNTHESIS]. That is the finding the analyst who
+produced this material would build on, judged against tests you do not run and cannot see.
+START THERE.
+
+It is where to start, not a verdict you have to honour. The rules in these instructions
+outrank it, and a marked finding that cannot survive them is the wrong one to build on.
+Move off it when a rule sends you off it. Do not move off it because another finding reads
+better, or is more recent, or is easier to write: the analyst weighed that and you are
+weighing the same material a second time with less of it in front of you.
+
+Nothing is marked when the analyst reached no selection. Then the order of the list is what
+you have, and the first finding is where to start.
 
 EACH FINDING CARRIES A COUNTER-READING: the strongest opposite conclusion the same evidence
 supports, written by the analyst who produced the finding. It tells you how much weight that
 finding will bear, and it is about the conclusion, never about the fact. Where the
 counter-reading is strong, name what is observable and stop, because the conclusion is the
 half that may be wrong; where a finding's counter-reading is marked unhandled or missing,
-build nothing on its conclusion and prefer a different finding.
+build nothing on its conclusion and move to a different finding. This outranks the mark
+too: a marked finding whose counter-reading is unhandled is still not one to conclude from.
 
 NEVER ASSERT A TRACK RECORD. Do not claim a client relationship, a past engagement, a
 delivered result, or a case study unless the approved documents you were given state it
@@ -1434,6 +1449,21 @@ export function checkOpeningGates(
       params.observation, params.bridge, { prospectId: context?.prospectId ?? 'unknown' },
     ))
 
+    // TELLING THE READER THEIR OWN ACTIVITY IS FAILING, OR NAMING WHAT THEY LACK. The
+    // brief forbids both in five separate places and nothing has ever checked either, so
+    // the same fault has reached real prospects run after run with every gate green.
+    //
+    // REPORT-ONLY on this commit: returns an empty array while ACTIVITY_VERDICT_MODE says
+    // 'report'. Measured over the last four export runs of the pinned cohort before being
+    // wired here, 24 hits across 246 attempts, because a detector of this kind is only
+    // worth gating on once its rate on the PERMITTED shape is known. See the module.
+    //
+    // BOTH PARTS, on the ban's own terms: "THE ABSENCE BAN. IT COVERS THE OBSERVATION AND
+    // THE BRIDGE, BOTH." Twenty of those 24 hits were in the observation.
+    failures.push(...checkActivityVerdict(
+      params.observation, params.bridge, { prospectId: context?.prospectId ?? 'unknown' },
+    ))
+
     for (const [part, text] of [['observation', params.observation], ['bridge', params.bridge]] as const) {
       // Named logContext, not context: a local called `context` would shadow the
       // parameter it is built from and never initialise.
@@ -1578,7 +1608,11 @@ export function buildFindingsEvidence(candidates: ObservationCandidate[]): strin
 export function buildFindingsBlock(
   candidates: ObservationCandidate[],
   opts: {
-    /** The candidate synthesis selected, marked in the list. null on a stored-findings run. */
+    /**
+     * The candidate synthesis selected, marked in the list. Carried forward on a reuse run
+     * since 2026-09-14; null only where the source row reached no selection or predates
+     * the column, and null still marks nothing.
+     */
     selectedCandidateId?: string | null
     /** Why synthesis judged this prospect's material relevant. One sentence, per result. */
     relevanceReason?: string | null
@@ -1816,7 +1850,8 @@ export interface WriteAndJudgeParams {
   candidates: ObservationCandidate[]
   /**
    * The candidate synthesis selected, marked for the writer in the findings block.
-   * Optional, and null on a stored-findings run, which reaches no selection of its own.
+   * Optional. A reuse run carries the selection stored on its source row; null only where
+   * that row reached no selection or predates the column.
    */
   selectedCandidateId?: string | null
   /** Synthesis's one-sentence reason this material connects to what the client solves. */

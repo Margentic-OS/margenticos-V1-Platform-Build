@@ -100,9 +100,18 @@ describe('the writer still runs whenever synthesis would use a candidate', () =>
     expect(writeAndJudgeOpening).toHaveBeenCalledTimes(1)
   })
 
-  it('runs on a reuse run, where selected_candidate_id is always null, when a usable candidate is there', async () => {
-    // THE TRAP THIS AVOIDS. Keyed on the selection, this check would stop every reuse run.
+  it('runs when the selection is null, which is still a real case, if a usable candidate is there', async () => {
+    // THE TRAP THIS AVOIDS. Keyed on the selection, this check would stop every prospect
+    // whose row carries no selection. That was EVERY reuse run until 2026-09-14, when the
+    // reuse path began carrying the selection its source row recorded. It is now only a row
+    // predating the column, or one whose run reached no selection, so the trap is narrower
+    // and the guard still matters: the two questions are independent and must stay so.
     await run([candidate()], null)
+    expect(writeAndJudgeOpening).toHaveBeenCalledTimes(1)
+  })
+
+  it('runs when the selection is present, which a reuse run now carries', async () => {
+    await run([candidate()], 'c1')
     expect(writeAndJudgeOpening).toHaveBeenCalledTimes(1)
   })
 })

@@ -43,7 +43,7 @@ const ctx: ProspectContext = {
   linkedin_url: null, website_url: null, company: null,
 }
 
-const stored = (relevance_reason: string | null) => ({
+const stored = (relevance_reason: string | null, selectedCandidateId: string | null = 'c1') => ({
   result_id: 'r1',
   candidates: [candidate],
   // The row fetched sources of its own. A reuse row carries findings and fetched none, which is
@@ -59,6 +59,7 @@ const stored = (relevance_reason: string | null) => ({
   has_dateable_signal: true,
   signal_observation: null,
   relevance_reason,
+  selected_candidate_id: selectedCandidateId,
 })
 
 describe('the export hands the writer what a production reuse run hands it', () => {
@@ -70,8 +71,22 @@ describe('the export hands the writer what a production reuse run hands it', () 
     )
   })
 
-  it('marks no selection, because a reuse run reaches none of its own', async () => {
-    const input = await writerInputForStored(stored('A reason.'), ctx, 'org1')
+  // RENAMED AND INVERTED 2026-09-14. This test asserted the opposite until then: that a
+  // reuse run marks NOTHING. That was true, and it was the defect. The writer began reading
+  // the mark on 2026-09-02 and the reuse path kept nulling it, so 17 of 29 openings in the
+  // pinned cohort were built on a candidate the research had not chosen, three of them on
+  // candidates it had positively rejected. The test pinned the bug in place.
+  it('CARRIES the selection its source row recorded, and marks it for the writer', async () => {
+    const input = await writerInputForStored(stored('A reason.', 'c1'), ctx, 'org1')
+    expect(input.selectedCandidateId).toBe('c1')
+    expect(describeHandover(input).findings_block).toContain('[SELECTED BY SYNTHESIS]')
+  })
+
+  // The null is still a real case and still means "mark nothing": a row written before the
+  // column existed, or one whose run reached no selection. Both must stay silent rather
+  // than mark an arbitrary candidate, which is the failure mode of carrying it carelessly.
+  it('marks nothing when the source row recorded no selection', async () => {
+    const input = await writerInputForStored(stored('A reason.', null), ctx, 'org1')
     expect(input.selectedCandidateId).toBeNull()
     expect(describeHandover(input).findings_block).not.toContain('[SELECTED BY SYNTHESIS]')
   })

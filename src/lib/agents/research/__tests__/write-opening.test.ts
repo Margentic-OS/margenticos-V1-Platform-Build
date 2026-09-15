@@ -1750,7 +1750,12 @@ describe('the bridge names a consequence, and an absence is permitted but never 
   it('sends a consequence-free observation back rather than inventing a consequence', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('that observation was the wrong one to choose')
-    expect(flat).toContain('Pick another finding')
+    // "Pick another finding" until 2026-09-14. Reworded when the selection mark began
+    // reaching the writer on the reuse path: the instruction is unchanged in force, but it
+    // now says it OUTRANKS the mark rather than expressing a free preference between
+    // findings. Wording only; this rule still sends the writer off a marked finding.
+    expect(flat).toContain('Move to another finding')
+    expect(flat).toContain('This is one of the reasons that outranks the mark')
   })
 })
 
