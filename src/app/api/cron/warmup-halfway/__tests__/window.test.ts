@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const sendTransactionalEmail = vi.fn(async () => ({ id: 'sent' }))
+const sendTransactionalEmail = vi.fn(async (..._args: unknown[]) => ({ id: 'sent' }))
 vi.mock('@/lib/email/send', () => ({ sendTransactionalEmail: (...a: unknown[]) => sendTransactionalEmail(...a) }))
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), captureMessage: vi.fn() }))
