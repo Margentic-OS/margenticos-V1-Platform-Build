@@ -38,6 +38,30 @@ export interface FitDimension {
   role: DimensionRole
   /** Settled at approval: will the research this platform gathers usually show it either way? */
   establishable: boolean
+  /**
+   * Settled at approval: can the research show this condition is NOT met?
+   *
+   * SEPARATE FROM establishable BECAUSE THE TWO DIRECTIONS ARE NOT SYMMETRIC, AND THE
+   * QUOTE CHECK CANNOT TELL THEM APART. A quotation proves that words appear in the
+   * material. It cannot prove those words support the DIRECTION they are attached to, and
+   * no surface rule separates the two: measured 2026-09-15 against all 101 stored readings,
+   * a legitimate miss ("annual revenue of $750K" against a $1M floor) and the one bad miss
+   * (a firm's own marketing claim, "over 20 years of experience ... exemplary service
+   * delivery", offered as proof it has no proof) are indistinguishable by absence markers,
+   * by digits, or by the shape of the statement. Both quote real text; only one of them
+   * contradicts its condition, and knowing which is a judgement.
+   *
+   * So the direction is DECLARED per condition rather than inferred per quotation.
+   *
+   * A condition that asks whether something EXISTS can usually be confirmed and not
+   * refuted: a firm with nothing published and a firm whose proof the research did not
+   * reach look identical. A condition that asks about a THRESHOLD or a SET can be refuted,
+   * because a contradicting value is itself quotable.
+   *
+   * ABSENT MEANS TRUE, which is exactly today's behaviour, so no stored spec changes
+   * meaning by this field arriving.
+   */
+  miss_establishable?: boolean
 }
 
 /** The set stored on the filter spec, with what produced it. */
@@ -102,7 +126,14 @@ export function checkFitDimensions(raw: unknown): CheckedDimensions {
     const role = DIMENSION_ROLES.find(r => r === e.role)
     if (!role) return fail(`${key} has role ${JSON.stringify(e.role ?? null)}, not required or supporting`)
     if (typeof e.establishable !== 'boolean') return fail(`${key} does not say whether research can establish it`)
-    dimensions.push({ key, statement, source, role, establishable: e.establishable })
+    // Absent means true: every spec stored before this field existed keeps its behaviour.
+    if (e.miss_establishable !== undefined && typeof e.miss_establishable !== 'boolean') {
+      return fail(`${key} has miss_establishable ${JSON.stringify(e.miss_establishable)}, which is not a boolean`)
+    }
+    dimensions.push({
+      key, statement, source, role, establishable: e.establishable,
+      ...(e.miss_establishable === undefined ? {} : { miss_establishable: e.miss_establishable }),
+    })
   }
 
   if (!dimensions.some(d => d.establishable)) {
@@ -164,11 +195,19 @@ export function quoteFound(quote: string | null, material: string): boolean {
  * 2. Whether research can establish the dimension was settled at approval and is not the
  *    judge's to revisit. On a dimension research can establish, an answer of unestablished is
  *    unknown. On one it usually cannot, silence is expected and counts as unestablished.
+ * 3. A miss stands only where the NO direction is one research can show. Where it is not,
+ *    a quoted miss is unknown: the quotation is real and what it supports is not checkable.
  */
 export function countedResult(dimension: FitDimension, judged: DimensionResult, quoteOk: boolean): DimensionResult {
   const evidenced: DimensionResult = (judged === 'match' || judged === 'miss') && !quoteOk ? 'unknown' : judged
-  if (dimension.establishable) return evidenced === 'unestablished' ? 'unknown' : evidenced
-  return evidenced === 'unknown' ? 'unestablished' : evidenced
+  // A miss on a condition whose NO direction research cannot show is not evidence, however
+  // good the quotation is. The quote check proves the words were in the material; it cannot
+  // prove they contradict the condition, and on this kind of condition the only quotable
+  // text is the firm affirming itself. See miss_establishable, and ADR-059.
+  const directed: DimensionResult =
+    evidenced === 'miss' && dimension.miss_establishable === false ? 'unknown' : evidenced
+  if (dimension.establishable) return directed === 'unestablished' ? 'unknown' : directed
+  return directed === 'unknown' ? 'unestablished' : directed
 }
 
 /**
@@ -231,11 +270,21 @@ export function gradeFromDimensions(dimensions: FitDimension[], readings: Dimens
 
 // ─── How the judge is shown the list ──────────────────────────────────────────
 
-/** One dimension per bullet, with its key, whether it is required, and whether research can show it. */
+/**
+ * One dimension per bullet, with its key, whether it is required, and whether research can
+ * show it. Where the NO direction is one research cannot show, the judge is told so plainly,
+ * because a validator and a prompt that enforce the same rule must agree: the code will not
+ * count a miss there, and a judge left unaware would keep offering one.
+ */
 export function formatFitDimensions(dimensions: FitDimension[]): string {
   return dimensions.map(d =>
     `  • ${d.key}: ${d.statement}\n` +
     `    ${d.role === 'required' ? 'Required' : 'Supporting'}. ` +
-    `${d.establishable ? 'The research can establish this.' : 'The research usually cannot establish this.'}`,
+    `${d.establishable ? 'The research can establish this.' : 'The research usually cannot establish this.'}` +
+    (d.miss_establishable === false
+      ? '\n    The research can show this is MET, but cannot show it is NOT met: nothing published ' +
+        'distinguishes a firm this is untrue of from one the research simply did not reach. ' +
+        'Answer match or unknown. Do not answer miss.'
+      : ''),
   ).join('\n')
 }
