@@ -37,7 +37,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Message } from '@anthropic-ai/sdk/resources/messages'
 import type { MessageBatch } from '@anthropic-ai/sdk/resources/messages/batches'
 import { logger } from '@/lib/logger'
-import { buildSynthesisParams, type ClientDocContext, type DetectedSignal } from './synthesize'
+import {
+  buildSynthesisParams, wasTruncated, truncationReason,
+  type ClientDocContext, type DetectedSignal,
+} from './synthesize'
 import { BATCH_CACHE_TTL } from '@/lib/agents/prospect-research-sources-agent'
 import { enqueueResearchPhaseJob } from '@/lib/queue/job-queue'
 import type { ProspectContext, RawSourceData } from './types'
@@ -569,12 +572,39 @@ async function collectEndedBatch(
       let message: Message | null = null
       if (item.result.type === 'succeeded') {
         message = item.result.message as Message
-        patch.state = 'succeeded'
         // The WHOLE Message, so phase 2 reconstructs nothing. See
         // 20260826140000_synthesis_entry_response_message.sql.
         patch.response_message = message
         patch.usage = message.usage
         patch.stop_reason = message.stop_reason
+
+        // ── A TRUNCATED ANSWER IS A FAILURE, AND USED TO BE FILED AS A SUCCESS ──
+        //
+        // Anthropic's own verdict is 'succeeded' and it is kept in result_type unchanged,
+        // because that is the BILLING fact: a truncated answer is billed in full, and
+        // rewriting result_type would make this row claim it was free like an errored one.
+        //
+        // `state` is OUR lifecycle verdict, and for a truncated answer 'succeeded' was
+        // simply untrue. The JSON is the last thing the answer writes, so an answer that
+        // reached the ceiling lost it and reaches no grade: the writer never runs and the
+        // approved template ships. Measured on the 2026-09-14 batch, 2 of 7 entries were
+        // in exactly this state and both read state='succeeded', so nothing counted them
+        // and mon_021/022 saw a clean batch.
+        //
+        // 'failed' rather than a new state value on purpose: it is already in the
+        // synthesis_batch_entries_state_valid CHECK constraint and already counted as a
+        // failure by mon_022, so this needs no migration and lights up an existing monitor.
+        //
+        // THE COLLECT AGENT MUST SELECT 'failed' TOO, and does. Those two are a matched
+        // pair: marking the entry failed without widening that filter would strand the
+        // prospect with no research row at all, which is worse than the mislabel. See
+        // prospect-research-collect-agent.ts.
+        if (wasTruncated(message)) {
+          patch.state = 'failed'
+          patch.error = truncationReason(message.usage?.output_tokens ?? 0)
+        } else {
+          patch.state = 'succeeded'
+        }
       } else if (item.result.type === 'errored') {
         patch.state = 'errored'
         patch.error = JSON.stringify(item.result.error).slice(0, 2000)
