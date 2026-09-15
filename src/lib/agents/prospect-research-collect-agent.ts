@@ -39,6 +39,7 @@
 //                     spent on copy that can never be sent.
 
 import { createClient } from '@supabase/supabase-js'
+import Anthropic from '@anthropic-ai/sdk'
 import type { Message } from '@anthropic-ai/sdk/resources/messages'
 import { logger } from '@/lib/logger'
 import { startAgentRun } from '@/lib/agents/log-agent-run'
@@ -46,6 +47,8 @@ import { loadProspectContext } from './research/prospect-context'
 import {
   synthesisFromMessage,
   synthesisFallback,
+  wasTruncated,
+  retryTruncatedSynthesis,
   type ClientDocContext,
   type DetectedSignal,
 } from './research/synthesize'
@@ -54,7 +57,9 @@ import { writerInputFromSynthesis } from './research/writer-input'
 import { storeResearchResult, updateProspect } from './prospect-research-agent-v2'
 import { checkResearchEligibility } from '@/lib/sourcing/send-eligibility-policy'
 import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nouns'
-import { ZERO_TOKEN_USAGE, type RawSourceData } from './research/types'
+import {
+  ZERO_TOKEN_USAGE, readTokenUsage, addTokenUsage, type RawSourceData,
+} from './research/types'
 import type { OpeningResult } from './research/write-opening'
 
 function getServiceClient() {
@@ -133,7 +138,16 @@ export async function runProspectResearchCollect({
       .select('id, state, raw_sources, detected_signal, client_context, client_name, segment_id, variant_id, messaging_doc_id, messaging_content, response_message, result_type, error, batch_id')
       .eq('prospect_id', prospect_id)
       .eq('organisation_id', client_id)
-      .in('state', ['succeeded', 'errored', 'expired'])
+      // 'failed' is the TRUNCATED case, added 2026-09-15 and matched to the sweep in the
+      // same commit. The sweep now records an answer that hit the output ceiling as
+      // state='failed' rather than 'succeeded', because its JSON never arrived. The entry
+      // still carries its response_message, so this agent can retry it with the reasoning
+      // constrained instead of going straight to the fallback.
+      //
+      // WITHOUT THIS VALUE THE SWEEP CHANGE WOULD STRAND THE PROSPECT: no collectable
+      // entry, the throw below, and a research_collect job that fails on every attempt.
+      // The two filters are one mechanism in two files.
+      .in('state', ['succeeded', 'errored', 'expired', 'failed'])
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -146,7 +160,7 @@ export async function runProspectResearchCollect({
       // finding no collectable entry means the two disagree and that must be visible.
       throw new Error(
         `No collectable synthesis entry for prospect ${prospect_id}. A research_collect ` +
-        'job was enqueued but no entry is in succeeded, errored or expired state.',
+        'job was enqueued but no entry is in succeeded, errored, expired or failed state.',
       )
     }
 
@@ -171,16 +185,69 @@ export async function runProspectResearchCollect({
     // returns byte-for-byte what synthesizeResearch would have returned had the call been
     // made inline. That equivalence is structural, not a claim a test has to keep
     // re-checking: synthesizeResearch is DEFINED in terms of this function.
-    const synthesis = entry.response_message
+    // ── A TRUNCATED BATCH ANSWER GETS ONE RETRY BEFORE THE FALLBACK ───────────
+    //
+    // An answer that hit the output ceiling lost its JSON, so it reaches no grade and no
+    // candidates: the writer never runs and the approved template ships. Measured on the
+    // 2026-09-14 batch, 2 of 7 entries were truncated, at roughly $0.20 of batch-rate
+    // output tokens each, and every one of those tokens bought nothing.
+    //
+    // HERE rather than in the sweep, for two reasons. The sweep is the collector and the
+    // ledger, and a model call inside its per-entry loop would put paid work inside the
+    // step whose whole job is to record what was already paid for. And this agent already
+    // holds an Anthropic client for the writer, the snapshotted sources the first attempt
+    // was given, and the prospect context, so the retry reproduces the original call
+    // exactly, plus the constraint.
+    //
+    // The retry is INLINE, not a resubmission into another batch. A batch would be half
+    // the price and cost another day of latency on a prospect already waited for, and the
+    // entry has been marked failed, so nothing would collect the second result.
+    // Read once, here, because BOTH the truncation retry below and the writer further down
+    // need it. It used to be read immediately before the writer; hoisting it means a
+    // missing key fails before the retry rather than after it.
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    if (!apiKey) throw new Error('prospect-research-collect: ANTHROPIC_API_KEY not set')
+
+    let retriedTruncation = false
+    let discardedUsage = ZERO_TOKEN_USAGE
+    let synthesisMessage = entry.response_message
+
+    if (synthesisMessage && wasTruncated(synthesisMessage)) {
+      // Billed in full and unusable. Kept so the prospect's recorded cost includes it.
+      discardedUsage = readTokenUsage(synthesisMessage.usage)
+      logger.warn('prospect-research-collect: the batch answer was truncated, retrying once with the reasoning constrained', {
+        prospect_id,
+        entry_id: entry.id,
+        discarded_output_tokens: discardedUsage.output_tokens,
+      })
+
+      const retry = await retryTruncatedSynthesis(
+        new Anthropic({ apiKey }),
+        ctx, entry.raw_sources, entry.client_context, entry.detected_signal,
+      )
+      if (retry) {
+        retriedTruncation = true
+        synthesisMessage = retry
+      }
+    }
+
+    const fromMessage = synthesisMessage
       // raw_sources is what phase 1 sent, so a fit-dimension quotation is checked against the
       // research the judge actually read. The prospect header is rebuilt from the live row, so
       // a quotation of a job title changed during the wait would not be found and would count
       // as unknown, which is the safe direction.
-      ? synthesisFromMessage(entry.response_message, ctx, entry.client_context, entry.detected_signal, entry.raw_sources)
+      ? synthesisFromMessage(synthesisMessage, ctx, entry.client_context, entry.detected_signal, entry.raw_sources)
       : synthesisFallback(
           ctx, entry.client_context, entry.detected_signal,
           `Batch entry ${entry.id} returned ${entry.result_type ?? entry.state}: ${entry.error ?? 'no message'}`,
         )
+
+    // Both calls were billed, whether the retry produced a grade or truncated again. Added
+    // only when a retry actually happened, or the discarded usage would be counted twice
+    // against the single call that produced it.
+    const synthesis = retriedTruncation
+      ? { ...fromMessage, usage: addTokenUsage(discardedUsage, fromMessage.usage) }
+      : fromMessage
 
     if (!entry.response_message) {
       logger.warn('prospect-research-collect: no synthesis message, storing the fallback', {
@@ -235,9 +302,6 @@ export async function runProspectResearchCollect({
     }
 
     // ── Writer, floor and judge, against the SNAPSHOTTED document ─────────────
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    if (!apiKey) throw new Error('prospect-research-collect: ANTHROPIC_API_KEY not set')
-
     const opening = await produceOpening({
       apiKey,
       // Snapshotted, so the writer is briefed with the name it was briefed with in phase 1.

@@ -72,11 +72,37 @@ export const TIER_NOT_REJECTED_FILTER = 'sourced_tier.not.is.null,tiering_reason
  * Requires a POSITIVE tier. Stricter than TIER_NOT_REJECTED_FILTER: this also refuses a
  * prospect tiering has not reached yet.
  *
- * Used by the send gate only, and only because that is what the send gate has always done.
+ * ── USED BY THE SEND GATE AND, SINCE 2026-09-15, BY BOTH RESEARCH ENTRY POINTS ──
+ *
  * Sending is the irreversible end of the pipeline and "we have not decided about this
- * prospect yet" is not a licence to email them. Upstream consumers spend money, which is
- * recoverable in a way a sent email is not, so they use the looser rule and let a pending
- * row keep moving.
+ * prospect yet" is not a licence to email them.
+ *
+ * RESEARCH JOINED IT FOR A DIFFERENT REASON: PRICE, MEASURED.
+ *
+ * The original split said upstream consumers should use the looser rule because "they spend
+ * money, which is recoverable in a way a sent email is not". That reasoning holds for
+ * verification, where a probe is cheap and quota-bound and making it wait on tiering would
+ * starve it. It does not hold for research, which costs about $0.21 a prospect.
+ *
+ * MEASURED 2026-09-14, from agent_runs on the live organisation:
+ *
+ *   13:57  the ICP was revised
+ *   17:17  2 prospects had their sources fetched      PAID
+ *   18:24  the same 2 were synthesised and written    PAID
+ *   19:14  tiering ran and rejected both as not_decision_maker
+ *
+ * Research was bought roughly two hours before the verdict existed. The gate did not fail:
+ * the verdict was absent, and this module's looser rule admits an absent verdict on purpose.
+ *
+ * The mechanism is persist-icp-filter-spec.ts:402, which CLEARS tiering_reason on rejected
+ * rows when a new spec is stored so the new rules get applied. That is correct and must
+ * stay. Its side effect is that "rejected" becomes "not yet tiered" for as long as it takes
+ * the next tiering run to reach the row, and there is no standalone tiering cron: tiering
+ * runs only inside verify-pending. On 2026-09-14 that window was 5h17m.
+ *
+ * So research now waits for a positive tier. The cost of waiting is latency on a prospect
+ * that would have been researched anyway; the cost of not waiting is the whole research
+ * bill on a prospect that is about to be rejected again.
  */
 export const TIER_PRESENT_COLUMN = 'sourced_tier'
 
@@ -93,14 +119,19 @@ interface NotFilterable<Q> {
 /**
  * Refuse prospects tiering rejected. Leaves prospects tiering has not reached.
  *
- * For every consumer that spends money or moves a prospect toward being sendable. As of
- * 2026-09-03 that is seven call sites, and the count matters because the first pass at this
- * wired five and the two it missed were a matched PAIR with two it wired:
+ * For consumers where a pending verdict should not block progress. As of 2026-09-15 that is
+ * five call sites, and the count matters because the first pass at this wired five of the
+ * original seven and the two it missed were a matched PAIR with two it wired:
  *
  *   verification, first pass ..... the organisation picker AND the row selector
  *   verification, second pass .... the organisation picker AND the row selector
- *   research ..................... both selection paths
  *   the client's approve-all
+ *
+ * RESEARCH USED TO BE HERE AND IS NOT ANY MORE. Both its selection paths moved to
+ * requireTierPresent on 2026-09-15, because at about $0.21 a prospect it cannot afford to
+ * admit a row whose verdict has not arrived. See TIER_PRESENT_COLUMN for the measurement.
+ * Verification stays on this rule deliberately: a probe is cheap and quota-bound, and
+ * making it wait on tiering converts a money question into a starvation one.
  *
  * THE PICKER AND THE SELECTOR MUST ALWAYS BE CHANGED TOGETHER. Both verification sweeps run
  * one organisation per invocation: a first query chooses the organisation, a second chooses

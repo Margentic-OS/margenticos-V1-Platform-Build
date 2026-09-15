@@ -14,6 +14,7 @@ const storeResearchResult = vi.fn()
 const updateProspect = vi.fn()
 const synthesisFromMessage = vi.fn()
 const synthesisFallback = vi.fn()
+const retryTruncatedSynthesis = vi.fn()
 
 vi.mock('../research/produce-opening', () => ({
   produceOpening,
@@ -24,9 +25,15 @@ vi.mock('../prospect-research-agent-v2', () => ({
   storeResearchResult,
   updateProspect,
 }))
-vi.mock('../research/synthesize', () => ({
+// PARTIAL, VIA importOriginal. A whole-module replacement silently removes every export the
+// agent does not currently use, and when the agent started reading wasTruncated that would
+// have thrown inside the collect path. wasTruncated is pure, so it stays REAL: stubbing it
+// would test the stub. retryTruncatedSynthesis IS stubbed, because it makes a paid call.
+vi.mock('../research/synthesize', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../research/synthesize')>()),
   synthesisFromMessage,
   synthesisFallback,
+  retryTruncatedSynthesis,
 }))
 vi.mock('../research/prospect-context', () => ({
   loadProspectContext: async () => ({
@@ -57,10 +64,13 @@ interface FakeOpts {
   emailStatus?: string | null
   currentApprovedDocId?: string | null
   entryMissing?: boolean
+  /** Override the stored Message, so a truncated one can be collected. */
+  responseMessage?: Record<string, unknown> | null
 }
 
 function fakeSupabase(opts: FakeOpts = {}) {
   const updates: Array<Record<string, unknown>> = []
+  const inFilters: Array<[string, unknown[]]> = []
 
   const entryRow = {
     id: 'entry-1',
@@ -73,7 +83,9 @@ function fakeSupabase(opts: FakeOpts = {}) {
     messaging_doc_id: 'doc-snapshot',
     segment_id: 'seg-SNAPSHOTTED',
     messaging_content: SNAPSHOT_DOC,
-    response_message: (opts.hasMessage ?? true) ? { id: 'msg_1', content: [{ type: 'text', text: '{}' }] } : null,
+    response_message: opts.responseMessage !== undefined
+      ? opts.responseMessage
+      : (opts.hasMessage ?? true) ? { id: 'msg_1', content: [{ type: 'text', text: '{}' }] } : null,
     result_type: (opts.hasMessage ?? true) ? 'succeeded' : 'errored',
     error: (opts.hasMessage ?? true) ? null : 'overloaded_error',
     batch_id: 'batch-1',
@@ -84,7 +96,10 @@ function fakeSupabase(opts: FakeOpts = {}) {
       const chain: Record<string, unknown> = {
         select: () => chain,
         eq: () => chain,
-        in: () => chain,
+        // HONOURED, not swallowed. The states phase 2 is willing to collect are the whole of
+        // its contract with the sweep, and this used to accept the call and drop it, so a test
+        // could not tell a widened filter from an unchanged one.
+        in: (c: string, v: unknown) => { inFilters.push([c, v as unknown[]]); return chain },
         order: () => chain,
         limit: () => chain,
         update: (patch: Record<string, unknown>) => { updates.push({ table, ...patch }); return chain },
@@ -123,7 +138,7 @@ function fakeSupabase(opts: FakeOpts = {}) {
       return chain
     },
   }
-  return { client, updates }
+  return { client, updates, inFilters }
 }
 
 async function runCollect(opts: FakeOpts = {}) {
@@ -132,7 +147,7 @@ async function runCollect(opts: FakeOpts = {}) {
   vi.resetModules()
   const { runProspectResearchCollect } = await import('../prospect-research-collect-agent')
   const result = await runProspectResearchCollect({ prospect_id: 'p-1', client_id: 'org-1' })
-  return { result, updates: fake.updates }
+  return { result, updates: fake.updates, inFilters: fake.inFilters }
 }
 
 beforeEach(() => {
@@ -278,5 +293,75 @@ describe('phase 2 carries the snapshotted segment, not a freshly resolved one', 
     expect(synthesisFromMessage.mock.calls[0][1].segment_id).toBe('seg-SNAPSHOTTED')
     expect(produceOpening.mock.calls[0][0].ctx.segment_id).toBe('seg-SNAPSHOTTED')
     expect(storeResearchResult.mock.calls[0][0].segment_id).toBe('seg-SNAPSHOTTED')
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// A TRUNCATED BATCH ANSWER IS RETRIED ONCE BEFORE THE FALLBACK
+//
+// Added 2026-09-15. Measured on the live 2026-09-14 batch: 2 of 7 entries hit the 24,000-token
+// output ceiling, losing the JSON that is the last thing the answer writes. Each was billed
+// about $0.20 at batch rates and bought nothing: no candidates, so the writer never ran and
+// the approved template shipped.
+
+describe('phase 2 collects a truncated entry and retries it once', () => {
+  const truncatedMessage = {
+    id: 'msg_1',
+    content: [{ type: 'text', text: '{}' }],
+    stop_reason: 'max_tokens',
+    usage: { input_tokens: 100, output_tokens: 24000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+  }
+
+  it('asks for the failed state too, or the sweep change would strand the prospect', async () => {
+    // The sweep now records a truncated answer as state 'failed' rather than 'succeeded'.
+    // These two are one mechanism in two files: without this value there is no collectable
+    // entry, the agent throws, and the research_collect job fails on every attempt.
+    const { inFilters } = await runCollect()
+    const states = inFilters.find(([c]) => c === 'state')?.[1]
+    expect(states).toContain('failed')
+    // Still collects the other three, so widening did not replace the contract.
+    expect(states).toContain('succeeded')
+    expect(states).toContain('errored')
+    expect(states).toContain('expired')
+  })
+
+  it('retries once, rather than going straight to the fallback', async () => {
+    retryTruncatedSynthesis.mockResolvedValue({
+      id: 'msg_2', content: [{ type: 'text', text: '{}' }], stop_reason: 'end_turn',
+      usage: { input_tokens: 100, output_tokens: 9000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    })
+
+    await runCollect({ entryState: 'failed', responseMessage: truncatedMessage })
+
+    expect(retryTruncatedSynthesis).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry an answer that finished', async () => {
+    // The control. A retry on every entry would triple the synthesis bill.
+    await runCollect()
+    expect(retryTruncatedSynthesis).not.toHaveBeenCalled()
+  })
+
+  it('reads the RETRY through synthesisFromMessage, not the truncated answer', async () => {
+    const retryMessage = {
+      id: 'msg_2', content: [{ type: 'text', text: '{}' }], stop_reason: 'end_turn',
+      usage: { input_tokens: 100, output_tokens: 9000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    }
+    retryTruncatedSynthesis.mockResolvedValue(retryMessage)
+
+    await runCollect({ entryState: 'failed', responseMessage: truncatedMessage })
+
+    expect(synthesisFromMessage).toHaveBeenCalledTimes(1)
+    expect(synthesisFromMessage.mock.calls[0][0]).toBe(retryMessage)
+  })
+
+  it('falls back to the truncated answer when the retry could not be made', async () => {
+    retryTruncatedSynthesis.mockResolvedValue(null)
+
+    await runCollect({ entryState: 'failed', responseMessage: truncatedMessage })
+
+    // The truncated Message is still what synthesisFromMessage reads, and it returns the
+    // fallback with the truncation reason. One call, one usage, no double count.
+    expect(synthesisFromMessage.mock.calls[0][0]).toBe(truncatedMessage)
   })
 })

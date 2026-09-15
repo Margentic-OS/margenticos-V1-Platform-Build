@@ -20,7 +20,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runResearchBatchForOrg } from '../research-batch-entry'
-import { TIER_NOT_REJECTED_FILTER } from '@/lib/sourcing/tier-verdict'
 
 /**
  * A rejection reason, deliberately NOT one of the real ones.
@@ -46,16 +45,19 @@ interface FakeProspect {
 }
 
 /**
- * The tier gate as the database applies it:
- *   sourced_tier IS NOT NULL OR tiering_reason IS NULL
+ * The tier gate RESEARCH applies, as the database applies it:
+ *   sourced_tier IS NOT NULL
+ *
+ * CHANGED 2026-09-15 from the looser `sourced_tier IS NOT NULL OR tiering_reason IS NULL`,
+ * in the same commit as enqueue/research.ts. The two research entry points must always agree,
+ * or the CLI and the queue research different sets.
  *
  * Keyed off `undefined` rather than `??`, because a fixture that explicitly sets
- * sourced_tier to null is the rejected row under test.
+ * sourced_tier to null is the row under test.
  */
-function notRejected(p: FakeProspect): boolean {
+function hasPositiveTier(p: FakeProspect): boolean {
   const tier = p.sourced_tier === undefined ? 'tier_1' : p.sourced_tier
-  const reason = p.tiering_reason === undefined ? null : p.tiering_reason
-  return tier !== null || reason === null
+  return tier !== null
 }
 
 function fake(prospects: FakeProspect[]) {
@@ -73,19 +75,30 @@ function fake(prospects: FakeProspect[]) {
       if (table !== 'prospects') throw new Error(`fake does not implement table ${table}`)
 
       const orFilters: string[] = []
+      const notFilters: Array<[string, string, unknown]> = []
       const chain: Record<string, unknown> = {
         select: () => chain,
         eq: () => chain,
         is: () => chain,
-        not: () => chain,
+        // HONOURED, not swallowed, AND IT USED TO BE SWALLOWED.
+        //
+        // This read `not: () => chain`, which accepted the call and ignored it. That was
+        // harmless while the gate used .or(), and became the exact hazard CLAUDE.md names as
+        // soon as the gate moved to requireTierPresent on 2026-09-15: the filter would have
+        // been dropped silently, both tests below would have passed, and deleting the gate
+        // from the real query would have broken nothing. A fake that does not honour a filter
+        // cannot test that filter.
+        not: (c: string, op: string, v: unknown) => { notFilters.push([c, op, v]); return chain },
         in: () => chain,
-        // HONOURED, not swallowed. Without this the gate would throw rather than be
-        // ignored, and a fake that returned `chain` here could not test the filter at all.
+        // Kept honoured too. Nothing here uses it now, but a fake that starts swallowing a
+        // method the day its last caller leaves is a trap set for the next caller.
         or: (expr: string) => { orFilters.push(expr); return chain },
         then: (resolve: (v: unknown) => void) => {
-          const tierGated = orFilters.includes(TIER_NOT_REJECTED_FILTER)
+          const tierGated = notFilters.some(
+            ([c, op, v]) => c === 'sourced_tier' && op === 'is' && v === null,
+          )
           const rows = prospects
-            .filter(p => !tierGated || notRejected(p))
+            .filter(p => !tierGated || hasPositiveTier(p))
             .map(p => ({
               id: p.id,
               personalisation_trigger: p.personalisation_trigger,
@@ -127,9 +140,11 @@ describe('runResearchBatchForOrg — the tier gate', () => {
     expect(result.error).not.toMatch(/personalisation trigger/)
   })
 
-  it('still selects a prospect tiering has not reached yet', async () => {
-    // excludeTierRejected, not requireTierPresent. A pending prospect holding copy reaches
-    // the trigger guard, which is the correct behaviour for a prospect still in play.
+  it('REFUSES a prospect tiering has not reached yet, so no research is bought on a guess', async () => {
+    // INVERTED 2026-09-15, and the old expectation was the defect. requireTierPresent, not
+    // excludeTierRejected: an ICP revision clears tiering_reason, which turns a rejected row
+    // into this one until the next tiering run, and research costs about $0.21 a prospect.
+    // Measured 2026-09-14: $0.42 spent on two prospects tiering rejected two hours later.
     const result = await runResearchBatchForOrg({
       supabase: fake([{
         id: 'pending',
@@ -143,6 +158,30 @@ describe('runResearchBatchForOrg — the tier gate', () => {
 
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('expected refusal')
+    // 'Nothing to research', not the trigger guard. The row never enters the population now,
+    // so its shipped copy is never even consulted. Before this change the message WAS the
+    // trigger-guard one, which is what that assertion used to read.
+    expect(result.error).toMatch(/Nothing to research/)
+    expect(result.error).not.toMatch(/personalisation trigger/)
+  })
+
+  it('still selects a prospect that HAS a positive tier', async () => {
+    // THE CONTROL. Both refusals above would also be produced by a gate that admits nobody,
+    // and a gate that admits nobody is an outage rather than a saving.
+    const result = await runResearchBatchForOrg({
+      supabase: fake([{
+        id: 'tiered',
+        personalisation_trigger: 'An opening that already shipped.',
+        sourced_tier: 'tier_1',
+        tiering_reason: null,
+      }]),
+      organisation_id: ORG,
+      scope: 'unresearched',
+    })
+
+    // It reaches the trigger guard, which is what proves it was admitted to the population.
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('expected the trigger guard to refuse it')
     expect(result.error).toMatch(/personalisation trigger/)
   })
 })
