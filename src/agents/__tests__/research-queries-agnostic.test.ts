@@ -25,7 +25,7 @@ function row(field_key: string, response_value: string) {
 }
 
 // A client whose business has nothing to do with consulting: the school-meals case
-// that the live 360 Bia Og document covers.
+// that the live Tessom Foods document covers.
 const SCHOOLS_INTAKE = [
   row('company_what_you_do', 'We supply hot school meals to primary schools'),
   row('clients_clone', 'Irish primary school principals and board members'),

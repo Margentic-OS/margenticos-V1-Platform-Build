@@ -8,9 +8,9 @@ import { describe, it, expect } from 'vitest'
 import { readabilityScore, MAX_SENTENCE_WORDS, HEDGE_PHRASES } from '../readability'
 
 const FAILING_OBSERVATION =
-  'Running Taffet alongside the CRC Director engagement from mid-2024 through mid-2025 ' +
+  'Running Vantor alongside the ORRIN Director engagement from mid-2024 through mid-2025 ' +
   'is a particular kind of balancing act, and with that role now wrapped, the pipeline ' +
-  'question for Taffet tends to land differently.'
+  'question for Vantor tends to land differently.'
 
 const BENCHMARK_OBSERVATION =
   'Read through your last 30 reviews on Google. Front desk hold times keep coming up, ' +

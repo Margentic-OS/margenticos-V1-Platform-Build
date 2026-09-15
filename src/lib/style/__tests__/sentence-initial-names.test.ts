@@ -28,11 +28,11 @@ describe('the hole, reproduced at the real production shape', () => {
   // twelve of these sixteen pass the existing untraceableClaims when placed
   // sentence-initially, because the observation before them always ends in a full stop.
   const PROMPT_ENTITIES = [
-    'Taffet', 'HydrospherIQ', 'London', 'DTCC', 'Treasury', 'SEC', 'Sovern LA',
-    'LinkedIn', 'CAVE', 'Jason', 'Pani', 'Visteon',
+    'Vantor', 'BrightlaneIQ', 'London', 'DTCC', 'Treasury', 'SEC', 'Merrow LA',
+    'LinkedIn', 'CAVE', 'Devon', 'Calder', 'Visteon',
     // These three leaked their FIRST token sentence-initially too. The old gate caught
     // them only by the tail, which is luck rather than cover.
-    'Hollywood Food Coalition', 'Stanford GSB', 'Knot Consulting',
+    'Hollywood Food Coalition', 'Merrow Institute', 'Merrow Consulting',
   ]
 
   it.each(PROMPT_ENTITIES)('catches "%s" opening the bridge', entity => {
@@ -50,37 +50,37 @@ describe('the hole, reproduced at the real production shape', () => {
   //
   // "Blue" is ordinary English, so allowing it is the design working rather than failing:
   // rejecting every sentence that opens with a common adjective is exactly the false
-  // positive that costs writer attempts. "Blue Sky" is still defended, because "Sky" is
+  // positive that costs writer attempts. "Green Field" is still defended, because "Sky" is
   // not sentence-initial and untraceableClaims has always caught it.
   //
   // Asserted as a PAIR on purpose. Each gate alone leaves this name uncovered, and a test
   // of either one alone would report success while the seam between them was the only
   // thing holding.
-  it('leaves "Blue" to the existing gate, which catches the tail "Sky"', () => {
+  it('leaves "Green" to the existing gate, which catches the tail "Field"', () => {
     const block = productionBlock(
       'You took two board seats early this year.',
-      'Blue Sky has been growing since then.',
+      'Green Field has been growing since then.',
       'Worth a look?',
     )
     expect(findSentenceInitialNames(block, UNRELATED_FINDINGS)).toEqual([])
 
     const failures = checkOpeningGates(block, null, UNRELATED_FINDINGS)
-    expect(failures.find(f => f.startsWith('claims not traceable'))).toContain('Sky')
+    expect(failures.find(f => f.startsWith('claims not traceable'))).toContain('Field')
   })
 
-  it('reports a multi-token name as the whole run, so "Sovern LA" is not judged on "LA"', () => {
+  it('reports a multi-token name as the whole run, so "Merrow LA" is not judged on "LA"', () => {
     const hits = findSentenceInitialNames(
       productionBlock(
         'You took two board seats early this year.',
-        'Sovern LA has been growing since then.',
+        'Merrow LA has been growing since then.',
         'Worth a look?',
       ),
       UNRELATED_FINDINGS,
     )
-    // The old gate skipped "Sovern" as sentence-initial and skipped "LA" as under three
+    // The old gate skipped "Merrow" as sentence-initial and skipped "LA" as under three
     // characters, so the pair fell through both exemptions at once.
     expect(hits).toHaveLength(1)
-    expect(hits[0].run).toBe('Sovern LA')
+    expect(hits[0].run).toBe('Merrow LA')
   })
 
   it('catches a name in the QUESTION, which is sentence-initial for the same reason', () => {
@@ -98,13 +98,13 @@ describe('the hole, reproduced at the real production shape', () => {
   it('catches a name at index 0, the observation\'s own first word', () => {
     const hits = findSentenceInitialNames(
       productionBlock(
-        'Taffet has been running two mandates at once.',
+        'Vantor has been running two mandates at once.',
         'That tends to fill the calendar.',
         'Worth a look?',
       ),
       UNRELATED_FINDINGS,
     )
-    expect(hits.map(h => h.word)).toContain('Taffet')
+    expect(hits.map(h => h.word)).toContain('Vantor')
   })
 
   it('catches an INVENTED company, which no denylist could hold', () => {
@@ -153,12 +153,12 @@ describe('legitimate copy is not rejected', () => {
   // THE CASE THAT MATTERS MOST. A gate that rejects real personalisation is worse than
   // the hole it closes.
   it('lets a real prospect name through when the findings supplied it', () => {
-    const findings = `1. Taffet publishes regulatory commentary regularly.
-   source: website | taffet.com/insights`
+    const findings = `1. Vantor publishes regulatory commentary regularly.
+   source: website | vantor.com/insights`
     const hits = findSentenceInitialNames(
       productionBlock(
         'You publish regulatory commentary most weeks.',
-        'Taffet reaches a different reader than the buyer does.',
+        'Vantor reaches a different reader than the buyer does.',
         'Worth a look?',
       ),
       findings,
@@ -167,11 +167,11 @@ describe('legitimate copy is not rejected', () => {
   })
 
   it('lets a real prospect name through at index 0 too', () => {
-    const findings = `1. Sovern LA added two board members in 2026.
+    const findings = `1. Merrow LA added two board members in 2026.
    source: linkedin | post 2026-02-10`
     const hits = findSentenceInitialNames(
       productionBlock(
-        'Sovern LA added two board seats this year.',
+        'Merrow LA added two board seats this year.',
         'That tends to fill the calendar.',
         'Worth a look?',
       ),
@@ -223,7 +223,7 @@ describe('legitimate copy is not rejected', () => {
     const hits = findSentenceInitialNames(
       productionBlock(
         'You took two board seats early this year.',
-        'taffet tends to follow from that.',
+        'vantor tends to follow from that.',
         'Worth a look?',
       ),
       UNRELATED_FINDINGS,
@@ -317,9 +317,9 @@ describe('blocking, and the report-only path it replaced', () => {
   })
 
   it('block mode still allows a name the findings supplied', () => {
-    const findings = '1. Taffet publishes commentary.\n   source: website | taffet.com'
+    const findings = '1. Vantor publishes commentary.\n   source: website | vantor.com'
     expect(checkSentenceInitialNames(
-      productionBlock('You publish weekly.', 'Taffet reaches a different reader.', 'Worth a look?'),
+      productionBlock('You publish weekly.', 'Vantor reaches a different reader.', 'Worth a look?'),
       findings, { prospectId: 'p1' }, 'block',
     )).toEqual([])
   })
@@ -344,12 +344,12 @@ describe('wired into checkOpeningGates, and now blocking through it', () => {
   // property is asserted through the REAL production entry point rather than only through
   // the pure function.
   it('does not reject a real opening whose names all trace to the findings', () => {
-    const findings = `1. Taffet added two board seats in early 2026.
+    const findings = `1. Vantor added two board seats in early 2026.
    source: linkedin | post 2026-02-10`
     const failures = checkOpeningGates(
       productionBlock(
         'You took two board seats early this year.',
-        'Taffet reaches a different reader than the buyer does.',
+        'Vantor reaches a different reader than the buyer does.',
         'Worth a look?',
       ),
       null, findings, undefined, undefined, { prospectId: 'p1' },
@@ -410,7 +410,7 @@ describe('the vocabulary', () => {
   })
 
   it('does not contain the names it must catch', () => {
-    for (const name of ['taffet', 'sovern', 'visteon', 'pani', 'hydrospheriq', 'verdantis']) {
+    for (const name of ['vantor', 'merrow', 'visteon', 'calder', 'brightlaneiq', 'verdantis']) {
       expect(isOrdinaryWord(name)).toBe(false)
     }
   })
@@ -452,7 +452,7 @@ describe('the vocabulary', () => {
   })
 
   it('an irregular form does not rescue a name that merely looks like one', () => {
-    for (const name of ['taffet', 'sovern', 'visteon', 'pani', 'verdantis']) {
+    for (const name of ['vantor', 'merrow', 'visteon', 'calder', 'verdantis']) {
       expect(isOrdinaryWord(name)).toBe(false)
     }
   })
@@ -461,18 +461,18 @@ describe('the vocabulary', () => {
 describe('traceability matches whole words, not substrings', () => {
   // MEASURED over the 262 real findings blocks in prospect_research_results: a bare
   // `includes` falsely cleared "SEC" in 104 of the 120 blocks it matched, via
-  // "section"/"sector"/"second"/"securities", and "Pani" in 38, via "companies".
+  // "section"/"sector"/"second"/"securities", and "Calder" in 38, via "companies".
   const CARRIER_FINDINGS = `1. The company has grown across several sections of the market.
    source: website | about page`
 
-  it('does not clear "Pani" because "companies" contains it', () => {
+  it('does not clear "Calder" because "companies" contains it', () => {
     const findings = `1. Most companies in that position hire slowly.
    source: website | about page`
     const hits = findSentenceInitialNames(
-      productionBlock('You hired twice this year.', 'Pani has been growing since then.', 'Worth a look?'),
+      productionBlock('You hired twice this year.', 'Calder has been growing since then.', 'Worth a look?'),
       findings,
     )
-    expect(hits.map(h => h.word)).toContain('Pani')
+    expect(hits.map(h => h.word)).toContain('Calder')
   })
 
   it('does not clear "SEC" because "section" and "second" contain it', () => {
@@ -486,19 +486,19 @@ describe('traceability matches whole words, not substrings', () => {
   // THE OTHER DIRECTION, WHICH IS THE ONE THAT COSTS COPY. Tightening traceability makes
   // the gate stricter, so the risk is now rejecting a name the findings really did supply.
   it('still clears a name the findings supply as a whole word', () => {
-    const findings = `1. Pani Group added two board members in 2026.
+    const findings = `1. Calder Group added two board members in 2026.
    source: linkedin | post 2026-02-10`
     expect(findSentenceInitialNames(
-      productionBlock('You hired twice this year.', 'Pani has been growing since then.', 'Worth a look?'),
+      productionBlock('You hired twice this year.', 'Calder has been growing since then.', 'Worth a look?'),
       findings,
     )).toEqual([])
   })
 
   it('clears a name adjacent to punctuation, which is not a word character', () => {
-    const findings = `1. Two board seats, at Sovern LA and elsewhere.
+    const findings = `1. Two board seats, at Merrow LA and elsewhere.
    source: linkedin | post 2026-02-10`
     expect(findSentenceInitialNames(
-      productionBlock('You hired twice this year.', 'Sovern LA has been growing.', 'Worth a look?'),
+      productionBlock('You hired twice this year.', 'Merrow LA has been growing.', 'Worth a look?'),
       findings,
     )).toEqual([])
   })
@@ -561,7 +561,7 @@ describe('an ordinary word opening a sentence is not a name', () => {
   })
 
   it('still catches every real entity in the writer prompt', () => {
-    for (const name of ['Taffet', 'Sovern', 'Visteon', 'Stanford', 'Hollywood', 'Pani',
+    for (const name of ['Vantor', 'Merrow', 'Visteon', 'Stanford', 'Hollywood', 'Calder',
                         'DTCC', 'Treasury', 'Zentara', 'Quillion', 'Fernbrook']) {
       expect(opens(name), `${name} LEAKED`).toHaveLength(1)
     }
@@ -711,8 +711,8 @@ describe('an acronym the findings supply is not an invented name', () => {
   // The variant rule must not reach anything that is not an acronym. These all still go
   // through the unchanged path, so an internal-capital name is judged exactly as before.
   it('leaves non-acronyms untouched', () => {
-    for (const name of ['Salesforce', 'HydrospherIQ', 'FinTechIQ', 'LinkedIn', 'Web3',
-                        'Taffet', 'Sovern', 'Visteon', 'Zentara']) {
+    for (const name of ['Salesforce', 'BrightlaneIQ', 'FinTechIQ', 'LinkedIn', 'Web3',
+                        'Vantor', 'Merrow', 'Visteon', 'Zentara']) {
       expect(opens(name, UNRELATED_FINDINGS), `${name} LEAKED`).toHaveLength(1)
     }
   })

@@ -16,7 +16,7 @@ describe('send-eligibility-rules', () => {
     })
 
     it('should exclude .de domain when country is null', () => {
-      const result = checkSendEligibility(null, 'daniel@craid.de')
+      const result = checkSendEligibility(null, 'devon@example.de')
       expect(result.is_eligible).toBe(false)
       expect(result.reason).toBe('country_excluded_de')
     })

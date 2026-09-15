@@ -34,8 +34,8 @@
 // checkOpeningGates with findings that do not contain them, TWELVE OF SIXTEEN LEAK.
 //
 // The four that are caught are caught incidentally, by a tail token that is not itself
-// sentence-initial: Blue SKY, Hollywood FOOD COALITION, Stanford GSB, Knot CONSULTING.
-// "Sovern LA" leaks despite being two tokens, because the tail is two characters and the
+// sentence-initial: Green FIELD, Hollywood FOOD COALITION, Merrow Institute, Merrow CONSULTING.
+// "Merrow LA" leaks despite being two tokens, because the tail is two characters and the
 // existing gate has a three-character floor.
 //
 // Zero of these have reached live copy. Every capitalised word in all 24 stored openings
@@ -58,12 +58,12 @@
 // Capitalisation is unavailable by definition, so three other signals are used, and a word
 // is only ever rejected when it is untraceable AND looks like a name.
 //
-//   1. ORTHOGRAPHY. An internal capital, an all-caps run, or a digit. "HydrospherIQ",
+//   1. ORTHOGRAPHY. An internal capital, an all-caps run, or a digit. "BrightlaneIQ",
 //      "DTCC", "FinTechIQ". Measured: zero hits across all 67 sentence-initial capitalised
 //      tokens in the 24 stored openings, so this signal costs nothing.
 //
 //   2. NOT ORDINARY ENGLISH. See ordinary-words.ts. This is the load-bearing one and it is
-//      what makes the check something other than a denylist: "Taffet" is caught because it
+//      what makes the check something other than a denylist: "Vantor" is caught because it
 //      is not English, and so is any company the model invents tomorrow.
 //
 //   3. TRACEABILITY. The same findings text untraceableClaims already uses. A genuine
@@ -146,13 +146,13 @@ import { isOrdinaryWord } from './ordinary-words'
 //   2. THE TRACEABILITY SUBSTRING WEAKNESS. Traceability was a bare `includes`, so a short
 //      name sitting inside a longer ordinary word was cleared as though the findings had
 //      supplied it. Measured over the 262 real findings blocks: "SEC" was falsely cleared
-//      by 104 of them via "section"/"sector"/"second"/"securities", and "Pani" by 38 via
+//      by 104 of them via "section"/"sector"/"second"/"securities", and "Calder" by 38 via
 //      "companies". Now matched on word boundaries.
 //
 // THE SPLICE CONTROL, over the same 60 openings, each entity judged only against findings
 // that do not already name it: 13 of 16 before, 15 of 16 after for this gate alone, and
 // 16 of 16 for the production path once untraceableClaims is counted. The one this gate
-// still does not catch alone is "Blue Sky", covered by untraceableClaims on the tail
+// still does not catch alone is "Green Field", covered by untraceableClaims on the tail
 // "Sky"; see the multi-token note on the run-building loop below.
 export type SentenceInitialGateMode = 'report' | 'block'
 export const SENTENCE_INITIAL_GATE_MODE: SentenceInitialGateMode = 'block'
@@ -166,7 +166,7 @@ const MIN_WORD_LENGTH = 3
 export interface SentenceInitialNameHit {
   /** The word as written, with punctuation and possessive stripped. */
   word: string
-  /** The full run when the name spans more than one token, e.g. "Sovern LA". */
+  /** The full run when the name spans more than one token, e.g. "Merrow LA". */
   run: string
   /** Which signal marked it a name: orthography, or absence from ordinary English. */
   signal: 'orthography' | 'not-english'
@@ -178,7 +178,7 @@ export interface SentenceInitialNameHit {
 function hasNameOrthography(word: string): boolean {
   if (/\d/.test(word)) return true
   if (/^\p{Lu}{2,}$/u.test(word)) return true
-  // A capital anywhere after the first letter: HydrospherIQ, FinTechIQ, LinkedIn.
+  // A capital anywhere after the first letter: BrightlaneIQ, FinTechIQ, LinkedIn.
   if (/^\p{Lu}.*\p{Lu}/u.test(word) && !/^\p{Lu}+$/u.test(word)) return true
   return /\p{Ll}\p{Lu}/u.test(word)
 }
@@ -196,16 +196,22 @@ function hasNameOrthography(word: string): boolean {
  *
  *   SEC   substring-cleared by 120 blocks, only 16 of which actually name it.
  *         104 FALSE CLEARS, carried by "section", "sector", "second", "securities".
- *   Pani  substring-cleared by 57 blocks, only 19 of which actually name it.
- *         38 FALSE CLEARS, carried by "companies".
+ *   A four-letter prospect-company name, REDACTED 2026-09-15 along with the rest of the
+ *         real names in this repository: substring-cleared by 57 blocks, only 19 of which
+ *         actually named it. 38 FALSE CLEARS, carried by the plural "companies".
  *
- * Two corrections worth keeping, because both were assumed wrong first. The Pani carrier
- * is "companies", not "company": "company" contains "pan", not "pani". And SEC, not Pani,
- * is the worst case in the set, by a factor of nearly three. Neither fact survives being
- * reasoned about; both came from running the comparison over the real corpus.
+ * Two corrections worth keeping, because both were assumed wrong first. That name's carrier
+ * was the PLURAL "companies" and not the singular "company", which stops one letter short of
+ * the full token. And SEC, not the redacted name, is the worst case in the set, by a factor
+ * of nearly three. Neither fact survives being reasoned about; both came from running the
+ * comparison over the real corpus.
  *
- * "Sole", "Knot", "Ito" and "Cave" were checked the same way and collide with nothing, so
- * they are not listed as though they did.
+ * THE TOKENS ARE GONE BUT THE MEASUREMENT STANDS. The counts above were taken against the
+ * real corpus before redaction, and the lesson is the method: a bare substring test is
+ * cleared by ordinary words, and which word carries it is not guessable.
+ *
+ * Four other short names from the same corpus, three of them redacted with the rest, were
+ * checked the same way and collide with nothing, so they are not listed as though they did.
  *
  * The shorter the name, the likelier the collision, and short names are exactly the ones
  * the three-character floor already leaves thinly covered.
@@ -260,7 +266,7 @@ function isTraceable(clean: string, haystack: string): boolean {
  *
  * The shape is `^\p{Lu}{2,}s?$`: two or more capitals, optionally one trailing lowercase
  * s. It cannot fire on a normal word, a title-case name, or an internal-capital name, so
- * "Salesforce", "HydrospherIQ" and "LinkedIn" are untouched and still judged exactly as
+ * "Salesforce", "BrightlaneIQ" and "LinkedIn" are untouched and still judged exactly as
  * before.
  *
  * IT CANNOT ADMIT A WORD THE FINDINGS DO NOT ALREADY CARRY. Both variants still go through
@@ -321,17 +327,17 @@ export function findSentenceInitialNames(text: string, findingsText: string): Se
     // as an invented name.
     if (acronymNumberVariants(clean).some(v => isTraceable(v, haystack))) return
 
-    // A capitalised RUN is read as one name, so "Sovern LA" is judged on "Sovern" rather
+    // A capitalised RUN is read as one name, so "Merrow LA" is judged on "Merrow" rather
     // than falling through the three-character floor on "LA". The run is for the message
     // only; the verdict is taken on the first token, which is the one nothing else checks.
     //
     // THE VERDICT IS STILL FIRST-TOKEN ONLY, DELIBERATELY, AND THIS IS THE RESIDUAL GAP.
-    // "Blue Sky" leaks here because "Blue" is ordinary English, so the run is cleared on
+    // "Green Field" leaks here because "Blue" is ordinary English, so the run is cleared on
     // its first token while "Sky" is never judged. Taking the verdict across the whole run
     // would catch it, and was NOT done, because every token after the first is not
     // sentence-initial and is therefore ALREADY CHECKED by untraceableClaims. Judging them
     // here would double-report the same word from two gates. The production path does
-    // catch "Blue Sky", on the tail, which is what the paired test at the bottom of
+    // catch "Green Field", on the tail, which is what the paired test at the bottom of
     // sentence-initial-names.test.ts asserts.
     //
     // The true residual gap is narrower than "multi-token names": a run whose first token

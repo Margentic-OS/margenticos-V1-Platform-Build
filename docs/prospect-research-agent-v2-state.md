@@ -57,9 +57,9 @@ The six tests (SPECIFIC, VERIFIABLE, INFERENTIAL, RELEVANT, USEFUL, NON_JUDGEMEN
 whether an observation is TRUE and RELEVANT. None asked whether it was READABLE. This trigger
 scored 6 out of 6 and shipped:
 
-> "Running Taffet alongside the CRC Director engagement from mid-2024 through mid-2025 is a
+> "Running Vantor alongside the ORRIN Director engagement from mid-2024 through mid-2025 is a
 > particular kind of balancing act, and with that role now wrapped, the pipeline question for
-> Taffet tends to land differently."
+> Vantor tends to land differently."
 
 37 words in one sentence, two hedges, ending on an abstraction. The messaging document was NOT
 the source: it scores 1.4 percent nominalisation across all 716 words. Every bad line traced
@@ -104,13 +104,13 @@ Re-ran all three dogfood prospects (org 0ed34697-0fa9-4f08-ac15-d3504ac45caf) on
 
 | Prospect | Winning trigger | Max sentence | Hedges | Frame collision |
 |---|---|---|---|---|
-| Robert | "You ran Taffet and the CRC Director role side by side for 13 months. That wrapped in August 2025." | 14 words | none | none |
-| Udo | "Bröskamp, Schumpeter Ventures, and FineVest have all been running under your name at the same time since 2023. Most founders at that stage find Bröskamp's pipeline gets whatever bandwidth is left." | 18 words | none | none |
-| Alma | "Full Bloom has been running since September 2023. You've held a full-time Stanford GSB role alongside it since January 2024." | 12 words | none | none |
+| Alix | "You ran Vantor and the ORRIN Director role side by side for 13 months. That wrapped in August 2025." | 14 words | none | none |
+| Kit | "Halden, Merrow Ventures, and Tessom have all been running under your name at the same time since 2023. Most founders at that stage find Halden's pipeline gets whatever bandwidth is left." | 18 words | none | none |
+| Noor | "Northwell has been running since September 2023. You've held a full-time Merrow Institute role alongside it since January 2024." | 12 words | none | none |
 
-The CRC concurrent-role fact still surfaces as Robert's c1 winner, as required: what changed is
+The ORRIN concurrent-role fact still surfaces as Alix's c1 winner, as required: what changed is
 how it is written, not what is found. The readability gate visibly fired on three candidates
-(Robert c4 at 29 words, Udo c4 at 30 words, Alma c5 at 34 words), all demoted out of hook use.
+(Alix c4 at 29 words, Kit c4 at 30 words, Noor c5 at 34 words), all demoted out of hook use.
 
 Re-run harness: `src/lib/agents/rerun-three-prospects.ts`. It costs real API spend per run.
 

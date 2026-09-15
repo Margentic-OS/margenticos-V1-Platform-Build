@@ -7,8 +7,8 @@
 // handled both named an explicit return date, both failed to parse, and both wrote
 // scheduled_resume_at = NULL:
 //
-//   "I am out of office through September 8th."          April Beach, 18:58:34Z
-//   "I will be out of the office until Sept 8th ..."      Lynn Oser,   18:58:38Z
+//   "I am out of office through September 8th."          one sender,      18:58:34Z
+//   "I will be out of the office until Sept 8th ..."      a second sender, 18:58:38Z
 //
 // Two for two. The PRD has always said "Default: 10 business days if no date found",
 // and nothing implemented it: the caller wrote whatever the parser returned, including
@@ -76,7 +76,7 @@ export function addBusinessDays(from: Date, businessDays: number): Date {
 // "out of office through September 8th" matched nothing at all.
 //
 // The date group deliberately does NOT capture an ordinal suffix. Capturing it was the
-// second half of the 2026-09-07 failure: the `until` pattern DID match Lynn Oser's
+// second half of the 2026-09-07 failure: the `until` pattern DID match the second sender's
 // "Sept 8th", handed "Sept 8th" to the Date parser, and got Invalid Date back. The regex
 // worked and the cast destroyed it, which is why that case looked like a matching failure
 // and was not.

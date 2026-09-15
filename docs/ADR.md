@@ -3414,7 +3414,7 @@ in 1 of 15 ICP documents, and `renderUnknownFields` on the approval card renders
 not in `handledKeys`. So the disclosure DID reach the operator, by a different route than
 the rule described. What is dead is the plain_text route and its messaging-agent consumer.
 
-The row is `a8d35c94-b1a6-429e-99fd-119fb481c6cb`, org **360 Bia Og**, ICP v2, status
+The row is `a8d35c94-b1a6-429e-99fd-119fb481c6cb`, org **Tessom Foods**, ICP v2, status
 active, client_approval_status approved. It carries six assumptions naming An Taisce, the
 Department of Social Protection, safefood and the HSE. **Those are exactly the externally
 verifiable named bodies the NEW Rule 9 bans**, which is the argument for the new rule
@@ -3917,7 +3917,7 @@ query that returns nothing looks exactly like a good query about an obscure mark
   explanation.
 - Three of the five get a genuinely searchable population where they previously got a
   service description.
-- ONE OF THE FIVE GETS A REAL POPULATION THAT IS THE WRONG ONE. 360 Bia Og delivers school
+- ONE OF THE FIVE GETS A REAL POPULATION THAT IS THE WRONG ONE. Tessom Foods delivers school
   meals to children and is paid by the state, so the recipient extractor returns "children
   in Ireland". Separating delivered-to from bought-by needs world knowledge, not grammar.
   The fallback is deliberately NOT made cleverer; it is made visible, via the provenance

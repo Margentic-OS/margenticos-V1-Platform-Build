@@ -655,7 +655,7 @@ transcript and in a code search, exactly like a merged one.
   headcount band is the sharpest edge: `'5,20'` was narrowed from `'5,50'` on 2026-08-27 and the
   file records the measurement, 36,818 against 55,980, so the 19,162 firms in the 21-50 band are
   declared in tier_2 of every ICP and cannot be asked for.
-  Currently breaks: 360 Bia Óg (primary schools, NAICS 6111) and Simcare (healthcare distribution).
+  Currently breaks: Tessom Foods (primary schools, NAICS 6111) and Calder Health (healthcare distribution).
   Neither is inside 5416. NOT FIXED ON MAIN. Addressed on `sourcing-portable` (09f2556), where the
   query is built from the spec and refuses when it cannot translate.
 
@@ -666,8 +666,8 @@ transcript and in a code search, exactly like a merged one.
   intersection with it.
   A client outside consulting cannot source at all. Measured: of the 73 names in
   `CANONICAL_INDUSTRIES`, this list admits 19. `'Primary and Secondary Education'` is not among
-  them, so 360 Bia Óg's stored spec is refused by the gate on main.
-  Currently breaks: 360 Bia Óg. NOT FIXED ON MAIN. Addressed on `sourcing-portable` (c64eab1),
+  them, so Tessom Foods's stored spec is refused by the gate on main.
+  Currently breaks: Tessom Foods. NOT FIXED ON MAIN. Addressed on `sourcing-portable` (c64eab1),
   where it derives from `CANONICAL_TO_NAICS` and education maps to 6111.
 
 - [post-build] **A3. `FILTER_COUNTRY_CODES = new Set(['US', 'GB', 'IE'])`.** `adapter-apollo.ts:239`.
@@ -694,7 +694,7 @@ transcript and in a code search, exactly like a merged one.
   and administrative personnel" parses but "around a dozen" silently becomes 1-20 for tier 1 and
   1-8 for tier 2. The numbers are one market's shape.
   Currently breaks: no stored spec is measurably hitting the fallback. Both live specs carry
-  parsed bounds (360 Bia Óg 8-30, Simcare 10-500).
+  parsed bounds (Tessom Foods 8-30, Calder Health 10-500).
   NOT FIXED, on main or on `sourcing-portable` (identical at branch lines 374-377).
 
 ### GROUP B — blocks sourcing the RIGHT PEOPLE
@@ -706,10 +706,10 @@ transcript and in a code search, exactly like a merged one.
   is hardcoded and does not consume `job_titles`. It is a field written into every client's
   stored spec, displayed to the operator, and ignored.
   For a client whose buyer is a school principal or a director of nursing, the stored spec asserts
-  they are sourcing Managing Partners. Measured: 360 Bia Óg's archived v3 spec
+  they are sourcing Managing Partners. Measured: Tessom Foods's archived v3 spec
   (`a2ee0b32`, created 2026-08-28) carries all eight verbatim beside
   `industries: ['Primary and Secondary Education']`.
-  Currently breaks: 360 Bia Óg v3, as a document that lies. NOT FIXED ON MAIN. Addressed on
+  Currently breaks: Tessom Foods v3, as a document that lies. NOT FIXED ON MAIN. Addressed on
   `sourcing-portable` (12905d1), where `job_titles` is the buyer criterion's accept fragments.
 
 - [pre-c1] **B2. `job_titles_excluded` is eight consulting-adjacent titles.**
@@ -719,14 +719,14 @@ transcript and in a code search, exactly like a merged one.
   GATES SOFTLY, and this one is genuinely live. It is one of only two spec fields the handler still
   honours, as a post-filter on results (`adapter-apollo.ts:257`, `POST_FILTERED_SPEC_FIELDS`).
   So for a client whose buyer IS a Business Development Manager, this list deletes their buyers
-  after Apollo returns them. Measured against a live run: Simcare's sourcing run
+  after Apollo returns them. Measured against a live run: Calder Health's sourcing run
   `ce1f8fc5` returned `'Clinical Director of Business Development'`,
   `'Market Director of Business Development'`, `'Regional Director of Business Development'` and
-  `'Vice President of Business Development'`. Simcare's own spec names `'business development'` as
+  `'Vice President of Business Development'`. Calder Health's own spec names `'business development'` as
   a secondary accept fragment. On the hardcoded list those four titles do not contain the exact
   string `'Business Development Manager'` and survived, so the collision did not fire this time.
   It is a near miss, not a clean pass.
-  Currently breaks: nobody measurably yet; Simcare is one title away. NOT FIXED ON MAIN.
+  Currently breaks: nobody measurably yet; Calder Health is one title away. NOT FIXED ON MAIN.
   Addressed on `sourcing-portable`, where it is the criterion's reject fragments.
 
 - [post-build] **B3. The `seniority_levels` founder/owner substring test.**
@@ -735,19 +735,19 @@ transcript and in a code search, exactly like a merged one.
   `['founder','owner','c_suite','vp','director']` or `['c_suite','vp','director']`.
   ONLY DEFAULTS on main: the hardcoded query does not read `seniority_levels` either.
   The test is a substring match against free prose, so it is decided by whether an LLM happened
-  to use one of two words. Measured, and the two live specs land on opposite sides: 360 Bia Óg's
+  to use one of two words. Measured, and the two live specs land on opposite sides: Tessom Foods's
   seniority prose ("Senior decision-maker within the school...") yields
-  `['c_suite','vp','director']`; Simcare's ("...or founder-operator of the distribution firm")
+  `['c_suite','vp','director']`; Calder Health's ("...or founder-operator of the distribution firm")
   contains "founder" and yields the five-element list. Neither client is founder-led in the sense
-  the branch means; Simcare qualified on a word inside "founder-operator".
+  the branch means; Calder Health qualified on a word inside "founder-operator".
   Currently breaks: nobody, because nothing reads it. NOT FIXED, on main or on `sourcing-portable`
   (identical at branch lines 396-406).
 
 - [post-build] **B4. `keywords = ['consulting', 'consultant', 'advisory', 'consultancy']`.**
   `icp-filter-spec.ts:350`.
   ONLY DEFAULTS on main; the query does not read it.
-  Measured: 360 Bia Óg's archived v3 spec carries all four beside a schools ICP.
-  Currently breaks: 360 Bia Óg v3, as a document that lies. NOT FIXED ON MAIN.
+  Measured: Tessom Foods's archived v3 spec carries all four beside a schools ICP.
+  Currently breaks: Tessom Foods v3, as a document that lies. NOT FIXED ON MAIN.
   Addressed on `sourcing-portable` via `deriveKeywords(industries)`.
 
 - [pre-c1] **B5. `DEFAULT_KEYWORDS_EXCLUDED = ['staffing', 'recruitment', 'SaaS', 'software product']`.**
@@ -775,10 +775,10 @@ transcript and in a code search, exactly like a merged one.
   `Executive Coaching` are all in `APOLLO_TARGETED_INDUSTRIES` and none is a value in
   `APOLLO_TO_SPEC`. A client naming only those passes every pre-search check and loses every
   prospect at classification.
-  Currently breaks: **Simcare.** Its spec names `Healthcare Consulting` and `Supply Chain
+  Currently breaks: **Calder Health.** Its spec names `Healthcare Consulting` and `Supply Chain
   Consulting`. Only the second is classifiable. Its 20 sourced prospects are not yet enriched
   (`enrichment_status` null on all 20), so tiering has not run and the loss has not been paid for
-  yet. Measured on the live rows: all 20 of Simcare's and all 20 of 360 Bia Óg's carry
+  yet. Measured on the live rows: all 20 of Calder Health's and all 20 of Tessom Foods's carry
   `enrichment_status` null. NOT FIXED, on main or on `sourcing-portable`, which touches only the
   comment.
 
@@ -788,14 +788,14 @@ transcript and in a code search, exactly like a merged one.
   GATES HARD. `hasConsultancyEvidence` is the only escape from Disqualifier 6, and it also decides
   the 20-point adjacent-industry score.
   For a client outside consulting it is the difference between a batch and nothing. Not one of
-  360 Bia Óg's 20 sourced company names contains any of the seven: `York Steiner School`,
+  Tessom Foods's 20 sourced company names contains any of the seven: `York Steiner School`,
   `Oxford Diocesan Bucks Schools Trust`, `Kingston Educational Trust`, and so on for all 20. Their
   mapped industry is also unclassifiable per C1. So when tiering runs on that batch, the expected
   outcome is 20 of 20 removed as `industry_not_consulting`.
-  The same query run over Simcare's 20 shows the other side of the shape: **15 of 20 match**,
-  because a healthcare *consulting* firm contains the literal word. Simcare passes this gate by
+  The same query run over Calder Health's 20 shows the other side of the shape: **15 of 20 match**,
+  because a healthcare *consulting* firm contains the literal word. Calder Health passes this gate by
   vocabulary coincidence, not by fit, and the 5 that do not match are removed.
-  Currently breaks: **360 Bia Óg** (20 of 20 expected removed) and **Simcare** (5 of 20), both
+  Currently breaks: **Tessom Foods** (20 of 20 expected removed) and **Calder Health** (5 of 20), both
   pending enrichment. NOT FIXED ON MAIN. Addressed on `sourcing-portable` (b705bf0), where the
   patterns read the client's own keywords.
 
@@ -804,18 +804,18 @@ transcript and in a code search, exactly like a merged one.
   GATES SOFTLY. It cannot remove a prospect, only move them between tiers.
   The bands encode a small-consultancy shape. A client whose ICP names 50-500-person firms has
   their whole target population scoring 5 or 0 out of 20 on size, so they tier lower for being
-  exactly right. Simcare's spec declares `company_headcount_max: 500`.
-  Currently breaks: Simcare, pending enrichment. NOT FIXED, on main or on `sourcing-portable`
+  exactly right. Calder Health's spec declares `company_headcount_max: 500`.
+  Currently breaks: Calder Health, pending enrichment. NOT FIXED, on main or on `sourcing-portable`
   (identical at branch lines 154-158).
 
 - [pre-c1] **C4. The `company_headcount > 100` removal.** `tier-classification.ts:227-235`.
   GATES HARD, and it is the one place in tiering that ignores the spec outright. The client's own
   `company_headcount_max` sits in the spec, unread, three lines away from a literal that overrides
   it.
-  Simcare's stored spec says `company_headcount_max: 500`. Every prospect between 101 and 500 that
-  Simcare sources will be removed as `company_too_large` against a bound Simcare's ICP explicitly
+  Calder Health's stored spec says `company_headcount_max: 500`. Every prospect between 101 and 500 that
+  Calder Health sources will be removed as `company_too_large` against a bound Calder Health's ICP explicitly
   set higher. `NHS Management, LLC` is in that returned batch.
-  Currently breaks: **Simcare**, pending enrichment. NOT FIXED, on main or on `sourcing-portable`
+  Currently breaks: **Calder Health**, pending enrichment. NOT FIXED, on main or on `sourcing-portable`
   (identical at branch lines 307-308).
 
 - [post-build] **C5. The fit-score weights and tier thresholds.** `tier-classification.ts:151`
@@ -824,7 +824,7 @@ transcript and in a code search, exactly like a merged one.
   GATES SOFTLY. The weights decide tier, not survival.
   Industry at 45 of 100 means a client whose industry is unclassifiable per C1 is capped at 55 and
   can never reach tier_1 even with a perfect buyer and perfect size.
-  Currently breaks: Simcare's `Healthcare Consulting` prospects, pending enrichment.
+  Currently breaks: Calder Health's `Healthcare Consulting` prospects, pending enrichment.
   NOT FIXED, on main or on `sourcing-portable`.
 
 ### GROUP D — misleads a reader only
@@ -838,10 +838,10 @@ transcript and in a code search, exactly like a merged one.
   It is one client's qualification rules asserted about every client, and its last clause is
   additionally false on its own terms: it claims DE and NL are included while
   `DEFAULT_PERSON_COUNTRIES` twelve lines earlier is `['GB','IE','US']` and the Apollo filter
-  removes both countries at the query. Measured: 360 Bia Óg's archived v3 spec carries the whole
+  removes both countries at the query. Measured: Tessom Foods's archived v3 spec carries the whole
   tail, "DE and NL included: English-operating consulting founders", on a spec for Irish primary
   schools.
-  Currently breaks: 360 Bia Óg v3, as a document an operator would read and act on. NOT FIXED ON
+  Currently breaks: Tessom Foods v3, as a document an operator would read and act on. NOT FIXED ON
   MAIN. Addressed on `sourcing-portable` via `buildNotes()`.
 
 - [post-build] **D2. The canonical industry list is duplicated into the ICP prompt.**
@@ -859,7 +859,7 @@ transcript and in a code search, exactly like a merged one.
   drifted. It feeds the operator's dropdown for mapping a flagged industry tag, so an operator
   cannot map a tag to any of the other 56 names.
   Currently breaks: any operator reviewing a flagged tag for a non-consulting client, which today
-  means 360 Bia Óg and Simcare. NOT FIXED, on main or on `sourcing-portable`.
+  means Tessom Foods and Calder Health. NOT FIXED, on main or on `sourcing-portable`.
 
 - [post-build] **D3. Rule 7's example pair in the ICP prompt.** `docs/prompts/icp-agent.md:635-636`:
   `Wrong: "HR / talent consulting", "Marketing strategy consulting", "IT / technology consulting"`
@@ -870,7 +870,7 @@ transcript and in a code search, exactly like a merged one.
   of the rule models the assumption the rest of the file spends four paragraphs (lines 638-649)
   telling the model not to make.
   For a client outside consulting this is a nudge toward the nearest consulting name. It is the
-  documented root cause of an earlier incident already in this file: 360dungarvan, a primary
+  documented root cause of an earlier incident already in this file: tessomfoods, a primary
   schools business, labelled "Management Consulting".
   Currently breaks: nothing measurable today. NOT FIXED, on main or on `sourcing-portable`, which
   touches no file under `docs/prompts/`.
@@ -894,9 +894,9 @@ transcript and in a code search, exactly like a merged one.
 
 ### THE TWO THINGS THAT WERE UNEXPLAINED. BOTH HAVE THE SAME EXPLANATION, AND IT IS NOT A MYSTERY.
 
-The task recorded these as unexplained: that Simcare's and 360 Bia Óg's stored specs were not
+The task recorded these as unexplained: that Calder Health's and Tessom Foods's stored specs were not
 written by any code in the repository and must have been written by hand or by script on
-2026-09-03, and that 360 Bia Óg sourced 20 prospects despite industries that should have thrown at
+2026-09-03, and that Tessom Foods sourced 20 prospects despite industries that should have thrown at
 the reachability gate.
 
 The first half of that is right and the conclusion drawn from it is wrong. **Both artifacts were
@@ -916,27 +916,27 @@ The evidence, in the order it settles the question:
    `origin/sourcing-portable:src/lib/agents/icp-filter-spec.ts:456`.
 
 3. Both stored specs carry `job_titles` identical to their own `buyer_criterion.accept` fragments,
-   lowercased. That is `job_titles: [...new Set(acceptFragments)]` at branch line 394. 360 Bia Óg:
-   `principal, deputy principal, chairperson, chair, board of management`. Simcare: `procurement,
+   lowercased. That is `job_titles: [...new Set(acceptFragments)]` at branch line 394. Tessom Foods:
+   `principal, deputy principal, chairperson, chair, board of management`. Calder Health: `procurement,
    managing director, portfolio, business development, ...`. Both also carry
    `keywords_excluded: []`, which is the branch's removal of `DEFAULT_KEYWORDS_EXCLUDED` (B5).
 
 4. The timestamps are inside the data, not just on the row.
-   `buyer_criterion.derived_at` is `2026-09-03T19:14:10.482Z` for Simcare and
-   `2026-09-03T19:14:40.162Z` for 360 Bia Óg, and those values sit in the `icp_filter_spec` column
+   `buyer_criterion.derived_at` is `2026-09-03T19:14:10.482Z` for Calder Health and
+   `2026-09-03T19:14:40.162Z` for Tessom Foods, and those values sit in the `icp_filter_spec` column
    itself, so the column was written at or after those instants.
 
 5. The sourcing runs follow six and seven minutes later and are recorded normally:
-   Simcare `ce1f8fc5` at 19:16:06, 360 Bia Óg `ad49e9c6` at 19:21:12, both `status = completed`,
+   Calder Health `ce1f8fc5` at 19:16:06, Tessom Foods `ad49e9c6` at 19:21:12, both `status = completed`,
    both `trigger_type = operator_manual`, both 20 written, `dropped_by_reason = {}`. Both have
    `agent_runs` rows named `sourcing_entry`, which is `IN_FLIGHT_AGENT_NAME` at
    `src/lib/operator/sourcing-entry.ts:68`, the real orchestrator entry point.
 
-6. **The returned prospects could not have come from `APOLLO_FILTER`.** 360 Bia Óg's 20 are schools
+6. **The returned prospects could not have come from `APOLLO_FILTER`.** Tessom Foods's 20 are schools
    and academy trusts — `York Steiner School`, `Holy Cross Catholic MAC`, `Illuminate Minds Academy
    Trust` — with titles that are all Chair variants: `Board Chair`, `Chairperson of the Board`,
    `Chair of the Board of Trustees`. Those match that client's own `chair` / `chairperson` /
-   `board of management` fragments. Simcare's 20 are healthcare consultancies and operators with
+   `board of management` fragments. Calder Health's 20 are healthcare consultancies and operators with
    titles like `Director of Nursing` and `Vice President of Business Development`, matching its
    `director of nursing` and `business development` fragments. NAICS 5416 at 5-20 employees with
    seniorities `owner, founder, c_suite, partner` returns neither set.
@@ -947,7 +947,7 @@ gate derives its targets from `CANONICAL_TO_NAICS`, which maps
 reachable there and the gate passed correctly for the code that was running.
 
 **What is worth carrying is the other half.** Two live client organisations now hold stored specs
-and 40 sourced prospects that main's code cannot reproduce, cannot re-derive, and in 360 Bia Óg's
+and 40 sourced prospects that main's code cannot reproduce, cannot re-derive, and in Tessom Foods's
 case would now refuse: re-approving that ICP on main runs `deriveFilterSpec`, overwrites the
 branch-derived spec with the eight consulting job titles and the "DE and NL included" notes tail,
 and the next sourcing run then throws at the reachability gate. The database is ahead of `main`,
@@ -1015,7 +1015,7 @@ non-consulting client on that branch sources correctly and is then removed at cl
   was a canonical name the classifier could not produce scored 0 on the industry axis
   because calculateIndustryScore returns early on an unmapped tag, which also skipped the
   keyword rescue. It now maps, is correctly off-target for that client, and is rescued by
-  that client's own keyword to 20 points. Simcare and 360 Bia Og move zero rows.
+  that client's own keyword to 20 points. Calder Health and Tessom Foods move zero rows.
 
 - [pre-c1, HALF OPEN] THE PROVIDER'S OWN TAG SPELLINGS ARE STILL UNMEASURED, which is the
   half of the gap above that deriving the range cannot reach. Original entry follows.
@@ -1029,15 +1029,15 @@ non-consulting client on that branch sources correctly and is then removed at cl
 
   MEASURED: `inspectFilterSpec` already reports this at spec-write time, and it fired for
   both non-consulting clients on 2026-09-03:
-      Simcare      "Healthcare Consulting" is targeted but no sourcing-tool tag maps to it
-      360 Bia Og   "Primary and Secondary Education" likewise
+      Calder Health      "Healthcare Consulting" is targeted but no sourcing-tool tag maps to it
+      Tessom Foods   "Primary and Secondary Education" likewise
 
   WHY IT WAS NOT CLOSED IN THE SAME SESSION, and this is the part worth keeping. Closing it
   means writing Apollo's own industry TAG STRINGS into APOLLO_TO_SPEC, and those strings
   cannot be measured from the sourcing path. The free people-search response carries
   `has_industry` as a BOOLEAN and never the value. Confirmed live on 2026-09-03 against both
   the handler's own response shape and a direct provider call: 20 prospects sourced for
-  Simcare and 20 for 360 Bia Og, `company_industry` null on all 40. The tags appear only
+  Calder Health and 20 for Tessom Foods, `company_industry` null on all 40. The tags appear only
   after PAID enrichment.
 
   Writing them from memory is exactly the guess that put a wrong parameter name in this
@@ -1061,11 +1061,11 @@ non-consulting client on that branch sources correctly and is then removed at cl
 
   What CAN be measured for free is the buyer criterion on its own, which is the axis that
   was broken. Measured 2026-09-03 against the 40 sourced titles, every one scores:
-      Simcare      4 primary (35 pts), 16 secondary (25 pts)
-      360 Bia Og   20 secondary (25 pts)
+      Calder Health      4 primary (35 pts), 16 secondary (25 pts)
+      Tessom Foods   20 secondary (25 pts)
   Under the deleted hardcoded ladder a Director of Nursing and a Board Chair both scored 0.
 
-- [post-build] SIMCARE'S ICP NAMES THE WRONG INDUSTRIES, AND THE SOURCING IS NOW FAITHFUL
+- [post-build] Calder Health'S ICP NAMES THE WRONG INDUSTRIES, AND THE SOURCING IS NOW FAITHFUL
   ENOUGH TO MAKE THAT VISIBLE.
 
   Its summary says the buyers are "procurement leads or business development directors at
@@ -1080,7 +1080,7 @@ non-consulting client on that branch sources correctly and is then removed at cl
   agent picked the nearest consulting-shaped names. 'Medical Devices and Equipment' and
   'Wholesale Trade' both exist in CANONICAL_INDUSTRIES and would have been closer.
 
-  Fixing it means regenerating Simcare's ICP, which is a re-approval, so it was NOT done.
+  Fixing it means regenerating Calder Health's ICP, which is a re-approval, so it was NOT done.
   Doug's call.
 
 ## CLASSIFICATION AND TIERING MADE PORTABLE — WHAT IS STILL OPEN (2026-09-03, branch sourcing-and-tiering)
@@ -1173,7 +1173,7 @@ non-consulting client on that branch sources correctly and is then removed at cl
   with an absolute exclusion clause. There is no structured field to map from and writing
   a free-text parser for this is not a small change disguised as a config edit.
 
-  WHAT IT COSTS TODAY, measured: 360 Bia Og's ICP geography names one country. Its stored
+  WHAT IT COSTS TODAY, measured: Tessom Foods's ICP geography names one country. Its stored
   spec carries three, because the spec took the defaults. Of the 20 prospects its own
   spec-built query returned on 2026-09-03, the great majority are schools and trusts in
   two OTHER countries. The query is faithful to the spec and the spec was never faithful
@@ -1293,7 +1293,7 @@ non-consulting client on that branch sources correctly and is then removed at cl
   feeds `person_seniorities` in a live query, and widening it changes the sourced
   population in a way this session did not measure.
 
-  Its practical cost is visible already. 360 Bia Og's spec carries
+  Its practical cost is visible already. Tessom Foods's spec carries
   ['c_suite','vp','director'] because a school ICP says neither word, and a school
   principal is none of those in the provider's taxonomy. It has not bitten yet only
   because `person_titles` is doing the real work.
@@ -1521,8 +1521,8 @@ recipientFromServiceDescription over `offer_structure` for all five organisation
 
     MargenticOS 74243c62   "B2B consultants"                        <- exactly right
     DRY RUN TEST           "a retainer where one of us is embedded"
-    Simcare                "buying a sample"
-    360 Bia Og             "an extremely large market"
+    Calder Health                "buying a sample"
+    Tessom Foods             "an extremely large market"
     MargenticOS 0ed34697   "do an intake form, and give them loads"
 
 ONE GOOD, FOUR USELESS, and that is the whole decision. `offer_structure` asks how the
@@ -1558,7 +1558,7 @@ completeness recalculation, and shipping them one at a time pays that cost four 
 
   Q1. WHO PAYS, separately from who is served.
       Field: buying organisation, and the role that signs.
-      Evidence: 360 Bia Og. "We provide hot school lunches to children in Ireland on a
+      Evidence: Tessom Foods. "We provide hot school lunches to children in Ireland on a
       contractual basis with the government." Delivered to children, bought by the state.
       The research query builder extracts "children in Ireland" and researches the wrong
       population. Grammar cannot separate delivered-to from bought-by.
@@ -1663,7 +1663,7 @@ fixed in the shared module:
 of the five live organisations and wrong in one, and the one it is wrong in is wrong in a
 way no category-level rule can fix.
 
-360 Bia Og: "We provide hot school lunches to children in Ireland on a contractual basis
+Tessom Foods: "We provide hot school lunches to children in Ireland on a contractual basis
 with the government." The service is DELIVERED TO children and BOUGHT BY the state. The
 extractor returns "children in Ireland", which is a real population and the wrong one.
 Separating delivered-to from bought-by needs world knowledge, not grammar, so the fallback
@@ -1728,7 +1728,7 @@ geographic hint at all. Same write-once constraint, same reason it was not fixed
   INSTRUCTION. "Use X instead" is a directive with named replacement strings. There is no
   lesson to separate from the vocabulary, because the vocabulary IS the instruction.
 
-  WHAT IT DOES TO A REAL CLIENT. "Referral ceiling" is meaningless to 360 Bia Og, which
+  WHAT IT DOES TO A REAL CLIENT. "Referral ceiling" is meaningless to Tessom Foods, which
   sells hot meals to Irish primary schools. A school does not have a referral ceiling, and
   its pipeline does not reset to zero when a client ends. The agent is being told to reach
   for those exact phrases when it wants to describe recurring revenue pressure, whoever
@@ -2039,7 +2039,7 @@ geographic hint at all. Same write-once constraint, same reason it was not fixed
   which is why deleting the mock campaign detached its prospects instead of deleting them.
 
 - [pre-c1] GINNY HUDGENS IS A REAL PROSPECT SITTING IN THE ARCHIVED ORG. Decide where she
-  belongs. prospect 7cd92532-55e0-45d4-9d99-4a7c2ae0a12d, ginny@thestrategicimplementer.com,
+  belongs. prospect 7cd92532-55e0-45d4-9d99-4a7c2ae0a12d, ines@orrin.example.com,
   Founder, The Strategic Implementer, in the old MargenticOS org
   74243c62-f42d-4f3f-b93e-bd5e51f0b6c0, now with campaign_id NULL after the mock campaign
   was deleted.
@@ -2710,7 +2710,7 @@ there. Accumulate first, decide later.
   retries pending on it. There are zero greylisted rows live, so this costs nothing today.
   Revisit only if greylisted rows start accumulating.
 
-- [pre-c1] olympus.com scored 15 against every other address at 90, and it is a large
+- [pre-c1] tessom.example.com scored 15 against every other address at 90, and it is a large
   corporate domain sitting in a list of small consulting firms. FLAGGED, NOT CHASED, per
   Doug 2026-08-25. Probably a sourcing miss rather than a verification one. If more
   large-corporate domains appear in consulting-firm sourcing runs, the ICP filter spec is
@@ -2765,7 +2765,7 @@ there. Accumulate first, decide later.
   deliverable at score 100 with accept_all=false, which the sample never covered.
 
 - [research, IMPORTANT AND NOT PREDICTED] THE VENDOR'S VERDICT IS NOT STABLE OVER TIME.
-  sohail@thesouthstarconsulting.com returned RISKY at score 75 in the 2026-08-25 sample and
+  noor@northwell.example.com returned RISKY at score 75 in the 2026-08-25 sample and
   DELIVERABLE at score 90 in the live run about 28 hours later. Same address, same vendor,
   different answer.
 
@@ -2776,7 +2776,7 @@ there. Accumulate first, decide later.
   automatic re-probe on that basis without measuring first, because each retry bills and
   MAX_SECOND_PASS_ATTEMPTS = 2 exists precisely to stop open-ended re-billing.
 
-- [pre-c1] olympus.com is the one address that did not recover: risky, score 15, against 90
+- [pre-c1] tessom.example.com is the one address that did not recover: risky, score 15, against 90
   for everything else. Flagged and not chased per Doug 2026-08-25. It remains the strongest
   candidate for a SOURCING miss rather than a verification one: a large corporate domain in
   a list of small consulting firms. If more like it appear, look at the ICP filter spec.
@@ -2960,7 +2960,7 @@ there. Accumulate first, decide later.
 
   WORSE: A NAIVE BACKFILL WOULD HAVE MADE IT WORSE. checkSendEligibility short-circuits on
   a populated non-excluded country, so writing "Germany" into the column would have flipped
-  craid.de from excluded to ELIGIBLE, switching off the one exclusion that worked.
+  example.de from excluded to ELIGIBLE, switching off the one exclusion that worked.
 
   THE FIX. src/lib/sourcing/country-code.ts, canonical ISO-2, handler owns the translation
   per CLAUDE.md. Unmapped countries preserved verbatim and logged, never nulled. The rule
@@ -2973,8 +2973,8 @@ there. Accumulate first, decide later.
 - [commercial, DECIDED 2026-08-25, DO NOT RELITIGATE] Two German prospects were mailed and
   their sequences are being LEFT RUNNING.
 
-    broeskamp.udo@broeskamp.com   Bröskamp Consulting GmbH, Frankfurt
-    jochen@knot-consulting.com    Knot Consulting GmbH, Waren
+    kit@halden.example.com   Halden Consulting GmbH, Germany
+    marlow@merrow.example.com    Merrow Consulting GmbH, Germany
 
   Both are now email_send_eligible = false with reason country_excluded_de in this
   database. THAT DOES NOT STOP THE SENDING TOOL. They are outbound_upload_status =
@@ -3917,7 +3917,7 @@ there. Accumulate first, decide later.
   Every organisation with prospects other than client zero is archived: DRY RUN TEST
   (a2b621fc-4c9d-43d9-9af4-1253ff49d12d, archived 2026-08-05, 3 live prospects, no stored
   findings), the old MargenticOS org (74243c62, archived), and Test Org A and B. The only
-  non-archived organisations besides client zero are Simcare and 360 Bia Og, both with zero
+  non-archived organisations besides client zero are Calder Health and Tessom Foods, both with zero
   prospects.
   Both new routes reject archived organisations, following enrich-approved-batch, and the
   sourcing review page does not list them. So there is currently nowhere to exercise the
@@ -4136,24 +4136,24 @@ there. Accumulate first, decide later.
 
 ## Agent quality batch from dry-run rounds (DONE 2026-06-11)
 
-- [DONE 2026-06-11] Agent prompt quality fixes from Simcare and 360dungarvan dry runs
+- [DONE 2026-06-11] Agent prompt quality fixes from Calder Health and tessomfoods dry runs
   Commit: 2e49dcf — "agents: sector-complete taxonomy, unmatched-industry flag, grounding rule, pain balance, cold-email register clamp, doc framing"
 
   Issues found and fixed:
-  1. 360dungarvan (Irish primary-school meals business) tagged as "Management Consulting" because
+  1. tessomfoods (Irish primary-school meals business) tagged as "Management Consulting" because
      CANONICAL_INDUSTRIES list contained only consulting categories. FIXED: Expanded list from 
      25 to 76 entries covering all NAICS sectors (education, healthcare, construction, manufacturing, 
      financial, retail, hospitality, logistics, tech, media, agriculture, energy, govt, non-profit).
      Agent now maps unmapped industries to unmatched_industries array with operator review flag.
      Commit: icp-filter-spec.ts, icp-agent.md (CHANGE 1-2).
 
-  2. 360dungarvan's messaging cited "Green Flag" schools initiative that doesn't appear in intake,
+  2. tessomfoods's messaging cited "Green Flag" schools initiative that doesn't appear in intake,
      website, or research — model supplied it from world knowledge. FIXED: Added grounding rule
      to all 4 document-generation prompts (icp, positioning, tov, messaging). Any externally 
      verifiable third-party fact not in source materials must be listed in "Assumptions we have 
      made" section for operator confirmation (CHANGE 3).
 
-  3. Simcare reported ICP and positioning over-focused on margin pain despite evidence of other
+  3. Calder Health reported ICP and positioning over-focused on margin pain despite evidence of other
      dimensions. FIXED: Added pain-dimension breadth rule to ICP and positioning prompts. Documents
      must surface all pain dimensions (financial, time, operational, risk, growth, reputation, 
      compliance) that evidence supports, not just financial (CHANGE 4).
@@ -5692,30 +5692,30 @@ Overall AI slop score: A (clean, no generic patterns)
 
 ---
 
-## Consolidated dry-run findings: Simcare + 360dungarvan B2, 2026-06-11
+## Consolidated dry-run findings: Calder Health + tessomfoods B2, 2026-06-11
 
-B2 dry-run walk with two real organizations (Simcare and 360dungarvan) exposed four findings:
+B2 dry-run walk with two real organizations (Calder Health and tessomfoods) exposed four findings:
 
 - [pre-c0, HIGH] Transactional email junks on Outlook. Docs-ready notification landed in junk for an Outlook recipient, inboxed on Gmail. Target market is Microsoft-heavy. Action: SPF/DKIM/DMARC alignment audit on the Resend sending domain (margenticos.com, Resend EU), then re-test against an Outlook mailbox. From-address confirmed: "MargenticOS <notifications@margenticos.com>" (Production scope Vercel env).
 
-- [pre-c0, HIGH] ICP agent industry mislabel. 360dungarvan is a primary schools business (education sector) but the ICP agent labeled it "Management Consulting." Root cause: TAXONOMY GAP. The canonical industry list (src/lib/agents/icp-filter-spec.ts, CANONICAL_INDUSTRIES) has 25 categories, all consulting/professional services. No education sector exists. When the ICP agent (docs/prompts/icp-agent.md line 369: "If a relevant industry is not on this list, use the closest match") falls back, it lands on "Management Consulting." Recommended fix: (1) Add 3 education-sector categories to CANONICAL_INDUSTRIES (Primary/Secondary Education, Higher Education, Education Services). (2) Add education examples to the ICP agent prompt to sharpen non-consulting business recognition. (3) Rerun 360dungarvan ICP after taxonomy fix.
+- [pre-c0, HIGH] ICP agent industry mislabel. tessomfoods is a primary schools business (education sector) but the ICP agent labeled it "Management Consulting." Root cause: TAXONOMY GAP. The canonical industry list (src/lib/agents/icp-filter-spec.ts, CANONICAL_INDUSTRIES) has 25 categories, all consulting/professional services. No education sector exists. When the ICP agent (docs/prompts/icp-agent.md line 369: "If a relevant industry is not on this list, use the closest match") falls back, it lands on "Management Consulting." Recommended fix: (1) Add 3 education-sector categories to CANONICAL_INDUSTRIES (Primary/Secondary Education, Higher Education, Education Services). (2) Add education examples to the ICP agent prompt to sharpen non-consulting business recognition. (3) Rerun tessomfoods ICP after taxonomy fix.
 
-- [VERIFIED 2026-06-11] Green Flag provenance — database investigation complete. The 360-bia-og (not 360dungarvan) strategy documents contain 50+ references to "Green Flag" and "Green Schools," appearing in ICP, Positioning, and Messaging generated content. Database scan results: (a) intake_responses: zero matches for "Green Flag" or "Green Schools"; (b) intake_website_pages: zero matches; (c) prospect_research_results: zero matches in synthesis_reasoning or trigger_text. Conclusion: UNSOURCED in client data. "Green Flag" appears ONLY in generated output, never in stored inputs. This represents an agent synthesizing plausible business context (Irish school sustainability program) without grounding in actual intake/research data. The ICP, Positioning, and Messaging agents all reference Green Flag as though it were client-provided, when it is pure generation. Addresses the architectural gap: agents should flag thin/absent context rather than filling gaps with plausible fiction.
+- [VERIFIED 2026-06-11] Green Flag provenance — database investigation complete. The tessom-foods (not tessomfoods) strategy documents contain 50+ references to "Green Flag" and "Green Schools," appearing in ICP, Positioning, and Messaging generated content. Database scan results: (a) intake_responses: zero matches for "Green Flag" or "Green Schools"; (b) intake_website_pages: zero matches; (c) prospect_research_results: zero matches in synthesis_reasoning or trigger_text. Conclusion: UNSOURCED in client data. "Green Flag" appears ONLY in generated output, never in stored inputs. This represents an agent synthesizing plausible business context (Irish school sustainability program) without grounding in actual intake/research data. The ICP, Positioning, and Messaging agents all reference Green Flag as though it were client-provided, when it is pure generation. Addresses the architectural gap: agents should flag thin/absent context rather than filling gaps with plausible fiction.
 
-- [VERIFIED 2026-06-11] Em-dash verification — database scan complete. Query: emdash counts on strategy_documents for 360-bia-og and simcare organisations. Result: ZERO em-dashes found across all document types (ICP v1, Positioning v1, TOV v1, Messaging v1, and Simcare ICP v1-v2). Plain text fields all null (expected). JSON content fields: emdash_count = 0 on all rows. Verification confirms: assertNoDashes gate is functioning correctly on ICP, Positioning, TOV agents. Messaging agent scrubAITells runtime scrub is also working. All documents stored without em-dash contamination.
+- [VERIFIED 2026-06-11] Em-dash verification — database scan complete. Query: emdash counts on strategy_documents for tessom-foods and calder health organisations. Result: ZERO em-dashes found across all document types (ICP v1, Positioning v1, TOV v1, Messaging v1, and Calder Health ICP v1-v2). Plain text fields all null (expected). JSON content fields: emdash_count = 0 on all rows. Verification confirms: assertNoDashes gate is functioning correctly on ICP, Positioning, TOV agents. Messaging agent scrubAITells runtime scrub is also working. All documents stored without em-dash contamination.
 
-- [post-B2 decision, deferred] Document cascade: regenerated ICP or positioning should set a staleness indicator on the messaging document, never auto-regenerate downstream content. Awaiting operator sign-off on 360dungarvan ICP refresh before implementing cascade logic.
+- [post-B2 decision, deferred] Document cascade: regenerated ICP or positioning should set a staleness indicator on the messaging document, never auto-regenerate downstream content. Awaiting operator sign-off on tessomfoods ICP refresh before implementing cascade logic.
 
 - [pre-c1] Operator per-client intake-form view, read-only, small standalone build, elevated priority per operator. Does not wait for full OPS-1. Operator needs visibility into submitted intake data (what the client entered) to cross-check ICP output against the source.
 
 - [pre-c1] Agent quality batch:
-  (a) Industry taxonomy expansion per root cause 2 above (add education sectors, rerun 360dungarvan, validate across 3 clients).
+  (a) Industry taxonomy expansion per root cause 2 above (add education sectors, rerun tessomfoods, validate across 3 clients).
   (b) ICP and positioning agents over-index on margin/monetization pain points; rebalance across pain dimensions for non-consulting verticals.
   (c) TOV formality clamp: cold email brevity and conversational register override client brand formality as expressed within channel constraints.
 
 - [pre-c1, research first] Break-up email (Email 4) analysis. Variants are near-identical across conditions; review whether variation is intended. Client preference for hyperlinked company name in final email requires deliverability research; default remains no links in cold email bodies.
 
-- [note] B2 validated: outsider auth, cold intake, doc generation, revision loop, and approvals on two real orgs end-to-end. Compose and mock-dispatch leg not exercised in B2; covered by the 2026-06-04 lap on the reference org. Returning-user login leg for 360dungarvan pending one confirmation.
+- [note] B2 validated: outsider auth, cold intake, doc generation, revision loop, and approvals on two real orgs end-to-end. Compose and mock-dispatch leg not exercised in B2; covered by the 2026-06-04 lap on the reference org. Returning-user login leg for tessomfoods pending one confirmation.
 
 - [pre-c1, product framing] Strategy documents land as impressive but clients are unsure of their purpose. Add framing copy in UI and onboarding positioning the documents as the engine that powers campaigns. No feature build.
 
@@ -5759,7 +5759,7 @@ B2 dry-run walk with two real organizations (Simcare and 360dungarvan) exposed f
 
 - [post-tier1] Consolidate remaining repos under Margentic-OS org
   The following repos remain under the personal MargenticOS account:
-  website-test, sales-intel, margenticos-landing, biaog.
+  website-test, sales-intel, margenticos-landing, tessomfoods.
   Review which are still live. Archive dead ones. Transfer live ones to the org.
   Non-urgent but keeps GitHub structure aligned with the business entity on Team plan.
 
@@ -7389,7 +7389,7 @@ variants. The revision agent obeyed literally. Confirmed violations in the resul
 - **Confirmed break:** welcome email magic link (type=invite, action_link) consumed by
   Gmail/corporate-gateway link prefetch before user clicks. Client sees "Invalid link.
   Please request a new one." This breaks first-time client login on the welcome email.
-- **Also breaks B2:** the 360dungarvan dry-run walk (Doug's father clicks welcome email)
+- **Also breaks B2:** the tessomfoods dry-run walk (Doug's father clicks welcome email)
   fails on this exact path if unfixed.
 - **Research required before building** (primary sources, not assumption):
   - Does Supabase PKCE flow prevent scanner consumption? For sign-in flows (user initiates
@@ -7556,7 +7556,7 @@ variants. The revision agent obeyed literally. Confirmed violations in the resul
 
 ---
 
-## Consolidated dry-run findings: Simcare + 360dungarvan B2, 2026-06-11
+## Consolidated dry-run findings: Calder Health + tessomfoods B2, 2026-06-11
 
 Investigation scope: ICP industry mislabel, Green Flag provenance, docs-ready email path, em-dash verification.
 Code audit completed 2026-06-11.
@@ -7592,7 +7592,7 @@ Code audit completed 2026-06-11.
   When fixed: regenerate ICP for affected org to validate new category is applied.
 
 - [pre-c1, RESEARCH] Green Flag provenance — source identified or agent hallucination?
-  The 360dungarvan messaging agent output references a "Green Flag initiative" the client
+  The tessomfoods messaging agent output references a "Green Flag initiative" the client
   reports they never provided in intake. Cannot verify database state without live connection.
   Investigation needed: (a) Check if company_url was populated + ingestion ran successfully;
   (b) Query intake_website_pages for "Green Flag" or "Green Schools" text; (c) if found in
@@ -7636,7 +7636,7 @@ Code audit completed 2026-06-11.
   (ICP, positioning, TOV, messaging), document approval with revision requests, dispatcher routing.
   **Mocked in B2:** email composition and mock-dispatch (not live sending). Both exercised in
   2026-06-04 reference-org lap; reusable for B2.
-  **Pending:** returning-user login flow for 360dungarvan (one confirmation still needed).
+  **Pending:** returning-user login flow for tessomfoods (one confirmation still needed).
   **Em-dash verification (Investigation 4):** cannot be run without live database connection.
   Query strategy_documents for both orgs, count em-dashes per document_type. Expected result: zero
   (all em-dashes should be stripped by assertNoDashes gate in icp-generation-agent.ts line 176).
@@ -7651,7 +7651,7 @@ Code audit completed 2026-06-11.
 
 - [note] Em-dash verification result (Investigation 4) — REQUIRES DATABASE ACCESS
   Could not run without live Supabase connection. Should execute as separate task once
-  operator confirms 360dungarvan and Simcare org IDs. Query: SELECT COUNT(content::text),
+  operator confirms tessomfoods and Calder Health org IDs. Query: SELECT COUNT(content::text),
   for each organisation's strategy_documents where status='active', search content for
   em-dash character (—) in all eight document types (ICP, Positioning, TOV, Messaging x2,
   etc). Expected: zero per document if assertNoDashes gate is working.
@@ -7668,7 +7668,7 @@ spec persistence (persistIcpFilterSpec helper called post-promotion), sourcing o
   Three organisations have approved ICPs that were migrated with NULL icp_filter_spec:
   - DRY RUN TEST (version 3, approved 2026-06-06)
   - MargenticOS (version 5, approved 2026-06-03)
-  - Simcare (version 2, approved 2026-06-10)
+  - Calder Health (version 2, approved 2026-06-10)
   Decision: backfill spec for these three to unblock sourcing when the handler goes live,
   OR treat NULL as a gate requiring re-promotion. Deferred pending first real sourcing flow.
   If backfill chosen: run persistIcpFilterSpec manually against these three document IDs,
@@ -7713,8 +7713,8 @@ spec persistence (persistIcpFilterSpec helper called post-promotion), sourcing o
   Rejection reason: campaign-level boolean was wrong granularity (all-or-nothing).
   Prospect-level allows operator to cherry-pick candidates before costly enrichment.
 
-- [pre-c1] 360 Bia Og ICP approval status investigation (2026-06-12)
-  Query result at Phase A Amendment 7: 360 Bia Og has two ICP documents (v1 archived, v2 active)
+- [pre-c1] Tessom Foods ICP approval status investigation (2026-06-12)
+  Query result at Phase A Amendment 7: Tessom Foods has two ICP documents (v1 archived, v2 active)
   but both have client_approval_status = 'pending'. Expected to hold an approved ICP.
   Operator action: review why client approval is pending (approval_source NULL, approved_at NULL).
   Did the approval get stuck, or is this org still in ICP generation/review phase?
@@ -8167,22 +8167,22 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
     Dustin, Stack'd Consulting Inc., headcount 4100 → sourced_tier NULL,
       tiering_reason 'company_too_large'. Correctly blocked; the claim query requires
       sourced_tier IS NOT NULL.
-    Alma, Full Bloom Consulting, headcount 1 → tier_1 (score 100): industry 45,
+    Noor, Northwell Consulting, headcount 1 → tier_1 (score 100): industry 45,
       seniority 35, headcount 20. Fully eligible, uploaded, and sent.
-  The research agent independently graded Alma icp_fit 'weak' and its reasoning said she is
+  The research agent independently graded Noor icp_fit 'weak' and its reasoning said she is
   "almost certainly" below the £500K floor. That grade changed nothing (see the icp_fit item below).
 
-  Why NOT headcount: a solo consultant can legitimately bill inside the ICP. Dropping Alma's
+  Why NOT headcount: a solo consultant can legitimately bill inside the ICP. Dropping Noor's
   headcount score from 20 to 5 still leaves her at 85, which still tiers. Headcount does not
   separate the case.
 
-  The separating signal is CONCURRENT FULL-TIME EMPLOYMENT ELSEWHERE. Alma has held a
-  full-time Stanford GSB role since 2024 alongside founding Full Bloom in 2023, so the
+  The separating signal is CONCURRENT FULL-TIME EMPLOYMENT ELSEWHERE. Noor has held a
+  full-time Merrow Institute role since 2024 alongside founding Northwell in 2023, so the
   consulting firm is not her primary occupation and there is no pipeline to generate for.
 
-  The asymmetry that makes this safe: Robert Taffet ALSO held a concurrent role (Director at
-  CRC, Jul 2024 to Aug 2025) but it ENDED, and Taffet Consulting is twelve years old. A rule
-  keyed on a CURRENT concurrent full-time role plus a young firm excludes Alma and keeps Robert.
+  The asymmetry that makes this safe: Alix Vantor ALSO held a concurrent role (Director at
+  ORRIN, Jul 2024 to Aug 2025) but it ENDED, and Vantor Consulting is twelve years old. A rule
+  keyed on a CURRENT concurrent full-time role plus a young firm excludes Noor and keeps Alix.
   Any rule written must preserve that distinction; test it against both before shipping.
 
   Feasibility: Apollo enrichment already returns employment_history with start_date, end_date
@@ -8195,7 +8195,7 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
 
 - [pre-c1] prospects.icp_fit is written by prospect-research-agent-v2 (strong/moderate/weak)
   and consumed by NO gate anywhere: not the upload claim query, not tiering, not send
-  eligibility, not the client review flow. Alma is graded 'weak' and fully eligible to send.
+  eligibility, not the client review flow. Noor is graded 'weak' and fully eligible to send.
   Either wire it to something or stop writing it. Related to the ICP floor decision above,
   though that decision deliberately enforces at tiering rather than on this field.
 
@@ -8219,10 +8219,10 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   drawn from it. VERIFIABLE only checks that a human can confirm the fact from the cited
   source in 30 seconds. Nothing checks whether the inference points the right way.
 
-  Live example 2026-08-18: Robert Taffet's winning candidate (6/6) was the concurrent CRC
+  Live example 2026-08-18: Alix Vantor's winning candidate (6/6) was the concurrent ORRIN
   Director role, Jul 2024 to Aug 2025, and the trigger implies he needs pipeline. The
-  opposite reading is equally consistent with the same fact: he may have LEFT CRC because
-  Taffet Consulting got busy enough to need him full time. Same verified fact, inverted
+  opposite reading is equally consistent with the same fact: he may have LEFT ORRIN because
+  Vantor Consulting got busy enough to need him full time. Same verified fact, inverted
   conclusion, and the copy would land badly on the second reading.
 
   This is a real ceiling on the candidate-generation approach, not a prompt tweak. Options to
@@ -8235,7 +8235,7 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
 - [phase2] replaceCtaParagraph and the generatePersonalization CTA branch were deleted from the
   composition path (commit 3977eb6). The approved template CTA now survives verbatim in all cases.
   It produced worse copy than the line it overwrote even WITH a real researched trigger:
-  "How does Taffet help capital markets consultants break the referral dependency cycle?"
+  "How does Vantor help capital markets consultants break the referral dependency cycle?"
   asks the prospect what his own company does.
   Standing principle established this session: no machine step may overwrite human-approved copy
   after approval without an explicit gate. If a CTA layer returns, it needs a quality gate that
@@ -8339,7 +8339,7 @@ Three pre-c1 integration audit findings fixed in session 2026-06-17. Commits 202
   them on nearly every line, and models imitate the prompt they are given. Strip them in a
   dedicated pass across all prompt files, not piecemeal.
 
-- [post-build] Udo's winning trigger used the ICP-pain structural template ("Most founders at
+- [post-build] Kit's winning trigger used the ICP-pain structural template ("Most founders at
   that stage find ...") as its second sentence even though the signal scored use_as_hook. That
   template is prescribed by the prompt's no_signal path, so at 500 prospects it is a strong
   candidate for the next uniformity signal. The frame registry will now catch it, but the
@@ -9207,7 +9207,7 @@ session's verification, not in the code it shipped, and that is the more useful 
 - [pre-c1] A LIVE APPROVED ICP CARRIES ASSUMPTIONS NAMING EXTERNAL BODIES, AND THE NEW
   RULE 9 DOES NOT REACH IT. DECISION NEEDED.
 
-  `strategy_documents` row `a8d35c94-b1a6-429e-99fd-119fb481c6cb`, org **360 Bia Og**,
+  `strategy_documents` row `a8d35c94-b1a6-429e-99fd-119fb481c6cb`, org **Tessom Foods**,
   document_type icp, version 2, status active, client_approval_status approved
   (approval_source auto), generated 2026-06-12. It holds a six-element
   `assumptions_we_have_made` array naming **An Taisce**, the **Department of Social
@@ -9226,7 +9226,7 @@ session's verification, not in the code it shipped, and that is the more useful 
   the correct behaviour and should NOT be "fixed" by adding it to handledKeys, which would
   hide it.
 
-  NEXT ACTION is a decision, not a migration: regenerate 360 Bia Og's ICP under the new
+  NEXT ACTION is a decision, not a migration: regenerate Tessom Foods's ICP under the new
   Rule 9 and re-approve, or leave v2 standing and accept that one live document contains
   assumptions the current rules forbid. Regeneration costs an opus-4-6 call and an operator
   approval. Doug's call. Do not do it silently either way.
@@ -10011,7 +10011,7 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   MEASURED 2026-08-28 against the real exported gate at the real production shape:
   TWELVE OF THE SIXTEEN named entities in the writer prompt's worked examples leak.
   The four caught are caught incidentally by a tail token that is not sentence-initial
-  (Blue SKY, Hollywood FOOD COALITION, Stanford GSB, Knot CONSULTING). "Sovern LA" leaks
+  (Green FIELD, Hollywood FOOD COALITION, Merrow Institute, Merrow CONSULTING). "Merrow LA" leaks
   despite being two tokens, because the tail is two characters and the old gate has a
   three-character floor.
 
@@ -10034,7 +10034,7 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   function-word list would miss, costing a writer attempt on six or seven of 24 openings.
 
   A full dictionary was rejected on measurement, not taste: /usr/share/dict/words holds
-  235,976 entries including 25,203 proper nouns, and contains "pani" and "jason". It
+  235,976 entries including 25,203 proper nouns, and contains "calder" and "devon". It
   would hand three of the twelve known leaks a free pass.
 
   TO FLIP: change SENTENCE_INITIAL_GATE_MODE to 'block' and record here what the week's
@@ -10139,7 +10139,7 @@ in docs/prompts/, the four generation agents, or document-projection was touched
        name inside a longer ordinary word was cleared as though the findings supplied it.
        Measured over the 262 real findings blocks in prospect_research_results: "SEC" was
        falsely cleared by 104 of the 120 blocks it matched, via "section", "sector",
-       "second" and "securities"; "Pani" by 38, via "companies". Now matched on word
+       "second" and "securities"; "Calder" by 38, via "companies". Now matched on word
        boundaries. SEC was not previously known to be leaking and is the worse of the two.
 
   THE SPLICE CONTROL, over the same 60 openings, each entity judged only against findings
@@ -10159,7 +10159,7 @@ in docs/prompts/, the four generation agents, or document-projection was touched
 
   src/lib/agents/research/write-opening.ts, untraceableClaims. It clears a capitalised word
   when `findingsText.toLowerCase().includes(word.toLowerCase())`, which is the exact test
-  measured above as falsely clearing "SEC" in 104 of 120 real findings blocks and "Pani" in
+  measured above as falsely clearing "SEC" in 104 of 120 real findings blocks and "Calder" in
   38 of 57. The sentence-initial gate was fixed on 2026-08-31; this one was not, and the two
   no longer agree.
 
@@ -10177,7 +10177,7 @@ in docs/prompts/, the four generation agents, or document-projection was touched
 - [gate] RESIDUAL GAP IN THE SENTENCE-INITIAL GATE: A RUN WHOSE FIRST TOKEN IS ORDINARY
   ENGLISH AND WHOSE REST IS UNDER THE THREE-CHARACTER FLOOR.
 
-  The verdict is taken on the FIRST token of a capitalised run only. "Blue Sky" therefore
+  The verdict is taken on the FIRST token of a capitalised run only. "Green Field" therefore
   passes this gate, because "Blue" is ordinary English and "Sky" is never judged here. That
   is not a leak in production: "Sky" is not sentence-initial, so untraceableClaims catches
   it, and the paired test at the bottom of sentence-initial-names.test.ts asserts exactly
@@ -10274,7 +10274,7 @@ in docs/prompts/, the four generation agents, or document-projection was touched
       the strings on it and rots the moment a prompt example changes. A vocabulary catches
       an invented company by construction, because invented companies are not English.
     - It is FREQUENCY-based, not a dictionary. Measured: /usr/share/dict/words holds
-      235,976 entries including 25,203 proper nouns, and contains "pani" and "jason", so
+      235,976 entries including 25,203 proper nouns, and contains "calder" and "devon", so
       it would hand three known leaks a free pass and add 2.5MB to do it. Rarity is the
       signal being traded on.
 
@@ -10303,7 +10303,7 @@ in docs/prompts/, the four generation agents, or document-projection was touched
 
   In practice the frequency-based list closes most of this by accident rather than by
   rule: "treasury" and "cave" are real words but not common enough to be in a common-word
-  list, so both are caught today. Do not read that as a guarantee. "Blue Sky" IS allowed
+  list, so both are caught today. Do not read that as a guarantee. "Green Field" IS allowed
   by this gate, and is caught only because untraceableClaims sees the tail "Sky". That
   seam is asserted as a pair in the tests rather than assumed.
 
@@ -10402,11 +10402,11 @@ in docs/prompts/, the four generation agents, or document-projection was touched
   refresh clears it.
 
   ACTIVE ICP documents containing "Apollo", measured 2026-08-28:
-    360 Bia Og v2      1 occurrence, all in evidence_to_find (operator-only)
+    Tessom Foods v2      1 occurrence, all in evidence_to_find (operator-only)
     DRY RUN TEST v3   12 occurrences, 11 in evidence_to_find, 1 in tier_3.disqualifiers
     MargenticOS v3     6 occurrences, all in evidence_to_find
     MargenticOS v5      8 occurrences, 7 in evidence_to_find, 1 in tier_3.disqualifiers
-    Simcare v2         6 occurrences, all in evidence_to_find
+    Calder Health v2         6 occurrences, all in evidence_to_find
 
   CLIENT-VISIBLE: only the two in tier_3.disqualifiers. IcpDocumentView renders
   disqualifiers and does NOT render evidence_to_find, which is operator-only via
@@ -10645,7 +10645,7 @@ Design report accepted the same day. Measurements are in
   WHY THE SUBTRACTION IS A PRECONDITION. In `tier-classification.ts`, exclusion
   (Disqualifier 5) runs BEFORE the on-target check (Disqualifier 6), so excluded always
   wins. Live today: MargenticOS's stored spec has `Business Coaching` in `industries` (it
-  comes from tier_2) while its tier_3 also names it; Simcare has the same collision on
+  comes from tier_2) while its tier_3 also names it; Calder Health has the same collision on
   `Healthcare Consulting`. Feeding tier_3 straight into `industries_excluded` therefore
   DELETES the prospects the client explicitly targets, silently, recorded as
   `industry_excluded`. The naive version of this fix is a regression, and it will look
@@ -10675,7 +10675,7 @@ is on the whole ship rather than on one field, because spec-driven geography is 
 what Ship 3 is.
 
 Spec-driven geography would source Germany, France, the Netherlands and the Nordics THE
-DAY IT SHIPS, because one live ICP (Simcare) names all of them. Germany is excluded on
+DAY IT SHIPS, because one live ICP (Calder Health) names all of them. Germany is excluded on
 consent grounds; Canada is excluded on CASL. Those exclusions must be a HARD INTERSECTION
 APPLIED AFTER DERIVATION, never a default that a client document can widen. Until the rule
 exists in writing, there is nothing correct to implement against.
@@ -10688,7 +10688,7 @@ Also: must land behind a per-org flag.
   matters. Flag them on together, per organisation.
 
 - [compliance] Spec-driven geography would source Germany, France, Netherlands and the
-  Nordics the day it ships — Simcare's ICP names all of them. The CASL/GDPR exclusions must
+  Nordics the day it ships — Calder Health's ICP names all of them. The CASL/GDPR exclusions must
   become a **hard intersection applied after derivation**, never a default a document can
   widen. This is a legal decision that has to be made before the flag is turned on for
   anyone. See ADR-034 on why frozen verdicts make this harder than it looks.
@@ -10793,7 +10793,7 @@ Also: must land behind a per-org flag.
   of which touches the shared stack.
 
 - [icp] Three of five active ICPs have `icp_filter_spec = NULL` (`DRY RUN TEST`, the older
-  `MargenticOS` org, `Simcare`), all June documents. They cannot source at all: the
+  `MargenticOS` org, `Calder Health`), all June documents. They cannot source at all: the
   orchestrator throws at step 2. `DRY RUN TEST` additionally names `"Distribution
   Consulting"`, which is not in `CANONICAL_INDUSTRIES`, so it cannot derive a spec today
   even if re-approved. Not urgent, but "five active ICPs" overstates what can actually run.
@@ -11162,8 +11162,8 @@ a corporate suffix or a domain, and `buildWriterPrompt`'s names carry neither.
 So the count is 0 and the following are still in the prompt that ships to the model on every
 writer call, inside worked examples:
 
-  Taffet, HydrospherIQ, Jason, Pani, Visteon, Blue Sky, Chamber, Stanford GSB,
-  Hollywood Food Coalition, Sovern LA, SCG, DTCC / Treasury / SEC, and CAVE at two sites.
+  Vantor, BrightlaneIQ, Devon, Calder, Visteon, Green Field, Chamber, Merrow Institute,
+  Hollywood Food Coalition, Merrow LA, SCG, DTCC / Treasury / SEC, and CAVE at two sites.
 
 **Why it matters more here than in most prompts.** The prompt itself records that its
 examples have been lifted verbatim into real prospect emails eight times. A real company
@@ -11176,7 +11176,7 @@ stated purpose is that those failures are retained: `both FAILING examples are r
 examples took nine iterations to arrive at, a swap that quietly changes what one teaches
 would fail no test, and rewriting those pins is a judgement call about each example rather
 than a substitution. `Visteon` in particular sits on the same line as one of the nine hits
-and was left while `Knot Consulting` next to it was removed, which is the clearest single
+and was left while `Merrow Consulting` next to it was removed, which is the clearest single
 illustration that this is unfinished rather than decided.
 
 **One of them is not a plain substitution.** `"the CAVE stand"` was rephrased in this pass
@@ -11622,8 +11622,8 @@ SOMETHING THAT WAS NOT HAPPENING.
     company_countries     ['GB','IE','US'], a constant, not derived
     notes                 a paragraph of consulting-specific disqualifiers
 
-  MEASURED ON LIVE DATA, and the geography is the one to look at first. 360 Bia Og's ICP
-  document says their market is "Ireland, with initial concentration in Waterford and
+  MEASURED ON LIVE DATA, and the geography is the one to look at first. Tessom Foods's ICP
+  document says their market is a country "with initial concentration in one city and
   surrounding counties". Their derived spec carries THREE countries, GB, IE and US,
   because that is the hardcoded default. Their spec also carries all eight consulting job
   titles, for a business that sells meals to primary schools.
@@ -11668,7 +11668,7 @@ SOMETHING THAT WAS NOT HAPPENING.
   will keep producing. There is no automated check for it today. The plain-English
   statement is the intended defence, and it only works if an operator actually reads it.
 
-- [post-build, 2026-09-02] 360 BIA OG'S CRITERION IS STORED UNMEASURED. The sanity band
+- [post-build, 2026-09-02] A CLIENT'S CRITERION IS STORED UNMEASURED. The sanity band
   needs 25 distinct sourced titles and that organisation has zero prospects, so its
   criterion is stored with status `derived` and a note saying it was not measured. It
   therefore GATES without ever having been checked against real titles. That is the
@@ -11845,7 +11845,7 @@ these. The temperature change itself was measured and dropped; it is not in main
   The WEAK grade in synthesis-prompt.ts used to name three examples inline: "company too
   large, sales-led, prospect actively job-seeking". The middle one is a way of operating and
   no client document supplies it. It was one client's assumption promoted to a universal, and
-  it graded against Simcare, whose own ICP names the opposite as a REQUIREMENT (an
+  it graded against Calder Health, whose own ICP names the opposite as a REQUIREMENT (an
   organisation with existing distribution infrastructure and a sales team). Their best
   prospects were being marked WEAK by a rule nobody wrote for them.
 
@@ -11872,7 +11872,7 @@ these. The temperature change itself was measured and dropped; it is not in main
   "sales" or "sales-led" in qualification_reason, which is the evidence that the REMOVED half
   of the change is inert for this client. The ADDED half is the open question.
 
-- [monitor] Simcare and 360 Bia Og have ZERO research results, so there is no before/after to
+- [monitor] Calder Health and Tessom Foods have ZERO research results, so there is no before/after to
   diff for them. Any grade they get is a first measurement, not a change. Worth capturing the
   first batch deliberately as the baseline.
 

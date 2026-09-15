@@ -1,6 +1,16 @@
 -- Backfill prospects.country, and close the DE exclusion that has already failed live.
 --
 -- ═════════════════════════════════════════════════════════════════════════════
+-- REDACTED 2026-09-15. Two prospect email addresses, their company names and their
+-- cities were removed from the rationale comments below. NOTHING EXECUTABLE CHANGED:
+-- the transaction body is byte-identical to what ran, verified by SHA-256 before and
+-- after the edit. The applied record in supabase_migrations.schema_migrations never
+-- held those lines: it carries a two-line summary plus the SQL, measured across all
+-- 195 recorded migrations with zero matches for either address. The outcome table at
+-- the foot is unchanged, and the two rows concerned are still the two DE rows it counts.
+-- ═════════════════════════════════════════════════════════════════════════════
+--
+-- ═════════════════════════════════════════════════════════════════════════════
 -- WHAT WAS ACTUALLY WRONG
 --
 -- The handover for the catch-all second verifier recorded prospects.country as "0 of 28
@@ -12,11 +22,11 @@
 --    send-eligibility-rules.ts matched EXCLUDED_COUNTRIES = {'DE'}. The two never met.
 --
 -- 2. IT HAS ALREADY LET PROSPECTS THROUGH. Three German prospects sit in the live
---    client-zero organisation. Only craid.de was ever excluded, and it was caught by the
+--    client-zero organisation. Only example.de was ever excluded, and it was caught by the
 --    .de DOMAIN SUFFIX fallback, not by the country field. The other two:
 --
---      broeskamp.udo@broeskamp.com   Bröskamp Consulting GmbH, Frankfurt
---      jochen@knot-consulting.com    Knot Consulting GmbH, Waren
+--      [address redacted]   [company redacted] GmbH, Germany
+--      [address redacted]   [company redacted] GmbH, Germany
 --
 --    Both read email_send_eligible = true and outbound_upload_status = 'uploaded'.
 --    Both were mailed. A .com domain plus a name-formatted country defeats both layers.
@@ -38,7 +48,7 @@
 --
 -- Copying raw would have made things WORSE, not merely incomplete. checkSendEligibility
 -- short-circuits on a populated, non-excluded country: an explicit country beats the domain
--- fallback. Writing "Germany" into the column would therefore have flipped craid.de from
+-- fallback. Writing "Germany" into the column would therefore have flipped example.de from
 -- excluded to ELIGIBLE, turning off the single exclusion that was actually working.
 --
 -- The CASE below is exhaustive over the four distinct values present, and the assertion
@@ -122,7 +132,7 @@ COMMIT;
 -- WHAT THIS MIGRATION DOES NOT DO, and must not be read as having done.
 --
 -- Marking a prospect ineligible in this database does NOT stop an email sequence already
--- running in the sending tool. broeskamp.com and knot-consulting.com are uploaded and, as
+-- running in the sending tool. Both German prospects are uploaded and, as
 -- far as this repo can tell, in an active sequence. Suppressing them at the sending tool is
 -- an operator action against a live external system and is deliberately left to a human.
 -- See docs/BACKLOG.md.
@@ -139,5 +149,5 @@ COMMIT;
 --   US      | 22 |       10 |                           0 |       10
 --
 -- 28 of 28 now carry a country, against 0 of 28 before. All three German prospects are
--- excluded, where previously only craid.de was. Send-eligible went 15 to 13: exactly the
+-- excluded, where previously only example.de was. Send-eligible went 15 to 13: exactly the
 -- two flips predicted by the dry run, and no other row moved in either direction.

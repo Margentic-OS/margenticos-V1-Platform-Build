@@ -13,7 +13,7 @@ const candidate = (over: Partial<ObservationCandidate> = {}): ObservationCandida
   id: 'c1',
   observation: 'They are hiring an SDR for federal work.',
   source: 'web_search',
-  provenance: 'Web search summary: Akiri Consulting is recruiting a freelance SDR',
+  provenance: 'Web search summary: Orrin Consulting is recruiting a freelance SDR',
   date: '2026',
   is_composite: false,
   scores: { useful: true, relevant: true, specific: true, verifiable: true, inferential: true, non_judgemental: true },

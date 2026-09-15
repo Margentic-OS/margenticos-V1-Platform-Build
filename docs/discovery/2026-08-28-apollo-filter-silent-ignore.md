@@ -45,7 +45,8 @@ which is exactly why it survived: it is invisible until the first non-consulting
 
 ## Finding 2 — Apollo silently widens an unrecognised administrative level to its country
 
-The live 360 Bia Og ICP says *"Ireland, initially Munster (Waterford and surrounding
+A live client ICP named a country plus a PROVINCE and a city inside it (the province and
+city are kept below as bare probe values; the client and its market are redacted). It read *"a country, initially a province (a city and surrounding
 counties)"*. Measured against a constant base (NAICS 6111, schools):
 
 | `organization_locations` | total_entries |
@@ -67,7 +68,7 @@ string and dropped `munster`.
 returns the obviously-unfiltered count, and comparing against the baseline catches it. A
 widened one returns a **plausible, narrower-looking number that is actually the country**.
 Nothing in the count says which happened. If we had translated that ICP's geography prose
-naively, 360 Bia Og would have been sourced across all of Ireland and every log would have
+naively, Tessom Foods would have been sourced across all of Ireland and every log would have
 said the filter applied.
 
 ## Finding 3 — parameter strictness is not uniform, and it decides which assertion protects you

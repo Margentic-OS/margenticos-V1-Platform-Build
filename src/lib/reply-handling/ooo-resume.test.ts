@@ -12,8 +12,8 @@
 //
 // MUTATION PROOFS, each stated on its block:
 //   remove the fallback in resolveOooResumeAt   -> the fallback block goes red
-//   remove "through" from RETURN_PHRASE         -> the April Beach test goes red
-//   restore the ordinal into the capture group  -> the Lynn Oser test goes red
+//   remove "through" from RETURN_PHRASE         -> the spelled-month test goes red
+//   restore the ordinal into the capture group  -> the abbreviated-month test goes red
 //   remove the year-rollover branch             -> the December-to-January test goes red
 
 import { describe, it, expect } from 'vitest'
@@ -24,15 +24,22 @@ import {
   OOO_FALLBACK_BUSINESS_DAYS,
 } from './ooo-resume'
 
-// Verbatim from production signal 79ea9f23, april@sweetlifeco.com, 2026-09-07 18:58:34Z.
-const APRIL_BEACH = `Hello - I am out of office through September 8th.
+// SHAPE-MATCHED INVENTED REPLIES. The originals were REAL: two people's actual
+// out-of-office messages, quoted verbatim with their own addresses and a third
+// party's, in a PUBLIC repository. Replaced 2026-09-15.
+//
+// WHAT THE PARSER ACTUALLY NEEDS IS THE DATE SHAPE, not the sender, so these keep
+// both forms the originals carried: the spelled-out "September 8th" and the
+// abbreviated "Sept 8th". The second also keeps a named forwarding contact, which
+// is the shape that makes a parser reach past the date and pick up a later
+// capitalised token. Change the dates here and the assertions below must change too.
+const OOO_SPELLED_MONTH = `Hello - I am out of office through September 8th.
 
-If you are a client of record, please email concierge@sweetlifeco.com
+If you are a client of record, please email support@example.com
 
-For all other questions, please email hello@sweetlifeco.com`
+For all other questions, please email hello@example.com`
 
-// Verbatim from production signal 22dd104f, lynn.oser@lkoinfo.com, 2026-09-07 18:58:38Z.
-const LYNN_OSER = `I will be out of the office until Sept 8th with extremely limited access to email.  If you need immediate assistance please contact Diane Phillips at diane.phillips@lkoinfo.com.`
+const OOO_ABBREVIATED_MONTH = `I will be out of the office until Sept 8th with extremely limited access to email.  If you need immediate assistance please contact Alex Rivera at alex.rivera@example.com.`
 
 // The day both replies arrived, so "September 8th" is tomorrow and inside the horizon.
 const ARRIVAL = new Date('2026-09-07T19:00:00Z')
@@ -77,24 +84,24 @@ describe('the fallback, which is the part that was missing', () => {
 })
 
 describe('the two real autoreplies that failed on 2026-09-07', () => {
-  it('April Beach: "out of office through September 8th"', () => {
+  it('spelled month: "out of office through September 8th"', () => {
     // MUTATION: remove "through" from RETURN_PHRASE and this goes red. The original three
     // patterns covered back/return/available/in the office/until, and matched nothing here.
-    const resume = resolveOooResumeAt(APRIL_BEACH, ARRIVAL)
+    const resume = resolveOooResumeAt(OOO_SPELLED_MONTH, ARRIVAL)
 
     expect(resume.source).toBe('parsed')
     expect(isoDate(resume.resumeAt)).toBe('2026-09-08')
     expect(resume.matchedText?.toLowerCase()).toContain('september 8')
   })
 
-  it('Lynn Oser: "out of the office until Sept 8th"', () => {
+  it('abbreviated month: "out of the office until Sept 8th"', () => {
     // MUTATION: put the ordinal back inside the capture group and this goes red.
     //
     // This one is the subtler failure. The `until` pattern DID match, captured "Sept 8th",
     // handed it to the Date parser and got Invalid Date, because JS cannot parse an
     // ordinal suffix. The regex worked and the cast destroyed the result, so it looked
     // like a matching failure and was not.
-    const resume = resolveOooResumeAt(LYNN_OSER, ARRIVAL)
+    const resume = resolveOooResumeAt(OOO_ABBREVIATED_MONTH, ARRIVAL)
 
     expect(resume.source).toBe('parsed')
     expect(isoDate(resume.resumeAt)).toBe('2026-09-08')
@@ -103,7 +110,7 @@ describe('the two real autoreplies that failed on 2026-09-07', () => {
   it('both would have resumed even if neither had parsed', () => {
     // The property that actually matters. Even with the parser reverted to its 2026-09-07
     // state, neither of these sequences would be stranded.
-    for (const body of [APRIL_BEACH, LYNN_OSER]) {
+    for (const body of [OOO_SPELLED_MONTH, OOO_ABBREVIATED_MONTH]) {
       expect(resolveOooResumeAt(body, ARRIVAL).resumeAt).toBeTruthy()
     }
   })
