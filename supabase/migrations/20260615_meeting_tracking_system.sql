@@ -1,3 +1,24 @@
+-- Status: CORRECTED 2026-09-15. Not re-applied; the database already has every column
+--   below and the ADD CONSTRAINT statements here are not idempotent.
+--
+-- WHAT WAS WRONG. This file used `ADD COLUMN ... TEXT NULLABLE` eight times. NULLABLE is
+-- not a PostgreSQL keyword in that position and Postgres rejects the statement outright:
+--
+--   ALTER TABLE t ADD COLUMN c TEXT NULLABLE;  ->  syntax error at or near "NULLABLE"
+--   ALTER TABLE t ADD COLUMN c TEXT;           ->  accepted
+--
+-- So this file could never have run, yet supabase_migrations.schema_migrations records it
+-- as applied (version 20260615212645) and every column it describes exists live. What ran
+-- was not this text. The repo kept a version that cannot execute, and nothing compared the
+-- two until the migration set was replayed on a disposable PostgreSQL on 2026-09-15.
+--
+-- THE FIX IS THE DELETION OF ONE WORD, EIGHT TIMES. A column is nullable by omission, and
+-- all eight were verified nullable in the live database before the word was removed. The
+-- CHECK constraints are deliberately UNCHANGED: `source` and `held_confirmed_by` are wider
+-- live than they are here, because LATER migrations widened them. This file describes its
+-- own step in the sequence, not today's schema, and editing it to match today would make a
+-- replay apply a later migration's work early.
+--
 -- Meeting tracking system: additive schema for Calendly webhooks, client confirmation, auto-held resolution, and billing
 -- Adds columns to meetings and organisations tables. No destructive operations.
 -- Migrations are idempotent (IF NOT EXISTS on all additions).
@@ -7,7 +28,7 @@
 -- Webhook signing secret for Calendly (encrypted at rest by Supabase).
 -- Per-org secret allows future multi-workspace Calendly accounts without rebuild.
 ALTER TABLE organisations
-  ADD COLUMN IF NOT EXISTS calendly_webhook_secret TEXT NULLABLE;
+  ADD COLUMN IF NOT EXISTS calendly_webhook_secret TEXT;
 
 -- Auto-held window in hours, measured from scheduled_start_at (not booked_at).
 -- A meeting auto-confirms held when: scheduled_start_at + auto_held_window_hours < now()
@@ -25,7 +46,7 @@ ALTER TABLE organisations
 -- Reminder handling configuration (seam for future prospect-facing reminders via Calendly Workflows).
 -- Unused in phase one — captures the seam for later.
 ALTER TABLE organisations
-  ADD COLUMN IF NOT EXISTS reminder_handling TEXT NULLABLE;
+  ADD COLUMN IF NOT EXISTS reminder_handling TEXT;
 
 -- ── 2. Meetings table additions ──────────────────────────────────────────
 
@@ -37,12 +58,12 @@ ALTER TABLE meetings
 -- Calendly event UUID extracted from event.uri during webhook processing.
 -- UNIQUE constraint ensures one Calendly event = one meeting record (no duplicates on webhook retries).
 ALTER TABLE meetings
-  ADD COLUMN IF NOT EXISTS calendly_event_uuid TEXT UNIQUE NULLABLE;
+  ADD COLUMN IF NOT EXISTS calendly_event_uuid TEXT UNIQUE;
 
 -- Calendly invitee UUID extracted from invitee.uri during webhook processing.
 -- Paired with calendly_event_uuid to uniquely identify a booking.
 ALTER TABLE meetings
-  ADD COLUMN IF NOT EXISTS calendly_invitee_uuid TEXT UNIQUE NULLABLE;
+  ADD COLUMN IF NOT EXISTS calendly_invitee_uuid TEXT UNIQUE;
 
 -- Scheduled meeting time (the actual meeting start). Authoritative timestamp for auto-held resolution.
 -- For Calendly: populated from event.start_time in the webhook.
@@ -50,7 +71,7 @@ ALTER TABLE meetings
 -- Used in auto-held calculation: scheduled_start_at + auto_held_window_hours < now() = eligible for auto-held
 -- NOT NULLABLE, NO DEFAULT — must be explicitly set at creation. Prevents accidental immediate auto-hold.
 ALTER TABLE meetings
-  ADD COLUMN IF NOT EXISTS scheduled_start_at TIMESTAMP WITH TIME ZONE NULLABLE;
+  ADD COLUMN IF NOT EXISTS scheduled_start_at TIMESTAMP WITH TIME ZONE;
 
 -- Meeting status: what happened to the meeting.
 -- Replaces the role of the old 'status' column (which may coexist for backward compatibility).
@@ -75,14 +96,14 @@ ALTER TABLE meetings
 -- 'auto': auto-held after window closure
 -- NULL: decision not yet confirmed (still in booked status or awaiting confirmation)
 ALTER TABLE meetings
-  ADD COLUMN IF NOT EXISTS held_confirmed_by TEXT NULLABLE
+  ADD COLUMN IF NOT EXISTS held_confirmed_by TEXT
   CHECK (held_confirmed_by IS NULL OR held_confirmed_by IN ('client', 'operator', 'auto'));
 
 -- Invitee phone number (optional, from Calendly custom_questions_answers or manually entered).
 -- Captured as a seam for future prospect-facing SMS reminders and confirmations.
 -- Unused in phase one.
 ALTER TABLE meetings
-  ADD COLUMN IF NOT EXISTS invitee_phone TEXT NULLABLE;
+  ADD COLUMN IF NOT EXISTS invitee_phone TEXT;
 
 -- Is this meeting billable (owed under the qualified-meeting-fee model)?
 -- Set to true when meeting_status = 'held' (confirmed or auto-held).
@@ -96,7 +117,7 @@ ALTER TABLE meetings
 -- Separate from is_billable: is_billable=true + billed_at=NULL means "owed but not yet invoiced"
 -- DO NOT auto-populate on held or auto-held — remains NULL until manual invoicing action.
 ALTER TABLE meetings
-  ADD COLUMN IF NOT EXISTS billed_at TIMESTAMP WITH TIME ZONE NULLABLE;
+  ADD COLUMN IF NOT EXISTS billed_at TIMESTAMP WITH TIME ZONE;
 
 -- ── 3. Indexes for auto-held resolution and confirmation queries ──────────
 
