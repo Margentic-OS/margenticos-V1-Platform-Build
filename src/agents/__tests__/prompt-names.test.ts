@@ -132,7 +132,27 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 49
 // only stops "Drivers", opening one of the new examples, from counting as a name.
 //
 // No other source moved, the allowlist did not grow, and the introduction figure is untouched.
-const BASELINE_TOTAL = 21
+//
+// RATCHETED DOWN 2026-09-14, 21 -> 20, by the plural chain and six words added to
+// ordinary-words.ts. ONE token left, and it is one of the two FALSE POSITIVES this file
+// already recorded rather than allowlisted:
+//
+//   messaging buildSingleVariantUserMessage  1 -> 0   «Qualify», the verb, opening the
+//                                                     quoted rule "Qualify the population
+//                                                     by role". "qualify" is now in the
+//                                                     vocabulary, so the scan reads it as
+//                                                     the ordinary word it always was.
+//
+// THE CHECK THAT MATTERS IS WHAT DID **NOT** MOVE, because a vocabulary change is exactly
+// the shape that could hide a real name. Re-measured token by token: buildWriterPrompt
+// still reads 14 and names the same fourteen entities, messaging-agent.md still 2
+// («Taffet» twice), positioning 1 («Moore»), synthesis 1 («Apollo»), shared-voice-spec 1
+// («Verbatim»). Not one real name became invisible. The allowlist did not grow, and the
+// introduction figure is untouched at 49.
+//
+// «Restore», the other recorded false positive, is deliberately still here: "restore" is
+// not an ordinary-words entry and adding it was not argued for by any measured rejection.
+const BASELINE_TOTAL = 20
 
 const BASELINE_BY_SOURCE: Record<string, number> = {
   'docs/prompts/shared-voice-spec.md': 1,
@@ -173,7 +193,8 @@ const BASELINE_BY_SOURCE: Record<string, number> = {
   'src/agents/tov-generation-agent.ts:buildUserMessage': 0,
   'src/agents/buyer-criterion-agent.ts:buildUserMessage': 0,
   'src/agents/messaging-generation-agent.ts:buildUserMessage': 1,
-  'src/agents/messaging-generation-agent.ts:buildSingleVariantUserMessage': 1,
+  // 1 -> 0 on 2026-09-14: «Qualify» is now ordinary English. See the note above.
+  'src/agents/messaging-generation-agent.ts:buildSingleVariantUserMessage': 0,
   // The fit dimensions, added 2026-09-11. MEASURED, not assumed: the three entries were added
   // and this scan re-run, and neither the total nor any other source moved.
   'src/agents/fit-dimensions-agent.ts:FIT_DIMENSIONS_PROMPT': 0,
@@ -329,14 +350,43 @@ describe('a plural at the start of a sentence is not a name when its singular is
     expect(unvouchedTokens('Zentaras opened a second office. Quillions followed.')).toEqual(['Zentaras', 'Quillions'])
   })
 
-  it('applies only at the start of a sentence', () => {
-    // Mid-sentence the capital means something, so the same word is still a candidate.
-    expect(unvouchedTokens('We spoke to Drivers about the contract.')).toEqual(['Drivers'])
+  // ─── THE POSITIONAL HALF IS NOW SUBSUMED, 2026-09-14 ───────────────────────
+  //
+  // THIS TEST PREVIOUSLY ASSERTED THE OPPOSITE, and it was asserting a bug rather than a
+  // rule. It read:
+  //
+  //     expect(unvouchedTokens('We spoke to Drivers about the contract.')).toEqual(['Drivers'])
+  //
+  // The claim was that mid-sentence a capital means something, so an ordinary plural is a
+  // candidate again. That was never true of any word but this one. MEASURED at ce13be3,
+  // before the chain: "Buyers", "Founders", "Workers" and "Writers" mid-sentence all
+  // returned [] already, because isOrdinaryWord reached them in one suffix step and
+  // isAllowedToken has no notion of position at all. "Drivers" was the single word where
+  // the vocabulary happened to have a hole, so it was the single word this assertion held
+  // for. The hole was the defect; the test was reading it as a design.
+  //
+  // THE CHAIN IN ordinary-words.ts CLOSED THE HOLE, and with it isOrdinaryPlural stopped
+  // being decisive anywhere: every word it clears, isOrdinaryWord now clears too, at any
+  // position. The exception is dead code rather than a narrow rule. It is LEFT IN PLACE
+  // deliberately, because deleting a checker's exception is a separate change from fixing
+  // the vocabulary, and a Notion Backlog row records it.
+  it('an ordinary plural is allowed at either position, as any other ordinary word is', () => {
+    expect(unvouchedTokens('We spoke to Drivers about the contract.')).toEqual([])
+    // The words that always behaved this way, as the control that shows it is not new.
+    expect(unvouchedTokens('We spoke to Buyers about the contract.')).toEqual([])
+    expect(unvouchedTokens('We spoke to Founders about the contract.')).toEqual([])
   })
 
+  // THE NARROWNESS THAT SURVIVES, and the direction that actually matters. Asserted at
+  // BOTH positions now, which is strictly more than the single position tested before:
+  // whatever the chain widened, it did not widen this.
   it('stays narrow: a plural whose singular is not vouched for is still flagged', () => {
     // "parent" is not in the ordinary list. That is a vocabulary gap, not a plural problem,
     // and widening this rule to reach it would admit any capitalised word ending in s.
     expect(unvouchedTokens('Parents hear the concert.')).toEqual(['Parents'])
+    expect(unvouchedTokens('We spoke to Parents about the concert.')).toEqual(['Parents'])
+    // And an invented plural stays caught in both positions too.
+    expect(unvouchedTokens('Zentaras opened an office.')).toEqual(['Zentaras'])
+    expect(unvouchedTokens('We spoke to Zentaras about it.')).toEqual(['Zentaras'])
   })
 })

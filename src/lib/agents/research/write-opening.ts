@@ -984,8 +984,9 @@ So read your own observation back and name the thing it is about.
 A subject breaking any of those is thrown away and the client's approved subject ships in
 its place. Nothing else about your answer is affected, so do not spend words defending it.
 
-Return your answer as exactly four labelled blocks and nothing else, in this order:
+Return your answer as exactly five labelled blocks and nothing else, in this order:
 
+SCRATCH: <your thinking, at most 120 words. Nobody reads this block and it is discarded after parsing, so do the weighing and the rejecting here, not in the blocks below.>
 OBSERVATION: <the thing you noticed, its own paragraph>
 BRIDGE: <the pattern, in one sentence, its own paragraph>
 QUESTION: <the closing question, ending in a question mark>
@@ -1893,7 +1894,35 @@ export interface WriteAndJudgeParams {
 const SUBJECT_BLOCK = /(?:^|\n)[ \t]*SUBJECT:[\s\S]*$/i
 
 /**
- * Splits the writer's four labelled blocks.
+ * The writer's scratch block, removed before a single field is read.
+ *
+ * It exists because the writer had nowhere to put its deliberation and so sometimes put it
+ * in the bridge: measured on the 33-prospect run of 2026-09-14, three attempts came back
+ * with bridges of 508, 493 and 235 words against a 22-word target. Every one was caught by
+ * the length and one-sentence gates, so none ever shipped, but each burned an attempt out
+ * of the two or three a prospect gets, and one prospect spent its whole retry budget
+ * getting to a sendable line.
+ *
+ * STRIPPED, NEVER CAPTURED. There is no field for it on the returned object, so it cannot
+ * be stored, composed or sent by any caller: the only way to read it would be to add one.
+ *
+ * It runs to the OBSERVATION line and to nothing else, deliberately. Stopping at whichever
+ * label came first would let a scratch block that mentions "BRIDGE:" mid-thought end the
+ * strip early and leave its own prose standing as a field, which is the failure this is
+ * IT REQUIRES THE OBSERVATION ANCHOR, AND STRIPS NOTHING WITHOUT IT. An earlier version
+ * ended `|$)`, so a reply with no line-initial OBSERVATION: was stripped to the empty
+ * string. That is the fail-dangerous direction: the strip destroys the email rather than
+ * declining to act. A reply with no OBSERVATION has no email to protect anyway, and the
+ * unlabelled fallback plus the length and empty-bridge gates already reject it, exactly
+ * as they did before this block existed.
+ *
+ * Anchored to a line start, so a prospect's own prose containing the word cannot eat the
+ * reply. Absent from the output entirely, the strip is a no-op and parsing is unchanged.
+ */
+const SCRATCH_BLOCK = /(?:^|\n)[ \t]*SCRATCH:[\s\S]*?(?=\n[ \t]*OBSERVATION:)/i
+
+/**
+ * Splits the writer's five labelled blocks.
  *
  * The observation and the bridge are returned separately because they are now separate
  * paragraphs in the email AND because the bridge alone is what the batch-uniqueness gate
@@ -1915,13 +1944,17 @@ const SUBJECT_BLOCK = /(?:^|\n)[ \t]*SUBJECT:[\s\S]*$/i
  * format would otherwise lose its whole observation to the regex and ship a bridge on its
  * own, which reads as a generic line with no anchor.
  */
-export function parseWriterOutput(raw: string): {
+export function parseWriterOutput(rawWithScratch: string): {
   observation: string
   bridge: string
   question: string
   subject: string
   opening: string
 } {
+  // Before anything is read, so no path below can see the scratch block: the four labelled
+  // captures, the unlabelled `raw` fallback and the subject all read this string.
+  const raw = rawWithScratch.replace(SCRATCH_BLOCK, '')
+
   const obsMatch = raw.match(/OBSERVATION:\s*([\s\S]*?)(?=\n\s*(?:BRIDGE|QUESTION|SUBJECT):|$)/i)
   const bridgeMatch = raw.match(/BRIDGE:\s*([\s\S]*?)(?=\n\s*(?:QUESTION|SUBJECT):|$)/i)
   const legacyMatch = raw.match(/OPENING:\s*([\s\S]*?)(?=\n\s*(?:QUESTION|SUBJECT):|$)/i)
@@ -2006,11 +2039,18 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
     // Assignment first: the prompt instructs the writer to read the offer line BEFORE the
     // findings, so it has to physically precede them.
     const user = feedback
-      ? `${assignment}\n\n## Findings\n\n${findings}${takenBlock}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the four labelled blocks.`
-      : `${assignment}\n\n## Findings\n\n${findings}\n\nWrite the observation, the bridge, the closing question and the subject line. Return ONLY the four labelled blocks.`
+      ? `${assignment}\n\n## Findings\n\n${findings}${takenBlock}\n\n## Your previous attempt did not ship\n\nYou wrote:\n${feedback.split('|||')[0]}\n\nThe reason:\n${feedback.split('|||')[1]}\n\nWrite a different version that answers that. Return ONLY the five labelled blocks.`
+      : `${assignment}\n\n## Findings\n\n${findings}\n\nWrite the observation, the bridge, the closing question and the subject line. Return ONLY the five labelled blocks.`
     // cacheSystem: the writer prompt is the big stable one, and this is the call that runs
     // up to three times per prospect.
-    const writerCall = await callModel(client, WRITER_MODEL, writerSystem, user, 700, `writer for prospect ${params.prospectId}`, true)
+    // 1100, RAISED FROM 700 WHEN THE SCRATCH BLOCK WAS ADDED, AND THE TWO MUST MOVE
+    // TOGETHER. The email is ~120 tokens of the budget and 700 covered it comfortably
+    // while the writer had nowhere to think. Given a block to think in, the first run of
+    // the 33 spent the WHOLE 700 on deliberation and was cut off mid-sentence before
+    // writing a single email field: 0 of 33 judge wins, against 23 of 33, with 64
+    // missing observations. A scratch block placed before the email can starve it, so
+    // the 120-word cap in the prompt and this ceiling are one mechanism in two places.
+    const writerCall = await callModel(client, WRITER_MODEL, writerSystem, user, 1100, `writer for prospect ${params.prospectId}`, true)
     record(writerCall.usage)
     const raw = writerCall.text
     const parsed = parseWriterOutput(raw)
