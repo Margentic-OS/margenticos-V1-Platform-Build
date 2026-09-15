@@ -780,3 +780,111 @@ counting and the shipped rules. No model call, no re-grading, nothing written.
 The condition lists themselves were not re-derived, for any client. That derivation is a model
 call by design, and the account's API budget is exhausted until 2026-10-01. No client's stored
 spec carries a list yet, so nothing in production changes either way.
+
+## The writer had nowhere to put its working, so it put it in the bridge (2026-09-14)
+
+### The defect
+
+The writer prompt asks for deliberation: weigh each finding, test the counter-reading, reject
+what does not hold. The output format gave it four blocks and every one of them was email
+copy. So the deliberation had no destination, and on a minority of prospects it went into the
+BRIDGE field, which takes ONE sentence of about 22 words.
+
+Measured on the 33-prospect run of 2026-09-14 (`writer-run-2026-09-14T16-41-29-453Z`):
+**3 dump attempts from 2 of 33 prospects**, bridges of 508, 493 and 235 words. A second run
+of the same 33 that afternoon produced 1 more from a third prospect. So roughly one prospect
+in twenty, which matches the rate that prompted the fix.
+
+One dump began `OBSERVATION: Looking at these findings carefully before writing:` with the
+whole of the reasoning underneath it. That is the writer narrating, not failing.
+
+### NOTHING EVER SHIPPED, AND THAT IS THE MEASURED PART
+
+It is worth stating plainly because the opposite is the natural assumption. Every dump was
+caught, by the 67-word cap and by the one-sentence bridge gate, both of which fire long
+before anything is stored. Across both runs of the 33 the largest bridge that reached stored
+copy was **22 words**, then **28**. No dump reached a prospect and none could have.
+
+What a dump costs is the RETRY BUDGET. A prospect gets two or three attempts:
+
+- `539ea47e` burned attempt 0 (508 words) and attempt 1 (235 words), and wrote a good
+  16-word bridge on its last one. It had no attempt left. Cost $0.0511 against a
+  $0.0209 mean.
+- `0e25e73c` burned attempt 0 (493 words) and won on attempt 1. Cost $0.0311.
+
+Both won. The exposure is a prospect that dumps twice and then trips any ordinary gate on
+its final try: the approved template ships and the personalisation is lost, having been paid
+for three times.
+
+### What changed
+
+A fifth block, `SCRATCH:`, first in the output format, with one line in the prompt saying the
+working goes there and is discarded. No new instruction about how to think.
+
+### THE FIRST VERSION OF THIS WAS BROKEN, AND ONLY THE RE-RUN FOUND IT
+
+Worth reading before anyone adds a second scratch field anywhere. Every unit test passed
+and the change was wrong.
+
+Unbounded, the block took the whole token budget. `max_tokens` on the writer call is 700
+and the email is about 120 of them. A captured raw output holds a SCRATCH block and
+NOTHING ELSE, ending mid-sentence on "Let me think about what observation to anchor on".
+Measured over the same 33: **0 of 33 judge wins**, 64 missing observations, 68 missing
+bridges, 84 missing questions, $1.48 against $0.69, and output tokens per call of exactly
+700.0, which is the ceiling and is what truncation looks like in the usage figures.
+
+**A scratch field placed BEFORE the output can starve the output.** The fix is two numbers
+that move together: at most 120 words in the prompt, and `max_tokens` 700 -> 1100 so
+overshooting the cap cannot reach the email. Both are in the same commit for that reason.
+
+The strip was also fail-dangerous and is now fail-safe. It ended `|$)`, so a reply with no
+line-initial `OBSERVATION:` was stripped to the empty string: the strip destroyed the email
+rather than declining to act. It now requires the OBSERVATION anchor and does nothing
+without it. This was NOT what broke the run, but it is the shape that would have turned any
+unrecognised label format into a silently empty email.
+
+### Measured on the same 33, four runs
+
+|                    | BASE-A 16:41 | BASE-B 18:25 | unbounded (broken) | FIXED 19:43 |
+|--------------------|--------------|--------------|--------------------|-------------|
+| dump attempts      | 3            | 1            | 13                 | **0**       |
+| dump prospects     | 2 of 33      | 1 of 33      | 11 of 33           | **0 of 33** |
+| judge wins         | 23 (69.7%)   | 22 (66.7%)   | 0                  | **28 (84.8%)** |
+| total attempts     | 61           | 57           | 87                 | **43**      |
+| gate failures      | 27           | 21           | 290                | **5**       |
+| cost               | $0.6911      | $0.6273      | $1.4845            | **$0.5897** |
+| output tokens/call | 95.9         | 87.9         | 700.0 (ceiling)    | 149.0       |
+
+**It came out CHEAPER, which was not the expectation.** A 5-prospect pilot read +42% per
+prospect and that was a small-sample artifact. Over 33 the scratch block adds about 55
+output tokens per call and removes 18 attempts, and the attempts cost more than the tokens.
+
+**149.0 output tokens per call against ~92 is the evidence the block is actually being
+used.** Without it, zero dumps could not be told apart from a quiet run.
+
+### What this measurement does NOT establish
+
+**Zero dumps in 33 is not on its own statistically conclusive.** The base rate is 3 in 66
+attempts across the two baselines, about 4.5%, so a clean run of 33 happens roughly one
+time in five by chance alone. The case rests on the corroboration: gate failures 27 and 21
+down to 5, attempts 61 and 57 down to 43, and the output-token rise showing the block is
+being written into.
+
+**The win rate movement is near the noise floor.** 23 and 22 to 28 is +5 on a 33-prospect
+cohort, and run-to-run churn on a cohort this size is large. Treat the dump and attempt
+counts as the result and the win rate as consistent-with, not as a measured gain.
+
+It is **stripped before any field is read**, in `parseWriterOutput`, so there is no field on
+the returned object that could carry it: storing, composing or sending it would require
+adding one. The strip runs to the `OBSERVATION:` line and to nothing else, so a scratch block
+that writes "BRIDGE:" mid-thought cannot end the strip early and leave its own prose standing
+as a field. A reply that is all scratch and no email strips to empty and fails closed on the
+empty-bridge gate.
+
+`WORKING:` was the obvious label and is NOT the one used: the prompt already uses `WORKING:`
+at line 484 to label a worked example that succeeds, paired with `FAILING:`. A field label
+colliding with an example label points the writer at a specimen bridge.
+
+Covered by `__tests__/write-opening-scratch.test.ts`, including a positive control that feeds
+deliberation into the BRIDGE field and asserts the gates reject it. The prose in that test is
+synthetic: the real dumps name real prospects and this repository is public.
