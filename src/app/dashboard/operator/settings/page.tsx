@@ -85,7 +85,7 @@ export default async function OperatorSettingsPage({
   if (orgId) {
     const { data } = await supabase
       .from('organisations')
-      .select('id, name, booking_url, auto_approve_window_hours, auto_held_window_hours, monthly_meetings_target, currency, client_review_enabled, linkedin_channel_enabled, sourcing_revenue_filter_enabled, founder_first_name, archived_at')
+      .select('id, name, booking_url, auto_approve_window_hours, auto_held_window_hours, monthly_meetings_target, currency, client_review_enabled, linkedin_channel_enabled, sourcing_revenue_filter_enabled, pipeline_unlocked, founder_first_name, archived_at')
       .eq('id', orgId)
       .maybeSingle()
 

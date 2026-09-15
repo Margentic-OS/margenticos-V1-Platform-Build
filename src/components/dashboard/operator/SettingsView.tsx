@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { updateBookingUrl, updateRevenueFilterEnabled } from '@/app/dashboard/operator/settings/actions'
+import { updateBookingUrl, updateRevenueFilterEnabled, updatePipelineUnlocked } from '@/app/dashboard/operator/settings/actions'
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // THIS COMPONENT RENDERS ONLY WHAT IT IS GIVEN. IT HAS NO DEFAULTS AND NO SAMPLES.
@@ -35,6 +35,7 @@ export interface OrganisationSettings {
   client_review_enabled: boolean
   linkedin_channel_enabled: boolean
   sourcing_revenue_filter_enabled: boolean
+  pipeline_unlocked: boolean
   founder_first_name: string | null
   archived_at: string | null
 }
@@ -122,6 +123,49 @@ function Divider() {
 // The revenue band as a sourcing filter, per client. EDITABLE because it has all four: the
 // column, a write path (updateRevenueFilterEnabled), validation, and a test. Off by default,
 // because the provider's filter drops every company it holds no revenue figure for.
+// Opens or closes the client's pipeline view. There is no automatic rule behind this and
+// the client screen no longer claims there is: an operator decides, and this is where.
+function PipelineUnlockToggle({ orgId, initial }: { orgId: string; initial: boolean }) {
+  const [unlocked, setUnlocked] = useState(initial)
+  const [error, setError] = useState<string | null>(null)
+  const [pending, startTransition] = useTransition()
+
+  function handleToggle() {
+    const next = !unlocked
+    setError(null)
+    startTransition(async () => {
+      const result = await updatePipelineUnlocked(orgId, next)
+      if (result.error) {
+        setError(result.error)
+        return
+      }
+      // Show what the server stored, not what was clicked.
+      setUnlocked(result.value ?? next)
+    })
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={unlocked}
+        aria-label="Pipeline view"
+        onClick={handleToggle}
+        disabled={pending}
+        className={`px-3 py-1 rounded-[6px] text-[12px] font-medium transition-colors disabled:opacity-60 ${
+          unlocked
+            ? 'bg-brand-green text-[#F5F0E8]'
+            : 'bg-surface-content text-text-secondary border border-border-card'
+        }`}
+      >
+        {pending ? 'Saving' : unlocked ? 'Open' : 'Closed'}
+      </button>
+      {error && <p className="text-[11px] text-[#8A2B2B] leading-relaxed">{error}</p>}
+    </div>
+  )
+}
+
 function RevenueFilterToggle({ orgId, initial }: { orgId: string; initial: boolean }) {
   const [enabled, setEnabled] = useState(initial)
   const [error, setError] = useState<string | null>(null)
@@ -324,6 +368,16 @@ export function SettingsView({ organisation, integrations, clientRequested }: Se
                 <Divider />
                 <ValueRow label="LinkedIn channel">
                   {organisation.linkedin_channel_enabled ? 'On' : 'Off'}
+                </ValueRow>
+                <Divider />
+                <ValueRow
+                  label="Pipeline view"
+                  hint="Opens the client's pipeline screen. Nothing opens it automatically: this switch is the only thing that does."
+                >
+                  <PipelineUnlockToggle
+                    orgId={organisation.id}
+                    initial={organisation.pipeline_unlocked}
+                  />
                 </ValueRow>
                 <Divider />
                 <ValueRow

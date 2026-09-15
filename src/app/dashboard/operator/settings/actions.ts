@@ -139,6 +139,64 @@ export async function updateBookingUrl(
  * A caller posting the string "false" would otherwise be truthy and switch a client ON while
  * the operator meant off, which is the one direction this setting must never fail in.
  */
+// ── The pipeline view, opened by a person ────────────────────────────────────
+//
+// organisations.pipeline_unlocked was READ in 30 places and WRITTEN in none. The client
+// pipeline screen told the client, in writing, that it "unlocks after your first 5
+// meetings or two months of sending", and drew a progress bar toward five. Nothing
+// implemented that rule, so the bar could fill and the screen stay locked for ever.
+//
+// This makes the column mean something, and the screen copy changed in the same commit to
+// stop promising a rule that does not exist. It is deliberately NOT ADR-008: automating a
+// judgement made a handful of times a year, before it has been made once, is how the
+// unimplemented rule got written down as a promise in the first place.
+//
+// pipeline_unlock_at and pipeline_unlock_manual_override stay dead. They belong to the
+// automatic rule and are on the Backlog to be dropped or populated, not to be half-used.
+export async function updatePipelineUnlocked(
+  orgId: string,
+  unlocked: boolean,
+): Promise<{ error?: string; value?: boolean }> {
+  if (typeof unlocked !== 'boolean') {
+    return { error: 'The pipeline view can only be opened or closed.' }
+  }
+
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!userRow || userRow.role !== 'operator') redirect('/dashboard')
+
+  // Session client, as the two actions above. operators_full_access_organisations is an ALL
+  // policy gated by is_operator() and clients have no UPDATE policy on organisations, so RLS
+  // is a real second layer: a client cannot open their own pipeline view.
+  const { error } = await supabase
+    .from('organisations')
+    .update({ pipeline_unlocked: unlocked })
+    .eq('id', orgId)
+
+  if (error) return { error: error.message }
+
+  logger.info('operator: pipeline view visibility changed', {
+    organisation_id: orgId,
+    unlocked,
+  })
+
+  revalidatePath('/dashboard/operator/settings')
+  // The client's own screen reads this column, so its cache has to go too or the operator
+  // flips the switch and the client keeps seeing the locked state.
+  revalidatePath('/dashboard/pipeline')
+
+  return { value: unlocked }
+}
+
 export async function updateRevenueFilterEnabled(
   orgId: string,
   enabled: boolean,

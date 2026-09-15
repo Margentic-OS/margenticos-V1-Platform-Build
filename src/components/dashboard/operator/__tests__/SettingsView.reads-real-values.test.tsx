@@ -21,6 +21,11 @@ import type { OrganisationSettings, IntegrationRow } from '../SettingsView'
 // can render without a Supabase session; none of these tests invoke it.
 vi.mock('@/app/dashboard/operator/settings/actions', () => ({
   updateBookingUrl: vi.fn(async () => ({ value: null })),
+  // The component imports these too. vi.mock replaces the WHOLE module, so omitting one
+  // leaves it undefined at render: the toggle would throw only when clicked, which no test
+  // here does. Stubbed so the mock matches the module's real surface.
+  updateRevenueFilterEnabled: vi.fn(async () => ({ value: false })),
+  updatePipelineUnlocked: vi.fn(async () => ({ value: false })),
 }))
 
 afterEach(cleanup)
@@ -36,6 +41,7 @@ const ORG: OrganisationSettings = {
   client_review_enabled: true,
   linkedin_channel_enabled: false,
   sourcing_revenue_filter_enabled: false,
+  pipeline_unlocked: false,
   founder_first_name: null,
   archived_at: null,
 }
@@ -78,7 +84,7 @@ describe('the placeholder is gone', () => {
     expect(document.body.textContent).not.toMatch(/2026-04-1[78]/)
   })
 
-  it('does not render either toggle, because nothing implements either', () => {
+  it('renders only switches that are actually implemented', () => {
     render(<SettingsView organisation={ORG} integrations={REGISTRY} clientRequested />)
 
     // Positive control: a section that SHOULD be here is here.
@@ -88,12 +94,17 @@ describe('the placeholder is gone', () => {
     // literal while organisations.linkedin_channel_enabled was false on every row.
     expect(screen.queryByText(/LinkedIn post auto-approve/i)).toBeNull()
     expect(screen.queryByText(/Holding message/i)).toBeNull()
-    // And no switch survives under any label except the one that IS implemented: the
-    // revenue filter has a column, a write path, validation and a test (2026-09-10). Exactly
-    // one, and it must be that one, so a new unimplemented switch still fails here.
+    // EVERY switch here must be implemented: a column, a write path, validation and a test.
+    // The list is enumerated rather than counted so that adding an unimplemented switch
+    // still fails, which was this assertion's original purpose and remains it.
+    //
+    //   revenue filter  2026-09-10
+    //   pipeline view   2026-09-15, and it is the only thing that writes
+    //                   organisations.pipeline_unlocked, which was read in 30 places and
+    //                   written in none until that day
     const switches = screen.queryAllByRole('switch')
-    expect(switches).toHaveLength(1)
-    expect(switches[0]).toHaveAccessibleName(/revenue filter/i)
+    const names = switches.map(el => el.getAttribute('aria-label'))
+    expect(names).toEqual(['Pipeline view', 'Revenue filter'])
   })
 
   it('does not describe the auto-approve window as fixed for all clients', () => {
