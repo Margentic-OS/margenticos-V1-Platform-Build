@@ -562,3 +562,38 @@ export interface ResearchAbstractNounHit {
   /** The opening they appeared in, verbatim, so the report is actionable. */
   opening: string
 }
+
+// ─── The synthesis batch handoff, phase 1 to phase 2 ─────────────────────────
+
+/**
+ * The entry states phase 2 collects. ONE LIST, READ BY BOTH SIDES OF THE HANDOFF.
+ *
+ * ── WHY THIS IS A SHARED CONSTANT AND NOT TWO LITERALS ──
+ *
+ * Three places have to agree about which entries reach phase 2:
+ *
+ *   batch-sweep.ts        enqueueCollectJobs, which CREATES the only research_collect job
+ *   collect agent         the entry it selects once that job runs
+ *   (and the sweep again) the state it writes in the first place
+ *
+ * They were two hand-written array literals in two files. On 2026-09-15 ADR-059 made
+ * `'failed'` a reachable ENTRY state for the first time and added it to the collect agent's
+ * literal only. The result shipped: a truncated entry was labelled correctly, was readable
+ * by a job that was never created, reached no phase 2, wrote no research row, and then read
+ * as unresearched and re-bought its four sources.
+ *
+ * Nothing failed. Both literals were individually valid, no test named either one, and the
+ * suite was green in both worlds. That is the parallel-lists shape from CLAUDE.md: two lists
+ * kept in step by hand, where adding to one and not the other produces no error.
+ *
+ * So it is one list now, and the drift cannot be expressed. A future state added here reaches
+ * the enqueue and the selector in the same edit.
+ *
+ * WHAT EACH STATE MEANS, because the set is not obvious:
+ *   succeeded  Anthropic returned a Message. Normal.
+ *   errored    Anthropic failed the request. NOT BILLED by Anthropic, but the SOURCES on
+ *   expired    this row were, so phase 2 stores a fallback rather than discarding them.
+ *   failed     OUR verdict on a truncated answer: billed in full, JSON never arrived.
+ *              Collected so phase 2 can retry it with the reasoning constrained. See ADR-059.
+ */
+export const COLLECTABLE_ENTRY_STATES = ['succeeded', 'errored', 'expired', 'failed'] as const

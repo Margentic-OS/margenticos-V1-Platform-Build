@@ -5434,8 +5434,27 @@ Measured on the live 2026-09-14 batch, read from `synthesis_batch_entries`:
    Anthropic's own word, `'succeeded'`, because that is the BILLING fact: a truncated answer is
    billed in full, and rewriting it would make the row claim it was free like an errored or
    expired one. `state` becomes `'failed'`, which is our verdict and was simply untrue before.
-   `'failed'` was already in the CHECK constraint and already counted as a failure by MON-022,
-   so this needed no migration and lit up an existing monitor.
+   `'failed'` was already in the CHECK constraint, so this needed no migration, and MON-021
+   already counts it.
+
+   **CORRECTED 2026-09-15: this said MON-022, and MON-022 cannot see an entry state at all** —
+   it reads `pg_indexes`, `system_flags` and `has_table_privilege`. The monitor that counts
+   this is MON-021.
+
+   **AND EXPECT IT TO ALARM, which the original line did not check before claiming the monitor
+   was a benefit.** MON-021 puts `'failed'` in `bad_24h` beside errored/expired/cancelled and
+   goes PROBLEM when `(good_24h + bad_24h) >= 5 AND bad_24h / (good + bad) > 0.20`
+   (`20260904202000_mon_019_020_021_windowed_failure_detail.sql:226,239-240`). The measured
+   truncation rate is **28.6% (2 of 7), above that 20% threshold**, so MON-021 is EXPECTED to go
+   PROBLEM on any batch that truncates at the current rate, and per ADR-055 the second
+   consecutive PROBLEM emails the operator.
+
+   That is the monitor working rather than a new fault — the point of this ADR is that a
+   discarded answer stops being invisible — but it is an alert someone will receive, so it is
+   recorded here rather than discovered. It should quieten as the retry rescues answers that
+   were previously thrown away. If it needs silencing before the rate is known on a batch of
+   20+, raise MON-021's threshold deliberately and say why. Never go back to filing a truncated
+   answer as a success.
 
 2. **One retry, with the reasoning constrained, and the instruction goes in the USER message.**
    The system prompt is the ~8,500-token cached prefix every prospect in a batch reads; putting
@@ -5451,10 +5470,38 @@ Measured on the live 2026-09-14 batch, read from `synthesis_batch_entries`:
 3. **The discarded call's usage is added to the retry's.** Both were billed. Reporting only the
    retry would under-report the prospect by exactly the amount this ADR exists to make visible.
 
-**The two halves that must move together.** The sweep marks the entry `'failed'`; the collect
-agent selects `'failed'`. Marking it without widening that filter would leave the prospect with
-no research row at all, which is worse than the mislabel. They are one mechanism in two files
-and the comments at both ends say so.
+**THE THREE HALVES THAT MUST MOVE TOGETHER — AND THIS ADR ORIGINALLY NAMED TWO, WHICH SHIPPED
+THE FEATURE INERT.**
+
+The sweep marks the entry `'failed'`, and the collect agent selects `'failed'`. This paragraph
+called those "one mechanism in two files" and stopped. There is a third: **`enqueueCollectJobs`
+in `batch-sweep.ts` creates the only `research_collect` job in the repo**, and it had its own
+copy of the state list without `'failed'`.
+
+So for one commit — 70b550d, merged and deployed — a truncated entry was labelled correctly,
+was readable by a job that was never created, reached no phase 2, wrote no research row, and
+then read as `unresearched` and re-bought its four sources. That is precisely the outcome the
+sentence above calls "worse than the mislabel", shipped by the commit that wrote it.
+
+**Why the omission was invisible, which is the part worth carrying.** Before this ADR, nothing
+wrote `'failed'` to an ENTRY: the only `state: 'failed'` in `batch-sweep.ts` updated
+`synthesis_batches`, the batch table. So `['succeeded','errored','expired']` was EXHAUSTIVE over
+every entry state carrying a result. The list was not a filter, it was a description, and it was
+correct. Making a fourth state reachable turned it into a filter without anyone editing it. No
+test named the list, so the suite was green in both worlds — the same shape as the `relkind = 'r'`
+audit and the monitor sweep's parallel arrays.
+
+**It also silently dropped two guards.** `'failed'` is outside the
+`synthesis_batch_entries_one_live_per_prospect` predicate, so a truncated entry releases the
+prospect's one-live-entry slot; and with no collect job, `job_queue_one_live_research_per_prospect`
+holds nothing either. Neither guard broke. Both were bypassed, because the new state sits outside
+both predicates.
+
+**The fix is structural, not another literal.** All three sites now read
+`COLLECTABLE_ENTRY_STATES` from `research/types.ts`, a leaf module both already imported, so the
+drift cannot be expressed and a future state reaches the enqueue and the selector in one edit.
+Mutation-proved: removing `'failed'` from that constant turns tests red at the bridge and
+end to end, where previously no test named the list at all.
 
 **The rate is deliberately NOT a constant.** n is 7. The other reading on file is 3 of 39 at
 the previous 16,000 ceiling, so the two disagree by nearly four times and do not describe the

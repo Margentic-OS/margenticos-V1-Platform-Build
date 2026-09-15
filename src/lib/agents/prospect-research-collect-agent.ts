@@ -58,7 +58,8 @@ import { storeResearchResult, updateProspect } from './prospect-research-agent-v
 import { checkResearchEligibility } from '@/lib/sourcing/send-eligibility-policy'
 import { findAbstractNouns, findFigurativeVerbs } from '@/lib/style/abstract-nouns'
 import {
-  ZERO_TOKEN_USAGE, readTokenUsage, addTokenUsage, type RawSourceData,
+  ZERO_TOKEN_USAGE, readTokenUsage, addTokenUsage, COLLECTABLE_ENTRY_STATES,
+  type RawSourceData,
 } from './research/types'
 import type { OpeningResult } from './research/write-opening'
 
@@ -146,8 +147,14 @@ export async function runProspectResearchCollect({
       //
       // WITHOUT THIS VALUE THE SWEEP CHANGE WOULD STRAND THE PROSPECT: no collectable
       // entry, the throw below, and a research_collect job that fails on every attempt.
-      // The two filters are one mechanism in two files.
-      .in('state', ['succeeded', 'errored', 'expired', 'failed'])
+      //
+      // CORRECTED 2026-09-15: this comment used to say "the two filters are one mechanism in
+      // two files", and it was wrong by one. There is a THIRD: enqueueCollectJobs in
+      // batch-sweep.ts creates the only research_collect job there is, and it had its own
+      // copy of this list without 'failed'. So this filter was correct and unreachable.
+      //
+      // All three now read COLLECTABLE_ENTRY_STATES, so the drift cannot be expressed.
+      .in('state', COLLECTABLE_ENTRY_STATES)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -160,7 +167,9 @@ export async function runProspectResearchCollect({
       // finding no collectable entry means the two disagree and that must be visible.
       throw new Error(
         `No collectable synthesis entry for prospect ${prospect_id}. A research_collect ` +
-        'job was enqueued but no entry is in succeeded, errored, expired or failed state.',
+        `job was enqueued but no entry is in one of: ${COLLECTABLE_ENTRY_STATES.join(', ')}. ` +
+        'Derived from the constant rather than spelled out, so the message cannot go stale ' +
+        'against the filter above it.',
       )
     }
 
