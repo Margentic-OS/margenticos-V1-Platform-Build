@@ -164,6 +164,36 @@ async function matchProspect(
   return { prospectId: null, match: 'none' }
 }
 
+// ── The two time columns ─────────────────────────────────────────────────────
+//
+// meetings carries the booking time TWICE and both are load-bearing:
+//
+//   scheduled_start_at  the lifecycle column. The outcome sweep, the billing deadline and
+//                       the operator screen read it.
+//   meeting_date        the CLIENT-FACING column, and older. The client pipeline orders
+//                       and renders from it, and counts "meetings this month" with
+//                       gte/lte against it.
+//
+// Until 2026-09-15 the booking path wrote only the first. A webhook meeting therefore had
+// meeting_date NULL, which does not satisfy gte OR lte, so it was silently absent from the
+// client's monthly count and rendered with a dash for a date. It was present in the list
+// and invisible in the number above it.
+//
+// Returning both from ONE value is the point. Two columns that must agree, set by hand at
+// three separate write sites, is the parallel-arrays shape: the drift is expressible and
+// nothing reports it. Here it is not expressible. Any new write site spreads this and gets
+// both, or sets neither.
+//
+// The right long-term answer is one column, not two. That is a read-side migration across
+// campaign-metrics, the operator meetings screen and booking-funnel, and it is on the
+// Backlog rather than smuggled into a booking fix.
+function meetingTimeColumns(startTime: string | null): {
+  scheduled_start_at: string | null
+  meeting_date: string | null
+} {
+  return { scheduled_start_at: startTime, meeting_date: startTime }
+}
+
 // ── Created ──────────────────────────────────────────────────────────────────
 
 async function recordCreated(
@@ -185,7 +215,7 @@ async function recordCreated(
       source: 'webhook',
       booking_uid: details.bookingUid,
       booked_at: bookedAt,
-      scheduled_start_at: details.startTime,
+      ...meetingTimeColumns(details.startTime),
       scheduled_end_at: details.endTime,
       bill_unconfirmed_after: billingDeadlineFor(details.startTime, bookedAt),
       meeting_status: 'booked',
@@ -332,7 +362,7 @@ async function recordRescheduled(
       .from('meetings')
       .update({
         booking_uid: event.bookingUid,
-        scheduled_start_at: event.startTime,
+        ...meetingTimeColumns(event.startTime),
         scheduled_end_at: event.endTime,
         // The deadline follows the meeting. Moved into a later month, the client gets the
         // longer window that month earns, which is what the calendar rule says. Only on the
@@ -358,7 +388,7 @@ async function recordRescheduled(
     // A decided meeting keeps its decision; only the time and uid follow the booking.
     const { data: movedLocked, error: lockedError } = await supabase
       .from('meetings')
-      .update({ booking_uid: event.bookingUid, scheduled_start_at: event.startTime })
+      .update({ booking_uid: event.bookingUid, ...meetingTimeColumns(event.startTime) })
       .eq('booking_uid', event.previousBookingUid)
       .select('id')
     if (lockedError) {
