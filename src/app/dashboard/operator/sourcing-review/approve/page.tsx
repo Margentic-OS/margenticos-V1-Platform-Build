@@ -1,5 +1,6 @@
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import { createClient } from '@/lib/supabase/server'
+import { requireCount } from '@/lib/operator/require-count'
 import { resolveEnrichmentMode } from '@/lib/sourcing/enrichment-mode'
 import { redirect, notFound } from 'next/navigation'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
@@ -64,13 +65,21 @@ export default async function ApprovePage({
   const requestedPage = Math.max(1, Number.parseInt(pageParam ?? '1', 10) || 1)
   const from = (requestedPage - 1) * APPROVAL_PAGE_SIZE
 
-  const { data: prospects, count: totalPending } = await supabase
+  const { data: prospects, count: totalPendingRaw, error: totalPendingError } = await supabase
     .from('prospects')
     .select('*', { count: 'exact' })
     .eq('organisation_id', organisationId)
     .eq('sourcing_review_status', 'pending_review')
     .order('created_at', { ascending: false })
     .range(from, from + APPROVAL_PAGE_SIZE - 1)
+
+  // FAIL LOUD. This number IS the batch size the operator approves against, and the whole
+  // defect this block already fixed was the screen reporting the page as if it were the
+  // batch. A zero from a refused read would be the same mistake with a worse cause.
+  const totalPending = requireCount(
+    { count: totalPendingRaw, error: totalPendingError },
+    `prospects awaiting approval for organisation ${organisationId}`,
+  )
 
   // Typed as ICPFilterSpec rather than Record<string, unknown>. The cast was what let this
   // block read `spec.target_job_titles`, a field that has never existed on the spec (it is
@@ -93,7 +102,7 @@ export default async function ApprovePage({
       <OperatorTopbar
         eyebrow="Operator view"
         title="Approve pending prospects"
-        subtitle={`${totalPending ?? 0} awaiting approval`}
+        subtitle={`${totalPending} awaiting approval`}
         userEmail={user.email}
       />
       <div className="flex-1 overflow-y-auto bg-surface-content">
@@ -101,7 +110,7 @@ export default async function ApprovePage({
           <Gate1ApproveBatch
             enrichmentMode={enrichmentMode}
             prospects={prospects || []}
-            totalPending={totalPending ?? 0}
+            totalPending={totalPending}
             page={requestedPage}
             pageSize={APPROVAL_PAGE_SIZE}
             organisationId={organisationId}

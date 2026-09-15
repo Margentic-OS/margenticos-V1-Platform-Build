@@ -16,6 +16,7 @@
 export const maxDuration = 300
 
 import Link from 'next/link'
+import { requireCount } from '@/lib/operator/require-count'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
@@ -178,7 +179,9 @@ export default async function ClientDetailPage({
   const writerStopped = await listWriterStoppedProspects(serviceRole, org.id)
 
   const instantlyApiActive = flagResult.data?.is_active ?? false
-  const pendingCount = pendingCountResult.count ?? 0
+  // FAIL LOUD, both of these. They are the operator's "how much is left" numbers, and a
+  // zero from a refused read is read as an empty queue rather than as a broken one.
+  const pendingCount = requireCount(pendingCountResult, `prospects ready to send for organisation ${org.id}`)
   const campaigns = (campaignsResult.data ?? [])
     .filter(c => c.external_id !== null)
     .map(c => ({
@@ -188,7 +191,7 @@ export default async function ClientDetailPage({
       shellSyncedAt: c.shell_synced_at,
       shellStepCount: c.shell_step_count,
     }))
-  const uploadedCount = uploadedCountResult.count ?? 0
+  const uploadedCount = requireCount(uploadedCountResult, `prospects already uploaded for organisation ${org.id}`)
   const primarySegmentId = primarySegResult.data?.id ?? null
   const clientUser = clientUserResult.data
   const website = intakeWebsiteResult.data?.response_value ?? undefined
