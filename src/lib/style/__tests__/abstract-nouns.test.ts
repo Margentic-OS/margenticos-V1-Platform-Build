@@ -124,7 +124,7 @@ describe('counting the verb failures that shipped', () => {
     ])
   })
 
-  it('catches "the thing that moves when something has to" from Bob', () => {
+  it('catches "the thing that moves when something has to" from Sasha', () => {
     expect(findFigurativeVerbs('business development is the thing that moves when something has to')).toEqual([
       { verb: 'move', count: 1 },
     ])

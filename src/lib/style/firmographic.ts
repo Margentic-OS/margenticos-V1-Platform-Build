@@ -4,7 +4,7 @@
 // The messaging agent has enforced this since 2026-08-19, after two variants shipped
 // "Most B2B consulting firms at the £500K to £5M mark" and "For most consulting founders
 // billing north of £500K". The research writer never inherited it and shipped "a $5M
-// consulting firm" in Bob's opening.
+// consulting firm" in Sasha's opening.
 //
 // Three reasons, any one of which is enough. It reads as a database lookup, which is the
 // exact impression the personalisation layer exists to avoid. It may simply be wrong,

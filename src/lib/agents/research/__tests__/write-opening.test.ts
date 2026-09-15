@@ -60,7 +60,7 @@ describe('gate: second person', () => {
 })
 
 describe('gate: firmographic figures', () => {
-  it('fails the real "$5M consulting firm" that shipped in Bob\'s opening', () => {
+  it('fails the real "$5M consulting firm" that shipped in Sasha\'s opening', () => {
     const findings = 'Acme Consulting is a $5M consulting firm launching Acme Media.'
     const failures = checkOpeningGates('Launching Acme Media while running a $5M consulting firm is a real plate to spin.', null, findings)
     expect(failures.some(f => f.includes('firmographic') || f.includes("prospect's record"))).toBe(true)
@@ -1151,9 +1151,9 @@ describe('the writer is asked for the same number of blocks in both turns', () =
 
 describe('the writer may not hand back the approved offer line', () => {
   const P3 = 'We get qualified conversations into the diary without pulling you out of delivery.'
-  const FINDINGS_TEXT = 'Bob took on Publisher and CEO at Acme Media alongside Acme Consulting.'
+  const FINDINGS_TEXT = 'Sasha took on Publisher and CEO at Acme Media alongside Acme Consulting.'
 
-  it('rejects the exact echo that shipped in Bob Email 1', () => {
+  it('rejects the exact echo that shipped in Sasha Email 1', () => {
     const opening = 'You took on Publisher and CEO at Acme Media.\n\nTwo leadership positions running in parallel means prospecting is usually the first thing that waits. We get qualified conversations into the diary without pulling you out of delivery. Is this a gap you are looking to close?'
     expect(checkOpeningGates(opening, null, FINDINGS_TEXT, P3).join(' ')).toContain('repeats the approved offer line')
   })
