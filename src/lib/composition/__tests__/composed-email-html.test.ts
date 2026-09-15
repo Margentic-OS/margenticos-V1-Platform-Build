@@ -5,7 +5,7 @@
 //      read nicely, and the outbound provider converts every newline inside a substituted
 //      variable value into a <br> at send time. The delivered mail was <p>a</p><br><p>b</p>:
 //      the <p> spacing plus the <br>, doubled. Verified against the live provider record
-//      before the fix: the stored m_body_1 for shevonne@electroconsulting.au held six
+//      before the fix: the stored m_body_1 for a real recipient held six
 //      literal newlines, and the delivered message held six <br> at those six positions.
 //
 //   2. The sent document had no <body>. The provider emits <html><head>...</head> and then
@@ -21,11 +21,13 @@ import { plainTextToHtml, composedToVariables } from '../custom-variables'
 import { OPT_OUT_FOOTER, OPT_OUT_FOOTER_MARGIN_PX } from '../opt-out-footer'
 import type { ComposedEmail } from '../compose-sequence'
 
-// The real email 1 that shipped to shevonne@electroconsulting.au on 2026-08-21, with
-// {{first_name}} left unresolved so this also exercises the substitution.
-const REAL_EMAIL_1 = [
+// A SHAPE-MATCHED INVENTED EMAIL 1. This was the real email shipped to a real
+// prospect, quoted with her address, in a PUBLIC repository. Replaced 2026-09-15.
+// The SHAPE is what these tests read: five paragraphs, a two-line sign-off, the
+// footer, and {{first_name}} left unresolved so substitution is exercised too.
+const SHAPED_EMAIL_1 = [
   '{{first_name}}',
-  'Your Founders Future episode traces the path from corporate HR to founding electro: consulting, and the thinking behind the practice.',
+  'Your recent talk traces the path from an in-house role to founding the practice, and the thinking behind it.',
   'The founders who need that kind of help are usually searching elsewhere when the problem lands on their desk.',
   'We run outbound so qualified meetings land in the diary without you writing anything.',
   'Is getting in front of those founders before they go looking somewhere else something you are working on?',
@@ -39,17 +41,17 @@ const SHELL_WRAPPER = '<body>{{m_body_1}}</body>'
 
 // What the provider does at send time: substitute the value, then convert every newline in
 // the result into a <br>. Verified against the live sent message for
-// debra@uplevelhrconsulting.com on 2026-08-24, whose stored value carried newlines between
+// a real recipient on 2026-08-24, whose stored value carried newlines between
 // paragraphs and whose delivered HTML carried <br> at exactly those positions.
 function renderAsProviderWould(variableValue: string): string {
   return SHELL_WRAPPER.replace('{{m_body_1}}', variableValue).replace(/\n/g, '<br>')
 }
 
-// The real email 2 that shipped to debra@uplevelhrconsulting.com on 2026-08-24. Shorter,
+// A SHAPE-MATCHED INVENTED EMAIL 2, replacing a real one for the same reason. Shorter,
 // no observation slot, and the message whose delivered HTML confirmed the newline-to-<br>
 // conversion.
-const REAL_EMAIL_2 = [
-  'Debra',
+const SHAPED_EMAIL_2 = [
+  'Wren',
   'The pattern I see most often with consulting founders at your stage: outbound gets started when a big project ends, runs for a few weeks, then stops when something new lands. The pipeline never builds because the engine only fires in a panic.',
   "Close rate is usually fine. It's the conversation volume that's the problem.",
   'Does that sound like where you are?',
@@ -59,7 +61,7 @@ const REAL_EMAIL_2 = [
 
 describe('composed email HTML — paragraph spacing', () => {
   it('puts no <br> between paragraphs', () => {
-    for (const body of [REAL_EMAIL_1, REAL_EMAIL_2]) {
+    for (const body of [SHAPED_EMAIL_1, SHAPED_EMAIL_2]) {
       const html = plainTextToHtml(body)
       expect(html).not.toMatch(/<\/p>\s*<br\s*\/?>/i)
       expect(html).not.toMatch(/<br\s*\/?>\s*<p[\s>]/i)
@@ -69,13 +71,13 @@ describe('composed email HTML — paragraph spacing', () => {
   it('leaves no newline for the provider to turn into a <br>', () => {
     // This is the actual regression. The provider does the newline-to-<br> conversion, so
     // the only defence is to emit no newline at all.
-    for (const body of [REAL_EMAIL_1, REAL_EMAIL_2]) {
+    for (const body of [SHAPED_EMAIL_1, SHAPED_EMAIL_2]) {
       expect(plainTextToHtml(body)).not.toContain('\n')
     }
   })
 
   it('joins </p> directly to the next <p> at every paragraph boundary', () => {
-    const html = plainTextToHtml(REAL_EMAIL_2)
+    const html = plainTextToHtml(SHAPED_EMAIL_2)
 
     expect(html).toContain(
       "<p>Close rate is usually fine. It's the conversation volume that's the problem.</p><p>Does that sound like where you are?</p>"
@@ -89,13 +91,13 @@ describe('composed email HTML — paragraph spacing', () => {
   it('no longer produces the exact shape that shipped on 2026-08-21', () => {
     // What the reader actually received. If this string ever comes back, the fix is gone.
     const shipped =
-      '<p>Debra</p><br><p>The pattern I see most often with consulting founders at your stage'
-    expect(plainTextToHtml(REAL_EMAIL_2)).not.toContain(shipped)
+      '<p>Wren</p><br><p>The pattern I see most often with consulting founders at your stage'
+    expect(plainTextToHtml(SHAPED_EMAIL_2)).not.toContain(shipped)
   })
 
   it('keeps the <br> inside the sign-off, which is a line break and not a paragraph gap', () => {
     // The two sign-off lines are one paragraph. This <br> is correct and must survive.
-    for (const body of [REAL_EMAIL_1, REAL_EMAIL_2]) {
+    for (const body of [SHAPED_EMAIL_1, SHAPED_EMAIL_2]) {
       expect(plainTextToHtml(body)).toContain('<p>Doug<br>MargenticOS</p>')
     }
   })
@@ -103,7 +105,7 @@ describe('composed email HTML — paragraph spacing', () => {
   it('still separates the footer from the sign-off now the joining newline is gone', () => {
     // The newline never provided that separation. The margin does, and it is the only thing
     // that does, because plainTextToHtml drops blank paragraphs.
-    expect(plainTextToHtml(REAL_EMAIL_1)).toContain(
+    expect(plainTextToHtml(SHAPED_EMAIL_1)).toContain(
       `<p>Doug<br>MargenticOS</p><p style="margin-top:${OPT_OUT_FOOTER_MARGIN_PX}px">`
     )
   })
@@ -111,19 +113,19 @@ describe('composed email HTML — paragraph spacing', () => {
 
 describe('assembled outbound email document', () => {
   it('contains a <body> tag', () => {
-    const sent = renderAsProviderWould(plainTextToHtml(REAL_EMAIL_1))
+    const sent = renderAsProviderWould(plainTextToHtml(SHAPED_EMAIL_1))
     expect(sent).toContain('<body>')
     expect(sent).toContain('</body>')
   })
 
   it('does not nest a <p> inside a <p>', () => {
-    const sent = renderAsProviderWould(plainTextToHtml(REAL_EMAIL_1))
+    const sent = renderAsProviderWould(plainTextToHtml(SHAPED_EMAIL_1))
     expect(sent).not.toMatch(/^<p[ >]/)
     expect(sent).toMatch(/^<body><p>/)
   })
 
   it('renders every paragraph singly spaced once the provider has finished with it', () => {
-    const sent = renderAsProviderWould(plainTextToHtml(REAL_EMAIL_1))
+    const sent = renderAsProviderWould(plainTextToHtml(SHAPED_EMAIL_1))
 
     expect(sent).toContain('</p><p')
     expect(sent).not.toMatch(/<\/p><br\s*\/?><p/i)
@@ -136,7 +138,7 @@ describe('assembled outbound email document', () => {
   it('carries the opt-out footer and its inline margin through to the sent document', () => {
     // This footer was silently missing from every stored email until a previous fix. It is
     // the compliance line and it must not regress, margin included.
-    const sent = renderAsProviderWould(plainTextToHtml(REAL_EMAIL_1))
+    const sent = renderAsProviderWould(plainTextToHtml(SHAPED_EMAIL_1))
     expect(sent).toContain(
       `<p style="margin-top:${OPT_OUT_FOOTER_MARGIN_PX}px">${OPT_OUT_FOOTER}</p>`
     )
@@ -150,13 +152,13 @@ describe('assembled outbound email document', () => {
         sequence_position: 1,
         subject_line: 'diary filling itself',
         subject_char_count: 20,
-        body: REAL_EMAIL_1,
+        body: SHAPED_EMAIL_1,
         word_count: 0,
       },
     ]
-    const vars = composedToVariables(emails, 'Shevonne')
+    const vars = composedToVariables(emails, 'Rowan')
 
-    expect(vars.m_body_1).toContain('<p>Shevonne</p>')
+    expect(vars.m_body_1).toContain('<p>Rowan</p>')
     expect(vars.m_body_1).not.toContain('{{first_name}}')
     expect(vars.m_body_1).not.toContain('\n')
     expect(vars.m_body_1).not.toMatch(/<\/p><br\s*\/?><p/i)

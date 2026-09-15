@@ -4,7 +4,7 @@
 // "visible", "conversion" from "convert", "engagement" from "engage", "consistency" from
 // "consistent". They let a sentence gesture at an idea without stating who does what to
 // whom, which is exactly the failure mode in a line like "the pipeline question for
-// Taffet tends to land differently". Cold email copy that a stranger reads in two seconds
+// Vantor tends to land differently". Cold email copy that a stranger reads in two seconds
 // should be almost free of them.
 //
 // Deterministic by design (ADR-018). This is suffix matching on predictable text, not a

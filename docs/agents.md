@@ -715,7 +715,7 @@ the prospect it was written for. The risk grows with volume.
 HOW IT TELLS A NAME FROM AN ORDINARY WORD, given that capitalisation is useless here. A
 word is only reported when it is absent from the findings AND looks like a name, where
 looking like a name means either odd spelling (an internal capital, all caps, or a digit:
-`HydrospherIQ`, `DTCC`, `Web3`) or not being ordinary English at all (`Taffet`, `Sovern`,
+`BrightlaneIQ`, `DTCC`, `Web3`) or not being ordinary English at all (`Vantor`, `Merrow`,
 and any company the model invents tomorrow). The ordinary-English vocabulary lives in
 `src/lib/style/ordinary-words.ts`.
 

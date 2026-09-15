@@ -88,8 +88,8 @@ export const SIX_TESTS = [
 
 // ─── Inference direction (FIX 4) ─────────────────────────────────────────────
 // A candidate can pass all six tests while the CONCLUSION drawn from its evidence is
-// backwards. "Robert's CRC role ended, so he needs pipeline" reads the same facts as
-// "Robert left CRC because Taffet got busy". VERIFIABLE only ever checked the underlying
+// backwards. "Alix's ORRIN role ended, so he needs pipeline" reads the same facts as
+// "Alix left ORRIN because Vantor got busy". VERIFIABLE only ever checked the underlying
 // FACT, never the direction of the inference, so this is a distinct failure with a
 // distinct field rather than a tightening of an existing test.
 //

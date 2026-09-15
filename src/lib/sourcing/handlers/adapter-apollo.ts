@@ -512,7 +512,7 @@ function asNumber(value: unknown): number | null {
 // IT WAS A HAND-WRITTEN LIST OF NINETEEN CONSULTING NAMES, and that was correct exactly
 // as long as the query was a hardcoded consulting filter. The moment the query became
 // spec-driven the list became a stale second copy, and it did the most damage a stale
-// gate can do: it REFUSED the first client the change was built to serve. 360 Bia Og's
+// gate can do: it REFUSED the first client the change was built to serve. Tessom Foods's
 // ICP names Primary and Secondary Education, the query builds NAICS 6111 for it
 // correctly, and the gate rejected the run before the request was made, with an error
 // message asserting the query was still hardcoded.

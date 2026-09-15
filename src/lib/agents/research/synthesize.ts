@@ -619,7 +619,7 @@ function parseCandidate(raw: unknown, index: number): ObservationCandidate | nul
 // measurement, and a handled inference direction. A candidate that passes the six but
 // fails a gate does not vanish. It falls through to Tier 2, where it still surfaces as
 // context but never fills the P2 slot in the email. That is the point of the exercise:
-// the CRC fact should still be FOUND, it just may not be used as written.
+// the ORRIN fact should still be FOUND, it just may not be used as written.
 function selectCandidate(
   candidates: ObservationCandidate[],
   modelPreferredId: string | null,

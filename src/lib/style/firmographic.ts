@@ -4,7 +4,7 @@
 // The messaging agent has enforced this since 2026-08-19, after two variants shipped
 // "Most B2B consulting firms at the £500K to £5M mark" and "For most consulting founders
 // billing north of £500K". The research writer never inherited it and shipped "a $5M
-// consulting firm" in Bob's opening.
+// consulting firm" in Sasha's opening.
 //
 // Three reasons, any one of which is enough. It reads as a database lookup, which is the
 // exact impression the personalisation layer exists to avoid. It may simply be wrong,
@@ -40,8 +40,8 @@ export const BANNED_FIRMOGRAPHIC: ReadonlyArray<{ pattern: RegExp; label: string
   { pattern: /\bof\s+(?:that|this)\s+size\b/i,                                      label: 'an oblique reference to their size' },
 
   // A headcount of one, which is the same claim as "a two-person firm" and was the one
-  // spelling the list did not have. "You launched HydrospherIQ within three months of
-  // leaving Pani and have been running it solo since" shipped: solo IS the headcount, it
+  // spelling the list did not have. "You launched BrightlaneIQ within three months of
+  // leaving Calder and have been running it solo since" shipped: solo IS the headcount, it
   // came from the same data provider as any other headcount, and it is wrong the moment a
   // first hire lands.
   //

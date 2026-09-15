@@ -56,7 +56,7 @@ import { assertOperatorRecipient } from '../recipient-audience'
 import { resendClient } from '@/lib/email/client'
 
 const OPERATOR = 'doug@margenticos.com'
-const CLIENT = 'founder@apexconsulting.com'
+const CLIENT = 'founder@apexconsulting.example'
 
 function sendCalls() {
   return vi.mocked(resendClient).emails.send as unknown as { mock: { calls: unknown[][] } }

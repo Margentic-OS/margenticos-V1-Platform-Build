@@ -17,14 +17,14 @@ describe('contentOverlap, the winner-to-trigger check', () => {
     expect(contentOverlap(trigger, winner)).toBeGreaterThan(TRIGGER_WINNER_MIN_OVERLAP)
   })
 
-  it('scores the real Daedra mismatch at zero', () => {
+  it('scores the real Ines mismatch at zero', () => {
     const winner = 'All five recent LinkedIn posts are civil rights advocacy content. The website is a minimal Wix brochure with no blog, no case studies, and no dated content.'
     const trigger = 'Most founders of boutique DEI consultancies at this stage hit the same wall. Referrals carry the pipeline for a stretch, then a quarter goes dry with nothing behind it.'
     expect(contentOverlap(trigger, winner)).toBeLessThan(TRIGGER_WINNER_MIN_OVERLAP)
   })
 
-  it('scores the real Corral mismatch below the threshold', () => {
-    const winner = 'Richard has run Corral Consulting solo since August 2007, now 18 years, with headcount still at approximately one person.'
+  it('scores the real Larkfield mismatch below the threshold', () => {
+    const winner = 'Tam has run Larkfield Consulting solo since August 2007, now 18 years, with headcount still at approximately one person.'
     const trigger = 'Most solo consulting principals running on referrals and community relationships for years hit the same point. A project wraps, and the next conversation is not already in the diary.'
     expect(contentOverlap(trigger, winner)).toBeLessThan(TRIGGER_WINNER_MIN_OVERLAP)
   })

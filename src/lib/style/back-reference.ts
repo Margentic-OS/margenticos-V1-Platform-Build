@@ -9,7 +9,7 @@
 //   P3  "We break that ceiling by running outbound that puts the right conversations
 //        in your diary."
 //
-// With a real observation swapped into P2 the email reads: "You ran Taffet and the CRC
+// With a real observation swapped into P2 the email reads: "You ran Vantor and the ORRIN
 // Director role side by side for 13 months. That wrapped in August 2025. We break that
 // ceiling by..." There is no ceiling. The better the personalisation, the more broken
 // the email.
@@ -161,7 +161,7 @@ export interface BackReferenceReport {
 //    right people."
 //
 // "it" is outbound, named in P2. Composition replaces P2 per prospect, so a researched
-// D prospect received: "You ran Taffet and the CRC Director role side by side for 13
+// D prospect received: "You ran Vantor and the ORRIN Director role side by side for 13
 // months. That wrapped in August 2025. We run it differently..." Run WHAT differently.
 //
 // The demonstrative gate missed it because that gate matches DEMONSTRATIVE + NOUN

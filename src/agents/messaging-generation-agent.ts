@@ -1031,7 +1031,7 @@ article.
 The pronoun case is the one that hides, and it shipped:
   "We run it differently: hyper-specific targeting, conversations that land with the
    right people."
-"it" is outbound, which P2 named. A researched prospect got: "You ran Taffet and the CRC
+"it" is outbound, which P2 named. A researched prospect got: "You ran Vantor and the ORRIN
 Director role side by side for 13 months. That wrapped in August 2025. We run it
 differently..." Run WHAT differently.
 Restore the noun and the sentence survives any P2:

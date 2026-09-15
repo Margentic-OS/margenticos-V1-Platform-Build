@@ -304,7 +304,7 @@ Every sentence must mean something concrete on one reading. A sentence the reade
 decode is a failure, no matter how specific the data behind it was.
 
 Failing example, from a real send:
-  "the pipeline question for Taffet tends to land differently"
+  "the pipeline question for Vantor tends to land differently"
 It gestures at an idea without stating one. What question? Lands how? Differently from
 what? The reader cannot picture anything, so they stop reading.
 The fix names the thing plainly: "you have nothing lined up for when this wraps."
@@ -1207,8 +1207,8 @@ Do not reference the first message. Write as if it's the first contact.
     The pronoun case is the one that hides. It shipped as Email 1 P3:
       "We run it differently: hyper-specific targeting, conversations that land with the
        right people."
-    "it" is outbound, named in P2. A researched prospect received: "You ran Taffet and
-    the CRC Director role side by side for 13 months. That wrapped in August 2025. We run
+    "it" is outbound, named in P2. A researched prospect received: "You ran Vantor and
+    the ORRIN Director role side by side for 13 months. That wrapped in August 2025. We run
     it differently..." Run WHAT differently. The sentence points at a paragraph that is
     no longer there.
     The test is mechanical. Read P3 with P2 deleted. If any word in it has nothing to
@@ -1397,7 +1397,7 @@ Run these checks across all four variants before returning.
    paragraph was redundant. Rewrite it so it names a result instead.
 7c. Reread every sentence aloud. Any sentence that cannot be pictured, or that could
    appear verbatim in any other cold email in this industry, gets rewritten before you
-   return. "the pipeline question for Taffet tends to land differently" is the standard
+   return. "the pipeline question for Vantor tends to land differently" is the standard
    failing example: it gestures at an idea without stating one.
 8. Do any email bodies in any variant use "feast-or-famine" more than once across the
    entire four-variant output? If yes, vary the phrasing in subsequent uses. Derive the
