@@ -43,6 +43,7 @@ import {
 } from './synthesize'
 import { BATCH_CACHE_TTL } from '@/lib/agents/prospect-research-sources-agent'
 import { enqueueResearchPhaseJob } from '@/lib/queue/job-queue'
+import { COLLECTABLE_ENTRY_STATES } from './types'
 import type { ProspectContext, RawSourceData } from './types'
 import { companyFactsFromRow, type CompanyFacts } from './company-facts'
 
@@ -589,16 +590,42 @@ async function collectEndedBatch(
         // reached the ceiling lost it and reaches no grade: the writer never runs and the
         // approved template ships. Measured on the 2026-09-14 batch, 2 of 7 entries were
         // in exactly this state and both read state='succeeded', so nothing counted them
-        // and mon_021/022 saw a clean batch.
+        // and mon_021 saw a clean batch.
         //
         // 'failed' rather than a new state value on purpose: it is already in the
-        // synthesis_batch_entries_state_valid CHECK constraint and already counted as a
-        // failure by mon_022, so this needs no migration and lights up an existing monitor.
+        // synthesis_batch_entries_state_valid CHECK constraint, so this needs no migration,
+        // and mon_021 already counts it.
         //
-        // THE COLLECT AGENT MUST SELECT 'failed' TOO, and does. Those two are a matched
-        // pair: marking the entry failed without widening that filter would strand the
-        // prospect with no research row at all, which is worse than the mislabel. See
-        // prospect-research-collect-agent.ts.
+        // ── WHICH MONITOR, AND EXPECT IT TO FIRE. CORRECTED 2026-09-15. ──
+        //
+        // This said mon_022. That is wrong: mon_022 reads pg_indexes, system_flags and
+        // has_table_privilege, and cannot see an entry state at all. The monitor that counts
+        // this is MON-021.
+        //
+        // AND IT HAS A THRESHOLD NOBODY CHECKED BEFORE WRITING THE LINE ABOVE. mon_021 puts
+        // 'failed' in bad_24h beside errored/expired/cancelled, and goes PROBLEM when
+        // (good_24h + bad_24h) >= 5 AND bad_24h / (good + bad) > 0.20. See
+        // 20260904202000_mon_019_020_021_windowed_failure_detail.sql:226,239-240.
+        //
+        // The measured truncation rate is 28.6% (2 of 7, 2026-09-14), which is ABOVE that
+        // 20% threshold. So MON-021 is EXPECTED to go PROBLEM on any batch that truncates at
+        // the current rate, and per ADR-055 a second consecutive PROBLEM emails the operator.
+        // That is the monitor working, not a new fault: the whole point of this change is
+        // that a discarded answer stops being invisible. It becomes a real alert to act on
+        // once the rate is known on a batch of 20+ (Backlog: the truncation-rate Verify row),
+        // and it should quieten on its own as the retry below rescues answers that would
+        // previously have been thrown away.
+        //
+        // If the alert is unwanted before that measurement exists, raise mon_021's threshold
+        // deliberately and say why. Do NOT go back to filing a truncated answer as a success.
+        //
+        // THE COLLECT AGENT MUST SELECT 'failed' TOO, and does. And so must
+        // enqueueCollectJobs, which creates the only research_collect job there is: all three
+        // read COLLECTABLE_ENTRY_STATES. Shipping this as a matched PAIR rather than a matched
+        // TRIPLE is what made the first version inert. Marking the entry failed without the
+        // other two strands the prospect with no research row at all, which is worse than the
+        // mislabel, and then re-buys its four sources. See prospect-research-collect-agent.ts
+        // and enqueueCollectJobs below.
         if (wasTruncated(message)) {
           patch.state = 'failed'
           patch.error = truncationReason(message.usage?.output_tokens ?? 0)
@@ -696,6 +723,32 @@ async function collectEndedBatch(
  * were bought, and phase 2 stores a fallback synthesis rather than discarding four paid
  * payloads. That is failure mode four: "sources paid but synthesis entry failed. MUST
  * reuse stored sources."
+ *
+ * ── AND 'failed', WHICH IS THE TRUNCATED ENTRY. ADDED 2026-09-15, ONE COMMIT LATE. ──
+ *
+ * THIS LIST IS THE BRIDGE, and it is the third half of a change that was shipped as two.
+ * ADR-059 marked a truncated answer `state = 'failed'` in this same file and widened the
+ * collect agent's own filter to read it, and called those two "one mechanism in two files".
+ * They are one mechanism in THREE files, because nothing reaches the collect agent without
+ * a job, and line 719 below is the only place in the repo that creates one.
+ *
+ * So for one commit a truncated entry was correctly labelled, correctly readable, and never
+ * enqueued: no phase 2, no research row at all, and the prospect then read as unresearched
+ * and re-bought its four sources. Exactly the outcome ADR-059 says is "worse than the
+ * mislabel", shipped by the commit that wrote the sentence.
+ *
+ * WHY THE OMISSION WAS INVISIBLE: before ADR-059 nothing wrote `'failed'` to an ENTRY at
+ * all. The only `state: 'failed'` in this file updated `synthesis_batches`, the batch table.
+ * So these three states were EXHAUSTIVE over every entry state carrying a result, and the
+ * list looked complete because it was. Adding a fourth reachable state is what made it a
+ * filter rather than a description, and no test named this list, so the suite was green in
+ * both worlds.
+ *
+ * It also closes a re-spend path that has nothing to do with phase 2 running: `'failed'` is
+ * outside the `synthesis_batch_entries_one_live_per_prospect` predicate, so a truncated
+ * entry releases the prospect's one-live-entry slot. Enqueueing the job is what re-takes a
+ * slot, via `job_queue_one_live_research_per_prospect`, and writing the research row is what
+ * stops the prospect reading as unresearched.
  */
 async function enqueueCollectJobs(
   supabase: SupabaseClient,
@@ -706,7 +759,7 @@ async function enqueueCollectJobs(
     .from('synthesis_batch_entries')
     .select('id, organisation_id, prospect_id, state')
     .eq('batch_id', batchRowId)
-    .in('state', ['succeeded', 'errored', 'expired'])
+    .in('state', COLLECTABLE_ENTRY_STATES)
 
   if (error) {
     result.errors.push(`could not read entries to enqueue collection: ${error.message}`)

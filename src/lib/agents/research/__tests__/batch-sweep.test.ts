@@ -46,6 +46,7 @@ vi.mock('../synthesize', async (importOriginal) => ({
 }))
 
 import { runSynthesisBatchSweep, BATCH_SLA_HOURS, MAX_ENTRIES_PER_BATCH } from '../batch-sweep'
+import { COLLECTABLE_ENTRY_STATES } from '../types'
 import { companyFactsFromRow } from '../company-facts'
 import { aTargetableCode } from '@/test-utils/geography-fixture'
 
@@ -714,6 +715,51 @@ describe('collection', () => {
     const prospects = enqueueResearchPhaseJob.mock.calls.map(c => c[1].prospectId).sort()
     expect(prospects).toEqual(['p-1', 'p-2'])
     expect(enqueueResearchPhaseJob.mock.calls[0][1].jobType).toBe('research_collect')
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // THE BRIDGE. NO TEST NAMED THIS STATE LIST, WHICH IS WHY IT SHIPPED WRONG.
+  //
+  // enqueueCollectJobs creates the only research_collect job in the repo. ADR-059 marked a
+  // truncated entry 'failed' and widened the COLLECT AGENT's filter to read it, and left this
+  // list alone. Result, merged and deployed as 70b550d: the entry was labelled correctly, was
+  // readable by a job that was never created, reached no phase 2, wrote no research row, and
+  // then read as unresearched and re-bought its four sources.
+  //
+  // It was invisible because before ADR-059 nothing wrote 'failed' to an ENTRY at all, so
+  // ['succeeded','errored','expired'] was EXHAUSTIVE and the list was a description rather
+  // than a filter. Nothing tested it, so the suite was green in both worlds.
+
+  it('enqueues phase 2 for the TRUNCATED entry, which is the bridge that was missing', async () => {
+    const db = fakeDb({
+      batches: [endedBatch(2)],
+      entries: [
+        entry({ id: 'entry-1', state: 'submitted', batch_id: 'batch-1', prospect_id: 'p-1' }),
+        entry({ id: 'entry-2', state: 'submitted', batch_id: 'batch-1', prospect_id: 'p-2' }),
+      ],
+    })
+    const an = fakeAnthropic({
+      retrieve: (id: string) => ({ id, processing_status: 'ended', ended_at: NOW.toISOString(), request_counts: {} }),
+      results: () => [succeededResult('entry-1'), truncatedResult('entry-2')],
+    })
+
+    await runSynthesisBatchSweep(db.client, an.client, NOW)
+
+    // The truncated entry is labelled failed AND enqueued. Both, or the label is a dead end.
+    expect(db.entries.find(e => e.id === 'entry-2')?.state).toBe('failed')
+    const prospects = enqueueResearchPhaseJob.mock.calls.map(c => c[1].prospectId).sort()
+    expect(prospects).toEqual(['p-1', 'p-2'])
+    expect(enqueueResearchPhaseJob.mock.calls.every(c => c[1].jobType === 'research_collect')).toBe(true)
+  })
+
+  it('reads the ONE shared state list, so the enqueue and the collect selector cannot drift', async () => {
+    // The structural half of the fix. Two hand-written literals in two files is the
+    // parallel-lists shape: adding to one and not the other produces no error, which is
+    // exactly what happened. Both sides now read this constant.
+    expect(COLLECTABLE_ENTRY_STATES).toContain('failed')
+    expect(COLLECTABLE_ENTRY_STATES).toContain('succeeded')
+    expect(COLLECTABLE_ENTRY_STATES).toContain('errored')
+    expect(COLLECTABLE_ENTRY_STATES).toContain('expired')
   })
 
   it('is idempotent: a second pass over the same ended batch writes nothing new', async () => {

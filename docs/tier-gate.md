@@ -35,16 +35,38 @@ reason, and every never-tiered row carries both as NULL.
 
 ## Where it is applied
 
-One module, `src/lib/sourcing/tier-verdict.ts`, and five call sites.
+One module, `src/lib/sourcing/tier-verdict.ts`, and **eight call sites in eight files**.
+
+COUNTED 2026-09-15, not asserted:
+
+    grep -rn "excludeTierRejected\|requireTierPresent" src --include='*.ts' \
+      | grep -v "__tests__\|/tier-verdict.ts" \
+      | grep -E "excludeTierRejected[<(]|requireTierPresent[<(]"
+
+The bracket alternation `[<(]` matters: `send-gate.ts` calls `requireTierPresent<Q>(...)`, and a
+pattern anchored on `(` silently misses it. That happened while writing this line.
+
+This section previously said "five call sites" and listed six rows. Both numbers were stale,
+and the table was missing the two cron PICKERS — which is the pair this module says must never
+be separated from their selectors.
 
 | Consumer | Where | Which rule |
 |---|---|---|
-| Verification, first pass | `src/lib/sourcing/verification-trigger.ts` | refuse rejected |
-| Verification, second pass | `src/lib/sourcing/second-pass-trigger.ts` | refuse rejected |
+| Verification, first pass — row selector | `src/lib/sourcing/verification-trigger.ts` | refuse rejected |
+| Verification, first pass — **org picker** | `src/app/api/cron/verify-pending/route.ts` | refuse rejected |
+| Verification, second pass — row selector | `src/lib/sourcing/second-pass-trigger.ts` | refuse rejected |
+| Verification, second pass — **org picker** | `src/app/api/cron/verify-catch-all/route.ts` | refuse rejected |
 | Client approve-all | `src/app/api/dashboard/client/prospects/approve-all/route.ts` | refuse rejected |
 | Research, queue path | `src/lib/queue/enqueue/research.ts` | **require a positive tier** |
 | Research, inline path | `src/lib/operator/research-batch-entry.ts` | **require a positive tier** |
 | Send | `src/lib/sourcing/send-gate.ts` | require a positive tier |
+
+**The two picker rows are not padding.** Each verification sweep runs one organisation per
+invocation: a first query picks the organisation, a second picks rows inside it. Gating only the
+selector converts a money bug into a starvation bug, because the picker keeps nominating an
+organisation the selector refuses everything from. That shipped on 2026-09-01 and ran for
+roughly 290 firings writing successful heartbeats. A maintainer who treated the old six-row
+table as the inventory and edited only the two named verification files would reproduce it.
 
 The send gate is stricter on purpose. Sending is the irreversible end of the pipeline, and
 "we have not decided about this prospect yet" is not a licence to email them.
@@ -126,6 +148,5 @@ keyed on known values would silently re-admit it.
 
 `src/lib/sourcing/__tests__/tier-verdict.test.ts` proves the MODULE. It does not prove the
 wiring, and says so: a shared predicate that no consumer calls would pass every assertion in
-it. Each of the five call sites has its own test that drives the real code path, and each was
-mutation-checked by deleting the predicate from that specific query and confirming that test
-goes red.
+it. Each call site has its own test that drives the real code path, and each was mutation-checked
+by deleting the predicate from that specific query and confirming that test goes red.
