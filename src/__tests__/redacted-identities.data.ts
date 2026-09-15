@@ -11,8 +11,10 @@
 //   to stop them coming back would have put every one of them straight back into
 //   the repository, in a file whose whole purpose is to be read.
 //
-//   prompt-forbidden-content.data.ts reached the same conclusion for company names
-//   and said so plainly: "WHAT IS DELIBERATELY ABSENT: real company names, real
+//   The prompt deny-list data file beside the prompt name scan (DESCRIBED, NOT NAMED:
+//   its own rule fails any module under src/ whose text contains its filename, and a
+//   citation here would trip exactly that) reached the same conclusion for company
+//   names and said so plainly: "WHAT IS DELIBERATELY ABSENT: real company names, real
 //   people, real prospects, real clients. Enumerating them in a PUBLIC repository
 //   would publish the very thing the swap pass exists to remove." That file solved
 //   it with STRUCTURAL PATTERNS. This one solves the other half, the specific tokens

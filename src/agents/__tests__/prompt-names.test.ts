@@ -270,14 +270,14 @@ describe('the inverted check tells a name from a word', () => {
   })
 
   it('rejects the real names the swap pass is removing', () => {
-    for (const n of ['Vantor', 'Merrow', 'Visteon', 'Stanford', 'Hollywood', 'Calder']) {
+    for (const n of ['Zentaras', 'Quillions', 'Visteon', 'Stanford', 'Hollywood', 'Korvath']) {
       expect(isAllowedToken(n), `${n} must not be allowed`).toBe(false)
     }
   })
 
   it('rejects a real organisation acronym while allowing internal jargon', () => {
     // The pair that rules out a blanket all-caps exemption. Both shapes are identical.
-    for (const n of ['DTCC', 'GSB', 'SCG', 'ORRIN', 'CAVE']) {
+    for (const n of ['DTCC', 'GSB', 'SCG', 'NVRA', 'CAVE']) {
       expect(isAllowedToken(n), `${n} must not be allowed`).toBe(false)
     }
     for (const n of ['ICP', 'TOV', 'ARR', 'SaaS']) {
@@ -298,19 +298,19 @@ describe('the inverted check tells a name from a word', () => {
 
   it('does not let a compound smuggle a name through one of its halves', () => {
     // The hole a naive hyphen rule opens: allow the compound if ANY half is ordinary.
-    expect(isAllowedToken('Vantor-led')).toBe(false)
+    expect(isAllowedToken('Zentaras-led')).toBe(false)
     expect(isAllowedToken('post-Visteon')).toBe(false)
   })
 
   it('sees a name at the start of a sentence, where capitalisation proves nothing', () => {
     // The documented hole in the shipped sentence-initial gate. This check has no
     // position-based exemption at all, so it does not inherit it.
-    const spans = exampleSpans([{ n: 1, text: '"Vantor publishes commentary. Merrow LA is next."' }])
+    const spans = exampleSpans([{ n: 1, text: '"Zentaras publishes commentary. Quillions LA is next."' }])
     expect(spans).toHaveLength(1)
     const toks = [...spans[0].text.matchAll(/\b[A-Za-z][A-Za-z'-]*\b/g)]
       .map(m => m[0]).filter(t => /^[A-Z]/.test(t)).filter(t => !isAllowedToken(t))
-    expect(toks).toContain('Vantor')
-    expect(toks).toContain('Merrow')
+    expect(toks).toContain('Zentaras')
+    expect(toks).toContain('Quillions')
   })
 
   it('reads an example that spans several lines', () => {
@@ -342,7 +342,7 @@ describe('a plural at the start of a sentence is not a name when its singular is
     // THE POSITIVE CONTROL. The exception is about position, and position is exactly where
     // capitalisation stops meaning anything, so the check has to prove it still sees a
     // name there.
-    expect(unvouchedTokens('Vantor publishes regulatory commentary regularly.')).toEqual(['Vantor'])
+    expect(unvouchedTokens('Zentaras publishes regulatory commentary regularly.')).toEqual(['Zentaras'])
     expect(unvouchedTokens('The report is out. Visteon led the round.')).toEqual(['Visteon'])
   })
 

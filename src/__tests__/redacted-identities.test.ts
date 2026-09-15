@@ -91,7 +91,7 @@ describe('the identity scrub does not regress', () => {
       `A redacted identity reappeared in:\n  ${offenders.join('\n  ')}\n` +
       'These are real people or real client organisations removed from this PUBLIC ' +
       'repository on 2026-09-15. Do not add an exemption. Replace the value with a ' +
-      'placeholder from prompt-name-allowlist.data.ts.',
+      'placeholder from the prompt name allowlist data file.',
     ).toEqual([])
   }, 120_000)
 

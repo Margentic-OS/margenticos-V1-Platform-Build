@@ -52,7 +52,7 @@ Acme Beta Vantor Calder Orrin Merrow Halden Brightlane Northwell Tessom
 // ─── B. Acronyms and jargon that are not organisations ───────────────────────
 //
 // EXPLICIT, NEVER A BLANKET RULE FOR ALL-CAPS, and that is the load-bearing decision in
-// this file. "DTCC", "SEC", "GSB", "SCG", "ORRIN" and "CAVE" are all-caps and all real
+// this file. "DTCC", "SEC", "GSB", "SCG", "NVRA" and "CAVE" are all-caps and all real
 // organisations. "ICP", "TOV" and "ARR" are all-caps and none of them are. No pattern
 // separates the two, so the benign ones are named one at a time and everything else in
 // that shape fails. An `/^[A-Z]{2,5}$/` exemption here would have let every one of the
