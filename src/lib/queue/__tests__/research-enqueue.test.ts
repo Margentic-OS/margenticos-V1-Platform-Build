@@ -10,7 +10,6 @@ import {
   selectProspectsForResearch,
   describeResearchSelection,
 } from '../enqueue/research'
-import { TIER_NOT_REJECTED_FILTER } from '@/lib/sourcing/tier-verdict'
 
 /**
  * A rejection reason, deliberately NOT one of the real ones.
@@ -57,16 +56,20 @@ interface FakeProspect {
 }
 
 /**
- * The tier gate, as the database applies it:
- *   sourced_tier IS NOT NULL OR tiering_reason IS NULL
+ * The tier gate RESEARCH applies, as the database applies it:
+ *   sourced_tier IS NOT NULL
  *
- * The defaults key off `undefined` rather than `??`, because a fixture that explicitly sets
- * sourced_tier to null is the rejected row under test and `??` would quietly qualify it.
+ * CHANGED 2026-09-15 from the looser `sourced_tier IS NOT NULL OR tiering_reason IS NULL`.
+ * Research requires a POSITIVE tier now, because an ICP revision clears tiering_reason and
+ * the looser rule reads a cleared verdict as "not yet tiered" and lets the spend through.
+ * Verification still uses the looser rule and its own tests still assert it.
+ *
+ * The default keys off `undefined` rather than `??`, because a fixture that explicitly sets
+ * sourced_tier to null is the row under test and `??` would quietly qualify it.
  */
-function notRejected(p: FakeProspect): boolean {
+function hasPositiveTier(p: FakeProspect): boolean {
   const tier = p.sourced_tier === undefined ? 'tier_1' : p.sourced_tier
-  const reason = p.tiering_reason === undefined ? null : p.tiering_reason
-  return tier !== null || reason === null
+  return tier !== null
 }
 
 /** A client whose organisations, prospects and job_queue tables answer the enqueue query. */
@@ -151,9 +154,12 @@ function fake(
         or: (expr: string) => { orFilters.push(expr); return chain },
         then: (resolve: (v: unknown) => void) => {
           const wantResearched = filters.current_research_result_id_notNull === true
-          const tierGated = orFilters.includes(TIER_NOT_REJECTED_FILTER)
+          // HONOURED, not swallowed. requireTierPresent calls .not('sourced_tier','is',null),
+          // which the `not` handler above records as sourced_tier_notNull. Reading it here is
+          // what makes deleting the gate from the real query fail a test rather than pass one.
+          const tierGated = filters.sourced_tier_notNull === true
           const rows = prospects
-            .filter(p => !tierGated || notRejected(p))
+            .filter(p => !tierGated || hasPositiveTier(p))
             .filter(p => (p.suppressed ?? false) === false)
             .filter(p => (p.researched ?? false) === wantResearched)
             .map(p => ({
@@ -567,17 +573,30 @@ describe('enqueueResearchForOrganisation — the tier gate', () => {
     expect(result.created).toBe(1)
   })
 
-  it('still enqueues a prospect tiering has not reached yet', async () => {
-    // excludeTierRejected, not requireTierPresent: a pending prospect is a normal prospect.
+  it('REFUSES a prospect tiering has not reached yet, and still takes the tiered one beside it', async () => {
+    // INVERTED 2026-09-15. This asserted the opposite, and the opposite was the defect.
+    //
+    // An ICP revision clears tiering_reason on rejected rows so the new rules get applied,
+    // which turns "rejected" into the `pending` row below until the next tiering run reaches
+    // it. There is no standalone tiering cron, so that window is real time. Measured
+    // 2026-09-14: the ICP was revised at 13:57, two prospects were researched at 17:17 and
+    // 18:24, and tiering rejected both at 19:14. Roughly $0.42 on prospects already
+    // disqualified.
+    //
+    // Verification keeps admitting a pending row on purpose: a probe is cheap and
+    // quota-bound, and making it wait on tiering converts a money question into starvation.
+    //
+    // THE `tiered` ROW IS THE CONTROL. A gate that admits nobody would satisfy the pending
+    // assertion for entirely the wrong reason.
     const f = fake([
-      { id: 'pending', personalisation_trigger: null, sourced_tier: null, tiering_reason: null },
+      { id: 'tiered',  personalisation_trigger: null, sourced_tier: 'tier_1', tiering_reason: null },
+      { id: 'pending', personalisation_trigger: null, sourced_tier: null,     tiering_reason: null },
     ])
 
     const result = await enqueueResearchForOrganisation(f.client, ORG, 'unresearched', 'test')
 
     expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error('expected success')
-    expect(result.created).toBe(1)
+    expect(f.enqueued.map(j => j.p_prospect_id ?? j.prospect_id)).toEqual(['tiered'])
   })
 })
 

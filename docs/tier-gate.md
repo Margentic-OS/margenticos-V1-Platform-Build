@@ -1,7 +1,8 @@
 # The tier gate
 
 What this does, in one line: it stops a prospect that tiering REJECTED from being verified,
-researched, approved or sent, without stopping a prospect tiering simply has not reached yet.
+researched, approved or sent. Verification and approve-all still let a prospect tiering has
+not REACHED yet keep moving; research and sending do not, and the split is about price.
 
 ## The problem it fixes
 
@@ -38,16 +39,45 @@ One module, `src/lib/sourcing/tier-verdict.ts`, and five call sites.
 
 | Consumer | Where | Which rule |
 |---|---|---|
-| Verification | `src/lib/sourcing/verification-trigger.ts` | refuse rejected |
-| Research, queue path | `src/lib/queue/enqueue/research.ts` | refuse rejected |
-| Research, inline path | `src/lib/operator/research-batch-entry.ts` | refuse rejected |
+| Verification, first pass | `src/lib/sourcing/verification-trigger.ts` | refuse rejected |
+| Verification, second pass | `src/lib/sourcing/second-pass-trigger.ts` | refuse rejected |
 | Client approve-all | `src/app/api/dashboard/client/prospects/approve-all/route.ts` | refuse rejected |
+| Research, queue path | `src/lib/queue/enqueue/research.ts` | **require a positive tier** |
+| Research, inline path | `src/lib/operator/research-batch-entry.ts` | **require a positive tier** |
 | Send | `src/lib/sourcing/send-gate.ts` | require a positive tier |
 
 The send gate is stricter on purpose. Sending is the irreversible end of the pipeline, and
-"we have not decided about this prospect yet" is not a licence to email them. Everything
-upstream of it spends money, which is recoverable in a way a sent email is not, so those
-consumers let a waiting prospect keep moving.
+"we have not decided about this prospect yet" is not a licence to email them.
+
+**Research joined it on 2026-09-15, for a different reason: price, measured.**
+
+The original split said everything upstream of sending should use the looser rule because it
+spends money, "which is recoverable in a way a sent email is not". That holds for
+verification, where a probe is cheap and quota-bound and making it wait on tiering would
+starve it. It does not hold for research, which costs about $0.21 a prospect.
+
+Measured from `agent_runs` on the live organisation, 2026-09-14:
+
+```
+13:57  the ICP was revised (headcount ceiling 20 -> 30)
+17:17  2 prospects had their sources fetched         PAID
+18:24  the same 2 were synthesised and written       PAID
+19:14  tiering ran and rejected both, not_decision_maker
+```
+
+Research was bought roughly two hours before the verdict existed. **The gate did not fail.**
+The verdict was absent, and the looser rule admits an absent verdict deliberately.
+
+The mechanism is the `persist-icp-filter-spec.ts` thaw described in the next section: it
+clears `tiering_reason` so the new rules get applied, which turns "rejected" into "not yet
+tiered" until the next tiering run reaches the row. There is no standalone tiering cron —
+tiering runs only inside `verify-pending` — so that window is real time. On 2026-09-14 it was
+5 hours 17 minutes and cost about $0.42 on two prospects.
+
+**The cost of the change, stated:** a prospect whose tiering genuinely has not run yet is now
+skipped by research rather than researched. The next enqueue picks it up once tiering has
+reached it, so the effect is latency, not exclusion. The two research call sites must always
+move together, or the CLI and the queue research different sets.
 
 `src/lib/sourcing/send-gate.ts` also collapses the send predicate itself. Its seven filters
 used to be written out by hand in three places: the suppression pre-filter, the claim, and
@@ -71,11 +101,17 @@ addresses. Every consumer refuses them on the tier verdict instead, freshly, eac
 
 ## What to check if it breaks
 
-**Symptom: a prospect that should be researched or verified is being skipped.**
+**Symptom: a prospect that should be verified is being skipped.**
 Read its two tier columns. `tiering_reason` set with `sourced_tier` NULL means tiering
 rejected it, and the gate is working. Both NULL means it is waiting for tiering, and the
 gate is NOT what is holding it: look at `tiering-trigger.ts`, which selects on both columns
 being NULL.
+
+**Symptom: a prospect that should be RESEARCHED is being skipped, and both columns are NULL.**
+That is the gate working as of 2026-09-15. Research requires a positive tier now. Run tiering
+and the prospect becomes eligible. If it stays untiered, the question is why tiering has not
+reached it, not why research refused it. Most often this follows an ICP revision, which clears
+the verdict on every rejected row in the organisation and logs the re-queue count at `warn`.
 
 **Symptom: a prospect that should be sendable is not.**
 The send gate needs a POSITIVE tier, not merely the absence of a rejection. A prospect

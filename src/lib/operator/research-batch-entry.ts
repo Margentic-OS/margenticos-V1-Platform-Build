@@ -24,7 +24,7 @@ import {
   summariseIneligible,
   type IneligibleReason,
 } from '@/lib/sourcing/send-eligibility-policy'
-import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
+import { requireTierPresent } from '@/lib/sourcing/tier-verdict'
 
 // ── Runtime budget ────────────────────────────────────────────────────────────
 //
@@ -330,7 +330,16 @@ async function selectProspects(
   // NOTE this applies even when explicit prospect_ids are supplied, matching the send-
   // eligibility gate below. An operator naming ids by hand is where a quiet spend on a
   // disqualified prospect is most likely, not least.
-  let query = excludeTierRejected(supabase
+  //
+  // ── requireTierPresent, NOT excludeTierRejected. CHANGED 2026-09-15. ────────
+  //
+  // Moved in the same commit as enqueue/research.ts, and the two must always move together:
+  // they are the two research entry points, and gating only one would mean the CLI and the
+  // queue research different sets. Research now requires a POSITIVE tier rather than merely
+  // the absence of a rejection, because an ICP revision clears the verdict and the looser
+  // rule reads a cleared verdict as "not yet tiered" and lets the spend through. Measured
+  // 2026-09-14, roughly $0.42 on two prospects in a 5h17m window. See tier-verdict.ts.
+  let query = requireTierPresent(supabase
     .from('prospects')
     // Raw verification columns, not email_send_eligible. See send-eligibility-policy.ts for
     // why the materialised column is the wrong input here.

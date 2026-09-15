@@ -57,7 +57,7 @@ import {
   summariseIneligible,
   type IneligibleReason,
 } from '@/lib/sourcing/send-eligibility-policy'
-import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
+import { requireTierPresent } from '@/lib/sourcing/tier-verdict'
 
 export type ResearchScope = 'unresearched' | 'researched'
 
@@ -199,7 +199,24 @@ export async function selectProspectsForResearch(
   // It also runs BEFORE the trigger guard, which matters: 9 of the rejected rows in the live
   // organisation already hold personalisation copy, and without this the guard would refuse
   // an entire legitimate batch on behalf of prospects that should never have been researched.
-  let query = excludeTierRejected(supabase
+  //
+  // ── requireTierPresent, NOT excludeTierRejected. CHANGED 2026-09-15. ────────
+  //
+  // The looser rule admits a prospect tiering has not reached YET, and research cannot
+  // afford that. An ICP revision clears tiering_reason on rejected rows so the new rules get
+  // applied, which turns "rejected" into "not yet tiered" until the next tiering run; tiering
+  // runs only inside verify-pending, so that gap is real time. Measured 2026-09-14: the ICP
+  // was revised at 13:57, two prospects were researched at 17:17 and 18:24, and tiering
+  // rejected both at 19:14. Roughly $0.42 on two prospects, in a 5h17m window.
+  //
+  // Verification keeps the looser rule on purpose. A probe is cheap and quota-bound, and
+  // making it wait on tiering starves it. Research at $0.21 is closer to the send gate, which
+  // has always required a positive tier. See src/lib/sourcing/tier-verdict.ts.
+  //
+  // THE COST OF THIS CHOICE, STATED: a prospect whose tiering has genuinely not run yet is
+  // now skipped rather than researched. It is picked up by the next enqueue once tiering has
+  // reached it, so the effect is latency, not exclusion.
+  let query = requireTierPresent(supabase
     .from('prospects')
     // The three verification columns are RAW on purpose. See send-eligibility-policy.ts:
     // email_send_eligible is materialised at verification time and defaults to false, so it

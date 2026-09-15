@@ -5406,3 +5406,120 @@ Consequences:
   and reaching no grade at all. Where both runs produced readings, the grade agreed 13 of 13.
 - The grade moved towards weak: 8 of 15 against 2 of 15. The rules are stricter than the judge's
   summary judgement was, and every miss is quoted, so the move is readable rather than mysterious.
+
+---
+
+## ADR-059 — A truncated model answer is a failure with its own reason, is retried once with the reasoning constrained, and is never filed as a success
+
+**Status:** Accepted, 2026-09-15. **Extends ADR-033**, which built the batch split and its ledger.
+
+**Context.** Synthesis asks for up to 24,000 output tokens and writes its JSON last, so an
+answer that reaches the ceiling has always lost it. The code already handled that correctly at
+the parse: it returns a fallback with `candidates: []`, the writer never runs, and the approved
+template ships. What it did not do was say so anywhere a counter could see.
+
+Measured on the live 2026-09-14 batch, read from `synthesis_batch_entries`:
+
+| outcome | n | avg output tokens | avg USD (batch rates) | total |
+|---|---|---|---|---|
+| truncated, discarded | 2 | 24,000 | $0.1995 | $0.3989 |
+| usable | 5 | 12,855 | $0.1001 | $0.5007 |
+
+**44% of that batch's synthesis spend bought nothing**, and both truncated entries read
+`state = 'succeeded'`, so nothing counted them and MON-021/022 saw a clean batch.
+
+**Decision, three parts.**
+
+1. **The lifecycle verdict and the billing verdict are separated.** `result_type` keeps
+   Anthropic's own word, `'succeeded'`, because that is the BILLING fact: a truncated answer is
+   billed in full, and rewriting it would make the row claim it was free like an errored or
+   expired one. `state` becomes `'failed'`, which is our verdict and was simply untrue before.
+   `'failed'` was already in the CHECK constraint and already counted as a failure by MON-022,
+   so this needed no migration and lit up an existing monitor.
+
+2. **One retry, with the reasoning constrained, and the instruction goes in the USER message.**
+   The system prompt is the ~8,500-token cached prefix every prospect in a batch reads; putting
+   the instruction there would make the retry miss the cache and write a second entry nothing
+   else reads. The instruction lowers no ceiling and changes no rule. It tells the model which
+   half to sacrifice, and the answer is always the reasoning, because the parser discards the
+   reasoning and reads only the JSON.
+
+   **One retry, not a loop.** A truncated answer costs a full ceiling of output. A second
+   truncation is evidence the material does not fit, not bad luck, so a third attempt would
+   spend another $0.20 to learn the same thing.
+
+3. **The discarded call's usage is added to the retry's.** Both were billed. Reporting only the
+   retry would under-report the prospect by exactly the amount this ADR exists to make visible.
+
+**The two halves that must move together.** The sweep marks the entry `'failed'`; the collect
+agent selects `'failed'`. Marking it without widening that filter would leave the prospect with
+no research row at all, which is worse than the mislabel. They are one mechanism in two files
+and the comments at both ends say so.
+
+**The rate is deliberately NOT a constant.** n is 7. The other reading on file is 3 of 39 at
+the previous 16,000 ceiling, so the two disagree by nearly four times and do not describe the
+same ceiling. The re-take query is a comment in `synthesize.ts` and works on old rows too,
+because `stop_reason` was always stored — only the label was wrong. Truncation began once the
+judge started quoting each fit dimension, so the rate scales with how many dimensions a
+client's ICP declares and a pooled figure across clients would describe no client.
+
+**Two test fakes were lying, and both are the shape CLAUDE.md names.** `batch-sweep.test.ts`
+and `research-collect-snapshot.test.ts` both mocked `../synthesize` wholesale, which silently
+removed every export the code did not already use; when the sweep began reading `wasTruncated`
+the SDK threw inside the collection loop, where the sweep catches errors, and five collection
+tests failed with `'submitted'` rather than `'succeeded'` while nothing named the mock. Both
+are now partial via `importOriginal`. **A whole-module mock is a denylist of one.**
+
+---
+
+## ADR-060 — Research requires a POSITIVE tier; verification does not, and the split is priced
+
+**Status:** Accepted, 2026-09-15. **Supersedes the research half of the rule recorded in
+ADR-037's wake.** Verification is unchanged.
+
+**Context.** `tier-verdict.ts` offers two rules: refuse a REJECTION (`excludeTierRejected`), or
+require a POSITIVE tier (`requireTierPresent`). Until now only the send gate used the strict
+one, on the reasoning that everything upstream "spends money, which is recoverable in a way a
+sent email is not".
+
+That reasoning was sound and incomplete. It priced recoverability and not the spend.
+
+Measured from `agent_runs` on the live organisation, 2026-09-14:
+
+```
+13:57  the ICP was revised
+17:17  2 prospects had their sources fetched       PAID
+18:24  the same 2 were synthesised and written     PAID
+19:14  tiering ran and rejected both
+```
+
+**The gate did not fail. The verdict did not exist when the money was spent.**
+`persist-icp-filter-spec.ts` clears `tiering_reason` on rejected rows so a new spec is applied
+to them — correct, and it must stay — which turns "rejected" into "not yet tiered". There is no
+standalone tiering cron; tiering runs only inside `verify-pending`. The window was 5h17m and
+cost about $0.42 on two prospects.
+
+**Decision.** Both research entry points move to `requireTierPresent`. Verification keeps
+`excludeTierRejected` deliberately: a probe is cheap and quota-bound, and making it wait on
+tiering converts a money question into a starvation one — which has already happened once on
+this project, when gating a selector without its picker ran for ~290 firings writing successful
+heartbeats.
+
+**So the rule is priced, not uniform.** At about $0.21 a prospect research belongs with the
+send gate; at a fraction of a cent a verification probe does not.
+
+**Cost of the change, stated.** A prospect whose tiering genuinely has not run is skipped by
+research rather than researched, and picked up by the next enqueue once tiering reaches it. The
+effect is latency, not exclusion.
+
+**The correction this replaces, worth keeping.** A Backlog row dated 2026-09-15 concluded that
+"no paid stage reads the verdict", from a grep showing **0** references to `sourced_tier` and
+`tiering_reason` in both paid selections. The count was accurate. The gate is applied through a
+helper, so it mentions neither column at the call site, and the columns live in
+`TIER_NOT_REJECTED_FILTER` one file away. It had been live since 2026-09-01.
+
+The row's own control passed — `tiering-trigger.ts` returned 12 hits, so the search worked —
+which is the part worth carrying: **proving a grep CAN find something does not prove it is
+searching for the right noun.** A working instrument aimed at the wrong word still returns a
+confident zero. When asking whether a gate exists, grep for its CONSUMERS as well as its
+columns: `grep -rn "excludeTierRejected" src` settles it in one command.
