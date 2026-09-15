@@ -48,8 +48,9 @@ export interface ProduceOpeningInput {
    * to lose at this boundary while opposite_reading and inference_direction travelled
    * fine inside the candidate objects themselves.
    *
-   * Optional because the stored-findings branch has neither: it makes no synthesis call,
-   * so it reaches no selection, and buildFindingsBlock then simply marks nothing.
+   * Optional. The stored-findings branch makes no synthesis call, so it reaches no
+   * selection of its own; since 2026-09-14 it carries the one its source row recorded
+   * instead. Where that row has none, buildFindingsBlock simply marks nothing.
    */
   selectedCandidateId?: string | null
   relevanceReason?: string | null

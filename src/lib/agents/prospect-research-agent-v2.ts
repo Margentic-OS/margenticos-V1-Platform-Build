@@ -320,6 +320,14 @@ interface StoredFindings {
   has_dateable_signal:  boolean | null
   signal_observation:   string | null
   relevance_reason:     string | null
+  /**
+   * The candidate the run that produced this row selected. Carried so a reuse run can mark
+   * it for the writer, which is the same rule every other field here follows.
+   *
+   * Null for a row written before the column existed, and null on a row whose run reached
+   * no selection. Both mean "nothing to mark", which is what the writer already sees today.
+   */
+  selected_candidate_id: string | null
 }
 
 // Loads the BEST research result already on file for a prospect. "Best" is deliberately
@@ -344,7 +352,7 @@ export async function loadStoredFindings(
     // One string literal, deliberately. Supabase infers the row type from the select as a
     // literal type, and splitting this across concatenated strings collapses every column
     // to GenericStringError.
-    .select('id, candidates, sources_successful, created_at, synthesized_at, icp_fit, qualification_status, qualification_reason, synthesis_confidence, has_dateable_signal, signal_observation, relevance_reason')
+    .select('id, candidates, sources_successful, created_at, synthesized_at, icp_fit, qualification_status, qualification_reason, synthesis_confidence, has_dateable_signal, signal_observation, relevance_reason, selected_candidate_id')
     .eq('prospect_id', prospect_id)
     .eq('organisation_id', client_id)
     .gte('created_at', cutoff)
@@ -382,6 +390,7 @@ export async function loadStoredFindings(
       has_dateable_signal: (row.has_dateable_signal ?? null) as boolean | null,
       signal_observation: (row.signal_observation ?? null) as string | null,
       relevance_reason: (row.relevance_reason ?? null) as string | null,
+      selected_candidate_id: (row.selected_candidate_id ?? null) as string | null,
     }))
     .filter(r => r.candidates.length > 0)
 
@@ -461,7 +470,23 @@ export async function synthesisFromStored(
       ?? `Findings reused from research result ${stored.result_id} (${stored.created_at}). No sources fetched.`,
     reasoning: `Stored-findings run. Candidates carried over from ${stored.result_id}.`,
     candidates: stored.candidates,
-    selected_candidate_id: null,
+    // CARRIED, NOT NULLED. This read `null` from 2026-08-20 until 2026-09-14, and the line
+    // was never touched in between. It was correct when written: buildFindingsBlock did not
+    // take a selection then, so this was a field the writer never read and the rule for
+    // those is an honest placeholder. On 2026-09-02 the mark was added and the writer began
+    // reading it. Nothing points from buildFindingsBlock back to here, so the placeholder
+    // outlived its own justification by twelve days.
+    //
+    // Measured on the pinned 33-prospect cohort, 2026-09-14: all 29 prospects that ran the
+    // writer had a selection stored on the source row and none of it arrived, and 17 of the
+    // 29 openings were built on a candidate the research had not chosen. Three were built on
+    // candidates it had positively rejected.
+    //
+    // THE SELECTION IS NOT DANGLING. `candidates` two lines up carries the identical set
+    // forward, so the id always names a candidate the writer can see. Null stays null: a row
+    // predating the column, or one whose run reached no selection, marks nothing, which is
+    // exactly what every reuse run did before this change.
+    selected_candidate_id: stored.selected_candidate_id,
     trigger_readability: {
       hard_fail: false, penalty: 0, max_sentence_words: 0, hedges: [],
       nominalisation_density: 0, nominalisation_over_threshold: false, reasons: [],
@@ -574,8 +599,9 @@ export async function runProspectResearchAgentV2({
       clientName: await loadClientName(supabase, client_id),
       ctx,
       // The candidates, the selection and the relevance reason, through the ONE mapping
-      // every caller uses. The selection is null on the stored-findings branch, which
-      // reaches no selection of its own; buildFindingsBlock then marks nothing.
+      // every caller uses. A stored-findings run reaches no selection of its own and now
+      // carries forward the one its source row recorded, the same rule every other field
+      // in synthesisFromStored follows; where that row has none, nothing is marked.
       ...writerInputFromSynthesis(synthesis),
       messagingContent: messaging.content,
       variantId,
