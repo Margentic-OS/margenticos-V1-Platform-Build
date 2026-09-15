@@ -96,7 +96,7 @@ export function CreateOrgForm() {
           id="currency"
           name="currency"
           required
-          defaultValue={f?.currency ?? 'GBP'}
+          defaultValue={f?.currency ?? 'USD'}
           className="w-full px-3 py-2 text-sm border border-border-card rounded-[6px] bg-surface-card text-text-primary focus:outline-none focus:ring-1 focus:ring-brand-green"
         >
           <option value="GBP">GBP (£)</option>

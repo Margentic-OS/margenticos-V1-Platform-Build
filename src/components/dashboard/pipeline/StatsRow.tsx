@@ -1,8 +1,12 @@
+import { formatCurrency, type OrganisationCurrency } from '@/lib/currency/format-currency'
+
 interface StatsRowProps {
   qualifiedMeetings: number
   totalMeetings: number
   pipelineValue: number
   replyRate: number | null
+  /** The viewing organisation's currency. Required: a hardcoded symbol is the bug this fixes. */
+  currency: OrganisationCurrency
 }
 
 const EMPTY_COPY = 'Tracking begins once campaigns go live'
@@ -35,16 +39,13 @@ function StatCard({
   )
 }
 
-export function StatsRow({ qualifiedMeetings, totalMeetings, pipelineValue, replyRate }: StatsRowProps) {
+export function StatsRow({ qualifiedMeetings, totalMeetings, pipelineValue, replyRate, currency }: StatsRowProps) {
   const hasData = totalMeetings > 0
 
   const qualifiedRate = `${Math.round((qualifiedMeetings / totalMeetings) * 100)}%`
   const qualifiedSubtext = `${qualifiedMeetings} of ${totalMeetings} meetings qualified`
 
-  const pipelineFormatted =
-    pipelineValue >= 1000
-      ? `£${(pipelineValue / 1000).toFixed(0)}k`
-      : `£${pipelineValue}`
+  const pipelineFormatted = formatCurrency(pipelineValue, currency)
   const pipelineSubtext = `${qualifiedMeetings} qualified meeting${qualifiedMeetings !== 1 ? 's' : ''} · est. value`
 
   return (

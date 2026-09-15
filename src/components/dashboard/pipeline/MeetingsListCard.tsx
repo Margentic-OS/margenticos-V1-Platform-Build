@@ -1,3 +1,5 @@
+import { formatCurrency, type OrganisationCurrency } from '@/lib/currency/format-currency'
+
 export interface MeetingRow {
   id: string
   prospectFirstName: string | null
@@ -11,6 +13,8 @@ export interface MeetingRow {
 interface MeetingsListCardProps {
   meetings: MeetingRow[]
   launchDate: string | null
+  /** The viewing organisation's currency. Required: a hardcoded symbol is the bug this fixes. */
+  currency: OrganisationCurrency
 }
 
 const QUALIFICATION_BADGES: Record<string, { label: string; className: string }> = {
@@ -37,12 +41,9 @@ function formatMeetingDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
-function formatRevenue(value: number): string {
-  if (value >= 1000) return `£${(value / 1000).toFixed(0)}k`
-  return `£${value}`
-}
 
-export function MeetingsListCard({ meetings, launchDate }: MeetingsListCardProps) {
+
+export function MeetingsListCard({ meetings, launchDate, currency }: MeetingsListCardProps) {
   const emptyStateMsg = launchDate
     ? `Your first campaign launches ${launchDate} — meetings will appear here`
     : 'Campaigns are live — your first meeting will appear here'
@@ -82,7 +83,7 @@ export function MeetingsListCard({ meetings, launchDate }: MeetingsListCardProps
                       {m.company ?? '—'}
                       {m.revenueValue != null && (
                         <span className="ml-1.5 text-text-muted">
-                          · {formatRevenue(m.revenueValue)}
+                          · {formatCurrency(m.revenueValue, currency)}
                         </span>
                       )}
                     </p>
