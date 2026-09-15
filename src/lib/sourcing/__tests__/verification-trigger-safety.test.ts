@@ -741,8 +741,15 @@ describe('BUG 5 — the run verdict is derived from what the run achieved', () =
   // 'free_tier_exhausted' LITERAL, so a downgrade that swallowed it would turn a budget
   // state into an alarm.
   describe('deriveRunStatus, the rule on its own', () => {
-    it('keeps free_tier_exhausted, which the route branches on by literal', () => {
-      expect(deriveRunStatus({ total_verified: 0, failed_count: 0, status: 'free_tier_exhausted' }))
+    // THE FAILED COUNT HERE IS THE WHOLE TEST, and the first version of it did not have one.
+    //
+    // Written as { total_verified: 0, failed_count: 0 } this assertion cannot fail: with
+    // nothing attempted the `attempted === 0` branch preserves the status on its own, so
+    // deleting the guard clause above changed nothing and the mutation came back UNCOVERED.
+    // A non-zero failed_count is what makes the two versions disagree, which is what makes
+    // this a test of the guard rather than a test of the branch below it.
+    it('keeps free_tier_exhausted even after failures, since the route reads that literal', () => {
+      expect(deriveRunStatus({ total_verified: 0, failed_count: 3, status: 'free_tier_exhausted' }))
         .toBe('free_tier_exhausted')
     })
 
