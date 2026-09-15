@@ -60,6 +60,34 @@ export function truncationReason(outputTokens: number): string {
   return `the answer was cut off at the output ceiling after ${outputTokens} tokens, so its JSON never arrived`
 }
 
+// ─── THE TRUNCATION RATE IS NOT A CONSTANT HERE, ON PURPOSE ──────────────────
+//
+// It would be a figure with an n of 7, and this file already carries the scar of a constant
+// quoted onward without its sample size (WEB_SEARCH_SEARCHES_PER_PROSPECT, 1.67 from nine
+// lookups against a real 2.83 over 73 prospects).
+//
+// RE-TAKE IT. The query works on old rows as well as new ones, because stop_reason was always
+// stored: only the `state` label was wrong, and that is what this change fixed.
+//
+//   SELECT count(*)                                            AS billed_answers,
+//          count(*) FILTER (WHERE stop_reason = 'max_tokens')  AS truncated,
+//          round(100.0 * count(*) FILTER (WHERE stop_reason = 'max_tokens') / count(*), 1) AS pct,
+//          round(sum(((usage->>'output_tokens')::numeric) * 7.50 / 1e6)
+//                FILTER (WHERE stop_reason = 'max_tokens'), 4) AS usd_discarded
+//     FROM synthesis_batch_entries
+//    WHERE result_type = 'succeeded';
+//
+// Measured 2026-09-15: 7 billed answers, 2 truncated, 28.6%, $0.36 discarded. n IS 7 AND
+// THAT IS TOO SMALL TO DESIGN AGAINST. The other reading on file is 3 of 39 (7.7%) on
+// 2026-09-11 at the previous 16,000 ceiling, so the two disagree by nearly four times and
+// are not measuring the same ceiling. Nothing here should be trusted as a rate until a run
+// of at least 20 has been through.
+//
+// WHY THE RATE IS PROBABLY CLIENT-SPECIFIC rather than one number: truncation started once
+// the judge began quoting each fit dimension, so the answer's length scales with how many
+// dimensions a client's ICP declares. A pooled rate across clients with different dimension
+// counts would describe no client. Split by organisation before quoting one.
+
 /**
  * The instruction added to a RETRY after a truncated answer.
  *

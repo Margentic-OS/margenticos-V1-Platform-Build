@@ -1938,6 +1938,20 @@ For quick reference. Full text in /docs/ADR.md.
            found by the hosting seat, the prospect by a reference on our link and then by
            email; an unmatched booking is recorded and never auto-billed; meeting-ended is
            ignored. Calendly naming removed; the destructive database half waits for merge
+  ADR-057, ADR-058  see /docs/ADR.md. Not summarised here, and that is this list going
+           behind the file again, which is the failure mode noted against ADR-047 above
+  ADR-059  A truncated model answer is a FAILURE with its own reason and is never filed as a
+           success: result_type keeps the provider's word because that is the BILLING fact,
+           state becomes 'failed' because that is ours. It retries ONCE with the reasoning
+           constrained, in the USER message so the cached system prefix stays byte-identical,
+           and the discarded call's usage is added to the retry's because both were billed.
+           Measured: 2 of 7 on 2026-09-14, 44% of that batch's synthesis spend, discarded
+  ADR-060  Research requires a POSITIVE tier; verification deliberately does not. The split
+           is PRICED, not uniform: research is ~$0.21 a prospect and belongs with the send
+           gate, a verification probe is quota-bound and cheap. An ICP revision clears the
+           verdict, which reads as "not yet tiered", and the looser rule admits that. Also
+           records why a grep concluded the gate was absent when it had been live since
+           2026-09-01: it searched for the COLUMNS, and the gate is applied via a helper
 
 ---
 
