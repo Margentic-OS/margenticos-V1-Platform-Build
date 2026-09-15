@@ -503,3 +503,143 @@ describe('traceability matches whole words, not substrings', () => {
     )).toEqual([])
   })
 })
+
+// ─── THE PLURAL CHAIN AND THE SIX ADDED WORDS, 2026-09-14 ────────────────────
+//
+// THE REPORT. The gate rejected "Qualified", "Boutique", "Decision-makers",
+// "Cross-market", "Producers" and "Drivers" at the start of a sentence. Each cost a writer
+// attempt, and two prospects shipped the generic template because of it.
+//
+// TWO SEPARATE CAUSES, and reading them as one is why the earlier narrow fix in
+// prompt-name-scan.ts did not reach the shipped gate:
+//
+//   THE CHAIN     "drivers" and "producers" are plurals of words that are only ordinary
+//                 THROUGH a suffix rule. lemmaCandidates applied one step, never two.
+//   THE WORDS     "qualify", "boutique" and "cross" were simply absent from the list.
+//
+// BOTH DIRECTIONS ARE ASSERTED BELOW, because a gate that allows everything is an outage
+// that reports success. The permissive tests and the discriminating tests are equally
+// load-bearing, and the invented-plural block is the one that proves the chain did not
+// simply switch the check off.
+describe('an ordinary word opening a sentence is not a name', () => {
+  const opens = (word: string) =>
+    findSentenceInitialNames(`${word} carry the rest of this sentence along.`, UNRELATED_FINDINGS)
+
+  // The six from the report, each with the cause it exercises.
+  it.each([
+    ['Qualified',       'past participle; needed "qualify" in the vocabulary'],
+    ['Boutique',        'needed "boutique" in the vocabulary'],
+    ['Decision-makers', 'compound; "makers" needed the plural chain to reach "make"'],
+    ['Cross-market',    'compound; needed "cross" in the vocabulary'],
+    ['Producers',       'plural chain: producers -> producer -> produce'],
+    ['Drivers',         'plural chain: drivers -> driver -> drive'],
+  ])('allows %s at the start of a sentence (%s)', word => {
+    expect(opens(word), `${word} must not be read as a name`).toEqual([])
+  })
+
+  // Measured in the stored writer runs of 2026-09-14. Every one of these was the ONLY gate
+  // that failed on its attempt, so each cost a whole writer attempt for nothing.
+  it.each(['Boutiques', 'Referral-dependent', 'Scouting', 'Sole-owner'])(
+    'allows %s, rejected in a real run with no other gate failing',
+    word => { expect(opens(word)).toEqual([]) },
+  )
+
+  // THE OTHER DIRECTION, ON THE SAME CORPUS. These were rejected in the same runs and the
+  // rejections are CORRECT. If this block ever goes green-by-allowing, the fix above has
+  // been widened into an outage.
+  it('still catches the real company the same runs rejected three times', () => {
+    expect(opens('Salesforce')).toHaveLength(1)
+  })
+
+  it('still catches the writer leaking its own drafting labels', () => {
+    // "Bridge" and "OBSERVATION" are the writer printing its field names into the answer.
+    // Deliberately kept out of the vocabulary, for the reason "treasury" and "cave" are:
+    // an ordinary word that is also a label is worth more as a leak detector.
+    for (const label of ['Bridge', 'OBSERVATION', 'BRIDGE']) {
+      expect(opens(label), `${label} must stay rejected`).toHaveLength(1)
+    }
+  })
+
+  it('still catches every real entity in the writer prompt', () => {
+    for (const name of ['Taffet', 'Sovern', 'Visteon', 'Stanford', 'Hollywood', 'Pani',
+                        'DTCC', 'Treasury', 'Zentara', 'Quillion', 'Fernbrook']) {
+      expect(opens(name), `${name} LEAKED`).toHaveLength(1)
+    }
+  })
+
+  // THE MUTATION TEST FOR THE CHAIN ITSELF, and the reason the chain is bounded at one
+  // extra step through a plural rather than being general recursion. An invented name with
+  // a plural ending is the exact shape the chain could have let through, so it is the shape
+  // that has to be asserted rather than reasoned about.
+  it('still catches an INVENTED name that merely looks plural', () => {
+    for (const name of ['Zentaras', 'Quillions', 'Fernbrooks', 'Taffets', 'Soverns',
+                        'Cormacks', 'Brindles', 'Halveras', 'Norvaks', 'Ludderns']) {
+      expect(opens(name), `${name} LEAKED through the plural chain`).toHaveLength(1)
+    }
+  })
+
+  it('still catches a plural name MID-sentence, where capitalisation is evidence again', () => {
+    // The gate only ever judges sentence-initial tokens; untraceableClaims owns the rest.
+    // Asserted so widening the vocabulary is never mistaken for widening the position set.
+    const mid = findSentenceInitialNames(
+      'The firms we spoke to all named Zentaras as the incumbent.', UNRELATED_FINDINGS)
+    expect(mid).toEqual([])
+  })
+})
+
+describe('the plural chain, at the vocabulary level', () => {
+  // THE DEFECT, STATED AS THE MEASUREMENT THAT FOUND IT. Measured at ce13be3:
+  // driver=true drivers=FALSE, producer=true producers=FALSE, maker=true makers=FALSE.
+  // A singular and its plural must agree, and before this they did not.
+  it.each([
+    ['driver', 'drivers'], ['producer', 'producers'], ['maker', 'makers'],
+    ['buyer', 'buyers'], ['founder', 'founders'], ['training', 'trainings'],
+  ])('%s and %s agree', (singular, plural) => {
+    expect(isOrdinaryWord(singular)).toBe(true)
+    expect(isOrdinaryWord(plural), `${plural} must follow ${singular}`).toBe(true)
+  })
+
+  // WHY THE BUG WAS INVISIBLE TO A SPOT CHECK, kept as an assertion so the next person
+  // does not re-derive it. "buyers" and "founders" worked by luck: the -ers rule also
+  // proposes the three-letter stem, and "buy" and "found" are in the list where "driv"
+  // and "produc" are not. Anyone checking the obvious words would have seen it work.
+  it('the words that worked before did so through a DIFFERENT rule', () => {
+    expect(isOrdinaryWord('buy')).toBe(true)     // buyers -> buy, one step
+    expect(isOrdinaryWord('found')).toBe(true)   // founders -> found, one step
+    expect(isOrdinaryWord('driv')).toBe(false)   // drivers -> driv, dead end
+    expect(isOrdinaryWord('produc')).toBe(false) // producers -> produc, dead end
+    expect(isOrdinaryWord('drive')).toBe(true)   // reached only by the chain
+    expect(isOrdinaryWord('produce')).toBe(true) // reached only by the chain
+  })
+
+  // THE SELF-LIMIT, which is what makes the chain safe. Every step proposes CANDIDATES,
+  // and a candidate only counts if the vocabulary already holds it. The chain can never
+  // admit a word the list does not already carry.
+  it('cannot admit a word the vocabulary does not already hold', () => {
+    expect(isOrdinaryWord('zentara')).toBe(false)
+    expect(isOrdinaryWord('zentaras')).toBe(false)
+    expect(isOrdinaryWord('zentarer')).toBe(false)
+    expect(isOrdinaryWord('zentarers')).toBe(false)
+  })
+
+  // THE CHAIN IS BOUNDED AT ONE EXTRA STEP, AND ONLY THROUGH A PLURAL. A non-plural first
+  // step is not re-expanded. This is the assertion that fails if someone later turns the
+  // chain into general recursion, which would widen the gate well past what was measured.
+  it('does not chain a non-plural first step', () => {
+    // "runninger" -> (-er) "runnin"/"running" and STOPS. General recursion would carry
+    // "running" on to "run" and call this ordinary English, which it is not.
+    expect(isOrdinaryWord('runninger')).toBe(false)
+  })
+
+  it('the six added words are in the vocabulary, not reached by some accident of a rule', () => {
+    for (const w of ['boutique', 'cross', 'dependent', 'qualify', 'scout', 'sole']) {
+      expect(isOrdinaryWord(w), `${w} missing`).toBe(true)
+    }
+  })
+
+  // The list only ever grows, and it grew by six. Asserted so an edit that empties or
+  // truncates it is visible, in the same spirit as the count assertion further up.
+  it('grew by exactly the six words that were argued for', () => {
+    expect(ORDINARY_WORD_COUNT).toBe(1753)
+  })
+})

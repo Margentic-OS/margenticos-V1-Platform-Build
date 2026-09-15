@@ -604,7 +604,34 @@ First, reason through the research in a <reasoning> block. Cover:
      prospect's facts.
   8. Qualification assessment
 
-Then output this exact JSON with no markdown fences:
+THE ANALYSIS IS WRITTEN ONCE. NOT ONCE ROUGHLY AND THEN ONCE PROPERLY.
+
+The eight items above are not a write-up of working you do somewhere else. They ARE the
+working. Do them in order, once, and write nothing besides them.
+
+So: DO NOT survey the material first and then work through the items. That exact shape has
+been observed and it is what this rule exists to stop. It looks like a free-form pass under
+headings such as "## Source Review", "## Candidate Generation", "## Final Candidate List" or
+"## Final Summary", and then "## 1." through "## 8." going over the same ground again. Both
+passes cost real money and only one of them is read.
+
+There is no exploratory pass before item 1. The FIRST heading after <reasoning> is item 1,
+and the LAST is item 8. If you are about to write a heading that is not one of the eight,
+you are restating: write the next numbered item instead.
+
+Thinking as you go is expected and is what the items are for. Sifting candidates belongs in
+item 2, weighing them belongs in item 5. What is forbidden is doing that work loose and then
+doing it again in position.
+
+The <reasoning> block is your working, and it is the only place working belongs. The parser
+strips it and throws it away, so nothing outside it is read by anyone. Do not write the JSON
+inside it.
+
+After </reasoning> the very next character is the opening { of the JSON below. Nothing
+between them: no summary, no "## Reasoning" section, no headings, no restatement of the
+analysis you have just done.
+
+Output this exact JSON with no markdown fences:
 
 {
 ${ctx.fitDimensions?.length ? `  "fit_dimensions": {

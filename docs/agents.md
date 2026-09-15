@@ -722,14 +722,52 @@ and any company the model invents tomorrow). The ordinary-English vocabulary liv
 It is deliberately NOT a list of the names we are afraid of. Such a list would protect
 against exactly those spellings and would rot the moment an example changed.
 
-**REPORT-ONLY UNTIL FLIPPED BY HAND.** `SENTENCE_INITIAL_GATE_MODE = 'report'` means it
-logs what it would have rejected and rejects nothing. Review after 2026-09-04. See
-BACKLOG for what to look for in the logs and how to flip it.
+**IT BLOCKS. `SENTENCE_INITIAL_GATE_MODE = 'block'` since 2026-08-31.** This paragraph
+said "REPORT-ONLY UNTIL FLIPPED BY HAND" until 2026-09-14, two weeks after the flip, while
+the gate was ending real writer attempts. A rejection here costs a retry, and a prospect
+that runs out of retries ships the generic template instead.
 
-WHAT TO CHECK IF IT BREAKS. If good copy starts getting rejected after the flip, read the
-log line `sentence-initial-gate: ...`. It names the prospect, the word, and the sentence.
-If the word is ordinary English, add it to `ordinary-words.ts`. Adding a word can only make
-the gate more permissive, so it is always the safe fix.
+WHAT TO CHECK IF IT BREAKS. If good copy starts getting rejected, read the log line
+`sentence-initial-gate: ...`. It names the prospect, the word, and the sentence. If the
+word is ordinary English, add it to `ordinary-words.ts`. Adding a word can only make the
+gate more permissive, so it is always the safe fix.
+
+**Fixed 2026-09-14: an ordinary plural was being read as a name.**
+
+WHAT WENT WRONG, in plain English. The vocabulary in `ordinary-words.ts` is a list of base
+words, not every form of every word. "drive" is on the list, and the code works out that
+"driver" is a form of it by taking the ending off. It did that **once and only once**, so
+it never got from "drivers" back to "drive". The plural of an ordinary word stopped being
+ordinary, and the gate called it an invented name.
+
+It went unnoticed because the obvious words to spot-check are fine. "Buyers" and "Founders"
+work, by luck: the same rule also tries a shorter stem, and "buy" and "found" happen to be
+on the list where "driv" and "produc" are not. Anyone testing it by hand would have seen it
+work.
+
+WHAT IT COST. The gate rejected `Qualified`, `Boutique`, `Decision-makers`, `Cross-market`,
+`Producers` and `Drivers` at the start of a sentence. Each cost a writer attempt, and two
+prospects shipped the generic template as a result.
+
+THE FIX, both halves. The code now takes the ending off **twice** when the first step was a
+plural, so "drivers" reaches "driver" and then "drive". And six ordinary words that were
+simply missing were added: `boutique`, `cross`, `dependent`, `qualify`, `scout`, `sole`.
+Every one of the six was chosen because a stored writer run actually rejected it, not
+because it seemed like it might be missing.
+
+WHY THIS DID NOT SWITCH THE GATE OFF, which is the thing to check when a gate is loosened.
+The chain is capped at one extra step and only through a plural, and it can never admit a
+word the vocabulary does not already hold: each step only *proposes* a base word, and a
+proposal counts only if the list already contains it. Measured over the 1,820 distinct
+capitalised words in the five stored writer runs and the prompts, 13 changed verdict and
+nothing became stricter. Invented plural-looking names (`Zentaras`, `Quillions`,
+`Fernbrooks`) are still caught, and so are real ones.
+
+WHAT IS STILL REJECTED ON PURPOSE. `Bridge`, `OBSERVATION`, `Draft` and `Trim` are the
+writer accidentally printing its own drafting labels into the email, and those rejections
+are correct. `Salesforce` is a real company. None of those words were added to the list,
+for the same reason "treasury" and "cave" are deliberately absent from it: an ordinary word
+that is also a name is worth more as a detector than as a permitted word.
 
 ### The safe default
 
