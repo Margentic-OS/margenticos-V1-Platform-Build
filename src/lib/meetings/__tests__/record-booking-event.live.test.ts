@@ -56,7 +56,7 @@ function details(overrides: Partial<BookedDetails>): BookedDetails {
 async function meetingsWithUid(bookingUid: string) {
   const { data, error } = await supabase
     .from('meetings')
-    .select('id, prospect_id, prospect_match, source, meeting_status, is_billable, booking_uid, scheduled_start_at')
+    .select('id, prospect_id, prospect_match, source, meeting_status, is_billable, booking_uid, scheduled_start_at, meeting_date')
     .eq('booking_uid', bookingUid)
   if (error) throw new Error(error.message)
   return data ?? []
@@ -165,5 +165,85 @@ describe('recordBookingEvent on the real database', { timeout: 30_000 }, () => {
     const rows = await meetingsWithUid(uid('move-2'))
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ meeting_status: 'booked', scheduled_start_at: '2026-09-18T14:00:00+00:00' })
+  })
+})
+
+// ── The client's monthly count ───────────────────────────────────────────────
+//
+// The client pipeline counts "meetings this month" with
+//   .gte('meeting_date', monthStart).lte('meeting_date', monthEnd)
+// A NULL meeting_date satisfies NEITHER comparison, so before 2026-09-15 a webhook meeting
+// was silently missing from that number while still appearing in the list below it.
+//
+// This runs the REAL query against the REAL column rather than asserting the field is
+// non-null, because "not null" is not the property that matters: being FOUND BY THIS QUERY
+// is. The month bounds are derived from the booking's own month, not from today, so the
+// test does not start failing in October.
+
+function monthBoundsFor(iso: string): { start: string; end: string } {
+  const d = new Date(iso)
+  const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))
+  const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0, 23, 59, 59))
+  return { start: start.toISOString(), end: end.toISOString() }
+}
+
+async function countInMonth(orgId: string, bounds: { start: string; end: string }): Promise<number> {
+  const { count, error } = await supabase
+    .from('meetings')
+    .select('*', { count: 'exact', head: true })
+    .eq('organisation_id', orgId)
+    .gte('meeting_date', bounds.start)
+    .lte('meeting_date', bounds.end)
+  if (error) throw new Error(error.message)
+  return count ?? 0
+}
+
+describe('a webhook booking reaches the client monthly count', { timeout: 30_000 }, () => {
+  it('is counted in its own month, and the same query does not find it in another', async () => {
+    const client = asServiceRoleClient(supabase)
+    const startTime = '2026-09-15T09:30:00Z'
+
+    const before = await countInMonth(organisationId, monthBoundsFor(startTime))
+
+    await recordBookingEvent(
+      client,
+      { kind: 'created', ...details({ bookingUid: uid('month'), prospectRef: prospectId, startTime }) },
+      PROVIDER,
+    )
+
+    const row = (await meetingsWithUid(uid('month')))[0]
+    expect(row.meeting_date).not.toBeNull()
+    expect(row.meeting_date).toEqual(row.scheduled_start_at)
+
+    // The assertion that matters: the page's own query finds it.
+    expect(await countInMonth(organisationId, monthBoundsFor(startTime))).toBe(before + 1)
+
+    // NEGATIVE CONTROL. The same query over a different month must NOT find it. Without
+    // this, a query that matched everything would pass the line above and prove nothing.
+    expect(await countInMonth(organisationId, monthBoundsFor('2026-11-15T09:30:00Z'))).toBe(0)
+  })
+
+  it('a reschedule moves the client-facing date too, so the count follows the meeting', async () => {
+    const client = asServiceRoleClient(supabase)
+    await recordBookingEvent(
+      client,
+      { kind: 'created', ...details({ bookingUid: uid('mm-1'), prospectRef: prospectId, startTime: '2026-10-06T09:30:00Z' }) },
+      PROVIDER,
+    )
+    expect(await countInMonth(organisationId, monthBoundsFor('2026-10-06T09:30:00Z'))).toBe(1)
+
+    await recordBookingEvent(client, {
+      kind: 'rescheduled',
+      previousBookingUid: uid('mm-1'),
+      ...details({ bookingUid: uid('mm-2'), prospectRef: prospectId, startTime: '2026-12-08T14:00:00Z' }),
+    }, PROVIDER)
+
+    const moved = (await meetingsWithUid(uid('mm-2')))[0]
+    expect(moved.meeting_date).toEqual(moved.scheduled_start_at)
+
+    // It left October and arrived in December. Both halves, because a write that set the
+    // new date without moving it would pass only the second.
+    expect(await countInMonth(organisationId, monthBoundsFor('2026-10-06T09:30:00Z'))).toBe(0)
+    expect(await countInMonth(organisationId, monthBoundsFor('2026-12-08T14:00:00Z'))).toBe(1)
   })
 })

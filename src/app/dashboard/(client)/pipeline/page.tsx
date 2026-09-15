@@ -10,6 +10,7 @@ import type { MeetingRow } from '@/components/dashboard/pipeline/MeetingsListCar
 import type { StrategyDoc } from '@/components/dashboard/pipeline/StrategyPanelCard'
 import type { DocumentType } from '@/types'
 import { computeCampaignMetrics } from '@/lib/metrics/campaign-metrics'
+import { toOrganisationCurrency } from '@/lib/currency/format-currency'
 
 function getOrgInitials(name: string): string {
   return name
@@ -68,7 +69,7 @@ export default async function PipelinePage({
 
   const { data: org } = await supabase
     .from('organisations')
-    .select('id, name, contract_start_date, pipeline_unlocked, monthly_meetings_target')
+    .select('id, name, contract_start_date, pipeline_unlocked, monthly_meetings_target, currency')
     .eq('id', organisationId ?? '')
     .single()
 
@@ -160,6 +161,7 @@ export default async function PipelinePage({
     .reduce((sum, m) => sum + (m.revenue_value ?? 0), 0)
 
   const launchDate = estimateLaunchDate(org.contract_start_date)
+  const currency = toOrganisationCurrency(org.currency)
 
   const replyRate = campaignMetrics.hasData
     ? campaignMetrics.replyCount / campaignMetrics.sentCount * 100
@@ -179,7 +181,7 @@ export default async function PipelinePage({
         <div className="px-7 py-6 space-y-4 max-w-[1040px]">
           <MomentumBlock meetingsThisMonth={meetingsThisMonth} monthlyMeetingsTarget={org.monthly_meetings_target} launchDate={launchDate} />
           <div className="grid grid-cols-[1fr_300px] gap-4">
-            <MeetingsListCard meetings={meetings} launchDate={launchDate} />
+            <MeetingsListCard meetings={meetings} launchDate={launchDate} currency={currency} />
             <StrategyPanelCard documents={strategyDocs} clientParam={clientParam} />
           </div>
           <StatsRow
@@ -187,6 +189,7 @@ export default async function PipelinePage({
             totalMeetings={totalMeetings}
             pipelineValue={pipelineValue}
             replyRate={replyRate}
+            currency={currency}
           />
         </div>
       </div>
