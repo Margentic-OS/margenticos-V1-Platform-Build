@@ -162,7 +162,7 @@ const OPERATOR_TEMPLATES: RenderedTemplate[] = [
     audience: 'operator',
     subject: multiUserSignupAttemptSubject(ORG),
     html: multiUserSignupAttemptTemplate({
-      attemptedEmail: 'someone@apexconsulting.com',
+      attemptedEmail: 'someone@apexconsulting.example',
       orgId: ORG_ID,
       orgName: ORG,
       attemptedAt: '7 September 2026 at 15:04',
