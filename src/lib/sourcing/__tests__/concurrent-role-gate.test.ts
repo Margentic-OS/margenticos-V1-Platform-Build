@@ -50,11 +50,31 @@ const prospect = (over: Partial<EnrichedProspect> = {}): EnrichedProspect => ({
   company_industry: CANONICAL_INDUSTRIES[0], company_name: 'Placeholder Company', ...over,
 })
 
-describe('the disqualifier', () => {
-  it('removes a prospect the provider says holds another current job', async () => {
+describe('the disqualifier that was withdrawn', () => {
+  // THIS CASE USED TO ASSERT THE OPPOSITE, and the inversion is the record of why.
+  //
+  // The disqualifier removed 6 real people before it was read. One was a portfolio advisor
+  // counted out on a fractional finance post and two board advisory seats, which are the
+  // consulting work being sold; one on an employer listed twice in the same history, once
+  // current and once ended; one on an unpaid chair of a professional body's branch. The rule
+  // came from one observed case and encoded that case's coincidences.
+  //
+  // Kept as a test rather than deleted, because a deleted test is indistinguishable from a
+  // rule nobody thought about, and this rule will look reasonable again to the next reader.
+  it('does NOT remove a prospect the provider says holds another current position', async () => {
     const result = await classifyTier(prospect({ apollo_enrichment_data: history(['other-org']) }), spec())
-    expect(result.tiering_reason).toBe('holds_another_current_role')
-    expect(result.sourced_tier).toBeNull()
+    expect(result.tiering_reason).not.toBe('holds_another_current_role')
+    // The economic half: a real tier is what carries them through every paid stage and the
+    // send gate. A null tier would be the refusal.
+    expect(result.sourced_tier).not.toBeNull()
+  })
+
+  it('does not remove them however many other current positions there are', async () => {
+    const result = await classifyTier(
+      prospect({ apollo_enrichment_data: history(['other-a', 'other-b', 'other-c']) }), spec(),
+    )
+    expect(result.tiering_reason).not.toBe('holds_another_current_role')
+    expect(result.sourced_tier).not.toBeNull()
   })
 
   // A prospect that SURVIVES tiering still carries a tiering_reason: it holds the score line

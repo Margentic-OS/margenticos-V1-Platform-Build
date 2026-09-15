@@ -11,7 +11,6 @@ import {
   seniorityScoreFor,
   type BuyerVerdict,
 } from './buyer-criterion'
-import { holdsAnotherCurrentRole } from './concurrent-roles'
 
 export interface EnrichedProspect {
   id: string
@@ -53,9 +52,10 @@ export const REMOVAL_REASONS = [
   'company_too_large',
   'industry_excluded',
   'industry_off_target',
-  // The provider's own employment history says they hold another current job. Decided here,
-  // free, from data enrichment already bought, rather than by the research synthesis call
-  // after $0.13 to $0.19 of model spend. See concurrent-roles.ts.
+  // NO LONGER WRITTEN. The disqualifier that produced it was withdrawn 2026-09-15 after its
+  // six removals were read; see the block where disqualifier 3c used to be. KEPT IN THE LIST
+  // because six live rows still carry it and have to render, and because removing it from
+  // RemovalReason would make those rows unrepresentable in the type that describes them.
   'holds_another_current_role',
 ] as const
 
@@ -375,26 +375,43 @@ export async function classifyTier(
     }
   }
 
-  // Disqualifier 3c: the provider's own employment history says they hold another current job.
+  // THERE IS NO DISQUALIFIER 3c. A SECOND CURRENT POSITION DOES NOT REMOVE ANYBODY.
   //
-  // FREE, AND EARLIER THAN IT WAS. This was decided by the research synthesis call, as the
-  // primary_occupation check, which happens after the verification probe and after $0.13 to
-  // $0.19 of model spend. Enrichment already bought the employment history, so the count is
-  // arithmetic on data on file.
+  // One existed here from 2026-09-14 to 2026-09-15 and was withdrawn after its own output was
+  // read. It removed 6 people, and the six do not support the rule:
   //
-  // It counts only positions the provider ATTRIBUTES to another employer. A current position
-  // with no employer id is left alone, because that is the case that needs a reading rather
-  // than a count, and the judge still makes it. Whether the other position is full time is
-  // likewise still the judge's call: the provider returns nothing that answers it, and
-  // deciding it from a title would put one market's vocabulary in this file.
-  if (holdsAnotherCurrentRole(prospect.apollo_enrichment_data)) {
-    return {
-      prospect_id: prospectId,
-      sourced_tier: null,
-      fit_score: null,
-      tiering_reason: 'holds_another_current_role' satisfies RemovalReason,
-    }
-  }
+  //   - A portfolio advisor, counted out on a fractional finance post and two board advisory
+  //     seats. Those open-ended positions ARE the consulting work being sold. The rule removed
+  //     someone for doing the thing that makes them a buyer.
+  //   - One counted on an employer appearing TWICE in the same history, once current and once
+  //     ended. The provider contradicts itself; the count believed whichever row said current.
+  //   - One counted on an unpaid chair of a professional body's local branch.
+  //   - Three with genuine second ventures, where the premise is still backwards: someone
+  //     running another business has LESS time to do their own outreach, not more, which makes
+  //     them a better buyer rather than a worse one.
+  //
+  // THE COUNT IS NOT DELETED, ONLY ITS POWER TO REJECT. countConcurrentCurrentRoles stays in
+  // concurrent-roles.ts and costs nothing to recompute for any prospect at any time, because
+  // it is a pure function of an enrichment blob already on file. It is not logged from here:
+  // logClassificationStats is given TierResult[] and never sees the blob, so threading it in
+  // would mean widening that type to carry a figure nothing decides on.
+  //
+  // THE JUDGEMENT GOES BACK WHERE IT WAS, to the research judge's primary_occupation check,
+  // which reads the history and answers yes/no/unknown without removing anybody. That check
+  // was never deleted when this disqualifier was added, so nothing has to be restored: the
+  // count simply stops pre-empting it. The reason the judge is the right owner is the same
+  // reason the count cannot decide, that whether another position is a real competing
+  // commitment is a reading, and the provider returns nothing that answers it.
+  //
+  // THE GENERAL LESSON, which outlives this rule: a disqualifier generalised from a single
+  // observed case encodes that case's coincidences. Six removals rested on four different
+  // kinds of evidence and only three were even arguably a second job. Read the output of a
+  // new disqualifier before letting it spend or refuse to spend.
+  //
+  // Six rows still carry the withdrawn reason with a null tier. They are not re-tiered here:
+  // persist-icp-filter-spec already clears tiering_reason on null-tier rows when a spec is
+  // saved, so they re-tier by themselves at the next ICP approval, and until then they are
+  // blocked from every paid stage, which costs nothing.
 
   // Disqualifier 3b: THERE IS NO CRITERION TO JUDGE BY. Withhold the tier, loudly.
   //
