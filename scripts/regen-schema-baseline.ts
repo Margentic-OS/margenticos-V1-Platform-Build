@@ -61,6 +61,13 @@ async function count(sql: string): Promise<number> {
   return Number(await q(sql))
 }
 
+// Returns the NAMES, not a number. A count proves an arithmetic fact about the catalog;
+// a name proves THIS object reached the file. assertComplete needs the second.
+async function names(sql: string): Promise<string[]> {
+  const raw = await q(sql)
+  return raw ? raw.split(',').filter(Boolean) : []
+}
+
 // ── The scrub ────────────────────────────────────────────────────────────────
 //
 // Applied to generated DDL before it is assembled, not to the file afterwards, so there
@@ -100,6 +107,72 @@ function assertNoSecrets(content: string): void {
       'REFUSING TO WRITE: the generated baseline contains secret-shaped values.\n  ' +
       hits.join('\n  ') +
       '\nAdd a scrub rule to scrub() above, or exclude the section, then re-run.'
+    )
+  }
+}
+
+// ── The second guard: the file must contain what the catalog says exists ─────
+//
+// WHY THIS EXISTS, AND WHY THE COUNTS DID NOT ALREADY DO IT
+//
+// This file has always queried catalog counts into `counts` and printed them into the
+// header, under a line that read "The counts above prove COMPLETENESS". They did not.
+// The counts came from one set of queries and the DDL came from a different set, and
+// NOTHING EVER COMPARED THEM. A string_agg that returned short would have produced a
+// header stating the true catalog count beside a file missing objects, and the file would
+// have looked exactly like a correct one.
+//
+// That is the CLAUDE.md shape: when the check is the thing that is wrong, nothing
+// downstream can notice. It matters more here than almost anywhere else in the repo,
+// because supabase/migrations/ cannot rebuild an empty database on its own (measured
+// 2026-09-15: the first migration fails on `relation "organisations" does not exist`,
+// because the core tables were created outside the directory in April 2026). This file is
+// the only route back.
+//
+// NAMES, NOT COUNTS. A count that matches can still be the wrong set, and a count that
+// does not match tells you a number rather than which object to go and look for. This
+// compares the relation names the catalog reports against the names actually present in
+// the assembled content, and REFUSES TO WRITE when any are missing, exactly as
+// assertNoSecrets refuses to write a file containing a secret.
+//
+// It deliberately does NOT check the reverse direction. A file containing MORE than the
+// catalog reports is not a recovery risk, and emitting an extra object is not a way this
+// has ever failed.
+export interface ExpectedRelations {
+  tables: string[]
+  views: string[]
+  functions: string[]
+}
+
+export function assertComplete(content: string, expected: ExpectedRelations): void {
+  // Each matcher is the exact form this generator emits. Verified against the committed
+  // baseline before being written, so a passing check means the string is really there
+  // rather than that the pattern was never going to match anything.
+  const missing: string[] = []
+
+  for (const name of expected.tables) {
+    if (!content.includes(`CREATE TABLE IF NOT EXISTS public.${name} (`)) {
+      missing.push(`table ${name}`)
+    }
+  }
+  for (const name of expected.views) {
+    if (!content.includes(`CREATE OR REPLACE VIEW public.${name} `)) {
+      missing.push(`view ${name}`)
+    }
+  }
+  for (const name of expected.functions) {
+    if (!content.includes(`FUNCTION public.${name}(`)) {
+      missing.push(`function ${name}`)
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `REFUSING TO WRITE: the catalog reports ${expected.tables.length} tables, ` +
+      `${expected.views.length} views and ${expected.functions.length} functions, and ` +
+      `${missing.length} of them ${missing.length === 1 ? 'is' : 'are'} absent from the generated file.\n  ` +
+      missing.join('\n  ') +
+      '\nThis is a recovery file. Fix the generator; do not write a short one.'
     )
   }
 }
@@ -347,6 +420,14 @@ async function main() {
     comments:    await count(`SELECT count(*)::text AS ddl FROM pg_description d JOIN pg_class c ON c.oid=d.objoid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'`),
   }
 
+  // The NAMES behind those counts, for assertComplete. Same catalog, same moment, but the
+  // question is "is THIS object in the file", which a number cannot answer.
+  const expected: ExpectedRelations = {
+    tables:    await names(`SELECT string_agg(c.relname, ',' ORDER BY c.relname) AS ddl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r'`),
+    views:     await names(`SELECT string_agg(c.relname, ',' ORDER BY c.relname) AS ddl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='v'`),
+    functions: await names(`SELECT string_agg(DISTINCT p.proname, ',' ORDER BY p.proname) AS ddl FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'`),
+  }
+
   const header = `-- ═══════════════════════════════════════════════════════════════════════
 -- BASELINE SCHEMA — public schema of project ${PROJECT_REF}
 -- Captured ${started} UTC from the LIVE database, read-only.
@@ -502,8 +583,15 @@ ${comments}
 --     this generator rather than in the database: an unscrubbed secret, sequence
 --     ownership emitted before its table, alphabetical function order defeating
 --     plpgsql body validation, and a trigger depending on a platform schema a fresh
---     project does not have. The counts above prove COMPLETENESS. Only a restore
---     proves EXECUTABILITY, and until that day nothing had.
+--     project does not have. Only a restore proves EXECUTABILITY, and until that
+--     day nothing had.
+--
+-- 10. THE COUNTS BELOW ARE DESCRIPTION. THE GUARD IS assertComplete().
+--     Until 2026-09-15 this block claimed "the counts above prove COMPLETENESS". They
+--     did not: the counts came from one set of catalog queries and the DDL from another,
+--     and nothing compared them, so a short file would have carried a correct-looking
+--     header. assertComplete() now reads back the relation NAMES the catalog reports and
+--     refuses to write a file that is missing any of them.
 --
 --     Re-run it with scripts/restore-baseline-test.ts. It will not run against
 --     production and it will not run against a target that already has objects in
@@ -512,15 +600,20 @@ ${comments}
 `
 
   assertNoSecrets(header)
+  assertComplete(header, expected)
   writeFileSync(OUT, header, 'utf8')
 
   const written = readFileSync(OUT, 'utf8')
   assertNoSecrets(written)
+  // Re-checked on what is ON DISK, not only on what was assembled in memory. An
+  // install-time check proves the value it was handed; this proves the artifact that ships.
+  assertComplete(written, expected)
 
   console.log(`Wrote ${OUT}`)
   console.log(`  ${written.split('\n').length} lines`)
   console.log(`  counts: ${JSON.stringify(counts)}`)
   console.log('  assertNoSecrets: passed (before write and after write)')
+  console.log(`  assertComplete: passed (${expected.tables.length} tables, ${expected.views.length} views, ${expected.functions.length} functions all present)`)
 }
 
 // Only run when invoked directly, so the pure helpers above can be imported by a test.
