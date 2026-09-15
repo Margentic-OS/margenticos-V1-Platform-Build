@@ -49,7 +49,7 @@ async function isEligible(
   orgId: string,
   docType: DocType
 ): Promise<boolean> {
-  const [{ count: activeCount }, { count: pendingCount }] = await Promise.all([
+  const [active, pending] = await Promise.all([
     supabase
       .from('strategy_documents')
       .select('id', { count: 'exact', head: true })
@@ -63,7 +63,25 @@ async function isEligible(
       .eq('document_type', docType)
       .eq('status', 'pending'),
   ])
-  return (activeCount ?? 0) === 0 && (pendingCount ?? 0) === 0
+
+  // A FAILED COUNT IS NOT AN ANSWER, and here the failure read as the dangerous answer.
+  // `count ?? 0` turned a refused or timed-out read into zero, zero read as "nothing
+  // exists yet", and this function returned ELIGIBLE. The consequence was not a missing
+  // number on a screen: it was dispatching a document-generation agent for a document that
+  // may already exist, spending a model call and racing the run that is already going.
+  //
+  // Throwing is the loud option AND the safe one. triggerCascadeIfEligible catches,
+  // logs at error, and dispatches nothing, so the contract that this module never
+  // propagates to its caller is unchanged. Not dispatching is recoverable: an operator
+  // can trigger any agent by hand from the client detail page. Dispatching twice is not.
+  if (active.error) {
+    throw new Error(`cascade: could not count active ${docType} documents for ${orgId}: ${active.error.message}`)
+  }
+  if (pending.error) {
+    throw new Error(`cascade: could not count pending ${docType} suggestions for ${orgId}: ${pending.error.message}`)
+  }
+
+  return (active.count ?? 0) === 0 && (pending.count ?? 0) === 0
 }
 
 // Messaging depends on all three upstream docs being active before it runs.

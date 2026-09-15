@@ -348,3 +348,81 @@ describe('syncSequenceShell — structural coherence (Addendum-3)', () => {
     expect(result.ok).toBe(true)
   })
 })
+
+// ─── The uploaded-leads guard must fail CLOSED ────────────────────────────────
+//
+// The guard above is the only thing between a step-count change and a PATCH that
+// restructures a live campaign whose leads are already uploaded and sending.
+//
+// Until 2026-09-15 neither read examined its error, and both failures pointed the same
+// way. A refused campaign read left `campaign` null, so the outer condition was false and
+// the guard was skipped entirely. A refused count became `null ?? 0`, and `0 > 0` is
+// false, so the block did not fire. Both fell through to the PATCH.
+//
+// EVERY TEST HERE ASSERTS THE PATCH WAS NOT SENT, not merely that the call rejected.
+// "It threw" and "it did not restructure the campaign" are different claims, and only the
+// second is the one that matters. A future refactor that throws AFTER the fetch would
+// pass a throw-only assertion and still have done the damage.
+
+describe('syncSequenceShell — the uploaded-leads guard fails closed', () => {
+  beforeEach(() => {
+    process.env.INSTANTLY_API_BASE_URL = MOCK_BASE_URL
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co'
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key'
+  })
+
+  afterEach(() => {
+    delete process.env.INSTANTLY_API_BASE_URL
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY
+    vi.restoreAllMocks()
+  })
+
+  it('raises, and sends no PATCH, when the uploaded-leads COUNT fails', async () => {
+    setupSupabaseMock({
+      campaigns: { data: { shell_step_count: 2 }, error: null },
+      // The shape the bug turned into zero: no count, and an error nobody read.
+      prospects: { data: null, error: { message: 'canceling statement due to statement timeout' }, count: null },
+    })
+    const fetchSpy = makeFetchSpy(200, PATCH_SUCCESS_BODY)
+
+    await expect(
+      syncSequenceShell({ ...BASE_INPUT, messagingDoc: THREE_STEP_MESSAGING }),
+    ).rejects.toThrow(/could not count uploaded leads/)
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('raises, and sends no PATCH, when the CAMPAIGN read fails', async () => {
+    setupSupabaseMock({
+      campaigns: { data: null, error: { message: 'connection reset by peer' } },
+      prospects: { data: null, error: null, count: 0 },
+    })
+    const fetchSpy = makeFetchSpy(200, PATCH_SUCCESS_BODY)
+
+    await expect(
+      syncSequenceShell({ ...BASE_INPUT, messagingDoc: THREE_STEP_MESSAGING }),
+    ).rejects.toThrow(/could not read the campaign's existing step count/)
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('still patches when both reads SUCCEED and genuinely report zero uploaded leads', async () => {
+    // The control. Without it, a guard that threw unconditionally would pass both tests
+    // above and this suite would be proving an outage rather than a guard.
+    setupSupabaseMock({
+      campaigns: [
+        { data: { shell_step_count: 2 }, error: null },
+        { data: null, error: null },
+      ],
+      prospects: { data: null, error: null, count: 0 },
+    })
+    const fetchSpy = makeFetchSpy(200, PATCH_SUCCESS_BODY)
+
+    const result = await syncSequenceShell({ ...BASE_INPUT, messagingDoc: THREE_STEP_MESSAGING })
+
+    expect(result.ok).toBe(true)
+    expect(fetchSpy).toHaveBeenCalled()
+  })
+})
+

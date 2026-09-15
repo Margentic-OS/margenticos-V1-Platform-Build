@@ -178,20 +178,52 @@ export async function syncSequenceShell(input: ShellSyncInput): Promise<ShellSyn
   // Block: structure change on a campaign that already has uploaded leads (addendum-3).
   const supabase = getServiceClient()
 
-  const { data: campaign } = await supabase
+  // ── THIS GUARD MUST FAIL CLOSED ───────────────────────────────────────────
+  //
+  // Below is the only thing standing between a step-count change and a PATCH that
+  // restructures a live campaign's sequence with real leads already uploaded to it.
+  //
+  // Until 2026-09-15 neither read below examined its error, and both failures pointed the
+  // same way: a refused campaign read left `campaign` null, so the outer condition was
+  // false and the whole guard was skipped; a refused count became `null ?? 0`, and
+  // `0 > 0` is false, so the block did not fire. In both cases execution fell through to
+  // the PATCH. The guard was defeated by exactly the condition it is least able to see,
+  // and nothing anywhere said so.
+  //
+  // Throwing is correct here rather than returning a reason. A reason code says "we
+  // checked and the answer is X". We did not check. The caller wraps this in try/catch,
+  // reports to Sentry and shows the operator the message, so a throw is both loud and
+  // recoverable: the operator retries. A wrongly-restructured live campaign is not.
+
+  const { data: campaign, error: campaignError } = await supabase
     .from('campaigns')
     .select('shell_step_count')
     .eq('id', campaignInternalId)
     .eq('organisation_id', organisationId)
     .maybeSingle()
 
+  if (campaignError) {
+    throw new Error(
+      `syncSequenceShell: could not read the campaign's existing step count (${campaignInternalId}): ` +
+      `${campaignError.message}. Refusing to patch: the uploaded-leads guard cannot be evaluated.`,
+    )
+  }
+
   if (campaign?.shell_step_count != null && campaign.shell_step_count !== stepCount) {
     // Check if any leads have been uploaded to this campaign.
-    const { count: uploadedCount } = await supabase
+    const { count: uploadedCount, error: uploadedError } = await supabase
       .from('prospects')
       .select('id', { count: 'exact', head: true })
       .eq('organisation_id', organisationId)
       .eq('outbound_upload_status', 'uploaded')
+
+    if (uploadedError) {
+      throw new Error(
+        `syncSequenceShell: could not count uploaded leads for organisation ${organisationId}: ` +
+        `${uploadedError.message}. Refusing to change the step count from ` +
+        `${campaign.shell_step_count} to ${stepCount} without knowing whether leads are live.`,
+      )
+    }
 
     if ((uploadedCount ?? 0) > 0) {
       return {
