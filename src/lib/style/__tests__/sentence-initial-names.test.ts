@@ -643,3 +643,97 @@ describe('the plural chain, at the vocabulary level', () => {
     expect(ORDINARY_WORD_COUNT).toBe(1753)
   })
 })
+
+// ─── AN ACRONYM WRITTEN IN THE OTHER NUMBER, 2026-09-15 ──────────────────────
+//
+// THE SHAPE. An acronym never reaches the vocabulary. hasNameOrthography fires on the
+// all-caps run first and short-circuits, so no word-list entry and no lemma rule can ever
+// rescue one. Traceability is the ONLY thing that can clear an acronym, which makes an
+// exact-match-only traceability test load-bearing in a way it is not for ordinary words.
+//
+// MEASURED at 9311a26, before the fix: the EXACT token already passed, and only the number
+// mismatch failed.
+//
+//     CFOs  findings say "their CFO"      FAIL (orthography)     <- the whole defect
+//     CFO   findings say "two CFOs"       FAIL (orthography)
+//     MQS   findings say "they run MQS"   pass
+//     DTCC  findings say "DTCC published" pass
+//
+// WHY ORTHOGRAPHY ITSELF WAS NOT TOUCHED, which is the change a reader will expect and
+// which would have been wrong. Measured across all 22 stored writer exports, the
+// orthography signal has fired 13 times on three distinct words: BRIDGE (9), OBSERVATION
+// (3), OFFER (1). Every one is the writer leaking its own drafting label into the answer,
+// and every one of those rejections is CORRECT. Exempting all-caps words as a class would
+// switch off the only thing orthography is observed to do. CFOs, MQS and DTCC have never
+// been rejected in any stored run, so there was no measured false positive to weigh
+// against that.
+describe('an acronym the findings supply is not an invented name', () => {
+  const opens = (word: string, findings: string) =>
+    findSentenceInitialNames(`${word} came up in the last review.`, findings)
+
+  it.each([
+    ['CFOs', 'their CFO joined in May'],
+    ['CFO', 'two CFOs left last year'],
+    ['MQSs', 'they run MQS on site'],
+    ['DTCCs', 'DTCC published the rule'],
+  ])('allows %s when the findings carry it as "%s"', (word, finding) => {
+    expect(opens(word, `1. Note: ${finding}.`), `${word} must not read as a name`).toEqual([])
+  })
+
+  it.each(['CFOs', 'MQS', 'DTCC'])('allows %s when the findings carry the exact token', word => {
+    expect(opens(word, `1. Note: ${word} came up in their update.`)).toEqual([])
+  })
+
+  // THE OTHER DIRECTION. The variant is still a TRACEABILITY test: both forms are looked
+  // up in the same corpus, so an acronym the findings never mention is rejected exactly as
+  // before. This is what stops the fix becoming a blanket all-caps exemption.
+  it.each(['CFOs', 'MQS', 'DTCC'])('still catches %s when the findings do not mention it', word => {
+    expect(opens(word, UNRELATED_FINDINGS)).toHaveLength(1)
+  })
+
+  it('does not let one acronym borrow another acronym\'s traceability', () => {
+    expect(opens('CFOs', '1. They mentioned SLA and KPI targets.')).toHaveLength(1)
+    expect(opens('DTCC', '1. They mentioned SLA and KPI targets.')).toHaveLength(1)
+  })
+
+  it('still catches an INVENTED acronym, which is the mutation test for this rule', () => {
+    for (const name of ['ZQX', 'NVRA', 'QLLN', 'ZNTR', 'BRDX', 'KVRO']) {
+      expect(opens(name, UNRELATED_FINDINGS), `${name} LEAKED`).toHaveLength(1)
+    }
+  })
+
+  it('still catches the drafting labels, which is all orthography actually catches', () => {
+    for (const label of ['BRIDGE', 'OBSERVATION', 'OFFER']) {
+      expect(opens(label, UNRELATED_FINDINGS), `${label} must stay rejected`).toHaveLength(1)
+    }
+  })
+
+  // The variant rule must not reach anything that is not an acronym. These all still go
+  // through the unchanged path, so an internal-capital name is judged exactly as before.
+  it('leaves non-acronyms untouched', () => {
+    for (const name of ['Salesforce', 'HydrospherIQ', 'FinTechIQ', 'LinkedIn', 'Web3',
+                        'Taffet', 'Sovern', 'Visteon', 'Zentara']) {
+      expect(opens(name, UNRELATED_FINDINGS), `${name} LEAKED`).toHaveLength(1)
+    }
+  })
+
+  // A plural s alone must not make a name traceable. WRITTEN EXPECTING 0 AND CORRECTED TO
+  // 1 BY THE RUN: "Zentaras" is rejected even when the findings name "Zentara", because
+  // the variant rule requires an ALL-CAPS token and a title-case word never gets one. That
+  // is the stricter outcome and the right one, and it is the assertion that fails first if
+  // someone later widens the shape from `^\p{Lu}{2,}s?$` to any capitalised plural.
+  it('does not treat a title-case plural as an acronym pair', () => {
+    expect(opens('Zentaras', '1. Note: Zentara came up in their update.')).toHaveLength(1)
+    expect(opens('Zentaras', UNRELATED_FINDINGS)).toHaveLength(1)
+    // The acronym pair, by contrast, does resolve. The two lines together are the rule.
+    expect(opens('ZQXs', '1. Note: ZQX came up in their update.')).toHaveLength(0)
+  })
+
+  // POSITION. This gate judges only the first word of a sentence; untraceableClaims owns
+  // every other position and is deliberately not changed here. Asserted so that widening
+  // traceability is never mistaken for widening the position set.
+  it('still judges only sentence-initial tokens', () => {
+    expect(findSentenceInitialNames(
+      'The team told us ZQX came up in the review.', UNRELATED_FINDINGS)).toEqual([])
+  })
+})

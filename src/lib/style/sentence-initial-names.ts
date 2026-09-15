@@ -232,6 +232,57 @@ function isTraceable(clean: string, haystack: string): boolean {
   return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'u').test(haystack)
 }
 
+/**
+ * The other NUMBER of an acronym, so "CFOs" is recognised when the findings say "CFO".
+ *
+ * ─── THE GAP THIS CLOSES, AND HOW NARROW IT IS ───────────────────────────────
+ *
+ * isTraceable matches whole words with no inflection at all, deliberately: it is a
+ * substring test tightened to word boundaries, not a lemmatiser. That is right for
+ * ordinary words, where isOrdinaryWord does the inflection afterwards. It is WRONG for an
+ * acronym, because an acronym never reaches isOrdinaryWord: hasNameOrthography fires on
+ * the all-caps run first and short-circuits, so no vocabulary or lemma rule can ever
+ * rescue it. An acronym is traceable or it is rejected, with nothing in between.
+ *
+ * MEASURED at 9311a26, before this change:
+ *
+ *     word    findings say        verdict
+ *     CFOs    "their CFO"         FAIL (orthography)
+ *     CFO     "two CFOs"          FAIL (orthography)
+ *     MQSs    "they run MQS"      FAIL (orthography)
+ *     MQS     "they run MQS"      pass
+ *     DTCC    "DTCC published"    pass
+ *
+ * So the EXACT token already passes, and only the number mismatch fails. This function is
+ * that one case and nothing else.
+ *
+ * ─── WHY ONLY ACRONYMS, AND WHY ONLY NUMBER ──────────────────────────────────
+ *
+ * The shape is `^\p{Lu}{2,}s?$`: two or more capitals, optionally one trailing lowercase
+ * s. It cannot fire on a normal word, a title-case name, or an internal-capital name, so
+ * "Salesforce", "HydrospherIQ" and "LinkedIn" are untouched and still judged exactly as
+ * before.
+ *
+ * IT CANNOT ADMIT A WORD THE FINDINGS DO NOT ALREADY CARRY. Both variants still go through
+ * isTraceable against the same corpus. An acronym that appears nowhere in the findings is
+ * rejected exactly as it is today, which is what the tests assert in both directions.
+ *
+ * ─── WHAT THIS DELIBERATELY DOES NOT DO ──────────────────────────────────────
+ *
+ * It does NOT loosen hasNameOrthography. Measured across every stored writer export, the
+ * orthography signal has fired 13 times on three distinct words: BRIDGE (9), OBSERVATION
+ * (3) and OFFER (1). All three are the writer leaking its own drafting labels into the
+ * answer, and every one of those rejections is CORRECT. Orthography's entire observed
+ * value is catching that leak, so exempting all-caps words as a class would switch off the
+ * only thing it currently does. CFOs, MQS and DTCC have never been rejected in any stored
+ * run, so there is no measured false positive to trade against that.
+ */
+function acronymNumberVariants(clean: string): string[] {
+  if (/^\p{Lu}{2,}s$/u.test(clean)) return [clean.slice(0, -1)]
+  if (/^\p{Lu}{2,}$/u.test(clean)) return [`${clean}s`]
+  return []
+}
+
 /** Strips surrounding punctuation and the possessive, matching the existing gate. */
 function cleanToken(raw: string): string {
   return raw.replace(/[^\p{L}\p{N}'-]/gu, '').replace(/'s$/i, '')
@@ -263,6 +314,12 @@ export function findSentenceInitialNames(text: string, findingsText: string): Se
     // TRACEABILITY FIRST, and it short-circuits. A word the findings supplied is the
     // prospect's own name, company or market, and no further question is worth asking.
     if (isTraceable(clean, haystack)) return
+
+    // The same question for an acronym written in the other number. See
+    // acronymNumberVariants: an acronym never reaches the vocabulary, so traceability is
+    // the only thing that can clear it, and a bare "CFO"/"CFOs" mismatch should not read
+    // as an invented name.
+    if (acronymNumberVariants(clean).some(v => isTraceable(v, haystack))) return
 
     // A capitalised RUN is read as one name, so "Sovern LA" is judged on "Sovern" rather
     // than falling through the three-character floor on "LA". The run is for the message
