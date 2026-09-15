@@ -157,7 +157,7 @@ describe('geographyFromIntake', () => {
   })
 
   it('returns nothing for a generic TLD rather than guessing', () => {
-    expect(geographyFromIntake('simcairmedical.com')).toBe('')
+    expect(geographyFromIntake('calderhealth.example.com')).toBe('')
     expect(geographyFromIntake('margenticOS.com ')).toBe('')
   })
 

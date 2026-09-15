@@ -7,7 +7,7 @@ import { checkSanityBand, evaluateBuyerCriterion, type BuyerCriterion } from '@/
 
 const s = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 const FILE = process.env.CAPTURE_OUT!
-const CUTS: Record<string, string> = { MargenticOS: 'director', '360 Bia Og': 'deputy' }
+const CUTS: Record<string, string> = { MargenticOS: 'director', 'Tessom Foods': 'deputy' }
 
 async function main() {
   const captured = JSON.parse(readFileSync(FILE, 'utf8')) as Record<string, any>

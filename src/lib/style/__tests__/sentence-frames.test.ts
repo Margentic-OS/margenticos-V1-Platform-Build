@@ -8,22 +8,22 @@ import { describe, it, expect } from 'vitest'
 import { FrameRegistry, frameShingles, frameSkeleton, FRAME_LENGTH } from '../sentence-frames'
 
 const ROBERT =
-  'Running Taffet alongside the CRC Director engagement from mid-2024 through mid-2025 ' +
+  'Running Vantor alongside the ORRIN Director engagement from mid-2024 through mid-2025 ' +
   'is a particular kind of balancing act, and with that role now wrapped, the pipeline ' +
-  'question for Taffet tends to land differently.'
+  'question for Vantor tends to land differently.'
 
 const ALMA =
-  'Running Full Bloom alongside the Stanford GSB role since early 2024 is a particular ' +
+  'Running Northwell alongside the Merrow Institute role since early 2024 is a particular ' +
   'kind of juggle. Business development tends to get whatever hours remain after delivery ' +
   'and the day job, which usually means pipeline resets quietly whenever a referral goes quiet.'
 
 const UDO =
   'Three concurrent CEO roles since 2023 is a specific spread of attention across ' +
-  'Broskamp Consulting, Schumpeter Ventures, and FineVest Fund.'
+  'Broskamp Consulting, Merrow Ventures, and Tessom Fund.'
 
 describe('frameSkeleton', () => {
   it('masks numbers and mid-sentence capitals, keeping structural words', () => {
-    const skeleton = frameSkeleton('Running Taffet alongside the CRC role since 2024')
+    const skeleton = frameSkeleton('Running Vantor alongside the ORRIN role since 2024')
     expect(skeleton).toEqual(['running', '#', 'alongside', 'the', '#', 'role', 'since', '#'])
   })
 
@@ -49,7 +49,7 @@ describe('frameShingles', () => {
 })
 
 describe('FrameRegistry — the real batch collision', () => {
-  it('detects the repeated frame across Robert and Alma', () => {
+  it('detects the repeated frame across Alix and Noor', () => {
     const registry = new FrameRegistry()
     expect(registry.register('robert', ROBERT)).toEqual([])
 
@@ -66,7 +66,7 @@ describe('FrameRegistry — the real batch collision', () => {
     expect(collision.repeatedById).toBe('alma')
   })
 
-  it('does not flag Udo, whose sentence shape differs', () => {
+  it('does not flag Kit, whose sentence shape differs', () => {
     // "is a specific spread of" is a different frame from "is a particular kind of".
     const registry = new FrameRegistry()
     registry.register('robert', ROBERT)

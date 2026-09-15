@@ -3,7 +3,7 @@
 // WHY THIS REPLACES RULE-PATCHING
 // The opening used to be written by a step that had never seen the email it lands in.
 // It passed every gate and still failed as an email: one opened in the third person
-// ("Jason left Pani as Director of Product in July 2024"), another recited the prospect's
+// ("Devon left Calder as Director of Product in July 2024"), another recited the prospect's
 // own CV back at him, and none led into the offer line. Each failure produced another
 // rule, and rules do not converge on taste.
 //
@@ -38,8 +38,8 @@ const JUDGE_MODEL = 'claude-sonnet-4-6'
  * Hard cap on the whole written block: observation, bridge AND closing question.
  *
  * SET BELOW THE AVAILABLE SPACE UNTIL 2026-08-20, and it cost two prospects. The cap was
- * 62 while the email could hold 70. Jason came in at 70 and Shevonne at 75, and both were
- * rejected against a limit lower than the email actually has. Jason's would have shipped.
+ * 62 while the email could hold 70. Devon came in at 70 and Rowan at 75, and both were
+ * rejected against a limit lower than the email actually has. Devon's would have shipped.
  *
  * RE-MEASURED against the current shape, where the writer owns the closing question and
  * the fixed parts are the greeting line, the approved P3 and the two sign-off lines. The
@@ -332,7 +332,7 @@ in your batch, so the words cannot travel. Take the move.
 VERDICT again, invented outright:
   "Eleven years in, a firm that size fills its diary through relationships, and
    relationships only reach so far."
-We have no idea how Taffet fills its diary. We made it up and then built on it.
+We have no idea how Vantor fills its diary. We made it up and then built on it.
 
 NEVER TELL THE READER WHAT PEOPLE LIKE THEM THINK.
 
@@ -450,7 +450,7 @@ something present or something absent.
 
 THE BAN COVERS IMPLIED CHOICE.
 This shipped: "When your feed points elsewhere, the people who might hire you do not know
-HydrospherIQ exists."
+BrightlaneIQ exists."
 That is not "you have no posts". It is "your posts are for somebody else's company", which
 is worse, because it implies he chose that. Never tell the reader what they have decided
 to put first.
@@ -805,7 +805,7 @@ The camera test fixed the ENDINGS and every bridge now films. It never reached t
 and the same fault is sitting in them untouched. Four from the last batch, all of which
 shipped:
 
-  "Every LinkedIn post in the last two months is Stanford GSB content or personal
+  "Every LinkedIn post in the last two months is Merrow Institute content or personal
    reflection."  The subject is a category and the verb is "is".
   "Two CEO roles means delivery answers first."  Delivery does not answer. Nobody answers.
   "Board dates are fixed and show up in the diary."  WHOSE diary.
@@ -845,9 +845,9 @@ reader has to work out is a word that failed.
 
 THE THREE WORKED PAIRS. Read these for the MOVE, not for the words.
 
-FAILING: "Every LinkedIn post in the last two months is Stanford GSB content or personal
+FAILING: "Every LinkedIn post in the last two months is Merrow Institute content or personal
  reflection."
-PLAIN:   "Your LinkedIn posts over the last two months have all been Stanford GSB content or
+PLAIN:   "Your LinkedIn posts over the last two months have all been Merrow Institute content or
  personal reflection."
 Same fact, impossible to misread. The subject became hers and the verb became something her
 posts actually did.
@@ -863,7 +863,7 @@ PLAIN:   "You sell mugs from one of twenty potters' stalls at a weekend craft fa
 Three fixes at once: the subject is the reader, the compressed phrase became the sentence
 it was hiding, and "the diary" became the twenty stalls around yours.
 
-THESE THREE ARE ABOUT STANFORD GSB, TWO CEO ROLES AND A POTTER AT A CRAFT FAIR. Those facts
+THESE THREE ARE ABOUT AN EXECUTIVE-EDUCATION ROLE, TWO CEO ROLES AND A POTTER AT A CRAFT FAIR. Those facts
 belong to two specific people and a potter, and to nobody else in your batch. Lifting a
 phrase from them into an email about a different prospect is wrong on sight, and the
 uniqueness gate will throw the whole attempt away. It has already happened five times: one
@@ -923,7 +923,7 @@ ${FIRMOGRAPHIC_RULE_TEXT}
 TWO MORE FAILURES WORTH KNOWING, both about who you are writing to:
 
 FAILING:
-  "Jason left Pani as Director of Product in July 2024 and launched HydrospherIQ three
+  "Devon left Calder as Director of Product in July 2024 and launched BrightlaneIQ three
    months later, with a current headcount of one."
 Third person, about him rather than to him. A dossier entry. It leads nowhere.
 
@@ -2147,7 +2147,7 @@ export async function writeAndJudgeOpening(params: WriteAndJudgeParams): Promise
 
   // A SECOND RETRY, BUT ONLY WHERE THE MATERIAL DESERVES IT.
   //
-  // Debra and Udo both had findings that scored well and lost on execution, then fell back
+  // Wren and Kit both had findings that scored well and lost on execution, then fell back
   // to template with good material unused. Retrying a prospect whose findings are thin
   // just spends calls to arrive at the same place, so the extra attempt is bought by the
   // evidence: at least one candidate that passed all six tests.

@@ -1,7 +1,7 @@
 /**
  * Test script for docs_ready notification.
  *
- * This tests the notifyAfterPromotion helper against the 360 Bia Og organisation,
+ * This tests the notifyAfterPromotion helper against the Tessom Foods organisation,
  * which has all 4 documents active (promoted before this code existed).
  *
  * Usage: npx tsx scripts/test-docs-ready-notification.ts
@@ -16,17 +16,17 @@ const supabase = createClient(
 )
 
 async function main() {
-  console.log('🔍 Test: docs_ready notification for 360 Bia Og\n')
+  console.log('🔍 Test: docs_ready notification for Tessom Foods\n')
 
-  // Step 1: Find the 360 Bia Og organisation
+  // Step 1: Find the Tessom Foods organisation
   const { data: org, error: orgError } = await supabase
     .from('organisations')
     .select('id, name')
-    .eq('name', '360 Bia Og')
+    .eq('name', 'Tessom Foods')
     .single()
 
   if (orgError || !org) {
-    console.error('❌ Could not find 360 Bia Og organisation:', orgError?.message)
+    console.error('❌ Could not find Tessom Foods organisation:', orgError?.message)
     process.exit(1)
   }
 

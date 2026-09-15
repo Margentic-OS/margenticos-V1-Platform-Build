@@ -15,7 +15,7 @@ import type { MessagingContent } from '../compose-sequence'
 import { plainTextToHtml } from '../custom-variables'
 import { countWords } from '../personalization'
 
-const OBSERVATION = 'You took two board seats in early 2026, at Hollywood Food Coalition and Sovern LA.'
+const OBSERVATION = 'You took two board seats in early 2026, at Hollywood Food Coalition and Merrow LA.'
 const BRIDGE = 'Delivery has a deadline. Business development never does, so it waits.'
 const QUESTION = 'Is protecting time for new conversations something you are working on?'
 
@@ -47,9 +47,9 @@ describe('a two-paragraph opening survives composition', () => {
   const twoPara = `${OBSERVATION}\n\n${BRIDGE}`
 
   it('renders the observation and the bridge as their own paragraphs', () => {
-    const email = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Daedra')
+    const email = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Ines')
     const paras = paragraphs(email.body)
-    expect(paras[0]).toBe('Daedra')
+    expect(paras[0]).toBe('Ines')
     expect(paras[1]).toBe(OBSERVATION)
     expect(paras[2]).toBe(BRIDGE)
     expect(paras[3]).toBe('We fill the diary with qualified meetings.')
@@ -57,7 +57,7 @@ describe('a two-paragraph opening survives composition', () => {
   })
 
   it('replaces the approved opener rather than sitting alongside it', () => {
-    const email = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Daedra')
+    const email = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Ines')
     expect(email.body).not.toContain('THE APPROVED OPENER GOES HERE')
   })
 
@@ -65,7 +65,7 @@ describe('a two-paragraph opening survives composition', () => {
     // applyQuestionToEmail1 targets the second-to-last paragraph, and it runs BEFORE the
     // opt-out footer is appended. Adding a paragraph above the CTA must not shift what
     // that resolves to. Order after composition: question, sign-off, footer.
-    const email = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Daedra')
+    const email = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Ines')
     const paras = paragraphs(email.body)
     expect(paras[paras.length - 1]).toBe('Not for you? Just reply stop.')
     expect(paras[paras.length - 2]).toBe('Doug\nMargenticOS')
@@ -75,21 +75,21 @@ describe('a two-paragraph opening survives composition', () => {
 
   it('counts exactly the same words as the one-paragraph version', () => {
     // The 90-word ceiling must measure the same total. A paragraph break is whitespace.
-    const two = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Daedra')
-    const one = composeEmail1WithOpening(DOC, 'A', `${OBSERVATION} ${BRIDGE}`, QUESTION, 'Daedra')
+    const two = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Ines')
+    const one = composeEmail1WithOpening(DOC, 'A', `${OBSERVATION} ${BRIDGE}`, QUESTION, 'Ines')
     expect(two.word_count).toBe(one.word_count)
     expect(two.word_count).toBeLessThanOrEqual(90)
   })
 
   it('counts the body it actually produced, not a stored figure', () => {
-    const email = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Daedra')
+    const email = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Ines')
     // The footer is appended after counting and is deliberately excluded from the budget.
     const withoutFooter = email.body.split('\n\nNot for you?')[0]
     expect(email.word_count).toBe(countWords(withoutFooter))
   })
 
   it('renders as two separate <p> elements, not one with a line break', () => {
-    const email = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Daedra')
+    const email = composeEmail1WithOpening(DOC, 'A', twoPara, QUESTION, 'Ines')
     const html = plainTextToHtml(email.body)
     expect(html).toContain(`<p>${OBSERVATION}</p>`)
     expect(html).toContain(`<p>${BRIDGE}</p>`)
@@ -100,7 +100,7 @@ describe('a two-paragraph opening survives composition', () => {
   it('keeps working when the writer returned only an observation', () => {
     // joinOpening drops an empty half, so the trigger is a single paragraph and nothing
     // downstream sees a stray blank line.
-    const email = composeEmail1WithOpening(DOC, 'A', OBSERVATION, QUESTION, 'Daedra')
+    const email = composeEmail1WithOpening(DOC, 'A', OBSERVATION, QUESTION, 'Ines')
     const paras = paragraphs(email.body)
     expect(paras[1]).toBe(OBSERVATION)
     expect(paras[2]).toBe('We fill the diary with qualified meetings.')

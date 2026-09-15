@@ -5,9 +5,9 @@
 // NON_JUDGEMENTAL) all ask whether an observation is TRUE and RELEVANT. Nothing asked
 // whether it was READABLE. This line scored 6/6 and shipped:
 //
-//   "Running Taffet alongside the CRC Director engagement from mid-2024 through mid-2025
+//   "Running Vantor alongside the ORRIN Director engagement from mid-2024 through mid-2025
 //    is a particular kind of balancing act, and with that role now wrapped, the pipeline
-//    question for Taffet tends to land differently."
+//    question for Vantor tends to land differently."
 //
 // 37 words, one sentence, two hedges, ending on an abstraction. The benchmark it should
 // have resembled, from a campaign that replied at 7 percent:

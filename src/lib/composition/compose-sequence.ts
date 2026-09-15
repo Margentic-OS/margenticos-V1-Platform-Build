@@ -1030,7 +1030,7 @@ function applyTriggerToEmail1(emails: StoredEmail[], trigger: string): ComposedE
 // email. Under the old design that filled a gap. Under the frame rewrite it does not:
 // Email 1 is now authored as P2 observation slot, P3 what changes, P4 CTA, and every
 // paragraph has a distinct job. The bridge has no job left, and in practice it was
-// producing the weakest line in the email. Robert's live send read "Wrapping a major role
+// producing the weakest line in the email. Alix's live send read "Wrapping a major role
 // while managing another creates visibility gaps around what's actually in your
 // pipeline", which restates P2 in vaguer words and fails the picture test.
 //

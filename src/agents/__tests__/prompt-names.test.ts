@@ -121,8 +121,8 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 49
 // company or a real trade show, and one an ordinary word the scan misread:
 //
 //   DTCC x2, Treasury x2, SEC, SEC's                         the regulatory-commentary pair
-//   Taffet                                                   that pair's clean rewrite
-//   Hollywood x2, Coalition x2, Sovern x2, LA x2, SCG x2     the board-seat pair
+//   Vantor                                                   that pair's clean rewrite
+//   Hollywood x2, Coalition x2, Merrow x2, LA x2, SCG x2     the board-seat pair
 //   CAVE                                                     the third worked pair
 //   Peak                                                     "Peak season", a false positive
 //
@@ -146,7 +146,7 @@ const BASELINE_TOTAL_AT_INTRODUCTION = 49
 // THE CHECK THAT MATTERS IS WHAT DID **NOT** MOVE, because a vocabulary change is exactly
 // the shape that could hide a real name. Re-measured token by token: buildWriterPrompt
 // still reads 14 and names the same fourteen entities, messaging-agent.md still 2
-// («Taffet» twice), positioning 1 («Moore»), synthesis 1 («Apollo»), shared-voice-spec 1
+// («Vantor» twice), positioning 1 («Moore»), synthesis 1 («Apollo»), shared-voice-spec 1
 // («Verbatim»). Not one real name became invisible. The allowlist did not grow, and the
 // introduction figure is untouched at 49.
 //
@@ -270,14 +270,14 @@ describe('the inverted check tells a name from a word', () => {
   })
 
   it('rejects the real names the swap pass is removing', () => {
-    for (const n of ['Taffet', 'Sovern', 'Visteon', 'Stanford', 'Hollywood', 'Pani']) {
+    for (const n of ['Vantor', 'Merrow', 'Visteon', 'Stanford', 'Hollywood', 'Calder']) {
       expect(isAllowedToken(n), `${n} must not be allowed`).toBe(false)
     }
   })
 
   it('rejects a real organisation acronym while allowing internal jargon', () => {
     // The pair that rules out a blanket all-caps exemption. Both shapes are identical.
-    for (const n of ['DTCC', 'GSB', 'SCG', 'CRC', 'CAVE']) {
+    for (const n of ['DTCC', 'GSB', 'SCG', 'ORRIN', 'CAVE']) {
       expect(isAllowedToken(n), `${n} must not be allowed`).toBe(false)
     }
     for (const n of ['ICP', 'TOV', 'ARR', 'SaaS']) {
@@ -298,19 +298,19 @@ describe('the inverted check tells a name from a word', () => {
 
   it('does not let a compound smuggle a name through one of its halves', () => {
     // The hole a naive hyphen rule opens: allow the compound if ANY half is ordinary.
-    expect(isAllowedToken('Taffet-led')).toBe(false)
+    expect(isAllowedToken('Vantor-led')).toBe(false)
     expect(isAllowedToken('post-Visteon')).toBe(false)
   })
 
   it('sees a name at the start of a sentence, where capitalisation proves nothing', () => {
     // The documented hole in the shipped sentence-initial gate. This check has no
     // position-based exemption at all, so it does not inherit it.
-    const spans = exampleSpans([{ n: 1, text: '"Taffet publishes commentary. Sovern LA is next."' }])
+    const spans = exampleSpans([{ n: 1, text: '"Vantor publishes commentary. Merrow LA is next."' }])
     expect(spans).toHaveLength(1)
     const toks = [...spans[0].text.matchAll(/\b[A-Za-z][A-Za-z'-]*\b/g)]
       .map(m => m[0]).filter(t => /^[A-Z]/.test(t)).filter(t => !isAllowedToken(t))
-    expect(toks).toContain('Taffet')
-    expect(toks).toContain('Sovern')
+    expect(toks).toContain('Vantor')
+    expect(toks).toContain('Merrow')
   })
 
   it('reads an example that spans several lines', () => {
@@ -318,12 +318,12 @@ describe('the inverted check tells a name from a word', () => {
     // that silently stops at the newline reports the smaller number as a clean result.
     const spans = exampleSpans([
       { n: 10, text: 'FAILING: "Two new board seats in early 2026. Hollywood Food' },
-      { n: 11, text: '   Coalition and Sovern LA, on top of the day job."' },
+      { n: 11, text: '   Coalition and Merrow LA, on top of the day job."' },
     ])
     expect(spans).toHaveLength(1)
     expect(spans[0].from).toBe(10)
     expect(spans[0].to).toBe(11)
-    expect(spans[0].text).toContain('Sovern')
+    expect(spans[0].text).toContain('Merrow')
   })
 })
 
@@ -342,7 +342,7 @@ describe('a plural at the start of a sentence is not a name when its singular is
     // THE POSITIVE CONTROL. The exception is about position, and position is exactly where
     // capitalisation stops meaning anything, so the check has to prove it still sees a
     // name there.
-    expect(unvouchedTokens('Taffet publishes regulatory commentary regularly.')).toEqual(['Taffet'])
+    expect(unvouchedTokens('Vantor publishes regulatory commentary regularly.')).toEqual(['Vantor'])
     expect(unvouchedTokens('The report is out. Visteon led the round.')).toEqual(['Visteon'])
   })
 

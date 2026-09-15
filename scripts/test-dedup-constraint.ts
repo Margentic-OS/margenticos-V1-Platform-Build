@@ -11,11 +11,11 @@ const supabase = createClient(
 )
 
 async function main() {
-  const orgId = '7fedb726-73ec-4a24-906b-ad8bc7ef1b50' // 360 Bia Og
+  const orgId = '7fedb726-73ec-4a24-906b-ad8bc7ef1b50' // Tessom Foods
   const notificationType = 'docs_ready'
   const subjectId = orgId // For docs_ready, subject_id is org_id
 
-  console.log('🔍 Testing dedup constraint: docs_ready for 360 Bia Og\n')
+  console.log('🔍 Testing dedup constraint: docs_ready for Tessom Foods\n')
 
   // First insert: should succeed
   console.log('First insert: docs_ready...')

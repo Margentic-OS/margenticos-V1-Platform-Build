@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
-// Quick script to regenerate 360dungarvan documents for verification
-// Usage: npx tsx scripts/regenerate-360dungarvan-docs.ts
+// Quick script to regenerate tessomfoods documents for verification
+// Usage: npx tsx scripts/regenerate-tessomfoods-docs.ts
 
 import { createClient } from '@supabase/supabase-js'
 import { runIcpGenerationAgent } from '@/agents/icp-generation-agent'
@@ -21,16 +21,16 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
 })
 
 async function main() {
-  console.log('Fetching 360dungarvan organisation_id...')
+  console.log('Fetching tessomfoods organisation_id...')
 
   const { data: orgs, error: orgError } = await supabase
     .from('organisations')
     .select('id, name')
-    .or("name.ilike.%360%,name.ilike.%dungarvan%")
+    .or("name.ilike.%360%,name.ilike.%tessomfoods%")
     .limit(1)
 
   if (orgError || !orgs || orgs.length === 0) {
-    console.error('Failed to find 360dungarvan organisation:', orgError)
+    console.error('Failed to find tessomfoods organisation:', orgError)
     process.exit(1)
   }
 

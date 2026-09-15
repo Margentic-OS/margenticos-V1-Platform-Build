@@ -14,7 +14,7 @@
 // Each text is reduced to a "frame skeleton": proper nouns, numbers and dates are masked
 // out, leaving the structural words. Overlapping n-grams of that skeleton are the frames.
 // Two texts collide when they share a frame. Masking is what makes this work: "Running
-// Taffet alongside the CRC engagement" and "Running Full Bloom alongside the Stanford GSB
+// Vantor alongside the ORRIN engagement" and "Running Northwell alongside the Merrow Institute
 // role" differ in every content word but share the skeleton "running # alongside the #".
 //
 // Deterministic by design (ADR-018). Tokenising and hashing is counting, not judgement.

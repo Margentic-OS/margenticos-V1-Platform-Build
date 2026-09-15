@@ -14,10 +14,10 @@ describe('the verbose negative, which is what this change exists to catch', () =
   // Rejected at 32% positive share. The old rule passed it purely because it ran long.
   it('rejects a long negative whose bullets are also negative', () => {
     const real =
-      'Based on my research, I could not find verifiable information about "Jochen" Knot ' +
+      'Based on my research, I could not find verifiable information about "Marlow" Merrow ' +
       'Consulting GmbH publishing podcasts, conducting interviews, writing articles, or ' +
       'other media appearances in 2026.\n\n**Findings:**\n\n• No podcast, interview, article, ' +
-      'or published content attributable to Jochen Ladwig or KNOT Consulting GmbH in 2026 ' +
+      'or published content attributable to Marlow Calder or MERROW Consulting GmbH in 2026 ' +
       'appears in search results.\n\n• The company\'s website and professional directories ' +
       'contain no evidence of media appearances or published content during 2026.'
     expect(isSubstantive(real)).toBe(false)
@@ -78,7 +78,7 @@ describe('the guards that were already there', () => {
   })
 
   it('rejects the model announcing a search it has not run', () => {
-    expect(isSubstantive("I'll search for information about Robert Taffet and his consulting work, podcast, interviews, or publications in 2026.")).toBe(false)
+    expect(isSubstantive("I'll search for information about Alix Vantor and his consulting work, podcast, interviews, or publications in 2026.")).toBe(false)
   })
 
   it('rejects anything under the minimum length regardless of content', () => {

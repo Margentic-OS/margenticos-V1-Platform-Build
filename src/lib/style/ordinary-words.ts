@@ -14,15 +14,15 @@
 //
 // So the list runs the other way round. We enumerate ORDINARY ENGLISH, which is a closed
 // and slow-moving set, and treat everything outside it as a possible name. An invented
-// company is caught by construction: "Taffet" is not English, and no edit to any prompt
+// company is caught by construction: "Vantor" is not English, and no edit to any prompt
 // changes that.
 //
 // ─── WHY FREQUENCY AND NOT A DICTIONARY ──────────────────────────────────────
 //
 // A full dictionary is the wrong instrument, measured rather than assumed. macOS ships
 // /usr/share/dict/words with 235,976 entries, of which 25,203 are capitalised proper
-// nouns. It contains "pani" and "jason". Loading it would hand three of the twelve known
-// leaks a free pass and add 2.5MB to the bundle to do it.
+// nouns, and it carries the lowercase form of several known leak names. Loading it would
+// hand three of the twelve known leaks a free pass and add 2.5MB to the bundle to do it.
 //
 // This list is COMMON English plus the vocabulary this particular copy is written in.
 // Rarity is the signal we are trading on: a word rare enough to be missing from a

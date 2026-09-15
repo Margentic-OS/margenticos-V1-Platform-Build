@@ -5,8 +5,8 @@ import { checkSendEligibility } from '../send-eligibility-rules'
 describe('country-code', () => {
   describe('toIso2CountryCode', () => {
     it('translates the exact string Apollo returned for the mailed German prospects', () => {
-      // "Germany" is the literal value in raw_apollo for broeskamp.com and
-      // knot-consulting.com, both of which were send-eligible and uploaded.
+      // "Germany" is the literal value in raw_apollo for halden.example.com and
+      // merrow.example.com, both of which were send-eligible and uploaded.
       expect(toIso2CountryCode('Germany')).toBe('DE')
     })
 
@@ -66,7 +66,7 @@ describe('country-code', () => {
   describe('producer to consumer: the country written is the country the rule can read', () => {
     it('excludes a German prospect whose country came from Apollo as a name', () => {
       const written = toIso2CountryCode('Germany')
-      const result = checkSendEligibility(written, 'broeskamp.udo@broeskamp.com')
+      const result = checkSendEligibility(written, 'kit@halden.example.com')
       expect(result.is_eligible).toBe(false)
       expect(result.reason).toBe('country_excluded_de')
     })
@@ -75,17 +75,17 @@ describe('country-code', () => {
       // This is the bug verbatim. Before 2026-08-25 this assertion failed: "Germany" is
       // not 'DE', the country branch returned eligible, and the .de domain fallback was
       // never reached because the domain is .com.
-      const result = checkSendEligibility('Germany', 'jochen@knot-consulting.com')
+      const result = checkSendEligibility('Germany', 'marlow@merrow.example.com')
       expect(result.is_eligible).toBe(false)
       expect(result.reason).toBe('country_excluded_de')
     })
 
     it('still excludes the .de prospect once its country is backfilled', () => {
-      // craid.de was the ONLY excluded prospect, and only via the domain fallback. A naive
+      // example.de was the ONLY excluded prospect, and only via the domain fallback. A naive
       // backfill writing "Germany" would have made the country branch return eligible and
       // skipped that fallback, turning the one working exclusion off.
       const written = toIso2CountryCode('Germany')
-      const result = checkSendEligibility(written, 'daniel@craid.de')
+      const result = checkSendEligibility(written, 'devon@example.de')
       expect(result.is_eligible).toBe(false)
       expect(result.reason).toBe('country_excluded_de')
     })
@@ -94,7 +94,7 @@ describe('country-code', () => {
       for (const [name, email] of [
         ['United States', 'a@example.com'],
         ['Canada', 'b@stackdconsulting.com'],
-        ['Australia', 'c@electroconsulting.au'],
+        ['Australia', 'c@vantor.example.com'],
       ] as const) {
         const result = checkSendEligibility(toIso2CountryCode(name), email)
         expect(result.is_eligible, `${name} should be eligible`).toBe(true)

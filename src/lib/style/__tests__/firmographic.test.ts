@@ -7,7 +7,7 @@ import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '../firmographic
 
 describe('numerals and currency, the original coverage', () => {
   it.each([
-    ['a currency amount', 'Launching Fitch Media while running a $5M consulting firm.'],
+    ['a currency amount', 'Launching Acme Media while running a $5M consulting firm.'],
     ['a headcount', 'You have 12 employees now.'],
     ['a team size', 'A team of 12 is a lot to keep busy.'],
     ['a figure like 500K or 5M', 'Most firms at the 500K mark see this.'],
@@ -17,12 +17,12 @@ describe('numerals and currency, the original coverage', () => {
 })
 
 describe('spelled-out forms, the hole that shipped', () => {
-  it('catches the real "two-person firm" from Shevonne\'s opening', () => {
+  it('catches the real "two-person firm" from Rowan\'s opening', () => {
     const text = 'Three visibility plays in eight months from a two-person firm says the brand-building is deliberate.'
     expect(findFirmographicFigures(text)).toContain('a spelled-out team size')
   })
 
-  it('catches the real "a firm that size" from Robert\'s opening', () => {
+  it('catches the real "a firm that size" from Alix\'s opening', () => {
     const text = 'Eleven years in, a firm that size fills its diary through relationships.'
     expect(findFirmographicFigures(text)).toContain('an oblique reference to their size')
   })
@@ -38,15 +38,15 @@ describe('spelled-out forms, the hole that shipped', () => {
 
 describe('what must never fire: dates, tenures and counts of things they did', () => {
   it.each([
-    'Fourteen months running CRC alongside the firm says a lot.',
+    'Fourteen months running ORRIN alongside the firm says a lot.',
     'Your last five posts are carrying RLCore.',
-    'Two years running Full Bloom alongside a full-time Stanford role.',
+    'Two years running Northwell alongside a full-time Stanford role.',
     'Three and a half years running SCG alongside a full consulting role.',
     'Winning Best Startup at CAEV Expo in your first year.',
     'Every post in the last two months is Qundo or PALADYN.',
     'Six years running Henosys and Fitch in parallel.',
     'Seven years of delivery have not left much room.',
-    'Nine months into HydrospherIQ.',
+    'Nine months into BrightlaneIQ.',
     'The Nashville recruiting post says delivery is live.',
   ])('leaves alone: %s', text => {
     expect(findFirmographicFigures(text)).toEqual([])
@@ -54,9 +54,9 @@ describe('what must never fire: dates, tenures and counts of things they did', (
 
   it('all eleven surviving openings from the run pass', () => {
     const survivors = [
-      'Two years running Full Bloom alongside a full-time Stanford role says the consulting work is real enough to hold through serious competing demands.',
+      'Two years running Northwell alongside a full-time Stanford role says the consulting work is real enough to hold through serious competing demands.',
       'Six years running Henosys and Fitch in parallel says you can carry a serious operational load.',
-      'Three and a half years running SCG alongside a full consulting role at GP Strategies says you can carry a serious load.',
+      'Three and a half years running SCG alongside a full consulting role at Beta Strategies says you can carry a serious load.',
       'Going on air to work through the ideal-client question says the positioning work is happening.',
       'Your last five posts are carrying RLCore story, media hits, open roles, the momentum is visible.',
       'Running DRI Consulting and DRIC Jamaica simultaneously means the delivery load across two geographies rarely leaves a gap for pipeline.',

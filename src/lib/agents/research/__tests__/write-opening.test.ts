@@ -44,25 +44,25 @@ describe('gate: word cap', () => {
 
 describe('gate: second person', () => {
   it('fails the real third-person failure from tonight', () => {
-    const opening = 'Jason left Pani as Director of Product in July 2024.'
-    const failures = checkOpeningGates(opening, 'Jason', 'Jason left Pani as Director of Product in July 2024.')
+    const opening = 'Devon left Calder as Director of Product in July 2024.'
+    const failures = checkOpeningGates(opening, 'Devon', 'Devon left Calder as Director of Product in July 2024.')
     expect(failures.some(f => f.includes('names the prospect'))).toBe(true)
   })
 
   it('passes the same fact written to the prospect', () => {
-    const opening = 'You left Pani in July 2024.'
-    expect(checkOpeningGates(opening, 'Jason', 'Jason left Pani in July 2024.')).toEqual([])
+    const opening = 'You left Calder in July 2024.'
+    expect(checkOpeningGates(opening, 'Devon', 'Devon left Calder in July 2024.')).toEqual([])
   })
 
   it('does not fire when the first name is absent from prospects', () => {
-    expect(checkOpeningGates('You left Pani in July 2024.', null, 'left Pani in July 2024')).toEqual([])
+    expect(checkOpeningGates('You left Calder in July 2024.', null, 'left Calder in July 2024')).toEqual([])
   })
 })
 
 describe('gate: firmographic figures', () => {
   it('fails the real "$5M consulting firm" that shipped in Bob\'s opening', () => {
-    const findings = 'Fitch Consulting is a $5M consulting firm launching Fitch Media.'
-    const failures = checkOpeningGates('Launching Fitch Media while running a $5M consulting firm is a real plate to spin.', null, findings)
+    const findings = 'Acme Consulting is a $5M consulting firm launching Acme Media.'
+    const failures = checkOpeningGates('Launching Acme Media while running a $5M consulting firm is a real plate to spin.', null, findings)
     expect(failures.some(f => f.includes('firmographic') || f.includes("prospect's record"))).toBe(true)
   })
 
@@ -73,8 +73,8 @@ describe('gate: firmographic figures', () => {
   })
 
   it('leaves dates, tenures and post counts alone', () => {
-    const findings = 'Fourteen months running CRC. Three posts since 2016. Last 30 reviews.'
-    expect(checkOpeningGates('Fourteen months running CRC says a lot, and your last 30 reviews show it.', null, findings)).toEqual([])
+    const findings = 'Fourteen months running ORRIN. Three posts since 2016. Last 30 reviews.'
+    expect(checkOpeningGates('Fourteen months running ORRIN says a lot, and your last 30 reviews show it.', null, findings)).toEqual([])
   })
 })
 
@@ -378,7 +378,7 @@ describe('prompt shape', () => {
     expect(flat).toContain('goes uncontested to whoever stayed visible')
   })
 
-  it('the writer prompt aims the bridge at the offer, with the Shevonne failure verbatim', () => {
+  it('the writer prompt aims the bridge at the offer, with the Rowan failure verbatim', () => {
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
     expect(p).toContain('START BY READING THE OFFER LINE')
@@ -436,15 +436,15 @@ describe('prompt shape', () => {
 
   it('both FAILING examples are retained', () => {
     const p = buildWriterPrompt()
-    expect(p).toContain('Jason left Pani as Director of Product')
+    expect(p).toContain('Devon left Calder as Director of Product')
     expect(p).toContain('You left Visteon at SVP level')
   })
 })
 
 describe('possessive forms are traceable', () => {
   it('does not flag "SCG\'s" when the findings contain "SCG"', () => {
-    const findings = 'Daedra left GP Strategies in June 2024, making SCG her sole focus.'
-    expect(checkOpeningGates("You left GP Strategies in June 2024. SCG's been the focus since.", null, findings)).toEqual([])
+    const findings = 'Ines left Beta Strategies in June 2024, making SCG her sole focus.'
+    expect(checkOpeningGates("You left Beta Strategies in June 2024. SCG's been the focus since.", null, findings)).toEqual([])
   })
 })
 
@@ -497,7 +497,7 @@ describe('writer output parsing', () => {
   })
 })
 
-describe('the writer prompt carries the question job and the Shevonne failure', () => {
+describe('the writer prompt carries the question job and the Rowan failure', () => {
   it('names the three parts and pins the offer line as fixed', () => {
     const p = buildWriterPrompt()
     const flat = p.replace(/\s+/g, ' ')
@@ -532,7 +532,7 @@ describe('the writer prompt carries the question job and the Shevonne failure', 
     expect(section.replace(/\s+/g, ' ')).toContain('It is there to show you REGISTER AND LENGTH')
   })
 
-  it('carries the Shevonne browsers-versus-buyers failure verbatim, with a correction', () => {
+  it('carries the Rowan browsers-versus-buyers failure verbatim, with a correction', () => {
     const flat = buildWriterPrompt().replace(/\s+/g, ' ')
     expect(flat).toContain('builds an audience of browsers before it builds a pipeline of buyers')
     expect(flat).toContain('She does not want more. She wants different ones.')
@@ -1151,10 +1151,10 @@ describe('the writer is asked for the same number of blocks in both turns', () =
 
 describe('the writer may not hand back the approved offer line', () => {
   const P3 = 'We get qualified conversations into the diary without pulling you out of delivery.'
-  const FINDINGS_TEXT = 'Bob took on Publisher and CEO at Fitch Media alongside Fitch Consulting.'
+  const FINDINGS_TEXT = 'Bob took on Publisher and CEO at Acme Media alongside Acme Consulting.'
 
   it('rejects the exact echo that shipped in Bob Email 1', () => {
-    const opening = 'You took on Publisher and CEO at Fitch Media.\n\nTwo leadership positions running in parallel means prospecting is usually the first thing that waits. We get qualified conversations into the diary without pulling you out of delivery. Is this a gap you are looking to close?'
+    const opening = 'You took on Publisher and CEO at Acme Media.\n\nTwo leadership positions running in parallel means prospecting is usually the first thing that waits. We get qualified conversations into the diary without pulling you out of delivery. Is this a gap you are looking to close?'
     expect(checkOpeningGates(opening, null, FINDINGS_TEXT, P3).join(' ')).toContain('repeats the approved offer line')
   })
 
@@ -1164,7 +1164,7 @@ describe('the writer may not hand back the approved offer line', () => {
   })
 
   it('leaves a normal opening alone', () => {
-    const opening = 'You took on Publisher and CEO at Fitch Media.\n\nTwo leadership roles at once means prospecting waits. Is this a gap you are looking to close?'
+    const opening = 'You took on Publisher and CEO at Acme Media.\n\nTwo leadership roles at once means prospecting waits. Is this a gap you are looking to close?'
     expect(checkOpeningGates(opening, null, FINDINGS_TEXT, P3)).toEqual([])
   })
 
@@ -1594,13 +1594,13 @@ describe('two more things the bridge may not assume', () => {
     expect(flat).toContain('Never say who is or is not doing it')
   })
 
-  it('extends the absence ban to implied choice, with Jason verbatim', () => {
+  it('extends the absence ban to implied choice, with Devon verbatim', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     // "THE ABSENCE BAN COVERS..." forward-referenced a ban 426 lines below it, so the
     // reader met the exception first. The ban now sits directly above, and the heading
     // resolves locally.
     expect(flat).toContain('THE BAN COVERS IMPLIED CHOICE')
-    expect(flat).toContain('When your feed points elsewhere, the people who might hire you do not know HydrospherIQ exists.')
+    expect(flat).toContain('When your feed points elsewhere, the people who might hire you do not know BrightlaneIQ exists.')
     expect(flat).toContain('it implies he chose that')
     expect(flat).toContain('Never tell the reader what they have decided to put first')
   })
@@ -1804,7 +1804,7 @@ describe('the absence ban states its own scope and its own subject', () => {
 describe('the bridge follows from its own observation', () => {
   const prompt = () => buildWriterPrompt()
 
-  it('states the rule and carries the Daedra mismatch', () => {
+  it('states the rule and carries the Ines mismatch', () => {
     const flat = prompt().replace(/\s+/g, ' ')
     expect(flat).toContain('THE BRIDGE MUST FOLLOW FROM ITS OWN OBSERVATION')
     expect(flat).toContain('Board seats and LinkedIn posts are two different subjects')

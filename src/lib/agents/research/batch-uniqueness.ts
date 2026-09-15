@@ -43,7 +43,7 @@ export class BatchUniquenessRegistry {
   private readonly questions    = new Map<string, string>()   // key    → owner id
   private readonly owned        = new Map<string, { frames: string[]; questions: string[] }>()
   // key → the question as written. Kept so retry feedback can LIST what is already taken
-  // rather than saying "that one is taken" and leaving the writer to guess. Udo burned all
+  // rather than saying "that one is taken" and leaving the writer to guess. Kit burned all
   // three attempts re-offering questions that were already gone.
   private readonly questionText = new Map<string, string>()
 

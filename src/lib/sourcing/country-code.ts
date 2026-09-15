@@ -11,9 +11,9 @@
 //   send-eligibility-rules.ts compares against EXCLUDED_COUNTRIES = new Set(['DE']).
 //
 // "Germany" is not "DE", so the check returns eligible. Measured on the live client-zero
-// organisation: 3 German prospects, and the only one ever excluded is craid.de, which was
+// organisation: 3 German prospects, and the only one ever excluded is example.de, which was
 // caught by the .de DOMAIN SUFFIX fallback and not by the country field at all. The other
-// two, broeskamp.com and knot-consulting.com (both GmbH, Frankfurt and Waren), are
+// two, halden.example.com and merrow.example.com (both GmbH, Germany), are
 // email_send_eligible = true and outbound_upload_status = 'uploaded'. They were mailed.
 //
 // The handover's claim that "new prospects are unaffected because the adapter writes

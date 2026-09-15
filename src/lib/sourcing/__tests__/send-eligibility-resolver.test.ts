@@ -53,7 +53,7 @@ describe('verification-verdict', () => {
 describe('resolveSendEligibility: the approved disagreement rule', () => {
   it('THE POINT OF THE BUILD: catch-all resolved to deliverable becomes eligible', () => {
     const d = resolveSendEligibility({
-      country: US, email: 'emily@esstrategic.co',
+      country: US, email: 'g@brightlane.example.com',
       firstPass: 'risky', secondPass: 'deliverable', heldAt: null,
     })
     expect(d.eligible).toBe(true)
@@ -61,10 +61,10 @@ describe('resolveSendEligibility: the approved disagreement rule', () => {
   })
 
   it('catch-all still risky on the second pass stays ineligible', () => {
-    // sohail@thesouthstarconsulting.com scored 75, tatyana.chorny@olympus.com scored 15.
+    // noor@northwell.example.com scored 75, alix.chen@tessom.example.com scored 15.
     // Both are risky. Risky is where we started, so nothing has been gained.
     const d = resolveSendEligibility({
-      country: US, email: 'sohail@thesouthstarconsulting.com',
+      country: US, email: 'noor@northwell.example.com',
       firstPass: 'risky', secondPass: 'risky', heldAt: null,
     })
     expect(d.eligible).toBe(false)
@@ -117,7 +117,7 @@ describe('resolveSendEligibility: country is a hard AND that only ever removes e
     // re-verification would have returned this row send-eligible with the jurisdiction rule
     // never consulted.
     const d = resolveSendEligibility({
-      country: 'DE', email: 'jochen@knot-consulting.com',
+      country: 'DE', email: 'marlow@merrow.example.com',
       firstPass: 'risky', secondPass: 'deliverable', heldAt: null,
     })
     expect(d.eligible).toBe(false)
@@ -128,7 +128,7 @@ describe('resolveSendEligibility: country is a hard AND that only ever removes e
     // Defence in depth: the write path normalises, and the rule also matches aliases, so a
     // row predating normalisation cannot slip through.
     const d = resolveSendEligibility({
-      country: 'Germany', email: 'broeskamp.udo@broeskamp.com',
+      country: 'Germany', email: 'kit@halden.example.com',
       firstPass: 'deliverable', secondPass: null, heldAt: null,
     })
     expect(d.eligible).toBe(false)

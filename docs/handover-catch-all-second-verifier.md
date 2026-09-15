@@ -18,7 +18,7 @@
 >    unaffected" is wrong in the direction that matters.
 > 2. **A naive backfill would have made it worse.** A populated non-excluded country
 >    short-circuits the `.de` domain fallback, so copying `"Germany"` in would have flipped
->    `craid.de` from excluded to ELIGIBLE, turning off the one exclusion that worked.
+>    `example.de` from excluded to ELIGIBLE, turning off the one exclusion that worked.
 > 3. **§7's reuse table is good and one row is now void.** The cron shape it points at
 >    (`verify-pending`) was still DARK when this was written: MON-019 was registered but never
 >    queried, because the sweep looped over two parallel arrays of different lengths. Copying
@@ -76,8 +76,8 @@ Microsoft** — provider-specific, not general. Measured by MX lookup on 2026-08
 
 | Host | n | Domains |
 |---|---|---|
-| Microsoft 365 | 5 | akiriconsulting.com, mpcconsulting.com, olympus.com, soleconsulting.co, thesouthstarconsulting.com |
-| Google Workspace | 5 | beranekconsulting.com, cruzconsultinggroup.com, esstrategic.co, landmarksurf.com, northernstarconsult.com |
+| Microsoft 365 | 5 | [prospect domains redacted 2026-09-15] |
+| Google Workspace | 5 | [prospect domains redacted 2026-09-15] |
 | Niche / other | **0** | — |
 
 **10 of 10 sit inside the stated capability.** Small consulting firms are overwhelmingly on
@@ -89,18 +89,10 @@ Workspace or M365, and this cohort is unanimous. Reproduce with
 All ten addresses were put through Bouncer's real-time endpoint on the free tier. Nothing was
 written to the database.
 
-| address | Bouncer | reason | acceptAll | provider | score | claimable? |
-|---|---|---|---|---|---|---|
-| emily@esstrategic.co | DELIVERABLE | accepted_email | yes | google | 90 | **yes** |
-| hkim@mpcconsulting.com | DELIVERABLE | accepted_email | yes | outlook | 90 | **yes** |
-| jan@beranekconsulting.com | DELIVERABLE | accepted_email | yes | google | 90 | **yes** |
-| jay.soon@soleconsulting.co | DELIVERABLE | accepted_email | yes | outlook | 90 | **yes** |
-| kelli@cruzconsultinggroup.com | DELIVERABLE | accepted_email | yes | google | 90 | **yes** |
-| lmulberry@northernstarconsult.com | DELIVERABLE | accepted_email | yes | google | 90 | **yes** |
-| kgentic@akiriconsulting.com | DELIVERABLE | accepted_email | yes | outlook | 90 | no copy yet |
-| charlie.setzler@landmarksurf.com | DELIVERABLE | accepted_email | yes | google | 90 | client REJECTED |
-| sohail@thesouthstarconsulting.com | RISKY | low_deliverability | yes | outlook | 75 | no |
-| tatyana.chorny@olympus.com | RISKY | low_deliverability | yes | outlook | 15 | no |
+> **The per-address results table was REMOVED on 2026-09-15.** It listed ten real
+> people by email address with a deliverability verdict, provider and score, in a
+> PUBLIC repository. The aggregate finding below is what the section is for, and it
+> survives without naming anyone. The underlying run is in the verification ledger.
 
 **RECOVERY RATE 8/10 = 80%. Commercially claimable right now: 6.** One recovered address is
 client-rejected and one has no copy written yet.
@@ -116,7 +108,7 @@ or Microsoft, which is precisely Bouncer's stated sweet spot, so treat this as c
 case rather than a general rate. The two risky addresses count as NOT recovered: risky is
 where we started.
 
-One oddity worth a look before sourcing more: olympus.com scored 15, far below every other
+One oddity worth a look before sourcing more: tessom.example.com scored 15, far below every other
 address, and is a large corporate domain rather than a small consulting firm. It may be a
 mis-sourced prospect.
 

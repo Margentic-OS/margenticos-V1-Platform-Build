@@ -245,7 +245,7 @@ describe('the verdict write goes through the shared resolver, not an inline expr
   it('marks a recovered catch-all send-eligible', async () => {
     vi.spyOn(bouncerHandler, 'execute').mockResolvedValue(deliverable)
     const { client, applied } = fakeSupabase([
-      { id: 'p1', email: 'emily@esstrategic.co', country: 'US', independent_email_status: 'Catch All' },
+      { id: 'p1', email: 'g@brightlane.example.com', country: 'US', independent_email_status: 'Catch All' },
     ])
 
     const run = await runSecondPassBatch(client, ORG, 5)
@@ -262,7 +262,7 @@ describe('the verdict write goes through the shared resolver, not an inline expr
   it('leaves a still-risky catch-all ineligible', async () => {
     vi.spyOn(bouncerHandler, 'execute').mockResolvedValue(risky)
     const { client, applied } = fakeSupabase([
-      { id: 'p1', email: 'sohail@thesouthstarconsulting.com', country: 'US', independent_email_status: 'Catch All' },
+      { id: 'p1', email: 'noor@northwell.example.com', country: 'US', independent_email_status: 'Catch All' },
     ])
 
     const run = await runSecondPassBatch(client, ORG, 5)
@@ -278,7 +278,7 @@ describe('the verdict write goes through the shared resolver, not an inline expr
   it('THE PREREQUISITE: a German catch-all resolved to deliverable stays BLOCKED', async () => {
     vi.spyOn(bouncerHandler, 'execute').mockResolvedValue(deliverable)
     const { client, applied } = fakeSupabase([
-      { id: 'p1', email: 'jochen@knot-consulting.com', country: 'DE', independent_email_status: 'Catch All' },
+      { id: 'p1', email: 'marlow@merrow.example.com', country: 'DE', independent_email_status: 'Catch All' },
     ])
 
     await runSecondPassBatch(client, ORG, 5)
@@ -295,7 +295,7 @@ describe('the verdict write goes through the shared resolver, not an inline expr
   it('does NOT report a jurisdiction-blocked address as recovered', async () => {
     vi.spyOn(bouncerHandler, 'execute').mockResolvedValue(deliverable)
     const { client } = fakeSupabase([
-      { id: 'p1', email: 'jochen@knot-consulting.com', country: 'DE', independent_email_status: 'Catch All' },
+      { id: 'p1', email: 'marlow@merrow.example.com', country: 'DE', independent_email_status: 'Catch All' },
     ])
 
     const run = await runSecondPassBatch(client, ORG, 5)

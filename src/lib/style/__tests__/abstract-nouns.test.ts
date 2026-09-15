@@ -28,7 +28,7 @@ describe('the named list', () => {
 })
 
 describe('counting the real failures', () => {
-  it('catches the remainder sentence that shipped in Alma Email 1', () => {
+  it('catches the remainder sentence that shipped in Noor Email 1', () => {
     const text = 'That remainder tends to shrink before it grows.'
     expect(findAbstractNouns(text)).toEqual([{ noun: 'remainder', count: 1 }])
   })
@@ -38,7 +38,7 @@ describe('counting the real failures', () => {
     expect(findAbstractNouns(text)).toEqual([{ noun: 'engine', count: 1 }])
   })
 
-  it('catches momentum, which shipped in Jochen Email 1', () => {
+  it('catches momentum, which shipped in Marlow Email 1', () => {
     const text = 'that pipeline has to run on whatever momentum the last event left behind'
     expect(countAbstractNouns(text)).toBe(1)
   })
@@ -118,7 +118,7 @@ describe('the named verb list', () => {
 })
 
 describe('counting the verb failures that shipped', () => {
-  it('catches "those tend to shrink before they grow" from Alma', () => {
+  it('catches "those tend to shrink before they grow" from Noor', () => {
     expect(findFigurativeVerbs('and those tend to shrink before they grow')).toEqual([
       { verb: 'shrink', count: 1 },
     ])
@@ -130,7 +130,7 @@ describe('counting the verb failures that shipped', () => {
     ])
   })
 
-  it('catches "before they become a conversation" from Shevonne', () => {
+  it('catches "before they become a conversation" from Rowan', () => {
     expect(findFigurativeVerbs('tend to need a nudge before they become a conversation')).toEqual([
       { verb: 'become', count: 1 },
     ])
