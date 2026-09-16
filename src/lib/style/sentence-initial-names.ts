@@ -229,6 +229,13 @@ function hasNameOrthography(word: string): boolean {
  * that gets the fix. Widening it to untraceableClaims is a separate change with its own
  * measurement, and it is recorded in BACKLOG rather than smuggled in here.
  *
+ * THAT IS STILL TRUE OF isTraceable, AND ONLY OF isTraceable. On 2026-09-15
+ * acronymNumberVariants below WAS shared with untraceableClaims, which is the opposite
+ * direction and is why it was safe: the variant only ever ADMITS a token, so it can
+ * loosen that gate and cannot tighten it. The word-boundary test here would tighten it,
+ * so it stays here. Two neighbouring rules, opposite signs, and the sign is the whole
+ * reason one crossed over and the other did not.
+ *
  * `\b` is not used: it treats a hyphen and an apostrophe as boundaries in ways that differ
  * from cleanToken, which keeps both inside a token. Letters and digits are the only
  * characters that continue a word here, which matches how the tokens were built.
@@ -282,8 +289,18 @@ function isTraceable(clean: string, haystack: string): boolean {
  * value is catching that leak, so exempting all-caps words as a class would switch off the
  * only thing it currently does. CFOs, MQS and DTCC have never been rejected in any stored
  * run, so there is no measured false positive to trade against that.
+ *
+ * ─── SHARED WITH untraceableClaims SINCE 2026-09-15 ─────────────────────────
+ *
+ * write-opening.ts imports this. Exported rather than copied, because the shape
+ * `^\p{Lu}{2,}s?$` is the entire rule and a second copy of it is a second thing to keep
+ * in step by hand, which is the failure this file already documents twice.
+ *
+ * It behaves DIFFERENTLY over there and that is expected, not a bug: untraceableClaims
+ * matches with a bare `includes`, so its singular direction already passed and only the
+ * plural was broken. This closes that one direction. See the measurement in the commit.
  */
-function acronymNumberVariants(clean: string): string[] {
+export function acronymNumberVariants(clean: string): string[] {
   if (/^\p{Lu}{2,}s$/u.test(clean)) return [clean.slice(0, -1)]
   if (/^\p{Lu}{2,}$/u.test(clean)) return [`${clean}s`]
   return []
