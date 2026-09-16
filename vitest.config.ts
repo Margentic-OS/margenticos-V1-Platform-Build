@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig, configDefaults } from 'vitest/config'
 import path from 'path'
 import fs from 'fs'
 import SkipGuardReporter from './vitest.skip-guard'
@@ -91,11 +91,58 @@ function resolveTestDatabaseEnv(): Record<string, string> {
   return resolved
 }
 
-const testDatabaseEnv = resolveTestDatabaseEnv()
+/**
+ * THE UNIT TIER RUNS WITHOUT A DATABASE, AND THEREFORE WITHOUT THESE CREDENTIALS.
+ *
+ * `npm run test:unit` selects every test file EXCEPT `*.live.test.*`, and none of those
+ * touch a database. Demanding credentials for that run would mean CI could not execute a
+ * single test without being handed the keys to the test project, which is the difference
+ * between a workflow that needs one secret and one that needs none.
+ *
+ * The hard failure above is KEPT for every other invocation, unchanged. A plain
+ * `npm test` still refuses to start without the keys rather than reporting the database
+ * files as "skipped", which is the behaviour that comment exists to describe.
+ *
+ * Set by the test:unit script, never by hand. If the unit tier ever does reach a database,
+ * requireTestDatabaseCredentials throws by name in that file rather than falling back to
+ * anything, and the tier-convention test fails before that in CI.
+ */
+const TIER = process.env.MARGENTICOS_TEST_TIER
+const UNIT_TIER = TIER === 'unit'
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE TWO TIERS, SELECTED BY A NAMING CONVENTION AND NOTHING ELSE
+//
+//   *.live.test.ts   talks to the test database. Needs credentials, contends with
+//                    every other checkout on this machine for one shared database,
+//                    and is where all of the intermittent failure lives.
+//   everything else  deterministic. No database, no credentials, no contention.
+//
+// THE CONVENTION IS THE ONLY LIST. There is no array of filenames here and none in
+// the workflow: a second list would have to be kept in step by hand, and the
+// direction it drifts is the dangerous one, a database file quietly running in the
+// tier that is supposed to be deterministic.
+//
+// It is enforced from the other side too. src/__tests__/tier-convention.test.ts
+// walks the import graph and fails when a file that reaches the database is not
+// named for it, so the label cannot silently stop matching the world.
+//
+// Unset TIER runs EVERYTHING, which is what `npm test` has always done.
+// unit  EXCLUDES the live files. live INCLUDES only them. Unset runs everything.
+const TIER_EXCLUDE = TIER === 'unit' ? ['**/*.live.test.*'] : []
+const TIER_INCLUDE = TIER === 'live' ? ['**/*.live.test.?(c|m)[jt]s?(x)'] : undefined
+
+const testDatabaseEnv = UNIT_TIER ? {} : resolveTestDatabaseEnv()
 
 export default defineConfig({
   test: {
     environment: 'node',
+
+    // Defaults FIRST, then the tier. Passing --exclude on the command line would
+    // replace vitest's defaults rather than add to them, and the suite would start
+    // scanning node_modules.
+    exclude: [...configDefaults.exclude, ...TIER_EXCLUDE],
+    ...(TIER_INCLUDE ? { include: TIER_INCLUDE } : {}),
 
     // 'default' keeps the normal output; the guard is additive. It fails the run
     // when a test was meant to run and did not, which vitest reports as "skipped"
