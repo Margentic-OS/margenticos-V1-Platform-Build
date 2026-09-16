@@ -7,8 +7,10 @@
 // Credits consumed: None (People API Search is free, plan-gated above free tier)
 //
 // Handler workflow:
-//   1. adapter(): Return the hardcoded Apollo search filter (APOLLO_FILTER below)
-//   2. execute(): Call Apollo, paginate results, return ProspectCandidate array
+//   1. adapter(): Build the Apollo search request from THIS CLIENT'S stored spec
+//   2. execute(): Call Apollo, paginate from a record position, return an
+//                 ApolloSourcingResult: the candidates plus how far through the
+//                 result set the run got. NOT a bare array. See the type.
 //   3. Post-filter: Drop candidates by job_titles_excluded and keywords_excluded
 //
 // ─── The search filter is BUILT FROM THE CLIENT'S STORED SPEC ────────────────
@@ -883,8 +885,11 @@ export const apolloHandler = {
         // not land on a page boundary. These rows were read by an earlier run; reading them
         // again is the duplication the cursor exists to remove.
         //
-        // They still COUNT as read, because they were: recordsRead is advanced by the whole
-        // page below, and the cursor must not rewind over records already consumed.
+        // THEY ARE NOT COUNTED AGAIN, and that is correct: startOffset already covers them.
+        // recordsRead counts only what THIS run examined, and the cursor advances by
+        // startOffset + recordsRead, so counting the skipped prefix a second time would
+        // push the next run past records nobody has read. The comment here used to say the
+        // opposite, which is how a correct line gets 'fixed' into a broken one.
         const people = skipInFirstPage > 0 ? data.people.slice(skipInFirstPage) : data.people
         skipInFirstPage = 0
 
