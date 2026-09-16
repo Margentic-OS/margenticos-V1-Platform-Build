@@ -173,6 +173,23 @@ export default defineConfig({
     pool: 'forks',
     isolate: true,
 
+    // ─── 30s, BECAUSE THE DEFAULT 10 IS NOT ENOUGH TO SEED A REMOTE DATABASE ───
+    //
+    // The live tier's beforeEach hooks insert organisations, campaigns and prospects
+    // one round trip at a time against a Supabase project in eu-west-1. Measured
+    // 2026-09-16: those files take about 10 seconds PER TEST, so the seeding sat
+    // exactly on vitest's 10s default and tipped over it at random.
+    //
+    // That is most of what made this tier look flaky.
+    // get-client-visible-campaign-metrics failed six full runs in a row, and both of
+    // its failures came back to this: one was the hook timing out outright, the other
+    // was a downstream assertion dividing by a fixture that had never landed.
+    //
+    // It costs nothing on a passing test. The unit tier's hooks finish in
+    // milliseconds, and a genuinely hung test is still bounded, just at 30s.
+    hookTimeout: 30_000,
+    testTimeout: 30_000,
+
     // ═══════════════════════════════════════════════════════════════════════
     // TEST-ONLY ENVIRONMENT. READ THE SECOND HALF OF THIS COMMENT BEFORE
     // ADDING ANYTHING HERE.

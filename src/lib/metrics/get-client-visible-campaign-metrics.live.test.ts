@@ -423,6 +423,20 @@ describe('Campaign Metrics Chokepoint — ADR-030 Runtime Boundary', () => {
 
     expect(meetingsFromDb).toBe(result.meetingsBooked)
     expect(peopleFromDb).toBe(result.contactedCount)
+
+    // THE FIXTURE, ASSERTED BEFORE ANYTHING IS DIVIDED BY IT.
+    //
+    // Without this the next line computes meetings / 0 when the seed has not landed,
+    // which is Infinity, and compares it against the metric's null. null is the
+    // CORRECT answer for nobody contacted, and there is a test below that says so, so
+    // the failure read "expected null to be close to Infinity" and looked like a
+    // defect in the metric. It was a defect in this file's arithmetic, on a run where
+    // beforeEach had timed out. Fail at the cause instead.
+    expect(peopleFromDb,
+      'the beforeEach fixture did not land: no contacted people for this org, so ' +
+      'there is nothing to compare the metric against',
+    ).toBeGreaterThan(0)
+
     // The claim itself, computed from the direct read.
     expect(result.meetingRate).toBeCloseTo((meetingsFromDb! / peopleFromDb) * 100, 10)
     // And the denominator really is the smaller of the two, which is what makes the
