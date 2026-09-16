@@ -69,6 +69,12 @@ import {
 import { resolveVariantId, type MessagingContent } from '@/lib/agents/research/produce-opening'
 import { loadStoredFindings } from '@/lib/agents/prospect-research-agent-v2'
 import { hasUsableCandidate } from '@/lib/agents/research/synthesize'
+// PRODUCTION'S OWN JOIN, imported rather than reimplemented. The writer returns the
+// observation and the bridge as two fields and this is what makes them one opening; it is
+// also what personalisation_trigger stores. Writing `[a, b].join('\n\n')` here instead
+// would be a second copy of a rule that must agree with the first, and the disagreement
+// would surface as different copy rather than as an error.
+import { joinOpening } from '@/lib/agents/research/write-opening'
 
 const OUT_DIR = '.writer-export'
 
@@ -139,6 +145,91 @@ function render(
   return { subject: email1.subject_line ?? '', body: email1.body }
 }
 
+// ─── Fidelity: does the render carry every field the record holds? ───────────
+//
+// ═════════════════════════════════════════════════════════════════════════════
+// THE DEFECT THIS EXISTS FOR
+//
+// The first version of this script rendered the fresh side from `rec.observation` alone
+// and never passed `rec.bridge`. The writer returns them as two fields; production joins
+// them with joinOpening and stores the joined string. So every one of 31 fresh sides
+// shipped a paragraph short, against a stored side that had both, and the whole file was
+// unjudgeable: the arm with less copy always looks thinner.
+//
+// WHAT THE EXISTING CHECKS COULD NOT DO. The run was verified for unresolved merge tags,
+// empty subjects, footer counts, em dashes and leaked identifiers, and every one of those
+// passed, correctly. A six-paragraph email is perfectly well formed. WELL-FORMEDNESS
+// CANNOT DETECT A MISSING FIELD, because nothing about the output is malformed when a
+// field never arrives: it is a valid email that says less than it should.
+//
+// The only check that catches it compares the render against THE RECORD IT CAME FROM. A
+// field the record holds and the render does not is a dropped field, whatever the output
+// looks like on its own.
+//
+// PARAGRAPH BREAKS ARE PRESERVED when normalising, deliberately. Collapsing all whitespace
+// would make this pass for an opening joined with a space instead of a blank line, which
+// is the same bug one layer down: both paragraphs present, structure wrong.
+function normaliseKeepBreaks(s: string): string {
+  return s
+    .split(/\n{2,}/)
+    .map(p => p.replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim())
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+/**
+ * Throws naming every field the record holds that the render does not carry.
+ *
+ * A null or empty field is skipped, not failed: a record that holds no bridge has no
+ * bridge to find, and failing on it would make the check cry wolf on the template path
+ * until someone switched it off.
+ */
+function assertRenderCarries(
+  label: string,
+  side: Side,
+  fields: ReadonlyArray<readonly [string, string | null]>,
+): void {
+  const haystack = normaliseKeepBreaks(`${side.subject}\n\n${side.body}`)
+  const missing: string[] = []
+  for (const [name, value] of fields) {
+    if (value === null || value.trim() === '') continue
+    if (!haystack.includes(normaliseKeepBreaks(value))) missing.push(name)
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `ab-read: ${label} — the render is missing ${missing.length} field(s) the record holds: ` +
+      `${missing.join(', ')}. The page would understate this side. Refusing to write it.`,
+    )
+  }
+}
+
+/**
+ * CONTROL: prove the check above can FAIL before trusting the fact that it did not.
+ *
+ * Runs on every invocation, not as a separate test, because the failure mode being guarded
+ * against is a check that silently stops working. A green run whose checker cannot go red
+ * is the same reassuring nothing as a grep that never executed, and this whole file exists
+ * because of one of those.
+ */
+function proveCheckerCanFail(): void {
+  const damaged: Side = { subject: 'a subject', body: 'Robin\n\nthe observation\n\nthe offer line' }
+  let threw = false
+  try {
+    assertRenderCarries('control', damaged, [
+      ['observation', 'the observation'],
+      ['bridge', 'a bridge this render does not contain'],
+    ])
+  } catch {
+    threw = true
+  }
+  if (!threw) {
+    throw new Error(
+      'ab-read: the fidelity check did not fail on a render that is provably missing a field. ' +
+      'The check is broken, so its green result on real blocks means nothing. Refusing to run.',
+    )
+  }
+}
+
 interface Block {
   prospect_id: string
   /** What the row holds now, composed. */
@@ -183,13 +274,28 @@ async function templateBlocks(supabase: SupabaseClient, ids: string[]): Promise<
     const variantId = resolveVariantId(p.id, p.variant_id, doc.content)
     const frame = getVariantEmail1Frame(doc.content, variantId)
 
+    const old = render(doc.content, variantId, p.first_name, p.stored.trigger, p.stored.question, p.stored.subject)
+    // The approved template: the variant's own authored opener back in its own slot, its
+    // own CTA and its own subject. This is what composition ships when
+    // personalisation_trigger is null, because TRIGGER_FALLBACKS_ENABLED is false.
+    //
+    // ONE PARAGRAPH, AND THAT IS CORRECT HERE. The authored frame carries exactly four
+    // content paragraphs (observation slot, offer line, CTA, sign-off), so the template
+    // side has no bridge and is not supposed to. That is a real property of what this
+    // prospect would receive, not the dropped-field defect the run path had.
+    const fresh = render(doc.content, variantId, p.first_name, frame.authoredOpening, null, null)
+
+    assertRenderCarries(`${p.id} STORED`, old, [
+      ['personalisation_trigger', p.stored.trigger],
+      ['personalisation_question', p.stored.question],
+      ['personalisation_subject', p.stored.subject],
+    ])
+    assertRenderCarries(`${p.id} NEW`, fresh, [['authored opening', frame.authoredOpening]])
+
     blocks.push({
       prospect_id: p.id,
-      old: render(doc.content, variantId, p.first_name, p.stored.trigger, p.stored.question, p.stored.subject),
-      // The approved template: the variant's own authored opener back in its own slot,
-      // its own CTA and its own subject. This is what composition ships when
-      // personalisation_trigger is null, because TRIGGER_FALLBACKS_ENABLED is false.
-      fresh: render(doc.content, variantId, p.first_name, frame.authoredOpening, null, null),
+      old,
+      fresh,
       fresh_origin: `approved template, variant ${variantId}` +
         `${p.variant_id ? '' : ' (computed: not yet uploaded)'} (writer stops: no usable candidate)`,
     })
@@ -199,11 +305,21 @@ async function templateBlocks(supabase: SupabaseClient, ids: string[]): Promise<
 
 // ─── Mode 2: from an export-writer-run JSON ──────────────────────────────────
 
+/**
+ * The half of export-writer-run's record this script reads.
+ *
+ * `bridge` WAS MISSING FROM THIS INTERFACE, and that is why nothing caught the dropped
+ * paragraph. A local type that models fewer fields than the JSON holds cannot warn about
+ * the one it omits: the compiler only ever saw the fields named here, so reading
+ * `observation` alone looked complete. Anything added to the record and wanted here has to
+ * be added in both places, which is why assertRenderCarries exists as the runtime backstop.
+ */
 interface RunRecord {
   prospect_id: string
   organisation_id: string
   variant_id: string
   observation: string | null
+  bridge: string | null
   question: string | null
   subject: string | null
   stored_before: StoredCopy
@@ -237,12 +353,42 @@ async function fromRunBlocks(supabase: SupabaseClient, jsonPaths: string[]): Pro
       const frame = getVariantEmail1Frame(doc.content, variantId)
       const wrote = typeof rec.observation === 'string' && rec.observation.trim().length > 0
 
+      // THE OPENING IS THE OBSERVATION AND THE BRIDGE TOGETHER, joined by the same function
+      // production calls before it stores personalisation_trigger. Passing the observation
+      // alone is the defect this script shipped once: the fresh side came out a paragraph
+      // short against a stored side that had both.
+      const freshOpening = wrote
+        ? joinOpening(rec.observation ?? '', rec.bridge ?? '')
+        : frame.authoredOpening
+
+      const old = render(
+        doc.content, variantId, p.first_name,
+        storedTrigger, rec.stored_before.question, rec.stored_before.subject,
+      )
+      const fresh = render(
+        doc.content, variantId, p.first_name,
+        freshOpening, wrote ? rec.question : null, wrote ? rec.subject : null,
+      )
+
+      // Every field the record holds must appear in the side built from it.
+      assertRenderCarries(`${rec.prospect_id} STORED`, old, [
+        ['stored_before.trigger', rec.stored_before.trigger],
+        ['stored_before.question', rec.stored_before.question],
+        ['stored_before.subject', rec.stored_before.subject],
+      ])
+      assertRenderCarries(`${rec.prospect_id} NEW`, fresh, wrote
+        ? [
+            ['observation', rec.observation],
+            ['bridge', rec.bridge],
+            ['question', rec.question],
+            ['subject', rec.subject],
+          ]
+        : [['authored opening', frame.authoredOpening]])
+
       blocks.push({
         prospect_id: rec.prospect_id,
-        old: render(doc.content, variantId, p.first_name, storedTrigger, rec.stored_before.question, rec.stored_before.subject),
-        fresh: wrote
-          ? render(doc.content, variantId, p.first_name, rec.observation as string, rec.question, rec.subject)
-          : render(doc.content, variantId, p.first_name, frame.authoredOpening, null, null),
+        old,
+        fresh,
         fresh_origin: wrote ? 'writer output (reuse run)' : 'approved template (writer produced nothing)',
       })
     }
@@ -297,6 +443,11 @@ function renderPage(blocks: Block[]): { page: string; key: string[] } {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  // FIRST, before any work: prove the fidelity check can go red. Everything below trusts
+  // it, and a check that has silently stopped working reports exactly what a clean run
+  // reports.
+  proveCheckerCanFail()
+
   const argv = process.argv.slice(2)
   const mode = argv.find(a => a === '--template' || a === '--from-run')
   const args = argv.filter(a => !a.startsWith('--'))
