@@ -30,6 +30,35 @@ const MINIMUM_BUILDABLE_SPEC: Record<string, unknown> = {
   industries: ['Management Consulting'],
 }
 
+/**
+ * Serves exactly per_page rows, every SECOND one failing the has_email pre-filter.
+ *
+ * Every other fixture in this file serves rows that all survive, so recordsRead and
+ * candidates.length are equal in all of them and NOTHING distinguishes the two. That is
+ * the one number the cursor advances by, and advancing it by survivors would silently
+ * re-read every dropped record on every later run, forever. Measured 2026-09-16: with all
+ * fixtures undropped, replacing recordsRead with candidates.length passed all 61 tests.
+ */
+function captureRequestsWithDrops(totalEntries = 1_000_000) {
+  const sent: Array<Record<string, unknown>> = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+    const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>
+    sent.push(body)
+    const page = Number(body.page)
+    const perPage = Number(body.per_page)
+    const people = Array.from({ length: perPage }, (_, i) => ({
+      ...apolloPerson(`p${page}-${i}`),
+      has_email: i % 2 === 0,
+    }))
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ people, total_entries: totalEntries }),
+    } as unknown as Response
+  })
+  return sent
+}
+
 /** Captures every request body the handler sends, so the page asked for can be asserted. */
 function captureRequests(peoplePerPage: number, totalEntries = 1_000_000) {
   const sent: Array<Record<string, unknown>> = []
@@ -139,6 +168,34 @@ describe('Apollo handler resumes from a record position', () => {
     expect(result.candidates).toHaveLength(40)
   })
 
+  // THE DROPPED RECORDS COUNT AS READ, because they were.
+  //
+  // This is the distinction the whole return-shape change exists for: candidates.length is
+  // net of the post-filters and recordsRead is not, so they are only equal when nothing was
+  // dropped. Advancing the cursor by survivors re-reads every dropped row on every later
+  // run. No other fixture here drops anything, so nothing else can catch it.
+  it('counts dropped records as read, so the cursor does not rewind over them', async () => {
+    captureRequestsWithDrops()
+
+    // per_page = min(cap,100) = 10, and every second row fails has_email, so 5 of each
+    // page survive.
+    //
+    // 19, NOT 20, and the difference is the point. Page 1 is examined whole: 10 read, 5
+    // kept. On page 2 the tenth survivor is row index 8, and the loop breaks the moment the
+    // cap is met, so row index 9 is NEVER EXAMINED. 10 + 9 = 19. Counting the whole second
+    // page would claim a row this run never looked at, and the next run would start past a
+    // person nobody ever sourced. Predicted 20 when this was written; the handler returned
+    // 19 and the handler is right.
+    const result = await apolloHandler.execute({ ...MINIMUM_BUILDABLE_SPEC }, 10, 0)
+
+    expect(result.candidates).toHaveLength(10)
+    expect(result.recordsRead).toBe(19)
+    // The invariant that survives any fixture: drops happened, so the two numbers differ.
+    expect(result.recordsRead).toBeGreaterThan(result.candidates.length)
+    // What the cursor stores. Must clear every row consumed, not just the survivors.
+    expect(result.startOffset + result.recordsRead).toBe(19)
+  })
+
   // The end offset is what the cursor stores, so the windows of consecutive runs must abut
   // exactly. This is the property that takes the duplicate rate to zero.
   it('produces windows that abut, so consecutive runs do not overlap', async () => {
@@ -198,6 +255,10 @@ describe('Apollo handler resumes from a record position', () => {
         RECORD_CEILING - 40,
       )
 
+      // THE FLAG ITSELF, not just the log line. This assertion was missing, and without it
+      // hardcoding `ceilingReached: false` on the final return passed the whole file:
+      // the early-return path sets its own literal, so only the mid-run path was exposed.
+      expect(result.ceilingReached).toBe(true)
       expect(result.recordsRead).toBe(40)
       expect(result.startOffset + result.recordsRead).toBe(RECORD_CEILING)
       expect(error).toHaveBeenCalled()

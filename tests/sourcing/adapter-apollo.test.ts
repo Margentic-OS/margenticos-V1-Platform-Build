@@ -231,7 +231,7 @@ describe('apolloHandler.execute - post-filtering', () => {
       notes: '',
     }
 
-    const candidates = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
+    const { candidates } = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
 
     // apollo-004 has title "Director of Sales" which matches excluded "Director of Sales"
     const apollo004 = candidates.find(c => c.source_person_key === 'apollo:apollo-004')
@@ -265,7 +265,7 @@ describe('apolloHandler.execute - post-filtering', () => {
       notes: '',
     }
 
-    const candidates = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
+    const { candidates } = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
 
     // apollo-005 has company "Marketing Consultancy Staffing Services" which contains "staffing"
     const apollo005 = candidates.find(c => c.source_person_key === 'apollo:apollo-005')
@@ -299,7 +299,7 @@ describe('apolloHandler.execute - post-filtering', () => {
       notes: '',
     }
 
-    const candidates = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
+    const { candidates } = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
 
     // apollo-004 has has_email: false, should be dropped
     const apollo004 = candidates.find(c => c.source_person_key === 'apollo:apollo-004')
@@ -337,7 +337,7 @@ describe('apolloHandler.execute - ProspectCandidate format', () => {
       notes: '',
     }
 
-    const candidates = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
+    const { candidates } = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
 
     expect(candidates.length).toBeGreaterThan(0)
     candidates.forEach(c => {
@@ -371,7 +371,7 @@ describe('apolloHandler.execute - ProspectCandidate format', () => {
       notes: '',
     }
 
-    const candidates = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
+    const { candidates } = await apolloHandler.execute(spec as unknown as Record<string, unknown>)
 
     // apollo-001 should have name and job_title extracted from fixture
     const apollo001 = candidates.find(c => c.source_person_key === 'apollo:apollo-001')
