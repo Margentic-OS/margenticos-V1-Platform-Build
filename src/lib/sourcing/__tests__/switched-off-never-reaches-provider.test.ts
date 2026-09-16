@@ -193,7 +193,7 @@ describe('end to end: what the provider actually receives', () => {
   const keys = (cands: { source_person_key: string }[]) => cands.map(c => c.source_person_key)
 
   it('CONTROL: nothing switched off, so every parameter is in the body and the matching row is dropped', async () => {
-    const got = await apolloHandler.execute(everyAxisOn())
+    const got = (await apolloHandler.execute(everyAxisOn())).candidates
     expect(sent.length).toBeGreaterThan(0)
     for (const axis of REQUEST_AXES) {
       expect(sent[0][OMITTED_AXIS_TARGET[axis] as string], `${axis} must be sent`).toBeDefined()
@@ -203,7 +203,7 @@ describe('end to end: what the provider actually receives', () => {
   })
 
   it('every switchable axis switched off: none of their parameters reaches the provider, and the post-filter is skipped', async () => {
-    const got = await apolloHandler.execute(everyAxisOn({ omitted_axes: [...OMITTABLE_AXES] }))
+    const got = (await apolloHandler.execute(everyAxisOn({ omitted_axes: [...OMITTABLE_AXES] }))).candidates
     expect(sent.length).toBeGreaterThan(0)
     for (const body of sent) {
       for (const axis of REQUEST_AXES) {

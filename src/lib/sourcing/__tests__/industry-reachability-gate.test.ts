@@ -63,6 +63,8 @@ interface FakeState {
   /** Rows inserted into sourcing_runs, and the patches later applied to each. */
   sourcingRuns: Record<string, unknown>[]
   sourcingRunPatches: Record<string, unknown>[]
+  /** Every sourcing_cursors upsert, so a test can assert the position was recorded. */
+  cursorUpserts: Record<string, unknown>[]
 }
 
 function makeSupabase(spec: unknown, state: FakeState): SupabaseClient {
@@ -156,6 +158,31 @@ function makeSupabase(spec: unknown, state: FakeState): SupabaseClient {
           }
           return updated
         },
+        // sourcing_cursors: the resume position, read before the search and written after
+        // it. This fake serves it as "no row yet", which is offset 0 and the behaviour
+        // these tests were written against.
+        //
+        // IT IS SERVED RATHER THAN LEFT UNIMPLEMENTED because the unimplemented() throw is
+        // doing its job here: when the orchestrator gained the cursor read, these three
+        // tests started failing with "does not implement maybeSingle" instead of silently
+        // passing on a lie. That is the whole argument for a fake that throws.
+        maybeSingle: async () => {
+          if (table !== 'sourcing_cursors') {
+            throw new Error(
+              `fake supabase does not implement maybeSingle() for ${table}. The code under ` +
+              'test reached a query shape this fake cannot honour.',
+            )
+          }
+          return { data: null, error: null }
+        },
+        upsert: async (row: Record<string, unknown>) => {
+          if (table !== 'sourcing_cursors') {
+            throw new Error(`fake supabase: unexpected upsert into ${table}`)
+          }
+          state.cursorUpserts.push(row)
+          return { error: null }
+        },
+
         // Everything the orchestrator could reach but must not in these tests.
         is: unimplemented('is'),
         not: unimplemented('not'),
@@ -164,7 +191,6 @@ function makeSupabase(spec: unknown, state: FakeState): SupabaseClient {
         limit: unimplemented('limit'),
         order: unimplemented('order'),
         delete: unimplemented('delete'),
-        maybeSingle: unimplemented('maybeSingle'),
       }
 
       return chain
@@ -223,7 +249,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
   })
 
   it('refuses the run when no spec industry is targeted by the handler query', async () => {
-    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [], cursorUpserts: [] }
     // NAMES THE HANDLER CANNOT TRANSLATE, which since the query became spec-driven is
     // no longer the same thing as "a sector outside consulting". The Apollo handler has
     // a NAICS code for every CANONICAL industry, so education and agriculture are now
@@ -256,7 +282,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
   })
 
   it('allows the run when at least one spec industry is targeted', async () => {
-    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [], cursorUpserts: [] }
     const supabase = makeSupabase(baseSpec(CLIENT_ZERO_INDUSTRIES), state)
 
     const result = await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
@@ -273,7 +299,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
     // the industries that ARE targeted. Without this line the difference between
     // "searched for the 15 you named" and "searched for 12 of them" is invisible.
     const warn = vi.spyOn(logger, 'warn')
-    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [], cursorUpserts: [] }
     const supabase = makeSupabase(
       baseSpec(['Management Consulting', 'Unreachable One', 'Unreachable Two']),
       state,
@@ -294,7 +320,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
 
   it('says out loud when the spec constrains no industry at all', async () => {
     const warn = vi.spyOn(logger, 'warn')
-    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [], cursorUpserts: [] }
     const supabase = makeSupabase(baseSpec([]), state)
 
     await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
@@ -309,7 +335,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
   })
 
   it('allows the run on partial coverage, and does not refuse', async () => {
-    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [], cursorUpserts: [] }
     const supabase = makeSupabase(
       // One targeted, one not.
       baseSpec(['Management Consulting', 'Higher Education']),
@@ -323,7 +349,7 @@ describe('Sourcing orchestrator: industry reachability gate', () => {
   })
 
   it('does not refuse when the spec names no industries at all', async () => {
-    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [], cursorUpserts: [] }
     const supabase = makeSupabase(baseSpec([]), state)
 
     const result = await runSourcing(brandedFake(supabase), ORG, 'operator_manual', 10)
@@ -345,7 +371,7 @@ describe('Sourcing orchestrator: the run record', () => {
   it('creates the run record BEFORE reading the ICP, so a failed run still has one', async () => {
     // No approved ICP at all, so the run dies at step 1. Nine real runs failed this way on
     // 2026-08-09 and left nothing to look at; those are exactly the runs worth seeing.
-    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [], cursorUpserts: [] }
     const supabase = makeSupabase(null, state)
     // Remove the approved ICP the fake would otherwise return.
     const noIcp = {
@@ -368,7 +394,7 @@ describe('Sourcing orchestrator: the run record', () => {
   })
 
   it('closes the record as failed, on the row it opened', async () => {
-    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [] }
+    const state: FakeState = { agentRuns: [], sourcingRuns: [], sourcingRunPatches: [], cursorUpserts: [] }
     // An empty industries list, deliberately. This test is about the run record's terminal
     // write, not about industry matching, and naming a real industry here would put a
     // sector into a fixture that has no need of one.
