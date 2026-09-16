@@ -66,7 +66,7 @@ describe('Apollo handler: aggregate drop report', () => {
       ]),
     )
 
-    const candidates = await apolloHandler.execute(
+    const { candidates } = await apolloHandler.execute(
       { ...MINIMUM_BUILDABLE_SPEC, job_titles_excluded: ['recruiter'], keywords_excluded: ['staffing'] },
       100,
     )

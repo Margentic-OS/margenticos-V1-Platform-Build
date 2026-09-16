@@ -27,6 +27,12 @@
 // handler's job to own per CLAUDE.md.
 
 import { logger } from '@/lib/logger'
+import {
+  addressForOffset,
+  isAtCeiling,
+  windowBelowCeiling,
+  RECORD_CEILING,
+} from '@/lib/sourcing/record-position'
 import { normaliseLinkedInUrl } from '@/lib/sourcing/normalise-linkedin'
 import type { ProspectCandidate } from '@/lib/sourcing/dedupe'
 import { FILTER_SPEC_FIELDS, OMITTABLE_AXES, type FilterSpecField, type OmittableAxis } from '@/lib/agents/icp-filter-spec'
@@ -643,6 +649,30 @@ export function reportSpecDivergence(spec: Record<string, unknown>): void {
   })
 }
 
+/**
+ * What one sourcing run did, including how far through the result set it got.
+ *
+ * `recordsRead` is the number the cursor advances by. It counts rows the PROVIDER RETURNED,
+ * before any post-filter, which is deliberately not the same as `candidates.length`.
+ */
+export interface ApolloSourcingResult {
+  candidates: ProspectCandidate[]
+  /** Record position this run started from. */
+  startOffset: number
+  /** Provider rows consumed by this run, before post-filtering. */
+  recordsRead: number
+  /**
+   * True when this run stopped because it reached the provider's 50,000-record ceiling
+   * rather than because it filled its batch or ran out of matches.
+   *
+   * SEPARATE FROM "returned nothing", and that separation is the entire point. At the
+   * ceiling the provider returns nothing, which is indistinguishable from a healthy run
+   * that found no new people. One is normal; the other means this client can never be
+   * sourced again without changing the query.
+   */
+  ceilingReached: boolean
+}
+
 export const apolloHandler = {
   name: 'Apollo',
 
@@ -684,10 +714,25 @@ export const apolloHandler = {
     }
   },
 
-  // Execute: call Apollo api_search, paginate, return ProspectCandidate array
-  // Input: spec (containing all filter fields including those used for post-filtering)
-  //        cap (optional batch size cap; if set, stops pagination once cap candidates are fetched)
-  execute: async (spec: Record<string, unknown>, cap?: number): Promise<ProspectCandidate[]> => {
+  // Execute: call Apollo api_search, paginate from a record position, return the candidates
+  // together with how far through the result set the run actually got.
+  //
+  // Input: spec        all filter fields, including those used for post-filtering
+  //        cap         optional batch size cap
+  //        startOffset 0-based record position to resume from. Defaults to 0, which is the
+  //                    old always-start-at-the-top behaviour and is what every direct test
+  //                    caller still gets.
+  //
+  // IT RETURNS AN OBJECT NOW, NOT AN ARRAY. The caller has to know how many records were
+  // READ in order to advance the cursor, and that number is not recoverable from the
+  // candidate list: the post-filters below drop rows, so candidates.length is smaller than
+  // the window consumed. Advancing by candidates.length would re-read every dropped record
+  // on every subsequent run, forever.
+  execute: async (
+    spec: Record<string, unknown>,
+    cap?: number,
+    startOffset: number = 0,
+  ): Promise<ApolloSourcingResult> => {
     const apiKey = process.env.APOLLO_API_KEY
     if (!apiKey) {
       const msg = 'APOLLO_API_KEY not set in environment'
@@ -715,8 +760,31 @@ export const apolloHandler = {
     let droppedByNoEmail = 0
 
     const MAX_PAGES = 500
-    const MAX_RESULTS = cap ?? 50000
     const PAGE_SIZE = cap ? Math.min(cap, 100) : 100
+
+    // ─── THE CEILING, CHECKED BEFORE ANYTHING IS SPENT ───────────────────────
+    //
+    // At or past 50,000 the provider returns nothing at all, and "nothing" reads exactly
+    // like a healthy run that found no new people: zero candidates, run completed, no
+    // error. This is the one place that can tell the two apart, so it says so here and
+    // does not make the call.
+    //
+    // The wall is roughly 1,250 runs away at current batch sizes. Nobody reading this
+    // later will remember that it was predicted, which is precisely why it announces
+    // itself rather than relying on someone noticing an empty run.
+    if (isAtCeiling(startOffset)) {
+      logger.error('Apollo handler: record ceiling reached, no further sourcing is possible', {
+        start_offset: startOffset,
+        record_ceiling: RECORD_CEILING,
+        consequence:
+          'This client has consumed every record the provider will page to for this query. ' +
+          'Further runs cannot return anyone new. Narrow or change the ICP filter spec.',
+      })
+      return { candidates: [], startOffset, recordsRead: 0, ceilingReached: true }
+    }
+
+    // How many records this run may consume, clamped so the window cannot cross the ceiling.
+    const MAX_RESULTS = windowBelowCeiling(startOffset, cap ?? RECORD_CEILING)
 
     // Built ONCE. adapter() ignores `spec` and returns the same hardcoded filter every
     // call, so rebuilding it per page allocated a fresh object per request for nothing.
@@ -724,14 +792,37 @@ export const apolloHandler = {
     const request = apolloHandler.adapter(spec) as ApolloApiSearchRequest
     request.per_page = PAGE_SIZE
 
-    let page = 1
+    // ─── RESUME FROM THE STORED POSITION ─────────────────────────────────────
+    //
+    // page = floor(offset / per_page) + 1, plus the part of that first page already
+    // consumed. The skip matters as soon as two runs use different batch sizes, which the
+    // 2026-09-15 runs did (caps 30, 36, 44): an offset of 30 against a per_page of 44 is
+    // INSIDE page 1, not at the start of page 2, so without the skip the run re-reads
+    // records 1 to 30 and leans on dedupe to discard them.
+    const address = addressForOffset(startOffset, PAGE_SIZE)
+    let page = address.page
+    let skipInFirstPage = address.skipInPage
+
+    let recordsRead = 0
     let totalFetched = 0
     let morePages = true
+    let ceilingReached = false
+    const firstPage = page
 
-    while (morePages && page <= MAX_PAGES && totalFetched < MAX_RESULTS) {
+    logger.info('Apollo handler: resuming from stored position', {
+      start_offset: startOffset,
+      per_page: PAGE_SIZE,
+      first_page: page,
+      skip_in_first_page: skipInFirstPage,
+      window: MAX_RESULTS,
+    })
+
+    while (morePages && page < firstPage + MAX_PAGES && totalFetched < MAX_RESULTS) {
       // Rate limit: Apollo enforces 200 calls/minute burst limit. Throttle to ~3 calls/sec (300ms between requests).
-      // Only throttle between pages (if page > 1); single page request has zero added delay.
-      if (page > 1) {
+      // Only throttle BETWEEN pages of this run. Compared against firstPage rather than 1,
+      // because a resumed run's first page is not page 1 and would otherwise pay a delay it
+      // does not owe before its very first call.
+      if (page > firstPage) {
         await new Promise(resolve => setTimeout(resolve, 300))
       }
 
@@ -786,8 +877,26 @@ export const apolloHandler = {
           ? undefined
           : spec.keywords_excluded as string[] | undefined
 
+        // ─── DISCARD THE PREFIX THIS CLIENT HAS ALREADY CONSUMED ──────────
+        //
+        // Only ever non-empty on the first page of a resumed run, when the stored offset did
+        // not land on a page boundary. These rows were read by an earlier run; reading them
+        // again is the duplication the cursor exists to remove.
+        //
+        // They still COUNT as read, because they were: recordsRead is advanced by the whole
+        // page below, and the cursor must not rewind over records already consumed.
+        const people = skipInFirstPage > 0 ? data.people.slice(skipInFirstPage) : data.people
+        skipInFirstPage = 0
+
         // Convert Apollo people to ProspectCandidate, apply post-filters
-        for (const person of data.people) {
+        for (const person of people) {
+          // COUNTED HERE, ONE AT A TIME, rather than a page at a time.
+          //
+          // The loop can break mid-page when the batch cap is reached, and a page-at-a-time
+          // count would then claim the whole page was consumed. The next run would start
+          // past records this one never examined, and those people would never be sourced
+          // by anybody. Counting per record examined makes the cursor exact.
+          recordsRead++
           // Pre-filter: only include if Apollo claims verified email
           if (person.has_email === false) {
             droppedByNoEmail++
@@ -846,10 +955,34 @@ export const apolloHandler = {
           }
         }
 
-        // Check if more pages available
+        // Check if more pages available.
+        //
+        // `recordsRead` rather than `totalFetched` against total_entries: the first counts
+        // records consumed and the second counts survivors of the post-filters, and
+        // comparing survivors against the provider's total would keep paging long after the
+        // result set was exhausted.
         const totalEntries = data.total_entries ?? 0
-        if (totalFetched >= totalEntries || data.people.length < 100) {
+        // `data.people.length`, NOT the post-skip `people.length`.
+        //
+        // A short RAW page is the provider saying it has run out. The skip is our own doing,
+        // and on a resumed mid-page run it makes the first page look short when the result
+        // set is nowhere near exhausted. Reading the post-skip length here ended the run
+        // after the first partial page and delivered a fraction of the batch asked for.
+        if (startOffset + recordsRead >= totalEntries || data.people.length < PAGE_SIZE) {
           morePages = false
+        } else if (isAtCeiling(startOffset + recordsRead)) {
+          // WALKED INTO THE WALL MID-RUN. Distinct from starting at it: this run did real
+          // work and then ran out of reachable records. Both must say so.
+          ceilingReached = true
+          morePages = false
+          logger.error('Apollo handler: record ceiling reached during the run', {
+            start_offset: startOffset,
+            records_read: recordsRead,
+            record_ceiling: RECORD_CEILING,
+            consequence:
+              'This client has now consumed every record the provider will page to for ' +
+              'this query. Further runs cannot return anyone new.',
+          })
         } else {
           page++
         }
@@ -873,7 +1006,11 @@ export const apolloHandler = {
     const droppedTotal = droppedByNoEmail + droppedByExcludedTitle + droppedByExcludedKeyword
     const dropReport = {
       total_candidates: candidates.length,
-      pages_fetched: page - 1,
+      start_offset: startOffset,
+      records_read: recordsRead,
+      end_offset: startOffset + recordsRead,
+      ceiling_reached: ceilingReached,
+      pages_fetched: page - firstPage + 1,
       max_pages: MAX_PAGES,
       dropped_total: droppedTotal,
       dropped_no_email: droppedByNoEmail,
@@ -887,6 +1024,6 @@ export const apolloHandler = {
       logger.info('Apollo handler: sourcing complete', dropReport)
     }
 
-    return candidates
+    return { candidates, startOffset, recordsRead, ceilingReached }
   },
 }

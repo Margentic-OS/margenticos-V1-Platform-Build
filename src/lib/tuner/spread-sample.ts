@@ -33,8 +33,19 @@
 import { countAndSample, type ProviderBudget, type SampleRow } from '@/lib/tuner/count-and-sample'
 import { logger } from '@/lib/logger'
 
-/** The provider's hard display ceiling, measured: record 50,000 works and 50,001 does not. */
-export const RECORD_CEILING = 50_000
+/**
+ * The provider's hard display ceiling, measured: record 50,000 works and 50,001 does not.
+ *
+ * RE-EXPORTED, NOT DECLARED. It moved to src/lib/sourcing/record-position.ts on 2026-09-15
+ * when sourcing gained a resume cursor and needed the same number. Two copies of a measured
+ * provider limit is the parallel-constant shape CLAUDE.md warns about: the copies drift, and
+ * the drift is silent because each side keeps passing its own tests.
+ *
+ * Kept exported from here because this module's existing callers and tests import it by this
+ * path, and the sampler is genuinely a consumer of the limit.
+ */
+export { RECORD_CEILING } from '@/lib/sourcing/record-position'
+import { RECORD_CEILING } from '@/lib/sourcing/record-position'
 
 /**
  * Default rows per round.

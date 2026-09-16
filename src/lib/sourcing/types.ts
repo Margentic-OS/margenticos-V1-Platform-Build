@@ -80,7 +80,40 @@ export interface SourcingHandler {
   targetable_countries: readonly string[]
 
   adapter: (spec: unknown) => unknown
-  execute: (spec: unknown, cap?: number) => Promise<unknown[]>
+
+  /**
+   * Run the search and report how far through the result set it got.
+   *
+   * `startOffset` is a 0-based record position to resume from, so a run picks up where this
+   * client's previous run stopped instead of re-reading the top of the same result set. See
+   * src/lib/sourcing/record-position.ts.
+   *
+   * IT RETURNS A RESULT OBJECT, NOT A BARE ARRAY, and that is load-bearing. The caller has to
+   * advance the cursor by the number of records READ, and that number is not recoverable
+   * from the candidate list: handlers post-filter, so candidates.length is smaller than the
+   * window consumed. A cursor advanced by candidates.length would re-read every dropped
+   * record on every later run.
+   *
+   * Typed here rather than left as `Promise<unknown[]>` so a handler that returns the old
+   * bare array is a COMPILE ERROR at the dispatch map instead of an orchestrator that reads
+   * `undefined` for recordsRead and advances the cursor by NaN.
+   */
+  execute: (
+    spec: unknown,
+    cap?: number,
+    startOffset?: number,
+  ) => Promise<SourcingExecuteResult>
+}
+
+/** What a sourcing handler reports back. See SourcingHandler.execute. */
+export interface SourcingExecuteResult {
+  candidates: unknown[]
+  /** Record position the run started from. */
+  startOffset: number
+  /** Provider rows consumed, before any post-filter. The cursor advances by this. */
+  recordsRead: number
+  /** True when the run stopped at the provider's reachable-record ceiling. */
+  ceilingReached: boolean
 }
 
 // Re-exported from the ONE list in icp-filter-spec.ts. See "Layer G" there.
