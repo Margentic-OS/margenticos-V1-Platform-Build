@@ -149,3 +149,58 @@ describe('stripQuotedSpans, the helper the question count depends on', () => {
     expect(stripQuotedSpans('He asked "are you sure? and left')).toContain('?')
   })
 })
+
+// A FOURTH FALSE POSITIVE, SAME SHAPE, FIXED 2026-09-15. See the Backlog row
+// "untraceableClaims has the same acronym number gap, mid-sentence, and it is the
+// blocking gate".
+//
+// The pairing rule at the top of this file applies here too and is the whole value: an
+// acronym the findings DO carry must pass in either number, and an acronym they do NOT
+// carry must still fail in either number. Only the second half proves the gate survived.
+//
+// THE PLURAL DIRECTION IS THE ONLY ONE THAT WAS BROKEN. untraceableClaims matches with a
+// bare `includes`, so a findings "CFOs" already contains "CFO" and the singular passed by
+// substring. Both directions are asserted anyway, because "it already worked" is a claim
+// about the code that only a test keeps true.
+describe('an acronym in the other number is the same claim (acronymNumberVariants)', () => {
+  const ACRONYM_EVIDENCE = [
+    '1. Bramwell Logistics hired a CFO in May and now runs MQS across both depots.',
+    '   source: website | news page, no date',
+  ].join('\n')
+
+  const trace = (opening: string) =>
+    checkOpeningGates(opening, null, ACRONYM_EVIDENCE, undefined, undefined, undefined, ACRONYM_EVIDENCE)
+      .filter(f => f.startsWith('claims not traceable'))
+
+  it('NOW PASSES the plural mid-sentence when the findings say the singular', () => {
+    expect(trace('Most CFOs sign these slowly.')).toHaveLength(0)
+    expect(trace('They track MQSs every week.')).toHaveLength(0)
+  })
+
+  it('still passes the exact token mid-sentence, which was never broken', () => {
+    expect(trace('Most CFO teams sign these slowly.')).toHaveLength(0)
+    expect(trace('They track MQS every week.')).toHaveLength(0)
+  })
+
+  it('passes the singular when the findings say the plural, the reverse direction', () => {
+    const pluralEvidence = '1. Bramwell Logistics hired two CFOs in May and runs MQSs on site.'
+    const t = (opening: string) =>
+      checkOpeningGates(opening, null, pluralEvidence, undefined, undefined, undefined, pluralEvidence)
+        .filter(f => f.startsWith('claims not traceable'))
+    expect(t('Most CFO teams sign these slowly.')).toHaveLength(0)
+    expect(t('They track MQS every week.')).toHaveLength(0)
+  })
+
+  // THE HALF THAT PROVES THE GATE IS STILL THERE. Delete the variant check in
+  // untraceableClaims and the first test above goes red; delete the whole traceability
+  // push and these go red. A fix proven in one direction only is a deleted gate.
+  it('STILL REJECTS an invented acronym, in BOTH numbers', () => {
+    expect(trace('Most DTCC filings sign slowly.')).toHaveLength(1)
+    expect(trace('Most DTCCs sign these slowly.')).toHaveLength(1)
+  })
+
+  it('STILL REJECTS an invented ordinary name, which the acronym shape cannot reach', () => {
+    expect(trace('Most Zentara accounts sign slowly.')).toHaveLength(1)
+    expect(trace('Most Zentaras sign these slowly.')).toHaveLength(1)
+  })
+})

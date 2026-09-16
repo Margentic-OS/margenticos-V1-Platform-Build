@@ -698,6 +698,37 @@ offer line.
 **Added 2026-08-28: the sentence-initial name check**
 (`src/lib/style/sentence-initial-names.ts`).
 
+**Added 2026-09-15: an acronym written in the other number counts as traceable.**
+
+In plain English: if the research findings say the client's contact is a "CFO", and the
+writer writes "Most CFOs sign these slowly", that used to be rejected as an invented name.
+The two words are obviously the same claim, and a person reading it would never call the
+plural a fabrication. The gate could not see that, because it compares words as text and
+does nothing about singulars and plurals.
+
+WHY IT MATTERED MORE HERE THAN NEXT DOOR. The same gap was fixed in the sentence-initial
+check on the same day, but that check only reports; this one BLOCKS. So the sentence-initial
+version cost a log line and this one cost a rejected opening, and a rejected opening means
+the writer is asked to try again, which costs a real model call.
+
+ONLY ONE DIRECTION WAS BROKEN, and it is worth knowing which. This gate compares text by
+plain substring, not by whole words, so "CFOs" in the findings already contains "CFO" and a
+singular in the email always passed. It was the plural in the email against a singular in
+the findings that failed.
+
+WHAT IT CANNOT DO. It cannot let through a word the findings do not carry. An invented
+acronym is still rejected in either number, and so is an invented ordinary name. The rule
+only fires on a run of two or more capitals with an optional trailing "s", so ordinary
+words, title-case names and internal-capital names such as "LinkedIn" are untouched.
+
+The rule itself lives in `sentence-initial-names.ts` as `acronymNumberVariants` and is
+IMPORTED by `write-opening.ts` rather than copied, so there is one definition to maintain.
+The stricter whole-word matching the other file uses was deliberately NOT shared: it would
+make this blocking gate reject MORE than it does today, and that cost lands on live copy.
+
+Measured against every stored writer export (14 files, 372 attempts): this changes nothing
+that has already been written. It is a correctness fix.
+
 WHAT IT DOES, in plain English. One of the older checks says "every capitalised word must
 appear in the research findings, because a capital letter means it is the name of
 something". That check has to skip the first word of a sentence, because the first word of

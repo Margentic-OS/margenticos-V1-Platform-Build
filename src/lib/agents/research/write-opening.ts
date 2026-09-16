@@ -17,7 +17,7 @@ import { logger } from '@/lib/logger'
 import { throwIfFatal } from '@/lib/agents/fatal-api-error'
 import { scrubAITells } from '@/lib/style/customer-facing-style-rules'
 import { findFirmographicFigures, FIRMOGRAPHIC_RULE_TEXT } from '@/lib/style/firmographic'
-import { checkSentenceInitialNames } from '@/lib/style/sentence-initial-names'
+import { checkSentenceInitialNames, acronymNumberVariants } from '@/lib/style/sentence-initial-names'
 import { countSentences } from '@/lib/style/sentence-count'
 import { checkFiniteVerbs } from '@/lib/style/finite-verb'
 import { checkActivityVerdict } from '@/lib/style/activity-verdict'
@@ -1200,7 +1200,35 @@ function untraceableClaims(opening: string, findingsText: string, numbersText?: 
     if (!/^\p{Lu}/u.test(clean)) return
     // A capital straight after a full stop is sentence-initial, not a name.
     if (i > 0 && /[.!?]$/.test(words[i - 1])) return
-    if (!haystack.includes(clean.toLowerCase())) untraceable.push(clean)
+    if (haystack.includes(clean.toLowerCase())) return
+
+    // THE SAME ACRONYM IN THE OTHER NUMBER IS THE SAME CLAIM, AND THIS GATE BLOCKS.
+    //
+    // An acronym cannot be rescued by anything downstream: there is no vocabulary or
+    // lemma step here, so traceability is the only thing between "CFOs" and a rejected
+    // opening. Measured through checkOpeningGates at 11cae7f, findings "Their CFO joined
+    // in May and now runs MQS on site.":
+    //
+    //     Most CFOs sign these slowly.       FAIL  claims not traceable: CFOs
+    //     Most CFO teams sign these slowly.  pass
+    //     They track MQSs every week.        FAIL  claims not traceable: MQSs
+    //
+    // ONLY THE PLURAL DIRECTION IS BROKEN, and the reason is worth keeping because it
+    // makes this fix smaller than the sentence-initial one. The test above is a bare
+    // `includes`, not a word-boundary match, so a findings "CFOs" already contains "CFO"
+    // and the singular direction passes by substring. Measured the same day against
+    // findings in the plural: CFO, CFOs and MQS all pass, invented DTCC still fails.
+    //
+    // acronymNumberVariants is IMPORTED, not re-derived. Its shape `^\p{Lu}{2,}s?$` is
+    // the whole rule, and a second copy here is a second list to keep in step by hand.
+    // It cannot fire on a normal word, a title-case name or an internal-capital name.
+    //
+    // IT CANNOT ADMIT A WORD THE FINDINGS DO NOT CARRY. The variant goes through the
+    // same haystack, so an invented acronym is rejected in either number exactly as
+    // today. The positive control in the tests asserts that direction, not just this one.
+    if (acronymNumberVariants(clean).some(v => haystack.includes(v.toLowerCase()))) return
+
+    untraceable.push(clean)
   })
 
   return [...new Set(untraceable)]
