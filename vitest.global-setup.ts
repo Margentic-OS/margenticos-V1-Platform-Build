@@ -162,7 +162,7 @@ function readProcessTable(): ProcessRow[] | null {
  * every one of those command lines contains "vitest". Without this the suite
  * would detect itself and refuse to run, every time.
  */
-function ownLineage(rows: readonly ProcessRow[]): Set<number> {
+export function ownLineage(rows: readonly ProcessRow[], selfPid: number = process.pid): Set<number> {
   const parentOf = new Map<number, number>()
   const childrenOf = new Map<number, number[]>()
   for (const row of rows) {
@@ -172,18 +172,18 @@ function ownLineage(rows: readonly ProcessRow[]): Set<number> {
     else childrenOf.set(row.ppid, [row.pid])
   }
 
-  const lineage = new Set<number>([process.pid])
+  const lineage = new Set<number>([selfPid])
 
   // Upwards to pid 1. The visited guard is for safety against a cycle ps should
   // never report; without it a bad table would hang the suite before it started.
-  let current = parentOf.get(process.pid) ?? 0
+  let current = parentOf.get(selfPid) ?? 0
   while (current > 1 && !lineage.has(current)) {
     lineage.add(current)
     current = parentOf.get(current) ?? 0
   }
 
   // Downwards, so workers this run spawns are never mistaken for a rival.
-  const pending = [process.pid]
+  const pending = [selfPid]
   while (pending.length > 0) {
     const pid = pending.pop()!
     for (const child of childrenOf.get(pid) ?? []) {
@@ -211,7 +211,7 @@ function ownLineage(rows: readonly ProcessRow[]): Set<number> {
  * whose arguments contain "npx vitest run" is deliberately NOT matched; it will be
  * caught a moment later when it spawns the real runner.
  */
-function isVitestRunner(command: string): boolean {
+export function isVitestRunner(command: string): boolean {
   return /(?:^|\/)vitest(?:\.mjs)?(?=\s|$)/.test(command) || /\bnpm exec vitest(?=\s|$)/.test(command)
 }
 
@@ -221,6 +221,11 @@ function isVitestRunner(command: string): boolean {
  * Returns an empty list when ps cannot be read: a guard that refuses because it
  * could not look is an outage, not a control.
  */
+export function selectForeignRuns(rows: readonly ProcessRow[], selfPid: number = process.pid): ProcessRow[] {
+  const lineage = ownLineage(rows, selfPid)
+  return rows.filter((row) => !lineage.has(row.pid) && isVitestRunner(row.command))
+}
+
 function foreignVitestRuns(): ProcessRow[] {
   const rows = readProcessTable()
   if (rows === null) {
@@ -228,8 +233,7 @@ function foreignVitestRuns(): ProcessRow[] {
     return []
   }
 
-  const lineage = ownLineage(rows)
-  return rows.filter((row) => !lineage.has(row.pid) && isVitestRunner(row.command))
+  return selectForeignRuns(rows)
 }
 
 function readLock(lockPath: string): LockEntry | null {
@@ -274,7 +278,55 @@ function refuse(entry: LockEntry, lockPath: string): never {
   )
 }
 
-function refuseForeignRun(foreign: readonly ProcessRow[]): never {
+/**
+ * What the lock file says about the runs we just detected.
+ *
+ * ── WHY THIS EXISTS ──
+ *
+ * Until 2026-09-15 the refusal below asserted, as fixed text, "It holds no lock file, so
+ * it is almost certainly a worktree cut before the suite lock existed." NOTHING MEASURED
+ * THAT. The foreign-run scan happens before the lock file is read at all, so the sentence
+ * was printed whether or not a lock existed and whether or not the rival held it. A run
+ * from a fully up-to-date worktree got described as one cut before the check existed.
+ *
+ * It also skipped the likelier explanation. The lock is written a moment AFTER this scan
+ * passes, so every run is a live vitest process with no lock file for a short window while
+ * it starts. A loop of runs reopens that window on every iteration.
+ *
+ * The message now reports what the lock file actually says, and where it genuinely cannot
+ * tell the two apart, it says so rather than picking one.
+ */
+function describeLockFor(foreign: readonly ProcessRow[], lockPath: string): string {
+  const entry = readLock(lockPath)
+
+  if (entry === null) {
+    return (
+      `  There is no lock file. This check cannot tell which of two things that means:\n` +
+      `  a worktree cut before this check existed and so taking no lock at all, or a run\n` +
+      `  that started moments ago and has not written its lock yet (it is written just\n` +
+      `  after this scan passes). Both look identical from here.\n`
+    )
+  }
+
+  const held = foreign.some((row) => row.pid === entry.pid)
+  if (held) {
+    return (
+      `  That run HOLDS the lock, so it is participating in this check:\n` +
+      `    worktree: ${entry.worktree}\n` +
+      `    commit:   ${entry.commit}\n` +
+      `    started:  ${entry.started_at} (${describeAge(ageMs(entry))})\n`
+    )
+  }
+
+  return (
+    `  A lock file exists but names pid ${entry.pid}, which is NOT one of the runs above\n` +
+    `  (${isProcessAlive(entry.pid) ? 'that pid is alive' : 'that pid is gone'}, left by ${entry.worktree}).\n` +
+    `  So the run above is not the lock holder, and this check cannot say whether it took\n` +
+    `  a lock of its own.\n`
+  )
+}
+
+function refuseForeignRun(foreign: readonly ProcessRow[], lockPath: string): never {
   const listed = foreign
     .slice(0, 5)
     .map((row) => `  pid ${row.pid}: ${row.command.slice(0, 160)}`)
@@ -284,9 +336,10 @@ function refuseForeignRun(foreign: readonly ProcessRow[]): never {
     `\n[suite-lock] A vitest run is already live on this machine.\n\n` +
       `${listed}\n` +
       (foreign.length > 5 ? `  ...and ${foreign.length - 5} more\n` : '') +
-      `\n  It holds no lock file, so it is almost certainly a worktree cut before the\n` +
-      `  suite lock existed. 24 of 30 worktrees were in that state on 2026-09-14.\n` +
-      `  Two suites against one test database produce failures belonging to neither.\n\n` +
+      `\n` +
+      describeLockFor(foreign, lockPath) +
+      `\n  Whatever the cause, two suites against one test database produce failures that\n` +
+      `  belong to neither, and a test count that measures both.\n\n` +
       `  Wait for it to finish. If the process above is NOT a test run, this check is\n` +
       `  wrong and you can bypass it for one run with:\n` +
       `      MARGENTICOS_ALLOW_CONCURRENT_SUITE=1 <your command>\n`,
@@ -309,7 +362,7 @@ export async function setup(): Promise<void> {
   // The lock file below only sees runs that write one; this sees the rest.
   if (process.env.MARGENTICOS_ALLOW_CONCURRENT_SUITE !== '1') {
     const foreign = foreignVitestRuns()
-    if (foreign.length > 0) refuseForeignRun(foreign)
+    if (foreign.length > 0) refuseForeignRun(foreign, lockPath)
   }
 
   const entry: LockEntry = {
