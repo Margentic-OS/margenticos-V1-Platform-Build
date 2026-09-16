@@ -11,7 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { verifyEnrichedBatch, DEFAULT_VERIFY_BATCH_SIZE, MAX_RETRY_ATTEMPTS } from '../verification-trigger'
+import { verifyEnrichedBatch, deriveRunStatus, DEFAULT_VERIFY_BATCH_SIZE, MAX_RETRY_ATTEMPTS } from '../verification-trigger'
 import { myemailverifierHandler } from '../handlers/adapter-myemailverifier'
 import { TIER_NOT_REJECTED_FILTER } from '../tier-verdict'
 import { EXCLUDED_COUNTRIES } from '../send-eligibility-rules'
@@ -630,5 +630,147 @@ describe('an excluded country costs no probe', () => {
 
     const verdicts = payloadsFor(applied, 'p1').filter(p => 'email_send_ineligible_reason' in p)
     expect(verdicts.some(p => p.email_send_ineligible_reason === 'operator_hold')).toBe(true)
+  })
+})
+
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// BUG 5 — A RUN THAT VERIFIED NOBODY REPORTED SUCCESS
+//
+// Found 2026-09-15, from the world rather than from reading: a local run against a stale
+// MyEmailVerifier key returned HTTP 401 on all 29 addresses and reported status 'success'.
+//
+// The mechanism: `status` is initialised to 'success', and the per-prospect loop catches its
+// own errors and only increments failed_count. Every path that downgrades the status returns
+// EARLY, so a run that got all the way to the end having achieved nothing kept the optimistic
+// initial value.
+//
+// WHY IT MATTERS BEYOND THE RETURN VALUE: verify-pending computes `ok = status !== 'failed'`
+// and writes both the cron heartbeat and the Sentry check-in from it. The scheduled job runs
+// every 10 minutes, so this had been capable of reporting green through a total outage of the
+// verification provider for as long as the credential stayed wrong.
+//
+// The last test in this block is the one that would actually have caught it in production,
+// because it asserts the consequence the route derives rather than the field itself.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+describe('BUG 5 — the run verdict is derived from what the run achieved', () => {
+  it('reports FAILED when every probe threw and nobody was verified', async () => {
+    vi.spyOn(myemailverifierHandler, 'execute')
+      .mockRejectedValue(new Error('MyEmailVerifier API returned 401'))
+    const { client } = fakeSupabase(
+      [1, 2, 3].map(n => ({ id: `p${n}`, email: `p${n}@b.com` })),
+    )
+
+    const run = await verifyEnrichedBatch(client, ORG, 3)
+
+    expect(run.total_verified).toBe(0)
+    expect(run.failed_count).toBe(3)
+    // THE ASSERTION THE OLD CODE FAILED. It returned 'success' here.
+    expect(run.status).toBe('failed')
+  })
+
+  it('says WHY it failed, because the heartbeat detail renders error_message', async () => {
+    vi.spyOn(myemailverifierHandler, 'execute')
+      .mockRejectedValue(new Error('MyEmailVerifier API returned 401'))
+    const { client } = fakeSupabase([{ id: 'p1', email: 'a@b.com' }])
+
+    const run = await verifyEnrichedBatch(client, ORG, 3)
+
+    expect(run.error_message).toMatch(/Every probe failed/)
+    expect(run.error_message).toMatch(/0 verified/)
+  })
+
+  // THE TEST THAT MAPS TO THE OUTAGE. verify-pending derives exactly this boolean and uses
+  // it for the heartbeat and the Sentry check-in, so this is the line between "the operator
+  // is told" and "the dashboard stays green through a dead credential".
+  it('drives the cron route to NOT-ok, which is what the heartbeat and Sentry read', async () => {
+    vi.spyOn(myemailverifierHandler, 'execute')
+      .mockRejectedValue(new Error('MyEmailVerifier API returned 401'))
+    const { client } = fakeSupabase([{ id: 'p1', email: 'a@b.com' }])
+
+    const run = await verifyEnrichedBatch(client, ORG, 3)
+
+    // The literal expression from src/app/api/cron/verify-pending/route.ts.
+    const ok = run.status !== 'failed'
+    expect(ok).toBe(false)
+  })
+
+  it('reports PARTIAL when some succeeded and some failed', async () => {
+    let call = 0
+    vi.spyOn(myemailverifierHandler, 'execute').mockImplementation(async () => {
+      call += 1
+      if (call === 1) return { ...okResult }
+      throw new Error('MyEmailVerifier API returned 401')
+    })
+    const { client } = fakeSupabase(
+      [1, 2].map(n => ({ id: `p${n}`, email: `p${n}@b.com` })),
+    )
+
+    const run = await verifyEnrichedBatch(client, ORG, 2)
+
+    expect(run.total_verified).toBe(1)
+    expect(run.failed_count).toBe(1)
+    expect(run.status).toBe('partial')
+  })
+
+  it('still reports SUCCESS when every probe worked', async () => {
+    vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client } = fakeSupabase([{ id: 'p1', email: 'a@b.com' }])
+
+    const run = await verifyEnrichedBatch(client, ORG, 3)
+
+    expect(run.status).toBe('success')
+    expect(run.error_message).toBeUndefined()
+  })
+
+  // HAVING NOTHING TO DO IS THE RESTING STATE of this sweep, and it fires every 10 minutes.
+  // Reporting it as a failure would page constantly and train the alarm to be ignored, which
+  // is the failure mode ADR-035 exists to avoid. An ALLOW case matters as much as a BLOCK.
+  it('reports SUCCESS when there was nothing to verify at all', async () => {
+    const execute = vi.spyOn(myemailverifierHandler, 'execute').mockResolvedValue(okResult)
+    const { client } = fakeSupabase([])
+
+    const run = await verifyEnrichedBatch(client, ORG, 3)
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(run.status).toBe('success')
+  })
+
+  // The pure rule, exercised directly. verify-pending branches on the
+  // 'free_tier_exhausted' LITERAL, so a downgrade that swallowed it would turn a budget
+  // state into an alarm.
+  describe('deriveRunStatus, the rule on its own', () => {
+    // THE FAILED COUNT HERE IS THE WHOLE TEST, and the first version of it did not have one.
+    //
+    // Written as { total_verified: 0, failed_count: 0 } this assertion cannot fail: with
+    // nothing attempted the `attempted === 0` branch preserves the status on its own, so
+    // deleting the guard clause above changed nothing and the mutation came back UNCOVERED.
+    // A non-zero failed_count is what makes the two versions disagree, which is what makes
+    // this a test of the guard rather than a test of the branch below it.
+    it('keeps free_tier_exhausted even after failures, since the route reads that literal', () => {
+      expect(deriveRunStatus({ total_verified: 0, failed_count: 3, status: 'free_tier_exhausted' }))
+        .toBe('free_tier_exhausted')
+    })
+
+    it('keeps an already-failed run failed', () => {
+      expect(deriveRunStatus({ total_verified: 0, failed_count: 0, status: 'failed' }))
+        .toBe('failed')
+    })
+
+    it('downgrades an all-failed run to failed even when the budget stopped it', () => {
+      expect(deriveRunStatus({ total_verified: 0, failed_count: 4, status: 'partial' }))
+        .toBe('failed')
+    })
+
+    it('leaves a budget-stopped run partial when it did verify somebody', () => {
+      expect(deriveRunStatus({ total_verified: 3, failed_count: 0, status: 'partial' }))
+        .toBe('partial')
+    })
+
+    it('treats nothing-attempted as the resting state, not a failure', () => {
+      expect(deriveRunStatus({ total_verified: 0, failed_count: 0, status: 'success' }))
+        .toBe('success')
+    })
   })
 })

@@ -77,6 +77,60 @@ export interface VerificationRun {
 }
 
 /**
+ * THE RUN'S OWN VERDICT, DERIVED FROM WHAT IT ACTUALLY DID.
+ *
+ * ── THE DEFECT THIS EXISTS FOR ──
+ *
+ * `status` is initialised to 'success' and was only ever changed by the paths that return
+ * EARLY: the budget check, the daily-limit check, and the outer catch. The per-prospect loop
+ * catches its own errors and only increments `failed_count`, so a run in which EVERY probe
+ * threw fell through to the end still reading 'success'.
+ *
+ * Measured 2026-09-15: a local run against a stale MyEmailVerifier key returned HTTP 401 on
+ * all 29 addresses, wrote no verdict for any of them, and reported status 'success' with
+ * failed_count 29 and total_verified 0.
+ *
+ * That is not cosmetic, because the SCHEDULED job reads this same field.
+ * src/app/api/cron/verify-pending/route.ts computes `ok = run.status !== 'failed'` and uses
+ * it for both the cron heartbeat and the Sentry check-in. A wholly failed sweep therefore
+ * wrote a HEALTHY heartbeat and a GREEN check-in, and MON-002 had nothing to notice. This is
+ * the same family as the monitor sweep whose loop was bounded by the shorter of two arrays:
+ * a check that runs, reports success, and never reached the thing it was meant to protect.
+ *
+ * ── WHY DERIVED RATHER THAN ASSIGNED ──
+ *
+ * Assigning at each exit site is what failed the first time: the loop was one more exit that
+ * nobody remembered. This reads the counters the run kept anyway, so a new exit path cannot
+ * forget it, and the rule lives in one testable place instead of being spread across the
+ * function. Exported so a test can mutation-prove it directly.
+ */
+export function deriveRunStatus(run: {
+  total_verified: number
+  failed_count: number
+  status: VerificationRun['status']
+}): VerificationRun['status'] {
+  // A run that already reached a terminal verdict of its own keeps it. 'failed' is already
+  // the worst answer, and 'free_tier_exhausted' is a BUDGET state the verify-pending route
+  // branches on by literal, so it must survive.
+  if (run.status === 'failed' || run.status === 'free_tier_exhausted') return run.status
+
+  const attempted = run.total_verified + run.failed_count
+
+  // Nothing was attempted. Having nothing to do is the normal resting state of this sweep,
+  // not a fault, and reporting it as one would train the alarm to be ignored.
+  if (attempted === 0) return run.status
+
+  // Something was attempted and NOTHING succeeded. A failure whatever the cause, and this is
+  // precisely the case that used to report success.
+  if (run.total_verified === 0) return 'failed'
+
+  // Some worked, some did not.
+  if (run.failed_count > 0) return 'partial'
+
+  return run.status
+}
+
+/**
  * Verify enriched prospects with independent email validator.
  * Independent of tiering (Amendment 1: parallel pass, not sequential gate).
  * Includes Grey-listed retry logic (Amendment 2).
@@ -488,6 +542,18 @@ export async function verifyEnrichedBatch(
     verificationRun.batch_size = prospectIds.length
     verificationRun.daily_verifications_used = dailyUsed + verificationRun.total_verified
     verificationRun.skipped_excluded_country = skippedExcluded
+
+    // THE VERDICT IS DERIVED HERE, from what the run actually achieved, and nowhere else on
+    // this path. See deriveRunStatus above for the 2026-09-15 measurement that motivated it.
+    verificationRun.status = deriveRunStatus(verificationRun)
+
+    // A downgrade needs to SAY WHY, because the heartbeat detail and the route's JSON both
+    // render error_message and would otherwise report a bare 'failed' with no cause.
+    if (verificationRun.status === 'failed' && !verificationRun.error_message) {
+      verificationRun.error_message =
+        `Every probe failed: ${verificationRun.failed_count} attempted, 0 verified. ` +
+        'Check the verification provider credential and the provider status.'
+    }
 
     logger.info('verification-trigger: run completed', {
       operation_id: operationId,
