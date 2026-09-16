@@ -1,3 +1,16 @@
+-- Status: APPLIED (verified live 2026-09-15)
+--   Applied via Supabase MCP apply_migration to BOTH projects:
+--     hjpvnvjryxdjcfdsfhzy (production)  and  tidqheqjzvwmrrrebzir (test)
+--   Applying to the test project too is not optional: the suite runs against it, and a
+--   live test meeting a missing column fails for a reason that looks nothing like the cause.
+--   Read back on production, expecting t / f / f and getting exactly that:
+--     service_role  SELECT/INSERT/UPDATE/DELETE  t t t t
+--     anon          SELECT/INSERT/UPDATE/DELETE  f f f f
+--     authenticated SELECT/INSERT/UPDATE/DELETE  f f f f
+--     relrowsecurity = true, policies = 0
+--   All four privileges checked per role, not just SELECT: a privilege list with omissions
+--   is how client_organisation_view's write grants stayed invisible for a day.
+
 -- Where each client's sourcing has reached in the provider's result set.
 --
 -- ═════════════════════════════════════════════════════════════════════════════

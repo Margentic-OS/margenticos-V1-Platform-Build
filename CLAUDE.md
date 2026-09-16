@@ -614,18 +614,29 @@ green**. Measured on 2026-09-04: 1,830 tests on a stale tree without the env fil
 against **2,938 on main with it**. A green run at the wrong count is the same class of
 lie as the clean tree and the Notion listing. **State the test count.**
 
-**THE FLOOR IS ~3,300, measured on main 2026-09-07. The ~2,924 figure above is
-SUPERSEDED, not wrong when it was written.** It is kept because the ratio is the part
-that matters: the env file was worth about 1,100 tests in September 2026, and a run
-missing it still reports green. The absolute number only ever moves up, so a floor is a
-perishable fact and the next session should expect to move it again rather than trust
-this line.
+**THE FLOOR IS ~4,390, measured on main 2026-09-15 at commit dda10c1.** Both the ~2,924
+and ~3,300 figures below are SUPERSEDED, not wrong when they were written. They are kept
+because the RATIO is the part that matters and the absolute number is not: the env file
+was worth about 1,100 tests in September 2026, and a run missing it still reports green.
+A floor is a perishable fact. Expect to move it again rather than trust this line, and
+when you move it, record the DATE and the COMMIT you measured at.
 
-Measured at c44c66c: **3,302 tests across 233 files**. The same tree plus the three
-money-filter guards, minus ten deleted assert-nothing cases, is **3,305 across 236**.
-So below ~3,300 means the env file is probably not being read; a drop of a few tests
-with the file present means someone deleted a test, which is a different question and
-should be answered from the git history rather than from this line.
+Measured at **dda10c1 on 2026-09-15: 4,394 tests across 332 files** (4,387 passed, 3
+failed, 2 expected-fail, 2 skipped). So below ~4,390 means the env file is probably not
+being read; a drop of a few tests with the file present means someone deleted a test,
+which is a different question and should be answered from the git history rather than
+from this line.
+
+The superseded readings, kept only for the ratio:
+
+  2026-09-04   ~1,830 without the env file against ~2,938 with it
+  2026-09-07   3,302 across 233 files, at c44c66c
+  2026-09-15   4,394 across 332 files, at dda10c1
+
+**AND STATE THE COMMIT WHEN YOU QUOTE A COUNT.** The 2026-09-15 reading was nearly lost
+to a different instrument error than the env file: the run was piped through `tail -30`,
+which cut the summary off above the skip-guard block and printed no count at all. A
+count you did not actually read is not a measurement.
 
 **A count is not a health check.** Roughly 8 to 11 live-database files fail on any given
 full run, and the set CHANGES between identical runs on the same commit: measured on

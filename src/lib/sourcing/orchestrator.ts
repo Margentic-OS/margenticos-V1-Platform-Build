@@ -11,6 +11,8 @@ import { inspectFilterSpec } from '@/lib/sourcing/inspect-filter-spec'
 import type { ICPFilterSpec } from '@/lib/agents/icp-filter-spec'
 import { HANDLER_DISPATCH } from '@/lib/sourcing/handler-registry'
 import { checkCandidates, type ProspectCandidate } from '@/lib/sourcing/dedupe'
+import { readCursor, advanceCursor } from '@/lib/sourcing/sourcing-cursor'
+import { isAtCeiling, RECORD_CEILING } from '@/lib/sourcing/record-position'
 import { startSourcingRun, type SourcingRunHandle } from '@/lib/sourcing/sourcing-run-record'
 
 // Serialize any error (Error, Supabase, or unknown) to human-readable message
@@ -355,10 +357,60 @@ export async function runSourcing(
       handler_name: capabilityRow.tool_name,
     })
 
+    // ── WHERE THIS CLIENT'S LAST RUN REACHED ─────────────────────────────────
+    //
+    // Read before the search, so the run resumes instead of re-reading records 1..cap of
+    // the same result set. A failed read THROWS rather than defaulting to 0: starting from
+    // zero on an unknown position silently re-reads everything and hands the problem back
+    // to dedupe, which is the behaviour the cursor exists to remove.
+    const cursor = await readCursor(supabase, client_id, icpDoc.id as string)
+
+    // THE CEILING, ANNOUNCED RATHER THAN RETURNED AS SILENCE.
+    //
+    // Past 50,000 records the provider returns nothing, and an empty result is
+    // indistinguishable from a healthy run that found nobody new. Failing here, loudly and
+    // before spending a provider call, is the only thing that tells those apart. The handler
+    // carries the same check for its own callers; this one exists so the run RECORD says it.
+    if (isAtCeiling(cursor.recordOffset)) {
+      const msg =
+        `Sourcing cannot continue: this client has consumed all ${RECORD_CEILING} records ` +
+        `the provider will page to for this ICP (offset ${cursor.recordOffset}). ` +
+        'Further runs cannot return anyone new. Narrow or change the ICP filter spec.'
+      logger.error('Sourcing orchestrator: record ceiling reached', {
+        operation_id: operationId,
+        client_id,
+        record_offset: cursor.recordOffset,
+        record_ceiling: RECORD_CEILING,
+      })
+      await supabase.from('agent_runs').insert({
+        organisation_id: client_id,
+        agent_name: 'sourcing_orchestrator',
+        status: 'failed',
+        output_summary: null,
+        error_message: msg,
+      })
+      throw new Error(msg)
+    }
+
+    logger.info('Sourcing orchestrator: resuming from stored position', {
+      operation_id: operationId,
+      client_id,
+      record_offset: cursor.recordOffset,
+      cursor_was_reset: cursor.wasReset,
+    })
+
     let candidates: ProspectCandidate[] = []
+    let recordsRead = 0
+    let ceilingReachedDuringRun = false
     try {
-      const result = await handler.execute(spec as unknown, target_batch_size)
-      candidates = result as ProspectCandidate[]
+      const result = await handler.execute(
+        spec as unknown,
+        target_batch_size,
+        cursor.recordOffset,
+      )
+      candidates = result.candidates as ProspectCandidate[]
+      recordsRead = result.recordsRead
+      ceilingReachedDuringRun = result.ceilingReached
     } catch (err) {
       const errorMsg = serializeError(err)
       logger.error('Sourcing orchestrator: handler search failed', {
@@ -525,6 +577,37 @@ export async function runSourcing(
       client_id,
       written_count: writtenCount,
     })
+
+    // ── ADVANCE THE CURSOR ───────────────────────────────────────────────────
+    //
+    // AFTER the write, deliberately. Advancing before it would mean a run that read 40
+    // records and then failed to write them had moved the position past 40 people nobody
+    // has, and no later run would ever go back for them. Advancing here means a failed run
+    // re-reads its window next time: dedupe discards whatever did land, and anyone missed
+    // gets another chance. That is the conservative direction of the two.
+    //
+    // It advances by recordsRead, NOT by writtenCount. The handler's post-filters and dedupe
+    // both drop rows, and a cursor that moved only by survivors would re-read every dropped
+    // record on every subsequent run, forever, dropping each one again for the same reason.
+    const endOffset = await advanceCursor(
+      supabase,
+      client_id,
+      icpDoc.id as string,
+      cursor.recordOffset,
+      recordsRead,
+    )
+
+    if (ceilingReachedDuringRun) {
+      logger.error('Sourcing orchestrator: this run consumed the last reachable records', {
+        operation_id: operationId,
+        client_id,
+        end_offset: endOffset,
+        record_ceiling: RECORD_CEILING,
+        consequence:
+          'The next run for this client will refuse to start. Narrow or change the ICP ' +
+          'filter spec to reach a different result set.',
+      })
+    }
 
     // ── Step 7.5: Validation guard — prevent empty-shell writes ────────────────
     if (writtenCount > 0) {
