@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "npx tsx scripts/check-use-server-exports.ts && npx tsx scripts/check-postgrest-patch.ts",
+    "prebuild": "npx tsx scripts/check-use-server-exports.ts && npx tsx scripts/check-postgrest-patch.ts && npx tsc --noEmit",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "next lint",
