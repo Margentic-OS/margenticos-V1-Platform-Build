@@ -654,6 +654,58 @@ assuming success from an HTTP 200.
   funnel rows as well as the meetings, because never-booked prospects have no meeting at all.
 - Median present but n = 1: that is one observation, and the panel labels it as such.
 
+### Lead upload — how many of these have never been researched (2026-09-17)
+
+**What it does.** On the operator client detail page, under the "Pending leads ready to
+upload" number, a plain sentence appears when some of those prospects have never been
+researched:
+
+    18 of these 21 have never been researched. They will send your standard opening
+    line, not one written for each person.
+    You can still upload them. Research them first only if you want a personalised opening.
+
+The same fact rides on the button: `Upload 21 pending leads (18 with your standard opener)`.
+
+**When the count is zero the panel says nothing at all.** No empty state, no zero badge.
+A reassuring "0 unresearched" is one more thing to read, and a corner of the screen that
+is usually empty teaches an operator to stop looking at it.
+
+**Why it exists.** An upload of 21 prospects went out where 18 had never been researched.
+All 18 shipped the client's authored opener, which is a legitimate email to send, and
+nothing on the screen said so. The operator read "21 pending", which was correct, and which
+carried no consequence.
+
+**It is visibility, not a gate.** Nothing blocks, disables or shrinks the upload. The button
+stays pressable at any count, including when every prospect is unresearched, because an
+unresearched send is sometimes the correct send. There is a test asserting exactly that.
+
+**What connects to what.** `src/lib/operator/unresearched-send-gate.ts`. It holds two query
+builders and the two sentences. `unresearchedSendGateCountQuery` calls `sendGateCountQuery`
+and adds one clause to what comes back, so the two numbers the operator compares ("18 of
+these 21") are one population measured twice rather than two predicates that agree until
+somebody edits one.
+
+**The research clause is deliberately NOT in `applySendGate`.** Putting it there would
+narrow the claim itself: the upload would quietly take fewer prospects than the operator
+asked for, and the operator's own count would shrink to match, with nothing on screen
+explaining the difference. `src/lib/sourcing/send-gate.ts` decides who CAN be sent; this
+module only describes them. A test asserts the gate's predicate byte-for-byte against a
+frozen literal, so moving a research condition into it fails loudly.
+
+**"Never researched" means `research_ran_at IS NULL`**, the same definition
+`src/lib/operator/sourcing-metrics.ts` already uses, so the two cannot disagree about the
+word. It is NARROWER than "will ship the authored opener": composition ships that opener
+whenever `personalisation_trigger` is empty, which also covers prospects that WERE
+researched and whose writer then stopped. Those are already listed individually in
+`WriterStoppedPanel` with synthesis's own note, so counting them here would make two panels
+disagree about the same prospect.
+
+**What to check if it breaks.** Both counts fail loud through `requireCount`, so a refused
+read throws rather than rendering as "everything has been researched", which is the
+reassuring direction and the one an operator cannot check. If the sentence never appears,
+confirm `research_ran_at` is actually null for the prospects in question before suspecting
+the component: the research agent stamps it on every run.
+
 ## View inventory (to be built)
 - Empty state view (months 1–2 default)
 - Client pipeline view (post-unlock)
