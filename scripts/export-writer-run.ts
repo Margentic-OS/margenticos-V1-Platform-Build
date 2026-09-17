@@ -65,6 +65,40 @@
 // before-and-after column comparison below is the receipt that actually settles it.
 //
 // ═════════════════════════════════════════════════════════════════════════════
+// HOW TO MEASURE A PROMPT CHANGE WITH THIS SCRIPT: RUN THE CONTROL ON THE SAME COMMIT
+//
+// A prompt change measured against an export taken days or weeks earlier measures the
+// change PLUS every gate change since, and the two cannot be separated afterwards.
+//
+// THE 2026-09-17 CASE, which is why this note exists. A writer-context experiment was read
+// against the 2026-09-14 baselines and produced a gate-failure delta of 5 -> 36 that looked
+// damning and was uninterpretable: `3358e53` had turned the absence rule from report-only to
+// BLOCKING on 2026-09-16, and `84bcaa4` had widened the untraceable-claim gate. Neither had
+// anything to do with the change under test.
+//
+// The fix took 45 minutes and settled it outright: run the SAME prospect ids, on the SAME
+// commit, with the change switched off, and compare those two. Do it by adding a temporary
+// env switch at the produceOpening call below, exactly one line:
+//
+//     someOptionalInput: process.env.MY_EXPERIMENT === 'off' ? null : theRealValue,
+//
+// Then prove the switch works in BOTH directions before spending money on 33 prospects: run
+// one prospect each way and read the log line that reports the input's presence. A control
+// that is not verified to be a control is an assumption, and an unverified zero is exactly
+// the shape this repository keeps paying for.
+//
+// Delete the switch when the experiment is decided. It is scaffolding for one question, and
+// a permanent flag for a dead experiment is a knob the next person will find and wonder
+// about. The METHOD is what is worth keeping, which is why it is written here rather than
+// left as a flag.
+//
+// WHAT IT MEASURED THAT DAY, so the numbers are not lost with the branch: client context in
+// the writer's system prompt, two formats, each against its own same-commit control on one
+// pinned 33-prospect cohort. Dumps (a bridge of >=5 sentences or a block of >=100 words)
+// ran 4 of 33 and 2 of 33 with the context, against 0 of 33 without it, while the judge win
+// rate stayed inside the noise floor in all four runs. See the Decisions Log.
+//
+// ═════════════════════════════════════════════════════════════════════════════
 // WHAT IT REPRODUCES, AND THE TWO PLACES IT DELIBERATELY DIFFERS
 //
 // Reproduced exactly: stored-findings selection (loadStoredFindings, the same function

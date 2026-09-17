@@ -179,9 +179,16 @@ export function buildWriterAssignment(params: {
   clientName: string
   /**
    * Who is reading it, resolved by resolveBuyer. IN THE ASSIGNMENT AND NOT THE SYSTEM
-   * PROMPT, because it varies per prospect and per client, and the system prompt is
-   * ~9,300 cached tokens sent up to three times per prospect. One interpolation there
-   * would miss the cache on every writer call in the system.
+   * PROMPT, because it varies PER PROSPECT, and the system prompt is ~10,900 cached tokens
+   * sent up to three times per prospect. One per-prospect interpolation there would miss
+   * the cache on every writer call in the system.
+   *
+   * SAID MORE PRECISELY THAN IT WAS. This read "per prospect and per client", which are not
+   * the same constraint. What breaks a cache is per-PROSPECT variation, because it changes
+   * on every call. A per-CLIENT value costs one extra cache entry and still hits on every
+   * call within a batch, since a batch runs one client at a time, and synthesis already
+   * caches per-client on exactly that basis. The buyer is per-prospect on tier 1 of the
+   * precedence, so it belongs here either way.
    */
   buyer: string
   p3: string
@@ -1672,11 +1679,17 @@ export function buildFindingsBlock(
  * `cacheSystem` marks the system prompt as a cache breakpoint. Set it ONLY for prompts
  * that are byte-stable across calls and large enough to cache.
  *
- * The writer prompt qualifies on both counts: ~9,300 tokens and, since the assignment
+ * The writer prompt qualifies on both counts: ~10,900 tokens and, since the assignment
  * block moved to the user message, identical on every call. The floor and judge prompts
  * qualify on neither: they are ~124 tokens each, far below Anthropic's ~1,024-token
  * minimum cacheable prefix, so a breakpoint on them would be silently ignored while still
  * spending one of the four breakpoints a request is allowed.
+ *
+ * THE ~10,900 FIGURE WAS MEASURED ON 2026-09-17 with the real tokenizer, at 10,893. It read
+ * "~9,300" here and "9,151 -> 9,158" in 541b0e8, both true when written, and neither moved
+ * as the prompt grew ~19%. A token figure in a comment is perishable: state the date it was
+ * measured, as this line now does, or the next person plans against a number from a prompt
+ * that no longer exists.
  */
 async function callModel(
   client: Anthropic,
