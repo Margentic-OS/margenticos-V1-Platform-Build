@@ -68,7 +68,7 @@ describe('EnrichmentSpendNotice', () => {
     render(<EnrichmentSpendNotice mode="unknown" action="Enrichment" prospectCount={7} />)
 
     expect(screen.getByText(/Cannot tell whether/i)).toBeInTheDocument()
-    expect(screen.getByText(/may be live and consuming/i)).toBeInTheDocument()
+    expect(screen.getByText(/could not be read, so nobody can say whether this run spends/i)).toBeInTheDocument()
     expect(screen.queryByText(/consume no credits/i)).not.toBeInTheDocument()
   })
 

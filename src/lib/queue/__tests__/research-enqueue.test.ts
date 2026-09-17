@@ -664,7 +664,11 @@ describe('the research label and the research action agree', () => {
       { id: 'n2', personalisation_trigger: null, verified_at: null, email_status: null },
     ])
     expect(verdict.actionable).toBe(0)
-    expect(verdict.blocked).toMatch(/All 4 prospects were filtered out/)
+    // REWORDED 2026-09-17 (item 7). The count was being read as one batch when it spans
+    // every sourcing run, and as the same population as the Removed card when it is not.
+    // The number and its meaning are still the claim here.
+    expect(verdict.blocked).toMatch(/All 4 unresearched prospects in this client/)
+    expect(verdict.blocked).toMatch(/across every sourcing run/)
     // And the reason reaches the screen, rather than only the log.
     expect(verdict.skippedBreakdown).toMatch(/2 catch-all domain/)
     expect(verdict.skippedBreakdown).toMatch(/2 never verified/)

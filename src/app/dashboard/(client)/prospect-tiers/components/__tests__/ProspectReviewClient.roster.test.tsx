@@ -104,7 +104,10 @@ describe('task state, while something is pending', () => {
       prospect({ id: 'already-approved' }),
     ])
 
-    expect(screen.getByRole('button', { name: 'Approve remaining 2' })).toBeInTheDocument()
+    // TWO of them since 2026-09-17: one at the head of the list and one at its foot. The
+    // claim here is about the COUNT, so assert both carry it rather than that one exists.
+    const buttons = screen.getAllByRole('button', { name: 'Approve remaining 2' })
+    expect(buttons).toHaveLength(2)
   })
 
   // The defect this build fixes. All three rows sit in one group, and only the pending
@@ -119,8 +122,22 @@ describe('task state, while something is pending', () => {
   })
 
   it('shows the auto-approval deadline while a decision is outstanding', () => {
+    // REWORDED AND NARROWED 2026-09-17. The old sentence was "Auto-approved on <date> if no
+    // action taken", built from the tier's first-ever publication, which put a date five
+    // weeks in the past on the live screen. A date now appears only when it is genuinely in
+    // the future; renderRoster's default notice supplies one. See auto-approval-notice.ts.
     renderRoster([prospect({ id: 'waiting', client_review_status: 'pending_review' })])
-    expect(screen.getByText(/auto-approved on 11 Sep 2026/i)).toBeInTheDocument()
+    expect(screen.getByText(/we will go ahead with everyone here on 1 Jan 2099/i))
+      .toBeInTheDocument()
+  })
+
+  it('shows no date at all when no automatic approval is coming', () => {
+    renderRoster(
+      [prospect({ id: 'waiting', client_review_status: 'pending_review' })],
+      false,
+      { kind: 'no_automatic_approval' },
+    )
+    expect(screen.getByText(/We will not add anyone automatically/)).toBeInTheDocument()
   })
 
   it('opens on the group holding the work, not the newest batch', () => {
@@ -143,7 +160,12 @@ describe('grouping is visible to the client', () => {
     ])
 
     const tabs = screen.getAllByRole('tab')
-    expect(tabs.map(t => t.textContent)).toEqual(['7 Sep 20261', '21 Aug 20262'])
+    // The counts gained their unit on 2026-09-17: a bare number beside a date said nothing
+    // about what it counted. The group ORDER and the counts themselves are the claim here.
+    expect(tabs.map(t => t.textContent)).toEqual([
+      '7 Sep 20261 person',
+      '21 Aug 20262 people',
+    ])
 
     // Newest batch is selected by default and holds exactly one row.
     expect(screen.getAllByText('Northwind')).toHaveLength(1)
@@ -229,7 +251,9 @@ describe('operator view offers no client decisions', () => {
   // The guard is the VIEWER, not the state. Same roster, client viewer, controls present.
   it('still offers both controls to the client on the same roster', () => {
     renderRoster(pendingRoster, false)
-    expect(screen.getByRole('button', { name: /approve/i })).toBeInTheDocument()
+    // Approve appears twice since 2026-09-17, at the head and the foot of the list. The
+    // claim is that the client gets it at all, so any instance satisfies it.
+    expect(screen.getAllByRole('button', { name: /approve/i }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: /^remove$/i }).length).toBe(2)
   })
 
