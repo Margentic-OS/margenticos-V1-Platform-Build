@@ -256,17 +256,27 @@ export function StageProgress({
   progress: PipelineProgress
   failures: VerificationFailureMetrics
 }) {
-  const verification = <VerificationSection verification={progress.verification} failures={failures} />
-  const enrichment = <EnrichmentSection enrichment={progress.enrichment} />
-  const research = <ResearchSection research={progress.research} />
+  // ── EMPTINESS IS DECIDED FROM THE DATA, NOT FROM THE ELEMENTS ─────────────
+  //
+  // The first version of this held the three sections in variables and tested those. A JSX
+  // element is an object and is ALWAYS truthy even when the component returns null, so the
+  // guard never fired and a client with nothing in flight got an empty bordered box. Caught
+  // by the test asserting an empty container; it is the same shape as every other check in
+  // this codebase that ran and could not see what it was checking.
+  const { verification: v, enrichment: e, research: r } = progress
+  const hasVerification =
+    v.waiting > 0 || v.inFlight > 0 || v.lastCompletedAt !== null ||
+    Object.keys(failures.byKind).length > 0
+  const hasEnrichment = e.waiting > 0 || e.inFlight > 0
+  const hasResearch = r.stage !== 'idle'
 
-  if (!verification && !enrichment && !research) return null
+  if (!hasVerification && !hasEnrichment && !hasResearch) return null
 
   return (
     <div className="mb-4 rounded-[8px] border border-border-card bg-[#FAFAF8] p-4 space-y-4">
-      {verification}
-      {enrichment}
-      {research}
+      <VerificationSection verification={progress.verification} failures={failures} />
+      <EnrichmentSection enrichment={progress.enrichment} />
+      <ResearchSection research={progress.research} />
     </div>
   )
 }
