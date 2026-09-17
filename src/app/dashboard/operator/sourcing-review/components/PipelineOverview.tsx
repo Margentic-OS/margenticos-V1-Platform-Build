@@ -46,6 +46,8 @@ import {
   DISQUALIFIER_LABELS,
   type NotSendableReason,
 } from '@/lib/operator/prospect-status'
+import { StageProgress } from './StageProgress'
+import { describeRunSplit } from '@/lib/operator/run-split'
 
 const POLL_INTERVAL_MS = 30_000
 
@@ -209,6 +211,39 @@ export function PipelineOverview({
         const isSelected = currentClient === org.organisation_id || selectedClientId === org.organisation_id
         const enrichedCount = org.tiers.tier_1.total + org.tiers.tier_2.total + org.tiers.tier_3.total
 
+        // ── WHICH RUNS EACH CONTROL'S NUMBER COVERS ──────────────────────────
+        //
+        // batches is newest first (sourcing-metrics orders on started_at descending), so
+        // batches[0] is the most recent run. Every split below is that run's figure against
+        // the all-time total the button carries. The wording is shared, in run-split.ts, so
+        // six controls cannot each invent their own.
+        //
+        // NO LATEST RUN MEANS NO SPLIT TO SHOW. An organisation whose prospects all predate
+        // run recording has nothing to attribute, and describeRunSplit returns null rather
+        // than inventing a run.
+        const latestRun = org.batches[0] ?? null
+        const splitFor = (total: number, fromLatestRun: number) =>
+          latestRun === null ? null : describeRunSplit({
+            total,
+            fromLatestRun,
+            latestRunStartedAt: latestRun.started_at,
+          })
+
+        const approveSplit = splitFor(org.pending_review_count, latestRun?.pending_review ?? 0)
+
+        // The publish control acts on prospects not yet shown to the client, so its split is
+        // over THAT number rather than over every tiered prospect. Both figures come from
+        // countRow, so the run line and the button cannot mean different things by
+        // "not yet published". See publishable.ts.
+        const publishSplit = splitFor(org.unpublished_count, latestRun?.unpublished ?? 0)
+
+        // Research counts its own population and cannot be read off the batch lines, so the
+        // selection reports the attribution itself. See enqueue/research.ts.
+        const researchFromLatestRun = latestRun?.sourcing_run_id
+          ? (org.research.actionableByRun[latestRun.sourcing_run_id] ?? 0)
+          : 0
+        const researchSplit = splitFor(org.research.actionable, researchFromLatestRun)
+
         return (
           <div
             key={org.organisation_id}
@@ -317,40 +352,18 @@ export function PipelineOverview({
               )}
             </div>
 
-            {/* ── VERIFICATION THAT FAILED ──────────────────────────────────────
-                Previously visible NOWHERE in the product. A third of a cohort sat on
-                provider 403 and 429 responses for ninety minutes and the screen showed
-                nothing at all: the prospects simply never appeared downstream, which reads
-                as "still working" rather than "stopped".
+            {/* ── WHAT IS MOVING RIGHT NOW ──────────────────────────────────
+                Verification, enrichment and research each used to report nothing between
+                "started" and "finished", and research's middle stage reported nothing for
+                about fifteen minutes because no queue row exists while the batch is with
+                the model. All three now read from the database through this same poll,
+                which is also what makes them survive a page reload.
 
-                The provider is not named. The stored error text contains a vendor name and
-                rendering the column would put it on screen; only the status survives. See
+                The provider is never named and neither is its status code. The stored
+                error text contains a vendor name and the code was being rendered as though
+                it were a diagnosis; only a classified KIND reaches the payload now. See
                 prospect-status.ts. */}
-            {org.verification_failures.count > 0 && (
-              <div className="mb-4 px-3 py-2 rounded-[6px] bg-[#FDEEE8] border border-[#EFBCAA] text-xs text-[#8B2020]">
-                <p className="font-medium mb-0.5">
-                  {org.verification_failures.count} prospect
-                  {org.verification_failures.count === 1 ? '' : 's'} failed email verification
-                </p>
-                <p>
-                  {Object.entries(org.verification_failures.byStatus)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([status, count]) =>
-                      status === 'unknown'
-                        ? `${count} with no status recorded`
-                        : `${count} on HTTP ${status}`)
-                    .join(', ')}
-                  .
-                  {org.verification_failures.givenUp > 0 && (
-                    <>
-                      {' '}
-                      {org.verification_failures.givenUp} have used every attempt, so nothing
-                      will retry them without being asked.
-                    </>
-                  )}
-                </p>
-              </div>
-            )}
+            <StageProgress progress={org.progress} failures={org.verification_failures} />
 
             {/* The breakdowns above are of a sample. Said out loud, because a truncated
                 explanation that does not announce itself reads as a complete one. */}
@@ -412,9 +425,18 @@ export function PipelineOverview({
                     href={`/dashboard/operator/sourcing-review/review?client=${org.organisation_id}`}
                     className="text-sm font-medium px-3 py-1.5 rounded-[6px] bg-[#1C3A2A] text-white hover:bg-[#152e21] transition-colors"
                   >
-                    {enrichedCount > 0
-                      ? `Check ${enrichedCount} and publish for the client`
-                      : 'See why all were removed'}
+                    {/* ── THE NUMBER THE CLICK ACTS ON, NOT THE ALL-TIME TOTAL ──
+                        This carried enrichedCount, every prospect that had ever reached a
+                        tier: 190 on the live organisation against 49 the client had not
+                        seen. The ACTION was already right, filtering on
+                        tier_published_at IS NULL, so nothing was ever over-published. The
+                        label was simply counting a different population from the one the
+                        update would match. Both now apply selectUnpublished. */}
+                    {enrichedCount === 0
+                      ? 'See why all were removed'
+                      : org.unpublished_count > 0
+                        ? `Check ${org.unpublished_count} new and publish for the client`
+                        : `Check ${enrichedCount} already published`}
                   </Link>
                 )}
 
@@ -423,9 +445,36 @@ export function PipelineOverview({
                 )}
               </div>
 
-              {/* Spend & dormant warning */}
+              {/* ── WHICH RUNS EACH BUTTON'S NUMBER COVERS ────────────────────
+                  Every count above is an all-time total for the client and none of them
+                  said so; on the live organisation they spanned five sourcing runs and
+                  each read as one batch. Only shown where a count actually spans more
+                  than one run: describeRunSplit returns null otherwise, so a single-batch
+                  client does not gain a line saying "all 1 run". */}
+              {(approveSplit || publishSplit || researchSplit) && (
+                <div className="space-y-0.5">
+                  {approveSplit && (
+                    <p className="text-xs text-text-secondary">Approve: {approveSplit}</p>
+                  )}
+                  {researchSplit && (
+                    <p className="text-xs text-text-secondary">Research: {researchSplit}</p>
+                  )}
+                  {publishSplit && (
+                    <p className="text-xs text-text-secondary">Publish: {publishSplit}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Spend & dormant warning.
+                  THE COUNT IS PART OF THE WARNING. It said credits would be spent and never
+                  said on how many people, which is the only number that makes "this costs
+                  money" actionable: an operator cannot weigh a spend they cannot size. */}
               {org.approved_unenriched_count > 0 && (
-                <EnrichmentSpendNotice mode={enrichmentMode} action="Enrich and tier" />
+                <EnrichmentSpendNotice
+                  mode={enrichmentMode}
+                  action="Enrich and tier"
+                  prospectCount={org.approved_unenriched_count}
+                />
               )}
             </div>
           </div>

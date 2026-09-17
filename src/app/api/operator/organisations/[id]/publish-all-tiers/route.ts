@@ -18,6 +18,7 @@ import { asServiceRoleClient } from '@/lib/supabase/service-role'
 import * as Sentry from '@sentry/nextjs'
 import { sendTransactionalEmail } from '@/lib/email/send'
 import { listReadyTemplate, listReadyTemplateText, listReadySubject } from '@/lib/email/templates/list-ready'
+import { selectUnpublished } from '@/lib/sourcing/publishable'
 
 const TIERS = ['tier_1', 'tier_2', 'tier_3'] as const
 
@@ -81,17 +82,20 @@ export async function POST(
     // For each tier: publish new prospects and backfill status on existing ones
     for (const tier of TIERS) {
       // Step 1: Publish new prospects (set tier_published_at where it's null)
-      const { data: newPublished, error: publishError } = await adminClient
-        .from('prospects')
-        .update({
-          tier_published_at: publishedAt,
-          client_review_status: 'pending_review',
-        })
-        .eq('organisation_id', organisationId)
-        .eq('sourced_tier', tier)
-        .is('tier_published_at', null)
-        .eq('suppressed', false)
-        .select('id')
+      // THE UNPUBLISHED FILTER IS SHARED WITH THE BUTTON'S LABEL, not restated here. It is
+      // unchanged: `tier_published_at IS NULL AND suppressed = false`, exactly what this
+      // route has always applied. It moved into selectUnpublished so the count beside the
+      // button counts the rows this update matches rather than every tiered prospect ever.
+      const { data: newPublished, error: publishError } = await selectUnpublished(
+        adminClient
+          .from('prospects')
+          .update({
+            tier_published_at: publishedAt,
+            client_review_status: 'pending_review',
+          })
+          .eq('organisation_id', organisationId)
+          .eq('sourced_tier', tier),
+      ).select('id')
 
       if (publishError) {
         logger.error('publish-all-tiers: update failed', {

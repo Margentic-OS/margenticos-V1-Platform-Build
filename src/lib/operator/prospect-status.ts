@@ -255,6 +255,72 @@ export function readVerificationFailure(
   }
 }
 
+/**
+ * WHAT A FAILED VERIFICATION MEANS, with no provider status code in it.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════
+ * WHY A STATUS CODE IS NOT A LABEL
+ *
+ * The screen rendered "12 prospects failed email verification, 12 on HTTP 429". Two things
+ * are wrong with that sentence and only one of them is the jargon.
+ *
+ * It is not a FAILURE. A 429 is the provider asking us to slow down, and the sweep does: it
+ * retries on the next pass and the address verifies normally. Calling it failed, and then
+ * quoting the code as though it were a diagnosis, describes a dead prospect where there is
+ * a queued one. An operator reading it went looking for a fault that did not exist.
+ *
+ * And a status code is a thing to look up, not a thing to read. The operator screen is the
+ * one surface where the answer has to be the sentence itself.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════
+ * THE STATUS NEVER LEAVES THE SERVER
+ *
+ * The classification happens where the stored error is parsed, so the payload polled into
+ * the browser carries a KIND and never a number. That is the same treatment
+ * last_verification_error already gets one line up, and for the stronger of its two reasons:
+ * the stored string names a vendor, and the code is the half that survived. Removing it from
+ * the payload means no future screen can render it by reaching for a field that was there.
+ */
+export const VERIFICATION_HOLD_KINDS = [
+  /** The provider asked us to slow down. Ordinary, and the sweep retries. */
+  'rate_limited',
+  /** The provider refused the call: credentials or permission, not this address. */
+  'refused',
+  /** The provider broke. Nothing is known about the address either way. */
+  'provider_error',
+  /** An error with no status in it. Kept visible rather than folded into a neighbour. */
+  'unknown',
+] as const
+export type VerificationHoldKind = (typeof VERIFICATION_HOLD_KINDS)[number]
+
+/**
+ * Which kind of hold a provider status is.
+ *
+ * 401 and 403 are separated from the rest of the 4xx range deliberately: they say something
+ * about OUR account rather than about the address, so they are the one kind a retry will not
+ * fix on its own and the one an operator has to act on.
+ */
+export function classifyVerificationStatus(status: number | null): VerificationHoldKind {
+  if (status === null) return 'unknown'
+  if (status === 429) return 'rate_limited'
+  if (status === 401 || status === 403) return 'refused'
+  return 'provider_error'
+}
+
+/**
+ * Operator-facing wording. Checked against Rule Zero: no vendor, no code, no country.
+ *
+ * Each names what is true of the ADDRESS, because that is what the operator is deciding
+ * about. Whether it will be retried is a separate fact and is worded separately, since the
+ * same kind can be waiting on a retry or out of attempts.
+ */
+export const VERIFICATION_HOLD_LABELS: Record<VerificationHoldKind, string> = {
+  rate_limited:   'held up by a rate limit',
+  refused:        'refused by the email checker',
+  provider_error: 'stopped by an error at the email checker',
+  unknown:        'stopped for a reason that was not recorded',
+}
+
 /** Attempts after which verification stops retrying on its own. Mirrors verification-trigger. */
 export const VERIFICATION_MAX_ATTEMPTS = 3
 

@@ -38,6 +38,9 @@ function sendableRow(overrides: Partial<StatusRow> = {}): StatusRow {
     suppressed: false,
     research_ran_at: null,
     personalisation_trigger: null,
+    // Published already, so this fixture contributes nothing to the unpublished count and
+    // the existing assertions below stay about sendability alone.
+    tier_published_at: '2026-09-02T00:00:00Z',
     sourced_tier: 'tier_1',
     tiering_reason: 'tier_1 (score 100): industry 45, seniority 35, headcount 20',
     enrichment_status: 'enriched',

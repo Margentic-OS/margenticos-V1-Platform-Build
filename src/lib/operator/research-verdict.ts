@@ -143,6 +143,14 @@ export interface ResearchVerdict {
   blocked: string | null
   /** Counts by reason for prospects the spend filter passed over. Null when none were. */
   skippedBreakdown: string | null
+  /**
+   * `actionable`, split by the sourcing run each prospect came from.
+   *
+   * Keyed by run id, with UNATTRIBUTED_RUN_KEY for prospects belonging to no recorded run.
+   * The screen turns this into "N from the run on <date>, M carried over"; an unlabelled
+   * total was read as one batch when it was five.
+   */
+  actionableByRun: Record<string, number>
   path: ResearchPath
   /**
    * Research jobs that are QUEUED and have not started. The number a stop can act on.
@@ -214,7 +222,7 @@ export async function getResearchVerdict(
   const stoppable = await countQueuedResearchJobs(supabase, organisationId)
 
   if (halfEnabledRefusal !== null) {
-    return { actionable: 0, blocked: halfEnabledRefusal, skippedBreakdown: null, path, stoppable }
+    return { actionable: 0, blocked: halfEnabledRefusal, skippedBreakdown: null, actionableByRun: {}, path, stoppable }
   }
 
   const read = await selectProspectsForResearch(supabase, organisationId, scope)
@@ -223,7 +231,7 @@ export async function getResearchVerdict(
   // left to research", which is a statement about the data; this is a statement about
   // our ability to see it, and the two must not look the same on screen.
   if (!read.ok) {
-    return { actionable: 0, blocked: read.error, skippedBreakdown: null, path, stoppable }
+    return { actionable: 0, blocked: read.error, skippedBreakdown: null, actionableByRun: {}, path, stoppable }
   }
 
   const verdict = describeResearchSelection(read.selection, jobType)
@@ -232,6 +240,7 @@ export async function getResearchVerdict(
     actionable: verdict.actionable,
     blocked: verdict.blocked,
     skippedBreakdown: verdict.skippedBreakdown,
+    actionableByRun: verdict.actionableByRun,
     path,
     stoppable,
   }

@@ -19,6 +19,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { ProspectReviewClient } from '../ProspectReviewClient'
+import type { AutoApprovalNotice } from '@/lib/dashboard/auto-approval-notice'
 import { buildRosterGroups, countPending, countRoster } from '@/lib/dashboard/prospect-roster'
 import type { RosterProspect } from '@/lib/dashboard/prospect-roster'
 
@@ -41,14 +42,20 @@ function prospect(overrides: Partial<RosterProspect> & { id: string }): RosterPr
   }
 }
 
-function renderRoster(prospects: RosterProspect[], viewerIsOperator = false) {
+function renderRoster(
+  prospects: RosterProspect[],
+  viewerIsOperator = false,
+  // Defaults to a real future deadline, which is what this suite's existing assertions
+  // assume. The banner's own behaviour is covered in auto-approval-notice.test.ts.
+  autoApproval: AutoApprovalNotice = { kind: 'scheduled', onISO: '2099-01-01T00:00:00Z' },
+) {
   const groups = buildRosterGroups(prospects)
   return render(
     <ProspectReviewClient
       groups={groups}
       pendingCount={countPending(groups)}
       rosterCount={countRoster(groups)}
-      autoSanctionDate="2026-09-11T00:00:00Z"
+      autoApproval={autoApproval}
       organisationId="org-1"
       viewerIsOperator={viewerIsOperator}
     />

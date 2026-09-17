@@ -127,7 +127,22 @@ export interface ResearchSelection {
   skippedLiveElsewhere: number
   /** The ids that would be enqueued if the action ran at this moment. */
   enqueueable: string[]
+  /**
+   * The same ids counted by the sourcing run that produced them, so the label can say how
+   * much of its number is the latest batch and how much carried over.
+   *
+   * DERIVED FROM enqueueable, never counted separately. A second walk over the rows would be
+   * a second definition of "would be enqueued", which is the drift this module exists to
+   * prevent between the label and the action.
+   *
+   * The key is the run id, or UNATTRIBUTED_RUN_KEY for a prospect belonging to no recorded
+   * run. Those exist: 19 platform-wide as of 2026-09-04.
+   */
+  enqueueableByRun: Record<string, number>
 }
+
+/** Key for prospects belonging to no recorded sourcing run. An object key cannot be null. */
+export const UNATTRIBUTED_RUN_KEY = ''
 
 /** What an operator needs to be told, derived from a selection and nothing else. */
 export interface ResearchVerdict {
@@ -142,6 +157,8 @@ export interface ResearchVerdict {
   blocked: string | null
   /** Plain-English counts by reason for the spend filter, or null when nothing was skipped. */
   skippedBreakdown: string | null
+  /** actionable, split by the sourcing run each prospect came from. See ResearchSelection. */
+  actionableByRun: Record<string, number>
 }
 
 export interface EnqueueResearchSuccess {
@@ -226,7 +243,11 @@ export async function selectProspectsForResearch(
     // checkResearchEligibility treats an absent second_pass_status as "not run", so a
     // catch-all that Bouncer resolved to deliverable would still be filtered out and the
     // money spent resolving it would buy nothing.
-    .select('id, personalisation_trigger, independent_verified_at, independent_email_status, email_send_ineligible_reason, verification_provider, second_pass_status, second_pass_provider')
+    // sourcing_run_id is READ FOR ATTRIBUTION ONLY and filters nothing. The research
+    // count spans every run this client has had, and an unlabelled total was read as one
+    // batch when it was five. Adding a column to a select list cannot change which rows
+    // come back; every filter below is untouched.
+    .select('id, personalisation_trigger, independent_verified_at, independent_email_status, email_send_ineligible_reason, verification_provider, second_pass_status, second_pass_provider, sourcing_run_id')
     .eq('organisation_id', organisationId)
     .eq('suppressed', false)
     .limit(maxProspects))
@@ -261,7 +282,10 @@ export async function selectProspectsForResearch(
   // is the change: they used to reach the operator only when the batch filtered to zero.
   const eligible: string[] = []
   const skippedReasons: IneligibleReason[] = []
+  /** id -> the run that sourced it, so the count can be split by run without a second read. */
+  const runById = new Map<string, string | null>()
   for (const row of rows) {
+    runById.set(row.id as string, (row.sourcing_run_id as string | null) ?? null)
     const verdict = checkResearchEligibility({
       independent_verified_at:      (row.independent_verified_at as string | null) ?? null,
       independent_email_status:     (row.independent_email_status as string | null) ?? null,
@@ -311,6 +335,13 @@ export async function selectProspectsForResearch(
       skippedReasons,
       skippedLiveElsewhere: liveElsewhere.size,
       enqueueable,
+      enqueueableByRun: enqueueable.reduce<Record<string, number>>((acc, id) => {
+        // NULL becomes the empty string, because an object key cannot be null. The caller
+        // maps it back; see UNATTRIBUTED_RUN_KEY.
+        const key = runById.get(id) ?? ''
+        acc[key] = (acc[key] ?? 0) + 1
+        return acc
+      }, {}),
     },
   }
 }
@@ -353,12 +384,32 @@ export function describeResearchSelection(
     }
 
     if (selection.eligible === 0) {
+      // ── WHAT THIS NUMBER COVERS, AND WHAT IT IS NOT ──────────────────────
+      //
+      // TWO THINGS ABOUT IT WERE BEING MISREAD, and both are stated outright now rather
+      // than left to be worked out.
+      //
+      // IT SPANS EVERY SOURCING RUN. The population is every unresearched prospect this
+      // client has, which on the live organisation was five batches. Read as one batch it
+      // says a run went badly; read correctly it says a backlog accumulated.
+      //
+      // AND IT IS NOT THE "Removed" CARD. That card counts prospects TIERING disqualified.
+      // This counts prospects whose ADDRESS we cannot use, which is a different gate on a
+      // different population at a different stage. The two will never agree, and an
+      // operator comparing them and finding they do not is looking at a real difference
+      // rather than at a fault. Neither of these prospects is waiting for anything: the
+      // verdict is frozen on the row and only re-verification moves it (ADR-034).
       return (
-        `Nothing to research. All ${selection.selected} prospects were filtered out as not worth ` +
-        `researching: ${summariseIneligible(selection.skippedReasons)}. Research costs roughly 60 times ` +
-        'what composition costs per prospect, so it does not run on addresses we already know ' +
-        'we cannot email. Verify the prospects, or revisit the catch-all policy in ' +
-        'src/lib/sourcing/send-eligibility-policy.ts.'
+        `Nothing to research. All ${selection.selected} unresearched prospects in this client, ` +
+        'across every sourcing run they have ever had rather than only the most recent one, ' +
+        `were passed over as not worth researching: ${summariseIneligible(selection.skippedReasons)}. ` +
+        'They are excluded from research, not queued for it: nothing will pick them up on its ' +
+        'own, because the verdict is fixed on the prospect until the address is verified ' +
+        'again. This is a different group from the Removed card, which counts prospects ' +
+        'tiering disqualified, so the two numbers are not meant to match. Research costs ' +
+        'roughly 60 times what composition costs per prospect, so it does not run on ' +
+        'addresses we already know we cannot email. Verify the prospects, or revisit the ' +
+        'catch-all policy in src/lib/sourcing/send-eligibility-policy.ts.'
       )
     }
 
@@ -404,6 +455,10 @@ export function describeResearchSelection(
     actionable: blocked === null ? selection.enqueueable.length : 0,
     blocked,
     skippedBreakdown,
+    // Emptied by the same condition that zeroes `actionable`, so the split can never add up
+    // to more than the number beside it. Two fields describing one quantity must agree by
+    // construction, not because both happened to be updated.
+    actionableByRun: blocked === null ? selection.enqueueableByRun : {},
   }
 }
 

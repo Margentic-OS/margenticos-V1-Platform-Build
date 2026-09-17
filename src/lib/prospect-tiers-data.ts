@@ -4,9 +4,12 @@
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
+// ONE DEFINITION OF THE WINDOW. It was a local constant here and the banner that describes
+// it now computes from the same number, so the sentence on screen and the sweep that acts
+// cannot disagree about how long a client has.
+import { AUTO_SANCTION_DAYS } from '@/lib/dashboard/auto-approval-notice'
 
 const TIER_ORDER = ['tier_1', 'tier_2', 'tier_3'] as const
-const AUTO_SANCTION_DAYS = 4
 
 export interface Prospect {
   id: string
@@ -18,6 +21,15 @@ export interface Prospect {
   website_url: string | null
   client_review_status: string | null
   client_review_reason: string | null
+  /**
+   * When this prospect was published for review.
+   *
+   * Carried per prospect, not per tier, because the automatic-approval deadline has to be
+   * anchored on the batch actually awaiting a decision. Anchoring on the tier's first-ever
+   * publication is what put "15 Aug 2026" on the screen on 17 September. See
+   * auto-approval-notice.ts.
+   */
+  tier_published_at: string | null
   // The batch a prospect entered the campaign with. The roster groups on this, so a
   // prospect that becomes sendable later joins whichever batch actually uploads it.
   outbound_upload_attempted_at: string | null
@@ -173,7 +185,7 @@ async function getTierData(
 
   const { data: prospectData, error: prospectError } = await adminClient
     .from('prospects')
-    .select('id, first_name, last_name, company_name, job_title, linkedin_url, website_url, client_review_status, client_review_reason, outbound_upload_attempted_at, email_send_eligible')
+    .select('id, first_name, last_name, company_name, job_title, linkedin_url, website_url, client_review_status, client_review_reason, outbound_upload_attempted_at, email_send_eligible, tier_published_at')
     .eq('organisation_id', orgId)
     .eq('sourced_tier', tier)
     .not('tier_published_at', 'is', null)
@@ -199,6 +211,7 @@ async function getTierData(
     website_url: p.website_url,
     client_review_status: p.client_review_status,
     client_review_reason: p.client_review_reason,
+    tier_published_at: p.tier_published_at,
     outbound_upload_attempted_at: p.outbound_upload_attempted_at,
     email_send_eligible: p.email_send_eligible,
   }))

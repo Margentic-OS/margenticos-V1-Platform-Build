@@ -45,11 +45,20 @@ import {
   type ResearchVerdict,
 } from '@/lib/operator/research-verdict'
 import {
+  getPipelineProgress,
+  readVerificationSweepHeartbeat,
+  type PipelineProgress,
+} from '@/lib/operator/pipeline-progress'
+import { verificationThresholds } from '@/lib/sourcing/verification-trigger'
+import { selectUnpublished } from '@/lib/sourcing/publishable'
+import {
   whyNotSendable,
   parseTieringReason,
   readVerificationFailure,
+  classifyVerificationStatus,
   VERIFICATION_MAX_ATTEMPTS,
   type NotSendableReason,
+  type VerificationHoldKind,
 } from '@/lib/operator/prospect-status'
 
 /**
@@ -66,12 +75,26 @@ export interface TierMetrics {
   notSendableByReason: Partial<Record<NotSendableReason, number>>
 }
 
-/** Verification that failed and, in most cases, has stopped retrying. */
+/**
+ * Verification that is being held up, and whether anything will try again.
+ *
+ * NOT "failed". Most of what lands here is a rate limit, which the sweep retries and which
+ * then verifies normally; calling that a failure described a dead prospect where there was a
+ * queued one. The split below is the fix: the same kind of hold means different things
+ * depending on whether attempts remain, so the two are counted separately rather than
+ * reported as one number with a footnote.
+ *
+ * THERE IS NO HTTP STATUS IN THIS TYPE. It is classified server-side, where the stored error
+ * is parsed, so no screen can render a code by reaching for a field. See prospect-status.ts.
+ */
 export interface VerificationFailureMetrics {
   count: number
-  /** Provider HTTP status to how many prospects hit it. No provider name; see prospect-status.ts. */
-  byStatus: Record<string, number>
-  /** How many have exhausted their attempts, so nothing will retry them without a nudge. */
+  /**
+   * Per kind of hold: how many will be retried on their own, and how many have used every
+   * attempt. Empty when nothing is held up.
+   */
+  byKind: Partial<Record<VerificationHoldKind, { waiting: number; givenUp: number }>>
+  /** How many, across every kind, have exhausted their attempts. */
   givenUp: number
 }
 
@@ -121,6 +144,14 @@ export interface BatchFunnel {
   researched: number
   /** Researched AND carrying an opening line. The two differ; see the funnel. */
   personalised: number
+  /**
+   * Tiered by this run and not yet shown to the client.
+   *
+   * Counted here as well as organisation-wide so the publish control can say how much of
+   * its number is the newest batch. Deriving it by subtraction from the all-time total
+   * would be arithmetic on two populations that are not nested.
+   */
+  unpublished: number
   verification_failures: VerificationFailureMetrics
 }
 
@@ -139,6 +170,15 @@ export interface PipelineMetrics {
    * and this commit is about where numbers are computed, not which ones exist.
    */
   enriched_untiered_count: number
+  /**
+   * Tiered prospects the client has NOT yet been shown.
+   *
+   * The number the publish control acts on, counted with the publish route's own filter. The
+   * button used to carry the all-time tiered total, which on the live organisation was 190
+   * against 49 genuinely new. See publishable.ts.
+   */
+  unpublished_count: number
+
   /** Enriched, then removed by a tiering disqualifier. Not the same as not-yet-tiered. */
   removed_count: number
   /**
@@ -158,6 +198,14 @@ export interface PipelineMetrics {
   breakdowns_truncated: boolean
   /** What the research control would do if clicked. See research-verdict.ts. */
   research: ResearchVerdict
+
+  /**
+   * How far through each long-running step this client is, RIGHT NOW.
+   *
+   * Server-derived rather than remembered in a button, which is what makes it survive a
+   * reload and reach a second operator's screen. See pipeline-progress.ts.
+   */
+  progress: PipelineProgress
 
   /**
    * One line per sourcing run, newest first.
@@ -228,7 +276,10 @@ export const STATUS_COLUMNS =
   'email_send_ineligible_reason, independent_verified_at, independent_email_status, ' +
   'verification_provider, second_pass_status, second_pass_provider, ' +
   'last_verification_error, verification_attempt_count, ' +
-  'research_ran_at, personalisation_trigger'
+  // tier_published_at is READ TO SPLIT THE PUBLISH COUNT BY RUN, and only for that. The
+  // VALUE never leaves countRow; only whether it is null survives, as a count. Same
+  // treatment as personalisation_trigger above.
+  'research_ran_at, personalisation_trigger, tier_published_at'
 
 export interface StatusRow {
   sourcing_run_id: string | null
@@ -236,6 +287,7 @@ export interface StatusRow {
   suppressed: boolean | null
   research_ran_at: string | null
   personalisation_trigger: string | null
+  tier_published_at: string | null
   sourced_tier: string | null
   tiering_reason: string | null
   enrichment_status: string | null
@@ -283,7 +335,8 @@ export function emptyFunnel(sourcing_run_id: string | null): BatchFunnel {
     eligible: 0,
     researched: 0,
     personalised: 0,
-    verification_failures: { count: 0, byStatus: {}, givenUp: 0 },
+    unpublished: 0,
+    verification_failures: { count: 0, byKind: {}, givenUp: 0 },
   }
 }
 
@@ -345,6 +398,12 @@ export function countRow(f: BatchFunnel, row: StatusRow): void {
     f.removed_by_reason[code] = (f.removed_by_reason[code] ?? 0) + 1
   }
 
+  // Tiered and not yet published. The tier test is the same TIER_KEYS lookup above rather
+  // than a second reading of sourced_tier, and `suppressed` matches selectUnpublished: a
+  // suppressed prospect is never published, so counting one would overstate what the button
+  // will do.
+  if (tierKey && row.tier_published_at === null && row.suppressed !== true) f.unpublished += 1
+
   if (row.independent_verified_at !== null) f.verified += 1
   // THE THIRD CALL SITE, and the one that does not look like a call site.
   //
@@ -368,8 +427,14 @@ export function countRow(f: BatchFunnel, row: StatusRow): void {
     const v = f.verification_failures
     v.count += 1
     if (failure.givenUp) v.givenUp += 1
-    const key = failure.status === null ? 'unknown' : String(failure.status)
-    v.byStatus[key] = (v.byStatus[key] ?? 0) + 1
+    // The status is turned into a KIND here and discarded. This is the only place in the
+    // pipeline payload it exists, so classifying at the fold is what keeps it off every
+    // screen downstream rather than relying on each one to remember.
+    const kind = classifyVerificationStatus(failure.status)
+    const bucket = v.byKind[kind] ?? { waiting: 0, givenUp: 0 }
+    if (failure.givenUp) bucket.givenUp += 1
+    else bucket.waiting += 1
+    v.byKind[kind] = bucket
   }
 }
 
@@ -534,7 +599,14 @@ export async function getMetricsForOrganisations(
   // ONCE PER REQUEST, NOT ONCE PER ORGANISATION. The queue flags are global, and reading
   // them inside the loop below asked the same question up to three times per client for
   // three identical answers.
-  const pathState = await readResearchPath(supabase)
+  //
+  // The verification sweep heartbeat and the retry thresholds are global for the same
+  // reason: one sweep serves every organisation, and the two durations belong to it.
+  const [pathState, sweepLastRanAt] = await Promise.all([
+    readResearchPath(supabase),
+    readVerificationSweepHeartbeat(supabase),
+  ])
+  const thresholds = verificationThresholds()
 
   return Promise.all(
     orgs.map(async (org): Promise<PipelineMetrics> => {
@@ -543,8 +615,10 @@ export async function getMetricsForOrganisations(
         approvedUnenriched,
         enrichedUntiered,
         removed,
+        unpublished,
         breakdowns,
         research,
+        progress,
       ] = await Promise.all([
         countProspects(supabase, org.id, q => q.eq('sourcing_review_status', 'pending_review')),
         // Approved and genuinely still WAITING to be enriched.
@@ -579,8 +653,13 @@ export async function getMetricsForOrganisations(
         countProspects(supabase, org.id, q =>
           q.is('sourced_tier', null)
             .not('tiering_reason', 'is', null)),
+        // Tiered and not yet shown to the client. selectUnpublished is the publish route's
+        // own filter, applied rather than copied.
+        countProspects(supabase, org.id, q =>
+          selectUnpublished(q.not('sourced_tier', 'is', null))),
         readBreakdowns(supabase, org.id),
         getResearchVerdict(supabase, org.id, 'unresearched', pathState),
+        getPipelineProgress(supabase, org.id, thresholds, sweepLastRanAt),
       ])
 
       return {
@@ -593,10 +672,12 @@ export async function getMetricsForOrganisations(
         tiers: breakdowns.overall.tiers,
         enriched_untiered_count: enrichedUntiered,
         removed_count: removed,
+        unpublished_count: unpublished,
         removed_by_reason: breakdowns.overall.removed_by_reason,
         verification_failures: breakdowns.overall.verification_failures,
         breakdowns_truncated: breakdowns.truncated,
         research,
+        progress,
         batches: breakdowns.batches,
         unattributed: breakdowns.unattributed,
       }
