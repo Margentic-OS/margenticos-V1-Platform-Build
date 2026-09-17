@@ -208,13 +208,37 @@ describe('item 15 — the counts say what they count', () => {
     expect(withWork[0].textContent).toContain('17 Sep 2026')
   })
 
-  it('relates the headline number to the groups below it', () => {
-    renderRoster(across)
+  // BOTH BRANCHES. The sentence is written twice, once for a roster with work outstanding
+  // and once for a finished one, and a test that exercised only one let a mutation removing
+  // the other survive. Found by mutation-testing this file rather than by reading it.
+  it.each([
+    ['with nothing pending', 'approved'],
+    ['with work outstanding', 'pending_review'],
+  ])('relates the headline number to the groups below it, %s', (_name, status) => {
+    renderRoster(
+      [
+        prospect({ id: 'a', client_review_status: status, outbound_upload_attempted_at: '2026-09-16T09:00:00Z' }),
+        prospect({ id: 'b', client_review_status: status, outbound_upload_attempted_at: '2026-09-17T09:00:00Z' }),
+      ],
+      { kind: 'no_automatic_approval' },
+    )
     expect(screen.getByText(/This total covers every group below/)).toBeInTheDocument()
   })
 
-  it('says what separates "Not yet in the campaign" from the dated tabs', () => {
-    renderRoster(across)
+  // BOTH BRANCHES AGAIN. The subtitle is worded one way while the group still needs a
+  // decision and another way once it does not, and only the second was covered. The
+  // explanation of WHY the group has no date has to survive in both.
+  it.each([
+    ['still awaiting a decision', 'pending_review'],
+    ['already decided', 'approved'],
+  ])('says what separates "Not yet in the campaign" from the dated tabs, %s', (_name, status) => {
+    renderRoster(
+      [
+        prospect({ id: 'dated', outbound_upload_attempted_at: '2026-09-16T09:00:00Z' }),
+        prospect({ id: 'notyet', outbound_upload_attempted_at: null, client_review_status: status }),
+      ],
+      { kind: 'no_automatic_approval' },
+    )
     const notYet = screen.getByRole('tab', { name: /Not yet in the campaign/ })
     within(notYet).getByText(/1 person/)
 
