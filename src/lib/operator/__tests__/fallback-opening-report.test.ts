@@ -86,6 +86,32 @@ describe('reportFallbackOpenings', () => {
     expect(report.findings).toEqual([])
   })
 
+  // A variant whose emails ARE a readable array but hold no opening line must not be
+  // counted as checked. Found by mutation-testing: the earlier fixtures all failed the
+  // is-it-an-array guard first, so the path that decides this was never exercised.
+  it.each([
+    ['no Email 1 at all', [{ sequence_position: 2, body: '{{first_name}}\n\nFollow-up.' }]],
+    ['an Email 1 with only a greeting', [{ sequence_position: 1, body: '{{first_name}}' }]],
+    ['an Email 1 with an empty body', [{ sequence_position: 1, body: '' }]],
+  ])('does not count a variant with %s as checked', (_name, emails) => {
+    const report = reportFallbackOpenings({ variants: { a: { emails } } })
+    expect(report.variantsChecked).toBe(0)
+    expect(report.findings).toEqual([])
+  })
+
+  it('counts only the variants it could actually read', () => {
+    const report = reportFallbackOpenings({
+      variants: {
+        readable: {
+          emails: [{ sequence_position: 1, body: '{{first_name}}\n\nThat gap widens.\n\nSam' }],
+        },
+        unreadable: { emails: [{ sequence_position: 1, body: '{{first_name}}' }] },
+      },
+    })
+    expect(report.variantsChecked).toBe(1)
+    expect(report.findings).toHaveLength(1)
+  })
+
   it('distinguishes a clean document from an unreadable one by the count', () => {
     const clean = reportFallbackOpenings(doc({ a: 'Your team shipped twice last month.' }))
     const unreadable = reportFallbackOpenings(null)

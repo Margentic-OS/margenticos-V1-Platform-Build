@@ -177,3 +177,75 @@ describe('the select list asks for every column the counting reads', () => {
     expect(STATUS_COLUMNS.split(',').map(c => c.trim())).toContain('suppressed')
   })
 })
+
+// ═════════════════════════════════════════════════════════════════════════════
+// THE TWO FIELDS countRow GAINED FOR THE 2026-09-17 WALKTHROUGH.
+//
+// Both were added with no direct assertion and both survived a mutation, which is the only
+// reason they are tested here rather than being assumed covered by the screens that render
+// them. A component test proves the number is displayed; it cannot prove it is counted.
+
+describe('countRow: how many the client has not been shown', () => {
+  it('counts a tiered prospect that has never been published', () => {
+    const funnel = count([sendableRow({ tier_published_at: null })])
+    expect(funnel.unpublished).toBe(1)
+  })
+
+  it('does not count one already published', () => {
+    const funnel = count([sendableRow({ tier_published_at: '2026-09-02T00:00:00Z' })])
+    expect(funnel.unpublished).toBe(0)
+  })
+
+  // A suppressed prospect is never published, so counting one would promise work the
+  // update will not do. Matches selectUnpublished.
+  it('does not count a suppressed prospect, published or not', () => {
+    const funnel = count([sendableRow({ tier_published_at: null, suppressed: true })])
+    expect(funnel.unpublished).toBe(0)
+  })
+
+  // Only a TIERED prospect can be published, so an untiered one is not merely unpublished.
+  it('does not count a prospect that has no tier', () => {
+    const funnel = count([
+      sendableRow({ tier_published_at: null, sourced_tier: null, tiering_reason: null }),
+    ])
+    expect(funnel.unpublished).toBe(0)
+  })
+})
+
+describe('countRow: a verification hold is split by whether anything will retry', () => {
+  function held(overrides: Partial<StatusRow>) {
+    return sendableRow({
+      last_verification_error: 'Email verification failed: provider API returned 429',
+      ...overrides,
+    })
+  }
+
+  it('counts a hold with attempts left as waiting, not as given up', () => {
+    const funnel = count([held({ verification_attempt_count: 1 })])
+    expect(funnel.verification_failures.byKind.rate_limited).toEqual({ waiting: 1, givenUp: 0 })
+    expect(funnel.verification_failures.givenUp).toBe(0)
+  })
+
+  it('counts a hold that has used every attempt as given up', () => {
+    const funnel = count([held({ verification_attempt_count: 3 })])
+    expect(funnel.verification_failures.byKind.rate_limited).toEqual({ waiting: 0, givenUp: 1 })
+    expect(funnel.verification_failures.givenUp).toBe(1)
+  })
+
+  it('keeps both in one bucket when the same kind is in both states', () => {
+    const funnel = count([
+      held({ verification_attempt_count: 1 }),
+      held({ verification_attempt_count: 3 }),
+    ])
+    expect(funnel.verification_failures.byKind.rate_limited).toEqual({ waiting: 1, givenUp: 1 })
+    expect(funnel.verification_failures.count).toBe(2)
+  })
+
+  // THE STATUS IS CLASSIFIED AT THE FOLD AND DISCARDED, so it cannot reach the payload the
+  // screen polls.
+  it('stores a kind and never the status itself', () => {
+    const funnel = count([held({ verification_attempt_count: 1 })])
+    expect(Object.keys(funnel.verification_failures.byKind)).toEqual(['rate_limited'])
+    expect(JSON.stringify(funnel.verification_failures)).not.toContain('429')
+  })
+})
