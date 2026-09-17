@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "npx tsx scripts/check-use-server-exports.ts && npx tsx scripts/check-postgrest-patch.ts",
+    "prebuild": "npx tsx scripts/check-use-server-exports.ts && npx tsx scripts/check-postgrest-patch.ts && npx tsc --noEmit",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "next lint",
@@ -19,6 +19,8 @@
     "test-substitute-booking-link": "npx tsx scripts/test-substitute-booking-link.ts",
     "test-apollo-degradation": "npx tsx scripts/test-apollo-degradation.ts",
     "test": "vitest run",
+    "test:unit": "MARGENTICOS_TEST_TIER=unit vitest run",
+    "test:live": "MARGENTICOS_TEST_TIER=live vitest run",
     "postinstall": "patch-package",
     "reinstall": "node scripts/reset-patched-packages.mjs && npm install",
     "postbuild": "npx tsx scripts/check-patch-in-build.ts"

@@ -6,11 +6,24 @@
 // gates. The measured consequence is that the same fault reaches real prospects run after
 // run while every gate reports green.
 //
-// REPORT ONLY ON THIS COMMIT. checkActivityVerdict returns an empty array while
-// ACTIVITY_VERDICT_MODE says 'report', and logs every hit with the prospect and the part.
-// Nothing can be rejected by it. The reason is precision: a detector of this kind was
-// previously right about half the time, which is unusable as a gate, and the only way to
-// find out what this one's rate is here is to accumulate hits against real copy first.
+// BLOCKING SINCE 2026-09-16. It shipped in report mode first, for the reason that mode
+// existed: a detector of this kind was previously right about half the time, which is
+// unusable as a gate, and the only way to learn this one's rate was to accumulate hits
+// against copy nobody wrote for it.
+//
+// THE EVIDENCE THAT JUSTIFIED THE FLIP. Four runs on 2026-09-14, recorded verbatim in
+// .writer-export/ACTIVITY-VERDICT-hits.txt and copied into the Notion Backlog:
+//
+//   246 attempts scanned, 24 hits (9.8%), across 9 distinct prospects
+//   20 judged genuine, 4 false positives -> precision ~83%
+//   66 openings shipped, 2 carried a hit, and BOTH were genuine violations
+//
+// The two that reached real prospects are the number that mattered. Report mode logged
+// them and let them through, which is what report mode is for and also its whole cost.
+//
+// A REJECTION COSTS NOTHING DOWNSTREAM. A gated attempt is retried up to twice, and a
+// prospect gated on every attempt returns opening: null, which composition already treats
+// as "use the variant's authored opener". No prospect fails because of this gate.
 //
 // THE HARD PART IS NOT FINDING NEGATION. It is telling the BANNED shape from the PERMITTED
 // one, because they are built from the same words. The brief explicitly permits conceding
@@ -35,11 +48,19 @@ import { logger } from '@/lib/logger'
 
 export type ActivityVerdictMode = 'report' | 'block'
 
-// TO FLIP: change this to 'block', by hand, and record in the Notion Backlog what the
-// accumulated hits showed. Do not flip it on the strength of the examples in the test
-// file: those prove the detector can fire and can stay silent, which is a different
-// question from how often it is right about copy nobody wrote for it.
-export const ACTIVITY_VERDICT_MODE: ActivityVerdictMode = 'report'
+// FLIPPED TO 'block' ON 2026-09-16, on the measured evidence in the header. The Notion
+// Backlog row carries every hit verbatim, including the four false positives.
+//
+// TO LOOSEN IT AGAIN: read those four first, because they are what this gate costs. They
+// fall into two shapes, two each. A firmographic fact phrased as a lack ("with no team
+// behind it", "with no associate hires in the last twelve months"), and a negated verb
+// attached to a dated fact about a thing ("your website service pages have not changed
+// since 2022", "Your site has not published anything dateable since mid-2023").
+//
+// If either shape starts costing real openings, NARROW THE RULE to exclude that shape.
+// Do not return the whole detector to report mode: report mode gates nothing, and the two
+// violations that reached prospects did so while it was on.
+export const ACTIVITY_VERDICT_MODE: ActivityVerdictMode = 'block'
 
 export type ActivityVerdictKind =
   /** Names what the reader lacks: "with no visible footprint", "no mention of X". */
@@ -244,7 +265,7 @@ export function checkActivityVerdict(
   if (hits.length === 0) return []
 
   for (const hit of hits) {
-    logger.info('activity-verdict: scored, not gated', {
+    logger.info(mode === 'block' ? 'activity-verdict: gated' : 'activity-verdict: scored, not gated', {
       ...context,
       mode,
       part: hit.part,

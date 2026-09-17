@@ -69,6 +69,28 @@ export async function POST(request: Request) {
         client_review_auto_approved_at: new Date().toISOString(),
       })
       .eq('organisation_id', organisationId)
+      // ── ONLY WHAT WAS ACTUALLY PUT IN FRONT OF THEM ──────────────────────
+      //
+      // A client can only approve what they were shown, and tier_published_at is the
+      // record of having been shown it. Without this clause the route approved every
+      // unreviewed prospect in the organisation, including ones that had never appeared
+      // on the review screen because they were never published.
+      //
+      // MEASURED on the live organisation 2026-09-16: an operator published 34 and the
+      // client pressed approve once. 80 rows moved to 'approved'. The other 46 had
+      // tier_published_at NULL and sourced_tier NULL, so they were never published, never
+      // rendered, and never seen — and they now carried a client approval.
+      //
+      // Nothing could send as a result, because the send gate requires a non-null
+      // sourced_tier and these had none. That is the send gate holding, not this route
+      // being right: the moment one of those 46 receives a tier it becomes sendable
+      // carrying consent nobody gave. A second gate catching the first gate's mistake is
+      // not a reason to leave the first one wrong.
+      //
+      // excludeTierRejected above is kept as well. The two say different things: that one
+      // refuses a prospect tiering rejected, this one refuses a prospect the client never
+      // saw. A row can fail either.
+      .not('tier_published_at', 'is', null)
       .or(UNREVIEWED_FILTER))
 
     // Exclude removed prospects

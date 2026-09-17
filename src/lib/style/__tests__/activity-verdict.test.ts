@@ -108,11 +108,21 @@ describe('activity-verdict: it stays silent on copy the brief permits', () => {
 })
 
 describe('activity-verdict: the mode', () => {
-  it('ships in report mode, returning nothing a caller can act on', () => {
-    expect(ACTIVITY_VERDICT_MODE).toBe('report')
+  // FLIPPED 2026-09-16. This assertion is the flip: if someone returns the constant to
+  // 'report', this test is what tells them the gate stopped gating, rather than a silent
+  // return to the state in which two genuine violations reached real prospects.
+  it('ships BLOCKING, so the production default rejects the banned shape', () => {
+    expect(ACTIVITY_VERDICT_MODE).toBe('block')
     const bridge = "The leaders who heard you speak don't yet know you take new clients."
     expect(findActivityVerdicts('', bridge).length).toBeGreaterThan(0)
-    expect(checkActivityVerdict('', bridge, { prospectId: 'p' })).toEqual([])
+    // No mode argument: this is exactly what production calls.
+    const failures = checkActivityVerdict('', bridge, { prospectId: 'p' })
+    expect(failures.length).toBeGreaterThan(0)
+  })
+
+  it('report mode still gates nothing when it is asked for explicitly', () => {
+    const bridge = "The leaders who heard you speak don't yet know you take new clients."
+    expect(checkActivityVerdict('', bridge, { prospectId: 'p' }, 'report')).toEqual([])
   })
 
   it('the blocking path can be executed, and names the part and the span', () => {
@@ -121,5 +131,53 @@ describe('activity-verdict: the mode', () => {
     expect(failures.length).toBeGreaterThan(0)
     expect(failures[0]).toContain('bridge')
     expect(failures[0]).toContain('already met them')
+  })
+})
+
+
+// ─── The permitted shape, from production copy rather than invented for the test ───────
+//
+// MUTATION PROOF, and the reason this block exists: the gate's cost is false positives on
+// company-data facts. Both sentences below are real signal_observations from MargenticOS
+// prospects on 2026-09-14. Flat or slow headcount is the single most common permitted
+// observation in the corpus, and a rule that rejected it would take out good openings on
+// exactly the firms the ICP targets.
+//
+// If a future narrowing of the rule starts firing here, that narrowing is wrong.
+describe('activity-verdict: a firmographic fact is not an absence', () => {
+  it('is silent on flat headcount stated as a company fact', () => {
+    const observation =
+      'Sustainable Success has been at 6 people for at least the past year with 0% headcount growth, ' +
+      '20 years after founding in 2003.'
+    expect(findActivityVerdicts(observation, '')).toEqual([])
+    expect(checkActivityVerdict(observation, '', { prospectId: 'p' })).toEqual([])
+  })
+
+  it('is silent on slow headcount growth stated as a company fact', () => {
+    const observation =
+      'Strategy Here has been operating since 2018 with 2.5% headcount growth over the past 12 months.'
+    expect(findActivityVerdicts(observation, '')).toEqual([])
+    expect(checkActivityVerdict(observation, '', { prospectId: 'p' })).toEqual([])
+  })
+})
+
+// ─── The shapes that actually reached prospects ───────────────────────────────────────
+//
+// Both of these SHIPPED to real prospects while the gate was in report mode. They are the
+// evidence that justified blocking, so they are the regression test for it. Verbatim from
+// .writer-export/ACTIVITY-VERDICT-hits.txt.
+describe('activity-verdict: the two hits that shipped are now rejected', () => {
+  it('rejects the observation that listed what their website lacks', () => {
+    const observation =
+      "Your LinkedIn posts over the last 60 days have all been reshares of other people's content, " +
+      'and the People Strategy Consulting website carries no dated articles or case studies.'
+    expect(checkActivityVerdict(observation, '', { prospectId: 'p' }).length).toBeGreaterThan(0)
+  })
+
+  it('rejects the bridge that told a 13-year-old firm it has no visible content', () => {
+    const bridge =
+      'A thirteen-year-old consulting firm with no visible business development content tends to ' +
+      'win the next client from whoever already knows it.'
+    expect(checkActivityVerdict('', bridge, { prospectId: 'p' }).length).toBeGreaterThan(0)
   })
 })

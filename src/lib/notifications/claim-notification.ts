@@ -24,8 +24,73 @@
 // claim: two overlapping publishes can both read empty and both send. Letting the unique
 // index arbitrate means exactly one caller can win, and the loser sees 23505.
 
+import { createHash } from 'node:crypto'
 import type { ServiceRoleClient } from '@/lib/supabase/service-role'
 import { logger } from '@/lib/logger'
+
+// ═════════════════════════════════════════════════════════════════════════════
+// THE SUBJECT IS A uuid COLUMN, AND TWO CALLERS WERE PASSING PROSE
+//
+// notifications_log.subject_id is `uuid`. Most callers pass a real entity id and are fine.
+// The two publish routes built a readable batch key instead:
+//
+//     `list_ready_${batchDate}_${batchHour}`   ->  "list_ready_2026-09-16_20"
+//
+// Postgres rejected every one of those with 22P02, invalid input syntax for type uuid. So
+// claimNotification returned 'failed' on every call, and the routes then did exactly what
+// they should: refused to send, because an unrecorded send cannot be deduplicated.
+//
+// The result was a fail-closed gate on a precondition that could never be met. The publish
+// reported success, the error logged, and the client was never told their list was ready.
+// Measured on production 2026-09-16: 34 prospects published, 0 list_ready rows ever written
+// for that organisation, against 14 rows of five other types. Proven by probing the exact
+// string inside BEGIN ... ROLLBACK.
+//
+// WHY A DERIVED UUID RATHER THAN A RANDOM ONE
+//
+// The subject is what the unique index deduplicates on:
+// unique_notification_per_subject (organisation_id, notification_type, subject_id).
+// crypto.randomUUID() would insert cleanly and destroy the property the batch key existed
+// for: every publish would claim a fresh subject, the window would suppress nothing, and a
+// double-click would email the client twice. The identifier has to be STABLE for the same
+// batch key and DIFFERENT for a different one, which is exactly a namespaced hash.
+//
+// WHY NOT WIDEN THE COLUMN TO text
+//
+// That also works and is a smaller diff, but it changes an index every other notification
+// type already depends on, and the rows in it today are all real uuids. Deriving keeps the
+// column, the index and the existing rows untouched, and confines the change to the two
+// callers that were wrong.
+
+/**
+ * A fixed namespace for derived notification subjects. RFC 4122 §4.3 name-based UUID.
+ *
+ * NEVER CHANGE THIS VALUE. Every derived subject id is a function of it, so changing it
+ * re-derives every id, and the next publish in an already-notified window would read as a
+ * fresh subject and email the client a second time. It is arbitrary, and that is fine; what
+ * matters is that it is constant.
+ */
+const SUBJECT_NAMESPACE_UUID = '7c9e6f2a-4b1d-43e8-a05f-8c3d2e1b9a67'
+const SUBJECT_NAMESPACE = Buffer.from(SUBJECT_NAMESPACE_UUID.replace(/-/g, ''), 'hex')
+
+/**
+ * Turn a human-readable batch key into a stable UUIDv5 the uuid column will accept.
+ *
+ * Deterministic: the same key always yields the same uuid, which is what preserves the
+ * deduplication window. Callers that already hold a real entity uuid must NOT use this —
+ * hashing those would change their stored subject ids and re-send notifications that have
+ * already gone out.
+ */
+export function deriveSubjectId(key: string): string {
+  const hash = createHash('sha1').update(SUBJECT_NAMESPACE).update(key, 'utf8').digest()
+  const bytes = Buffer.from(hash.subarray(0, 16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x50 // version 5
+  bytes[8] = (bytes[8] & 0x3f) | 0x80 // RFC 4122 variant
+  const hex = bytes.toString('hex')
+  return [
+    hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20, 32),
+  ].join('-')
+}
 
 /**
  * 'claimed'      — this caller won; it is the one that must send.

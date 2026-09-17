@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
-import { claimNotification } from '@/lib/notifications/claim-notification'
+import { claimNotification, deriveSubjectId } from '@/lib/notifications/claim-notification'
 import { asServiceRoleClient } from '@/lib/supabase/service-role'
 import * as Sentry from '@sentry/nextjs'
 import { sendTransactionalEmail } from '@/lib/email/send'
@@ -165,7 +165,8 @@ export async function POST(
         const claim = await claimNotification(asServiceRoleClient(adminClient), {
           organisationId,
           notificationType: 'list_ready',
-          subjectId: batchId,
+          // The batch key is prose; the column is uuid. Derive, never pass raw.
+          subjectId: deriveSubjectId(batchId),
         })
 
         if (claim === 'claimed') {

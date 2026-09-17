@@ -1,0 +1,85 @@
+# The first CI this repository has had.
+#
+# Until now nothing ran the suite automatically. 4,400 tests executed only when a human
+# or an agent remembered to ask, and that is how five broken Apollo tests reached
+# production: they were red in a full run on the commit production was serving.
+#
+# TWO TIERS, AND ONLY ONE OF THEM BLOCKS.
+#
+#   unit  every test that needs no database. Deterministic, no secrets, no shared
+#         state. This one blocks.
+#   live  the 17 files that talk to the test database. Reported, never blocking.
+#
+# WHY THE SECOND ONE MUST NOT BLOCK, YET. There is one test database and every local
+# checkout writes to it. Measured across six full runs on 2026-09-16, the failing set
+# was different almost every time and every failure came from these files. A suite that
+# fails randomly and blocks a push gets switched off within a week, so it does not get
+# to block until it has its own database and a zero flake rate. That is a separate
+# decision with a cost attached.
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A second push to the same branch makes the first one's answer irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── BLOCKING ────────────────────────────────────────────────────────────────
+  unit:
+    name: types + deterministic tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      # `npm ci` rather than `npm install`: it installs exactly the lockfile and fails
+      # if package.json and the lock disagree. postinstall runs patch-package, which
+      # this project depends on for the postgrest 504 retry.
+      - run: npm ci
+
+      # Same check the deploy runs (prebuild). Here it fails the push instead of the
+      # deploy, which is earlier and cheaper.
+      - name: Type check
+        run: npx tsc --noEmit
+
+      # NO SECRETS, NO DATABASE, NO .env.test.local. If this step ever needs one, a
+      # file has been mislabelled, and src/__tests__/tier-convention.test.ts says which
+      # before the run gets that far.
+      - name: Deterministic tests
+        run: npm run test:unit
+
+  # ─── REPORT ONLY. NEVER BLOCKS. ──────────────────────────────────────────────
+  live:
+    name: database tests (report only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Belt and braces, and both are deliberate. continue-on-error keeps a red result
+    # from failing the workflow; the `if` keeps the job from running at all until the
+    # credentials exist, so it reports "skipped" rather than a wall of red that
+    # everyone learns to ignore.
+    continue-on-error: true
+    if: ${{ vars.RUN_LIVE_TESTS == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Database tests
+        continue-on-error: true
+        env:
+          TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run test:live
