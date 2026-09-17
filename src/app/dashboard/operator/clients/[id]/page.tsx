@@ -20,7 +20,7 @@ import { requireCount } from '@/lib/operator/require-count'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
-import { applySendGate } from '@/lib/sourcing/send-gate'
+import { sendGateCountQuery, unresearchedSendGateCountQuery } from '@/lib/operator/unresearched-send-gate'
 import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { WaitingOnYouBlock } from './WaitingOnYouBlock'
 import { selectStaleDocuments } from '@/lib/dashboard/stale-documents'
@@ -87,6 +87,7 @@ export default async function ClientDetailPage({
   const [
     flagResult,
     pendingCountResult,
+    unresearchedCountResult,
     campaignsResult,
     uploadedCountResult,
     primarySegResult,
@@ -107,10 +108,11 @@ export default async function ClientDetailPage({
     // The operator's "ready to send" count. Uses the SAME predicate the claim uses, from
     // src/lib/sourcing/send-gate.ts, because a count that disagrees with the claim is a
     // number the operator has no way to check.
-    applySendGate(
-      serviceRole.from('prospects').select('id', { count: 'exact', head: true }),
-      org.id,
-    ),
+    sendGateCountQuery(serviceRole, org.id),
+    // How many of exactly those have never been researched, and will therefore ship the
+    // authored opener. Derived from the query on the line above rather than restated, so
+    // the two numbers the operator compares cannot be drawn from different populations.
+    unresearchedSendGateCountQuery(serviceRole, org.id),
     supabase
       .from('campaigns')
       .select('id, external_id, name, shell_synced_at, shell_step_count, status, started_at, paused_at')
@@ -182,6 +184,12 @@ export default async function ClientDetailPage({
   // FAIL LOUD, both of these. They are the operator's "how much is left" numbers, and a
   // zero from a refused read is read as an empty queue rather than as a broken one.
   const pendingCount = requireCount(pendingCountResult, `prospects ready to send for organisation ${org.id}`)
+  // Also fail loud. A refused read here would render as "every one of these has been
+  // researched", which is the reassuring direction and the one the operator cannot check.
+  const unresearchedCount = requireCount(
+    unresearchedCountResult,
+    `unresearched prospects ready to send for organisation ${org.id}`,
+  )
   const campaigns = (campaignsResult.data ?? [])
     .filter(c => c.external_id !== null)
     .map(c => ({
@@ -317,6 +325,7 @@ export default async function ClientDetailPage({
                 orgId={org.id}
                 instantlyApiActive={instantlyApiActive}
                 pendingCount={pendingCount}
+                unresearchedCount={unresearchedCount}
                 primarySegmentId={primarySegmentId}
                 campaigns={campaigns}
               />
