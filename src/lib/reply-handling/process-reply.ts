@@ -76,10 +76,16 @@ export interface ProcessResult {
 
 // ── Booking reply body ────────────────────────────────────────────────────────
 // Hardcoded template — no LLM needed, no scrubAITells needed (not generated copy).
+//
+// EXPORTED FOR THE DASH GATE, 2026-09-15, and the reason is the whole design of that gate.
+// This is prospect-facing copy that lives OUTSIDE src/lib/email/templates/, so the
+// templates scan never saw it, and it is sent through sendThreadReply, which never calls
+// validateEmailContent, so no runtime check saw it either. The only way to check it is to
+// call it and read what comes back. See no-dashes-in-sent-content.test.ts.
 // Sign-off: founder first name only per ADR-020.
 // If founderFirstName is empty, returns null — caller must treat as send_failed.
 
-function buildBookingReplyBody(
+export function buildBookingReplyBody(
   prospectFirstName: string | null,
   founderFirstName: string,
   bookingUrl: string,
