@@ -30,6 +30,7 @@ import { nominalisationDensity, NOMINALISATION_THRESHOLD } from '@/lib/style/nom
 import { findBackReferences } from '@/lib/style/back-reference'
 import { BANNED_FIRMOGRAPHIC } from '@/lib/style/firmographic'
 import { SentenceRegistry, comparableSentences } from '@/lib/style/sentence-frames'
+import { readabilityScore, MAX_SENTENCE_WORDS } from '@/lib/style/readability'
 // countWords is imported from the composition layer on purpose: the agent and composition
 // must measure word counts identically or the stored count and the sent count disagree.
 import { countWords } from '@/lib/composition/personalization'
@@ -1268,6 +1269,7 @@ function renderWordCountReminder(): string {
     `- Email 3: ${L.email3MinWords} to ${L.email3MaxWords} words, and no longer than Email 2.`,
     `- Email 4: up to ${L.email4MaxWords} words. No minimum: a short breakup is fine.`,
     '- Counts include the {{first_name}} line and the sign-off name. They exclude the opt-out footer, which the platform adds later.',
+    `- No SENTENCE may run over ${MAX_EMAIL_SENTENCE_WORDS} words. This is separate from the totals above: an email inside its band still fails if one sentence is too long. Split it into two rather than trimming words.`,
   ].join('\n')
 }
 
@@ -1892,6 +1894,60 @@ const WORD_BANDS: Record<number, { min: number; max: number }> = {
   4: { min: EMAIL_WORD_LIMITS.email4MinWords, max: EMAIL_WORD_LIMITS.email4MaxWords },
 }
 
+// ─── Readability: sentence length ─────────────────────────────────────────────
+//
+// THE SAME MODULE THE RESEARCH WRITER IS JUDGED BY. readability.ts has hard-gated
+// research synthesis since it was written: an observation with a sentence over
+// MAX_SENTENCE_WORDS is demoted, and a trigger that fails is dropped to mention_only.
+// The messaging agent imported nominalisation, back-reference, firmographic and
+// sentence-frames from the same folder and never imported this one, so the TEMPLATE
+// copy shipped sentences the researched copy written beside it would have been rejected
+// for. Both halves land in the same email, which is where the inconsistency is visible.
+//
+// IMPORTED, NEVER REIMPLEMENTED. splitSentences in readability.ts is the only definition
+// of a sentence in this codebase, and a second one here would drift the day either moved.
+//
+// GATED ON SENTENCE LENGTH ONLY, deliberately. readabilityScore.hardFail is true for an
+// over-long sentence OR a hedge phrase, and this check must NOT read hardFail: hedging
+// would reject 104 of the 320 emails across every messaging document ever written
+// (32.5%, measured 2026-09-17), almost all of it the single words "usually" (64) and
+// "often" (40). That is a separate decision about copy, not a readability bug, and it is
+// reported below rather than enforced. Nominalisation stays a log line for the reason its
+// own module gives: suffix matching cannot tell "attention" from "question".
+//
+// MEASURED BEFORE SHIPPING, across all 20 messaging documents in production, 320 emails:
+// 60 (18.8%) carry a sentence over the cap, and 59 of those 60 are Email 1 or Email 2.
+// Emails 3 and 4 fail once in 160, because their word bands (30-70 and 0-50) already
+// force short sentences where Email 1 at 90 and Email 2 at 85 do not. Every document from
+// April onward fails at least one email, so this is a standing defect and not a
+// regression in the current copy.
+const MAX_EMAIL_SENTENCE_WORDS = MAX_SENTENCE_WORDS
+
+// The prose surface a sentence cap applies to. Three lines are removed first, and none of
+// them is prose:
+//
+//   {{first_name}}   a merge tag with no sentence terminator, so splitSentences joins it
+//                    to the first real sentence and adds a word to it. Measured across the
+//                    same 320 emails: scanning the raw body fails 72 emails against 60 for
+//                    the prose, so 12 of those 72 are the greeting rather than the copy.
+//   the sign-off     two name lines, likewise unterminated, which attach to the CTA.
+//
+// This chooses WHICH SURFACE to scan, in the same way the firmographic check scans a
+// (body, subject) pair. It does not redefine a sentence: the text that survives goes to
+// readabilityScore unmodified.
+export function emailProse(body: string, senderFirstName: string, senderCompanyName: string): string {
+  return body
+    .split('\n')
+    .filter(line => {
+      const trimmed = line.trim()
+      if (/^\{\{first_name\}\},?$/.test(trimmed)) return false
+      if (trimmed.toLowerCase() === senderFirstName.toLowerCase()) return false
+      if (trimmed.toLowerCase() === senderCompanyName.toLowerCase()) return false
+      return true
+    })
+    .join('\n')
+}
+
 // Replaces the model's self-reported word_count and subject_char_count with computed
 // values, before validation and before storage.
 //
@@ -2069,6 +2125,34 @@ export function validateEmails(
       violations.push({
         email: pos,
         issue: `word count ${wc} is outside the ${band.min} to ${band.max} word range`,
+      })
+    }
+
+    // Sentence length, measured by the research module. See MAX_EMAIL_SENTENCE_WORDS.
+    const readability = readabilityScore(
+      emailProse(body, senderFirstName, senderCompanyName),
+      MAX_EMAIL_SENTENCE_WORDS,
+    )
+    for (const sentence of readability.longSentences) {
+      violations.push({
+        email: pos,
+        issue: `sentence runs ${countWords(sentence)} words, cap is ${MAX_EMAIL_SENTENCE_WORDS}. A sentence a thirteen-year-old follows on first read. Two short sentences beat one long one, so split it rather than trimming words. Offending sentence: "${sentence}"`,
+      })
+    }
+
+    // REPORT ONLY, both of them. Neither gates. See MAX_EMAIL_SENTENCE_WORDS for why
+    // hedging is not enforced in the same change as the cap.
+    if (readability.hedges.length > 0) {
+      logger.debug('Messaging agent: hedging phrases (reported, not gated)', {
+        email: pos,
+        hedges: readability.hedges,
+      })
+    }
+    if (readability.nominalisation.exceedsThreshold) {
+      logger.debug('Messaging agent: nominalisation density above threshold (reported, not gated)', {
+        email: pos,
+        density: readability.nominalisation.density,
+        matches: readability.nominalisation.matches,
       })
     }
 

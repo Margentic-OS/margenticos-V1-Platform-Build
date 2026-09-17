@@ -324,6 +324,13 @@ gets rewritten, not softened.
 Readability target: a thirteen-year-old follows it on first read. Short words. Short
 sentences. One idea per sentence.
 
+HARD CAP: no sentence may run over 25 words. The platform measures this and rejects the
+variant, using the same check the research observations are judged by. It is separate from
+the per-email word totals: an email inside its band still fails if one sentence is too
+long. Two short sentences beat one long one, so split rather than trim. This sits above
+Rule 1's "at least one sentence of 15 words or more": 15 is a floor on your longest
+sentence, 25 is the ceiling, and the range between them is where the reasoning belongs.
+
 Avoid abstract nouns built out of verbs and adjectives: words ending in -tion, -ity,
 -ment, -ency. "Visibility gaps around what's in your pipeline" is three abstractions
 stacked. "You cannot see what's coming" is the same idea a reader can picture. The
