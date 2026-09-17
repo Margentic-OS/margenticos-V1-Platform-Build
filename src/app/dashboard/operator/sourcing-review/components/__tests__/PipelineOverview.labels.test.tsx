@@ -164,6 +164,21 @@ describe('item 5 — a count that spans more than one run says so', () => {
       .toBeInTheDocument()
   })
 
+  // A SAMPLED SPLIT IS WORSE THAN NO SPLIT. The totals are exact head-counts and the
+  // per-run figures come from a walk capped at STATUS_ROW_LIMIT. Above that cap the
+  // subtraction attributes real prospects to "carried over", and the sentence would read as
+  // precise while being built on a sample. The screen already warns the breakdowns are
+  // truncated; a confident line underneath it would undo that warning.
+  it('shows no split at all when the per-run figures are a sample', () => {
+    const { container } = renderOverview({
+      pending_review_count: 100,
+      batches: [funnel({ pending_review: 35 })],
+      breakdowns_truncated: true,
+    })
+    expect(container.textContent).toContain('Approve 100 prospects')  // control
+    expect(container.textContent).not.toContain('carried over')
+  })
+
   // THE CONTROL. A single-batch client must NOT gain a line saying "all 1 run", or the
   // disclosure becomes noise and buries the cases that matter.
   it('says nothing when a count comes entirely from the latest run', () => {

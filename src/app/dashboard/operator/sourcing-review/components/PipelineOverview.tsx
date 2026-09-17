@@ -222,8 +222,21 @@ export function PipelineOverview({
         // run recording has nothing to attribute, and describeRunSplit returns null rather
         // than inventing a run.
         const latestRun = org.batches[0] ?? null
+
+        // ── AND NOT AT ALL WHEN THE PER-RUN FIGURES ARE A SAMPLE ─────────────
+        //
+        // The TOTALS here are exact head-counts and the PER-RUN figures come from the status
+        // walk, which is capped at STATUS_ROW_LIMIT and says so via breakdowns_truncated.
+        // Below that cap the two agree. Above it the per-run number is short, so the
+        // subtraction would quietly attribute real prospects to "carried over" and the line
+        // would read as a precise split of a number it had only partly seen.
+        //
+        // A sampled split is worse than no split: this whole batch exists because counts
+        // were being read as more specific than they were. The screen already warns that the
+        // breakdowns are truncated; adding a confident sentence built on them underneath it
+        // would undo that warning.
         const splitFor = (total: number, fromLatestRun: number) =>
-          latestRun === null ? null : describeRunSplit({
+          latestRun === null || org.breakdowns_truncated ? null : describeRunSplit({
             total,
             fromLatestRun,
             latestRunStartedAt: latestRun.started_at,
