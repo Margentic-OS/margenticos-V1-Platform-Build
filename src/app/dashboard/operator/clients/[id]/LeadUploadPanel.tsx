@@ -3,6 +3,10 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { handleUploadLeads, handleSyncSequenceShell } from './actions'
+import {
+  describeUnresearchedOpener,
+  describeUnresearchedOnButton,
+} from '@/lib/operator/unresearched-send-gate'
 import type {
   UploadLeadsResult,
   CampaignOutcome,
@@ -23,6 +27,11 @@ interface Props {
   orgId: string
   instantlyApiActive: boolean
   pendingCount: number
+  /**
+   * How many of `pendingCount` have never been researched. Display only: it never
+   * changes what the upload does, and the button stays pressable at any value.
+   */
+  unresearchedCount: number
   primarySegmentId: string | null
   campaigns: CampaignForSync[]
 }
@@ -35,7 +44,7 @@ type UploadPanelState =
 
 type SyncState = 'idle' | 'syncing' | 'done' | 'error'
 
-export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, primarySegmentId, campaigns }: Props) {
+export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, unresearchedCount, primarySegmentId, campaigns }: Props) {
   const router = useRouter()
   const [uploadState, setUploadState] = useState<UploadPanelState>({ phase: 'idle' })
   const [isPending, startTransition] = useTransition()
@@ -43,6 +52,11 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, prima
   const [syncErrors, setSyncErrors] = useState<Record<string, string>>({})
 
   const isUploading = isPending || uploadState.phase === 'uploading'
+
+  // Both null when nothing has gone unresearched, and every render below is guarded on
+  // that null. At zero the panel says nothing: no empty state, no reassuring badge.
+  const unresearchedNotice = describeUnresearchedOpener(pendingCount, unresearchedCount)
+  const unresearchedOnButton = describeUnresearchedOnButton(unresearchedCount)
 
   function handleUpload() {
     setUploadState({ phase: 'uploading' })
@@ -133,9 +147,21 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, prima
           )}
 
           {uploadState.phase === 'idle' && (
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] text-text-secondary">Pending leads ready to upload:</span>
-              <span className="text-[12px] font-semibold text-text-primary">{pendingCount}</span>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] text-text-secondary">Pending leads ready to upload:</span>
+                <span className="text-[12px] font-semibold text-text-primary">{pendingCount}</span>
+              </div>
+              {/* Advisory, never a blocker. Sending an unresearched prospect is sometimes the
+                  right call; the operator just has to be told they are about to. */}
+              {unresearchedNotice && (
+                <div className="bg-[#FEFCE8] border border-[#FDE68A] rounded-[8px] px-4 py-3">
+                  <p className="text-[12px] text-[#92400E]">{unresearchedNotice}</p>
+                  <p className="text-[11px] text-[#92400E] mt-1">
+                    You can still upload them. Research them first only if you want a personalised opening.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -163,7 +189,9 @@ export function LeadUploadPanel({ orgId, instantlyApiActive, pendingCount, prima
               >
                 {pendingCount === 0
                   ? 'No pending leads'
-                  : `Upload ${pendingCount} pending lead${pendingCount === 1 ? '' : 's'}`}
+                  : `Upload ${pendingCount} pending lead${pendingCount === 1 ? '' : 's'}${
+                      unresearchedOnButton ? ` (${unresearchedOnButton})` : ''
+                    }`}
               </button>
               {isUploading && (
                 <p className="text-[11px] text-text-secondary">Composing and uploading…</p>
