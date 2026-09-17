@@ -131,6 +131,43 @@ closed exactly as before.
 on an exclusion list is an open decision in the Notion Backlog, and it was deliberately not
 answered by making a manual edit durable.
 
+**Applied a second time on 2026-09-17, to 11 prospects, through the same three columns.** Every
+prospect then queued and passing the send gate whose address verdict was not a confirmed valid was
+held: 9 read `Catch All` and 2 read `Unknown`. The gate went from 32 prospects to 21, and the 21
+that remain all read first-pass `Valid`.
+
+**These 11 were not slipping through. They were eligible because the system worked.** The
+catch-all re-verification cron had already run on every one of them, and the second-pass vendor
+resolved all 11 to `deliverable` on 14 and 15 September, scoring 90 on nine of them and 90 and 100
+on the two that had read `Unknown`. `resolveSendEligibility` then promoted them correctly, exactly
+as designed. So this hold is an operator overriding a paid second opinion, not a gate catching a
+leak, and it is worth being explicit about that because the two look identical from the row alone:
+`email_send_eligible = false` either way. Anyone releasing these should read it as a judgement that
+a second-pass resolution of an initially uncertain address is not, on its own, enough to send on,
+and that judgement is reversible without re-spending anything.
+
+This was a data change and not a code change. `EXCLUDED_COUNTRIES`, the resolver and the gate were
+all untouched, and no second mechanism was introduced: the write is the same shape the three
+2026-08-29 rows already carry, `email_send_eligible = false` plus
+`email_send_ineligible_reason = 'operator_hold'` plus the three `send_hold_*` columns. Unlike those
+three it records `send_hold_by`, because here the operator who decided it was known at the time
+rather than reconstructed afterwards.
+
+Two consequences, both worth knowing before anybody releases them:
+
+- **The research spend gate now refuses them.** `send-eligibility-policy.ts` reads the hold as
+  `operator_hold` and declines to spend research money on an address nothing is going to email.
+  Releasing one means clearing the hold *first* and re-verifying second, in that order.
+- **`suppressed` was deliberately not written.** A hold is not a suppression. That column already
+  carries four unrelated per-organisation meanings and none of them is "the address could not be
+  confirmed". All 11 were `outbound_upload_status = 'pending'`, so nothing had been uploaded for
+  MON-026 to reconcile, which is the case the suppression write in `stop-prospect.ts` exists to
+  cover. The result is that these rows are held and reversible rather than stopped and one-way.
+
+To release: clear `send_hold_at`, `send_hold_by` and `send_hold_reason` together, since the CHECK
+constraint refuses a timestamp without a reason, then re-verify. The resolver recomputes
+eligibility from the evidence, and a cleared hold does not come back.
+
 ### Why the score is ignored
 
 Pass two returns a 0-100 score. In the sample, the eight good addresses all scored 90 and the
