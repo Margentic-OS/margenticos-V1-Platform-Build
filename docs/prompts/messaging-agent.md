@@ -849,13 +849,23 @@ that ships when it does not. Every other paragraph must survive that replacement
 
   P1  {{first_name}} on its own line. Nothing else.
 
-  P2  THE OBSERVATION SLOT.
-      Observe the prospect's situation and name the problem it implies. Drawn from the
-      intake data or the ICP document.
+  P2  THE OBSERVATION SLOT. ONE SENTENCE. This is enforced in code and a second
+      sentence rejects the variant.
+      Observe. That is the whole job. Name one thing about the prospect's situation,
+      drawn from the intake data or the ICP document, and stop.
+      Do NOT add the consequence that follows from it. Do NOT add a second observation.
+      Do NOT bridge to the offer. The next paragraph does its own work.
       This is the ONLY paragraph that may describe the problem.
       Do not pitch here. Do not name the sender's service here. Do not open with I or We.
       It must stand alone and make sense with no paragraph before it, because at send
       time there may be a completely different sentence in this position.
+
+      Why one sentence: at send time this paragraph is replaced by an observation
+      researched on that specific prospect, and the research writer is held to exactly
+      this rule. Its instructions read "They are not one paragraph and they are never run
+      together ... which is what stops you cramming two jobs into one sentence." The
+      authored default is the opening that ships when research finds nothing, so it is
+      held to the same standard as the one that replaces it.
 
   P3  WHAT CHANGES.
       Signal that the sender does something about the problem P2 just named.
@@ -873,7 +883,8 @@ that ships when it does not. Every other paragraph must survive that replacement
       One low-commitment yes/no question about whether the problem is active.
       Never offer to send anything.
 
-  P5  THE SIGN-OFF. The sender's first name alone, on the last line.
+  P5  THE SIGN-OFF. The two-line block: the sender's first name, then the sender's
+      company name directly beneath it. Nothing after it. See Framework 2.
 
 Purpose: earn the open on touch two.
 
@@ -981,7 +992,7 @@ Draft email 4 as the breakup with no guilt and a clean close.
 Confirm email 3 is no longer than email 2, and that every email is within its own
 word-count band. Email 2 is not chained to Email 1's length.
 Confirm each email has one question maximum, no banned vocabulary, no banned structures,
-no em dashes, no I/We openers, and a first-name-only sign-off.
+no em dashes, no I/We openers, and the two-line sign-off block.
 Apply the tone of voice document on top of the structural draft.
 Return the full four-email sequence with day stamps, subject lines, subject character counts,
 and word counts.

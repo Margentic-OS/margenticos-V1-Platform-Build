@@ -30,7 +30,7 @@ import { nominalisationDensity, NOMINALISATION_THRESHOLD } from '@/lib/style/nom
 import { findBackReferences } from '@/lib/style/back-reference'
 import { BANNED_FIRMOGRAPHIC } from '@/lib/style/firmographic'
 import { SentenceRegistry, comparableSentences } from '@/lib/style/sentence-frames'
-import { readabilityScore, MAX_SENTENCE_WORDS } from '@/lib/style/readability'
+import { readabilityScore, MAX_SENTENCE_WORDS, splitSentences } from '@/lib/style/readability'
 // countWords is imported from the composition layer on purpose: the agent and composition
 // must measure word counts identically or the stored count and the sent count disagree.
 import { countWords } from '@/lib/composition/personalization'
@@ -1270,6 +1270,7 @@ function renderWordCountReminder(): string {
     `- Email 4: up to ${L.email4MaxWords} words. No minimum: a short breakup is fine.`,
     '- Counts include the {{first_name}} line and the sign-off name. They exclude the opt-out footer, which the platform adds later.',
     `- No SENTENCE may run over ${MAX_EMAIL_SENTENCE_WORDS} words. This is separate from the totals above: an email inside its band still fails if one sentence is too long. Split it into two rather than trimming words.`,
+    '- Email 1 paragraph 2, the observation slot, must be exactly ONE sentence. It observes and does nothing else. The consequence, the bridge and any second observation do not belong in it.',
   ].join('\n')
 }
 
@@ -2138,6 +2139,42 @@ export function validateEmails(
         email: pos,
         issue: `sentence runs ${countWords(sentence)} words, cap is ${MAX_EMAIL_SENTENCE_WORDS}. A sentence a thirteen-year-old follows on first read. Two short sentences beat one long one, so split it rather than trimming words. Offending sentence: "${sentence}"`,
       })
+    }
+
+    // ─── Email 1's observation slot is ONE sentence ───────────────────────────
+    //
+    // EMAIL 1 ONLY, and its FIRST content paragraph only. That paragraph is the slot
+    // applyTriggerToEmail1 replaces per prospect; every other paragraph ships as authored.
+    //
+    // WHY ONE SENTENCE. The slot has exactly one job: observe. The research writer is held
+    // to the same rule and is told so in the strongest terms its prompt contains: "The
+    // observation and the bridge are SEPARATE PARAGRAPHS with a blank line between them.
+    // They are not one paragraph and they are never run together. Each one gets its own
+    // line of white space, which is what stops you cramming two jobs into one sentence."
+    // The authored template was under no such rule, so it fused the two, and the fallback
+    // that ships when research fails was the only opening in the system doing that.
+    //
+    // MEASURED 2026-09-17 across every messaging document in production plus the pending
+    // suggestion, 84 Email 1 slots: 62 (73.8%) hold more than one sentence. 22 hold one.
+    // Distribution 1:22, 2:31, 3:22, 4:9.
+    //
+    // COUNTING ONLY, exactly like the word cap above. splitSentences is imported from
+    // readability.ts rather than restated, so there is still one definition of a sentence
+    // in this codebase. Nothing here reads meaning: a two-sentence slot fails whether the
+    // second sentence is a bridge, a second observation or a joke.
+    //
+    // PARAGRAPH 0 IS DERIVED THE SAME WAY getVariantEmail1Frame DERIVES IT — split on blank
+    // lines, drop the greeting. If the two ever disagree about which paragraph is the slot,
+    // this gate protects a different paragraph than composition replaces, which is worse
+    // than no gate. contentParas above is that derivation and is reused rather than repeated.
+    if (pos === 1 && contentParas.length > 0) {
+      const slotSentences = splitSentences(contentParas[0])
+      if (slotSentences.length > 1) {
+        violations.push({
+          email: pos,
+          issue: `Email 1 paragraph 2 is the observation slot and must be ONE sentence. It has ${slotSentences.length}. This paragraph is replaced per prospect, so it carries one job: observe. Do not add a consequence, a bridge or a second observation to it. Keep the first sentence and delete the rest: "${slotSentences[0]}"`,
+        })
+      }
     }
 
     // REPORT ONLY, both of them. Neither gates. See MAX_EMAIL_SENTENCE_WORDS for why
