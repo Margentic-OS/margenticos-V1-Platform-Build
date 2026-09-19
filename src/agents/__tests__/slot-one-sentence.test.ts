@@ -6,7 +6,7 @@
 // both look like a working gate from one side.
 
 import { describe, it, expect } from 'vitest'
-import { validateEmails, type EmailRecord } from '../messaging-generation-agent'
+import { validateEmails, EMAIL_WORD_LIMITS, type EmailRecord } from '../messaging-generation-agent'
 import { splitSentences } from '@/lib/style/readability'
 
 const SENDER = 'Doug'
@@ -83,8 +83,8 @@ describe('the fixture is honest', () => {
 
   it.each([ONE_SENTENCE, TWO_SENTENCES])('both members of the pair sit inside the Email 1 word band', slot => {
     const wc = email1WithSlot(slot).word_count
-    expect(wc).toBeGreaterThanOrEqual(50)
-    expect(wc).toBeLessThanOrEqual(90)
+    expect(wc).toBeGreaterThanOrEqual(EMAIL_WORD_LIMITS.email1MinWords)
+    expect(wc).toBeLessThanOrEqual(EMAIL_WORD_LIMITS.email1MaxWords)
   })
 })
 

@@ -10,7 +10,7 @@
 // the check proves the test can count, which is not the question.
 
 import { describe, it, expect } from 'vitest'
-import { validateEmails, emailProse, type EmailRecord } from '../messaging-generation-agent'
+import { validateEmails, emailProse, EMAIL_WORD_LIMITS, type EmailRecord } from '../messaging-generation-agent'
 import { MAX_SENTENCE_WORDS, splitSentences } from '@/lib/style/readability'
 
 const SENDER = 'Doug'
@@ -77,13 +77,15 @@ describe('the fixture itself is honest', () => {
     expect(differing).toEqual([2])
   })
 
-  // Both members of the pair must sit inside Email 1's 50 to 90 word band. If one fell
-  // outside it, the whole-validator assertion below would be measuring the band rather
-  // than the cap, and the pair would prove nothing about sentence length.
+  // Both members of the pair must sit inside Email 1's word band. Read from the constant,
+  // never restated: this assertion said 50 until the floor moved to 40 on 2026-09-19, and a
+  // literal here is a second copy of a number that lives in one place.
+  // If one fell outside it, the whole-validator assertion below would be measuring the
+  // band rather than the cap, and the pair would prove nothing about sentence length.
   it.each([20, 30])('the %i-word variant sits inside the Email 1 word band', n => {
     const wc = emailWithSentence(n).word_count
-    expect(wc).toBeGreaterThanOrEqual(50)
-    expect(wc).toBeLessThanOrEqual(90)
+    expect(wc).toBeGreaterThanOrEqual(EMAIL_WORD_LIMITS.email1MinWords)
+    expect(wc).toBeLessThanOrEqual(EMAIL_WORD_LIMITS.email1MaxWords)
   })
 
   it('the cap under test is the research module constant, not a local number', () => {

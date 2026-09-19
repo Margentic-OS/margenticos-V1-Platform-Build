@@ -849,7 +849,15 @@ change both in the same commit, and check docs/prompts/messaging-agent.md too.
                      four-distinct-subjects rule. Both are DELETED, not relaxed: they
                      existed only to make a separate Email 4 subject workable, and the
                      separate subject was the mistake. Do not reinstate either.
-  Email 1 body:      50 to 80 words, hard cap 90, floor 50
+  Email 1 body:      40 to 80 words, hard cap 90, floor 40. LOWERED FROM 50 on 2026-09-19,
+                     same reason Email 4's floor was deleted: it rejected complete, legal
+                     emails for being short and cost a regeneration call each time. Email 1
+                     P2 is now a ONE-SENTENCE observation slot and the bridge it used to
+                     share that paragraph with was removed, not relocated, so Email 1 is
+                     15 to 20 words shorter by construction. Measured on the failed run of
+                     2026-09-18: legal Email 1s at 46 and 41 words, rejected only on length,
+                     and the only routes back over 50 broke either the slot rule or the
+                     25-word sentence cap. Three gates, no legal move, 7 calls burned
   Email 2 body:      30 to 85 words. NOT chained to Email 1. The coupling was DELETED on
                      2026-08-28, not relaxed. All four emails are written in one response,
                      so Email 1's final word count does not exist while Email 2 is being

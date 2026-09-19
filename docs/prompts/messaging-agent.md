@@ -7,7 +7,7 @@
 #   supersedes the blanket no-service rule for that paragraph only; added the
 #   non-redundancy rule; replaced dead Rule 10 (upstream assumptions, never populated)
 #   with Rule 10 Understandability and its four authoring tests; word bands realigned to
-#   EMAIL_WORD_LIMITS in code (Email 1 50-80, hard cap 90); word_count and
+#   EMAIL_WORD_LIMITS in code (Email 1 40-80, hard cap 90); word_count and
 #   subject_char_count now recomputed by the platform and no longer self-reported;
 #   Email 4 subject cap raised 9 to 24 so four distinct breakup subjects are possible;
 #   cross-variant distinctness extended to emails 2, 3 and 4; deleted the subject line,
@@ -568,7 +568,7 @@ founder typed it on their phone between meetings.
 
 #### Length and structure rules
 
-Email 1: 50 to 80 words, hard cap 90. Below 50 is rejected.
+Email 1: 40 to 80 words, hard cap 90. Below 40 is rejected.
 Email 2: 30 to 85 words. It is NOT chained to Email 1's length.
 Email 3: 30 to 70 words, and no longer than Email 2.
 Email 4: up to 50 words. There is NO minimum. A breakup email at 26 words is fine.
@@ -1026,7 +1026,7 @@ Do not reference the first message. Write as if it's the first contact.
    {{first_name}} line and the sign-off name.
    The platform recomputes this value from your text, overwrites what you reported, and
    validates the computed number. Reporting a flattering count achieves nothing.
-   Bands: Email 1 is 50 to 80 words with a hard cap of 90 and a floor of 50. Email 2 is
+   Bands: Email 1 is 40 to 80 words with a hard cap of 90 and a floor of 40. Email 2 is
    30 to 85, judged on its own and NOT against Email 1's length. Email 3 is 30 to 70 and
    no longer than Email 2. Email 4 is up to 50 with no minimum.
    Email 3 is the tightest brief in the sequence. If you are over, cut the contrarian
@@ -1215,7 +1215,7 @@ Do not reference the first message. Write as if it's the first contact.
     referrals" survives being wrong. "No outreach running" does not: the prospect may have
     three channels with two of them broken, and an email that denies they exist reads as
     not having looked before writing.
-    Pattern framing costs words. Email 1 is 50 to 80 with a hard cap of 90. Do not solve
+    Pattern framing costs words. Email 1 is 40 to 80 with a hard cap of 90. Do not solve
     that by compressing P2 back into a verdict. Cut from P3 or the CTA instead.
 
 18. NOTHING IN EMAIL 1 MAY DEPEND ON THE PARAGRAPH ABOVE IT. Code-enforced.
@@ -1333,7 +1333,7 @@ Before returning, ask yourself for each email in each variant:
 - Does the observation slot open with something other than I or We?
 - Does it contain at most one question mark? Count them. Two is a hard rejection.
 - Does it name the prospect's situation before it names any result?
-- Is the word count inside its band? Email 1 is 50 to 90, Email 2 is 30 to 85 judged on its
+- Is the word count inside its band? Email 1 is 40 to 90, Email 2 is 30 to 85 judged on its
   own, Email 3 is 30 to 70 and no longer than Email 2, Email 4 is up to 50 with no
   minimum.
 - Does it sound like the founder described in the TOV guide, or like a marketing template?

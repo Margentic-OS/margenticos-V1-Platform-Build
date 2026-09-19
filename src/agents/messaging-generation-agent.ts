@@ -1826,7 +1826,32 @@ const BANNED_PARAGRAPH_OPENERS: ReadonlyArray<{ pattern: RegExp; label: string }
 // therefore agree exactly. Roughly 2 words of that total are structural rather than
 // copy. The opt-out footer is appended after composition and is never counted.
 export const EMAIL_WORD_LIMITS = {
-  email1MinWords: 50,
+  // 40, LOWERED FROM 50 ON 2026-09-19, for the reason Email 4's floor was deleted on
+  // 2026-08-28: a floor that rejects complete, legal, well-formed emails for being short,
+  // and costs a full regeneration call every time it fires.
+  //
+  // WHAT MADE 50 UNREACHABLE. Email 1 paragraph 2 became a ONE-SENTENCE observation slot,
+  // and the bridge that used to share that paragraph was removed rather than relocated:
+  // P3 is injected verbatim into the research writer's prompt as THE OFFER LINE, so
+  // widening it would change what every client's research writer aims at. That removes 15
+  // to 20 words from Email 1 and nothing absorbs them.
+  //
+  // MEASURED 2026-09-18, the run that failed: with a one-sentence slot the model produced
+  // Email 1s of 46 and 41 words. Both were complete three-paragraph emails, inside every
+  // other gate, rejected only for being short. Its only ways back over 50 were to restore
+  // the bridge as a second sentence, which the slot rule rejects, or to fuse it into one
+  // sentence, which came out at 30 and 36 words against a 25-word cap. Three gates with no
+  // legal move between them: the run burned all 7 calls on variant A and wrote nothing.
+  //
+  // 40 is below the 41 that was measured and rejected, with a little room under it. It is
+  // not a target: email1TargetMaxWords is untouched and the prompt still asks for 40 to 80.
+  // A fallback Email 1 carrying an observation, an offer line and a question, with no
+  // bridge, is SUPPOSED to be shorter than one that carried a bridge too.
+  //
+  // THIS IS THE FALLBACK'S FLOOR, and the fallback ships roughly one send in ten. The
+  // researched path replaces the slot with an observation AND a bridge as two paragraphs,
+  // so it lands well above this number and never approaches the floor.
+  email1MinWords: 40,
   email1TargetMaxWords: 80,   // advisory target rendered into the prompt
   email1MaxWords: 90,         // hard cap
   email2MinWords: 30,
