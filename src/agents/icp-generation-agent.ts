@@ -627,7 +627,16 @@ export function buildResearchBlock(researchSection: string, researchSkipped: boo
 
 // ─── Prompt construction ──────────────────────────────────────────────────────
 
-function buildUserMessage(params: {
+/**
+ * Exported for tests, alongside buildResearchPlan and buildResearchBlock above.
+ *
+ * The claim worth testing is a NEGATIVE one and it cannot be tested anywhere else: an
+ * organisation with no buyer-targeting answers must get exactly the message it got before
+ * those questions existed. Four of the five live organisations are in that state, so the
+ * cost of being wrong lands on almost everybody. Asserting it on the finished string is the
+ * only place the whole message is visible at once.
+ */
+export function buildUserMessage(params: {
   organisation_id: string
   intake: IntakeRow[]
   existingDocument: ExistingDocument | null

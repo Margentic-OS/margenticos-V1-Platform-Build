@@ -16,7 +16,7 @@
 // So they are not added to the narrative block. They are presented separately, and the
 // prompt says what they are: not evidence, the value.
 //
-// ─── WHY IT IS ABSENT RATHER THAN EMPTY WHEN NOTHING WAS ANSWERED ────────────
+// ─── WHY THE BLOCK GOES ABSENT, NEVER EMPTY, WHEN NOTHING WAS ANSWERED ───────
 //
 // buildBuyerProfileBlock returns '' for an organisation with no row, and for one whose row
 // is entirely unanswered. Four of the five live organisations have no row. An empty block
@@ -32,7 +32,7 @@
 //
 // No static string in this file names a country, a job title, an industry, a sector, a
 // seniority level or a client archetype. Every concrete value in the rendered block is the
-// client's own text, interpolated at run time. There is deliberately NO worked example: an
+// client's own text, interpolated at run time. There is deliberately no worked example: an
 // example in a targeting instruction is an instruction, and this project has written that
 // lesson down eight times. Enforced by the scans in
 // src/lib/intake/__tests__/buyer-profile-authority.test.ts, which read the same alias table
@@ -49,7 +49,7 @@ export interface StatedHeadcount {
 /**
  * The two integers the client typed, or null.
  *
- * BOTH OR NEITHER. The database CHECK already forbids half a range, and this repeats the
+ * BOTH BOUNDS TOGETHER, NEVER ONE. The database CHECK already forbids half a range, and this repeats the
  * condition rather than trusting it: a row written before that constraint, or one arriving
  * from a fake in a test, would otherwise reach a caller that reads `.min` on null.
  */
@@ -64,7 +64,7 @@ export function statedHeadcount(profile: BuyerProfile): StatedHeadcount | null {
 /**
  * The geography hint for this client's web research queries, from the stated countries.
  *
- * ─── WHY A STATED LIST ALWAYS BEATS THE DOMAIN GUESS, IN BOTH BRANCHES ───────
+ * ─── WHY A STATED LIST ALWAYS BEATS THE DOMAIN GUESS, ACROSS BOTH BRANCHES ───
  *
  * geographyFromIntake reads the ccTLD of the client's own website. It is an allowlist, it
  * is deliberate, and three of the five live organisations are on a generic TLD and get
@@ -74,7 +74,7 @@ export function statedHeadcount(profile: BuyerProfile): StatedHeadcount | null {
  *
  * ONE STATED COUNTRY becomes the hint.
  *
- * SEVERAL STATED COUNTRIES produce NO HINT, and the domain guess is not consulted either.
+ * SEVERAL STATED COUNTRIES produce no hint at all, and the domain guess is not consulted.
  * This is the branch worth explaining, because doing nothing looks like giving up. A web
  * search query is a bag of words the provider ANDs together: appending three countries
  * returns pages that mention all three, which is narrower than any one of them and usually
@@ -130,7 +130,7 @@ export function buildBuyerProfileBlock(profile: BuyerProfile): string {
   const countries = profile.target_countries.filter(c => c.trim().length > 0)
   if (countries.length > 0) {
     parts.push(
-      'COUNTRIES THE CLIENT SELLS INTO. This IS ' +
+      'COUNTRIES THE CLIENT SELLS INTO. This list is the value of ' +
       '`company_profile.geography` for tier 1 and tier 2. Write it as these countries and ' +
       'nothing else. Do not widen it to a region that contains them, do not add a country ' +
       'because the research or the website suggests one, and do not write a phrase such as ' +
@@ -143,7 +143,7 @@ export function buildBuyerProfileBlock(profile: BuyerProfile): string {
   const headcount = statedHeadcount(profile)
   if (headcount) {
     parts.push(
-      "THE BUYER COMPANY'S STAFF COUNT. This IS `company_profile.headcount` for tier 1 and " +
+      "THE BUYER COMPANY'S STAFF COUNT. This range is the value of `company_profile.headcount` for tier 1 and " +
       'tier 2. The client was asked for the range directly and typed two whole numbers:\n' +
       `  - lower bound: ${headcount.min}\n` +
       `  - upper bound: ${headcount.max}\n` +
@@ -167,7 +167,7 @@ export function buildBuyerProfileBlock(profile: BuyerProfile): string {
   const bands = profile.buyer_seniority_bands.filter(b => b.trim().length > 0)
   if (bands.length > 0) {
     parts.push(
-      'THE SENIORITY THE CLIENT SELECTED. This IS the level `buyer_profile.seniority` ' +
+      'THE SENIORITY THE CLIENT SELECTED. This selection fixes the level `buyer_profile.seniority` ' +
       'describes for tier 1 and tier 2. These are the tokens the client ticked from a fixed ' +
       'set, so write the prose of that field to describe exactly this level and no other. ' +
       'Do not raise it, do not lower it, and do not hedge it into a range that includes a ' +
@@ -226,7 +226,7 @@ export function buildBuyerProfileBlock(profile: BuyerProfile): string {
     'list where the answer is a list, two whole numbers where the answer is a range, a ' +
     'fixed set where the answer is a choice from one. There is nothing here to interpret ' +
     'and nothing to weigh against anything else.\n\n' +
-    'So where an item below names a schema field, that item IS the value of that field. It ' +
+    'So where an item below names a schema field, that item is the VALUE of that field. It ' +
     'is not an input to reasoning about the field, it is not one signal among several, and ' +
     'it does not lose to a research result, to the website, to an uploaded document, to a ' +
     'narrative intake answer, or to a previous version of this document. Where those ' +
