@@ -38,9 +38,9 @@ function emailWithSentence(n: number): EmailRecord {
     '',
     sentenceOf(n),
     '',
-    'Referrals still land but the gaps between quarters grow wider. Nothing runs in the background while delivery takes over.',
-    '',
-    'Pipeline builds ahead of the gap instead of after it.',
+    // ONE offer paragraph. Two would make this a five-paragraph document, and the second
+    // would be read as the slot's consequence and gated for being one sentence.
+    'Referrals still land but the gaps between quarters grow wider. Nothing runs in the background while delivery takes over. Pipeline builds ahead of the gap instead of after it.',
     '',
     'Worth a look?',
     '',

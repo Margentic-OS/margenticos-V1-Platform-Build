@@ -65,7 +65,7 @@ function emailAtPosition(pos: number, slot: string): EmailRecord {
 
 const slotIssues = (slot: string) =>
   validateEmails([email1WithSlot(slot)], SENDER, COMPANY)
-    .filter(v => v.issue.includes('observation slot'))
+    .filter(v => v.issue.includes('must be ONE sentence'))
     .map(v => v.issue)
 
 describe('the fixture is honest', () => {
@@ -95,7 +95,7 @@ describe('the failing direction', () => {
 
   it('says how many sentences it found and quotes the one to keep', () => {
     const issue = slotIssues(TWO_SENTENCES)[0]
-    expect(issue).toContain('must be ONE sentence. It has 2')
+    expect(issue).toContain("observation paragraph must be ONE sentence. It has 2")
     expect(issue).toContain(ONE_SENTENCE)
   })
 
@@ -122,7 +122,7 @@ describe('the passing direction', () => {
 describe('emails 2, 3 and 4 have no slot and are never gated on this', () => {
   it.each([2, 3, 4])('does not fire on email %i', pos => {
     const issues = validateEmails([emailAtPosition(pos, TWO_SENTENCES)], SENDER, COMPANY)
-      .filter(v => v.issue.includes('observation slot'))
+      .filter(v => v.issue.includes('must be ONE sentence'))
     expect(issues).toEqual([])
   })
 })
