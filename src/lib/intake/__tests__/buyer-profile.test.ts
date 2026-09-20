@@ -100,9 +100,13 @@ describe('the headcount is a pair of integers, not a band and not prose', () => 
     expect(parseHeadcount('', '')).toEqual({ min: null, max: null, error: null })
   })
 
-  it('refuses half a range', () => {
-    expect(parseHeadcount('10', '').error).toBeTruthy()
-    expect(parseHeadcount('', '10').error).toBeTruthy()
+  it('refuses half a range, and SAYS SO', () => {
+    // Asserting the specific message, not merely that an error exists. Mutation-proved:
+    // with the half-a-range branch disabled, the digit check below still rejects an empty
+    // string and still returns AN error, so a truthiness assertion passed against a guard
+    // that had been deleted. The message is what distinguishes the two branches.
+    expect(parseHeadcount('10', '').error).toBe('Give both a lower and an upper number.')
+    expect(parseHeadcount('', '10').error).toBe('Give both a lower and an upper number.')
   })
 
   it('refuses an inverted range', () => {
