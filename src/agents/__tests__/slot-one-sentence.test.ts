@@ -137,3 +137,76 @@ describe('the gate reads the paragraph composition replaces', () => {
     expect(slotIssues(ONE_SENTENCE)).toEqual([])
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE BACK-REFERENCE EXEMPTION COVERS THE WHOLE SLOT.
+//
+// Added because mutation-testing found this uncovered: forcing findBackReferences back to
+// exempting one paragraph left the entire suite green, so nothing was protecting the
+// change. The consequence paragraph refers back to the observation by design, because the
+// two are replaced together and always ship together. A gate that rejects it would make
+// the two-paragraph slot unwritable, which is exactly the trap the one-sentence rule fell
+// into before the word floor moved.
+const SLOT_OBSERVATION = 'Most new work still arrives through a handful of long-standing relationships.'
+const SLOT_CONSEQUENCE = 'When those relationships go quiet, nothing else is running to catch the gap.'
+
+function email1WithTwoParagraphSlot(consequence: string): EmailRecord {
+  const body = [
+    '{{first_name}}',
+    '',
+    SLOT_OBSERVATION,
+    '',
+    consequence,
+    '',
+    'Pipeline builds ahead of the gap instead of after it. Meetings keep landing while delivery runs.',
+    '',
+    'Worth a look?',
+    '',
+    SENDER,
+    COMPANY,
+  ].join('\n')
+  return {
+    sequence_position: 1,
+    subject_line: 'quick question',
+    subject_char_count: 'quick question'.length,
+    body,
+    word_count: body.trim().split(/\s+/).filter(Boolean).length,
+  }
+}
+
+describe('a two-paragraph slot whose consequence points back at its own observation', () => {
+  it('the fixture really does contain a demonstrative binding a noun', () => {
+    expect(SLOT_CONSEQUENCE).toContain('those relationships')
+  })
+
+  it('sits inside the Email 1 word band, so the band is not what is being measured', () => {
+    const wc = email1WithTwoParagraphSlot(SLOT_CONSEQUENCE).word_count
+    expect(wc).toBeGreaterThanOrEqual(EMAIL_WORD_LIMITS.email1MinWords)
+    expect(wc).toBeLessThanOrEqual(EMAIL_WORD_LIMITS.email1MaxWords)
+  })
+
+  it('is NOT rejected for the back-reference', () => {
+    const issues = validateEmails([email1WithTwoParagraphSlot(SLOT_CONSEQUENCE)], SENDER, COMPANY)
+    expect(issues.filter(v => v.issue.includes('back-reference'))).toEqual([])
+  })
+
+  it('passes the WHOLE validator clean', () => {
+    expect(validateEmails([email1WithTwoParagraphSlot(SLOT_CONSEQUENCE)], SENDER, COMPANY)).toEqual([])
+  })
+
+  // The exemption must not become "never check anything". A paragraph AFTER the slot that
+  // points back at the slot is still rejected, because the slot it points at is replaced.
+  it('still rejects a back-reference in the offer line, which is outside the slot', () => {
+    const body = [
+      '{{first_name}}', '', SLOT_OBSERVATION, '', SLOT_CONSEQUENCE, '',
+      'We break that ceiling by running outbound continuously for you every single week.',
+      '', 'Worth a look?', '', SENDER, COMPANY,
+    ].join('\n')
+    const email: EmailRecord = {
+      sequence_position: 1, subject_line: 'quick question', subject_char_count: 14,
+      body, word_count: body.trim().split(/\s+/).filter(Boolean).length,
+    }
+    const issues = validateEmails([email], SENDER, COMPANY)
+    expect(issues.some(v => v.issue.includes('back-reference'))).toBe(true)
+  })
+})
