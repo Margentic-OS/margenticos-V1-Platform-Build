@@ -1031,22 +1031,25 @@ Human-readable document output:
 - All prose is grounded in what makes these clients distinct (budget constraints, parent perception, regulatory compliance for school food)
 
 Structured filter spec output:
-- industries: ["Primary and Secondary Education"] — ONE entry, not two, and the missing one
-  is the point of this example. That name is the sector the second buyer population's own
-  company operates in, so it stays. The first population's sector has no canonical name
-  that describes it. The nearest available name was considered and REFUSED, because it
-  describes a different set of companies and the sourcing query is built from this field
-  alone, so nothing downstream could tell the two apart. A shorter array is the correct
-  output. An empty one would have been correct too, had neither fitted.
+- industries: ["Primary and Secondary Education"] — ONE entry, not two. See below.
 - unmatched_industries: ["primary school meal service provider", "independent secondary school dining"] (flagged for review, in the client's own words)
 - notes: "Tier 1 focuses on school meal service operators managing budgets under £50K annually. Tier 2 includes private secondary schools. Both have food cost and satisfaction pressure. Do not target public school district purchasing (bureaucracy disqualifier)."
 
 The operator reading this understands the precise market without the canonical list needing to expand, and can decide whether to create new canonical categories based on signal across multiple clients.
 
-Read the `industries` line again before you write your own. This example used to show TWO
-canonical names, labelled as the closest available matches, which is the substitution rule 7
-forbids in the same document. A worked example is an instruction, and a worked example that
-contradicts the rule above it wins.
+### Why that example lists one canonical name and not two
+
+Read the `industries` line again before you write your own. One of the two buyer populations
+has a canonical name that describes the sector its own companies operate in, so that name
+stays. The other has none. The nearest available canonical name was considered and REFUSED:
+it describes a different set of companies, and the sourcing query is built from this field
+alone, so nothing downstream could tell the two apart. A shorter array is the correct
+output. An empty one would have been correct too, had neither fitted.
+
+This example used to end that line with two canonical names labelled as the closest
+available matches, which demonstrates the substitution rule 7 forbids three hundred lines
+above it. A worked example is an instruction, and where an example and a rule disagree the
+example wins. That is why the label is gone rather than softened.
 
 ---
 

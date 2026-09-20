@@ -399,10 +399,16 @@ function scanDir(dir: string): string[] {
   for (const entry of entries) {
     const full = join(dir, entry)
     if (statSync(full).isDirectory()) {
+      if (entry === '__tests__') continue
       hits.push(...scanDir(full))
       continue
     }
     if (!/\.tsx?$/.test(entry)) continue
+    // TESTS ARE NOT CONSUMERS. A test importing the module is not a prompt, a filter
+    // specification or a generator, and has no fields to map in document-staleness.ts. The
+    // scan excluded nothing when it was written because no test in these directories
+    // imported the module; the first one that did was caught as a production reader.
+    if (/\.(test|spec)\.tsx?$/.test(entry)) continue
     filesScanned += 1
     const src = readFileSync(full, 'utf-8')
     if (src.includes('intake/buyer-profile')) hits.push(full.replace(ROOT + '/', ''))
