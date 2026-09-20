@@ -121,6 +121,48 @@ describe('a client who has not answered is exactly where they were', () => {
     }
   })
 
+  it('ABSENT produces a spec identical in EVERY field to the pre-session call shape', () => {
+    // ─── THE NO-ROW GUARANTEE, AND WHY IT IS ASSERTED ON THE WHOLE OBJECT ────
+    //
+    // Four of the five live organisations have no buyer-profile row, so the claim that
+    // matters most is a NEGATIVE one: nothing about their spec changed. Comparing
+    // company_headcount_min and _max alone does not establish that. `notes` gained a
+    // sentence naming the headcount source, and a future edit could touch any other field
+    // on the same branch. A whole-object comparison is the only assertion that says "this
+    // client's spec is what it was".
+    //
+    // The BASELINE here is the FOUR-ARGUMENT call: deriveFilterSpec(doc, criterion,
+    // geography, seniority), with no options object at all. That is the exact shape 48
+    // call sites in this repository used before this session, and it is what an
+    // organisation with no row reaches today.
+    const doc = docWithHeadcount('2-20 people', '1-3 people')
+
+    const preSession = deriveFilterSpec(doc, null, aGeography(), seniorityFixture())
+
+    for (const [label, options] of [
+      ['an empty options object', {}],
+      ['statedHeadcount omitted', { revenueFilterEnabled: false }],
+      ['statedHeadcount: null', { statedHeadcount: null }],
+      ['statedHeadcount: undefined', { statedHeadcount: undefined }],
+    ] as const) {
+      expect(
+        deriveFilterSpec(doc, null, aGeography(), seniorityFixture(), options),
+        `${label} changed the spec for a client with no answer`,
+      ).toEqual(preSession)
+    }
+  })
+
+  it('and that baseline is a real spec, so the comparison is not two empty objects', () => {
+    // Anti-vacuity for the test above. toEqual on two identically-broken values passes.
+    const preSession = deriveFilterSpec(
+      docWithHeadcount('2-20 people', '1-3 people'), null, aGeography(), seniorityFixture(),
+    )
+    expect(Object.keys(preSession).length).toBeGreaterThan(10)
+    expect(preSession.company_headcount_min).toBe(1)
+    expect(preSession.company_headcount_max).toBe(20)
+    expect(preSession.notes.length).toBeGreaterThan(50)
+  })
+
   it('still refuses a document that establishes no bound', () => {
     expect(() => derive(docWithHeadcount('Varies', 'Varies')))
       .toThrow(/neither tier establishes a lower headcount bound/)

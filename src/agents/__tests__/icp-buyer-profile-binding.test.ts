@@ -7,10 +7,15 @@
 //   WITHOUT ANSWERS  the message is byte-identical to the one this client got before any
 //                    of this existed. Four of the five live organisations are here.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { buildResearchPlan, buildUserMessage } from '@/agents/icp-generation-agent'
+import {
+  buildResearchPlan,
+  buildUserMessage,
+  fetchBuyerProfile,
+} from '@/agents/icp-generation-agent'
+import { logger } from '@/lib/logger'
 import { geographyFromIntake } from '@/lib/agents/research-descriptors'
 import { EMPTY_BUYER_PROFILE, type BuyerProfile } from '@/lib/intake/buyer-profile'
 import { BUYER_PROFILE_BLOCK_HEADING } from '@/lib/intake/buyer-profile-authority'
@@ -152,6 +157,60 @@ describe('an organisation with no buyer-targeting answers', () => {
     const message = buildUserMessage({ ...BASE, buyerProfile: EMPTY_BUYER_PROFILE })
     expect(message.length).toBeGreaterThan(400)
     expect(message).toContain('INTAKE QUESTIONNAIRE RESPONSES')
+  })
+})
+
+describe('reading the answers cannot break a generation', () => {
+  // THE FAIL-OPEN BRANCH, WHICH IS THE NO-ROW GUARANTEE UNDER FAULT. A read that fails for
+  // any reason must land on the same value as an organisation with no row, because the
+  // document produced without a profile is the document every client got before this
+  // existed. Failing the run instead would turn a lost binding into a lost generation.
+  //
+  // Uncovered until a mutation said so: making this catch return a POPULATED profile passed
+  // the whole suite, since the only other route to it is a full agent run with a live client
+  // and a paid model call.
+
+  const clientWhose = (from: () => unknown) => ({ from }) as unknown as Parameters<
+    typeof fetchBuyerProfile
+  >[0]
+
+  it('a read that throws yields exactly the empty profile', async () => {
+    const thrower = clientWhose(() => { throw new Error('read failed') })
+    await expect(fetchBuyerProfile(thrower, 'org-under-test'))
+      .resolves.toEqual(EMPTY_BUYER_PROFILE)
+  })
+
+  it('and it says so, naming the consequence rather than only the error', async () => {
+    const warn = vi.spyOn(logger, 'warn')
+    const thrower = clientWhose(() => { throw new Error('read failed') })
+    await fetchBuyerProfile(thrower, 'org-under-test')
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/could not read the buyer-targeting answers/),
+      expect.objectContaining({ organisation_id: 'org-under-test' }),
+    )
+  })
+
+  it('a profile that comes back empty produces no block, as for an organisation with no row', async () => {
+    // Joins the two halves: the value the catch returns is the value that produces no block.
+    const thrower = clientWhose(() => { throw new Error('read failed') })
+    const recovered = await fetchBuyerProfile(thrower, 'org-under-test')
+    const message = buildUserMessage({ ...BASE, buyerProfile: recovered })
+    expect(message).not.toContain(BUYER_PROFILE_BLOCK_HEADING)
+    expect(message).toBe(buildUserMessage({ ...BASE, buyerProfile: EMPTY_BUYER_PROFILE }))
+  })
+
+  it('a successful read is passed through, so the catch is not the only path', async () => {
+    // POSITIVE CONTROL. A function that returned the empty profile unconditionally would
+    // pass all three tests above.
+    const ok = clientWhose(() => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({ data: { target_countries: [A_PLACE] } }),
+        }),
+      }),
+    }))
+    await expect(fetchBuyerProfile(ok, 'org-under-test'))
+      .resolves.toMatchObject({ target_countries: [A_PLACE] })
   })
 })
 

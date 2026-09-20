@@ -21,6 +21,7 @@ import { CANONICAL_INDUSTRIES } from '@/lib/agents/icp-filter-spec'
 import { clearIndustryMappingCache } from '@/lib/sourcing/industry-mapping'
 import { seniorityFixture } from '@/test-utils/seniority-fixture'
 import { aTargetableCode } from '@/test-utils/geography-fixture'
+import { logger } from '@/lib/logger'
 
 vi.mock('@sentry/nextjs', () => ({
   withScope: (fn: (s: unknown) => void) => fn({ setExtra() {}, setContext() {} }),
@@ -64,13 +65,22 @@ const DOC_PARSES_TO = { min: 5, max: 50 }
 
 interface Row { [k: string]: unknown }
 
-function makeSupabase(tables: Record<string, Row[]>) {
+function makeSupabase(tables: Record<string, Row[]>, throwOnTable?: string) {
   const updates: { table: string; payload: Row }[] = []
   function unimplemented(m: string) {
     return () => { throw new Error(`fake supabase does not implement ${m}()`) }
   }
   const client = {
     from(table: string) {
+      // A READ THAT GENUINELY FAILS. Added because a mutation survived without it: an
+      // ABSENT table is not a broken read, it is an empty one, and the code turns that into
+      // an empty profile and a null pair like any other organisation with no row. The
+      // fail-open branch is only reached when the read THROWS, so a test for it has to make
+      // it throw. The previous version of this test was named for a throw that never
+      // happened, which is this repository's most frequent defect in miniature.
+      if (table === throwOnTable) {
+        throw new Error(`fake supabase: read of ${table} failed`)
+      }
       const eqs: [string, unknown][] = []
       let limitN: number | null = null
       let pending: Row | null = null
@@ -222,13 +232,40 @@ describe('persistIcpFilterSpec reads the headcount this client typed', () => {
     expect(writtenSpec(updates).notes).toContain('typed into their intake')
   })
 
-  it('a read that throws leaves the client on the document path and writes a spec anyway', async () => {
+  it('a read that THROWS leaves the client on the document path and writes a spec anyway', async () => {
     // FAILS OPEN. A failed spec derivation stops sourcing until a human re-approves; losing
-    // one binding does not. The fake below has no intake_buyer_profile table at all and its
-    // maybeSingle is reached on an absent table, which is the closest this harness gets to a
-    // broken read.
+    // one binding does not. So a broken read must land on the document path, which is where
+    // every client was before this existed, and must not leave a default pair behind it.
+    const { client, updates } = makeSupabase(tables(null), 'intake_buyer_profile')
+    await persistIcpFilterSpec(client, 'doc-1')
+    const spec = writtenSpec(updates)
+    expect(spec.company_headcount_min).toBe(DOC_PARSES_TO.min)
+    expect(spec.company_headcount_max).toBe(DOC_PARSES_TO.max)
+    expect(spec.notes).toContain('parsed from the tier headcount prose')
+  })
+
+  it('and that read really did throw, so the test above is not the absent-table case', async () => {
+    // POSITIVE CONTROL. An absent table and a failing read reach the same spec by different
+    // routes, and only one of them exercises the catch. Without this, the test above would
+    // pass just as well with throwOnTable never wired up.
+    const warn = vi.spyOn(logger, 'warn')
+    const { client } = makeSupabase(tables(null), 'intake_buyer_profile')
+    await persistIcpFilterSpec(client, 'doc-1')
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/could not read the buyer-targeting answers/),
+      expect.objectContaining({ organisation_id: ORG }),
+    )
+  })
+
+  it('an ABSENT table is an empty read, not a failed one, and logs no warning', async () => {
+    // The other side of that distinction, stated so the two cannot be confused again.
+    const warn = vi.spyOn(logger, 'warn')
     const { client, updates } = makeSupabase(tables(null))
     await persistIcpFilterSpec(client, 'doc-1')
     expect(writtenSpec(updates).notes).toContain('parsed from the tier headcount prose')
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.stringMatching(/could not read the buyer-targeting answers/),
+      expect.anything(),
+    )
   })
 })
