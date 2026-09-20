@@ -1080,19 +1080,25 @@ export function fallbackOpeningParagraph(emails: StoredEmail[]): string | null {
   const email1 = emails.find(e => e.sequence_position === 1)
   if (!email1) return null
 
-  // THE FIRST SLOT PARAGRAPH ONLY, not the whole slot, and not the first LINE.
+  // THE FIRST CONTENT PARAGRAPH. Not the first LINE, and not the whole slot.
   //
   // Not the first line, because a paragraph that soft-wraps would return a fragment.
   //
-  // Not the whole slot, because only the first paragraph is an OPENING. Hand both
+  // Not the whole slot, because only the first paragraph is an OPENING. Hand both slot
   // paragraphs to findStandaloneOpeningFaults and it reports the consequence's "those
   // relationships" as pointing at something unnamed, when the thing it names ships
-  // directly above it. The consequence is not the first thing the reader sees and the
+  // directly above it. The consequence is not the first thing the reader sees, so the
   // question this check asks does not apply to it.
-  const slot = findSlotParagraphs(email1.body)
-  if (!slot) return null
+  //
+  // DELIBERATELY NOT FRAME-AWARE. It does not call findSlotParagraphs and must not: this
+  // feeds a report that scans every stored document, including the legacy single-sequence
+  // format and anything malformed, and a frame check here would make those report nothing
+  // rather than reporting what they actually open with. The first paragraph after the
+  // greeting is the opening whatever follows it.
+  const paras = email1.body.split(/\n{2,}/).map(p => p.trim()).filter(p => p.length > 0)
+  const firstContent = paras.find(p => !/^\{\{first_name\}\},?\s*$/.test(p))
 
-  return slot.paras[slot.start]?.trim() || null
+  return firstContent || null
 }
 
 // Applies the personalisation trigger to the opening sentence of email 1.
