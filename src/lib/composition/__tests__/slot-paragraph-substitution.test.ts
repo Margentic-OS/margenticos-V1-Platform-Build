@@ -32,6 +32,11 @@ const CTA          = 'Worth a look to see if it fits?'
 const RESEARCHED_OBS    = 'You opened a second depot in March.'
 const RESEARCHED_BRIDGE = 'A second site doubles the rota without doubling the people who can build it.'
 
+/** The Email 1 body a document built by `doc` carries, without reaching back through it. */
+function bodyOf(...contentParas: string[]): string {
+  return ['{{first_name}}', ...contentParas].join('\n\n')
+}
+
 function doc(...contentParas: string[]): MessagingContent {
   return {
     variants: {
@@ -156,18 +161,20 @@ describe('a one-paragraph trigger replaces the whole slot', () => {
 // question "does this read as a first line" does not apply to it.
 describe('fallbackOpeningParagraph returns the first slot paragraph', () => {
   it('returns the observation from a two-paragraph slot, not the whole slot', () => {
-    const emails = [{ sequence_position: 1, body: TWO_PARA_SLOT.variants.A.emails[0].body }]
+    const emails = [{ sequence_position: 1, body: bodyOf(OBSERVATION, CONSEQUENCE, OFFER, CTA, SIGN_OFF) }]
     expect(fallbackOpeningParagraph(emails as never)).toBe(OBSERVATION)
   })
 
   it('returns the observation from a one-paragraph slot', () => {
-    const emails = [{ sequence_position: 1, body: ONE_PARA_SLOT.variants.A.emails[0].body }]
+    const emails = [{ sequence_position: 1, body: bodyOf(OBSERVATION, OFFER, CTA, SIGN_OFF) }]
     expect(fallbackOpeningParagraph(emails as never)).toBe(OBSERVATION)
   })
 
   it('returns a whole soft-wrapped paragraph, not its first line', () => {
-    const wrapped = doc(`${OBSERVATION}\nand it never gets easier.`, OFFER, CTA, SIGN_OFF)
-    const emails = [{ sequence_position: 1, body: wrapped.variants.A.emails[0].body }]
+    const emails = [{
+      sequence_position: 1,
+      body: bodyOf(`${OBSERVATION}\nand it never gets easier.`, OFFER, CTA, SIGN_OFF),
+    }]
     expect(fallbackOpeningParagraph(emails as never)).toContain('never gets easier')
   })
 })
