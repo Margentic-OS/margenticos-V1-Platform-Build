@@ -1,3 +1,8 @@
+-- Status: APPLIED (verified live 2026-09-20 on BOTH projects: production hjpvnvjryxdjcfdsfhzy
+-- and test tidqheqjzvwmrrrebzir). Privileges read back in both directions on each: anon holds
+-- none of SELECT/INSERT/UPDATE/DELETE, authenticated holds all four, service_role holds all,
+-- RLS on, 2 policies.
+--
 -- Typed storage for the five buyer-targeting intake questions.
 --
 -- ─── WHY A TABLE AND NOT intake_responses ────────────────────────────────────
