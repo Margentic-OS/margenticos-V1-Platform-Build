@@ -161,6 +161,35 @@ measurements behind it, including the province that silently widens to its count
 
 Run it before shipping any canonical-to-Apollo mapping. It costs no Apollo credits.
 
+## Where the headcount range comes from (changed 2026-09-20)
+
+`company_headcount_max` is a hard ceiling: `resolveHeadcountCeiling` removes every prospect
+above it. There are now TWO possible sources for the pair and exactly one of them runs on any
+given derivation.
+
+**If the client answered the intake headcount question**, the two whole numbers they typed
+are used and `company_profile.headcount` is not parsed at all. Not parsed and overridden, and
+not parsed and compared: a parse that runs and is discarded becomes a second value that a
+later edit can start believing.
+
+**If they have not**, `parseHeadcountRange` reads the tier prose exactly as before, and
+refuses the derivation if neither tier establishes a bound.
+
+The spec's `notes` say which one ran, in one sentence, so an operator reading a surprising
+ceiling does not have to read the code to find out.
+
+**Why this changed.** The parser is a reasonable reader of prose and is not the problem. The
+problem was that a parser was the ONLY reader of a field nobody had been asked about, so a
+sentence stating no range still produced one. Measured 2026-09-20: a tier reading "anywhere
+from a two-person firm to a 600-person company" parses to 600 to 600, throws nothing, passes
+every guard, and targets companies of exactly that size. That case is now a test in
+`src/lib/agents/__tests__/stated-headcount-beats-the-parser.test.ts`, asserted rather than
+described, so the reason for the change stays visible.
+
+**A malformed stated pair falls back to the document rather than failing.** A failed spec
+derivation stops sourcing for that client until a human re-approves; losing one binding does
+not.
+
 ## Related
 
 

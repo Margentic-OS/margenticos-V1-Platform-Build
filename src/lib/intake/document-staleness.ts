@@ -47,6 +47,39 @@ export const DOCUMENTS_FED_BY_FIELD: Readonly<Record<string, readonly StrategyDo
   company_differentiators: ['positioning'],
   offer_deliverables: ['positioning'],
   offer_structure: ['positioning'],
+
+  // ─── The buyer-targeting answers (src/lib/intake/buyer-profile.ts) ──────────
+  //
+  // ALL NINE FEED THE ICP, and all nine were in NOT_MAPPED until the session that gave
+  // them a reader. That entry was correct when it was written and is quoted in full at the
+  // top of NOT_MAPPED below, because the reasoning is worth keeping: an answer nothing
+  // reads must not flag a document, since regenerating would produce an identical document
+  // and a flag that changes nothing teaches an operator to ignore flags.
+  //
+  // What changed is not this list's opinion. It is the world. The ICP agent now renders
+  // every one of these into its prompt as binding on a named schema field, so a client who
+  // edits one and regenerates gets a DIFFERENT document. The flag is now true.
+  //
+  // ICP ONLY, and the omissions are deliberate. These answers reach no other generation
+  // agent: tone of voice is derived from how the client writes, positioning from what they
+  // sell, and messaging from the documents rather than from intake. The document-to-
+  // document cascade is what carries an ICP change onward to anything built from it, and
+  // duplicating that here would be a second copy of the dependency graph.
+  //
+  // A note on the four that are not the binding pair. first_contact_role, signoff_required,
+  // signoff_role and disqualifiers are mapped for the same reason as the other five and on
+  // the same evidence: each one is rendered into the ICP prompt, each one changes what the
+  // model writes, so each one can make a live document stale. A field that reaches a prompt
+  // and is not mapped here is the gap this map exists to close.
+  target_countries: ['icp'],
+  buyer_headcount_min: ['icp'],
+  buyer_headcount_max: ['icp'],
+  buyer_job_titles: ['icp'],
+  buyer_seniority_bands: ['icp'],
+  first_contact_role: ['icp'],
+  signoff_required: ['icp'],
+  signoff_role: ['icp'],
+  disqualifiers: ['icp'],
 }
 
 /**
@@ -73,31 +106,24 @@ export const NOT_MAPPED: Readonly<Record<string, string>> = {
   assets_existing_positioning: 'Reference material the agent may or may not have drawn on.',
   assets_past_outreach: 'Reference material, as above.',
 
-  // ─── The buyer-targeting answers (src/lib/intake/buyer-profile.ts) ──────────
+  // ─── THE BUYER-TARGETING ANSWERS ARE NO LONGER HERE ─────────────────────────
   //
-  // ALL NINE ARE UNMAPPED, AND THAT IS NOT THIS LIST BEING LAZY. The map means "documents
-  // built directly from this answer". No document is built from any of these, because
-  // nothing reads the table they live in: it was created in the session that started
-  // collecting them, ahead of the session that wires them to sourcing.
+  // All nine moved to DOCUMENTS_FED_BY_FIELD above when they got a reader. The entry that
+  // stood here said, correctly at the time:
   //
-  // Mapping one anyway would be the failure this file's header warns about. Editing a
-  // country list would flag the prospect profile stale, an operator would regenerate it,
-  // and the new document would be identical, because no prompt reads the answer. A flag
-  // that changes nothing is how an operator learns to ignore flags.
+  //   "ALL NINE ARE UNMAPPED, AND THAT IS NOT THIS LIST BEING LAZY. The map means
+  //    'documents built directly from this answer'. No document is built from any of
+  //    these, because nothing reads the table they live in. Mapping one anyway would be
+  //    the failure this file's header warns about: editing a country list would flag the
+  //    prospect profile stale, an operator would regenerate it, and the new document would
+  //    be identical, because no prompt reads the answer. A flag that changes nothing is how
+  //    an operator learns to ignore flags. THE TRIGGER FOR REVISITING is a reader, not a
+  //    date."
   //
-  // THE TRIGGER FOR REVISITING is a reader, not a date: the first prompt, filter
-  // specification or generator that reads one of these fields maps that field here in the
-  // same commit. The save path already calls the flagging helper for every field, so the
-  // only thing standing between a mapping and a working stale flag is an entry above.
-  target_countries: 'Nothing reads it yet. Map it in the session that gives it a reader.',
-  buyer_headcount_min: 'As target_countries.',
-  buyer_headcount_max: 'As target_countries.',
-  buyer_job_titles: 'As target_countries.',
-  buyer_seniority_bands: 'As target_countries.',
-  first_contact_role: 'As target_countries.',
-  signoff_required: 'As target_countries.',
-  signoff_role: 'As target_countries.',
-  disqualifiers: 'As target_countries.',
+  // The reader arrived. It is kept here rather than deleted because the next person to add
+  // a field to this file will face the same question, and the answer is the one above: a
+  // field is mapped when something reads it, on the commit that makes that true, and not
+  // before. Deleting the reasoning along with the entry would leave only the conclusion.
 }
 
 /**

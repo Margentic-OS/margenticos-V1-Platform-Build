@@ -535,6 +535,32 @@ export interface SpecOptions {
    * derivation's objection is kept in the notes where the operator reads it.
    */
   revenueFilterEnabled?: boolean
+
+  /**
+   * The headcount range this client TYPED into the intake form, when they answered that
+   * question. Two whole numbers, already validated by the form and by a database CHECK.
+   *
+   * ─── WHY THIS IS A PARAMETER AND NOT ANOTHER PARSE ────────────────────────
+   *
+   * Absent, headcount is read out of `company_profile.headcount`, which is prose the ICP
+   * model wrote, by parseHeadcountRange below. That parser exists because the field is
+   * prose and it does its job. What it cannot do is be RIGHT about a sentence that states
+   * no range: given a description that names a size at one end and a size at the other in
+   * words rather than digits, it finds the one bare figure present and returns it as both
+   * bounds. Measured: a tier reading "anywhere from a two-person firm to a 600-person
+   * company" parses to 600 to 600, throws nothing, and passes every guard below while
+   * targeting companies of exactly that size. company_headcount_max is a hard ceiling:
+   * resolveHeadcountCeiling removes every prospect above it.
+   *
+   * That parse was always downstream of a question nobody had asked. The question exists
+   * now, and where a client has answered it there are two integers and nothing to parse.
+   * So the parser is not improved and is not given a second source of truth to reconcile
+   * with: where this is present it is used and the parser is not called at all.
+   *
+   * ABSENT for every organisation with no answer, which is most of them today. The
+   * document path below is unchanged for them.
+   */
+  statedHeadcount?: { min: number; max: number } | null
 }
 
 /** The recorded reason a stated revenue band is not sent. Operator-facing. */
@@ -713,24 +739,45 @@ export function deriveFilterSpec(
     delete reasons.company_revenue
   }
 
-  const t1Range = parseHeadcountRange(t1.company_profile.headcount)
-  const t2Range = parseHeadcountRange(t2.company_profile.headcount)
+  // ─── TWO SOURCES, AND ONLY ONE OF THEM IS EVER CONSULTED ──────────────────
+  //
+  // A stated pair is the client's own answer to the question this field asks, so where one
+  // exists the document's prose is not parsed at all. Not parsed and then overridden, and
+  // not parsed and compared: a parse that runs and is discarded is a second value that a
+  // later edit can accidentally start believing, which is the shape this project has been
+  // bitten by often enough to write down.
+  const stated = normaliseStatedHeadcount(options.statedHeadcount)
 
-  const mins = [t1Range.min, t2Range.min].filter((n): n is number => n !== null)
-  const maxs = [t1Range.max, t2Range.max].filter((n): n is number => n !== null)
+  let headcountMin: number
+  let headcountMax: number
+  let headcountSource: 'intake' | 'document'
 
-  if (mins.length === 0 || maxs.length === 0) {
-    const side = mins.length === 0 ? 'lower' : 'upper'
-    throw new Error(
-      `ICP filter spec: neither tier establishes a ${side} headcount bound. ` +
-      `Tier 1 headcount reads ${JSON.stringify(t1.company_profile.headcount)}, ` +
-      `tier 2 reads ${JSON.stringify(t2.company_profile.headcount)}. ` +
-      'Fix the headcount fields on the ICP document and regenerate the spec.',
-    )
+  if (stated) {
+    headcountMin = stated.min
+    headcountMax = stated.max
+    headcountSource = 'intake'
+  } else {
+    const t1Range = parseHeadcountRange(t1.company_profile.headcount)
+    const t2Range = parseHeadcountRange(t2.company_profile.headcount)
+
+    const mins = [t1Range.min, t2Range.min].filter((n): n is number => n !== null)
+    const maxs = [t1Range.max, t2Range.max].filter((n): n is number => n !== null)
+
+    if (mins.length === 0 || maxs.length === 0) {
+      const side = mins.length === 0 ? 'lower' : 'upper'
+      throw new Error(
+        `ICP filter spec: neither tier establishes a ${side} headcount bound. ` +
+        `Tier 1 headcount reads ${JSON.stringify(t1.company_profile.headcount)}, ` +
+        `tier 2 reads ${JSON.stringify(t2.company_profile.headcount)}. ` +
+        'Fix the headcount fields on the ICP document and regenerate the spec, or have ' +
+        'this client answer the buyer headcount question in their intake.',
+      )
+    }
+
+    headcountMin = Math.min(...mins)
+    headcountMax = Math.max(...maxs)
+    headcountSource = 'document'
   }
-
-  const headcountMin = Math.min(...mins)
-  const headcountMax = Math.max(...maxs)
 
   // Math.min/Math.max over non-empty lists cannot invert this. The check is here so that a
   // later edit to the lines above cannot write an inverted pair to the database, which is
@@ -803,8 +850,8 @@ export function deriveFilterSpec(
     // since the country defaults moved to GB/IE/US. A hardcoded note is worse than no
     // note: it reads as a finding about this client and is a finding about another one.
     notes: revenueOverride
-      ? `${buildNotes(t1, t2, buyerCriterion, geography)} ${revenueOverride}`
-      : buildNotes(t1, t2, buyerCriterion, geography),
+      ? `${buildNotes(t1, t2, buyerCriterion, geography, headcountSource)} ${revenueOverride}`
+      : buildNotes(t1, t2, buyerCriterion, geography, headcountSource),
   }
 }
 
@@ -820,10 +867,21 @@ function buildNotes(
   t2: IcpDocument['tier_2'],
   buyerCriterion: BuyerCriterion | null,
   geography: SpecGeography,
+  /**
+   * Where the stored headcount pair came from. Recorded because the two sources are not
+   * equally trustworthy and an operator reading a surprising ceiling needs to know which
+   * one produced it without reading this file.
+   */
+  headcountSource: 'intake' | 'document',
 ): string {
   const parts: string[] = [
     `Tier 1 primary: ${t1.company_profile.revenue_range}, headcount ${t1.company_profile.headcount}.`,
     `Tier 2 secondary: ${t2.company_profile.revenue_range}, headcount ${t2.company_profile.headcount}.`,
+    headcountSource === 'intake'
+      ? 'Headcount: taken from the two numbers this client typed into their intake. The ' +
+        'headcount prose on the tiers above was not parsed.'
+      : 'Headcount: parsed from the tier headcount prose above, because this client has ' +
+        'not answered the buyer headcount question in their intake.',
     `Targeting: ${geography.countries.join(', ')}, derived from this ICP's own tier 1 and tier 2 geography.`,
   ]
 
@@ -907,6 +965,26 @@ const RANGE_SEPARATOR = /(\d+)\s*(?:-|–|—|to|through)\s*(\d+)/i
 const UPPER_BOUND = /\b(?:under|below|fewer than|less than|up to|at most|no more than|maximum(?: of)?|max)\s+(\d+)/i
 const LOWER_BOUND = /\b(?:over|above|more than|at least|minimum(?: of)?|min|starting at|from)\s+(\d+)/i
 const TRAILING_PLUS = /(\d+)\s*\+/
+
+/**
+ * A stated pair, or null for anything that is not a usable one.
+ *
+ * REPEATS CONDITIONS THE FORM AND THE DATABASE CHECK ALREADY ENFORCE, deliberately. This
+ * value arrives through a call chain that reads a row, and a row written before the CHECK
+ * existed, a hand-edited one, or a fake in a test reaches here in any shape at all. The
+ * fallback for a bad pair is the document path, which is what this client got yesterday.
+ * Throwing instead would turn a malformed intake answer into a failed spec derivation, and
+ * a failed spec derivation stops sourcing for that client until a human re-approves.
+ */
+function normaliseStatedHeadcount(
+  stated: { min: number; max: number } | null | undefined,
+): { min: number; max: number } | null {
+  if (!stated) return null
+  const { min, max } = stated
+  if (!Number.isInteger(min) || !Number.isInteger(max)) return null
+  if (min < 1 || max < min) return null
+  return { min, max }
+}
 
 export function parseHeadcountRange(raw: string | null | undefined): HeadcountRange {
   // Strip the separators out of comma-grouped thousands FIRST. Without this "1,000" is two

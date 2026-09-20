@@ -298,13 +298,41 @@ describe('no existing organisation can change completeness state because of this
   })
 })
 
-// ─── Nothing reads these answers yet ─────────────────────────────────────────
+// ─── WHO IS ALLOWED TO READ THESE ANSWERS ────────────────────────────────────
+//
+// THIS GUARD CHANGED PURPOSE; IT WAS NOT RELAXED, AND THE DIFFERENCE MATTERS.
+//
+// It used to assert that NOTHING read these answers, because the session that collected
+// them deliberately wired no reader. That promise has now been kept and then discharged:
+// the ICP path reads them, on purpose, and every field it reads is mapped in
+// document-staleness.ts in the same commit that gave it a reader.
+//
+// Deleting the test at that point would have been the easy move and the wrong one. The
+// reason it existed has not gone away for the OTHER four directories: a reader appearing
+// in composition, in the tuner, in sourcing beyond the one file named below, or in another
+// generation agent is still a change that needs the staleness map and the criticality
+// decision revisited, and still a change nobody would otherwise notice.
+//
+// So the scan is unchanged and the ALLOWED set is explicit and small. A new reader outside
+// it fails this test and lands the person who wrote it on this comment.
 
-describe('nothing reads the buyer-targeting answers yet', () => {
-  it('no agent, prompt or filter specification imports the module or the store', () => {
-    // Session A collects these and stops. This is the guard on that promise: it fails the
-    // moment a consumer appears, which is the moment the staleness mapping and the
-    // criticality decision both need revisiting.
+/**
+ * Files permitted to read the buyer-targeting answers, and why each one does.
+ *
+ * Listed as exact paths rather than as a directory, so that a SECOND reader inside an
+ * already-allowed directory is still caught. A directory-level exemption would have let
+ * the whole of src/agents in on the strength of one file.
+ */
+const ALLOWED_READERS: Readonly<Record<string, string>> = {
+  // Renders the answers into the ICP prompt as binding on named schema fields.
+  'src/agents/icp-generation-agent.ts': 'ICP generation: the answers bind ICP schema fields',
+  // Reads the stated headcount pair so the spec does not parse prose for a client who
+  // answered the question directly.
+  'src/lib/sourcing/persist-icp-filter-spec.ts': 'filter spec: the stated headcount pair',
+}
+
+describe('only the ICP path reads the buyer-targeting answers', () => {
+  it('no other agent, prompt or filter specification imports the module or the store', () => {
     const consumers = [
       'src/agents',
       'src/lib/agents',
@@ -314,20 +342,46 @@ describe('nothing reads the buyer-targeting answers yet', () => {
     ]
     const offenders: string[] = []
     for (const dir of consumers) {
-      const out = scanDir(join(ROOT, dir))
-      offenders.push(...out)
+      offenders.push(...scanDir(join(ROOT, dir)))
     }
+
     expect(
-      offenders,
-      'A consumer now reads the buyer-targeting answers. Map its fields in ' +
-      'document-staleness.ts and revisit whether they should be critical.',
+      offenders.filter(file => !(file in ALLOWED_READERS)),
+      'A new consumer reads the buyer-targeting answers. Map every field it reads in ' +
+      'document-staleness.ts, revisit whether those fields should be critical, and add ' +
+      'the file to ALLOWED_READERS with the reason.',
     ).toEqual([])
+  })
+
+  it('every allowed reader still exists and still reads them', () => {
+    // The other direction, and the one that rots. An allowed path that no longer imports
+    // the module is an exemption outliving its caller, which is how an allow-list silently
+    // becomes wider than the thing it describes.
+    const consumers = ['src/agents', 'src/lib/agents', 'src/lib/sourcing']
+    const actual = new Set(consumers.flatMap(dir => scanDir(join(ROOT, dir))))
+    for (const allowed of Object.keys(ALLOWED_READERS)) {
+      expect(
+        actual.has(allowed),
+        `${allowed} is on the allow-list and does not read the answers. Remove it.`,
+      ).toBe(true)
+    }
   })
 
   it('the scan above really walks files, so its empty result means something', () => {
     // Anti-vacuity. An empty result is evidence the instrument answered, not evidence of
     // absence, unless the instrument is known to have read something.
     expect(filesScanned).toBeGreaterThan(100)
+  })
+
+  it('the scan detects a reader, proved on a file known to be one', () => {
+    // POSITIVE CONTROL for the scan itself, not for the filter. Without it, a scan broken
+    // so that it matched nothing would leave the first test passing over a codebase full
+    // of unmapped readers. The allow-list is the proof: every path in it must have been
+    // FOUND by the scan for the test above it to pass, so a scan that found nothing fails
+    // there. This asserts the same thing directly and at the source string.
+    const marker = 'intake/buyer-profile'
+    const known = readFileSync(join(ROOT, 'src/agents/icp-generation-agent.ts'), 'utf-8')
+    expect(known.includes(marker), 'the ICP agent no longer imports the module').toBe(true)
   })
 })
 
@@ -345,10 +399,16 @@ function scanDir(dir: string): string[] {
   for (const entry of entries) {
     const full = join(dir, entry)
     if (statSync(full).isDirectory()) {
+      if (entry === '__tests__') continue
       hits.push(...scanDir(full))
       continue
     }
     if (!/\.tsx?$/.test(entry)) continue
+    // TESTS ARE NOT CONSUMERS. A test importing the module is not a prompt, a filter
+    // specification or a generator, and has no fields to map in document-staleness.ts. The
+    // scan excluded nothing when it was written because no test in these directories
+    // imported the module; the first one that did was caught as a production reader.
+    if (/\.(test|spec)\.tsx?$/.test(entry)) continue
     filesScanned += 1
     const src = readFileSync(full, 'utf-8')
     if (src.includes('intake/buyer-profile')) hits.push(full.replace(ROOT + '/', ''))

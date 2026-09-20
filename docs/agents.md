@@ -117,6 +117,8 @@ Dependencies: None — runs first in the generation sequence.
 
 Inputs:
   - intake_responses for this organisation
+  - intake_buyer_profile for this organisation, if they have a row. See "The direct answers"
+    below: these are the only inputs the prompt treats as VALUES rather than as evidence.
   - Existing ICP document (if is_refresh: true)
   - patterns table (cross-client, read-only, may be empty in phase one)
   - intake_website_pages for this organisation, via fetchWebsiteContext. Every page with
@@ -128,7 +130,47 @@ Inputs:
   - 4 web research queries derived from intake data (buyer pain, trigger events, buyer
     profile, competitive landscape) — OR NONE AT ALL. See the skip path below.
 
+THE DIRECT ANSWERS (added 2026-09-20, second session)
+
+  Five intake questions are asked in controls built for one schema field each: a list where
+  the answer is a list, two whole numbers where the answer is a range, a fixed set where the
+  answer is a choice from one. They are stored typed in `intake_buyer_profile` and reach the
+  prompt through `buildBuyerProfileBlock`, in a block placed LAST in the user message.
+
+  The prompt says what they are: not evidence, the value of the field each one names. They
+  outrank the research, the website, the uploaded documents, the narrative intake answers and
+  the previous version of the document. That is a stronger claim than anything else in the
+  prompt makes, and the reason it holds is that there is nothing to read: every other input is
+  prose, and a judgement applied to a value that needs none can only move it away from what
+  the client said. The full table of which answer binds which field is in docs/intake.md.
+
+  AN ORGANISATION WITH NO ROW GETS NO BLOCK, and its message is byte-identical to the one it
+  got before this existed. Four of the five live organisations are in that state. A failed
+  read lands in the same place: the agent logs a warning and generates the old way, because
+  losing a binding is a smaller harm than losing a generation.
+
+  WHAT THIS RETIRED. The prompt used to state that "the intake asks no headcount question of
+  any kind", which was true and is now true only for a client who has not answered. Both
+  states are in the prompt and which one applies is checkable from the message itself.
+
+  THE CONVERSION EVENT IS STATED, NOT ASKED. Every campaign these documents feed ends in a
+  booked call, for every client, in every market. No intake question supplies it and none is
+  planned, and a field with no answer behind it is exactly where a confident invented value
+  appears. The prompt fixes it once and binds three things to it: what `evidence_to_find`
+  looks for, that a tier 3 disqualifier must be checkable BEFORE the call is booked, and that
+  the conversion event never appears in `four_forces.pull`.
+
 How the research queries are built (buildResearchPlan, rewritten 2026-08-29, ADR-043):
+
+  THE GEOGRAPHY HINT comes from the stated country list when the client gave one, and from
+  the ccTLD of their own website otherwise. The stated list wins on BOTH branches: exactly
+  one stated country becomes the hint, and several produce NO hint rather than falling back
+  to the domain, because the domain names one country out of a set the client did not single
+  out and may name one they never listed. A web search ANDs its words, so appending three
+  countries returns pages mentioning all three. The full list still binds
+  `company_profile.geography` through the block above, which is the channel that decides who
+  gets sourced; this hint only shapes what gets searched for. `geographyFromIntake` is NOT
+  deleted: the positioning agent calls it on the same path, and most clients state nothing.
 
   THE BUYER DESCRIPTOR is resolved by `resolveBuyerDescriptor`, in this order, and its
   source is recorded on the plan because the operator needs to know which one was used:
