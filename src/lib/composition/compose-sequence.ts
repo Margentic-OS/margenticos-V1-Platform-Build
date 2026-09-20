@@ -473,15 +473,36 @@ export function composeEmail1WithOpening(
 }
 
 /**
- * The number of content paragraphs the positional read below REQUIRES, after the greeting
- * is dropped: the observation slot, the offer line, the CTA question, and the sign-off
- * block. It is the authored frame of five minus P1.
+ * The content paragraphs that always sit at the END of Email 1, in order: the offer line,
+ * the CTA question, and the sign-off block.
  *
- * EXACTLY, not AT LEAST. A fifth content paragraph does not append harmlessly to the end;
- * it shifts everything after the insertion point, and the read is bounded by fixed indices
- * rather than by the array, so nothing goes out of range and nothing fails.
+ * THIS IS THE INVARIANT THE WHOLE FILE NOW INDEXES AGAINST, and it is invariant because
+ * each of those three is a fixed job that appears exactly once. What varies is the SLOT in
+ * front of them.
+ *
+ * Counting from the end is not a style preference. It is the reason applyQuestionToEmail1
+ * was the one function that survived the slot growing from one paragraph to two while
+ * every fixed-index read broke: it asks for "second from last" rather than "index 2".
  */
-export const EMAIL1_FRAME_CONTENT_PARAGRAPHS = 4
+export const EMAIL1_FRAME_TAIL_PARAGRAPHS = 3
+
+/**
+ * The observation slot is ONE or TWO paragraphs, and both are legal at the same time.
+ *
+ *   one  — observation only. Every document written before 2026-09-20.
+ *   two  — observation, then the consequence that follows from it, one sentence each.
+ *          The shape the research writer has always produced.
+ *
+ * BOTH, DELIBERATELY, AND PERMANENTLY. Code deploys globally and documents are per-client
+ * data, so the two can never be switched in the same instant. A reader that accepted only
+ * the new shape would throw for every prospect of every client from the moment it deployed
+ * until each client happened to be regenerated, which is an outage measured in whenever
+ * somebody gets round to it. Accepting both means a four-paragraph document resolves
+ * exactly as it did before this change, and a five-paragraph one works the moment it
+ * exists. There is no migration and no window where deployed code disagrees with stored
+ * documents.
+ */
+export const EMAIL1_FRAME_SLOT_PARAGRAPHS = [1, 2] as const
 
 /**
  * The authored P3 and CTA of a variant's Email 1, verbatim. Fed to the writer so the
@@ -549,23 +570,31 @@ export function getVariantEmail1Frame(
     .filter(p => p.length > 0)
     .filter(p => !/^\{\{first_name\}\},?\s*$/.test(p))
 
-  if (paras.length !== EMAIL1_FRAME_CONTENT_PARAGRAPHS) {
+  const slotLength = paras.length - EMAIL1_FRAME_TAIL_PARAGRAPHS
+
+  if (!EMAIL1_FRAME_SLOT_PARAGRAPHS.includes(slotLength as 1 | 2)) {
     // No paragraph text in the message. The count and the position are what a reader needs
     // to find the document, and the body is client copy that does not belong in a log line.
     throw new Error(
       `getVariantEmail1Frame: variant "${variantId}" Email 1 has ${paras.length} content ` +
-      `paragraphs after the greeting, and the positional read requires exactly ` +
-      `${EMAIL1_FRAME_CONTENT_PARAGRAPHS} (observation slot, offer line, CTA, sign-off). ` +
-      `Reading it positionally would promote some other paragraph into the offer line. ` +
-      `Fix the messaging document rather than relaxing this check.`,
+      `paragraphs after the greeting, which leaves ${slotLength} for the observation slot ` +
+      `once the ${EMAIL1_FRAME_TAIL_PARAGRAPHS} fixed tail paragraphs (offer line, CTA, ` +
+      `sign-off) are accounted for. The slot must be ` +
+      `${EMAIL1_FRAME_SLOT_PARAGRAPHS.join(' or ')} paragraphs. Reading it would promote ` +
+      `some other paragraph into the offer line. Fix the messaging document rather than ` +
+      `relaxing this check.`,
     )
   }
 
+  // Read from the END. paras.length - 3 is the offer line whether the slot is one
+  // paragraph or two, so neither index below moves when the slot grows.
   return {
     subject: email1.subject_line,
-    authoredOpening: paras[0],
-    p3: paras[1],
-    cta: paras[2],
+    // The WHOLE slot, rejoined. It is handed to the writer as the opening its own work has
+    // to beat, and half of a two-paragraph opening is not the thing being beaten.
+    authoredOpening: paras.slice(0, slotLength).join('\n\n'),
+    p3:  paras[paras.length - 3],
+    cta: paras[paras.length - 2],
   }
 }
 
@@ -1015,9 +1044,26 @@ function getVariantEmails(messagingDoc: MessagingContent, variantId: string): St
  *
  * Returns -1 when the body has no content line at all.
  */
-function findOpenerLineIndex(lines: string[]): number {
-  const firstNameIdx = lines.findIndex(l => l.trim() === '{{first_name}}')
-  return lines.findIndex((l, i) => i > firstNameIdx && l.trim().length > 0)
+/**
+ * Where Email 1's observation slot starts and ends, in PARAGRAPHS.
+ *
+ * REPLACES findOpenerLineIndex, which found the first non-empty LINE after the greeting.
+ * That was correct only while the slot was exactly one paragraph: a line-wise replacement
+ * of a two-paragraph slot overwrites the observation and leaves the authored consequence
+ * sitting inside a personalised email, which is valid-looking output with a generic
+ * sentence wedged into the middle of it. No error, no log, correct word count.
+ *
+ * The slot is everything between the greeting and the fixed tail. Returns null when the
+ * body does not have a recognisable frame, so every caller decides for itself what to do
+ * rather than being handed a plausible wrong answer.
+ */
+function findSlotParagraphs(body: string): { paras: string[]; start: number; end: number } | null {
+  const paras = body.split(/\n{2,}/)
+  const start = /^\{\{first_name\}\},?\s*$/.test((paras[0] ?? '').trim()) ? 1 : 0
+  const end = paras.length - EMAIL1_FRAME_TAIL_PARAGRAPHS
+  const slotLength = end - start
+  if (!EMAIL1_FRAME_SLOT_PARAGRAPHS.includes(slotLength as 1 | 2)) return null
+  return { paras, start, end }
 }
 
 /**
@@ -1034,11 +1080,19 @@ export function fallbackOpeningParagraph(emails: StoredEmail[]): string | null {
   const email1 = emails.find(e => e.sequence_position === 1)
   if (!email1) return null
 
-  const lines = email1.body.split('\n')
-  const openerIdx = findOpenerLineIndex(lines)
-  if (openerIdx === -1) return null
+  // THE FIRST SLOT PARAGRAPH ONLY, not the whole slot, and not the first LINE.
+  //
+  // Not the first line, because a paragraph that soft-wraps would return a fragment.
+  //
+  // Not the whole slot, because only the first paragraph is an OPENING. Hand both
+  // paragraphs to findStandaloneOpeningFaults and it reports the consequence's "those
+  // relationships" as pointing at something unnamed, when the thing it names ships
+  // directly above it. The consequence is not the first thing the reader sees and the
+  // question this check asks does not apply to it.
+  const slot = findSlotParagraphs(email1.body)
+  if (!slot) return null
 
-  return lines[openerIdx].trim() || null
+  return slot.paras[slot.start]?.trim() || null
 }
 
 // Applies the personalisation trigger to the opening sentence of email 1.
@@ -1060,20 +1114,30 @@ function applyTriggerToEmail1(emails: StoredEmail[], trigger: string): ComposedE
       ? trigger.trimEnd()
       : trigger.trimEnd() + '.'
 
-    const lines = email.body.split('\n')
-    const openerIdx = findOpenerLineIndex(lines)
+    // PARAGRAPH-WISE. The trigger replaces the WHOLE slot, whether the slot is one
+    // paragraph or two and whether the trigger is one paragraph or two. All four
+    // combinations occur: a researched opening is observation plus bridge, and 12 of the
+    // 164 prospect rows carrying a trigger today hold a single legacy paragraph.
+    //
+    // Line-wise substitution handled only the one-to-one and one-to-two cases. Against a
+    // two-paragraph slot it overwrote the observation and stranded the authored
+    // consequence in the middle of a personalised email.
+    const slot = findSlotParagraphs(email.body)
 
-    if (openerIdx === -1) {
+    if (!slot) {
       return {
         ...email,
         body: `{{first_name}}\n\n${formattedTrigger}\n\n${email.body}`.trim(),
       }
     }
 
-    const newLines = [...lines]
-    newLines[openerIdx] = formattedTrigger
+    const next = [
+      ...slot.paras.slice(0, slot.start),
+      formattedTrigger,
+      ...slot.paras.slice(slot.end),
+    ]
 
-    return { ...email, body: newLines.join('\n') }
+    return { ...email, body: next.join('\n\n') }
   })
 }
 

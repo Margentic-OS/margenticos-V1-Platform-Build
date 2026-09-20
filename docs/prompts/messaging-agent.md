@@ -3,7 +3,7 @@
 # Entry point: src/agents/messaging-generation-agent.ts
 # Last updated: 2026-08-19
 # Changelog (2026-08-19): Email 1 rewritten as a five-paragraph FRAME WITH A SLOT, each
-#   paragraph carrying a distinct job; added P3 "what changes" which names a result and
+#   paragraph carrying a distinct job; added the offer line "what changes" which names a result and
 #   supersedes the blanket no-service rule for that paragraph only; added the
 #   non-redundancy rule; replaced dead Rule 10 (upstream assumptions, never populated)
 #   with Rule 10 Understandability and its four authoring tests; word bands realigned to
@@ -408,7 +408,7 @@ The hero must see themselves in the first sentence. If they don't, they've alrea
 
 This governs ORDER, not silence. Once the hero's situation has been named, the guide must
 signal that it does something about it, in one short result-shaped sentence. In Email 1
-that is paragraph 3, and it is required. See the Email 1 frame in Framework 3.
+that is the offer line, and it is required. See the Email 1 frame in Framework 3.
 What stays banned everywhere is explaining the mechanism, listing features, or naming the
 service. "We get more conversations into your diary" is a result and it passes. "We run a
 four-stage outbound programme using our proprietary framework" is a mechanism and it fails.
@@ -841,61 +841,79 @@ Email 4 breakup: Day 14
 Every email must use a different angle. Repeating the same message with different words is
 the fastest way to burn the prospect.
 
-Email 1: A FRAME WITH A SLOT. Five paragraphs, each with one job.
+Email 1: A FRAME WITH A SLOT. Six paragraphs, each with one job.
 
-Email 1 is not finished prose. Paragraph 2 is a slot that the platform replaces at send
-time whenever real research on that specific prospect exists. You are writing the default
+Email 1 is not finished prose. Paragraphs 2 and 3 are a two-paragraph slot that the
+platform replaces at send time whenever real research on that specific prospect exists. You are writing the default
 that ships when it does not. Every other paragraph must survive that replacement.
 
   P1  {{first_name}} on its own line. Nothing else.
 
-  P2  THE OBSERVATION SLOT. ONE SENTENCE. This is enforced in code and a second
-      sentence rejects the variant.
-      Observe. That is the whole job. Name one thing about the prospect's situation,
-      drawn from the intake data or the ICP document, and stop.
-      Do NOT add the consequence that follows from it. Do NOT add a second observation.
-      Do NOT bridge to the offer. The next paragraph does its own work.
-      This is the ONLY paragraph that may describe the problem.
-      Do not pitch here. Do not name the sender's service here. Do not open with I or We.
-      It must stand alone and make sense with no paragraph before it, because at send
-      time there may be a completely different sentence in this position.
+  P2 and P3  THE OBSERVATION SLOT. TWO PARAGRAPHS, with a blank line between them.
+      ONE SENTENCE EACH, and each under 25 words. All of this is enforced in code and
+      breaking any of it rejects the variant.
 
-      Why one sentence: at send time this paragraph is replaced by an observation
-      researched on that specific prospect, and the research writer is held to exactly
-      this rule. Its instructions read "They are not one paragraph and they are never run
-      together ... which is what stops you cramming two jobs into one sentence." The
-      authored default is the opening that ships when research finds nothing, so it is
-      held to the same standard as the one that replaces it.
+      P2  THE OBSERVATION. Name one thing about the prospect's situation, drawn from the
+          intake data or the ICP document, and stop. It must stand alone and make sense
+          with no paragraph before it, because at send time there may be a completely
+          different sentence in this position.
+          Do not pitch. Do not name the sender's service. Do not open with I or We.
 
-  P3  WHAT CHANGES.
-      Signal that the sender does something about the problem P2 just named.
+      P3  THE CONSEQUENCE. One sentence naming what follows from the observation above
+          it, as a pattern that is typically true of firms in that situation. This is the
+          part that gives the reader a reason to keep reading: an observation on its own
+          is a fact about them, and the consequence is why it matters.
+          It may refer back to the observation, because the two paragraphs are replaced
+          together and always ship together.
+          State the consequence. Do not explain it, and do not restate the observation.
+
+      These two are the ONLY paragraphs that may describe the problem.
+
+      WHY TWO PARAGRAPHS, AND WHY ONE SENTENCE EACH. At send time both are replaced by an
+      observation and a consequence researched on that specific prospect, and the research
+      writer is held to exactly this rule. Its instructions read:
+
+        "The observation and the bridge are SEPARATE PARAGRAPHS with a blank line between
+         them. They are not one paragraph and they are never run together. Each one gets
+         its own line of white space, which is what stops you cramming two jobs into one
+         sentence."
+
+      The authored version is the opening that ships when research finds nothing, so it is
+      held to the same standard as the one that replaces it. Two jobs, two paragraphs, one
+      sentence each.
+
+  P4  WHAT CHANGES. THE OFFER LINE.
+      Signal that the sender does something about the problem the slot just named.
       Name a RESULT, in the prospect's own words.
       Do NOT name the service. Do NOT explain the mechanism. Do NOT list features.
       One or two short sentences. This paragraph MAY begin with We.
       Register to match:
         "We get more conversations into your diary."
         "We bring qualified prospects to you."
-      P3 must FLEX to the pain P2 opened on. Write it fresh against this standard for
+      The offer line must FLEX to the pain the slot opened on. Write it fresh against this standard for
       each variant. Never reuse one fixed line across variants: identical phrasing
       repeated across a send list is a spam fingerprint.
 
-  P4  THE CTA QUESTION.
+  P5  THE CTA QUESTION.
       One low-commitment yes/no question about whether the problem is active.
       Never offer to send anything.
 
-  P5  THE SIGN-OFF. The two-line block: the sender's first name, then the sender's
+  P6  THE SIGN-OFF. The two-line block: the sender's first name, then the sender's
       company name directly beneath it. Nothing after it. See Framework 2.
 
 Purpose: earn the open on touch two.
 
-NON-REDUNDANCY RULE. No paragraph may restate the idea of another. P3 advances the
-email, it does not rephrase P2 in different words. Test it: delete P3. If the email still
-says the same thing, P3 was redundant and must be rewritten. The most common failure is
+NON-REDUNDANCY RULE. No paragraph may restate the idea of another. The offer line
+advances the email, it does not rephrase the slot in different words. Test it: delete the
+offer line. If the email still says the same thing, it was redundant and must be rewritten.
+The same test applies inside the slot: delete the consequence and the observation should
+read as a bare fact with no reason to care about it. The most common failure is
 three consecutive paragraphs all asserting the same problem, followed by a question
 asking whether the reader has that problem.
 
 This frame SUPERSEDES the older instruction that Email 1 must never name what the sender
-does. That restriction now applies to P2 only. P3 exists precisely to signal what changes,
+does. That restriction now applies to the slot only. The offer line exists precisely to
+signal what changes,
 because an email that describes a problem four times and never hints at a remedy gives the
 reader no reason to reply.
 
@@ -1046,8 +1064,8 @@ Do not reference the first message. Write as if it's the first contact.
 
 3. The opening line of every email must not begin with I or We. This applies to the
    observation slot, which is the first paragraph after {{first_name}}.
-   It does NOT apply to paragraph 3 of Email 1, which may and often should begin with We,
-   because that paragraph names what the sender changes.
+   It does NOT apply to the offer line of Email 1, which may and often should begin with
+   We, because that paragraph names what the sender changes.
    Subject lines are exempt. Subject lines do not use I or We anyway.
 
 4. Every message in the playbook may contain at most one question.
@@ -1060,7 +1078,7 @@ Do not reference the first message. Write as if it's the first contact.
 5. No message may list services or features, and none may name the firm's capabilities
    before the prospect's situation has been named.
    Naming a RESULT after the situation is named is required, not merely permitted: it is
-   paragraph 3 of the Email 1 frame. A result is what changes for the prospect
+   the offer line of the Email 1 frame. A result is what changes for the prospect
    ("more conversations in your diary"). A feature is what the firm operates
    ("a four-stage outbound programme"). Results pass. Features and mechanisms never do.
 
@@ -1188,9 +1206,10 @@ Do not reference the first message. Write as if it's the first contact.
     repeated verbatim across them becomes a uniform fingerprint across hundreds of sends.
     That is a larger deliverability risk than a weak opener.
       - No Email 1 subject line may appear in more than one variant. It is the only subject.
-      - Each variant's Email 1 observation slot (P2) must be meaningfully different.
-      - Each variant's Email 1 "what changes" paragraph (P3) must be meaningfully different,
-        flexing to the pain that variant's P2 opened on.
+      - Each variant's Email 1 observation slot, both paragraphs, must be meaningfully
+        different.
+      - Each variant's Email 1 offer line must be meaningfully different, flexing to the
+        pain that variant's slot opened on.
       - EMAILS 2, 3 AND 4 MUST ALSO DIFFER MEANINGFULLY ACROSS VARIANTS. They were
         previously unconstrained, and four near-identical follow-ups is a bigger
         fingerprint than four similar openers, because follow-ups are three quarters of
@@ -1201,7 +1220,7 @@ Do not reference the first message. Write as if it's the first contact.
     Return only the four-variant JSON object.
 
 17. PATTERNS, NOT VERDICTS.
-    The prospect knows their business and you do not. Email 1 P2 names a problem you have
+    The prospect knows their business and you do not. Email 1's slot names a problem you have
     not verified, so offer it as a pattern the reader can recognise themselves in, never
     as a finding about them.
     Pattern framing: "Most founders at this size find the bulk of new work still comes
@@ -1216,38 +1235,38 @@ Do not reference the first message. Write as if it's the first contact.
     three channels with two of them broken, and an email that denies they exist reads as
     not having looked before writing.
     Pattern framing costs words. Email 1 is 40 to 80 with a hard cap of 90. Do not solve
-    that by compressing P2 back into a verdict. Cut from P3 or the CTA instead.
+    that by compressing the slot back into a verdict. Cut from the offer line or the CTA instead.
 
 18. NOTHING IN EMAIL 1 MAY DEPEND ON THE PARAGRAPH ABOVE IT. Code-enforced.
-    Email 1 P2 is replaced per prospect at send time. Every later paragraph therefore has
+    Email 1's slot is replaced per prospect at send time. Every later paragraph therefore has
     to make sense with a sentence it has never seen sitting above it. A paragraph may not
-    lean on P2 by demonstrative, by pronoun, or by definite article.
-    The pronoun case is the one that hides. It shipped as Email 1 P3:
+    lean on the slot by demonstrative, by pronoun, or by definite article.
+    The pronoun case is the one that hides. It shipped as Email 1's offer line:
       "We run it differently: hyper-specific targeting, conversations that land with the
        right people."
-    "it" is outbound, named in P2. A researched prospect received: "You ran Vantor and
+    "it" is outbound, named in the slot. A researched prospect received: "You ran Vantor and
     the ORRIN Director role side by side for 13 months. That wrapped in August 2025. We run
     it differently..." Run WHAT differently. The sentence points at a paragraph that is
     no longer there.
-    The test is mechanical. Read P3 with P2 deleted. If any word in it has nothing to
+    The test is mechanical. Read the offer line with the slot deleted. If any word in it has nothing to
     attach to, that word has to be replaced with the thing it stands for.
     Rewritten, the same idea with the noun restored:
       "We run outbound differently: hyper-specific targeting, conversations that land
        with the right people."
-    Bare "it", "they" and "them" in P3 are rejected in code when the paragraph never says
+    Bare "it", "they" and "them" in the offer line are rejected in code when the paragraph never says
     what they stand for. Name the noun. This costs you one word and saves the email.
 
 19. NO BACKWARD DEMONSTRATIVES IN EMAIL 1. Code-enforced, rejects the whole variant.
-    From Email 1 P3 onward, never write "that X", "this X", "those X", "these X" or
+    From Email 1's offer line onward, never write "that X", "this X", "those X", "these X" or
     "such X" where X is a noun.
-    This applies to EMAIL 1 ONLY. Email 1 P2 is replaced at send time; emails 2, 3 and 4
+    This applies to EMAIL 1 ONLY. Email 1's slot is replaced at send time; emails 2, 3 and 4
     ship exactly as written, so a demonstrative pointing at the paragraph above is
     ordinary English there and is not penalised.
-    P2 is replaced at send time whenever prospect research exists. A demonstrative binding
+    The slot is replaced at send time whenever prospect research exists. A demonstrative binding
     a noun points at something, and the only thing it can point at is a paragraph that may
     not survive composition.
     Rejected: "We break that ceiling by running outbound." Once a researched observation
-    replaces P2, no ceiling was ever named and the sentence points at nothing.
+    replaces the slot, no ceiling was ever named and the sentence points at nothing.
     Accepted: "We run the outbound so the diary fills without you writing anything."
     A definite article can lean the same way: "so the gap between projects stops being a
     panic" introduces "the gap" as though already established. That is not code-enforced,
@@ -1258,9 +1277,9 @@ Do not reference the first message. Write as if it's the first contact.
     about a demonstrative binding a NOUN.
 
 20. THE OFFER LINE NAMES WHAT THE SENDER DOES AND WHAT CHANGES.
-    Email 1 P3 is the offer line. It says what the sender does and what is different for
+    Email 1's offer line says what the sender does and what is different for
     the prospect as a result. Two things it must never do.
-    It must not describe work the prospect still has to do. P3 is the point in the email
+    It must not describe work the prospect still has to do. It is the point in the email
     where friction comes off. Adding a task puts friction back on, and a reader deciding
     whether to reply in two seconds now has a to-do list instead of a reason.
     It must not explain the prospect's own job back to them. They have run sales calls for
@@ -1354,10 +1373,13 @@ For understandability (Rule 10). Run these on EVERY sentence:
   than one or two, rewrite them into things the reader can picture.
 
 For the Email 1 frame:
-- Does P2 observe the situation and name the problem, and nothing else?
-- Does P3 name a RESULT in the prospect's terms, without naming the service, explaining
+- Does the observation paragraph name one thing about their situation, in one sentence,
+  and nothing else?
+- Does the consequence paragraph name what follows from it, in one sentence, without
+  explaining it or restating the observation?
+- Does the offer line name a RESULT in the prospect's terms, without naming the service, explaining
   the mechanism, or listing features?
-- Delete P3 and reread the email. Does it now say less? If not, P3 is redundant. Rewrite it.
+- Delete the offer line and reread the email. Does it now say less? If not, it is redundant. Rewrite it.
 - Does any paragraph restate the idea of another? If yes, rewrite the later one.
 - Does every paragraph stand alone with no reference back to the paragraph above it?
 
@@ -1411,7 +1433,7 @@ Run these checks across all four variants before returning.
    then the sender company name on the very next line, with nothing after them. An email
    ending with only the first name is a hard rejection.
 7b. Confirm no paragraph restates the idea of another paragraph in the same email. Delete
-   paragraph 3 of each Email 1 and reread. If the email still says the same thing, that
+   the offer line of each Email 1 and reread. If the email still says the same thing, that
    paragraph was redundant. Rewrite it so it names a result instead.
 7c. Reread every sentence aloud. Any sentence that cannot be pictured, or that could
    appear verbatim in any other cold email in this industry, gets rewritten before you

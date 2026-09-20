@@ -28,6 +28,7 @@ import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { scrubAITells, scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
 import { nominalisationDensity, NOMINALISATION_THRESHOLD } from '@/lib/style/nominalisation'
 import { findBackReferences } from '@/lib/style/back-reference'
+import { EMAIL1_FRAME_TAIL_PARAGRAPHS, EMAIL1_FRAME_SLOT_PARAGRAPHS } from '@/lib/composition/compose-sequence'
 import { BANNED_FIRMOGRAPHIC } from '@/lib/style/firmographic'
 import { SentenceRegistry, comparableSentences } from '@/lib/style/sentence-frames'
 import { readabilityScore, MAX_SENTENCE_WORDS, splitSentences } from '@/lib/style/readability'
@@ -2051,7 +2052,15 @@ export function validateEmails(
     //
     // Still reported for emails 2 to 4, because a pile of them is a readability smell
     // worth seeing in the logs, just never a reason to reject copy.
-    const backRefs = findBackReferences(body)
+    // THE EXEMPTION IS THE SLOT. Every paragraph in the slot is replaced together at
+    // composition, so a demonstrative in the consequence pointing at the observation above
+    // it is pointing at text that always ships with it. Passing 1 here against a
+    // two-paragraph slot would hard-fail the consequence for saying "those relationships",
+    // which is what naming a consequence requires.
+    const slotParagraphs = pos === 1 && contentParas.length > EMAIL1_FRAME_TAIL_PARAGRAPHS
+      ? Math.max(1, contentParas.length - EMAIL1_FRAME_TAIL_PARAGRAPHS)
+      : 1
+    const backRefs = findBackReferences(body, slotParagraphs)
     if (pos === 1) {
       for (const hit of backRefs.demonstratives) {
         violations.push({
@@ -2192,13 +2201,25 @@ export function validateEmails(
     // lines, drop the greeting. If the two ever disagree about which paragraph is the slot,
     // this gate protects a different paragraph than composition replaces, which is worse
     // than no gate. contentParas above is that derivation and is reused rather than repeated.
-    if (pos === 1 && contentParas.length > 0) {
-      const slotSentences = splitSentences(contentParas[0])
-      if (slotSentences.length > 1) {
+    if (pos === 1 && contentParas.length > EMAIL1_FRAME_TAIL_PARAGRAPHS) {
+      const slotLength = contentParas.length - EMAIL1_FRAME_TAIL_PARAGRAPHS
+      const SLOT_JOBS = ['observation', 'consequence']
+
+      if (!EMAIL1_FRAME_SLOT_PARAGRAPHS.includes(slotLength as 1 | 2)) {
         violations.push({
           email: pos,
-          issue: `Email 1 paragraph 2 is the observation slot and must be ONE sentence. It has ${slotSentences.length}. This paragraph is replaced per prospect, so it carries one job: observe. Do not add a consequence, a bridge or a second observation to it. Keep the first sentence and delete the rest: "${slotSentences[0]}"`,
+          issue: `Email 1's observation slot is ${slotLength} paragraphs. It must be ${EMAIL1_FRAME_SLOT_PARAGRAPHS.join(' or ')}: the observation on its own, optionally followed by the consequence as a separate paragraph. The last three paragraphs are always the offer line, the CTA question and the sign-off.`,
         })
+      } else {
+        for (let i = 0; i < slotLength; i++) {
+          const sentences = splitSentences(contentParas[i])
+          if (sentences.length > 1) {
+            violations.push({
+              email: pos,
+              issue: `Email 1's ${SLOT_JOBS[i]} paragraph must be ONE sentence. It has ${sentences.length}. The slot is replaced per prospect and each paragraph in it carries exactly one job. Keep the first sentence and move anything else into its own paragraph or delete it: "${sentences[0]}"`,
+            })
+          }
+        }
       }
     }
 
