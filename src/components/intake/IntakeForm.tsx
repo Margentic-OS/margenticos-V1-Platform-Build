@@ -11,6 +11,8 @@ import Link from 'next/link'
 import { saveIntakeResponse } from '@/app/intake/actions'
 import type { IntakeFileRecord } from '@/app/intake/actions'
 import FileUploadSection from './FileUploadSection'
+import BuyerProfileSection from './BuyerProfileSection'
+import type { BuyerProfile } from '@/lib/intake/buyer-profile'
 
 // Question definitions live in src/lib/intake/questions.ts so the server can import the
 // same list. See that file for why the denominator must not come from stored rows.
@@ -37,9 +39,21 @@ const inputBase =
 interface IntakeFormProps {
   initialValues: Record<string, { value: string; wordCount: number }>
   initialFiles: IntakeFileRecord[]
+  initialBuyerProfile: BuyerProfile
 }
 
-export default function IntakeForm({ initialValues, initialFiles }: IntakeFormProps) {
+// The buyer-targeting tab. Not a member of SECTIONS: see src/lib/intake/buyer-profile.ts for
+// why these questions are deliberately outside the set that feeds the agents, and outside the
+// completeness denominator. Its id cannot collide with a section id, which is asserted in
+// src/lib/intake/__tests__/buyer-profile.test.ts.
+const BUYER_PROFILE_TAB_ID = 'buyer_targeting'
+const BUYER_PROFILE_TAB_TITLE = 'Who we target'
+
+export default function IntakeForm({
+  initialValues,
+  initialFiles,
+  initialBuyerProfile,
+}: IntakeFormProps) {
   // If the client already crossed the threshold in a previous session, start in
   // succeeded state so the button shows "Continue to dashboard" immediately.
   const initialCriticalAnswered = ALL_QUESTIONS.filter(
@@ -257,6 +271,29 @@ export default function IntakeForm({ initialValues, initialFiles }: IntakeFormPr
               </button>
             )
           })}
+          {/* The buyer-targeting tab. Rendered beside the SECTIONS tabs but sourced
+              separately, because it is not one of them. Never marked complete or optional:
+              it gates nothing, so a tick or an "Optional" label would both be claims about
+              the completeness machinery that are not true of it. */}
+          <button
+            onClick={() => setActiveSection(BUYER_PROFILE_TAB_ID)}
+            className={[
+              'px-3 py-1.5 text-[11px] sm:text-[10px] font-medium rounded-[20px] border transition-colors min-h-[44px] touch-manipulation',
+              activeSection === BUYER_PROFILE_TAB_ID
+                ? 'bg-brand-green text-[#F5F0E8] border-brand-green'
+                : 'bg-surface-card text-text-secondary border-border-card',
+            ].join(' ')}
+          >
+            <span>{BUYER_PROFILE_TAB_TITLE}</span>
+          </button>
+        </div>
+
+        {/* The buyer-targeting section */}
+        <div className={activeSection === BUYER_PROFILE_TAB_ID ? 'block' : 'hidden'}>
+          <BuyerProfileSection
+            initialProfile={initialBuyerProfile}
+            onBack={() => setActiveSection(SECTIONS[SECTIONS.length - 1].id)}
+          />
         </div>
 
         {/* Active section */}

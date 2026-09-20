@@ -20,9 +20,22 @@ The save action is in `src/app/intake/actions.ts` — it writes to `intake_respo
 
 Document generation cannot begin until 80% of critical fields are completed.
 
-- Total critical fields: **16**
-- Threshold: **13 of 16** (`Math.ceil(16 * 0.8)`)
+- Total critical fields: **15**
+- Threshold: **12 of 15** (`Math.ceil(15 * 0.8)`)
 - The form header shows live progress toward the threshold
+
+CORRECTED 2026-09-20. This said 16 and 13 for months. The code has said 15 and 12 since
+`voice_samples` was removed in favour of file upload, and the numbers live in
+`CRITICAL_COUNT` and `THRESHOLD` in `src/lib/intake/questions.ts`. Read them there; a figure
+in this file is a copy and copies go stale.
+
+**The denominator is a property of the question set, not of a client's rows.** Adding a
+critical question therefore lowers EVERY existing client's completeness the moment it ships,
+which is deliberate: it is how an unanswered new question becomes visible rather than reading
+as 100%. The consequence is that adding critical questions to a live system is not a free
+action. Measured on production 2026-09-20: four of five organisations sit at exactly 15 of 15,
+so a single new critical question sends all four to 15/16 = 0.94, and five send them to
+15/20 = 0.75, below the 0.8 that `/api/intake/complete` requires before it will dispatch.
 
 If a critical open-text response is under 20 words, the form shows a follow-up nudge
 inline beneath that field asking the client to add more detail.
@@ -91,6 +104,70 @@ not during intake. They do not affect the completeness threshold.
 | enrich_unexpected_value |
 | enrich_six_months |
 | enrich_their_words |
+
+---
+
+## The buyer-targeting section (added 2026-09-20)
+
+Five questions about WHO to contact: which countries, the buyer's headcount, the buyer's job
+titles and seniority, who we email first and whether they need sign-off, and who the client
+would turn away anyway.
+
+**They are not in `SECTIONS`, and that is deliberate.** Two things follow automatically from
+being in `SECTIONS`, and neither is wanted yet:
+
+1. Every question in `SECTIONS` is rendered into the prompt of all four document-generation
+   agents by `mergeIntakeWithQuestions`. A question added there begins changing generated
+   documents as soon as a client answers it, without any agent being edited.
+2. Every critical question in `SECTIONS` enters the completeness denominator, with the
+   consequence measured above.
+
+Nothing reads these answers yet. A test in
+`src/lib/intake/__tests__/buyer-profile.test.ts` scans the agent, sourcing, composition and
+tuner trees and fails if any of them starts importing the module, so the claim cannot quietly
+stop being true.
+
+**Storage is typed, in its own table.** `public.intake_buyer_profile`, one row per
+organisation, created by `supabase/migrations/20260920140000_intake_buyer_profile.sql`:
+
+| column | type | notes |
+| --- | --- | --- |
+| `organisation_id` | uuid PK | cascades on organisation delete |
+| `target_countries` | text[] | |
+| `buyer_headcount_min` / `_max` | integer | both set or both null (CHECK); min >= 1; max >= min |
+| `buyer_job_titles` | text[] | |
+| `buyer_seniority_bands` | text[] | provider tokens, validated in the application |
+| `first_contact_role` | text | |
+| `signoff_required` | boolean | NULL means not answered, which is not "no" |
+| `signoff_role` | text | cleared when sign-off is not required |
+| `disqualifiers` | text[] | |
+
+It is a table rather than rows in `intake_responses` because that table stores every value in
+one `text` column. Two of these answers are integers a filter is built from and three are
+lists, and putting either in a text column means choosing a delimiter and writing a parser on
+the read side. A consumer here reads two integers and three arrays and parses nothing.
+
+**Seniority options are read from the provider handler**,
+`src/lib/sourcing/handlers/provider-seniority.ts`, never retyped. A test asserts that no band
+token appears as a string literal anywhere in the intake code.
+
+**What to check if it breaks**
+
+- Answers not saving: the save path is `saveBuyerProfile` in
+  `src/app/intake/buyer-profile-actions.ts`. It resolves the organisation from the signed-in
+  user and never accepts one from the caller.
+- A headcount rejected: `parseHeadcount` in `src/lib/intake/buyer-profile.ts` refuses half a
+  range, an inverted range, anything below 1, and anything that is not a plain whole number.
+  The database repeats all of that as CHECK constraints.
+- Nothing appears for an existing client: they have no row until their first save, which reads
+  back as an empty profile rather than an error.
+
+**Staleness mapping.** All nine fields are in `NOT_MAPPED` in
+`src/lib/intake/document-staleness.ts`. That is not the list being lazy: the map means
+"documents built directly from this answer", and no document is built from any of them yet.
+The write path already calls the flagging helper for every changed field, so the only step
+needed to make a stale flag work is adding the field to `DOCUMENTS_FED_BY_FIELD`. The session
+that gives one of these a reader maps it in the same commit.
 
 ---
 

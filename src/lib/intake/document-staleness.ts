@@ -20,6 +20,7 @@
 
 import type { StrategyDocType } from '@/lib/agents/cascade/document-dependencies'
 import { SECTION_BY_FIELD_KEY, UNREGISTERED_FORM_FIELD_KEYS } from '@/lib/intake/questions'
+import { BUYER_PROFILE_FIELD_KEYS } from '@/lib/intake/buyer-profile'
 
 /**
  * Documents built directly from a given intake answer.
@@ -71,6 +72,32 @@ export const NOT_MAPPED: Readonly<Record<string, string>> = {
   offer_length: 'Engagement duration. No document reasons from it today.',
   assets_existing_positioning: 'Reference material the agent may or may not have drawn on.',
   assets_past_outreach: 'Reference material, as above.',
+
+  // ─── The buyer-targeting answers (src/lib/intake/buyer-profile.ts) ──────────
+  //
+  // ALL NINE ARE UNMAPPED, AND THAT IS NOT THIS LIST BEING LAZY. The map means "documents
+  // built directly from this answer". No document is built from any of these, because
+  // nothing reads the table they live in: it was created in the session that started
+  // collecting them, ahead of the session that wires them to sourcing.
+  //
+  // Mapping one anyway would be the failure this file's header warns about. Editing a
+  // country list would flag the prospect profile stale, an operator would regenerate it,
+  // and the new document would be identical, because no prompt reads the answer. A flag
+  // that changes nothing is how an operator learns to ignore flags.
+  //
+  // THE TRIGGER FOR REVISITING is a reader, not a date: the first prompt, filter
+  // specification or generator that reads one of these fields maps that field here in the
+  // same commit. The save path already calls the flagging helper for every field, so the
+  // only thing standing between a mapping and a working stale flag is an entry above.
+  target_countries: 'Nothing reads it yet. Map it in the session that gives it a reader.',
+  buyer_headcount_min: 'As target_countries.',
+  buyer_headcount_max: 'As target_countries.',
+  buyer_job_titles: 'As target_countries.',
+  buyer_seniority_bands: 'As target_countries.',
+  first_contact_role: 'As target_countries.',
+  signoff_required: 'As target_countries.',
+  signoff_role: 'As target_countries.',
+  disqualifiers: 'As target_countries.',
 }
 
 /**
@@ -119,8 +146,17 @@ export function isIntakeStaleReason(reason: string | null | undefined): boolean 
 // "What the form collects" is SECTIONS plus the unregistered fields, not SECTIONS alone.
 // Reading it as SECTIONS alone is what made this guard reject voice_typed_samples, which is
 // a live field the form has written since 2026-06-07. A typo is in neither set and still throws.
+//
+// The buyer-profile fields are a THIRD set the form collects. They are stored in their own
+// typed table rather than in intake_responses, so they appear in neither of the two sets
+// above, and without this branch every one of them would read as a typo.
+const BUYER_PROFILE_KEYS: readonly string[] = BUYER_PROFILE_FIELD_KEYS
 for (const key of [...Object.keys(DOCUMENTS_FED_BY_FIELD), ...Object.keys(NOT_MAPPED)]) {
-  if (!(key in SECTION_BY_FIELD_KEY) && !UNREGISTERED_FORM_FIELD_KEYS.includes(key)) {
+  if (
+    !(key in SECTION_BY_FIELD_KEY) &&
+    !UNREGISTERED_FORM_FIELD_KEYS.includes(key) &&
+    !BUYER_PROFILE_KEYS.includes(key)
+  ) {
     throw new Error(`document-staleness: "${key}" is not an answer the intake form collects`)
   }
 }
