@@ -16,6 +16,8 @@ import {
   resolveIcpGeography,
   type ResolvedGeography,
 } from '@/lib/sourcing/resolve-icp-geography'
+import { readBuyerProfile } from '@/lib/intake/buyer-profile-store'
+import { statedHeadcount } from '@/lib/intake/buyer-profile-authority'
 
 /**
  * Derives and persists the ICP filter spec for a newly promoted strategy document.
@@ -256,13 +258,42 @@ export async function persistIcpFilterSpec(
     }
     const revenueFilterEnabled = !orgError && orgRow?.sourcing_revenue_filter_enabled === true
 
+    // ── 3.24 The headcount this client TYPED, if they typed one ───────────────
+    //
+    // Read here rather than inside deriveFilterSpec for the same reason the buyer criterion
+    // and the geography are: that module is the tool-agnostic derivation and does not touch
+    // the database. Everything it needs arrives as a parameter.
+    //
+    // A FAILED READ IS TREATED AS NO ANSWER, which puts this client back on the document
+    // path. That is the direction that cannot invent a ceiling: the document path is what
+    // every client was on before this existed, and it either parses the tiers or refuses.
+    let statedHeadcountPair: { min: number; max: number } | null = null
+    try {
+      statedHeadcountPair = statedHeadcount(
+        await readBuyerProfile(supabase, doc.organisation_id),
+      )
+    } catch (profileError) {
+      logger.warn('persistIcpFilterSpec: could not read the buyer-targeting answers', {
+        operation_id: operationId,
+        organisation_id: doc.organisation_id,
+        error: profileError instanceof Error ? profileError.message : String(profileError),
+        consequence:
+          'The headcount range is parsed from the ICP document prose for this spec, as it ' +
+          'was for every client before the intake asked the question.',
+      })
+    }
+
     // ── 3.25 Derive the filter spec from ICP content ───────────────────────────
     // deriveFilterSpec throws if industries are non-canonical.
     // Catch that explicitly and report the invalid names.
     let spec: ICPFilterSpec
     try {
       spec = deriveFilterSpec(
-        doc.content as IcpDocument, buyerCriterion, geography, seniority, { revenueFilterEnabled },
+        doc.content as IcpDocument,
+        buyerCriterion,
+        geography,
+        seniority,
+        { revenueFilterEnabled, statedHeadcount: statedHeadcountPair },
       )
     } catch (specError) {
       const msg = specError instanceof Error ? specError.message : String(specError)

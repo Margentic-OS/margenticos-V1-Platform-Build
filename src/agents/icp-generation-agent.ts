@@ -31,6 +31,13 @@ import {
   type BuyerDescriptorSource,
 } from '@/lib/agents/research-descriptors'
 import { buildRegenerationNotesBlock, buildRegenerationNotesReason, noteForVersionHistory, type RegenerationNotes } from '@/lib/agents/regeneration-notes'
+import { readBuyerProfile } from '@/lib/intake/buyer-profile-store'
+import { EMPTY_BUYER_PROFILE, type BuyerProfile } from '@/lib/intake/buyer-profile'
+import {
+  buildBuyerProfileBlock,
+  statedGeographyHint,
+  hasStatedCountries,
+} from '@/lib/intake/buyer-profile-authority'
 
 // The model specified in the PRD for document generation agents.
 const ICP_MODEL = 'claude-opus-4-6'
@@ -169,6 +176,17 @@ export async function runIcpGenerationAgent(
     })
   }
 
+  // Step 5a: Fetch this client's buyer-targeting answers, if they have any.
+  //
+  // FAILS OPEN TO AN EMPTY PROFILE, which is the same value an organisation with no row
+  // produces. Four of the five live organisations have no row, so "no answers" is the
+  // ordinary case and not an error: the prompt block is then absent and this run is
+  // byte-identical to the one the same client got before this existed. A read that fails
+  // for some other reason lands in the same place, which is the right direction to fail:
+  // it loses a binding and generates the document the old way, rather than stopping a
+  // generation that would otherwise have worked.
+  const buyerProfile = await fetchBuyerProfile(supabase, organisation_id)
+
   // Step 5b: Fetch website pages fetched at intake time.
   const websitePages = await fetchWebsiteContext(supabase, organisation_id, 'ICP agent')
   const truncatedPageCount = countTruncatedPages(websitePages)
@@ -189,7 +207,7 @@ export async function runIcpGenerationAgent(
   // buyer" and "research ran and found nothing" are different facts about a document and
   // only the first is actionable, so they are reported as different sentences rather than
   // collapsed into the provider-shaped one.
-  const researchPlan = buildResearchPlan(intake)
+  const researchPlan = buildResearchPlan(intake, buyerProfile)
 
   let research: ResearchBundle
   if (researchPlan.skipped) {
@@ -228,6 +246,7 @@ export async function runIcpGenerationAgent(
     researchSkipped: researchPlan.skipped,
     refDocs,
     websitePages,
+    buyerProfile,
     regeneration_notes,
   })
 
@@ -346,6 +365,36 @@ async function fetchExistingIcpDocument(
   return data as ExistingDocument
 }
 
+/**
+ * This client's buyer-targeting answers, or an empty profile.
+ *
+ * readBuyerProfile already returns an empty profile for an organisation with no row. The
+ * try/catch is for the other case: a read that fails outright. Both land on the same value
+ * on purpose, because the document this agent produces without a profile is the document it
+ * produced for every client before the profile existed, and that is a working document.
+ * Stopping the run instead would turn a lost binding into a lost generation.
+ */
+async function fetchBuyerProfile(
+  supabase: SupabaseClient,
+  organisation_id: string,
+): Promise<BuyerProfile> {
+  try {
+    return await readBuyerProfile(supabase, organisation_id)
+  } catch (err) {
+    logger.warn(
+      'ICP agent: could not read the buyer-targeting answers, generating without them',
+      {
+        organisation_id,
+        error: err instanceof Error ? err.message : String(err),
+        consequence:
+          'Geography, headcount, titles and seniority are derived from the narrative ' +
+          'answers for this run, as they were before these questions existed.',
+      },
+    )
+    return { ...EMPTY_BUYER_PROFILE }
+  }
+}
+
 async function fetchPatterns(supabase: SupabaseClient): Promise<PatternRow[]> {
   // Patterns are cross-client aggregated data — the only permitted cross-client read.
   // Handle empty gracefully: phase one will have no patterns.
@@ -436,7 +485,10 @@ export interface ResearchPlan {
 // a service type or a buyer archetype. An earlier version selected between two hardcoded
 // consulting literals on each branch, so intake could not change the query, which put
 // MargenticOS's own competitive set into every client's research.
-export function buildResearchPlan(intake: IntakeRow[]): ResearchPlan {
+export function buildResearchPlan(
+  intake: IntakeRow[],
+  buyerProfile: BuyerProfile = EMPTY_BUYER_PROFILE,
+): ResearchPlan {
   const val = (key: string) =>
     intake.find(r => r.field_key === key)?.response_value?.trim() ?? ''
 
@@ -472,8 +524,25 @@ export function buildResearchPlan(intake: IntakeRow[]): ResearchPlan {
   // why now". The earlier fix applied the check to the two descriptors and not to this.
   const trigger = usableDescriptor(condense(val('clients_trigger'), 12))
 
-  // The client's own domain, not their currency. See geographyFromIntake.
-  const geoHint = geographyFromIntake(val('company_url') || val('assets_website'))
+  // ─── A STATED COUNTRY LIST BEATS THE DOMAIN GUESS ─────────────────────────
+  //
+  // geographyFromIntake reads the ccTLD of the client's own website. That is a guess made
+  // from a domain registration, and a client who has typed the countries they sell to has
+  // answered the question it was standing in for. So the guess is consulted ONLY when the
+  // client stated nothing, and never to fill a gap in something they did state.
+  //
+  // The two branches of statedGeographyHint are explained where it is defined: one stated
+  // country becomes the hint, several produce none. Several deliberately does NOT fall
+  // back to the domain, because the domain names one country out of a set the client did
+  // not single out and may name one they never listed. The full list still binds
+  // company_profile.geography through the block in the user message, which is the channel
+  // that decides who gets sourced; this hint only shapes what gets searched for.
+  //
+  // geographyFromIntake is NOT deleted. The positioning agent calls it on the same path,
+  // and an organisation with no stated countries is still the ordinary case.
+  const geoHint = hasStatedCountries(buyerProfile)
+    ? statedGeographyHint(buyerProfile)
+    : geographyFromIntake(val('company_url') || val('assets_website'))
 
   // The service the client sells, used only for the competitor query, where the subject
   // really is the client's own offer rather than the buyer.
@@ -570,9 +639,11 @@ function buildUserMessage(params: {
   researchSkipped: boolean
   refDocs: UploadedRefDoc[]
   websitePages: WebsitePageContext[]
+  /** This client's buyer-targeting answers. Empty for an organisation with no row. */
+  buyerProfile: BuyerProfile
   regeneration_notes: RegenerationNotes | undefined
 }): string {
-  const { intake, existingDocument, patterns, completeness, research, researchSkipped, refDocs, websitePages } = params
+  const { intake, existingDocument, patterns, completeness, research, researchSkipped, refDocs, websitePages, buyerProfile } = params
 
   // Group intake responses by section for readability in the prompt.
   const bySec = intake.reduce<Record<string, IntakeRow[]>>((acc, row) => {
@@ -628,6 +699,15 @@ function buildUserMessage(params: {
 
   const websiteBlock = formatWebsiteContextForPrompt(websitePages)
 
+  // ─── LAST, AND THE POSITION IS THE ARGUMENT ───────────────────────────────
+  //
+  // This block says it beats the research, the website, the uploaded documents, the
+  // narrative answers and the previous version of the document. It is placed after every
+  // one of them so that the instruction is read after the thing it overrides, rather than
+  // several thousand tokens before it. '' for a client who answered none of these
+  // questions, which makes their message byte-identical to the one they get today.
+  const buyerProfileBlock = buildBuyerProfileBlock(buyerProfile)
+
   return `You are generating an ICP document for the B2B business described below.
 Derive what this business does, who it sells to, and the industry it operates in from the
 intake responses, uploaded documents and website content in this message. Do not assume an
@@ -643,7 +723,7 @@ ${intakeSections}${refDocs.length > 0
       refDocs.map(d =>
         `### ${d.filename} (${d.purpose === 'icp_doc' ? 'Existing ICP document' : 'Case study'})\n\n${d.text}`
       ).join('\n\n---\n\n')
-    : ''}${websiteBlock}${researchBlock}${refreshContext}${patternContext}${buildRegenerationNotesBlock(params.regeneration_notes, params.existingDocument)}
+    : ''}${websiteBlock}${researchBlock}${refreshContext}${patternContext}${buyerProfileBlock}${buildRegenerationNotesBlock(params.regeneration_notes, params.existingDocument)}
 
 ---
 
