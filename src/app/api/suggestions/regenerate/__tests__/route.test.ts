@@ -11,10 +11,30 @@ vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-vi.mock('@/agents/icp-generation-agent', () => ({ runIcpGenerationAgent: vi.fn().mockResolvedValue(null) }))
-vi.mock('@/agents/positioning-generation-agent', () => ({ runPositioningGenerationAgent: vi.fn().mockResolvedValue(null) }))
-vi.mock('@/agents/tov-generation-agent', () => ({ runTovGenerationAgent: vi.fn().mockResolvedValue(null) }))
-vi.mock('@/agents/messaging-generation-agent', () => ({ runMessagingGenerationAgent: vi.fn().mockResolvedValue(null) }))
+// PARTIAL MOCKS, not whole-module ones. A factory returning only the stubbed export
+// replaces the WHOLE module, so every other export becomes undefined and the failure
+// surfaces in a different file with a message about the wrong thing. Measured here: adding
+// `fetchBuyerProfile` to the ICP agent broke four tests in
+// src/agents/__tests__/icp-buyer-profile-binding.test.ts with "fetchBuyerProfile is not a
+// function", in a file that does not mock anything. Spreading the original means a future
+// export is present automatically. Only the run* entry points are stubbed, because those
+// are what make model calls.
+vi.mock('@/agents/icp-generation-agent', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/agents/icp-generation-agent')>()),
+  runIcpGenerationAgent: vi.fn().mockResolvedValue(null),
+}))
+vi.mock('@/agents/positioning-generation-agent', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/agents/positioning-generation-agent')>()),
+  runPositioningGenerationAgent: vi.fn().mockResolvedValue(null),
+}))
+vi.mock('@/agents/tov-generation-agent', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/agents/tov-generation-agent')>()),
+  runTovGenerationAgent: vi.fn().mockResolvedValue(null),
+}))
+vi.mock('@/agents/messaging-generation-agent', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/agents/messaging-generation-agent')>()),
+  runMessagingGenerationAgent: vi.fn().mockResolvedValue(null),
+}))
 
 vi.mock('next/headers', () => ({
   cookies: vi.fn().mockResolvedValue({ getAll: () => [], set: vi.fn() }),

@@ -368,13 +368,19 @@ async function fetchExistingIcpDocument(
 /**
  * This client's buyer-targeting answers, or an empty profile.
  *
+ * EXPORTED FOR TESTS, as buildResearchPlan, buildResearchBlock and buildUserMessage are. The
+ * fail-open branch below is the no-row guarantee under fault, and it was uncovered: a
+ * mutation making this catch return a POPULATED profile passed the entire suite, because the
+ * only other route to this function is a full agent run with a live client and a paid model
+ * call.
+ *
  * readBuyerProfile already returns an empty profile for an organisation with no row. The
  * try/catch is for the other case: a read that fails outright. Both land on the same value
  * on purpose, because the document this agent produces without a profile is the document it
  * produced for every client before the profile existed, and that is a working document.
  * Stopping the run instead would turn a lost binding into a lost generation.
  */
-async function fetchBuyerProfile(
+export async function fetchBuyerProfile(
   supabase: SupabaseClient,
   organisation_id: string,
 ): Promise<BuyerProfile> {
