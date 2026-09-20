@@ -17,21 +17,47 @@ import {
   AGENT_TIMEOUT_MS,
   MEASURED_FIRST_CALL_SECONDS,
   MEASURED_REPAIR_CALL_SECONDS,
+  MEASURED_PREFLIGHT_SECONDS,
   UNBOUNDED_WORST_CASE_CALLS,
 } from '../messaging-generation-agent'
 
+// PREFLIGHT IS PART OF THE RUN. Leaving it out is what made this file pass while the
+// budget it was checking could not actually be spent: 75 + 26 x 6 = 231 < 240 is true, and
+// the real total is that plus everything before the first call. Measured 2026-09-20, a run
+// granted 7 calls had the guard fire during its 5th.
 const projectedSeconds = (calls: number) =>
-  MEASURED_FIRST_CALL_SECONDS + MEASURED_REPAIR_CALL_SECONDS * (calls - 1)
+  MEASURED_PREFLIGHT_SECONDS +
+  MEASURED_FIRST_CALL_SECONDS +
+  MEASURED_REPAIR_CALL_SECONDS * (calls - 1)
+
+/**
+ * The largest call count whose projection fits inside the guard.
+ *
+ * THE BUDGET IS DERIVED FROM THIS, NOT COMPARED TO IT. The file used to assert the budget
+ * fits and that one more does not, which is two hand-checked inequalities agreeing with a
+ * number typed somewhere else. That arrangement cannot tell "the budget is right" from
+ * "the budget and the model are wrong in the same direction", and the second is what
+ * happened. Now the model produces the number and the constant has to match it.
+ */
+function largestAffordableCallCount(): number {
+  let calls = 0
+  while (projectedSeconds(calls + 1) * 1000 < AGENT_TIMEOUT_MS) calls++
+  return calls
+}
 
 describe('messaging run call budget', () => {
-  it('the full budget completes inside the wall-clock guard', () => {
-    expect(projectedSeconds(MAX_API_CALLS_PER_RUN) * 1000).toBeLessThan(AGENT_TIMEOUT_MS)
+  // ONE ASSERTION, NOT TWO INEQUALITIES. Change any cost term or the guard and this says
+  // what the budget should now be instead of agreeing with what is written.
+  it('the budget IS the largest call count the guard can afford', () => {
+    expect(MAX_API_CALLS_PER_RUN).toBe(largestAffordableCallCount())
   })
 
-  it('one more call than the budget would NOT complete inside the guard', () => {
-    // This is what makes MAX_API_CALLS_PER_RUN the largest safe value rather than an
-    // arbitrary one. If this fails, the budget has been left below what the clock allows.
-    expect(projectedSeconds(MAX_API_CALLS_PER_RUN + 1) * 1000).toBeGreaterThan(AGENT_TIMEOUT_MS)
+  it('and that count is 6 at the durations measured on 2026-09-20', () => {
+    // Stated so a change to the cost model shows up as a moved number in a diff rather
+    // than as a silently different budget.
+    expect(largestAffordableCallCount()).toBe(6)
+    expect(projectedSeconds(6)).toBe(214)
+    expect(projectedSeconds(7)).toBe(240)   // equal to the guard, so not inside it
   })
 
   it('is actually binding: the structural worst case far exceeds it', () => {

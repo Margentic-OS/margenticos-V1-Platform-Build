@@ -58,15 +58,24 @@ const MAX_RETRY_ATTEMPTS = 3
  * first call generates all four variants and costs about 75s; each single-variant retry
  * costs about 26s:
  *
- *     total ≈ 75 + 26 x (calls - 1)
+ *     total ≈ preflight + 75 + 26 x (calls - 1)
  *
- *     7 calls ≈ 231s   <- inside the 240s guard, so the budget fires first
- *     8 calls ≈ 257s   <- past the guard
- *     9 calls ≈ 283s   <- what the two failed runs on 2026-08-28 actually reached
+ *     6 calls ≈ 214s   <- inside the 240s guard, so the budget fires first
+ *     7 calls ≈ 240s   <- ON the guard, which is not inside it
+ *     9 calls ≈ 292s   <- what the two failed runs on 2026-08-28 actually reached
  *                          before Vercel killed the function at its 300s ceiling
  *
- * So the budget must stop the run before the 8th call starts. Seven calls is the largest
- * number that completes inside the wall-clock guard.
+ * PREFLIGHT WAS MISSING FROM THIS MODEL UNTIL 2026-09-20, AND IT IS WHY THE NUMBER WAS
+ * WRONG. Six Supabase reads and one insert run before the first call, and the projection
+ * did not count them. 75 + 26 x 6 = 231 < 240 passed its test while the real total was
+ * 231 + preflight, which is on or over the line. Measured on 2026-09-20: a run spent its
+ * 5th call when the guard fired, having been granted 7. The guard cut mid-stream, which is
+ * precisely the arbitrary failure the budget exists to prevent.
+ *
+ * THE NUMBER BELOW IS DERIVED, NOT CHOSEN. call-budget.test.ts computes the largest call
+ * count whose projection fits inside AGENT_TIMEOUT_MS and asserts this constant equals it.
+ * Change any of the three cost terms or the guard and the test says what the budget should
+ * now be, rather than agreeing with whatever is written here.
  *
  * THE TWO CONTROLS FAIL DIFFERENTLY AND BOTH ARE KEPT. The wall clock can only ever cut
  * mid-stream, at an arbitrary point, with a partially generated variant discarded. The
@@ -75,15 +84,38 @@ const MAX_RETRY_ATTEMPTS = 3
  * complete picture of what it did. The wall clock stays as the backstop for the case the
  * budget cannot model, which is a single call running pathologically long.
  */
-export const MAX_API_CALLS_PER_RUN = 7
+export const MAX_API_CALLS_PER_RUN = 6
 
 /**
  * Measured cost model, exported so the budget and the wall-clock guard cannot drift apart
  * silently. Derived from every messaging run that recorded a call count:
  * 1 call -> 53-84s, 3 -> 128s, 5 -> 197s, 11 -> 317s, 12 -> 354s, 19 -> 543s.
+ *
+ * Re-measured 2026-09-20 across four runs: the first call ran 69 to 72s (mean 71.0, n=4)
+ * and single-variant repairs ran 20 to 28s (median 24, mean 24.4, n=21). Both constants
+ * below are left ABOVE their measured means deliberately. They are a ceiling the budget is
+ * derived from, and rounding them down to the mean would buy a call by assuming every call
+ * is average, which is the assumption a timeout guard exists to distrust.
  */
 export const MEASURED_FIRST_CALL_SECONDS = 75
 export const MEASURED_REPAIR_CALL_SECONDS = 26
+
+/**
+ * Everything before the first model call: startAgentRun, then intake, preflight checks,
+ * the three required documents, the existing messaging document and the patterns table.
+ * Six reads and one insert, all sequential.
+ *
+ * 9s is the OBSERVED MAXIMUM across the four runs of 2026-09-20 (8.8, 5.9, 4.5, and one
+ * outlier), and instrumenting the real agent with the model call suppressed measured
+ * 2.6 to 3.5s across three runs.
+ *
+ * THE OUTLIER IS DELIBERATELY EXCLUDED. One run spent 64.6s here, roughly sixty seconds of
+ * which was a single unattributed stall in one of six trivial queries. Budgeting for it
+ * would cost two repairs on every run to insure against something that has happened once
+ * and is not understood. The wall-clock guard is the control for a pathological call; this
+ * term models the normal case, which is what a cost model is for. See the Backlog row.
+ */
+export const MEASURED_PREFLIGHT_SECONDS = 9
 
 /** 240s. Under Vercel's 300s ceiling on this plan, which the route declares. */
 export const AGENT_TIMEOUT_MS = 240 * 1000
