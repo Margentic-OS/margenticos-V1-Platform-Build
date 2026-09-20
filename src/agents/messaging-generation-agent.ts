@@ -1335,8 +1335,16 @@ function renderWordCountReminder(): string {
     `- Email 3: ${L.email3MinWords} to ${L.email3MaxWords} words, and no longer than Email 2.`,
     `- Email 4: up to ${L.email4MaxWords} words. No minimum: a short breakup is fine.`,
     '- Counts include the {{first_name}} line and the sign-off name. They exclude the opt-out footer, which the platform adds later.',
-    `- No SENTENCE may run over ${MAX_EMAIL_SENTENCE_WORDS} words. This is separate from the totals above: an email inside its band still fails if one sentence is too long. Split it into two rather than trimming words.`,
-    '- Email 1 paragraph 2, the observation slot, must be exactly ONE sentence. It observes and does nothing else. The consequence, the bridge and any second observation do not belong in it.',
+    `- No SENTENCE anywhere may run over ${MAX_EMAIL_SENTENCE_WORDS} words. Separate from the totals above: an email inside its band still fails if one sentence is too long. Split it into two rather than trimming words.`,
+    // ONE CONSTRAINT, NOT TWO RULES IN TWO PLACES, and it is the LAST thing the model reads
+    // before writing. This line described a ONE-paragraph slot until 2026-09-20, which is
+    // the frame that was replaced when the slot became two paragraphs. The system prompt
+    // and the revision agent's copy were both updated and this one was missed, so the
+    // instruction nearest the point of generation contradicted the frame 500 lines above
+    // it. Measured across four runs before the fix: every first pass produced a 27 to 38
+    // word sentence in Email 1, and every repair then put two sentences in the observation
+    // paragraph.
+    `- Email 1's observation slot is TWO paragraphs, a blank line between them, ONE SENTENCE in each, and neither over ${MAX_EMAIL_SENTENCE_WORDS} words. Paragraph 2 observes. Paragraph 3 names the consequence that follows. Count the words in both before moving on: two sentences in either paragraph, or one sentence over ${MAX_EMAIL_SENTENCE_WORDS} words, rejects the variant.`,
   ].join('\n')
 }
 
