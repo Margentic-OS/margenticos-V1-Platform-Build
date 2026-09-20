@@ -500,33 +500,66 @@ export async function runMessagingGenerationAgent(
         regeneration_notes,
       }
 
-      for (const failure of variantFailures) {
-        // Stop before starting a new slot once the guard has fired. Without this the loop
-        // would enter the next slot and throw on its first attempt anyway, but it would
-        // do so after logging a retry that never happened.
-        throwIfAborted(abortController.signal)
-        // Recollected on every iteration so each retry sees the variants that have
-        // survived up to this point, including ones repaired earlier in this same loop.
-        const taken = collectTakenCopy(passedVariants, [preflight.sender_first_name, preflight.org_name])
+      // BREADTH-FIRST. Every failing slot gets its first repair before any gets its
+      // second. See scheduleRepairsBreadthFirst for the measurement that prompted it.
+      //
+      // Sorted so the order a run spends its budget in is reproducible, the same reason
+      // processAllVariants sorts.
+      const repairStates = new Map<string, SlotRepairState>(
+        [...variantFailures]
+          .sort((a, b) => a.variant.localeCompare(b.variant))
+          .map(f => [f.variant, {
+            variant: f.variant,
+            // The first-pass violations for THIS slot. The feedback step 0 sees.
+            lastViolations: f.violations,
+            apiCallsUsed: 0,
+          }]),
+      )
 
-        const { emails, outcome } = await retryVariantSlot(
-          failure.variant,
-          retryContext,
-          organisation_id,
-          taken,
-          sentenceRegistry,
-          // The first-pass violations for THIS slot. This is the feedback attempt 1 sees.
-          failure.violations,
-          abortController.signal,
-          runStats,
-        )
-        runStats.slotOutcomes.push(outcome)
-        // NOT `+= outcome.apiCallsUsed`. retryVariantSlot now increments the shared
-        // counter at each call, so adding the returned total here would double-count.
-        if (emails !== null) {
-          passedVariants[failure.variant] = emails
-        }
-      }
+      await scheduleRepairsBreadthFirst({
+        slots: [...repairStates.keys()],
+        stepsPerSlot: repairStepCount(),
+        hasBudget: () => runStats.totalApiCalls < MAX_API_CALLS_PER_RUN,
+        attempt: async (slot, step) => {
+          // Stop before starting a slot once the guard has fired. Without this the loop
+          // would enter the slot and throw on its call anyway, but only after logging an
+          // attempt that never happened.
+          throwIfAborted(abortController.signal)
+
+          const state = repairStates.get(slot)!
+          // Recollected before every attempt so each one sees the variants that have
+          // survived up to this point, including ones repaired earlier this round.
+          const taken = collectTakenCopy(passedVariants, [preflight.sender_first_name, preflight.org_name])
+
+          const result = await attemptSlotRepair(
+            state, step, retryContext, organisation_id, taken,
+            sentenceRegistry, abortController.signal, runStats,
+          )
+          if (!result) return false
+
+          passedVariants[slot] = result.emails
+          // NOT `+= apiCallsUsed`. attemptSlotRepair increments the shared counter at the
+          // moment of each call, so adding the per-slot total here would double-count.
+          runStats.slotOutcomes.push(result.outcome)
+          return true
+        },
+        onBudgetExhausted: slot => {
+          const state = repairStates.get(slot)!
+          logger.warn(
+            `Messaging agent: Variant ${slot} not attempted — run call budget of ${MAX_API_CALLS_PER_RUN} exhausted`,
+            { organisation_id, variantKey: slot, api_calls: runStats.totalApiCalls, budget: MAX_API_CALLS_PER_RUN },
+          )
+          runStats.slotOutcomes.push(budgetExhaustedOutcome(slot, state.apiCallsUsed))
+        },
+        onStepsExhausted: slot => {
+          const state = repairStates.get(slot)!
+          logger.warn(
+            `Messaging agent: Variant ${slot} dropped after all retries and fallbacks`,
+            { organisation_id, variantKey: slot },
+          )
+          runStats.slotOutcomes.push(stepsExhaustedOutcome(slot, state.apiCallsUsed))
+        },
+      })
     }
 
     runStats.durationMs = Date.now() - startedAt
@@ -2350,227 +2383,256 @@ async function saveFailedGeneration(
 
 // ─── Retry logic ──────────────────────────────────────────────────────────────
 
+/**
+ * The ordered repair steps available to one slot: every attempt on its original angle
+ * first, then every attempt on each fallback angle in turn.
+ *
+ * Flattening the two nested loops into a list is what makes breadth-first possible. The
+ * ORDER WITHIN A SLOT IS UNCHANGED by that flattening: a slot still exhausts its own angle
+ * before it will accept a fallback, which is the whole point of the hierarchy.
+ */
+export function repairStepCount(fallbackAngles = FALLBACK_ANGLES.length): number {
+  return MAX_RETRY_ATTEMPTS * (1 + fallbackAngles)
+}
+
+/**
+ * BREADTH-FIRST REPAIR. Every failing slot gets its first repair before any slot gets its
+ * second, then a second round if the budget survives, and so on.
+ *
+ * WHY. Depth-first ran one slot through its entire hierarchy before touching the next, so
+ * a slot that kept failing spent the whole run. Measured 2026-09-20: variant A was repaired
+ * in one attempt, variant B then consumed five, and C and D were never attempted at all.
+ * Four slots each needing one correction cost four calls; one slot needing six costs six
+ * and leaves nothing. The budget is unchanged at MAX_API_CALLS_PER_RUN. This only changes
+ * the order it is spent in, so a run that can fix everything cheaply now does.
+ *
+ * PURE SCHEDULING, NO API. `attempt` makes the call and says whether the slot is settled;
+ * `hasBudget` is read immediately before each attempt because the counter it reads is
+ * shared and moves underneath this loop. Both are injected so the ordering can be tested
+ * without a network, an API key, or a model.
+ *
+ * Slots are attempted in the order given, which the caller sorts, so a run is reproducible.
+ */
+export async function scheduleRepairsBreadthFirst(params: {
+  slots: readonly string[]
+  stepsPerSlot: number
+  hasBudget: () => boolean
+  /** Returns true when the slot is settled and needs no further rounds. */
+  attempt: (slot: string, step: number) => Promise<boolean>
+  /** Called for each slot still unsettled when the budget runs out. */
+  onBudgetExhausted?: (slot: string) => void
+  /** Called for each slot that used every step in its plan without settling. */
+  onStepsExhausted?: (slot: string) => void
+}): Promise<void> {
+  const { slots, stepsPerSlot, hasBudget, attempt, onBudgetExhausted, onStepsExhausted } = params
+  const settled = new Set<string>()
+
+  for (let step = 0; step < stepsPerSlot; step++) {
+    for (const slot of slots) {
+      if (settled.has(slot)) continue
+
+      if (!hasBudget()) {
+        // Every slot that never got its turn is reported, not just the one in hand.
+        for (const remaining of slots) {
+          if (!settled.has(remaining)) {
+            settled.add(remaining)
+            onBudgetExhausted?.(remaining)
+          }
+        }
+        return
+      }
+
+      if (await attempt(slot, step)) settled.add(slot)
+    }
+  }
+
+  for (const slot of slots) {
+    if (!settled.has(slot)) onStepsExhausted?.(slot)
+  }
+}
+
 // Retries a single failing variant slot through the full hierarchy:
 //   1. Up to MAX_RETRY_ATTEMPTS on the original angle
 //   2. Up to MAX_RETRY_ATTEMPTS on each fallback angle, in order
 // Returns the first passing result, or null if all attempts are exhausted.
-async function retryVariantSlot(
-  variantKey: string,
+/** Per-slot state carried ACROSS rounds, because a round only makes one attempt. */
+interface SlotRepairState {
+  variant: string
+  /** Violations from the attempt that sent this slot here, then from each attempt after. */
+  lastViolations: readonly ValidationViolation[]
+  apiCallsUsed: number
+}
+
+/**
+ * Which angle a slot uses on a given repair step, and what to call the attempt.
+ *
+ * Steps 0..MAX_RETRY_ATTEMPTS-1 are the slot's own angle. Everything after that walks the
+ * fallback angles, MAX_RETRY_ATTEMPTS each. Derived from one index so the breadth-first
+ * scheduler can hold a single number per slot rather than a loop position.
+ */
+function repairStepFor(variantKey: string, step: number):
+  | { angle: string; fallbackName: string | null; attemptInAngle: number; label: string }
+  | null {
+  const original = VARIANT_ANGLE_INSTRUCTIONS[variantKey]
+  if (!original) return null
+
+  if (step < MAX_RETRY_ATTEMPTS) {
+    const attemptInAngle = step + 1
+    return { angle: original, fallbackName: null, attemptInAngle, label: `retry-${attemptInAngle}` }
+  }
+
+  const afterOriginal = step - MAX_RETRY_ATTEMPTS
+  const fallback = FALLBACK_ANGLES[Math.floor(afterOriginal / MAX_RETRY_ATTEMPTS)]
+  if (!fallback) return null
+  const attemptInAngle = (afterOriginal % MAX_RETRY_ATTEMPTS) + 1
+  return {
+    angle: fallback.instruction,
+    fallbackName: fallback.name,
+    attemptInAngle,
+    label: `fallback-${fallback.name}-attempt-${attemptInAngle}`,
+  }
+}
+
+/**
+ * ONE repair attempt for one slot. Was two nested loops inside a per-slot function; it is
+ * now a single step so the scheduler decides the order and this decides the content.
+ *
+ * Returns the emails when the attempt passes, null when it does not. The slot's outcome is
+ * recorded by the caller, which is the only place that knows whether more steps remain.
+ */
+async function attemptSlotRepair(
+  state: SlotRepairState,
+  step: number,
   context: VariantGenerationContext,
   organisation_id: string,
   taken: TakenCopy,
   registry: SentenceRegistry,
-  // Violations from the attempt that sent this slot here. Attempt 1 gets the first-pass
-  // failure; each later attempt gets the one before it, so feedback never goes stale.
-  initialViolations: readonly ValidationViolation[],
-  // Cuts an in-flight stream when the 240s guard fires.
   signal: AbortSignal,
-  // The RUN-level stats object, mutated in place. Calls are counted here at the moment
-  // they are made, so a run aborted mid-retry still reports the calls it paid for.
   runStats: RunStats,
-): Promise<{ emails: EmailRecord[] | null; outcome: SlotOutcome }> {
-  let lastViolations: readonly ValidationViolation[] = initialViolations
+): Promise<{ emails: EmailRecord[]; outcome: SlotOutcome } | null> {
+  const variantKey = state.variant
+  const plan = repairStepFor(variantKey, step)
+  if (!plan) return null
+
   const senderFirstName = context.preflight.sender_first_name
   const senderCompanyName = context.preflight.org_name
   const signOffLines = [senderFirstName, senderCompanyName]
-  let apiCallsUsed = 0
 
-  // A retry that passes its own validation can still collide with an already-accepted
-  // variant, so the cross-variant check runs on the retry path too. Without it a slot
-  // could be "rescued" into the exact duplicate the gate just rejected.
-  const collides = (emails: EmailRecord[]): ValidationViolation[] =>
-    findCrossVariantReuse(emails, registry, variantKey, signOffLines)
+  logger.info(
+    plan.fallbackName
+      ? `Messaging agent: Variant ${variantKey} — fallback "${plan.fallbackName}" attempt ${plan.attemptInAngle}/${MAX_RETRY_ATTEMPTS}`
+      : `Messaging agent: Variant ${variantKey} — retry ${plan.attemptInAngle}/${MAX_RETRY_ATTEMPTS} on original angle`,
+    { organisation_id, variantKey, attempt: plan.attemptInAngle, fallbackName: plan.fallbackName ?? undefined },
+  )
 
-  // Returns the slot cleanly rather than throwing, so the run keeps every variant that
-  // has already passed and records an honest reason for the ones it never attempted.
-  const budgetExhausted = (): { emails: null; outcome: SlotOutcome } => {
-    logger.warn(
-      `Messaging agent: Variant ${variantKey} not attempted — run call budget of ${MAX_API_CALLS_PER_RUN} exhausted`,
-      { organisation_id, variantKey, api_calls: runStats.totalApiCalls, budget: MAX_API_CALLS_PER_RUN }
-    )
-    return {
-      emails: null,
-      outcome: {
-        variant: variantKey,
-        result: 'dropped',
-        retryAttempts: 0,
-        apiCallsUsed,
-        shippedAngle: null,
-        dropReason:
-          `Run call budget of ${MAX_API_CALLS_PER_RUN} exhausted before this slot could be repaired. ` +
-          `A run needs about 75s for the first call and 26s per repair, so an eighth call would ` +
-          `not finish inside the 240s guard.`,
-      },
+  // Checked BEFORE the counter so an aborted run does not report a call it never made.
+  throwIfAborted(signal)
+  state.apiCallsUsed++
+  runStats.totalApiCalls++
+
+  try {
+    const userMessage = buildSingleVariantUserMessage(context, plan.angle, taken, state.lastViolations)
+    const raw = await callClaude(userMessage, signal)
+    const emails = parseSingleVariantFromClaude(raw)
+    const result = await processOneVariant({
+      variantKey, emails, senderFirstName, senderCompanyName, organisation_id,
+      attemptLabel: plan.label,
+    })
+
+    // Carry THIS attempt's measured violations into the next one. Without this every
+    // attempt would keep re-sending the first-pass failure, which goes stale the moment
+    // attempt 1 fails a different check.
+    if (!('passed' in result)) {
+      state.lastViolations = result.failure.violations
+      return null
     }
-  }
 
-  const originalAngle = VARIANT_ANGLE_INSTRUCTIONS[variantKey]
-  if (!originalAngle) {
-    return {
-      emails: null,
-      outcome: {
-        variant: variantKey,
-        result: 'dropped',
-        retryAttempts: 0,
-        apiCallsUsed: 0,
-        // Nothing shipped, so there is no angle to record.
-        shippedAngle: null,
-        dropReason: `No angle instruction defined for variant key "${variantKey}"`,
-      },
+    // A repair that passes its own validation can still collide with an already-accepted
+    // variant, so the cross-variant check runs here too. The collision IS the next
+    // attempt's feedback; without that the next attempt is told nothing and can collide
+    // the same way again.
+    const reuse = findCrossVariantReuse(result.passed, registry, variantKey, signOffLines)
+    if (reuse.length > 0) {
+      logger.warn(
+        `Messaging agent: Variant ${variantKey} ${plan.label} passed validation but reuses an accepted variant's sentence`,
+        { organisation_id, variantKey, violations: reuse.map(v => `Email ${v.email}: ${v.issue}`) },
+      )
+      state.lastViolations = reuse
+      return null
     }
-  }
 
-  // Phase 1: retry on original angle
-  for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-    logger.info(
-      `Messaging agent: Variant ${variantKey} — retry ${attempt}/${MAX_RETRY_ATTEMPTS} on original angle`,
-      { organisation_id, variantKey, attempt }
-    )
+    if (plan.fallbackName) {
+      logger.info(
+        `Messaging agent: Variant ${variantKey} shipped on fallback angle "${plan.fallbackName}", attempt ${plan.attemptInAngle}. Slot label ${variantKey} no longer describes its angle.`,
+        { organisation_id, variantKey, fallbackName: plan.fallbackName, attempt: plan.attemptInAngle },
+      )
+    } else {
+      logger.info(
+        `Messaging agent: Variant ${variantKey} passed on retry attempt ${plan.attemptInAngle}`,
+        { organisation_id, variantKey, attempt: plan.attemptInAngle },
+      )
+    }
 
-    // Checked BEFORE the counter so an aborted run does not report a call it never made.
-    throwIfAborted(signal)
-    if (runStats.totalApiCalls >= MAX_API_CALLS_PER_RUN) return budgetExhausted()
-    apiCallsUsed++
-    runStats.totalApiCalls++
-    try {
-      const userMessage = buildSingleVariantUserMessage(context, originalAngle, taken, lastViolations)
-      const raw = await callClaude(userMessage, signal)
-      const emails = parseSingleVariantFromClaude(raw)
-      // senderCompanyName must be passed explicitly. Omitting it shifted every later
-      // argument left: the sign-off fixer received the organisation UUID as the company
-      // name, decided the model's correct sign-off was wrong, and appended a second
-      // sign-off block ending in the UUID. organisation_id then received "retry-N",
-      // which is why failure logs carried a nonsense organisation_id.
-      // Latent until the stricter copy gates made a retry happen for the first time.
-      const result = await processOneVariant({
-        variantKey, emails, senderFirstName, senderCompanyName, organisation_id,
-        attemptLabel: `retry-${attempt}`,
-      })
-      // Carry THIS attempt's measured violations into the next one. Without this the
-      // whole loop would keep re-sending the first-pass failure, which goes stale the
-      // moment attempt 1 fails a different check.
-      if (!('passed' in result)) lastViolations = result.failure.violations
-      if ('passed' in result) {
-        const reuse = collides(result.passed)
-        if (reuse.length > 0) {
-          logger.warn(
-            `Messaging agent: Variant ${variantKey} retry ${attempt} passed validation but reuses an accepted variant's sentence`,
-            { organisation_id, variantKey, attempt, violations: reuse.map(v => `Email ${v.email}: ${v.issue}`) }
-          )
-          // The collision IS the next attempt's feedback. Without this the retry would be
-          // told nothing and could collide again the same way.
-          lastViolations = reuse
-          continue
-        }
-        logger.info(
-          `Messaging agent: Variant ${variantKey} passed on retry attempt ${attempt}`,
-          { organisation_id, variantKey, attempt }
-        )
-        return {
-          emails: result.passed,
-          outcome: {
+    return {
+      emails: result.passed,
+      outcome: plan.fallbackName
+        ? {
+            variant: variantKey,
+            result: 'fallback',
+            retryAttempts: MAX_RETRY_ATTEMPTS,
+            fallbackName: plan.fallbackName,
+            fallbackAttempt: plan.attemptInAngle,
+            apiCallsUsed: state.apiCallsUsed,
+            // The slot keeps its key for assignment, but the angle that actually shipped
+            // is the fallback. Recorded so the label is never a lie.
+            shippedAngle: plan.fallbackName,
+          }
+        : {
             variant: variantKey,
             result: 'retry',
-            retryAttempts: attempt,
-            apiCallsUsed,
-            // Retry stayed on the slot's assigned angle, so the label is still accurate.
+            retryAttempts: plan.attemptInAngle,
+            apiCallsUsed: state.apiCallsUsed,
             shippedAngle: variantKey,
           },
-        }
-      }
-    } catch (err) {
-      // An abort is not a bad attempt. Rethrow so the run stops here.
-      if (err instanceof MessagingAbortedError) throw err
-      throwIfAborted(signal)
-      logger.warn(
-        `Messaging agent: Variant ${variantKey} retry attempt ${attempt} error — ${String(err)}`,
-        { organisation_id, variantKey, attempt }
-      )
     }
+  } catch (err) {
+    // An abort is not a bad attempt. Rethrow so the run stops here.
+    if (err instanceof MessagingAbortedError) throw err
+    throwIfAborted(signal)
+    logger.warn(
+      `Messaging agent: Variant ${variantKey} ${plan.label} error — ${String(err)}`,
+      { organisation_id, variantKey },
+    )
+    return null
   }
+}
 
-  // Phase 2: fallback angles
-  for (const fallback of FALLBACK_ANGLES) {
-    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-      logger.info(
-        `Messaging agent: Variant ${variantKey} — fallback "${fallback.name}" attempt ${attempt}/${MAX_RETRY_ATTEMPTS}`,
-        { organisation_id, variantKey, fallbackName: fallback.name, attempt }
-      )
-
-      throwIfAborted(signal)
-      if (runStats.totalApiCalls >= MAX_API_CALLS_PER_RUN) return budgetExhausted()
-      apiCallsUsed++
-      runStats.totalApiCalls++
-      try {
-        const userMessage = buildSingleVariantUserMessage(context, fallback.instruction, taken, lastViolations)
-        const raw = await callClaude(userMessage, signal)
-        const emails = parseSingleVariantFromClaude(raw)
-        const result = await processOneVariant({
-          variantKey, emails, senderFirstName, senderCompanyName, organisation_id,
-          attemptLabel: `fallback-${fallback.name}-attempt-${attempt}`,
-        })
-        if (!('passed' in result)) lastViolations = result.failure.violations
-        if ('passed' in result) {
-          const reuse = collides(result.passed)
-          if (reuse.length > 0) {
-            logger.warn(
-              `Messaging agent: Variant ${variantKey} fallback "${fallback.name}" attempt ${attempt} passed validation but reuses an accepted variant's sentence`,
-              { organisation_id, variantKey, fallbackName: fallback.name, attempt, violations: reuse.map(v => `Email ${v.email}: ${v.issue}`) }
-            )
-            lastViolations = reuse
-            continue
-          }
-          logger.info(
-            `Messaging agent: Variant ${variantKey} shipped on fallback angle "${fallback.name}", attempt ${attempt}. Slot label ${variantKey} no longer describes its angle.`,
-            { organisation_id, variantKey, fallbackName: fallback.name, attempt }
-          )
-          return {
-            emails: result.passed,
-            outcome: {
-              variant: variantKey,
-              result: 'fallback',
-              retryAttempts: MAX_RETRY_ATTEMPTS,
-              fallbackName: fallback.name,
-              fallbackAttempt: attempt,
-              apiCallsUsed,
-              // The slot keeps its key for assignment purposes, but the angle that
-              // actually shipped is the fallback, not the slot's original angle.
-              // Recorded here and stored on the variant so the label is never a lie.
-              shippedAngle: fallback.name,
-            },
-          }
-        }
-      } catch (err) {
-        // An abort is not a bad attempt. Rethrow so the run stops here.
-        if (err instanceof MessagingAbortedError) throw err
-        throwIfAborted(signal)
-        logger.warn(
-          `Messaging agent: Variant ${variantKey} fallback "${fallback.name}" attempt ${attempt} error — ${String(err)}`,
-          { organisation_id, variantKey, fallbackName: fallback.name, attempt }
-        )
-      }
-    }
-  }
-
-  // All angles and fallbacks exhausted — slot is dropped
-  const dropReason =
-    `Exhausted ${MAX_RETRY_ATTEMPTS} retries on original angle and all ${FALLBACK_ANGLES.length} ` +
-    `fallback angles (${MAX_RETRY_ATTEMPTS} attempts each)`
-  logger.warn(
-    `Messaging agent: Variant ${variantKey} dropped after all retries and fallbacks`,
-    { organisation_id, variantKey, apiCallsUsed }
-  )
+/** The outcome recorded for a slot the budget never reached. */
+function budgetExhaustedOutcome(variant: string, apiCallsUsed: number): SlotOutcome {
   return {
-    emails: null,
-    outcome: {
-      variant: variantKey,
-      result: 'dropped',
-      retryAttempts: MAX_RETRY_ATTEMPTS,
-      apiCallsUsed,
-      // Nothing shipped, so there is no angle to record.
-      shippedAngle: null,
-      dropReason,
-    },
+    variant,
+    result: 'dropped',
+    retryAttempts: 0,
+    apiCallsUsed,
+    shippedAngle: null,
+    dropReason:
+      `Run call budget of ${MAX_API_CALLS_PER_RUN} exhausted before this slot could be repaired. ` +
+      `A run needs about 75s for the first call and 26s per repair, so an eighth call would ` +
+      `not finish inside the 240s guard.`,
+  }
+}
+
+/** The outcome recorded for a slot that used every angle and still failed. */
+function stepsExhaustedOutcome(variant: string, apiCallsUsed: number): SlotOutcome {
+  return {
+    variant,
+    result: 'dropped',
+    retryAttempts: MAX_RETRY_ATTEMPTS,
+    apiCallsUsed,
+    shippedAngle: null,
+    dropReason:
+      `Exhausted ${MAX_RETRY_ATTEMPTS} retries on original angle and all ${FALLBACK_ANGLES.length} ` +
+      `fallback angles (${MAX_RETRY_ATTEMPTS} attempts each)`,
   }
 }
 
