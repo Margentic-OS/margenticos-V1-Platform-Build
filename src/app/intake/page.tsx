@@ -5,6 +5,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadIntakeResponses, loadIntakeFiles } from './actions'
+import { loadBuyerProfile } from './buyer-profile-actions'
+import { EMPTY_BUYER_PROFILE } from '@/lib/intake/buyer-profile'
 import IntakeForm from '@/components/intake/IntakeForm'
 
 export default async function IntakePage() {
@@ -13,10 +15,17 @@ export default async function IntakePage() {
 
   if (!user) redirect('/login')
 
-  const [initialValues, initialFiles] = await Promise.all([
+  const [initialValues, initialFiles, buyerProfile] = await Promise.all([
     loadIntakeResponses(),
     loadIntakeFiles(),
+    loadBuyerProfile(),
   ])
 
-  return <IntakeForm initialValues={initialValues} initialFiles={initialFiles} />
+  return (
+    <IntakeForm
+      initialValues={initialValues}
+      initialFiles={initialFiles}
+      initialBuyerProfile={buyerProfile ?? EMPTY_BUYER_PROFILE}
+    />
+  )
 }
