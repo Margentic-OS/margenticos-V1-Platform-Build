@@ -24,12 +24,23 @@ function email(pos: number, body: string, subject: string | null = null): EmailR
 }
 
 // Builds a body of roughly `words` words that satisfies the structural rules.
+//
+// BROKEN INTO SENTENCES OF 12 WORDS, which it did not used to be. Every body this helper
+// produced was ONE sentence of the requested length, so bodyOf(74) was a 71-word sentence.
+// That was invisible until validateEmails gained a 25-word sentence cap, at which point
+// the two tests here that assert an EMPTY issue list started failing on the fixture rather
+// than on the thing under test. The word total is unchanged, which is what every test in
+// this file actually measures; only the punctuation moved.
 function bodyOf(words: number): string {
   const base = 'Most founders at your stage see the same thing happen again'.split(' ')
   const need = Math.max(1, words - 3)   // greeting plus the two sign-off lines
   const filler: string[] = []
   while (filler.length < need) filler.push(base[filler.length % base.length])
-  return `{{first_name}}\n\n${filler.join(' ')}.\n\n${SENDER}\n${COMPANY}`
+  const sentences: string[] = []
+  for (let i = 0; i < filler.length; i += 12) {
+    sentences.push(filler.slice(i, i + 12).join(' ') + '.')
+  }
+  return `{{first_name}}\n\n${sentences.join(' ')}\n\n${SENDER}\n${COMPANY}`
 }
 
 function issuesFor(emails: EmailRecord[], pos: number): string[] {

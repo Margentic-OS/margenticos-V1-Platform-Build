@@ -335,6 +335,52 @@ What to check if it fails:
   - Missing dependency documents → 422 response naming each problem
   - Claude returns non-array JSON or wrong count → agent throws before writing anything
 
+### Sentence length: no sentence over 25 words (added 2026-09-17)
+
+**What this does.** Every email is rejected if any one sentence runs over 25 words, even
+when the email's total word count is comfortably inside its band. A variant that fails is
+regenerated with the measured length and the cap quoted back to the model, so the retry is
+a correction rather than a fresh draft.
+
+**What it connects to.** `src/lib/style/readability.ts`, the same module that has gated the
+research agent's observations since it was written. The messaging agent already imported
+four other checks from that folder (nominalisation, back-reference, firmographic,
+sentence-frames) and had never imported this one. The consequence was visible in the
+product rather than in a log: an email can carry a researched observation in paragraph two
+and template copy around it, and until now those two halves were held to different
+standards of readability in the same email.
+
+Nothing here reimplements the rule. `splitSentences` in `readability.ts` is the only
+definition of a sentence in this codebase, and the cap is that module's `MAX_SENTENCE_WORDS`.
+
+**What it does NOT do.** `readabilityScore.hardFail` is also true for a hedge phrase
+("usually", "often", "tends to"), and this gate deliberately does not read it. Hedging and
+nominalisation density are logged and never reject a variant. Measured across all 20
+messaging documents in production, 320 emails: 60 (18.8%) break the sentence cap, but 104
+(32.5%) contain a hedge, almost all of it the two words "usually" (64) and "often" (40).
+Turning both on in one change would have rejected a third of every document ever written on
+the strength of two words, and there is no evidence yet that those two words hurt a reply
+rate. One rule at a time.
+
+**What gets scanned.** The prose only. The `{{first_name}}` line and the two sign-off lines
+are removed first: none is prose, and none ends in a full stop, so the sentence splitter
+would otherwise glue them onto real sentences. Measured on those same 320 emails, scanning
+the raw body fails 72 emails where the prose fails 60, so 12 of those 72 would have been the
+greeting rather than the copy.
+
+**Where it bites.** Email 1 and Email 2, essentially exclusively: 59 of the 60 historic
+failures sit there, and emails 3 and 4 fail once in 160. Emails 3 and 4 have tight word
+bands (30-70 and 0-50) that already force short sentences; Email 1 at 90 and Email 2 at 85
+do not.
+
+**If it starts rejecting too much.** The number lives in one place,
+`MAX_SENTENCE_WORDS` in `readability.ts`, and it is shared with the research agent, so
+changing it changes both. The messaging side reads it through `MAX_EMAIL_SENTENCE_WORDS`,
+which exists so the two can be separated later without touching the research gate. The
+prompt quotes the number in two places, both rendered from the constant
+(`renderWordCountReminder`) or stated beside it (`docs/prompts/messaging-agent.md`), so
+check both if you change it.
+
 ---
 
 ## Reply Draft Orchestrator (Group 4, May 2026)

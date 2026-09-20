@@ -224,13 +224,26 @@ export function contentParagraphs(body: string): string[] {
 }
 
 /**
- * Scans paragraphs 2 onward for back-references.
+ * Scans the paragraphs after the slot for back-references.
  *
- * Paragraph 1 is exempt: in Email 1 it IS the slot that gets replaced, and a
- * demonstrative inside it can only refer to something in its own text, which always
- * ships together with it.
+ * THE EXEMPTION IS THE SLOT, NOT "PARAGRAPH 1". The reason has always been that the slot
+ * is replaced wholesale at composition, so a demonstrative inside it can only refer to
+ * something in its own text, which always ships together with it. That reason is a
+ * property of the slot, and the slot is now one paragraph or two.
+ *
+ * `exemptLeadingParagraphs` defaults to 1, so every existing caller, including the
+ * research writer's standalone-opening check, behaves exactly as before. The messaging
+ * agent passes the actual slot length of the document it is validating.
+ *
+ * Getting this wrong in the safe-looking direction is expensive: with a two-paragraph
+ * slot and an exemption of 1, the consequence paragraph is scanned, and a consequence
+ * says "those relationships" and "they" because that is what naming a consequence
+ * requires. The gate would hard-fail the paragraph it exists to protect.
  */
-export function findBackReferences(body: string): BackReferenceReport {
+export function findBackReferences(
+  body: string,
+  exemptLeadingParagraphs = 1,
+): BackReferenceReport {
   const paras = contentParagraphs(body)
   const demonstratives: BackReferenceHit[] = []
   const definiteArticles: DefiniteArticleHit[] = []
@@ -240,7 +253,7 @@ export function findBackReferences(body: string): BackReferenceReport {
   // Normalise curly apostrophes so "that's" is recognised and skipped consistently.
   const normalise = (s: string) => s.replace(/[''ʼ‘’]/g, "'")
 
-  for (let i = 1; i < paras.length; i++) {
+  for (let i = Math.max(1, exemptLeadingParagraphs); i < paras.length; i++) {
     const para = normalise(paras[i])
     // +2, not +1: contentParagraphs dropped the greeting, which is paragraph 1 of the body.
     // This makes index 1 report as P3, the "what changes" paragraph in the frame.

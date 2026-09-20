@@ -28,8 +28,10 @@ import { startAgentRun } from '@/lib/agents/log-agent-run'
 import { scrubAITells, scrubAITellsDeep, assertNoDashes } from '@/lib/style/customer-facing-style-rules'
 import { nominalisationDensity, NOMINALISATION_THRESHOLD } from '@/lib/style/nominalisation'
 import { findBackReferences } from '@/lib/style/back-reference'
+import { EMAIL1_FRAME_TAIL_PARAGRAPHS, EMAIL1_FRAME_SLOT_PARAGRAPHS } from '@/lib/composition/compose-sequence'
 import { BANNED_FIRMOGRAPHIC } from '@/lib/style/firmographic'
 import { SentenceRegistry, comparableSentences } from '@/lib/style/sentence-frames'
+import { readabilityScore, MAX_SENTENCE_WORDS, splitSentences } from '@/lib/style/readability'
 // countWords is imported from the composition layer on purpose: the agent and composition
 // must measure word counts identically or the stored count and the sent count disagree.
 import { countWords } from '@/lib/composition/personalization'
@@ -1268,6 +1270,8 @@ function renderWordCountReminder(): string {
     `- Email 3: ${L.email3MinWords} to ${L.email3MaxWords} words, and no longer than Email 2.`,
     `- Email 4: up to ${L.email4MaxWords} words. No minimum: a short breakup is fine.`,
     '- Counts include the {{first_name}} line and the sign-off name. They exclude the opt-out footer, which the platform adds later.',
+    `- No SENTENCE may run over ${MAX_EMAIL_SENTENCE_WORDS} words. This is separate from the totals above: an email inside its band still fails if one sentence is too long. Split it into two rather than trimming words.`,
+    '- Email 1 paragraph 2, the observation slot, must be exactly ONE sentence. It observes and does nothing else. The consequence, the bridge and any second observation do not belong in it.',
   ].join('\n')
 }
 
@@ -1823,7 +1827,32 @@ const BANNED_PARAGRAPH_OPENERS: ReadonlyArray<{ pattern: RegExp; label: string }
 // therefore agree exactly. Roughly 2 words of that total are structural rather than
 // copy. The opt-out footer is appended after composition and is never counted.
 export const EMAIL_WORD_LIMITS = {
-  email1MinWords: 50,
+  // 40, LOWERED FROM 50 ON 2026-09-19, for the reason Email 4's floor was deleted on
+  // 2026-08-28: a floor that rejects complete, legal, well-formed emails for being short,
+  // and costs a full regeneration call every time it fires.
+  //
+  // WHAT MADE 50 UNREACHABLE. Email 1 paragraph 2 became a ONE-SENTENCE observation slot,
+  // and the bridge that used to share that paragraph was removed rather than relocated:
+  // P3 is injected verbatim into the research writer's prompt as THE OFFER LINE, so
+  // widening it would change what every client's research writer aims at. That removes 15
+  // to 20 words from Email 1 and nothing absorbs them.
+  //
+  // MEASURED 2026-09-18, the run that failed: with a one-sentence slot the model produced
+  // Email 1s of 46 and 41 words. Both were complete three-paragraph emails, inside every
+  // other gate, rejected only for being short. Its only ways back over 50 were to restore
+  // the bridge as a second sentence, which the slot rule rejects, or to fuse it into one
+  // sentence, which came out at 30 and 36 words against a 25-word cap. Three gates with no
+  // legal move between them: the run burned all 7 calls on variant A and wrote nothing.
+  //
+  // 40 is below the 41 that was measured and rejected, with a little room under it. It is
+  // not a target: email1TargetMaxWords is untouched and the prompt still asks for 40 to 80.
+  // A fallback Email 1 carrying an observation, an offer line and a question, with no
+  // bridge, is SUPPOSED to be shorter than one that carried a bridge too.
+  //
+  // THIS IS THE FALLBACK'S FLOOR, and the fallback ships roughly one send in ten. The
+  // researched path replaces the slot with an observation AND a bridge as two paragraphs,
+  // so it lands well above this number and never approaches the floor.
+  email1MinWords: 40,
   email1TargetMaxWords: 80,   // advisory target rendered into the prompt
   email1MaxWords: 90,         // hard cap
   email2MinWords: 30,
@@ -1890,6 +1919,60 @@ const WORD_BANDS: Record<number, { min: number; max: number }> = {
   2: { min: EMAIL_WORD_LIMITS.email2MinWords, max: EMAIL_WORD_LIMITS.email2MaxWords },
   3: { min: EMAIL_WORD_LIMITS.email3MinWords, max: EMAIL_WORD_LIMITS.email3MaxWords },
   4: { min: EMAIL_WORD_LIMITS.email4MinWords, max: EMAIL_WORD_LIMITS.email4MaxWords },
+}
+
+// ─── Readability: sentence length ─────────────────────────────────────────────
+//
+// THE SAME MODULE THE RESEARCH WRITER IS JUDGED BY. readability.ts has hard-gated
+// research synthesis since it was written: an observation with a sentence over
+// MAX_SENTENCE_WORDS is demoted, and a trigger that fails is dropped to mention_only.
+// The messaging agent imported nominalisation, back-reference, firmographic and
+// sentence-frames from the same folder and never imported this one, so the TEMPLATE
+// copy shipped sentences the researched copy written beside it would have been rejected
+// for. Both halves land in the same email, which is where the inconsistency is visible.
+//
+// IMPORTED, NEVER REIMPLEMENTED. splitSentences in readability.ts is the only definition
+// of a sentence in this codebase, and a second one here would drift the day either moved.
+//
+// GATED ON SENTENCE LENGTH ONLY, deliberately. readabilityScore.hardFail is true for an
+// over-long sentence OR a hedge phrase, and this check must NOT read hardFail: hedging
+// would reject 104 of the 320 emails across every messaging document ever written
+// (32.5%, measured 2026-09-17), almost all of it the single words "usually" (64) and
+// "often" (40). That is a separate decision about copy, not a readability bug, and it is
+// reported below rather than enforced. Nominalisation stays a log line for the reason its
+// own module gives: suffix matching cannot tell "attention" from "question".
+//
+// MEASURED BEFORE SHIPPING, across all 20 messaging documents in production, 320 emails:
+// 60 (18.8%) carry a sentence over the cap, and 59 of those 60 are Email 1 or Email 2.
+// Emails 3 and 4 fail once in 160, because their word bands (30-70 and 0-50) already
+// force short sentences where Email 1 at 90 and Email 2 at 85 do not. Every document from
+// April onward fails at least one email, so this is a standing defect and not a
+// regression in the current copy.
+const MAX_EMAIL_SENTENCE_WORDS = MAX_SENTENCE_WORDS
+
+// The prose surface a sentence cap applies to. Three lines are removed first, and none of
+// them is prose:
+//
+//   {{first_name}}   a merge tag with no sentence terminator, so splitSentences joins it
+//                    to the first real sentence and adds a word to it. Measured across the
+//                    same 320 emails: scanning the raw body fails 72 emails against 60 for
+//                    the prose, so 12 of those 72 are the greeting rather than the copy.
+//   the sign-off     two name lines, likewise unterminated, which attach to the CTA.
+//
+// This chooses WHICH SURFACE to scan, in the same way the firmographic check scans a
+// (body, subject) pair. It does not redefine a sentence: the text that survives goes to
+// readabilityScore unmodified.
+export function emailProse(body: string, senderFirstName: string, senderCompanyName: string): string {
+  return body
+    .split('\n')
+    .filter(line => {
+      const trimmed = line.trim()
+      if (/^\{\{first_name\}\},?$/.test(trimmed)) return false
+      if (trimmed.toLowerCase() === senderFirstName.toLowerCase()) return false
+      if (trimmed.toLowerCase() === senderCompanyName.toLowerCase()) return false
+      return true
+    })
+    .join('\n')
 }
 
 // Replaces the model's self-reported word_count and subject_char_count with computed
@@ -1969,7 +2052,15 @@ export function validateEmails(
     //
     // Still reported for emails 2 to 4, because a pile of them is a readability smell
     // worth seeing in the logs, just never a reason to reject copy.
-    const backRefs = findBackReferences(body)
+    // THE EXEMPTION IS THE SLOT. Every paragraph in the slot is replaced together at
+    // composition, so a demonstrative in the consequence pointing at the observation above
+    // it is pointing at text that always ships with it. Passing 1 here against a
+    // two-paragraph slot would hard-fail the consequence for saying "those relationships",
+    // which is what naming a consequence requires.
+    const slotParagraphs = pos === 1 && contentParas.length > EMAIL1_FRAME_TAIL_PARAGRAPHS
+      ? Math.max(1, contentParas.length - EMAIL1_FRAME_TAIL_PARAGRAPHS)
+      : 1
+    const backRefs = findBackReferences(body, slotParagraphs)
     if (pos === 1) {
       for (const hit of backRefs.demonstratives) {
         violations.push({
@@ -2069,6 +2160,82 @@ export function validateEmails(
       violations.push({
         email: pos,
         issue: `word count ${wc} is outside the ${band.min} to ${band.max} word range`,
+      })
+    }
+
+    // Sentence length, measured by the research module. See MAX_EMAIL_SENTENCE_WORDS.
+    const readability = readabilityScore(
+      emailProse(body, senderFirstName, senderCompanyName),
+      MAX_EMAIL_SENTENCE_WORDS,
+    )
+    for (const sentence of readability.longSentences) {
+      violations.push({
+        email: pos,
+        issue: `sentence runs ${countWords(sentence)} words, cap is ${MAX_EMAIL_SENTENCE_WORDS}. A sentence a thirteen-year-old follows on first read. Two short sentences beat one long one, so split it rather than trimming words. Offending sentence: "${sentence}"`,
+      })
+    }
+
+    // ─── Email 1's observation slot is ONE sentence ───────────────────────────
+    //
+    // EMAIL 1 ONLY, and its FIRST content paragraph only. That paragraph is the slot
+    // applyTriggerToEmail1 replaces per prospect; every other paragraph ships as authored.
+    //
+    // WHY ONE SENTENCE. The slot has exactly one job: observe. The research writer is held
+    // to the same rule and is told so in the strongest terms its prompt contains: "The
+    // observation and the bridge are SEPARATE PARAGRAPHS with a blank line between them.
+    // They are not one paragraph and they are never run together. Each one gets its own
+    // line of white space, which is what stops you cramming two jobs into one sentence."
+    // The authored template was under no such rule, so it fused the two, and the fallback
+    // that ships when research fails was the only opening in the system doing that.
+    //
+    // MEASURED 2026-09-17 across every messaging document in production plus the pending
+    // suggestion, 84 Email 1 slots: 62 (73.8%) hold more than one sentence. 22 hold one.
+    // Distribution 1:22, 2:31, 3:22, 4:9.
+    //
+    // COUNTING ONLY, exactly like the word cap above. splitSentences is imported from
+    // readability.ts rather than restated, so there is still one definition of a sentence
+    // in this codebase. Nothing here reads meaning: a two-sentence slot fails whether the
+    // second sentence is a bridge, a second observation or a joke.
+    //
+    // PARAGRAPH 0 IS DERIVED THE SAME WAY getVariantEmail1Frame DERIVES IT — split on blank
+    // lines, drop the greeting. If the two ever disagree about which paragraph is the slot,
+    // this gate protects a different paragraph than composition replaces, which is worse
+    // than no gate. contentParas above is that derivation and is reused rather than repeated.
+    if (pos === 1 && contentParas.length > EMAIL1_FRAME_TAIL_PARAGRAPHS) {
+      const slotLength = contentParas.length - EMAIL1_FRAME_TAIL_PARAGRAPHS
+      const SLOT_JOBS = ['observation', 'consequence']
+
+      if (!EMAIL1_FRAME_SLOT_PARAGRAPHS.includes(slotLength as 1 | 2)) {
+        violations.push({
+          email: pos,
+          issue: `Email 1's observation slot is ${slotLength} paragraphs. It must be ${EMAIL1_FRAME_SLOT_PARAGRAPHS.join(' or ')}: the observation on its own, optionally followed by the consequence as a separate paragraph. The last three paragraphs are always the offer line, the CTA question and the sign-off.`,
+        })
+      } else {
+        for (let i = 0; i < slotLength; i++) {
+          const sentences = splitSentences(contentParas[i])
+          if (sentences.length > 1) {
+            violations.push({
+              email: pos,
+              issue: `Email 1's ${SLOT_JOBS[i]} paragraph must be ONE sentence. It has ${sentences.length}. The slot is replaced per prospect and each paragraph in it carries exactly one job. Keep the first sentence and move anything else into its own paragraph or delete it: "${sentences[0]}"`,
+            })
+          }
+        }
+      }
+    }
+
+    // REPORT ONLY, both of them. Neither gates. See MAX_EMAIL_SENTENCE_WORDS for why
+    // hedging is not enforced in the same change as the cap.
+    if (readability.hedges.length > 0) {
+      logger.debug('Messaging agent: hedging phrases (reported, not gated)', {
+        email: pos,
+        hedges: readability.hedges,
+      })
+    }
+    if (readability.nominalisation.exceedsThreshold) {
+      logger.debug('Messaging agent: nominalisation density above threshold (reported, not gated)', {
+        email: pos,
+        density: readability.nominalisation.density,
+        matches: readability.nominalisation.matches,
       })
     }
 
