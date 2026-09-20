@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { RosterGroup, RosterProspect } from '@/lib/dashboard/prospect-roster'
 import { defaultGroupKey, formatDayLabel } from '@/lib/dashboard/prospect-roster'
+import type { AutoApprovalNotice } from '@/lib/dashboard/auto-approval-notice'
 import { RemovalReasonModal } from './RemovalReasonModal'
 import { logger } from '@/lib/logger'
 
@@ -19,7 +20,8 @@ interface ProspectReviewClientProps {
   groups: RosterGroup[]
   pendingCount: number
   rosterCount: number
-  autoSanctionDate: string | null
+  /** What to say about automatic approval, if anything. See auto-approval-notice.ts. */
+  autoApproval: AutoApprovalNotice
   organisationId: string
   /**
    * True when an operator is viewing this client-facing screen, including under
@@ -32,7 +34,7 @@ export function ProspectReviewClient({
   groups,
   pendingCount,
   rosterCount,
-  autoSanctionDate,
+  autoApproval,
   viewerIsOperator,
 }: ProspectReviewClientProps) {
   const router = useRouter()
@@ -165,17 +167,27 @@ export function ProspectReviewClient({
 
     return (
       <div key={prospect.id} className="border-b border-gray-200 hover:bg-gray-50">
-        <div className="px-6 py-4 flex items-center gap-6">
-          <div className="flex-1 min-w-0">
+        {/* ── A GRID, NOT THREE FLEX CHILDREN ─────────────────────────────────
+            The job title column started at a different horizontal position on every row,
+            so the titles read as ragged down the list. The cause was the actions column:
+            it was `flex-shrink-0`, so its width changed with how many icons a prospect
+            happened to have and whether Remove was offered, and the two `flex-1` columns
+            above absorbed the difference row by row.
+
+            Fixed column widths make every row start its title in the same place. The
+            titles themselves are untouched: they are the prospect's own words and
+            normalising them would be rewriting the data to fit the layout. */}
+        <div className="px-6 py-4 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_11rem] items-center gap-6">
+          <div className="min-w-0">
             <p className="font-medium text-gray-900 truncate">{fullName}</p>
             <p className="text-sm text-gray-600 truncate">{prospect.company_name || 'N/A'}</p>
           </div>
 
-          <div className="flex-1 min-w-0">
+          <div className="min-w-0">
             <p className="text-sm text-gray-700 truncate">{prospect.job_title || 'N/A'}</p>
           </div>
 
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex items-center justify-end gap-3 min-w-0">
             {prospect.linkedin_url && (
               <a
                 href={prospect.linkedin_url}
@@ -210,6 +222,31 @@ export function ProspectReviewClient({
                 Remove
               </button>
             )}
+
+            {/* ── WHY THERE IS NO REMOVE CONTROL ON THIS ROW ─────────────────
+                A prospect who is on the list but cannot currently be emailed had no
+                control and no explanation, which reads as a broken button rather than as
+                a state.
+
+                THEY ARE NOT HIDDEN INSTEAD, and that is a decision already on the record
+                rather than one taken here: the roster is a permanent record of who is
+                being contacted (Decisions Log 2026-09-07), and filtering on current
+                sendability would erase the evidence that we mailed someone before a rule
+                changed. See the header of prospect-roster.ts, which measures two such
+                prospects on the live organisation.
+
+                The wording says what it means for the CLIENT and nothing about our
+                machinery: no verification verdict, no country, no operator action, no
+                vendor. Those are all operator-facing facts and none of them is the
+                client's to act on. */}
+            {!isPending(prospect) && prospect.email_send_eligible !== true && (
+              <span
+                className="text-xs text-gray-500 whitespace-nowrap"
+                title="We are not emailing this person at the moment, so there is nothing to remove."
+              >
+                Not being contacted
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -225,6 +262,56 @@ export function ProspectReviewClient({
 
   const hasPending = pendingCount > 0
 
+  /**
+   * The approve control, rendered at the TOP and the BOTTOM of the list.
+   *
+   * It existed only at the bottom, past every prospect. On a list of a hundred that is a
+   * long scroll to reach the only control that finishes the task, and a client who has
+   * decided after the first few rows still has to travel to act on it.
+   *
+   * ONE FUNCTION, TWO PLACEMENTS, so the two can never disagree about the count, the
+   * disabled condition or the confirm step. Two copies of this markup would be two things
+   * to keep in step by hand, which is the shape that put a stale date in the banner above.
+   * `position` only varies the key and the spacing.
+   */
+  function approveControl(position: 'top' | 'bottom') {
+    if (approvalState === 'done') {
+      // The success state is rendered once, at the bottom, rather than twice. Two identical
+      // "Done" panels on one screen reads as two separate things having happened.
+      if (position === 'top') return null
+      return (
+        <div className="bg-green-50 rounded-lg border border-green-200 p-8 text-center">
+          <p className="text-lg font-semibold text-green-900">Done. We will take it from here.</p>
+          <p className="text-sm text-green-800 mt-2">Updating your list...</p>
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex justify-center">
+        <button
+          onClick={handleApproveAll}
+          disabled={remainingCount === 0}
+          className={`px-8 py-3 rounded font-semibold text-white transition-colors ${
+            remainingCount === 0
+              ? 'bg-gray-400 cursor-not-allowed'
+              : approvalState === 'processing'
+                ? 'bg-blue-400 cursor-wait'
+                : approvalState === 'confirming'
+                  ? 'bg-blue-700 hover:bg-blue-800'
+                  : 'bg-blue-600 hover:bg-blue-700'
+          }`}
+        >
+          {approvalState === 'processing'
+            ? 'Approving...'
+            : approvalState === 'confirming'
+              ? `Confirm: approve ${remainingCount} remaining`
+              : `Approve remaining ${remainingCount}`}
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Header. Nothing here names an industry or a buyer type: this surface serves any
@@ -237,47 +324,87 @@ export function ProspectReviewClient({
                 ? `${pendingCount} ${pendingCount === 1 ? 'person' : 'people'} ready for your review`
                 : `${rosterCount} ${rosterCount === 1 ? 'person' : 'people'} in your campaign`}
             </h2>
+            {/* The headline number counts across every group below, which nothing said.
+                A client reading "49 people ready for your review" above tabs reading 35
+                and 14 had no way to know whether those were the same 49. */}
             <p className="text-sm text-gray-600 mt-2">
               {!canAct
                 ? 'Operator view. This is the client\u2019s screen exactly as they see it, without their decisions attached to your account.'
                 : hasPending
-                  ? 'Remove anyone you would rather we not contact. We proceed with the rest.'
-                  : 'Everyone we are contacting on your behalf, grouped by when they joined the campaign.'}
+                  ? 'Remove anyone you would rather we not contact. We proceed with the rest. This total covers every group below.'
+                  : 'Everyone we are contacting on your behalf, grouped by when they joined the campaign. This total covers every group below.'}
             </p>
           </div>
 
-          {hasPending && autoSanctionDate && (
+          {/* ── AUTOMATIC APPROVAL, OR THE ABSENCE OF IT ──────────────────────
+              This read "Auto-approved on 15 Aug 2026 if no action taken" on 17 September,
+              a deadline five weeks in the past, because it was anchored on the first time
+              anything in the tier had ever been published rather than on the batch in
+              front of the client. A date is shown here only when it is genuinely in the
+              future AND automatic approval can actually happen; otherwise the true
+              position is stated with no date in it. See auto-approval-notice.ts. */}
+          {hasPending && autoApproval.kind === 'scheduled' && (
             <div className="text-sm text-gray-600">
-              Auto-approved on {formatDayLabel(autoSanctionDate)} if no action taken.
+              If you do nothing, we will go ahead with everyone here on{' '}
+              {formatDayLabel(autoApproval.onISO)}.
+            </div>
+          )}
+
+          {hasPending && autoApproval.kind === 'no_automatic_approval' && (
+            <div className="text-sm text-gray-600">
+              These are waiting on you. We will not add anyone automatically, so they stay
+              here until you approve them.
             </div>
           )}
         </div>
       </div>
 
-      {/* Group tabs */}
+      {/* The same control as the one at the foot of the list, so a decision made early does
+          not require scrolling past everyone to act on it. */}
+      {hasPending && canAct && approveControl('top')}
+
+      {/* ── THE TABS, WITH THEIR NUMBERS EXPLAINED ────────────────────────────
+          A row of dates each carrying a bare number, beside a headline carrying another
+          number, beside a button carrying a third. Nothing said how any of them related,
+          so a client could not tell whether the tab counts were subsets of the headline,
+          alternatives to it, or something else.
+
+          Three things are named now: what a tab IS (a day we added people), what its
+          number counts (everyone in that group, not only the ones awaiting a decision),
+          and which of them still need the client. The per-tab "N to review" only appears
+          where there is something to review, so a tab that is purely a record stays
+          quiet. */}
       {groups.length > 1 && (
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Prospect batches">
-          {groups.map(group => {
-            const active = group.key === selectedGroup?.key
-            return (
-              <button
-                key={group.key}
-                role="tab"
-                aria-selected={active}
-                onClick={() => setSelectedKey(group.key)}
-                className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
-                  active
-                    ? 'bg-gray-900 text-white border-gray-900'
-                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                {group.label}
-                <span className={`ml-2 text-xs ${active ? 'text-gray-300' : 'text-gray-500'}`}>
-                  {group.prospects.length}
-                </span>
-              </button>
-            )
-          })}
+        <div className="space-y-2">
+          <p className="text-sm text-gray-600">
+            Grouped by the day we added them to your campaign. Each number is everyone in
+            that group; where a group still needs you, it says so.
+          </p>
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Prospect batches">
+            {groups.map(group => {
+              const active = group.key === selectedGroup?.key
+              const pendingInGroup = group.prospects.filter(isPending).length
+              return (
+                <button
+                  key={group.key}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setSelectedKey(group.key)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
+                    active
+                      ? 'bg-gray-900 text-white border-gray-900'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {group.label}
+                  <span className={`ml-2 text-xs ${active ? 'text-gray-300' : 'text-gray-500'}`}>
+                    {group.prospects.length} {group.prospects.length === 1 ? 'person' : 'people'}
+                    {pendingInGroup > 0 ? `, ${pendingInGroup} to review` : ''}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
         </div>
       )}
 
@@ -302,36 +429,7 @@ export function ProspectReviewClient({
         </div>
       )}
 
-      {hasPending && canAct && (
-        approvalState === 'done' ? (
-          <div className="bg-green-50 rounded-lg border border-green-200 p-8 text-center">
-            <p className="text-lg font-semibold text-green-900">Done. We will take it from here.</p>
-            <p className="text-sm text-green-800 mt-2">Updating your list...</p>
-          </div>
-        ) : (
-          <div className="flex justify-center">
-            <button
-              onClick={handleApproveAll}
-              disabled={remainingCount === 0}
-              className={`px-8 py-3 rounded font-semibold text-white transition-colors ${
-                remainingCount === 0
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : approvalState === 'processing'
-                    ? 'bg-blue-400 cursor-wait'
-                    : approvalState === 'confirming'
-                      ? 'bg-blue-700 hover:bg-blue-800'
-                      : 'bg-blue-600 hover:bg-blue-700'
-              }`}
-            >
-              {approvalState === 'processing'
-                ? 'Approving...'
-                : approvalState === 'confirming'
-                  ? `Confirm: approve ${remainingCount} remaining`
-                  : `Approve remaining ${remainingCount}`}
-            </button>
-          </div>
-        )
-      )}
+      {hasPending && canAct && approveControl('bottom')}
 
       {removingProspectId && (
         <RemovalReasonModal

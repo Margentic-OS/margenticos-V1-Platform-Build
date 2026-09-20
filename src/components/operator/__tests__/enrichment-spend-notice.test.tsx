@@ -39,7 +39,7 @@ afterEach(cleanup)
 
 describe('EnrichmentSpendNotice', () => {
   it('says credits WILL be spent when enrichment is live', () => {
-    render(<EnrichmentSpendNotice mode="live" action="Enrichment" />)
+    render(<EnrichmentSpendNotice mode="live" action="Enrichment" prospectCount={7} />)
 
     expect(screen.getByText(/will spend real enrichment credits/i)).toBeInTheDocument()
     expect(screen.getByText(/Live enrichment is ON/i)).toBeInTheDocument()
@@ -48,7 +48,7 @@ describe('EnrichmentSpendNotice', () => {
   it('NEVER claims test mode when enrichment is live — the exact defect', () => {
     // The replaced string was "Currently in test mode. No live API calls will be made."
     // If that sentence can appear while mode is 'live' again, this is back.
-    render(<EnrichmentSpendNotice mode="live" action="Enrichment" />)
+    render(<EnrichmentSpendNotice mode="live" action="Enrichment" prospectCount={7} />)
 
     expect(screen.queryByText(/test mode/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/no live API calls/i)).not.toBeInTheDocument()
@@ -56,7 +56,7 @@ describe('EnrichmentSpendNotice', () => {
   })
 
   it('says no credits are spent when enrichment is off', () => {
-    render(<EnrichmentSpendNotice mode="test" action="Enrichment" />)
+    render(<EnrichmentSpendNotice mode="test" action="Enrichment" prospectCount={7} />)
 
     expect(screen.getByText(/Live enrichment is currently OFF/i)).toBeInTheDocument()
     expect(screen.getByText(/consume no credits/i)).toBeInTheDocument()
@@ -65,15 +65,15 @@ describe('EnrichmentSpendNotice', () => {
   it('refuses to reassure when the flag could not be read', () => {
     // 'unknown' must not read like 'test'. Saying "no credits" when nobody knows is the
     // failure the amber state was invented for.
-    render(<EnrichmentSpendNotice mode="unknown" action="Enrichment" />)
+    render(<EnrichmentSpendNotice mode="unknown" action="Enrichment" prospectCount={7} />)
 
     expect(screen.getByText(/Cannot tell whether/i)).toBeInTheDocument()
-    expect(screen.getByText(/may be live and consuming/i)).toBeInTheDocument()
+    expect(screen.getByText(/could not be read, so nobody can say whether this run spends/i)).toBeInTheDocument()
     expect(screen.queryByText(/consume no credits/i)).not.toBeInTheDocument()
   })
 
   it('names the action, so the notice matches the button beside it', () => {
-    render(<EnrichmentSpendNotice mode="live" action="Enrich and tier" />)
+    render(<EnrichmentSpendNotice mode="live" action="Enrich and tier" prospectCount={7} />)
     expect(screen.getByText(/Enrich and tier will spend/i)).toBeInTheDocument()
   })
 
@@ -82,7 +82,7 @@ describe('EnrichmentSpendNotice', () => {
     // whichever branch survived. This checks the branches are actually distinct.
     const texts = (['live', 'test', 'unknown'] as const).map((mode) => {
       cleanup()
-      const { container } = render(<EnrichmentSpendNotice mode={mode} action="Enrichment" />)
+      const { container } = render(<EnrichmentSpendNotice mode={mode} action="Enrichment" prospectCount={7} />)
       return container.textContent ?? ''
     })
     expect(new Set(texts).size).toBe(3)

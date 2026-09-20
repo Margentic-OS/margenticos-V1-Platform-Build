@@ -324,7 +324,16 @@ export function Gate1ApproveBatch({
       {/* Spend notice, driven by the real flag. The string this replaced said
           "Currently in test mode. No live API calls will be made." unconditionally, while
           enrichment_live was true in production. See EnrichmentSpendNotice. */}
-      <EnrichmentSpendNotice mode={enrichmentMode} action="Enrichment" />
+      {/* THE COUNT IS THE SELECTION, NOT THE PAGE AND NOT THE BATCH. Approving here spends
+          on exactly the rows ticked, so that is the number the warning has to carry; the
+          page size and the client's whole pending total are both larger and neither is what
+          the click costs. With nothing ticked it reads zero, which is correct: the button
+          beside it is disabled. */}
+      <EnrichmentSpendNotice
+        mode={enrichmentMode}
+        action="Enrichment"
+        prospectCount={selectedIds.size}
+      />
 
       {/* Error */}
       {error && (

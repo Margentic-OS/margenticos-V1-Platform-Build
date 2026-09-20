@@ -41,6 +41,17 @@ interface Gate2TieredReviewProps {
   /** tiering_reason -> count, for the prospects tiering removed. Counted server-side. */
   removedByReason: Record<string, number>
   removedCount: number
+  /** Tiered prospects the client has not been shown yet. What publishing will act on. */
+  unpublishedCount: number
+  /** Variants whose fallback opening does not read as a first line. See item 16. */
+  openingReport: {
+    variantsChecked: number
+    findings: Array<{
+      variantId: string
+      opening: string
+      faults: Array<{ kind: string; phrase: string; detail: string }>
+    }>
+  }
 }
 
 // The removal-reason gloss lives in prospect-status.ts, with the rest of the
@@ -125,6 +136,39 @@ function SendabilityCell({ prospect }: { prospect: Prospect }) {
   )
 }
 
+/**
+ * WHAT THIS PROSPECT'S EMAIL WILL ACTUALLY OPEN WITH.
+ *
+ * The quality screen is the last look before a list is published, and the one thing it could
+ * not show was the line the prospect reads first. An operator could check the company, the
+ * title, the tier and the address, and not the copy.
+ *
+ * TWO STATES, BOTH STATED PLAINLY. A researched prospect has a stored opening written for
+ * them. A prospect without one is NOT broken and is not skipped: composition ships the
+ * variant's own authored opening instead. That is a deliberate design (four authored
+ * openings rather than one shared line) and saying "none" would read as a fault.
+ *
+ * The text is shown in full on hover rather than truncated silently, because a half-sentence
+ * is exactly what an operator cannot judge.
+ */
+function OpeningLineCell({ prospect }: { prospect: Prospect }) {
+  const opening = prospect.personalisation_trigger
+
+  if (!opening) {
+    return (
+      <span className="text-xs text-text-secondary">
+        No research: gets the standard opener for its variant
+      </span>
+    )
+  }
+
+  return (
+    <span className="text-xs text-text-primary" title={opening}>
+      {opening}
+    </span>
+  )
+}
+
 function ProspectRow({ prospect }: { prospect: Prospect }) {
   const headcountText = prospect.company_headcount
     ? `${prospect.company_headcount} ${prospect.company_headcount === 1 ? 'person' : 'people'}`
@@ -178,6 +222,11 @@ function ProspectRow({ prospect }: { prospect: Prospect }) {
           explains the score was cut off. The reason was on screen and unreadable. */}
       <td className="px-4 py-3 text-xs">
         <TieringReasonCell reason={prospect.tiering_reason} />
+      </td>
+
+      {/* The first line the prospect reads, which this screen could not show at all. */}
+      <td className="px-4 py-3 max-w-[320px]">
+        <OpeningLineCell prospect={prospect} />
       </td>
 
       {/* CAN THIS BE EMAILED, which is the question, rather than whether a verification
@@ -252,6 +301,7 @@ function TierSection({
                   <th className="px-4 py-3 text-left font-medium text-text-primary">LinkedIn</th>
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Website</th>
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Why this tier</th>
+                  <th className="px-4 py-3 text-left font-medium text-text-primary">Opening line</th>
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Can be emailed</th>
                   <th className="px-4 py-3 text-left font-medium text-text-primary">Stop</th>
                 </tr>
@@ -294,6 +344,8 @@ export function Gate2TieredReview({
   tiering,
   removedByReason,
   removedCount,
+  unpublishedCount,
+  openingReport,
 }: Gate2TieredReviewProps) {
   const [, startTransition] = useTransition()
   const [publishError, setPublishError] = useState<string | null>(null)
@@ -319,15 +371,25 @@ export function Gate2TieredReview({
       {/* Summary */}
       <div className="bg-white rounded-[10px] border border-border-card p-6">
         <div className="flex items-start justify-between mb-4">
+          {/* BOTH NUMBERS, BECAUSE THEY ANSWER DIFFERENT QUESTIONS. The tier total is
+              everything on this screen, across every sourcing run this client has had. The
+              second is what pressing the button would actually do: publishing has always
+              filtered on tier_published_at IS NULL, so the rest are already with the
+              client. Only one heading said so, and it was the wrong one. */}
           <h2 className="text-base font-medium text-text-primary">
-            Check quality, then publish: {totalEnriched} enriched prospects
+            Check quality, then publish: {unpublishedCount} of {totalEnriched} not yet sent
+            to the client
           </h2>
           <button
             onClick={handlePublishAll}
-            disabled={publishSuccess || totalEnriched === 0}
+            disabled={publishSuccess || unpublishedCount === 0}
             className="px-4 py-2 text-sm font-medium bg-[#2d5a27] text-[#f5f0e8] rounded-sm hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {publishSuccess ? 'Published for client review' : 'Publish for client review'}
+            {publishSuccess
+              ? 'Published for client review'
+              : unpublishedCount === 0
+                ? 'Everything here is already published'
+                : `Publish ${unpublishedCount} for client review`}
           </button>
         </div>
 
@@ -405,6 +467,46 @@ export function Gate2TieredReview({
             counted here rather than listed: the count is what tells you whether the filter is
             behaving, and a long list of rejects is not what this screen is for.
           </p>
+        </div>
+      )}
+
+      {/* ── AN OPENING THAT DOES NOT READ AS A FIRST LINE ────────────────────
+          A prospect with no research receives the variant's own authored opening as the
+          first line of their email. An author writes that paragraph knowing a greeting
+          sits above it, so it can be written as a continuation of an observation that,
+          without research, was never made. The email then opens mid-thought.
+
+          THIS IS A WARNING AND NOTHING ELSE. It does not block publishing, does not block
+          sending and does not alter any copy. The copy belongs to whoever approved it; the
+          only thing missing was anyone being told. */}
+      {openingReport.findings.length > 0 && (
+        <div className="bg-[#FEF7E6] rounded-[10px] border border-[#F0D080] p-6">
+          <h2 className="text-base font-medium text-[#7A4800] mb-1">
+            {openingReport.findings.length} of {openingReport.variantsChecked} message
+            variants open on a line that needs the paragraph above it
+          </h2>
+          <p className="text-xs text-[#7A4800] mb-4">
+            Prospects with research get a written opening instead, so this only affects the
+            ones on this screen with no research. Nothing is blocked.
+          </p>
+
+          <ul className="space-y-3">
+            {openingReport.findings.map(finding => (
+              <li key={finding.variantId} className="text-xs">
+                <p className="font-medium text-text-primary">{finding.variantId}</p>
+                <p className="text-text-secondary italic mt-0.5">
+                  &ldquo;{finding.opening}&rdquo;
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {finding.faults.map((fault, i) => (
+                    <li key={`${fault.kind}-${fault.phrase}-${i}`} className="text-[#7A4800]">
+                      {fault.detail}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

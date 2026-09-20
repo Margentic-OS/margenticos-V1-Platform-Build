@@ -4,6 +4,7 @@ import { OperatorTopbar } from '@/components/dashboard/OperatorTopbar'
 import { Gate2TieredReview } from '../components/Gate2TieredReview'
 import { resolveViewingOrg } from '@/lib/dashboard/resolve-viewing-org'
 import type { Database } from '@/types/database'
+import { reportFallbackOpenings } from '@/lib/operator/fallback-opening-report'
 
 type Prospect = Database['public']['Tables']['prospects']['Row']
 
@@ -84,6 +85,36 @@ export default async function ReviewPage({
 
   const removedCount = removedRows?.length ?? 0
 
+  // ── HOW MANY THE CLIENT HAS NOT SEEN ───────────────────────────────────────
+  //
+  // The publish control's number, counted with the publish route's own filter rather than
+  // from the tier totals above, which include every batch already published weeks ago.
+  const unpublishedCount = prospects.filter(
+    p => p.tier_published_at === null && p.suppressed !== true,
+  ).length
+
+  // ── DOES EACH VARIANT'S FALLBACK OPENING READ AS A FIRST LINE? ─────────────
+  //
+  // A prospect with no research receives the variant's own authored opening as the first
+  // line of their email. An author writing that paragraph knows what sits above it, so it
+  // can be written as a continuation of an observation, and then the email opens
+  // mid-thought. Reported here because this is the screen read before a list is published.
+  //
+  // READ-ONLY AND NON-FATAL. A document that cannot be read leaves the report empty and the
+  // screen renders exactly as before; a warning panel must not be able to take down the
+  // publishing screen.
+  const { data: messagingDoc } = await supabase
+    .from('strategy_documents')
+    .select('content')
+    .eq('organisation_id', organisationId)
+    .eq('document_type', 'messaging')
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const openingReport = reportFallbackOpenings(messagingDoc?.content ?? null)
+
   return (
     <>
       <OperatorTopbar
@@ -109,6 +140,8 @@ export default async function ReviewPage({
             }}
             removedByReason={removedByReason}
             removedCount={removedCount}
+            unpublishedCount={unpublishedCount}
+            openingReport={openingReport}
           />
         </div>
       </div>

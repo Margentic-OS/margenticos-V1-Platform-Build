@@ -20,6 +20,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
+import { findStandaloneOpeningFaults } from '@/lib/style/standalone-opening'
 import { generateBridge, countWords } from './personalization'
 import { OPT_OUT_FOOTER } from './opt-out-footer'
 import { checkComposedQuestionCount } from '@/lib/style/composed-question-count'
@@ -301,6 +302,33 @@ export async function composeSequence({
       bridge_generated: false,
       cta_rewritten: false,
     })
+
+    // ── DOES THE PARAGRAPH WE ARE ABOUT TO SHIP READ AS A FIRST LINE? ────────
+    //
+    // ONLY ON THIS BRANCH, because only on this branch does the authored P2 survive to
+    // become the opening. When research replaced it, the question does not arise.
+    //
+    // An author writes P2 knowing a greeting sits above it and the offer line below it, so
+    // it can legitimately be written as a continuation of an observation. That is correct
+    // for the researched path and opens the email mid-thought on this one. Real prospects
+    // received it.
+    //
+    // REPORT ONLY. It logs and does not throw, does not alter the copy and does not stop
+    // the send, matching checkComposedQuestionCount below. A heuristic about prose must not
+    // be able to halt a send, and the copy belongs to whoever approved it.
+    const fallbackOpening = fallbackOpeningParagraph(variantEmails)
+    if (fallbackOpening) {
+      const faults = findStandaloneOpeningFaults(fallbackOpening)
+      if (faults.length > 0) {
+        logger.warn('compose-sequence: fallback opening does not read as a first line', {
+          prospect_id: prospect.id,
+          client_id,
+          variant_id: variantId,
+          messaging_doc_id: messagingDocId,
+          faults: faults.map(f => ({ kind: f.kind, phrase: f.phrase })),
+        })
+      }
+    }
     // Recompute word_count from the body rather than trusting the stored count. On this
     // path P2 was not replaced, so the stored count should already agree; recomputing
     // keeps one source of truth and costs nothing.
@@ -974,6 +1002,45 @@ function getVariantEmails(messagingDoc: MessagingContent, variantId: string): St
   )
 }
 
+/**
+ * Which line of an Email 1 body is the OPENING SLOT: the first non-empty line after the
+ * greeting.
+ *
+ * EXTRACTED SO THE CHECK AND THE REPLACEMENT READ THE SAME LINE. applyTriggerToEmail1 owns
+ * what composition replaces when research exists. fallbackOpeningParagraph below reports
+ * what SHIPS when it does not. Those are the same line by definition, and writing the
+ * locator twice would be two definitions of "the opening" kept in step by hand: the check
+ * could then pass on a line the composer never ships, which is the shape of a check that
+ * runs and cannot reach what it is checking.
+ *
+ * Returns -1 when the body has no content line at all.
+ */
+function findOpenerLineIndex(lines: string[]): number {
+  const firstNameIdx = lines.findIndex(l => l.trim() === '{{first_name}}')
+  return lines.findIndex((l, i) => i > firstNameIdx && l.trim().length > 0)
+}
+
+/**
+ * The paragraph a prospect with NO RESEARCH actually receives as their first line.
+ *
+ * This is the variant's authored P2, shipped unchanged because there is no observation to
+ * put in its place (see the `trigger.source === 'research'` branch in composeSequence). It
+ * is the text the standalone-opening check reads.
+ *
+ * Returns null when Email 1 is absent or has no content line, because there is then no
+ * opening to judge and a check should say "nothing to look at" rather than pass vacuously.
+ */
+export function fallbackOpeningParagraph(emails: StoredEmail[]): string | null {
+  const email1 = emails.find(e => e.sequence_position === 1)
+  if (!email1) return null
+
+  const lines = email1.body.split('\n')
+  const openerIdx = findOpenerLineIndex(lines)
+  if (openerIdx === -1) return null
+
+  return lines[openerIdx].trim() || null
+}
+
 // Applies the personalisation trigger to the opening sentence of email 1.
 // The trigger replaces the first non-empty line after {{first_name}}.
 // The rest of the email is unchanged. Emails 2-4 are untouched.
@@ -994,14 +1061,7 @@ function applyTriggerToEmail1(emails: StoredEmail[], trigger: string): ComposedE
       : trigger.trimEnd() + '.'
 
     const lines = email.body.split('\n')
-
-    // Find {{first_name}} line and the opener (first non-empty line after it).
-    let firstNameIdx = lines.findIndex(l => l.trim() === '{{first_name}}')
-    if (firstNameIdx === -1) firstNameIdx = -1
-
-    const openerIdx = lines.findIndex(
-      (l, i) => i > firstNameIdx && l.trim().length > 0
-    )
+    const openerIdx = findOpenerLineIndex(lines)
 
     if (openerIdx === -1) {
       return {

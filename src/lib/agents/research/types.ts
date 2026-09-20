@@ -597,3 +597,34 @@ export interface ResearchAbstractNounHit {
  *              Collected so phase 2 can retry it with the reasoning constrained. See ADR-059.
  */
 export const COLLECTABLE_ENTRY_STATES = ['succeeded', 'errored', 'expired', 'failed'] as const
+
+/**
+ * Batch states that mean the work is STILL GOING, on synthesis_batches.
+ *
+ * Declared beside the entry states above for the same reason that list is one list: the
+ * batch vocabulary is written in batch-sweep.ts and read anywhere that wants to know whether
+ * a wave is finished, and two hand-written literals is the shape that shipped ADR-059's
+ * half-fix.
+ *
+ * WHY THE OPEN SET IS DECLARED AND NOT THE TERMINAL ONE. A state this list does not know
+ * about reads as finished, which understates work in progress. The opposite default would
+ * report a wave as running forever on a state nobody recognised, and an operator waiting on
+ * a stage that will never end is worse than one told too early that it stopped.
+ *
+ *   attempted  submission started, no batch id back from the provider yet
+ *   submitted  the provider holds it and is working
+ *   ended      the provider has finished; results not pulled down yet
+ */
+export const OPEN_BATCH_STATES = ['attempted', 'submitted', 'ended'] as const
+
+/**
+ * Entry states that mean this prospect is waiting on the MODEL, with no queue job to show
+ * for it.
+ *
+ * THIS IS THE INVISIBLE WINDOW. Phase 1 finishes and marks its job done; phase 2's job does
+ * not exist until the sweep sees results. Measured on production 2026-09-17: phase 1 ended
+ * 19:48:31 and phase 2 was created 20:03:03, so for 14 minutes 32 seconds 62 prospects had
+ * no job row of any kind and nothing on any screen said they were mid-flight. An operator
+ * reads that as a stall, because every other stage shows itself through the queue.
+ */
+export const AWAITING_MODEL_ENTRY_STATES = ['pending_submission', 'attempted', 'submitted'] as const

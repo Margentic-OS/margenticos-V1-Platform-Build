@@ -23,8 +23,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { myemailverifierHandler, type VerificationResult } from '@/lib/sourcing/handlers/adapter-myemailverifier'
 import { checkSendEligibility, firstPassSendEligibility } from '@/lib/sourcing/send-eligibility-rules'
-import { excludeTierRejected } from '@/lib/sourcing/tier-verdict'
 import { getDailyVerificationLimit } from '@/lib/sourcing/verification-limits'
+import {
+  selectPendingVerification,
+  type VerificationThresholds,
+} from '@/lib/sourcing/pending-verification'
 
 const STALE_LOCK_THRESHOLD_MINUTES = 30
 const GREY_LISTED_RETRY_WINDOW_HOURS = 6
@@ -37,6 +40,34 @@ const GREY_LISTED_RETRY_WINDOW_HOURS = 6
  * organisation whose every row it will then decline to select.
  */
 export const MAX_RETRY_ATTEMPTS = 3
+
+/**
+ * The three thresholds the pending-verification filter compares against, from the constants
+ * above.
+ *
+ * EXPORTED, because the pipeline screen counts the same rows this sweep locks and must not
+ * own a second copy of "6 hours" or "30 minutes". The durations stay here, beside the retry
+ * policy they belong to; only the resolved moments travel.
+ *
+ * Computed per call, never cached. Both thresholds are relative to now, and a module-level
+ * constant would freeze them at import time: a long-lived server process would then keep
+ * asking about a window that stopped moving, which is a stale-marker bug rather than a
+ * rounding one.
+ */
+export function verificationThresholds(): VerificationThresholds {
+  return {
+    staleThresholdISO: new Date(
+      Date.now() - GREY_LISTED_RETRY_WINDOW_HOURS * 60 * 60 * 1000,
+    ).toISOString(),
+    // A lock older than this belonged to a run that died. Reclaiming it is safe because
+    // verification is an idempotent lookup: the worst case of verifying the same address
+    // twice is one wasted free-tier call, against the alternative of stranding it forever.
+    staleLockThresholdISO: new Date(
+      Date.now() - STALE_LOCK_THRESHOLD_MINUTES * 60 * 1000,
+    ).toISOString(),
+    maxRetryAttempts: MAX_RETRY_ATTEMPTS,
+  }
+}
 const RATE_LIMIT_PER_MINUTE = 30
 
 /**
@@ -245,17 +276,6 @@ export async function verifyEnrichedBatch(
     //     AND independent_verified_at < (now - 6 hours)
     // AND, across both, verification_attempt_count < MAX_RETRY_ATTEMPTS
 
-    const staleThresholdISO = new Date(
-      Date.now() - GREY_LISTED_RETRY_WINDOW_HOURS * 60 * 60 * 1000,
-    ).toISOString()
-
-    // A lock older than this belonged to a run that died. Reclaiming it is safe because
-    // verification is an idempotent lookup: the worst case of verifying the same address
-    // twice is one wasted free-tier call, against the alternative of stranding it forever.
-    const staleLockThresholdISO = new Date(
-      Date.now() - STALE_LOCK_THRESHOLD_MINUTES * 60 * 1000,
-    ).toISOString()
-
     // Cap batch size to daily remaining.
     //
     // KNOWN RESIDUAL, stated rather than hidden. dailyUsed counts prospects carrying a
@@ -266,60 +286,30 @@ export async function verifyEnrichedBatch(
     // single run cannot exceed its own budget by failing.
     const cappedBatchSize = Math.min(maxBatchSize, dailyRemaining)
 
-    // Select (a) unverified, (b) Grey-listed retryable
-    const lockableQuery = supabase
-      .from('prospects')
-      // send_hold_at comes along so the country skip below reaches the same verdict the write
-      // path would have: a held prospect reports its hold, not a country exclusion.
-      .select('id, email, country, send_hold_at')
-      .eq('organisation_id', organisationId)
-      .eq('enrichment_status', 'enriched')
-      .or(
-        `independent_email_status.is.null,and(independent_email_status.eq.Grey-listed,independent_verified_at.lt.${staleThresholdISO})`,
-      )
-      // THE RETRY CAP, HOISTED OUT OF THE BRANCH IT USED TO LIVE IN.
-      //
-      // It was written inside the Grey-listed half of the .or() above, which left the
-      // never-verified half unbounded: a row that fails on a provider error keeps a NULL
-      // status, so it satisfied `independent_email_status.is.null` on every sweep, forever.
-      // The counter was already being incremented on the failure path, and the comment there
-      // says it exists precisely to stop this. It was written and never read.
-      //
-      // Chained filters are ANDed by PostgREST, so as its own filter the cap governs BOTH
-      // branches and any branch added later. That is the point of putting it here rather than
-      // repeating it inside each arm: a new arm cannot be written that escapes it.
-      //
-      // TERMINAL STATE. There is no new column and no new status string. A row that runs out
-      // of attempts is already distinguishable from one that has never been tried:
-      //   never attempted -> verification_attempt_count = 0, last_verification_error IS NULL
-      //   given up on     -> verification_attempt_count >= MAX_RETRY_ATTEMPTS,
-      //                      independent_email_status IS NULL, last_verification_error set
-      // Checked live before relying on it: zero rows carry a NULL attempt count (the column
-      // defaults to 0 and every writer reads-then-increments), and no row at count 0 carries
-      // an error. A NULL count would be excluded by this filter, which is the one way this
-      // could strand a never-tried row; the column default is what prevents it.
-      .lt('verification_attempt_count', MAX_RETRY_ATTEMPTS)
-      // THE STALE RECLAIM THE HEADER HAS ALWAYS PROMISED, and which did not exist.
-      // STALE_LOCK_THRESHOLD_MINUTES was declared at the top of this file and referenced
-      // nowhere in the repo, while the filter below read `.is(locked_at, null)` only. So a
-      // prospect locked by a run that then died was unselectable FOREVER, with no recovery
-      // path and nothing to say so.
-      //
-      // Chained filters are ANDed by PostgREST, so this reads:
-      //   (never verified OR grey-listed and retryable) AND (unlocked OR lock gone stale)
-      .or(`verification_locked_at.is.null,verification_locked_at.lt.${staleLockThresholdISO}`)
+    // Select (a) unverified, (b) Grey-listed retryable.
+    //
+    // THE FILTER LIVES IN pending-verification.ts AND IS APPLIED, NOT RESTATED. It used to
+    // be written out here and only here, which meant the operator screen could not show how
+    // many prospects were waiting without writing the same condition a second time. One
+    // definition, two callers: this sweep, and the count the pipeline screen renders.
+    //
+    // The tier gate moved with it, unchanged. excludeTierRejected, not requireTierPresent:
+    // a prospect tiering has not reached yet is still worth verifying, and only a REJECTION
+    // stops it. Verification quota is spent per address and the daily budget is finite, so
+    // probing a prospect tiering has already rejected takes the day's budget away from one
+    // that could actually be emailed. Measured 2026-09-01: 15 unsuppressed rejected rows in
+    // the live organisation had all been verified.
+    const lockableQuery = selectPendingVerification(
+      supabase
+        .from('prospects')
+        // send_hold_at comes along so the country skip below reaches the same verdict the
+        // write path would have: a held prospect reports its hold, not a country exclusion.
+        .select('id, email, country, send_hold_at')
+        .eq('organisation_id', organisationId),
+      verificationThresholds(),
+    )
 
-    // ── THE TIER GATE ────────────────────────────────────────────────────────
-    //
-    // Verification quota is spent per address and the daily budget is finite, so probing a
-    // prospect tiering has already rejected takes the day's budget away from one that could
-    // actually be emailed. Measured 2026-09-01: 15 unsuppressed rejected rows in the live
-    // organisation had all been verified.
-    //
-    // excludeTierRejected, not requireTierPresent: a prospect tiering has not reached yet is
-    // still worth verifying, and holding it back would make verification wait on tiering for
-    // no reason. Only a REJECTION stops it. See src/lib/sourcing/tier-verdict.ts.
-    const { data: lockableProspects, error: lockError } = await excludeTierRejected(lockableQuery)
+    const { data: lockableProspects, error: lockError } = await lockableQuery
       .limit(cappedBatchSize)
 
     if (lockError) {

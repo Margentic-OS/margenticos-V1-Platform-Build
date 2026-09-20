@@ -6,6 +6,7 @@ import { getClientProspectTiers } from '@/lib/prospect-tiers-data'
 import type { TierData, Prospect } from '@/lib/prospect-tiers-data'
 import { ProspectReviewClient } from './components/ProspectReviewClient'
 import { buildRosterGroups, countPending, countRoster } from '@/lib/dashboard/prospect-roster'
+import { autoApprovalNotice } from '@/lib/dashboard/auto-approval-notice'
 import { logger } from '@/lib/logger'
 
 function getOrgInitials(name: string): string {
@@ -84,7 +85,28 @@ export default async function ProspectTiersPage({
   const groups = buildRosterGroups(allProspects)
   const pendingCount = countPending(groups)
   const rosterCount = countRoster(groups)
-  const autoSanctionDate = tierData.length > 0 ? tierData[0].auto_sanction_at : null
+
+  // ── WHAT TO SAY ABOUT AUTOMATIC APPROVAL ───────────────────────────────────
+  //
+  // This used to be `tierData[0].auto_sanction_at`, which is the tier's FIRST EVER
+  // publication plus four days. On 2026-09-17 that rendered "Auto-approved on 15 Aug 2026",
+  // a deadline five weeks in the past which could never move again, because a tier's
+  // earliest publication date only gets older.
+  //
+  // Anchored on the rows actually awaiting a decision instead, and suppressed entirely
+  // where no automatic approval will happen. Both halves are in auto-approval-notice.ts
+  // with the production measurements that justify them.
+  //
+  // THE TIERS ARE COMBINED because the screen is: it shows tier 1 and tier 2 together, so
+  // one banner describes both. Locked if EITHER is locked, which is the conservative
+  // direction: it suppresses a promise rather than inventing one.
+  const autoApproval = autoApprovalNotice({
+    pendingPublishedAt: allProspects
+      .filter(p => p.client_review_status === 'pending_review')
+      .map(p => p.tier_published_at)
+      .filter((d): d is string => d !== null),
+    locked: [tier1Data, tier2Data].some(t => t?.tier_is_locked === true),
+  })
 
   // NO REDIRECT WHEN NOTHING IS PENDING. This page used to send the client to /dashboard
   // once approval completed, which made the list of people being contacted on their
@@ -120,7 +142,7 @@ export default async function ProspectTiersPage({
               groups={groups}
               pendingCount={pendingCount}
               rosterCount={rosterCount}
-              autoSanctionDate={autoSanctionDate}
+              autoApproval={autoApproval}
               organisationId={organisationId}
               // An operator may not approve or reject on a client's behalf, so the
               // controls are not rendered for one. Decided 2026-09-08. This covers an

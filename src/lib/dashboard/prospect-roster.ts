@@ -128,13 +128,24 @@ export function buildRosterGroups(prospects: RosterProspect[]): RosterGroup[] {
   // Newest batch first: a record is read from the most recent activity backwards.
   const datedGroups: RosterGroup[] = [...byDay.entries()]
     .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([dayKey, groupProspects]) => ({
-      key: `batch:${dayKey}`,
-      label: formatDayLabel(dayKey),
-      subtitle: `Added to your campaign on ${formatDayLabel(dayKey)}.`,
-      isTask: groupProspects.some(isPending),
-      prospects: groupProspects,
-    }))
+    .map(([dayKey, groupProspects]) => {
+      const pending = groupProspects.filter(isPending).length
+      return {
+        key: `batch:${dayKey}`,
+        label: formatDayLabel(dayKey),
+        // SAYS WHAT THE GROUP IS AND WHAT IS LEFT TO DO IN IT. The tabs carried a date and
+        // a bare number beside a headline carrying a different number, and nothing related
+        // them. The second sentence appears only where there is something to decide, so a
+        // group that is purely a record does not acquire a task-shaped instruction.
+        subtitle: pending > 0
+          ? `Added to your campaign on ${formatDayLabel(dayKey)}. ` +
+            `${pending} of these ${pending === 1 ? 'is' : 'are'} waiting on you; ` +
+            'the rest are already going ahead.'
+          : `Added to your campaign on ${formatDayLabel(dayKey)}. All of these are going ahead.`,
+        isTask: pending > 0,
+        prospects: groupProspects,
+      }
+    })
 
   if (notYet.length === 0) return datedGroups
 
@@ -145,9 +156,15 @@ export function buildRosterGroups(prospects: RosterProspect[]): RosterGroup[] {
     {
       key: NOT_YET_IN_CAMPAIGN_KEY,
       label: 'Not yet in the campaign',
+      // NAMES WHAT SEPARATES THIS GROUP FROM THE DATED ONES, which is the whole source of
+      // the confusion: every other tab is a day we added people, and this one is the people
+      // we have not added yet. Without that, a client reads it as another batch whose date
+      // is missing.
       subtitle: notYetIsTask
-        ? 'Waiting for your review. Remove anyone you would rather we did not contact.'
-        : 'Approved and waiting to be added to a batch.',
+        ? 'Not added to your campaign yet, so they have no date. Waiting for your review: ' +
+          'remove anyone you would rather we did not contact.'
+        : 'Not added to your campaign yet, so they have no date. Approved, and they will ' +
+          'join a group above when they go out.',
       isTask: notYetIsTask,
       prospects: notYet,
     },

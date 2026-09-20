@@ -782,3 +782,158 @@ into one bit gets read as the happy case every time, and it was:
     }
 
 A failed run also stops being in flight. See ADR-050 for the wider pattern.
+
+---
+
+## What is moving: stage progress on the pipeline review screen
+
+*Added 2026-09-17, after an operator-to-client walkthrough.*
+
+### What this does
+
+Three long-running steps now report where they have got to, on the operator's pipeline
+review screen: **email verification**, **enrichment**, and **research**. Before this, each
+one showed a spinner and then a tick, and nothing in between.
+
+### Why it was worth building
+
+The three problems were different and had the same cause.
+
+**Verification had never appeared anywhere in the product.** A cron sweep has verified
+addresses since 2026-08-25 and no screen had ever named it. A prospect waiting its turn
+behind another client and a prospect nothing would ever touch looked identical: both were
+simply absent from everything downstream.
+
+**Refreshing the page erased the progress.** The state lived inside the button that started
+the step, so reloading during a step that takes a quarter of an hour showed the screen as it
+looks before the step starts. Nothing was wrong, and the screen said nothing was happening.
+
+**Research has a fifteen-minute window with no job in it at all.** This is the one that cost
+real time. On the batch path, research runs as two jobs: one fetches the sources, then the
+synthesis goes to the model as a batch at half price, then a second job collects the
+results. The first job finishes and marks itself done. The second job *does not exist yet*.
+Measured on production on 2026-09-17: phase one ended at 19:48:31 and phase two was created
+at 20:03:03. For fourteen and a half minutes, 62 prospects were mid-flight with no queue row
+anywhere, and the only marker anything reads is written at the very end. An operator
+watching that concludes it has stalled, because every other stage announces itself through
+the queue and this one cannot.
+
+### How it works
+
+`src/lib/operator/pipeline-progress.ts` reads the progress out of the database: the job
+queue, the batch tables, and the columns the sweeps write. It travels on the same polled
+payload as the counts, which is what makes it survive a reload and reach a second operator's
+screen.
+
+The fifteen-minute window is counted from `synthesis_batch_entries`, because that is the
+only place it exists while it is happening.
+
+### What to check if it looks wrong
+
+1. **"Waiting for the model" and the number never moves.** Look at `synthesis_batches` for
+   that organisation: `state`, `submitted_at`, `last_polled_at`. The sweep that collects
+   results is `synthesis-batch-sweep` in `cron_heartbeats`.
+2. **Verification says nothing is waiting but prospects have no verdict.** The count uses the
+   sweep's own filter (`selectPendingVerification`), so if it reads zero the sweep also sees
+   zero. Likely causes: the prospects are not `enriched`, tiering rejected them, or they have
+   used all three attempts.
+3. **"Checker last ran" is old.** That is platform-wide, not per client. If it is genuinely
+   stale, `verify-pending` has stopped, and MON-002 should have said so.
+
+### One decision worth knowing about
+
+**The verification filter has one definition, not two.** It used to be written inline inside
+the sweep and nowhere else, so putting a count on the screen would have meant writing the
+same condition a second time. It now lives in `src/lib/sourcing/pending-verification.ts` and
+both the sweep and the screen apply it. This is the same discipline as `sourcing-metrics.ts`:
+if a screen and an action can disagree about what they mean, eventually they will.
+
+---
+
+## Counts on the operator screens now say what they cover
+
+*Added 2026-09-17.*
+
+Every actionable count on the pipeline screen was an all-time total across every sourcing
+run the client had ever had, and none of them said so. On the live organisation they spanned
+five runs and each read as one batch.
+
+Each control now splits its number: how many came from the most recent run, and how many
+carried over. The wording lives in one place, `src/lib/operator/run-split.ts`, so six
+controls cannot each invent their own. **It says nothing when a count does not span more than
+one run**, deliberately: annotating a single-batch client would bury the cases that matter.
+
+### The publish button was counting the wrong population
+
+It read "Check 190 and publish for the client" where 190 was every prospect that had ever
+reached a tier. On the live organisation, 49 of those had never been shown to the client.
+
+**Nothing was ever over-published.** The publish action has always filtered on
+`tier_published_at IS NULL`, so pressing it published only the new ones. The *label* was
+counting a different population from the one the click would touch. Both now apply the same
+filter, from `src/lib/sourcing/publishable.ts`.
+
+### No provider status codes anywhere
+
+The screen used to read "12 prospects failed email verification, 12 on HTTP 429". Both
+halves were wrong. A 429 is the provider asking us to slow down: the sweep waits, retries,
+and the address verifies normally, so calling it a failure described a dead prospect where
+there was a queued one. And a status code is a thing to look up rather than a thing to read.
+
+The status is now classified server-side into a kind, and **never enters the payload the
+browser polls**, so no future screen can render a code by reaching for a field that was
+there.
+
+---
+
+## The client review screen
+
+*Updated 2026-09-17.*
+
+### The auto-approval date was anchored to the wrong event
+
+The banner read **"Auto-approved on 15 Aug 2026 if no action taken"** during a walkthrough on
+17 September. The date was five weeks in the past.
+
+Read from production that day: tier 1's earliest `tier_published_at` is
+`2026-08-11 21:59:36+00`, and the data layer anchors on `tier_published_at ASC LIMIT 1` —
+the first time *anything* in that tier was ever published. Four days later is 15 August.
+Every batch published since inherits that same deadline, and it can never move again,
+because a tier's earliest publish date only gets older.
+
+**The promise could not have been kept anyway.** The write that performs automatic approval
+is skipped when the tier is locked, and a tier is locked as soon as any prospect in it has
+been uploaded to the sending tool. All three tiers are locked (121, 36 and 3 rows), and have
+been since sending started.
+
+`src/lib/dashboard/auto-approval-notice.ts` now decides what to say, and its contract is
+narrow: **a date is shown only when it is in the future and automatic approval can actually
+happen.** Every other case states the true position with no date in it.
+
+**The write itself is untouched.** Whether and when prospects are auto-approved is exactly
+what it was. The anchoring fault inside that write is a separate change, on the Notion
+Backlog.
+
+### Prospects who cannot be emailed are explained, not hidden
+
+A prospect on the list who cannot currently be emailed had no Remove control and no
+explanation, which reads as a broken button rather than as a state.
+
+They are **not** excluded from the client's view, and that is a decision already on the
+record rather than one taken here: the roster is a permanent record of who is being
+contacted (Decisions Log 2026-09-07), and filtering on current sendability would erase the
+evidence that we mailed someone before a rule changed. Two such prospects exist on the live
+organisation.
+
+The row now says "Not being contacted". It names no verification verdict, no country, no
+operator action and no vendor: those are operator-facing facts and none of them is the
+client's to act on.
+
+### Smaller things on the same screen
+
+- **Job titles are aligned.** They were ragged because the actions column changed width with
+  how many icons a prospect had, and the two flexible columns absorbed the difference. The
+  titles themselves are untouched: they are the prospect's own data.
+- **Approve appears at the top as well as the foot of the list**, from one function, so the
+  two cannot disagree about the count or the confirm step.
+- **The tab counts say what they count** and how they relate to the headline number.

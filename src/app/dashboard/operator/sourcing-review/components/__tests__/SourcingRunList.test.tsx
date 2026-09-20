@@ -47,7 +47,8 @@ function funnel(over: Partial<BatchFunnel>): BatchFunnel {
     eligible: 82,
     researched: 79,
     personalised: 74,
-    verification_failures: { count: 0, byStatus: {}, givenUp: 0 },
+    unpublished: 0,
+    verification_failures: { count: 0, byKind: {}, givenUp: 0 },
     ...over,
   }
 }
@@ -61,12 +62,29 @@ function metrics(over: Partial<PipelineMetrics>): PipelineMetrics {
     tiers: { tier_1: tier(70), tier_2: tier(10), tier_3: tier(5) },
     enriched_untiered_count: 0,
     removed_count: 15,
+    unpublished_count: 0,
     removed_by_reason: {},
-    verification_failures: { count: 0, byStatus: {}, givenUp: 0 },
+    verification_failures: { count: 0, byKind: {}, givenUp: 0 },
     breakdowns_truncated: false,
     research: { canRun: false, reason: 'nothing to research', eligibleCount: 0 } as never,
     batches: [funnel({})],
     unattributed: null,
+    // This suite renders SourcingRunList only, which reads neither field. Both are supplied
+    // because the type requires them; a cast would switch off the check that told us they
+    // were missing.
+    progress: {
+      verification: { waiting: 0, inFlight: 0, lastCompletedAt: null, sweepLastRanAt: null },
+      enrichment: { done: 0, waiting: 0, inFlight: 0 },
+      research: {
+        stage: 'idle',
+        fetchingSources: 0,
+        awaitingModel: 0,
+        collecting: 0,
+        waveDone: null,
+        waveTotal: null,
+        oldestBatchSubmittedAt: null,
+      },
+    },
     ...over,
   }
 }

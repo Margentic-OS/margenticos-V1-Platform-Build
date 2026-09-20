@@ -56,6 +56,12 @@ function renderTier1(prospects: Prospect[]) {
       tiering={{ tier_1: prospects, tier_2: [], tier_3: [] }}
       removedByReason={{}}
       removedCount={0}
+      unpublishedCount={prospects.length}
+      // This suite is about the sendability column. An empty report renders no panel, so
+      // the warning block cannot interfere with its assertions; variantsChecked is 0
+      // because no document was read, which is exactly what the type distinguishes from
+      // "checked and clean".
+      openingReport={{ variantsChecked: 0, findings: [] }}
     />,
   )
 }

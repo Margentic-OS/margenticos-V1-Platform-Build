@@ -36,21 +36,36 @@ import type { EnrichmentMode } from '@/lib/sourcing/enrichment-mode'
 export function EnrichmentSpendNotice({
   mode,
   action,
+  prospectCount,
 }: {
   mode: EnrichmentMode
   /** What the operator is about to do, e.g. "Enrichment" or "Enrich and tier". */
   action: string
+  /**
+   * How many people this run would spend on.
+   *
+   * REQUIRED, NOT OPTIONAL, and that is the whole point of the field. The notice said
+   * credits would be spent and never said on how many, which is the one number that makes a
+   * spend warning actionable: an operator cannot weigh a cost they cannot size. Optional
+   * would compile at both existing call sites and change nothing, which is exactly the
+   * failure it is meant to prevent; required makes a caller that does not know its own
+   * number a compile error. Same reasoning as `suppressed` in SendabilityFacts.
+   */
+  prospectCount: number
 }) {
+  // Worded once, used in all three branches, so the singular case cannot be right in one
+  // arm and wrong in another.
+  const people = `${prospectCount} ${prospectCount === 1 ? 'prospect' : 'prospects'}`
+
   if (mode === 'live') {
     return (
       <div className="bg-[#FDEEE8] rounded-[10px] border border-[#EFBCAA] p-4">
         <p className="text-sm font-medium text-[#8B2020] mb-1">
-          {action} will spend real enrichment credits
+          {action} will spend real enrichment credits on {people}
         </p>
         <p className="text-xs text-[#8B2020]">
-          Live enrichment is ON. Every prospect approved here consumes roughly one Apollo
-          credit. This is not reversible and the credits are not refunded if the prospect is
-          later rejected.
+          Live enrichment is ON. Each of the {people} consumes roughly one credit. This is
+          not reversible and the credits are not refunded if the prospect is later rejected.
         </p>
       </div>
     )
@@ -60,7 +75,7 @@ export function EnrichmentSpendNotice({
     return (
       <div className="bg-[#FEF7E6] rounded-[10px] border border-[#F0D080] p-4">
         <p className="text-sm font-medium text-[#7A4800] mb-1">
-          {action} normally spends enrichment credits
+          {action} normally spends enrichment credits, here on {people}
         </p>
         <p className="text-xs text-[#7A4800]">
           Live enrichment is currently OFF, so this run will use mock data and consume no
@@ -76,11 +91,11 @@ export function EnrichmentSpendNotice({
   return (
     <div className="bg-[#FEF7E6] rounded-[10px] border border-[#F0D080] p-4">
       <p className="text-sm font-medium text-[#7A4800] mb-1">
-        Cannot tell whether {action.toLowerCase()} will spend credits
+        Cannot tell whether {action.toLowerCase()} will spend credits on {people}
       </p>
       <p className="text-xs text-[#7A4800]">
-        The enrichment_live flag could not be read. Enrichment may be live and consuming
-        Apollo credits. Do not start a run until this is resolved.
+        The enrichment_live flag could not be read, so nobody can say whether this run
+        spends. Do not start it until this is resolved.
       </p>
     </div>
   )
