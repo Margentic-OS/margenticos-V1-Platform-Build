@@ -18,7 +18,11 @@ import {
   writeBuyerProfile,
   BUYER_PROFILE_TABLE,
 } from '@/lib/intake/buyer-profile-store'
-import { EMPTY_BUYER_PROFILE, type BuyerProfile } from '@/lib/intake/buyer-profile'
+import {
+  COUNTRY_OPTIONS,
+  EMPTY_BUYER_PROFILE,
+  type BuyerProfile,
+} from '@/lib/intake/buyer-profile'
 import { PROVIDER_SENIORITY_BANDS } from '@/lib/sourcing/handlers/provider-seniority'
 
 const CONTEXT = 'buyer-profile-storage.live.test.ts'
@@ -47,7 +51,11 @@ afterAll(async () => {
 /** A fully populated profile. No value here names a real country, title, sector or company. */
 function fullProfile(): BuyerProfile {
   return {
-    target_countries: ['first place', 'second place', 'third place'],
+    // REAL COUNTRIES, read from the platform's own list rather than named here. Placeholder
+    // text used to work and does not any more: countries became a closed list on 2026-09-20
+    // and buyerProfileToRow drops an entry that names no country, so 'first place' would be
+    // written as nothing and this test would assert on an empty array.
+    target_countries: COUNTRY_OPTIONS.slice(0, 3).map(option => option.name),
     buyer_headcount_min: 11,
     buyer_headcount_max: 250,
     buyer_job_titles: ['first title', 'second title'],
@@ -91,17 +99,28 @@ describe('the buyer-targeting answers store and read back typed', () => {
   it('a list survives a round trip as a list, not as a delimited string', async () => {
     // The failure this rules out: a text column that happens to render as "a,b,c" and reads
     // back needing a split. An entry containing the delimiter proves it is a real array.
+    //
+    // THE COMMA-BEARING ENTRY MOVED FROM target_countries TO disqualifiers on 2026-09-20,
+    // and the test is not weaker for it. Countries became a closed list, so an entry there
+    // can no longer contain a comma BY CONSTRUCTION, which means it can no longer carry this
+    // proof: it would pass by being rejected rather than by round-tripping. disqualifiers is
+    // still free text and a disqualifier containing a comma is ordinary, so the claim is now
+    // made on a column where the bad outcome is actually reachable.
     const withCommas: BuyerProfile = {
       ...EMPTY_BUYER_PROFILE,
-      target_countries: ['one, with a comma', 'two'],
-      disqualifiers: ['a rule, with a comma in it'],
+      target_countries: COUNTRY_OPTIONS.slice(0, 2).map(option => option.name),
+      disqualifiers: ['a rule, with a comma in it', 'a second rule'],
     }
     await writeBuyerProfile(serviceClient, organisationId!, withCommas)
     const read = await readBuyerProfile(serviceClient, organisationId!)
 
+    expect(read.disqualifiers).toHaveLength(2)
+    expect(read.disqualifiers[0]).toBe('a rule, with a comma in it')
+    // And the countries still round-trip as two separate entries.
     expect(read.target_countries).toHaveLength(2)
-    expect(read.target_countries[0]).toBe('one, with a comma')
-    expect(read.disqualifiers).toHaveLength(1)
+    expect(read.target_countries).toEqual(
+      COUNTRY_OPTIONS.slice(0, 2).map(option => option.name),
+    )
   })
 
   it('a second write updates the one row rather than adding another', async () => {

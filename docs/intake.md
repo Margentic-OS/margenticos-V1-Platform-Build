@@ -107,11 +107,65 @@ not during intake. They do not affect the completeness threshold.
 
 ---
 
-## The buyer-targeting section (added 2026-09-20)
+## The buyer-targeting section (added 2026-09-20, inputs repaired 2026-09-20)
 
-Five questions about WHO to contact: which countries, the buyer's headcount, the buyer's job
-titles and seniority, who we email first and whether they need sign-off, and who the client
+Four questions about WHO to contact: which countries, the buyer's headcount, the buyer's job
+titles and seniority, whether that buyer can approve the spend alone, and who the client
 would turn away anyway.
+
+### What the first real client did with it, and what changed
+
+**DATABASE-EVIDENCED**, read from production on 2026-09-20, organisation `0ed34697`, the only
+row in the table. Three of five answers came back unusable, and none of the three failed in a
+way anything reported:
+
+| field | stored | why it is unusable |
+| --- | --- | --- |
+| `target_countries` | one entry naming three countries | resolves to no country at all |
+| `buyer_job_titles` | one entry naming five titles, one misspelled | matches nobody |
+| `signoff_required` | `true`, both role fields empty | the follow-up was never filled in |
+
+**The countries and the titles are ONE defect in two places.** A single empty text box with
+"Add another" underneath looks exactly like a box that takes the whole answer, because that is
+what a single empty text box is everywhere else in this form. The list-ness sat below the
+control and read as an afterthought for people with more to say.
+
+The countries failure is the expensive one, because it is silent and delayed.
+`toIso2CountryCode` resolves one country name; `toCanonicalCode` in the geography agent
+REFUSES a name it cannot resolve and stops the derivation. So a combined string does not fail
+at the form, it fails days later attached to a sourcing run.
+
+**What changed:**
+
+1. **Countries are a closed searchable multi-select**, not free text. The options are DERIVED
+   from `COUNTRY_ALIASES`, one per ISO-2 code, by `selectableCountries()` in
+   `src/lib/sourcing/country-code.ts`. Never a second list beside the table: a country offered
+   and missing from the table is one the geography derivation refuses, and a country in the
+   table and missing here is unreachable. A test asserts every option round-trips.
+   The NAME is stored, not the code, because two live consumers read this value as words: it
+   is interpolated into the ICP prompt as the binding value of `company_profile.geography`,
+   which lands in a document a client reads, and a single stated country becomes the geography
+   term appended to a web search query.
+2. **`buyerProfileToRow` validates countries**, via `normaliseCountries`, so the write path
+   refuses a combined string even when the request did not come through the browser. It does
+   NOT split one: guessing a delimiter is the parser this table exists to avoid, and a value
+   that was three answers in one box is a question to re-ask.
+3. **"Who should we email first?" is deleted.** It collected the same answer as the job titles
+   question, and two questions competing for one answer get two answers that disagree. The
+   client who met it left it blank. **The column is untouched** and a stored value rides
+   through the form unchanged, so no save blanks an earlier answer.
+4. **The sign-off question now hangs off the buyer already described**, and ITS POLARITY IS
+   INVERTED while the storage is not: "Yes" means the buyer can approve alone, which is
+   `signoff_required = false`. The label/boolean pairing is data in `SIGNOFF_ANSWERS`, not two
+   hand-written booleans in two click handlers.
+5. **Every remaining list says it is a list** before anything is typed: a hint line above the
+   first row, numbered rows, and a button naming what it produces. The job titles CONTROL was
+   deliberately not rebuilt; it is being replaced with chips and model expansion.
+
+**The live row was repaired** on 2026-09-20 to three separate countries and five separate
+titles, with `Woner` corrected to `Owner`. One row, scoped by its exact prior values. Its
+`signoff_role` is still empty and `signoff_required` still `true`: the data was left alone and
+the rewritten control is what makes it answerable.
 
 **They are not in `SECTIONS`, and that is deliberate.** Two things follow automatically from
 being in `SECTIONS`, and neither is wanted yet:
@@ -148,7 +202,7 @@ overrides. Each entry names the schema field it binds:
 | `buyer_job_titles` | `buyer_profile.title`, tiers 1 and 2 |
 | `buyer_seniority_bands` | `buyer_profile.seniority`, tiers 1 and 2 |
 | `disqualifiers` | `tier_3.disqualifiers`, which may not drop one |
-| `first_contact_role` | who `buyer_profile` is about |
+| `first_contact_role` | who `buyer_profile` is about. NO LONGER COLLECTED; see above. The block omits it for an empty value, which is now every new client |
 | `signoff_required` / `signoff_role` | `four_forces.anxiety` and `buyer_profile.day_to_day` |
 
 Tier 3 takes only the disqualifiers. It is the do-not-target tier, so binding a targeting
@@ -176,11 +230,11 @@ organisation, created by `supabase/migrations/20260920140000_intake_buyer_profil
 | column | type | notes |
 | --- | --- | --- |
 | `organisation_id` | uuid PK | cascades on organisation delete |
-| `target_countries` | text[] | |
+| `target_countries` | text[] | one country per entry, the canonical name from `COUNTRY_OPTIONS`; validated on write |
 | `buyer_headcount_min` / `_max` | integer | both set or both null (CHECK); min >= 1; max >= min |
 | `buyer_job_titles` | text[] | |
 | `buyer_seniority_bands` | text[] | provider tokens, validated in the application |
-| `first_contact_role` | text | |
+| `first_contact_role` | text | NO LONGER WRITTEN by the form. Column kept; see the decision note below |
 | `signoff_required` | boolean | NULL means not answered, which is not "no" |
 | `signoff_role` | text | cleared when sign-off is not required |
 | `disqualifiers` | text[] | |
@@ -199,6 +253,9 @@ token appears as a string literal anywhere in the intake code.
 - Answers not saving: the save path is `saveBuyerProfile` in
   `src/app/intake/buyer-profile-actions.ts`. It resolves the organisation from the signed-in
   user and never accepts one from the caller.
+- A country the client wants and cannot find: the list is every ISO-2 code in
+  `COUNTRY_ALIASES`. Adding the country there adds it to the control, with no edit anywhere
+  else, and a test proves the new entry resolves.
 - A headcount rejected: `parseHeadcount` in `src/lib/intake/buyer-profile.ts` refuses half a
   range, an inverted range, anything below 1, and anything that is not a plain whole number.
   The database repeats all of that as CHECK constraints.

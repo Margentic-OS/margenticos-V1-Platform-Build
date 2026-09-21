@@ -188,3 +188,89 @@ export function aliasesForIso2(code: string): Set<string> {
   }
   return out
 }
+
+// ─── The selectable list ─────────────────────────────────────────────────────
+
+export interface CountryOption {
+  /** ISO 3166-1 alpha-2. The identity an option is deduplicated by, never the stored value. */
+  code: string
+  /** What a client sees AND what gets stored. Resolves to `code` by construction. */
+  name: string
+}
+
+/**
+ * True for an alias that is an abbreviation rather than a country's name.
+ *
+ * One word, three letters or fewer. That covers the alpha-3 and the informal short forms in
+ * the table above and excludes every name in it, the shortest of which is longer than three
+ * letters. A bare two-letter code never reaches here anyway: toIso2CountryCode treats it as
+ * canonical before consulting the table at all.
+ */
+function isAbbreviation(alias: string): boolean {
+  return !alias.includes(' ') && alias.length <= 3
+}
+
+/** 'CZECH REPUBLIC' to 'Czech Republic'. The table is keyed in upper case for lookup only. */
+function titleCase(alias: string): string {
+  return alias
+    .split(' ')
+    .map(word => word.charAt(0) + word.slice(1).toLowerCase())
+    .join(' ')
+}
+
+/**
+ * One selectable option per ISO-2 code this platform recognises, sorted by name.
+ *
+ * ─── WHY THIS IS DERIVED AND NOT A SECOND LIST ───────────────────────────────
+ *
+ * A hand-written list of selectable countries beside COUNTRY_ALIASES would be two lists that
+ * must agree, walked separately, which is the parallel-array defect this project has already
+ * paid for three times. Worse, the two failure directions are both silent: a country offered
+ * here and absent from the table is one a client can choose and `toCanonicalCode` in the
+ * geography agent then REFUSES, stopping a filter-spec derivation days later; a country in the
+ * table and missing here is simply unreachable. Deriving means neither can be expressed.
+ *
+ * ─── WHICH ALIAS BECOMES THE NAME ────────────────────────────────────────────
+ *
+ * The FIRST non-abbreviation alias listed for each code. The table is written primary name
+ * first within each country's group, so this reads the intent already in it rather than adding
+ * a ranking of its own. That is a real dependency on key order and it is stated here because
+ * it is otherwise invisible: inserting an alias ABOVE a country's primary name changes what
+ * this offers. It cannot make the option wrong, only differently worded, because every value
+ * still round-trips through toIso2CountryCode and a test proves it for all of them.
+ *
+ * ONE OPTION PER CODE, which is the half that matters most. Several aliases here are not
+ * countries in their own right and must never be separately selectable; collapsing on the code
+ * makes offering one a thing the derivation cannot do.
+ */
+/**
+ * The option a string names, or null when it names no country this platform recognises.
+ *
+ * WHY THIS AND NOT toIso2CountryCode. That function is built for the enrichment path, where an
+ * unrecognised country must never be discarded: it returns the input verbatim and LOGS, and
+ * its log line names prospects.country as the consequence. A caller validating a client's
+ * answer on a form wants the opposite of both halves. It wants a plain "no", and an answer
+ * that is not a country is not a data-quality incident on a table this code has never touched.
+ *
+ * The resolution rules are otherwise identical, and they are identical because they are the
+ * same table read the same way: a bare two-letter code, then the alias lookup.
+ */
+export function findCountryOption(raw: string): CountryOption | null {
+  const key = normaliseKey(raw)
+  if (!key) return null
+  const code = /^[A-Z]{2}$/.test(key) ? key : COUNTRY_ALIASES[key]
+  if (!code) return null
+  return selectableCountries().find(option => option.code === code) ?? null
+}
+
+export function selectableCountries(): readonly CountryOption[] {
+  const nameByCode = new Map<string, string>()
+  for (const [alias, code] of Object.entries(COUNTRY_ALIASES)) {
+    if (nameByCode.has(code)) continue
+    if (isAbbreviation(alias)) continue
+    nameByCode.set(code, titleCase(alias))
+  }
+  return [...nameByCode]
+    .map(([code, name]) => ({ code, name }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
