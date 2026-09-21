@@ -17,6 +17,7 @@ import {
   ECHO_NEEDLE_WORDS,
   FOLLOWUP_MAX_SENTENCE_WORDS,
   companyShortForm,
+  companyNameForms,
 } from '../followup-gates'
 
 /** A reference block, already stripped of its opening paragraph. */
@@ -293,5 +294,47 @@ describe('the firmographic gate applies here too', () => {
       ...base,
       prose: 'You took the second unit on 13 months ago. The bench is bigger. Worth a look?',
     })).toEqual([])
+  })
+})
+
+describe('the acronym short form: the SECOND measured false positive', () => {
+  // Found on the rerun, after the leading-token rule had fixed six of eight. These two
+  // companies keep their real short form as an acronym at the END of the registered name,
+  // so the leading token ("Virtual", "Global") could never reach it.
+  it.each([
+    ['Virtual Miss Friday (VMF Ltd)', "VMF's"],
+    ['Global Business Consulting Services (GBCS)', "GBCS's"],
+  ])('stored %j is addressed by %j', (stored, written) => {
+    const f = checkFollowupGates({
+      ...base,
+      companyName: stored,
+      prose: `${written} retention is strong, and that is what makes a pause expensive. It costs more now. Worth a look?`,
+    })
+    expect(f.filter(x => x.includes('opens without addressing the reader'))).toEqual([])
+  })
+
+  it('collects the acronym and the leading token, and nothing else', () => {
+    expect(companyNameForms('Virtual Miss Friday (VMF Ltd)')).toEqual(['VMF', 'Virtual'])
+    // Every word after the acronym is generic, so the acronym is the ONLY form offered.
+    // That is the safe answer: "Business" as a short form would let "Business is slow"
+    // count as naming the company.
+    expect(companyNameForms('Global Business Consulting Services (GBCS)')).toEqual(['GBCS'])
+    expect(companyNameForms('Abacus Business Consulting, Inc.')).toEqual(['Abacus'])
+    // A name made entirely of generic words offers nothing, and the gate then requires
+    // second person, which is the stricter branch and the safe direction to fail in.
+    expect(companyNameForms('Business Management Services Ltd')).toEqual([])
+    expect(companyNameForms(null)).toEqual([])
+  })
+
+  it('THE OTHER DIRECTION HOLDS: an ordinary non-leading word still does not count', () => {
+    // An acronym is distinctive by construction and safe to accept from anywhere. An
+    // ordinary word is not, or the gate starts passing copy it should reject.
+    expect(companyNameForms('Matrix Restaurant Consulting')).toEqual(['Matrix'])
+    const f = checkFollowupGates({
+      ...base,
+      companyName: 'Matrix Restaurant Consulting',
+      prose: 'The restaurant sector has been slow. Things are hard. Worth a look?',
+    })
+    expect(f.some(x => x.includes('opens without addressing the reader'))).toBe(true)
   })
 })

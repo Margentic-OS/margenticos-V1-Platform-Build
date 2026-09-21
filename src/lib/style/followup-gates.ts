@@ -129,6 +129,12 @@ const COMPANY_SUFFIXES = new Set([
   'company', 'group', 'holdings', 'partners', 'partnership', 'associates', 'consulting',
   'consultancy', 'consultants', 'advisors', 'advisers', 'advisory', 'services', 'solutions',
   'international', 'global', 'gmbh', 'bv', 'sa', 'srl', 'pty', 'pte', 'ag', 'nv', 'oy', 'ab',
+  // 'business' and 'enterprises' are here for the OTHER direction. Without them, a name
+  // like "Global Business Consulting Services" falls through its leading descriptive words
+  // and offers "Business" as a short form, and the gate would then count a sentence saying
+  // "Business is slow" as naming the company. A generic word must never become the token
+  // that proves a callback.
+  'business', 'businesses', 'enterprise', 'enterprises', 'management', 'strategy',
 ])
 
 /**
@@ -160,18 +166,55 @@ const COMPANY_SUFFIXES = new Set([
  * Returns null when nothing usable survives, and the caller then requires second person,
  * which is the stricter branch and the safe direction to fail in.
  */
-export function companyShortForm(companyName: string | null | undefined): string | null {
-  if (!companyName) return null
-  const tokens = companyName
-    .split(/[\s,./&-]+/)
-    .map(t => t.replace(/[^\p{L}\p{N}]/gu, ''))
-    .filter(Boolean)
-  for (const token of tokens) {
+export function companyNameForms(companyName: string | null | undefined): string[] {
+  if (!companyName) return []
+  const forms: string[] = []
+
+  // A PARENTHESISED OR ALL-CAPS ACRONYM, WHEREVER IT SITS. Found on the 2026-09-21 rerun,
+  // after the leading-token rule below had already fixed six of eight false positives. The
+  // remaining two were companies whose real short form is an acronym at the END:
+  //
+  //     written     stored
+  //     "VMF's"     "Virtual Miss Friday (VMF Ltd)"
+  //     "GBCS's"    "Global Business Consulting Services (GBCS)"
+  //
+  // The leading token is "Virtual" and "Global", so the rule below could never reach them.
+  // An acronym is safe to accept from anywhere in the name in a way an ordinary word is
+  // not: it is distinctive by construction, so it cannot collide with a common noun the
+  // way accepting "Restaurant" from "Matrix Restaurant Consulting" would.
+  for (const token of companyName.match(/\b\p{Lu}{2,}\b/gu) ?? []) {
+    if (!COMPANY_SUFFIXES.has(token.toLowerCase())) forms.push(token)
+  }
+
+  // THE FIRST SIGNIFICANT TOKEN, suffixes dropped. This is the distinguishing part of an
+  // ordinary company name, and it fixed six measured false positives where the gate had
+  // matched the registered name in full while the copy used the short form:
+  //
+  //     "Abacus" / "Abacus Business Consulting, Inc."      "Cavalry" / "Cavalry Consulting LLC"
+  //     "Interra's" / "Interra Consulting"                 "BCR" / "BCR Business Consulting Resources, Inc."
+  //     "Matrix" / "Matrix Restaurant Consulting"          "CANDOR" / "CANDOR Management Consulting"
+  //
+  // Half the gate's output was wrong, and wrong in the expensive direction: it threw away
+  // correct copy and spent a retry doing it.
+  //
+  // DELIBERATELY NOT "ANY TOKEN". A company called "Matrix Restaurant Consulting" must not
+  // be credited with a callback because the email happened to say "restaurant". Anything
+  // looser starts accepting ordinary nouns as company references, which turns a gate that
+  // was too strict into one that passes copy it should reject.
+  for (const raw of companyName.split(/[\s,./&-]+/)) {
+    const token = raw.replace(/[^\p{L}\p{N}]/gu, '')
     if (token.length < 2) continue
     if (COMPANY_SUFFIXES.has(token.toLowerCase())) continue
-    return token
+    forms.push(token)
+    break
   }
-  return null
+
+  return [...new Set(forms)]
+}
+
+/** The single short form, kept for callers that want one. Null when none survives. */
+export function companyShortForm(companyName: string | null | undefined): string | null {
+  return companyNameForms(companyName)[0] ?? null
 }
 
 /**
@@ -267,10 +310,9 @@ export function checkFollowupGates(input: FollowupGateInput): string[] {
 
   // The SHORT form, not the registered name. See companyShortForm: matching the full name
   // rejected six correct emails on the 2026-09-21 run.
-  const shortForm = companyShortForm(companyName)
-  const namesCompany = shortForm !== null
-    ? new RegExp(`\\b${shortForm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(first)
-    : false
+  // ANY acceptable short form, not just the leading token. See companyNameForms.
+  const namesCompany = companyNameForms(companyName).some(form =>
+    new RegExp(`\\b${form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(first))
   if (!SECOND_PERSON.test(first) && !namesCompany) {
     failures.push(
       `${label} opens without addressing the reader: ${quote(first)}. ` +
