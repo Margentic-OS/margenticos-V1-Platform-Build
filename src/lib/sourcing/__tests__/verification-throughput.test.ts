@@ -275,6 +275,58 @@ describe('the run uses its window instead of a fixed batch', () => {
     expect(run.status).not.toBe('failed')
   })
 
+  // ── THE IN-LOOP DEADLINE CHECK, WHICH THE SIZING CANNOT STAND IN FOR ────────
+  //
+  // FOUND BY MUTATION TESTING. Deleting the loop's `nextSlotAt() >= deadlineAt` guard left
+  // every test in this file green, because every other test here has probes that return
+  // instantly: the batch sizing predicts the window exactly, the run finishes on its own,
+  // and the guard is never reached.
+  //
+  // It exists for the case the sizing CANNOT predict. Sizing divides the window by the
+  // paced interval, which assumes each probe fits inside its own slot. A provider slower
+  // than the interval breaks that assumption: slots slip later than the arithmetic at
+  // selection time assumed, and without this guard the run walks the whole selected batch
+  // regardless, straight past its deadline and into the request cap above it.
+  //
+  // Modelled with a probe that takes more than twice its slot.
+  it('stops mid-batch when probes run slower than their slots, rather than overrunning', async () => {
+    const interval = pacedIntervalMs(30)
+    const probeCost = interval * 2 + 500 // comfortably slower than one slot
+    const windowMs = interval * 10       // sizing will therefore select 10
+
+    const probed: string[] = []
+    const { clock, now, advance } = fakeClock()
+    stubHandler(probed, probeCost, { advance })
+
+    const { client, released } = fakeSupabase(manyRows(200), { ratePerMinute: 30, clock })
+    const startedAt = now()
+
+    const run = await verifyEnrichedBatch(client, ORG, 10_000, {
+      deadlineAt: startedAt + windowMs,
+      clock,
+    })
+
+    // The sizing selected what the window would hold at full pace.
+    const sized = probesWithinBudget(windowMs, interval)
+    expect(sized).toBe(10)
+
+    // The run stopped SHORT of that, because the probes did not keep up.
+    expect(probed.length).toBeGreaterThan(0)
+    expect(probed.length).toBeLessThan(sized)
+
+    // THE ASSERTION THAT KILLS THE MUTATION. Without the guard the loop walks all ten,
+    // finishing around 10 * probeCost, which is several times the window. With it, the run
+    // ends within one probe of its deadline.
+    const elapsed = now() - startedAt
+    expect(elapsed).toBeLessThanOrEqual(windowMs + probeCost)
+    expect(elapsed).toBeLessThan(sized * probeCost)
+
+    // And what it did not reach was released rather than left locked.
+    expect(run.status).toBe('partial')
+    expect(released.flat().length).toBeGreaterThan(0)
+    expect(new Set(probed).size).toBe(probed.length)
+  })
+
   // A window that has already closed must not turn into `.limit(0)`, which PostgREST answers
   // with every row rather than with none.
   it('probes nothing, and selects nothing, when the window has already closed', async () => {
